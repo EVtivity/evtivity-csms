@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import type { Job } from 'bullmq';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
@@ -71,6 +71,14 @@ async function flushMicrotasks(): Promise<void> {
   }
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let guestSessionWorkerModule: typeof import('../guest-session-worker.js');
+let bullmqModule: typeof import('bullmq');
+beforeAll(async () => {
+  guestSessionWorkerModule = await import('../guest-session-worker.js');
+  bullmqModule = await import('bullmq');
+}, 30_000);
+
 beforeEach(() => {
   capturedProcessor = undefined;
   onHandlers.clear();
@@ -84,7 +92,7 @@ beforeEach(() => {
 
 describe('startGuestSessionBridge', () => {
   it('enqueues a job with sessionId as jobId on TransactionEnded', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     const unsubscribe = vi.fn().mockResolvedValue(undefined);
     const pubsub = {
@@ -105,7 +113,7 @@ describe('startGuestSessionBridge', () => {
   });
 
   it('enqueues a job on TransactionStarted with idToken', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     const pubsub = {
       subscribe: (_channel: string, handler: (msg: string) => void) => {
@@ -129,7 +137,7 @@ describe('startGuestSessionBridge', () => {
   });
 
   it('ignores unrelated events', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     const pubsub = {
       subscribe: (_channel: string, handler: (msg: string) => void) => {
@@ -143,7 +151,7 @@ describe('startGuestSessionBridge', () => {
   });
 
   it('ignores TransactionStarted without an idToken', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     const pubsub = {
       subscribe: (_channel: string, handler: (msg: string) => void) => {
@@ -157,7 +165,7 @@ describe('startGuestSessionBridge', () => {
   });
 
   it('ignores TransactionEnded without a sessionId', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     const pubsub = {
       subscribe: (_channel: string, handler: (msg: string) => void) => {
@@ -171,7 +179,7 @@ describe('startGuestSessionBridge', () => {
   });
 
   it('silently drops a malformed JSON payload', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     const pubsub = {
       subscribe: (_channel: string, handler: (msg: string) => void) => {
@@ -186,7 +194,7 @@ describe('startGuestSessionBridge', () => {
   });
 
   it('logs an error when the ended enqueue fails (fail-open)', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const add = vi.fn().mockRejectedValue(new Error('redis down'));
     const pubsub = {
       subscribe: (_channel: string, handler: (msg: string) => void) => {
@@ -205,7 +213,7 @@ describe('startGuestSessionBridge', () => {
   });
 
   it('logs an error when the started enqueue fails (fail-open)', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const add = vi.fn().mockRejectedValue(new Error('redis down'));
     const pubsub = {
       subscribe: (_channel: string, handler: (msg: string) => void) => {
@@ -226,7 +234,7 @@ describe('startGuestSessionBridge', () => {
   });
 
   it('returns a stop function that unsubscribes', async () => {
-    const { startGuestSessionBridge } = await import('../guest-session-worker.js');
+    const { startGuestSessionBridge } = guestSessionWorkerModule;
     const unsubscribe = vi.fn().mockResolvedValue(undefined);
     const pubsub = {
       subscribe: () => Promise.resolve({ unsubscribe }),
@@ -242,8 +250,8 @@ describe('startGuestSessionBridge', () => {
 
 describe('createGuestSessionWorker', () => {
   it('wires the Worker to the guest-session-events queue with concurrency 10', async () => {
-    const { Worker } = await import('bullmq');
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { Worker } = bullmqModule;
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     expect(Worker).toHaveBeenCalledWith(
@@ -254,7 +262,7 @@ describe('createGuestSessionWorker', () => {
   });
 
   it('passes the provided connection through to the Worker', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     const connection = { host: 'redis-guest' } as never;
     createGuestSessionWorker(connection);
 
@@ -262,7 +270,7 @@ describe('createGuestSessionWorker', () => {
   });
 
   it('processes a guest-session-started job by forwarding the event', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     const event = { type: 'TransactionStarted', idToken: { idToken: 'T', type: 'Local' } };
@@ -277,7 +285,7 @@ describe('createGuestSessionWorker', () => {
   });
 
   it('processes a guest-session-ended job by synthesizing a TransactionEnded event', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     await capturedProcessor?.(makeJob('guest-session-ended', { sessionId: 'ses_42' }));
@@ -290,7 +298,7 @@ describe('createGuestSessionWorker', () => {
   });
 
   it('completes without invoking the handler for an unknown job name', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     await capturedProcessor?.(makeJob('something-else', {}));
@@ -301,7 +309,7 @@ describe('createGuestSessionWorker', () => {
 
   it('logs failure and rethrows when the handler throws', async () => {
     mockHandleGuestSessionEvent.mockRejectedValueOnce(new Error('finalize failed'));
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     await expect(
@@ -316,7 +324,7 @@ describe('createGuestSessionWorker', () => {
 
   it('uses "Unknown error" when the handler throws a non-Error', async () => {
     mockHandleGuestSessionEvent.mockRejectedValueOnce('weird');
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     await expect(
@@ -329,7 +337,7 @@ describe('createGuestSessionWorker', () => {
   it('swallows a logJobFailed write error but still rethrows the handler error', async () => {
     mockHandleGuestSessionEvent.mockRejectedValueOnce(new Error('original'));
     mockLogJobFailed.mockRejectedValueOnce(new Error('log write failed'));
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     await expect(
@@ -340,7 +348,7 @@ describe('createGuestSessionWorker', () => {
 
 describe('guest-session-worker failed listener (exhausted-retry cleanup)', () => {
   it('fails the guest capture with the error message after the final retry', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     const failedHandler = onHandlers.get('failed');
@@ -365,7 +373,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
   });
 
   it('cuts the failure reason to 500 characters', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     onHandlers.get('failed')?.(
@@ -378,7 +386,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
   });
 
   it('uses "Unknown error" as the failure reason when the rejection is not an Error', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     onHandlers.get('failed')?.(
@@ -395,7 +403,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
   });
 
   it('does not run cleanup before the final retry is exhausted', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     onHandlers.get('failed')?.(
@@ -408,7 +416,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
   });
 
   it('does not run cleanup for a started job', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     onHandlers.get('failed')?.(
@@ -421,7 +429,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
   });
 
   it('skips cleanup when the ended job carries no sessionId', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     onHandlers.get('failed')?.(
@@ -435,7 +443,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
 
   it('logs a cleanup error when the exhausted-capture cleanup rejects', async () => {
     mockFailExhaustedGuestCapture.mockRejectedValueOnce(new Error('db down'));
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     onHandlers.get('failed')?.(
@@ -451,7 +459,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
   });
 
   it('defaults maxAttempts to 1 when opts.attempts is absent', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     // attemptsMade 1 >= default maxAttempts 1 -> cleanup runs.
@@ -465,7 +473,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
   });
 
   it('ignores a null job', async () => {
-    const { createGuestSessionWorker } = await import('../guest-session-worker.js');
+    const { createGuestSessionWorker } = guestSessionWorkerModule;
     createGuestSessionWorker({});
 
     onHandlers.get('failed')?.(null, new Error('boom'));

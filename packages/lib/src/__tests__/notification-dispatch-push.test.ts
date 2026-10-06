@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 
 vi.mock('nodemailer', () => ({
   default: { createTransport: vi.fn(() => ({ sendMail: vi.fn().mockResolvedValue({}) })) },
@@ -57,6 +57,12 @@ function callsMatching(fragment: string): SqlCall[] {
   return calls.filter((c) => c.text.includes(fragment));
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let notificationDispatchModule: typeof import('../notification-dispatch.js');
+beforeAll(async () => {
+  notificationDispatchModule = await import('../notification-dispatch.js');
+}, 30_000);
+
 describe('dispatchDriverNotification native push', () => {
   let sql: ReturnType<typeof createSqlMock>;
 
@@ -80,7 +86,7 @@ describe('dispatchDriverNotification native push', () => {
       json: async () => ({ data: [{ status: 'ok', id: 'r1' }] }),
       text: async () => '',
     });
-    const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+    const { dispatchDriverNotification } = notificationDispatchModule;
 
     await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {});
 
@@ -102,7 +108,7 @@ describe('dispatchDriverNotification native push', () => {
       }),
       text: async () => '',
     });
-    const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+    const { dispatchDriverNotification } = notificationDispatchModule;
 
     await dispatchDriverNotification(sql as never, 'session.Started', 'driver-2', {});
 
@@ -114,7 +120,7 @@ describe('dispatchDriverNotification native push', () => {
 
   it('does not send native push when no tokens are registered', async () => {
     pushTokens = [];
-    const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+    const { dispatchDriverNotification } = notificationDispatchModule;
 
     await dispatchDriverNotification(sql as never, 'session.Started', 'driver-3', {});
 
@@ -139,7 +145,7 @@ describe('dispatchDriverNotification native push', () => {
     }) as unknown as { json: (v: unknown) => unknown };
     sqlOff.json = (v) => v;
 
-    const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+    const { dispatchDriverNotification } = notificationDispatchModule;
     await dispatchDriverNotification(sqlOff as never, 'session.Started', 'driver-4', {});
 
     expect(mockFetch).not.toHaveBeenCalled();

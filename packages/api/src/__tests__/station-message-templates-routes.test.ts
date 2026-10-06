@@ -115,6 +115,7 @@ import {
   STATION_MESSAGE_DEFAULTS,
   clearStationMessageCache as clearStationMessageCacheImport,
 } from '@evtivity/lib';
+import * as databaseModule from '@evtivity/database';
 
 const clearStationMessageCache = clearStationMessageCacheImport as unknown as ReturnType<
   typeof vi.fn
@@ -276,7 +277,7 @@ describe('Station message template routes', () => {
     });
 
     it('resets to seed default and clears the renderer cache', async () => {
-      const { db } = await import('@evtivity/database');
+      const { db } = databaseModule;
       const insertMock = db.insert as unknown as ReturnType<typeof vi.fn>;
       insertMock.mockClear();
       const reset = {

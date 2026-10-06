@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
+import * as mfaChallengePruneModule from '../../handlers/mfa-challenge-prune.js';
 
 // The handler invokes `client` as a tagged template: client`DELETE ...`.
 // The mock captures the rendered SQL string and returns a configurable result.
@@ -33,7 +34,7 @@ beforeEach(() => {
 describe('mfaChallengePruneHandler', () => {
   it('deletes expired or consumed challenges and logs the count', async () => {
     mockClient.result = { count: 7 };
-    const { mfaChallengePruneHandler } = await import('../../handlers/mfa-challenge-prune.js');
+    const { mfaChallengePruneHandler } = mfaChallengePruneModule;
     const log = makeLog();
     await mfaChallengePruneHandler(log);
 
@@ -46,7 +47,7 @@ describe('mfaChallengePruneHandler', () => {
 
   it('logs zero when there is nothing to prune', async () => {
     mockClient.result = { count: 0 };
-    const { mfaChallengePruneHandler } = await import('../../handlers/mfa-challenge-prune.js');
+    const { mfaChallengePruneHandler } = mfaChallengePruneModule;
     const log = makeLog();
     await mfaChallengePruneHandler(log);
 

@@ -432,7 +432,10 @@ export function PaymentSettings(): React.JSX.Element {
             </form>
           </CardContent>
         </Card>
-        <StripeWebhookCard canWrite={canWrite} />
+        <StripeWebhookCard
+          canWrite={canWrite}
+          secretKeyConfigured={stripeSettings?.secretKeyConfigured}
+        />
       </TabsContent>
       <TabsContent value="adyen" className="mt-4">
         <AdyenSettings />

@@ -3,6 +3,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
+import * as stationMessageChargingRefreshModule from '../../handlers/station-message-charging-refresh.js';
+import * as drizzleOrmModule from 'drizzle-orm';
 
 // -- DB mock helpers --
 
@@ -115,17 +117,15 @@ describe('stationMessageChargingRefreshHandler', () => {
   it('returns early when station messages are disabled', async () => {
     mockIsStationMessageEnabled.mockResolvedValueOnce(false);
 
-    const { stationMessageChargingRefreshHandler } =
-      await import('../../handlers/station-message-charging-refresh.js');
+    const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
     expect(mockPublish).not.toHaveBeenCalled();
   });
 
   it('selects only sessions on stations that are online', async () => {
-    const { eq } = await import('drizzle-orm');
-    const { stationMessageChargingRefreshHandler } =
-      await import('../../handlers/station-message-charging-refresh.js');
+    const { eq } = drizzleOrmModule;
+    const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
     expect(eq).toHaveBeenCalledWith('isOnline', true);
@@ -150,8 +150,7 @@ describe('stationMessageChargingRefreshHandler', () => {
       [],
     );
 
-    const { stationMessageChargingRefreshHandler } =
-      await import('../../handlers/station-message-charging-refresh.js');
+    const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(2);
@@ -196,8 +195,7 @@ describe('stationMessageChargingRefreshHandler', () => {
       ],
     );
 
-    const { stationMessageChargingRefreshHandler } =
-      await import('../../handlers/station-message-charging-refresh.js');
+    const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
@@ -231,8 +229,7 @@ describe('stationMessageChargingRefreshHandler', () => {
       return Promise.resolve(undefined);
     });
 
-    const { stationMessageChargingRefreshHandler } =
-      await import('../../handlers/station-message-charging-refresh.js');
+    const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(2);
@@ -262,8 +259,7 @@ describe('stationMessageChargingRefreshHandler', () => {
       [{ stationId: 'sta_only', pushedAt: recentPush }],
     );
 
-    const { stationMessageChargingRefreshHandler } =
-      await import('../../handlers/station-message-charging-refresh.js');
+    const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
     expect(mockPublish).not.toHaveBeenCalled();
@@ -273,8 +269,7 @@ describe('stationMessageChargingRefreshHandler', () => {
   it('does not publish when there are no active sessions', async () => {
     setupDbResults([]);
 
-    const { stationMessageChargingRefreshHandler } =
-      await import('../../handlers/station-message-charging-refresh.js');
+    const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
     expect(mockPublish).not.toHaveBeenCalled();

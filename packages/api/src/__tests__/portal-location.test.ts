@@ -53,7 +53,16 @@ function makeChain() {
   return chain;
 }
 
+const { mockEvseAvailableSql, mockEvseOpenToDriversSql, mockSqlRaw } = vi.hoisted(() => ({
+  mockEvseAvailableSql: vi.fn((e: string, s: string) => `EVSE_AVAILABLE(${e},${s})`),
+  mockEvseOpenToDriversSql: vi.fn((e: string, s: string) => `EVSE_OPEN(${e},${s})`),
+  mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
+}));
+
 vi.mock('@evtivity/database', () => ({
+  evseAvailableSql: mockEvseAvailableSql,
+  evseOpenToDriversSql: mockEvseOpenToDriversSql,
+  STARTABLE_CONNECTOR_STATUSES: ['available', 'occupied', 'preparing', 'ev_connected', 'finishing'],
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -78,7 +87,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  sql: Object.assign(vi.fn(), { raw: mockSqlRaw }),
   desc: vi.fn(),
   asc: vi.fn(),
   count: vi.fn(),
@@ -269,6 +278,50 @@ describe('Portal location routes', () => {
       expect(body.contactName).toBeNull();
       expect(body.contactEmail).toBeNull();
       expect(body.contactPhone).toBeNull();
+    });
+
+    // An operator-disabled station whose connectors still report Available was
+    // counted as available and listed as startable. Both must use the shared rule.
+    it('counts available EVSEs and flags each charger with the shared driver availability rule', async () => {
+      const site = {
+        id: 'site-003',
+        name: 'Disabled Site',
+        address: null,
+        city: null,
+        state: null,
+        postalCode: null,
+        latitude: null,
+        longitude: null,
+        hoursOfOperation: null,
+        contactName: null,
+        contactEmail: null,
+        contactPhone: null,
+        contactIsPublic: false,
+      };
+      const charger = {
+        stationId: 'CS-0250',
+        stationName: 'CS-0250',
+        evseId: 1,
+        connectorType: 'CCS2',
+        maxPowerKw: '50',
+        status: 'available',
+        available: false,
+      };
+      setupDbResults([site], [{ stationCount: 1, evseCount: 3, availableCount: 0 }], [charger]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/location/site-003',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.availableCount).toBe(0);
+      expect(body.chargers[0].available).toBe(false);
+      expect(mockEvseAvailableSql).toHaveBeenCalledWith('evses', 'charging_stations');
+      expect(mockSqlRaw).toHaveBeenCalledWith('EVSE_AVAILABLE(evses,charging_stations)');
+      expect(mockEvseOpenToDriversSql).toHaveBeenCalledWith('evses', 'charging_stations');
+      expect(mockSqlRaw).toHaveBeenCalledWith('EVSE_OPEN(evses,charging_stations)');
     });
 
     it('returns 404 for nonexistent site', async () => {

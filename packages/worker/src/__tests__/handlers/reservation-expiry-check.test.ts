@@ -1,12 +1,14 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 const mockClient = vi.fn();
+const mockAlertStationWatchers = vi.fn(async (..._args: unknown[]) => false);
 vi.mock('@evtivity/database', () => ({
   client: (...args: unknown[]) => mockClient(...args),
+  alertStationWatchersIfAvailable: (...args: unknown[]) => mockAlertStationWatchers(...args),
   pricingGroups: {},
   pricingGroupStations: {},
   pricingGroupSites: {},
@@ -44,6 +46,14 @@ vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/lib')>()),
   dispatchDriverNotification: (...args: unknown[]) => mockDispatchDriver(...args),
 }));
+
+// The module is imported after the mocks above are initialized. The first import loads the
+// whole module graph, which under coverage on a busy machine took longer than one test's
+// 5 s timeout, so it happens once here with its own timeout instead of inside the first test.
+let mod: typeof import('../../handlers/reservation-expiry-check.js');
+beforeAll(async () => {
+  mod = await import('../../handlers/reservation-expiry-check.js');
+}, 30_000);
 
 describe('reservationExpiryCheckHandler', () => {
   const log = {
@@ -91,8 +101,7 @@ describe('reservationExpiryCheckHandler', () => {
       taxRate: null,
     });
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     // 60 min * $0.05 = $3.00 = 300 cents.
@@ -141,8 +150,7 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([]);
     mockResolveTariff.mockResolvedValue({ reservationFeePerMinute: '0.10' });
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(mockChargeNoShow).not.toHaveBeenCalled();
@@ -166,8 +174,7 @@ describe('reservationExpiryCheckHandler', () => {
       ])
       .mockResolvedValueOnce([]);
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(mockChargeNoShow).not.toHaveBeenCalled();
@@ -193,8 +200,7 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([]);
     mockResolveTariff.mockResolvedValue({ reservationFeePerMinute: '0' });
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(mockChargeNoShow).not.toHaveBeenCalled();
@@ -230,14 +236,47 @@ describe('reservationExpiryCheckHandler', () => {
       ])
       .mockResolvedValueOnce([]);
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     const cancelCalls = mockPublish.mock.calls.filter((c) =>
       String(c[1]).includes('"action":"CancelReservation"'),
     );
     expect(cancelCalls).toHaveLength(2);
+  });
+
+  // An expired reservation frees its EVSE with no connector status change
+  // until the station reports one, so each expiry checks the station watches
+  // with the shared availability rule. A failed check does not stop the loop.
+  it('checks the station watches of every station with an expired reservation', async () => {
+    const row = (id: string, station: string): Record<string, unknown> => ({
+      id,
+      driver_id: null,
+      prior_status: 'scheduled',
+      reservation_ocpp_id: 1,
+      station_ocpp_id: `CS-${station}`,
+      station_uuid: `sta_${station}`,
+      site_id: null,
+      starts_at: null,
+      expires_at: new Date().toISOString(),
+      has_session: false,
+    });
+    mockClient.mockResolvedValueOnce([row('rsv_a', 'a'), row('rsv_b', 'b')]).mockResolvedValue([]);
+    mockAlertStationWatchers.mockRejectedValueOnce(new Error('db down'));
+
+    const { reservationExpiryCheckHandler } = mod;
+    await reservationExpiryCheckHandler(log);
+
+    expect(mockAlertStationWatchers).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ publish: mockPublish }),
+      'sta_a',
+    );
+    expect(mockAlertStationWatchers).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ publish: mockPublish }),
+      'sta_b',
+    );
   });
 
   it('skips CancelReservation and no-show fee for scheduled reservations', async () => {
@@ -259,8 +298,7 @@ describe('reservationExpiryCheckHandler', () => {
       ])
       .mockResolvedValueOnce([]);
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     const cancelCalls = mockPublish.mock.calls.filter((c) =>
@@ -291,8 +329,7 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([]);
     mockResolveTariff.mockResolvedValue({ reservationFeePerMinute: null });
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(mockResolveTariff).toHaveBeenCalledWith(
@@ -324,8 +361,7 @@ describe('reservationExpiryCheckHandler', () => {
       reservationFeePerMinute: '0.05',
     });
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     // 30 min from created_at to expires_at * $0.05 = $1.50 = 150 cents.
@@ -365,8 +401,7 @@ describe('reservationExpiryCheckHandler', () => {
       reservationFeePerMinute: '0.05',
     });
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(mockChargeNoShow).not.toHaveBeenCalled();
@@ -378,8 +413,7 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 'rsv_nodriver', driver_id: null, expires_at: expiresAt }]);
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(mockDispatchDriver).not.toHaveBeenCalled();
@@ -405,8 +439,7 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([]);
     mockPublish.mockRejectedValueOnce(new Error('redis down'));
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(log.warn).toHaveBeenCalledWith(
@@ -441,8 +474,7 @@ describe('reservationExpiryCheckHandler', () => {
     });
     mockChargeNoShow.mockRejectedValueOnce(new Error('stripe error'));
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(mockChargeNoShow).toHaveBeenCalledWith(
@@ -494,8 +526,7 @@ describe('reservationExpiryCheckHandler', () => {
       currency: 'EUR',
     });
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(log.info).toHaveBeenCalledWith(
@@ -519,8 +550,7 @@ describe('reservationExpiryCheckHandler', () => {
       reason: 'Your card was declined.',
     });
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(log.warn).toHaveBeenCalledWith(
@@ -535,8 +565,7 @@ describe('reservationExpiryCheckHandler', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: 'rsv_soon', driver_id: 'drv_x', expires_at: expiresAt }]);
 
-    const { reservationExpiryCheckHandler } =
-      await import('../../handlers/reservation-expiry-check.js');
+    const { reservationExpiryCheckHandler } = mod;
     await reservationExpiryCheckHandler(log);
 
     expect(mockDispatchDriver).toHaveBeenCalledWith(

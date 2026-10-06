@@ -7,8 +7,9 @@
 <p align="center">
   <a href="https://github.com/EVtivity/evtivity-csms/releases/latest"><img src="https://img.shields.io/github/v/release/EVtivity/evtivity-csms?label=Release&color=4ade80" alt="Release" /></a>
   <a href="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml"><img src="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FEVtivity%2Fevtivity-csms%2Fbadges%2Fcoverage.json" alt="Coverage" /></a>
   <a href="https://github.com/EVtivity/evtivity-csms/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
-  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6.svg" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/TypeScript-6.x-3178C6.svg" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js-%3E%3D24-339933.svg" alt="Node.js" />
   <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.1-4ade80.svg" alt="OCPP" />
   <img src="https://img.shields.io/badge/OCPI-2.2.1%20%7C%202.3.0-4ade80.svg" alt="OCPI" />
@@ -246,6 +247,24 @@ Helm Chart 与 AWS CDK 应用只跟随 stable 版本。每个 stable 版本会�
 | API 文档           | https://api.your-domain.com/docs   | 443      | 3001     |
 
 所有主机名共享同一个负载均衡 IP。请将各主机名的 DNS 记录指向该 IP。OCPP TLS（端口 8443）作为独立的 `LoadBalancer` 服务以供使用 Security Profile 3（mTLS）的桩直连。
+
+## Skills
+
+[EVtivity Agent Skills](https://github.com/EVtivity/evtivity-skills) 让你的 AI 编程助手学会使用 EVtivity。它们遵循开放标准 [Agent Skills](https://agentskills.io)，因此同一套技能可用于 Claude Code、Codex、GitHub Copilot、Gemini CLI、Cursor 等助手。
+
+| 技能                    | 用途                                            |
+| ----------------------- | ----------------------------------------------- |
+| `evtivity-setup`        | 用 Docker Compose 部署 EVtivity，检查服务并登录 |
+| `evtivity-troubleshoot` | 定位并修复故障服务、充电桩连接或登录问题        |
+| `evtivity-report-issue` | 收集版本和已脱敏的日志，起草 GitHub issue       |
+
+为任意助手安装：
+
+```bash
+npx skills add EVtivity/evtivity-skills
+```
+
+技能版本使用与 EVtivity 相同的标签。请安装与你的部署版本一致的标签。欢迎为新技能提交 pull request 和发起讨论。
 
 ## 许可证
 

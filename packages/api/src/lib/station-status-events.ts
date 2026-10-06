@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyBaseLogger } from 'fastify';
-import { isRoamingEnabled } from '@evtivity/database';
+import { alertStationWatchersIfAvailable, client, isRoamingEnabled } from '@evtivity/database';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
-// Tell the dashboards (station.status on csms_events) and roaming partners
+// Tell the dashboards (station.status on csms_events), roaming partners
 // (location push on ocpi_push, when roaming is enabled and the station has a
-// site) that a station's availability changed. Both are fail-open: the
-// availability is already stored.
+// site) and watching drivers (station watch alert, when the station is now free
+// by the shared driver availability rule; an operator enable changes no
+// connector status) that a station's availability changed. All are fail-open:
+// the availability is already stored.
 export async function publishStationStatusChanged(
   station: { id: string; siteId: string | null },
   logger?: FastifyBaseLogger,
@@ -25,6 +27,11 @@ export async function publishStationStatusChanged(
     );
   } catch (err) {
     logger?.warn({ err, stationId: station.id }, 'station.status publish failed');
+  }
+  try {
+    await alertStationWatchersIfAvailable(client, pubsub, station.id);
+  } catch (err) {
+    logger?.warn({ err, stationId: station.id }, 'Station-watch check failed');
   }
   if (station.siteId == null) return;
   try {

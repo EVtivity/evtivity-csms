@@ -54,7 +54,14 @@ function SecretState({
   );
 }
 
-export function StripeWebhookCard({ canWrite }: { canWrite: boolean }): React.JSX.Element {
+export function StripeWebhookCard({
+  canWrite,
+  secretKeyConfigured,
+}: {
+  canWrite: boolean;
+  /** From GET /v1/settings/stripe; undefined while it loads. */
+  secretKeyConfigured: boolean | undefined;
+}): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -68,12 +75,17 @@ export function StripeWebhookCard({ canWrite }: { canWrite: boolean }): React.JS
       api.get<StripeWebhookSetup>(
         webhookSetupPath('/v1/settings/stripe/webhook', urlState.queryUrl),
       ),
+    // Without a secret key the API answers 400 PAYMENT_PROVIDER_NOT_CONFIGURED,
+    // so the card shows the not-configured state without asking.
+    enabled: secretKeyConfigured === true,
     staleTime: 30_000,
     retry: false,
     placeholderData: keepPreviousData,
   });
 
-  const notConfigured = getApiErrorCode(setup.error) === 'PAYMENT_PROVIDER_NOT_CONFIGURED';
+  const notConfigured =
+    secretKeyConfigured === false ||
+    getApiErrorCode(setup.error) === 'PAYMENT_PROVIDER_NOT_CONFIGURED';
   const listenUrl = defaultWebhookUrl(STRIPE_WEBHOOK_PATH);
 
   return (
@@ -107,7 +119,7 @@ export function StripeWebhookCard({ canWrite }: { canWrite: boolean }): React.JS
 
         <div className="space-y-3">
           <h3 className="text-sm font-medium">{t('settings.stripeWebhookEndpoints')}</h3>
-          {setup.isLoading ? (
+          {secretKeyConfigured === undefined || setup.isLoading ? (
             <LoadingLogo size="inline" />
           ) : notConfigured ? (
             <p className="text-sm text-muted-foreground">

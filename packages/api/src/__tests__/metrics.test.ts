@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 
 // Mock prom-client
 const mockRegister = {
@@ -57,13 +57,19 @@ vi.mock('@evtivity/lib', () => ({
   })),
 }));
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let metricsModule: typeof import('../plugins/metrics.js');
+beforeAll(async () => {
+  metricsModule = await import('../plugins/metrics.js');
+}, 30_000);
+
 describe('Metrics plugin', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('exports register and metric instances', async () => {
-    const metrics = await import('../plugins/metrics.js');
+    const metrics = metricsModule;
     expect(metrics.register).toBeDefined();
     expect(metrics.httpRequestDuration).toBeDefined();
     expect(metrics.httpRequestsTotal).toBeDefined();
@@ -73,7 +79,7 @@ describe('Metrics plugin', () => {
   });
 
   it('startMetricsServer creates an HTTP server', async () => {
-    const { startMetricsServer, stopMetricsServer } = await import('../plugins/metrics.js');
+    const { startMetricsServer, stopMetricsServer } = metricsModule;
     // Just verify it does not throw
     startMetricsServer(0); // port 0 = random
     await stopMetricsServer();

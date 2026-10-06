@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and } from 'drizzle-orm';
 import { db, panels, circuits, unmanagedLoads } from '@evtivity/database';
-import { zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -35,8 +35,11 @@ const createLoadBody = z
     name: z.string().min(1).max(255),
     estimatedDrawKw: z.number().min(0).max(10000).describe('Estimated power draw in kW'),
   })
-  .refine((d) => (d.panelId != null) !== (d.circuitId != null), {
-    message: 'Exactly one of panelId or circuitId must be provided',
+  .refine((d) => d.panelId == null || d.circuitId == null, {
+    message: 'Provide either panelId or circuitId, not both',
+  })
+  .refine((d) => d.panelId != null || d.circuitId != null, {
+    message: 'One of panelId or circuitId is required',
   });
 
 const updateLoadBody = z.object({
@@ -120,25 +123,7 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId } = request.params as z.infer<typeof siteIdParam>;
-      const body = request.body as z.infer<typeof createLoadBody>;
-
-      // Exactly one of panelId or circuitId must be provided
-      const hasPanelId = body.panelId != null;
-      const hasCircuitId = body.circuitId != null;
-      if (hasPanelId && hasCircuitId) {
-        await reply.status(400).send({
-          error: 'Provide either panelId or circuitId, not both',
-          code: 'VALIDATION_ERROR',
-        });
-        return;
-      }
-      if (!hasPanelId && !hasCircuitId) {
-        await reply.status(400).send({
-          error: 'One of panelId or circuitId is required',
-          code: 'VALIDATION_ERROR',
-        });
-        return;
-      }
+      const body = parseZodRequest(createLoadBody, request.body);
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);

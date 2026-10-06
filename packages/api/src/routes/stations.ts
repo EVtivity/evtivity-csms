@@ -65,7 +65,7 @@ import {
   cssStations,
   cssEvses,
 } from '@evtivity/database';
-import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { paginationQuery } from '../lib/pagination.js';
@@ -1762,8 +1762,7 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      assertZodRefinements(createEvseBody, request.body);
-      const body = request.body as z.infer<typeof createEvseBody>;
+      const body = parseZodRequest(createEvseBody, request.body);
 
       // Verify station exists
       const [station] = await db
@@ -3429,7 +3428,7 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      const query = request.query as z.infer<typeof securityLogsQuery>;
+      const query = parseZodRequest(securityLogsQuery, request.query);
       const offset = (query.page - 1) * query.limit;
 
       // UNION ALL over both source tables. Both are filtered by stationId

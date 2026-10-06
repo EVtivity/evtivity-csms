@@ -4,7 +4,7 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import Fastify from 'fastify';
 import { z } from 'zod';
-import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 
 describe('zodSchema', () => {
   it('adds null to the enum of a nullable enum', () => {
@@ -67,7 +67,7 @@ describe('zodSchema', () => {
   });
 });
 
-describe('assertZodRefinements', () => {
+describe('parseZodRequest', () => {
   const phases = z.object({
     phases: z
       .number()
@@ -81,7 +81,7 @@ describe('assertZodRefinements', () => {
 
   it('throws a 400 VALIDATION_ERROR with the refine message', () => {
     expect(() => {
-      assertZodRefinements(phases, { phases: 2 });
+      parseZodRequest(phases, { phases: 2 });
     }).toThrow(
       expect.objectContaining({
         statusCode: 400,
@@ -91,21 +91,61 @@ describe('assertZodRefinements', () => {
     );
   });
 
-  it('passes a value that satisfies the refine', () => {
-    expect(() => {
-      assertZodRefinements(phases, { phases: 3 });
-    }).not.toThrow();
+  it('returns a value that satisfies the refine', () => {
+    expect(parseZodRequest(phases, { phases: 3 })).toEqual({ phases: 3 });
+  });
+
+  const contact = z.object({
+    email: z
+      .string()
+      .email()
+      .transform((s) => s.trim().toLowerCase()),
+    name: z.string().trim().min(1),
+    from: z.coerce.date().optional(),
+  });
+
+  it('returns the zod output: transforms, trims and coercions applied', () => {
+    expect(
+      parseZodRequest(contact, {
+        email: 'Op@Example.COM',
+        name: '  Main ',
+        from: '2026-01-02T03:04:05.000Z',
+      }),
+    ).toEqual({
+      email: 'op@example.com',
+      name: 'Main',
+      from: new Date('2026-01-02T03:04:05.000Z'),
+    });
   });
 
   describe('in a route', () => {
     const app = Fastify();
     app.post('/panels', { schema: { body: zodSchema(phases) } }, async (request) => {
-      assertZodRefinements(phases, request.body);
-      return { ok: true };
+      return parseZodRequest(phases, request.body);
     });
 
     afterAll(async () => {
       await app.close();
+    });
+
+    app.post('/contacts', { schema: { body: zodSchema(contact) } }, async (request) => {
+      const body = parseZodRequest(contact, request.body);
+      return { email: body.email, name: body.name, from: body.from?.toISOString() ?? null };
+    });
+
+    it('hands the handler the transformed value that Ajv alone leaves unchanged', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/contacts',
+        payload: { email: 'Op@Example.COM', name: '  Main ', from: '2026-01-02T03:04:05Z' },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        email: 'op@example.com',
+        name: 'Main',
+        from: '2026-01-02T03:04:05.000Z',
+      });
     });
 
     it('rejects a body that passes Ajv but fails the refine', async () => {

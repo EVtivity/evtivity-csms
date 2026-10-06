@@ -48,7 +48,7 @@ import {
   STATION_MESSAGE_LANGUAGES,
 } from '@evtivity/lib';
 import type { ElectricityRatePeriodRestrictions } from '@evtivity/lib';
-import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -891,8 +891,7 @@ export function siteRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      assertZodRefinements(createSiteBody, request.body);
-      const body = request.body as z.infer<typeof createSiteBody>;
+      const body = parseZodRequest(createSiteBody, request.body);
 
       // Pre-check the unique name constraint (case-insensitive) so duplicate
       // names return a clean 409 instead of a Postgres unique-violation 500.
@@ -954,14 +953,13 @@ export function siteRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
-      assertZodRefinements(updateSiteBody, request.body);
-      const body = request.body as z.infer<typeof updateSiteBody>;
+      const body = parseZodRequest(updateSiteBody, request.body);
       const [before] = await db.select().from(sites).where(eq(sites.id, id));
 
       // If the name is actually changing, pre-check the unique constraint
       // (case-insensitive) so duplicates return a clean 409 instead of a
       // Postgres unique-violation 500.
-      if (body.name != null && before != null && body.name.trim() !== before.name) {
+      if (body.name != null && before != null && body.name !== before.name) {
         const [existing] = await db
           .select({ id: sites.id })
           .from(sites)

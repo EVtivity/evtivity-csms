@@ -127,6 +127,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { sessionRoutes } from '../routes/sessions.js';
+import * as drizzleOrmModule from 'drizzle-orm';
 
 const VALID_STATION_ID = 'sta_000000000001';
 const VALID_SESSION_ID = 'ses_000000000001';
@@ -257,7 +258,7 @@ describe('Session routes', () => {
     });
 
     it('applies search filter via ilike on transactionId', async () => {
-      const { ilike } = await import('drizzle-orm');
+      const { ilike } = drizzleOrmModule;
 
       setupDbResults([]);
 
@@ -409,7 +410,7 @@ describe('Session routes', () => {
     });
 
     it('accepts idling status filter', async () => {
-      const { eq, isNotNull } = await import('drizzle-orm');
+      const { eq, isNotNull } = drizzleOrmModule;
 
       const sessions = [
         {
@@ -824,7 +825,7 @@ describe('Session routes', () => {
     });
 
     it('accepts measurand filter', async () => {
-      const { eq } = await import('drizzle-orm');
+      const { eq } = drizzleOrmModule;
 
       setupDbResults([{ id: VALID_SESSION_ID }], [], [{ count: 0 }]);
 

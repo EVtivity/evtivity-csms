@@ -102,7 +102,12 @@ describe('ManualProvider.getOcspStatus', () => {
 
     const result = await new ManualProvider().getOcspStatus(ocspData);
 
-    expect(result).toEqual({ status: 'Failed', ocspResult: '' });
+    // The caller logs the failure with the station it serves.
+    expect(result).toEqual({
+      status: 'Failed',
+      ocspResult: '',
+      reason: 'OCSP responder returned HTTP 503',
+    });
   });
 });
 

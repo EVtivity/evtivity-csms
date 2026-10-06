@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as queuesModule from '../queues.js';
+import * as libModule from '@evtivity/lib';
 
 const queueCalls: Array<{ name: string; opts: Record<string, unknown> }> = [];
 
@@ -26,7 +28,7 @@ describe('createQueues', () => {
   });
 
   it('logs the errors of every queue (no raw BullMQ stack traces on a Redis outage)', async () => {
-    const { createQueues } = await import('../queues.js');
+    const { createQueues } = queuesModule;
     const queues = createQueues('redis://localhost:6379');
 
     const entries = Object.entries(queues);
@@ -37,7 +39,7 @@ describe('createQueues', () => {
   });
 
   it('creates all ten queues with the expected names', async () => {
-    const { createQueues, QUEUE_NAMES } = await import('../queues.js');
+    const { createQueues, QUEUE_NAMES } = queuesModule;
     const queues = createQueues('redis://localhost:6379');
 
     expect(queues.cronQueue).toBeDefined();
@@ -79,8 +81,8 @@ describe('createQueues', () => {
   });
 
   it('gives each queue its own dedicated Redis connection', async () => {
-    const { createBullMQConnection } = await import('@evtivity/lib');
-    const { createQueues } = await import('../queues.js');
+    const { createBullMQConnection } = libModule;
+    const { createQueues } = queuesModule;
     createQueues('redis://localhost:6379');
 
     expect(createBullMQConnection).toHaveBeenCalledTimes(10);
@@ -91,7 +93,7 @@ describe('createQueues', () => {
   });
 
   it('configures retention defaults per queue', async () => {
-    const { createQueues } = await import('../queues.js');
+    const { createQueues } = queuesModule;
     createQueues('redis://localhost:6379');
 
     const byName = Object.fromEntries(queueCalls.map((c) => [c.name, c.opts]));
@@ -116,7 +118,7 @@ describe('createQueues', () => {
   });
 
   it('configures retry attempts and exponential backoff on guest-session and reservation queues', async () => {
-    const { createQueues } = await import('../queues.js');
+    const { createQueues } = queuesModule;
     createQueues('redis://localhost:6379');
 
     const byName = Object.fromEntries(queueCalls.map((c) => [c.name, c.opts]));
@@ -133,7 +135,7 @@ describe('createQueues', () => {
   });
 
   it('retries payment webhook deliveries five times with exponential backoff', async () => {
-    const { createQueues } = await import('../queues.js');
+    const { createQueues } = queuesModule;
     createQueues('redis://localhost:6379');
 
     const byName = Object.fromEntries(queueCalls.map((c) => [c.name, c.opts]));

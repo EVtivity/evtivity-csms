@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
+import * as offlineCommandCleanupModule from '../../handlers/offline-command-cleanup.js';
 
 // The handler runs a single tagged-template UPDATE ... RETURNING id and reads
 // the returned array length. The mock captures the rendered SQL and returns a
@@ -34,8 +35,7 @@ beforeEach(() => {
 describe('offlineCommandCleanupHandler', () => {
   it('expires pending commands past expires_at and logs the count', async () => {
     mockClient.rows = [{ id: 'cmd_1' }, { id: 'cmd_2' }, { id: 'cmd_3' }];
-    const { offlineCommandCleanupHandler } =
-      await import('../../handlers/offline-command-cleanup.js');
+    const { offlineCommandCleanupHandler } = offlineCommandCleanupModule;
     const log = makeLog();
     await offlineCommandCleanupHandler(log);
 
@@ -50,8 +50,7 @@ describe('offlineCommandCleanupHandler', () => {
 
   it('does not log when no commands were expired', async () => {
     mockClient.rows = [];
-    const { offlineCommandCleanupHandler } =
-      await import('../../handlers/offline-command-cleanup.js');
+    const { offlineCommandCleanupHandler } = offlineCommandCleanupModule;
     const log = makeLog();
     await offlineCommandCleanupHandler(log);
 

@@ -13,7 +13,7 @@ import {
   driverTokens,
 } from '@evtivity/database';
 import * as tokenService from '../services/token.service.js';
-import { zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -419,7 +419,7 @@ export function tokenRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
-      const body = request.body as z.infer<typeof createTokenBody>;
+      const body = parseZodRequest(createTokenBody, request.body);
       try {
         const token = await tokenService.createToken(body, { type: 'operator', userId });
         await reply.status(201).send(token);
@@ -456,7 +456,7 @@ export function tokenRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof tokenParams>;
-      const body = request.body as z.infer<typeof updateTokenBody>;
+      const body = parseZodRequest(updateTokenBody, request.body);
       try {
         const token = await tokenService.updateToken(id, body, { type: 'operator', userId });
         if (token == null) {

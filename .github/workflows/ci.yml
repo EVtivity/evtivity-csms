@@ -62,8 +62,49 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts && npm rebuild argon2
-      - run: npm test
+      - run: npm test -- --coverage
       - run: npm run test:release
+      - name: Coverage summary
+        if: always() && hashFiles('coverage/coverage-summary.json') != ''
+        run: node scripts/coverage-summary.mjs coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage report
+        if: always() && hashFiles('coverage/index.html') != ''
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 14
+
+  coverage-badge:
+    name: Coverage badge
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: coverage-report
+          path: coverage
+      - run: node scripts/coverage-summary.mjs coverage/coverage-summary.json --badge "$RUNNER_TEMP/coverage.json" > /dev/null
+      - name: Publish the badge to the badges branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git fetch --depth=1 origin badges; then
+            git checkout -B badges FETCH_HEAD
+          else
+            git checkout --orphan badges
+            git rm -rf --quiet .
+          fi
+          cp "$RUNNER_TEMP/coverage.json" coverage.json
+          git add coverage.json
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update the coverage badge"
+          git push origin badges
 
   audit:
     name: Dependency audit

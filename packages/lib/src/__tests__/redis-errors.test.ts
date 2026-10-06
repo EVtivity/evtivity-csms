@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { EventEmitter } from 'node:events';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import type { Redis } from 'ioredis';
 
 const warn = vi.fn();
@@ -11,9 +11,17 @@ vi.mock('../logger.js', () => ({
   createLogger: () => ({ warn, info: vi.fn(), error: vi.fn(), debug }),
 }));
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let redisErrorsModule: typeof import('../redis-errors.js');
+let bullmqModule: typeof import('../bullmq.js');
+beforeAll(async () => {
+  redisErrorsModule = await import('../redis-errors.js');
+  bullmqModule = await import('../bullmq.js');
+}, 30_000);
+
 describe('logRedisErrors', () => {
   it('logs connection errors at warn with the client name instead of leaving them unhandled', async () => {
-    const { logRedisErrors } = await import('../redis-errors.js');
+    const { logRedisErrors } = redisErrorsModule;
     const client = new EventEmitter() as unknown as Redis;
 
     expect(logRedisErrors(client, 'bullmq')).toBe(client);
@@ -28,7 +36,7 @@ describe('logRedisErrors', () => {
 
 describe('logBullMQErrors', () => {
   it('logs a re-emitted connection error at debug and other errors at warn, with the queue', async () => {
-    const { logBullMQErrors } = await import('../bullmq.js');
+    const { logBullMQErrors } = bullmqModule;
     const queue = new EventEmitter();
     warn.mockClear();
 

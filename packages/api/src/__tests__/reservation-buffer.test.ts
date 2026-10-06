@@ -55,6 +55,7 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
+import * as drizzleOrmModule from 'drizzle-orm';
 
 describe('isEvseInReservationBuffer', () => {
   beforeEach(() => {
@@ -111,7 +112,7 @@ describe('isEvseInReservationBuffer', () => {
   });
 
   it('passes an or() condition for evseId when evseDbId is not null', async () => {
-    const { or, isNull, eq } = await import('drizzle-orm');
+    const { or, isNull, eq } = drizzleOrmModule;
     mockGetReservationSettings.mockResolvedValue({ bufferMinutes: 15 });
     dbSelectResult = [];
 
@@ -123,7 +124,7 @@ describe('isEvseInReservationBuffer', () => {
   });
 
   it('does not add an evse condition when evseDbId is null', async () => {
-    const { or, isNull } = await import('drizzle-orm');
+    const { or, isNull } = drizzleOrmModule;
     mockGetReservationSettings.mockResolvedValue({ bufferMinutes: 15 });
     dbSelectResult = [];
 
@@ -134,7 +135,7 @@ describe('isEvseInReservationBuffer', () => {
   });
 
   it('uses sql COALESCE expressions for the timestamp conditions', async () => {
-    const { sql } = await import('drizzle-orm');
+    const { sql } = drizzleOrmModule;
     mockGetReservationSettings.mockResolvedValue({ bufferMinutes: 15 });
     dbSelectResult = [];
 

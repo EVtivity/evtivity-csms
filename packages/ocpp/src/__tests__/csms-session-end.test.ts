@@ -247,3 +247,124 @@ describe('giving up on a session end', () => {
     );
   });
 });
+
+describe('session end failure handling', () => {
+  const makeLogger = () => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn() });
+
+  function failingSql(
+    pending: Record<string, unknown>[],
+    error: Error,
+  ): { sql: postgres.Sql; calls: string[] } {
+    const calls: string[] = [];
+    const fn = (strings: TemplateStringsArray) => {
+      const text = strings.join('?');
+      calls.push(text);
+      if (text.includes('SELECT id, end_request_reason')) return Promise.resolve(pending);
+      return Promise.reject(error);
+    };
+    (fn as unknown as Record<string, unknown>)['json'] = (value: unknown) => value;
+    return { sql: fn as unknown as postgres.Sql, calls };
+  }
+
+  it('logs at error and keeps sweeping when one session end throws', async () => {
+    const { sql } = failingSql(
+      [
+        { id: 'ses_1', end_request_reason: 'GhostRecovered', end_attempts: 0 },
+        { id: 'ses_2', end_request_reason: 'Superseded', end_attempts: 1 },
+      ],
+      new Error('db down'),
+    );
+    const log = makeLogger();
+    const bus = makeBus();
+
+    expect(await sweepSessionEndRequests(sql, bus, log as unknown as Logger)).toBe(0);
+
+    expect(log.error).toHaveBeenCalledTimes(2);
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'ses_2' }),
+      'Failed to end a session with a pending end request',
+    );
+    expect(log.info).not.toHaveBeenCalled();
+    expect(bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('logs at error and returns false when faulting the session throws', async () => {
+    mockCancelOpenSessionHold.mockReset();
+    const { sql } = failingSql([], new Error('db down'));
+    const log = makeLogger();
+
+    expect(await giveUpSessionEnd(sql, 'ses_9', log as unknown as Logger)).toBe(false);
+
+    expect(log.error).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'ses_9' }),
+      'Failed to fault a session whose end failed',
+    );
+    expect(mockCancelOpenSessionHold).not.toHaveBeenCalled();
+  });
+
+  it('logs at error when a subscribed end request fails', async () => {
+    let handler: ((raw: string) => void) | null = null;
+    const pubsub = {
+      subscribe: vi.fn((_channel: string, cb: (raw: string) => void) => {
+        handler = cb;
+        return Promise.resolve({ unsubscribe: vi.fn() });
+      }),
+    } as unknown as PubSubClient;
+    const log = makeLogger();
+    const { sql } = failingSql([], new Error('claim failed'));
+    const bus = makeBus();
+    await subscribeSessionEndRequests(pubsub, sql, bus, log as unknown as Logger);
+
+    (handler as ((raw: string) => void) | null)?.(
+      JSON.stringify({ sessionId: 'ses_3', reason: 'GhostRecovered' }),
+    );
+
+    await vi.waitFor(() => {
+      expect(log.error).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'ses_3', reason: 'GhostRecovered' }),
+        'Failed to end the session',
+      );
+    });
+    expect(bus.publish).not.toHaveBeenCalled();
+  });
+
+  it('skips a tick while a sweep is still running and logs a failed sweep', async () => {
+    vi.useFakeTimers();
+    try {
+      const calls: string[] = [];
+      let release: () => void = () => {};
+      const fn = (strings: TemplateStringsArray) => {
+        calls.push(strings.join('?'));
+        return new Promise((_resolve, reject) => {
+          release = () => {
+            reject(new Error('sweep query failed'));
+          };
+        });
+      };
+      const log = makeLogger();
+      const stop = startSessionEndSweep(
+        fn as unknown as postgres.Sql,
+        makeBus(),
+        log as unknown as Logger,
+        1000,
+      );
+
+      await vi.advanceTimersByTimeAsync(3500);
+      // Three ticks, one sweep: the later ticks found it still running.
+      expect(calls).toHaveLength(1);
+
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(log.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error) as unknown }),
+        'Session end request sweep failed',
+      );
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(calls).toHaveLength(2);
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

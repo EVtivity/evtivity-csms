@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 
 let rows: Record<string, unknown>[] = [];
 const whereFn = vi.fn(() => Promise.resolve(rows));
@@ -27,6 +27,12 @@ vi.mock('drizzle-orm', () => ({
   inArray: inArrayFn,
 }));
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let adHocPaymentLimitModule: typeof import('../../handlers/ad-hoc-payment-limit.js');
+beforeAll(async () => {
+  adHocPaymentLimitModule = await import('../../handlers/ad-hoc-payment-limit.js');
+}, 30_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   rows = [];
@@ -34,14 +40,14 @@ beforeEach(() => {
 
 describe('findAdHocTransactionLimit', () => {
   it('returns null when the idToken is not an open ad hoc payment at the station', async () => {
-    const { findAdHocTransactionLimit } = await import('../../handlers/ad-hoc-payment-limit.js');
+    const { findAdHocTransactionLimit } = adHocPaymentLimitModule;
     expect(await findAdHocTransactionLimit('CS-1', 'PSP-1')).toBeNull();
     expect(inArrayFn).toHaveBeenCalledWith('status', ['payment_authorized', 'charging']);
   });
 
   it('maps the stored limits to transactionLimit (maxCost in major units)', async () => {
     rows = [{ maxCostCents: 1815, maxEnergyWh: 20000, maxTimeSeconds: 3600 }];
-    const { findAdHocTransactionLimit } = await import('../../handlers/ad-hoc-payment-limit.js');
+    const { findAdHocTransactionLimit } = adHocPaymentLimitModule;
     expect(await findAdHocTransactionLimit('CS-1', 'PSP-1')).toEqual({
       maxCost: 18.15,
       maxEnergy: 20000,
@@ -51,13 +57,13 @@ describe('findAdHocTransactionLimit', () => {
 
   it('returns only the limits that are set', async () => {
     rows = [{ maxCostCents: null, maxEnergyWh: 20000, maxTimeSeconds: null }];
-    const { findAdHocTransactionLimit } = await import('../../handlers/ad-hoc-payment-limit.js');
+    const { findAdHocTransactionLimit } = adHocPaymentLimitModule;
     expect(await findAdHocTransactionLimit('CS-1', 'PSP-1')).toEqual({ maxEnergy: 20000 });
   });
 
   it('returns null when the payment has no limit', async () => {
     rows = [{ maxCostCents: null, maxEnergyWh: null, maxTimeSeconds: null }];
-    const { findAdHocTransactionLimit } = await import('../../handlers/ad-hoc-payment-limit.js');
+    const { findAdHocTransactionLimit } = adHocPaymentLimitModule;
     expect(await findAdHocTransactionLimit('CS-1', 'PSP-1')).toBeNull();
   });
 });

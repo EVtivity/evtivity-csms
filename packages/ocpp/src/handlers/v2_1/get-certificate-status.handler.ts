@@ -39,9 +39,15 @@ export async function handleGetCertificateStatus(
     if (result.status === 'Accepted') {
       return { status: result.status, ocspResult: result.ocspResult };
     }
+    // The station names the responder, so its failure is recoverable and no
+    // CSMS error (P9): warn with the station so the line can be traced.
     ctx.logger.warn(
-      { stationId: ctx.stationId, providerStatus: result.status },
-      'GetCertificateStatus: provider returned non-Accepted status',
+      {
+        stationId: ctx.stationId,
+        responderURL: request.ocspRequestData.responderURL,
+        reason: result.reason,
+      },
+      'GetCertificateStatus: OCSP status request failed',
     );
   } catch (err) {
     ctx.logger.warn(

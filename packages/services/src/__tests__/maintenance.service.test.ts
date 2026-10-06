@@ -27,6 +27,7 @@ const h = vi.hoisted(() => {
   return {
     MockAppError,
     table,
+    alertStationWatchers: vi.fn(async (..._args: unknown[]) => false),
     // ---- routing state, reset in beforeEach ----
     // Per-table queue of result sets. When more than one set is queued for a
     // table, each .from(table) consumes the next one in order; the last set
@@ -167,6 +168,7 @@ vi.mock('@evtivity/database', () => {
     reservations: h.table('reservations'),
     maintenanceEventStations: h.table('maintenanceEventStations'),
     writeAudit: h.writeAudit,
+    alertStationWatchersIfAvailable: h.alertStationWatchers,
   };
 });
 
@@ -1090,6 +1092,33 @@ describe('runMaintenanceFanout', () => {
       operationalStatus: 'Operative',
     });
     expect(h.clearStationMessageSlot).toHaveBeenCalledWith('CS-001', 'ocpp2.1', 9005);
+  });
+
+  // An ended or cancelled maintenance window frees its stations with no
+  // connector status change, so the release checks each station's watches with
+  // the shared availability rule (which leaves a disabled station out).
+  it('release phase checks the station watches of every released station', async () => {
+    setSelect('maintenanceEvents', [
+      makeEventRow({ status: 'completed', affectedStationIds: ['sta_1', 'sta_2'] }),
+    ]);
+    setSelect('chargingStations', [
+      { id: 'sta_1', stationId: 'CS-001', ocppProtocol: 'ocpp2.1' },
+      { id: 'sta_2', stationId: 'CS-002', ocppProtocol: 'ocpp2.1', disabledReason: 'operator' },
+    ]);
+    h.alertStationWatchers.mockRejectedValueOnce(new Error('db down'));
+
+    await runMaintenanceFanout({ eventId: 'mne_1', phase: 'release' });
+
+    expect(h.alertStationWatchers).toHaveBeenCalledWith(
+      { __client: true },
+      expect.objectContaining({ publish: expect.any(Function) }),
+      'sta_1',
+    );
+    expect(h.alertStationWatchers).toHaveBeenCalledWith(
+      { __client: true },
+      expect.objectContaining({ publish: expect.any(Function) }),
+      'sta_2',
+    );
   });
 
   it('add phase runs the add-station fan-out on the given station ids', async () => {

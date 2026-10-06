@@ -81,6 +81,7 @@ import {
   invalidateMaintenanceCheckCache,
   clearMaintenanceCheckCacheLocal,
 } from '../maintenance-check.js';
+import * as databaseModule from '@evtivity/database';
 
 beforeEach(() => {
   dbResults = [];
@@ -248,7 +249,7 @@ describe('findMaintenanceConflicts', () => {
       ],
     );
 
-    const { db } = await import('@evtivity/database');
+    const { db } = databaseModule;
     const firstCallCount = vi.mocked(db.select).mock.calls.length;
 
     await findMaintenanceConflicts(
@@ -353,7 +354,7 @@ describe('invalidateMaintenanceCheckCache', () => {
   it('clears the local cache so the next call hits the DB', async () => {
     setupDbResults([{ siteId: 'sit_a' }], [], [{ siteId: 'sit_a' }], []);
 
-    const { db } = await import('@evtivity/database');
+    const { db } = databaseModule;
 
     await findMaintenanceConflicts(
       'sta_x',

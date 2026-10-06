@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import type { Job } from 'bullmq';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
@@ -158,6 +158,14 @@ function makeJob(name: string, data: unknown = {}): Job {
   return { name, data } as unknown as Job;
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let bullmqModule: typeof import('bullmq');
+let cronWorkerModule: typeof import('../cron-worker.js');
+beforeAll(async () => {
+  bullmqModule = await import('bullmq');
+  cronWorkerModule = await import('../cron-worker.js');
+}, 30_000);
+
 beforeEach(() => {
   capturedProcessor = undefined;
   onHandlers.clear();
@@ -184,8 +192,8 @@ beforeEach(() => {
 
 describe('createCronWorker', () => {
   it('creates a BullMQ Worker on the cron-jobs queue with concurrency 1', async () => {
-    const { Worker } = await import('bullmq');
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { Worker } = bullmqModule;
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     expect(Worker).toHaveBeenCalledWith(
@@ -196,7 +204,7 @@ describe('createCronWorker', () => {
   });
 
   it('passes the provided connection through to the Worker', async () => {
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     const connection = { host: 'redis-cron' } as never;
     createCronWorker(connection);
 
@@ -204,7 +212,7 @@ describe('createCronWorker', () => {
   });
 
   it('returns the worker instance', async () => {
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     const worker = createCronWorker({});
     expect(worker).toBeDefined();
     expect(typeof (worker as unknown as { on: unknown }).on).toBe('function');
@@ -213,7 +221,7 @@ describe('createCronWorker', () => {
 
 describe('cron-worker processor dispatch', () => {
   it('dispatches a known job name to the matching handler and runs the success path', async () => {
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     await capturedProcessor?.(makeJob('payment-reconciliation'));
@@ -241,7 +249,7 @@ describe('cron-worker processor dispatch', () => {
   });
 
   it('routes each registered job name to its own handler', async () => {
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     const routes: Array<[string, keyof typeof handlerMocks]> = [
@@ -263,7 +271,7 @@ describe('cron-worker processor dispatch', () => {
   });
 
   it('throws for an unknown job name and never starts a job log', async () => {
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     await expect(capturedProcessor?.(makeJob('does-not-exist'))).rejects.toThrow(
@@ -276,7 +284,7 @@ describe('cron-worker processor dispatch', () => {
 
   it('logs failure and rethrows when a handler throws, without marking completed', async () => {
     handlerMocks.dashboardSnapshotHandler.mockRejectedValueOnce(new Error('snapshot boom'));
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     await expect(capturedProcessor?.(makeJob('dashboard-snapshot'))).rejects.toThrow(
@@ -298,7 +306,7 @@ describe('cron-worker processor dispatch', () => {
 
   it('uses "Unknown error" when a handler throws a non-Error', async () => {
     handlerMocks.reportSchedulerHandler.mockRejectedValueOnce('weird');
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     await expect(capturedProcessor?.(makeJob('report-scheduler'))).rejects.toBe('weird');
@@ -308,7 +316,7 @@ describe('cron-worker processor dispatch', () => {
   it('swallows a logJobFailed write error but still rethrows the original handler error', async () => {
     handlerMocks.tariffBoundaryCheckHandler.mockRejectedValueOnce(new Error('original'));
     mockLogJobFailed.mockRejectedValueOnce(new Error('log write failed'));
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     await expect(capturedProcessor?.(makeJob('tariff-boundary-check'))).rejects.toThrow('original');
@@ -317,7 +325,7 @@ describe('cron-worker processor dispatch', () => {
 
 describe('cron-worker failed listener', () => {
   it('marks the cronjobs row failed with a truncated error message', async () => {
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     const failedHandler = onHandlers.get('failed');
@@ -337,7 +345,7 @@ describe('cron-worker failed listener', () => {
   });
 
   it('falls back to "Unknown error" for a non-Error reason', async () => {
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     const failedHandler = onHandlers.get('failed');
@@ -348,7 +356,7 @@ describe('cron-worker failed listener', () => {
   });
 
   it('ignores a null job', async () => {
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     const failedHandler = onHandlers.get('failed');
@@ -360,7 +368,7 @@ describe('cron-worker failed listener', () => {
 
   it('swallows a db update rejection in the failed listener (fail-open)', async () => {
     dbUpdateWhere.mockReturnValueOnce(Promise.reject(new Error('db down')));
-    const { createCronWorker } = await import('../cron-worker.js');
+    const { createCronWorker } = cronWorkerModule;
     createCronWorker({});
 
     const failedHandler = onHandlers.get('failed');

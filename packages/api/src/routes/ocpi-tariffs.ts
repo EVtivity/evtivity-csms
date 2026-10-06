@@ -13,7 +13,7 @@ import {
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
 } from '@evtivity/database';
-import { zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -321,7 +321,7 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof createTariffMappingBody>;
+      const body = parseZodRequest(createTariffMappingBody, request.body);
       const tariffId = body.tariffId ?? null;
       const pricingGroupId = body.pricingGroupId ?? null;
       const partnerId = body.partnerId ?? null;
@@ -385,7 +385,7 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof tariffMappingParams>;
-      const body = request.body as z.infer<typeof updateTariffMappingBody>;
+      const body = parseZodRequest(updateTariffMappingBody, request.body);
 
       const [existing] = await db
         .select()

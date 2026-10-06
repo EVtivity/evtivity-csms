@@ -8,6 +8,10 @@ import { eq, and, or, ilike, desc, asc, sql, gte, gt, isNull, count, inArray } f
 import {
   db,
   client,
+  availableEvseCountSql,
+  evseAvailableSql,
+  evseOpenToDriversSql,
+  STARTABLE_CONNECTOR_STATUSES,
   getCompanyCurrency,
   getCompanyTaxBasis,
   isStationLevelUnavailable,
@@ -219,7 +223,13 @@ const portalChargerSearch = z
     siteAddress: z.string().max(500).nullable().describe('Site street address'),
     siteCity: z.string().max(255).nullable().describe('Site city'),
     evseCount: z.number().int().min(0).describe('Total EVSEs at this station'),
-    availableCount: z.number().int().min(0).describe('Number of available EVSEs at this station'),
+    availableCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Number of EVSEs a driver can use now: 0 when the station is offline, disabled, installing firmware, faulted at station level, or under maintenance; a reserved EVSE is not counted',
+      ),
     connectors: z
       .array(portalConnectorSummary)
       .describe('Summary of all connectors on the station for filtering and display'),
@@ -428,7 +438,13 @@ const portalNearbyStation = z
     siteCity: z.string().max(100).nullable().describe('City'),
     distanceKm: z.number().min(0).describe('Great-circle distance from the search point in km'),
     evseCount: z.number().int().min(0).describe('Total EVSEs at this station'),
-    availableCount: z.number().int().min(0).describe('Number of available EVSEs at this station'),
+    availableCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Number of EVSEs a driver can use now: 0 when the station is offline, disabled, installing firmware, faulted at station level, or under maintenance; a reserved EVSE is not counted',
+      ),
     connectors: z
       .array(portalConnectorSummary)
       .describe('Summary of all connectors on the station for filtering and display'),
@@ -728,7 +744,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteAddress: sites.address,
           siteCity: sites.city,
           evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id})`,
-          availableCount: sql<number>`(SELECT count(*)::int FROM connectors c JOIN evses e ON c.evse_id = e.id WHERE e.station_id = ${chargingStations.id} AND c.status = 'available')`,
+          availableCount: sql<number>`${sql.raw(availableEvseCountSql('charging_stations'))}`,
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
@@ -818,7 +834,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteCity: sites.city,
           distanceKm: distanceExpr,
           evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id})`,
-          availableCount: sql<number>`(SELECT count(*)::int FROM connectors c JOIN evses e ON c.evse_id = e.id WHERE e.station_id = ${chargingStations.id} AND c.status = 'available')`,
+          availableCount: sql<number>`${sql.raw(availableEvseCountSql('charging_stations'))}`,
         })
         .from(chargingStations)
         .innerJoin(sites, eq(chargingStations.siteId, sites.id))
@@ -969,7 +985,30 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .describe('Public contact phone (null when contact is private)'),
       stationCount: z.number().describe('Number of stations at this site'),
       evseCount: z.number().describe('Total EVSEs across all stations at this site'),
-      availableCount: z.number().describe('Number of available connectors across the site'),
+      availableCount: z
+        .number()
+        .describe(
+          'Number of EVSEs across the site a driver can use now (same rule as the charger search)',
+        ),
+      chargers: z
+        .array(
+          z
+            .object({
+              stationId: z.string().describe('OCPP station identity'),
+              stationName: z.string().describe('Station display name'),
+              evseId: z.number().int().describe('OCPP EVSE ID'),
+              connectorType: z.string().nullable().describe('Physical connector type'),
+              maxPowerKw: z.string().nullable().describe('Maximum power in kW (decimal string)'),
+              status: z.string().describe('Live connector status'),
+              available: z
+                .boolean()
+                .describe(
+                  'Whether a driver can start here now: the station is online, enabled and not under maintenance, the EVSE is not reserved, and the connector status is startable',
+                ),
+            })
+            .passthrough(),
+        )
+        .describe('One row per EVSE connector at the site, ordered by station and EVSE'),
     })
     .passthrough();
 
@@ -1059,7 +1098,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .select({
           stationCount: sql<number>`count(DISTINCT ${chargingStations.id})::int`,
           evseCount: sql<number>`count(DISTINCT ${evses.id})::int`,
-          availableCount: sql<number>`count(DISTINCT CASE WHEN ${connectors.status} = 'available' THEN ${connectors.id} END)::int`,
+          availableCount: sql<number>`count(DISTINCT ${evses.id}) FILTER (WHERE ${sql.raw(evseAvailableSql('evses', 'charging_stations'))})::int`,
         })
         .from(chargingStations)
         .leftJoin(evses, eq(evses.stationId, chargingStations.id))
@@ -1077,6 +1116,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           connectorType: connectors.connectorType,
           maxPowerKw: connectors.maxPowerKw,
           status: connectors.status,
+          available: sql<boolean>`(${sql.raw(evseOpenToDriversSql('evses', 'charging_stations'))} AND ${inArray(connectors.status, [...STARTABLE_CONNECTOR_STATUSES])})`,
         })
         .from(chargingStations)
         .innerJoin(evses, eq(evses.stationId, chargingStations.id))

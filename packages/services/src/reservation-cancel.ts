@@ -4,7 +4,12 @@
 import type { ServiceLogger } from '@evtivity/lib';
 import { eq, sql } from 'drizzle-orm';
 import { db, reservations } from '@evtivity/database';
-import { getReservationSettings, writeReservationAudit } from '@evtivity/database';
+import {
+  alertStationWatchersIfAvailable,
+  client,
+  getReservationSettings,
+  writeReservationAudit,
+} from '@evtivity/database';
 import { chargeReservationFee } from '@evtivity/payments';
 import type { PaymentContext } from '@evtivity/payments';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -197,6 +202,18 @@ export async function applyReservationCancellation(
     .catch(() => {
       /* best-effort */
     });
+
+  // The reservation no longer holds the EVSE, which changes no connector status
+  // until the station reports one, so a watching driver is alerted here when the
+  // station is now free by the shared rule. Fail-open: the cancel is stored.
+  try {
+    await alertStationWatchersIfAvailable(client, getPubSub(), winningRow.station_id);
+  } catch (err) {
+    input.logger?.warn(
+      { err, reservationId: input.reservationDbId },
+      'Station-watch check after reservation cancel failed',
+    );
+  }
 
   if (plannedFeeCents === 0 || feePayments == null) {
     return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };

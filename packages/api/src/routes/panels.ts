@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, sql } from 'drizzle-orm';
 import { db, panels, circuits, unmanagedLoads, chargingStations } from '@evtivity/database';
-import { assertZodRefinements, zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -190,20 +190,7 @@ export function panelRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId } = request.params as z.infer<typeof siteIdParam>;
-      const body = request.body as z.infer<typeof createPanelBody>;
-
-      const validVoltages = [120, 208, 240, 277, 480];
-      if (!validVoltages.includes(body.voltageV)) {
-        await reply.status(400).send({
-          error: 'Voltage must be one of: 120, 208, 240, 277, 480',
-          code: 'VALIDATION_ERROR',
-        });
-        return;
-      }
-      if (body.phases !== 1 && body.phases !== 3) {
-        await reply.status(400).send({ error: 'Phases must be 1 or 3', code: 'VALIDATION_ERROR' });
-        return;
-      }
+      const body = parseZodRequest(createPanelBody, request.body);
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
@@ -417,8 +404,7 @@ export function panelRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId, panelId } = request.params as z.infer<typeof panelIdParam>;
-      assertZodRefinements(updatePanelBody, request.body);
-      const body = request.body as z.infer<typeof updatePanelBody>;
+      const body = parseZodRequest(updatePanelBody, request.body);
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);

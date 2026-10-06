@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // `db.select(...).from().innerJoin().where()` resolves to the stale session
@@ -120,6 +120,20 @@ function baseSession(overrides: Record<string, unknown> = {}): Record<string, un
   };
 }
 
+// The module is imported after the mocks above are initialized. The first import loads the
+// whole module graph, which under coverage on a busy machine took longer than one test's
+// 5 s timeout, so it happens once here with its own timeout instead of inside the first test.
+let mod: typeof import('../../handlers/stale-session-cleanup.js');
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let drizzleOrmModule: typeof import('drizzle-orm');
+beforeAll(async () => {
+  drizzleOrmModule = await import('drizzle-orm');
+}, 30_000);
+
+beforeAll(async () => {
+  mod = await import('../../handlers/stale-session-cleanup.js');
+}, 30_000);
+
 describe('staleSessionCleanupHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -132,7 +146,7 @@ describe('staleSessionCleanupHandler', () => {
   });
 
   it('cancels the open hold of a session it faulted, without a capture', async () => {
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     setStaleSessions([baseSession()]);
     mockCancelOpenSessionHold.mockResolvedValueOnce({ status: 'cancelled', paymentRecordId: 9 });
     const log = makeLog();
@@ -152,7 +166,7 @@ describe('staleSessionCleanupHandler', () => {
   });
 
   it('leaves the hold of a session that ended meanwhile to its settlement (P5)', async () => {
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     setStaleSessions([baseSession()]);
     mockFaultUnbilledSession.mockResolvedValueOnce(false);
 
@@ -162,7 +176,7 @@ describe('staleSessionCleanupHandler', () => {
   });
 
   it('logs a warning and continues when the hold cancel fails (fail-open)', async () => {
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     setStaleSessions([baseSession(), baseSession({ id: 'ses_2', transactionId: 'tx-002' })]);
     mockCancelOpenSessionHold.mockRejectedValueOnce(new Error('provider down'));
     const log = makeLog();
@@ -181,7 +195,7 @@ describe('staleSessionCleanupHandler', () => {
     mockGetStaleSessionTimeoutHours.mockResolvedValueOnce(0);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     expect(log.debug).toHaveBeenCalledWith('Stale session cleanup disabled (timeout <= 0)');
@@ -190,8 +204,8 @@ describe('staleSessionCleanupHandler', () => {
   });
 
   it('skips sessions with a pending end request (they end billed through the OCPP server)', async () => {
-    const { and, isNull } = await import('drizzle-orm');
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { and, isNull } = drizzleOrmModule;
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(makeLog());
     expect(isNull).toHaveBeenCalledWith('cs.endRequestReason');
     expect(vi.mocked(and).mock.calls[0]).toContainEqual({ isNull: 'cs.endRequestReason' });
@@ -201,7 +215,7 @@ describe('staleSessionCleanupHandler', () => {
     setStaleSessions([]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     expect(mockFaultUnbilledSession).not.toHaveBeenCalled();
@@ -213,7 +227,7 @@ describe('staleSessionCleanupHandler', () => {
     setStaleSessions([baseSession({ stationIsOnline: false })]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     // Faulted at the last update and not billed (cost 0, audit N6).
@@ -237,7 +251,7 @@ describe('staleSessionCleanupHandler', () => {
     ]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
@@ -258,7 +272,7 @@ describe('staleSessionCleanupHandler', () => {
     setStaleSessions([baseSession({ stationIsOnline: true, ocppProtocol: null })]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     const raw = (mockPublish.mock.calls[0] as [string, string])[1];
@@ -278,7 +292,7 @@ describe('staleSessionCleanupHandler', () => {
     ]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     expect(log.warn).toHaveBeenCalledWith(
@@ -301,7 +315,7 @@ describe('staleSessionCleanupHandler', () => {
     ]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     const endedAt = new Date('2026-06-01T01:00:00.000Z');
@@ -323,7 +337,7 @@ describe('staleSessionCleanupHandler', () => {
     ]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     expect(mockCloseOpenSegment).toHaveBeenCalledWith(
@@ -339,7 +353,7 @@ describe('staleSessionCleanupHandler', () => {
     setStaleSessions([baseSession({ reservationId: 'rsv_1', stationIsOnline: false })]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     expect(mockWriteReservationAudit).toHaveBeenCalledTimes(1);
@@ -360,7 +374,7 @@ describe('staleSessionCleanupHandler', () => {
     setStaleSessions([baseSession({ reservationId: 'rsv_1', stationIsOnline: false })]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     expect(log.warn).toHaveBeenCalledWith(
@@ -385,7 +399,7 @@ describe('staleSessionCleanupHandler', () => {
     ]);
     const log = makeLog();
 
-    const { staleSessionCleanupHandler } = await import('../../handlers/stale-session-cleanup.js');
+    const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
     expect(log.error).toHaveBeenCalledWith(

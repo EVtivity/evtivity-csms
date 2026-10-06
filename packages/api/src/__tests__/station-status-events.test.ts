@@ -6,9 +6,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const h = vi.hoisted(() => ({
   publish: vi.fn(async (_channel: string, _payload: string) => {}),
   isRoamingEnabled: vi.fn(async () => true),
+  alert: vi.fn(async (_sql: unknown, _pubsub: unknown, _stationUuid: string) => false),
+  client: { tag: 'client' },
 }));
 
-vi.mock('@evtivity/database', () => ({ isRoamingEnabled: h.isRoamingEnabled }));
+vi.mock('@evtivity/database', () => ({
+  isRoamingEnabled: h.isRoamingEnabled,
+  alertStationWatchersIfAvailable: h.alert,
+  client: h.client,
+}));
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: h.publish }) }));
 
 import { publishStationStatusChanged } from '../lib/station-status-events.js';
@@ -23,6 +29,8 @@ describe('publishStationStatusChanged', () => {
     h.publish.mockResolvedValue(undefined);
     h.isRoamingEnabled.mockReset();
     h.isRoamingEnabled.mockResolvedValue(true);
+    h.alert.mockReset();
+    h.alert.mockResolvedValue(false);
   });
 
   it('publishes station.status and an OCPI location push', async () => {
@@ -55,5 +63,22 @@ describe('publishStationStatusChanged', () => {
     const log = logger();
     await publishStationStatusChanged({ id: 'sta_1', siteId: 'sit_1' }, log as never);
     expect(log.warn).toHaveBeenCalledTimes(2);
+  });
+
+  // Enabling a station changes no connector status, so the watch alert must be
+  // evaluated here, on every availability change the API makes.
+  it('checks the station watches with the shared availability rule', async () => {
+    await publishStationStatusChanged({ id: 'sta_1', siteId: 'sit_1' });
+    expect(h.alert).toHaveBeenCalledWith(h.client, expect.objectContaining({}), 'sta_1');
+  });
+
+  it('logs and continues when the station watch check fails', async () => {
+    h.alert.mockRejectedValue(new Error('db down'));
+    const log = logger();
+    await publishStationStatusChanged({ id: 'sta_1', siteId: null }, log as never);
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationId: 'sta_1' }),
+      'Station-watch check failed',
+    );
   });
 });

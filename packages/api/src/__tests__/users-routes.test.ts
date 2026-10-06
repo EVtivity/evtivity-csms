@@ -189,6 +189,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { userRoutes } from '../routes/users.js';
+import * as argon2Module from 'argon2';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -882,7 +883,7 @@ describe('User routes', () => {
   });
 
   it('POST /v1/auth/force-change-password returns 401 when current password wrong', async () => {
-    const argon2 = await import('argon2');
+    const argon2 = argon2Module;
     vi.mocked(argon2.default.verify).mockResolvedValueOnce(false);
     setupDbResults([
       {

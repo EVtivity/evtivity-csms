@@ -124,6 +124,7 @@ vi.mock('../services/refresh-token.service.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { portalDriverRoutes } from '../routes/portal/driver.js';
+import * as argon2Module from 'argon2';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -322,7 +323,7 @@ describe('Portal driver routes - handler logic', () => {
     });
 
     it('returns 400 when current password is incorrect', async () => {
-      const argon2 = await import('argon2');
+      const argon2 = argon2Module;
       vi.mocked(argon2.default.verify).mockResolvedValueOnce(false);
 
       setupDbResults([{ passwordHash: '$argon2id$hashed' }]);
@@ -337,7 +338,7 @@ describe('Portal driver routes - handler logic', () => {
     });
 
     it('changes password successfully', async () => {
-      const argon2 = await import('argon2');
+      const argon2 = argon2Module;
       vi.mocked(argon2.default.verify).mockResolvedValueOnce(true);
 
       setupDbResults([{ passwordHash: '$argon2id$hashed' }], []);

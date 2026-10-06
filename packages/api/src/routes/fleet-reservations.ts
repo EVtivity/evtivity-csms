@@ -64,8 +64,10 @@ const createFleetReservationResponse = z
   .object({
     id: z.string().describe('Fleet reservation identifier'),
     status: z
-      .enum(['active', 'partial', 'failed'])
-      .describe('Aggregate status of the bulk operation'),
+      .enum(['active', 'partial', 'cancelled'])
+      .describe(
+        'Aggregate status of the bulk operation: cancelled when no slot was confirmed, partial when some were',
+      ),
     confirmed: z.number().int().min(0).describe('Number of slots confirmed by their stations'),
     failed: z.number().int().min(0).describe('Number of slots that failed or were rejected'),
     total: z.number().int().min(0).describe('Total number of slots requested'),
@@ -469,8 +471,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
       const confirmed = results.filter((r) => r.status === 'confirmed').length;
       const failed = results.filter((r) => r.status === 'rejected').length;
 
-      // Determine fleet reservation status
-      let aggregateStatus: string;
+      let aggregateStatus: z.infer<typeof createFleetReservationResponse>['status'];
       if (confirmed === 0) {
         aggregateStatus = 'cancelled';
       } else if (failed === 0) {

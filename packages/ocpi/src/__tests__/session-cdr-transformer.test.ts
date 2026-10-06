@@ -210,3 +210,72 @@ describe('OCPI Session id', () => {
     expect(transformCdr(input, '2.2.1').session_id).toBe('tx-legacy-1');
   });
 });
+
+describe('cdr_location', () => {
+  function withLocation(
+    changes: Partial<ReturnType<typeof cdrInput>['location']>,
+  ): Parameters<typeof transformCdr>[0] {
+    const input = cdrInput();
+    return { ...input, location: { ...input.location, ...changes } };
+  }
+
+  it('maps an AC Type 2 connector to a socket and leaves out a missing postal code and state', () => {
+    const loc = transformCdr(cdrInput(), '2.2.1').cdr_location;
+    expect(loc).toMatchObject({
+      connector_standard: 'IEC_62196_T2',
+      connector_format: 'SOCKET',
+      connector_power_type: 'AC_3_PHASE',
+    });
+    expect(loc.postal_code).toBeUndefined();
+    expect(loc.state).toBeUndefined();
+  });
+
+  it.each([
+    ['CCS2', 'IEC_62196_T2_COMBO'],
+    ['CCS1', 'IEC_62196_T1_COMBO'],
+    ['CHAdeMO', 'CHADEMO'],
+    ['GBT', 'IEC_62196_T2'],
+  ])('maps DC connector %s to %s with a cable', (connectorType, standard) => {
+    expect(transformCdr(withLocation({ connectorType }), '2.2.1').cdr_location).toMatchObject({
+      connector_standard: standard,
+      connector_format: 'CABLE',
+      connector_power_type: 'DC',
+    });
+  });
+
+  it('defaults an unknown connector type to a Type 2 three-phase cable', () => {
+    expect(transformCdr(withLocation({ connectorType: null }), '2.2.1').cdr_location).toMatchObject(
+      {
+        connector_standard: 'IEC_62196_T2',
+        connector_format: 'CABLE',
+        connector_power_type: 'AC_3_PHASE',
+      },
+    );
+    expect(
+      transformCdr(withLocation({ connectorType: 'Type1' }), '2.2.1').cdr_location,
+    ).toMatchObject({ connector_standard: 'IEC_62196_T1', connector_format: 'SOCKET' });
+  });
+
+  it('fills missing address fields with defaults and copies postal code and state', () => {
+    const loc = transformCdr(
+      withLocation({
+        address: null,
+        city: null,
+        country: null,
+        latitude: null,
+        longitude: null,
+        postalCode: '10115',
+        state: 'BE',
+      }),
+      '2.2.1',
+    ).cdr_location;
+    expect(loc).toMatchObject({
+      address: 'Unknown',
+      city: 'Unknown',
+      country: 'US',
+      coordinates: { latitude: '0', longitude: '0' },
+      postal_code: '10115',
+      state: 'BE',
+    });
+  });
+});

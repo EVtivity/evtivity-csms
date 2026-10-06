@@ -49,13 +49,16 @@ function makeChain() {
   return chain;
 }
 
-const { mockRecordSessionEndRequest } = vi.hoisted(() => ({
+const { mockRecordSessionEndRequest, mockAvailableEvseCountSql, mockSqlRaw } = vi.hoisted(() => ({
   mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
+  mockAvailableEvseCountSql: vi.fn((alias: string) => `AVAILABLE_EVSE_COUNT(${alias})`),
+  mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
 }));
 
 vi.mock('@evtivity/database', async () => ({
   SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
   recordSessionEndRequest: mockRecordSessionEndRequest,
+  availableEvseCountSql: mockAvailableEvseCountSql,
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
       '../../../database/src/lib/station-status.js',
@@ -109,7 +112,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
-  sql: vi.fn(),
+  sql: Object.assign(vi.fn(), { raw: mockSqlRaw }),
   desc: vi.fn(),
   count: vi.fn(),
   asc: vi.fn(),
@@ -211,6 +214,8 @@ import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
 import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 import { assertNoMaintenanceConflict } from '@evtivity/services/maintenance-check';
+import * as ocppCommandModule from '@evtivity/services/ocpp-command';
+import * as databaseModule from '@evtivity/database';
 
 const VALID_STATION_ID = 'sta_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
@@ -532,6 +537,49 @@ describe('Portal charger routes - handler logic', () => {
         url: '/portal/chargers/search',
       });
       expect(response.statusCode).toBe(400);
+    });
+
+    // An operator-disabled station whose connectors still report Available was
+    // counted as "3/3 available". The count must come from the shared rule.
+    it('counts available EVSEs with the shared driver availability rule', async () => {
+      setupDbResults([], []);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/search?q=CS',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(mockAvailableEvseCountSql).toHaveBeenCalledWith('charging_stations');
+      expect(mockSqlRaw).toHaveBeenCalledWith('AVAILABLE_EVSE_COUNT(charging_stations)');
+    });
+  });
+
+  describe('GET /v1/portal/chargers/nearby', () => {
+    it('counts available EVSEs with the shared driver availability rule', async () => {
+      setupDbResults(
+        [
+          {
+            stationId: 'CS-001',
+            stationUuid: 'uuid-001',
+            model: 'M1',
+            isOnline: true,
+            siteName: 'Site A',
+            siteAddress: null,
+            siteCity: null,
+            distanceKm: 1.23,
+            evseCount: 3,
+            availableCount: 0,
+          },
+        ],
+        [],
+      );
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/nearby?lat=30.2&lng=-97.7',
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()[0].availableCount).toBe(0);
+      expect(mockAvailableEvseCountSql).toHaveBeenCalledWith('charging_stations');
+      expect(mockSqlRaw).toHaveBeenCalledWith('AVAILABLE_EVSE_COUNT(charging_stations)');
     });
   });
 
@@ -1078,7 +1126,7 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('lets the OCPP server translate the stop for an OCPP 1.6 station', async () => {
-      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
+      const { sendOcppCommandAndWait } = ocppCommandModule;
       const sendMock = vi.mocked(sendOcppCommandAndWait);
       sendMock.mockClear();
       setupDbResults([
@@ -1113,7 +1161,7 @@ describe('Portal charger routes - handler logic', () => {
       });
       mockRecordSessionEndRequest.mockClear();
       mockPublish.mockClear();
-      const { db } = await import('@evtivity/database');
+      const { db } = databaseModule;
       vi.mocked(db.execute).mockClear();
       setupDbResults([
         { id: VALID_SESSION_ID, transactionId: 'tx-ghost', stationOcppId: 'CS-001' },

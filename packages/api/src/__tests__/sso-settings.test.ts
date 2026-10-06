@@ -134,6 +134,14 @@ async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let libModule: typeof import('@evtivity/lib');
+let databaseModule: typeof import('@evtivity/database');
+beforeAll(async () => {
+  libModule = await import('@evtivity/lib');
+  databaseModule = await import('@evtivity/database');
+}, 30_000);
+
 describe('SSO Settings routes', () => {
   let app: FastifyInstance;
   let token: string;
@@ -246,10 +254,10 @@ describe('SSO Settings routes', () => {
     const body = JSON.parse(response.body);
     expect(body.success).toBe(true);
 
-    const { encryptString } = await import('@evtivity/lib');
+    const { encryptString } = libModule;
     expect(encryptString).toHaveBeenCalledWith('PEM-CERT-DATA', expect.any(String));
 
-    const { clearSsoSettingsCache } = await import('@evtivity/database');
+    const { clearSsoSettingsCache } = databaseModule;
     expect(clearSsoSettingsCache).toHaveBeenCalled();
   });
 
@@ -276,7 +284,7 @@ describe('SSO Settings routes', () => {
     const body = JSON.parse(response.body);
     expect(body.success).toBe(true);
 
-    const { encryptString } = await import('@evtivity/lib');
+    const { encryptString } = libModule;
     // Since cert is omitted, encryptString should not have been called for cert data
     const calls = vi.mocked(encryptString).mock.calls;
     expect(calls.filter((c) => typeof c[0] === 'string' && c[0] !== 'PEM-CERT-DATA').length).toBe(

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // `client` is the postgres tagged-template fn. Each tagged-template call in the
@@ -44,6 +44,14 @@ function settingsRows(
   return rows;
 }
 
+// The module is imported after the mocks above are initialized. The first import loads the
+// whole module graph, which under coverage on a busy machine took longer than one test's
+// 5 s timeout, so it happens once here with its own timeout instead of inside the first test.
+let mod: typeof import('../../handlers/certificate-expiration-check.js');
+beforeAll(async () => {
+  mod = await import('../../handlers/certificate-expiration-check.js');
+}, 30_000);
+
 describe('certificateExpirationCheckHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -55,8 +63,7 @@ describe('certificateExpirationCheckHandler', () => {
   it('returns early without touching the DB when PnC is disabled', async () => {
     mockClient.mockResolvedValueOnce(settingsRows(false));
 
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
     // Only the settings SELECT ran. No expiry UPDATE/SELECT, no publishes.
@@ -68,8 +75,7 @@ describe('certificateExpirationCheckHandler', () => {
     // No pnc.enabled row at all -> Map.get returns undefined !== true.
     mockClient.mockResolvedValueOnce([]);
 
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
     expect(mockClient).toHaveBeenCalledTimes(1);
@@ -84,8 +90,7 @@ describe('certificateExpirationCheckHandler', () => {
       .mockResolvedValueOnce([]) // critical certs
       .mockResolvedValueOnce([]); // warning certs
 
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
     expect(mockClient).toHaveBeenCalledTimes(5);
@@ -102,8 +107,7 @@ describe('certificateExpirationCheckHandler', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
     expect(log.info).not.toHaveBeenCalledWith(
@@ -136,8 +140,7 @@ describe('certificateExpirationCheckHandler', () => {
       ])
       .mockResolvedValueOnce([]);
 
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(2);
@@ -174,8 +177,7 @@ describe('certificateExpirationCheckHandler', () => {
         { station_id: 'sta_2', station_ocpp_id: 'CS-2', site_id: null },
       ]);
 
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(2);
@@ -210,8 +212,7 @@ describe('certificateExpirationCheckHandler', () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
     expect(log.info).not.toHaveBeenCalledWith(
@@ -229,8 +230,7 @@ describe('certificateExpirationCheckHandler', () => {
       .mockResolvedValueOnce([]);
 
     const before = Date.now();
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
     const after = Date.now();
 
@@ -262,8 +262,7 @@ describe('certificateExpirationCheckHandler', () => {
       .mockResolvedValueOnce([]);
 
     const before = Date.now();
-    const { certificateExpirationCheckHandler } =
-      await import('../../handlers/certificate-expiration-check.js');
+    const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
     const after = Date.now();
 

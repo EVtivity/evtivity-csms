@@ -2,7 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { isStartable, isEvseSelectable, type SelectableEvse } from '../connector-status';
+import {
+  isStartable,
+  isEvseSelectable,
+  connectorStatusVariant,
+  connectorStatusClassName,
+  type SelectableEvse,
+} from '../connector-status';
 
 function evse(status: string | null, reservationDriverId: string | null = null): SelectableEvse {
   return { connectors: [{ status }], reservationDriverId };
@@ -90,5 +96,30 @@ describe('isEvseSelectable (reserve mode)', () => {
     expect(isEvseSelectable(evse('available'), { ...reserveOnline, maintenanceActive: true })).toBe(
       false,
     );
+  });
+});
+
+describe('connectorStatusClassName', () => {
+  it.each([
+    ['available', 'bg-green-500'],
+    ['finishing', 'bg-violet-500'],
+    ['occupied', 'bg-blue-500'],
+    ['charging', 'bg-blue-500'],
+    ['discharging', 'bg-blue-500'],
+    ['preparing', 'bg-cyan-500'],
+    ['ev_connected', 'bg-cyan-500'],
+    ['reserved', 'bg-orange-500'],
+    ['suspended_ev', 'bg-yellow-500'],
+    ['suspended_evse', 'bg-yellow-500'],
+    ['idle', 'bg-yellow-500'],
+    ['faulted', 'bg-red-500'],
+    ['unavailable', 'bg-red-500'],
+    ['something_new', 'bg-red-500'],
+  ])('%s uses %s', (status, cls) => {
+    expect(connectorStatusClassName(status).split(' ')[0]).toBe(cls);
+  });
+
+  it('always uses the secondary badge variant', () => {
+    expect(connectorStatusVariant()).toBe('secondary');
   });
 });

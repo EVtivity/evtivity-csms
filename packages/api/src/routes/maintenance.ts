@@ -17,7 +17,7 @@ import {
   sites,
 } from '@evtivity/database';
 import { AppError } from '@evtivity/lib';
-import { zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import {
   itemResponse,
@@ -487,7 +487,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId } = request.params as z.infer<typeof siteIdParams>;
-      const body = request.body as z.infer<typeof createBody>;
+      const body = parseZodRequest(createBody, request.body);
       const { userId } = request.user as { userId: string };
       if (!(await checkSiteAccess(siteId, userId))) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
@@ -522,9 +522,8 @@ export function maintenanceRoutes(app: FastifyInstance): void {
       // Fastify validates request bodies against JSON Schema derived from the
       // Zod schema, which strips `coerce` semantics — datetimes arrive as
       // strings, not Dates. Coerce manually here before handing off.
-      const plannedStartAt =
-        body.eventType === 'immediate' ? new Date() : new Date(body.plannedStartAt);
-      const plannedEndAt = new Date(body.plannedEndAt);
+      const plannedStartAt = body.eventType === 'immediate' ? new Date() : body.plannedStartAt;
+      const plannedEndAt = body.plannedEndAt;
       try {
         const created = await createEvent(
           {
@@ -632,7 +631,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId, id } = request.params as z.infer<typeof eventIdParams>;
-      const body = request.body as z.infer<typeof patchBody>;
+      const body = parseZodRequest(patchBody, request.body);
       const { userId } = request.user as { userId: string };
       if (!(await checkSiteAccess(siteId, userId))) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
@@ -672,12 +671,8 @@ export function maintenanceRoutes(app: FastifyInstance): void {
         return await updateEvent(
           id,
           {
-            ...(body.plannedStartAt !== undefined
-              ? { plannedStartAt: new Date(body.plannedStartAt) }
-              : {}),
-            ...(body.plannedEndAt !== undefined
-              ? { plannedEndAt: new Date(body.plannedEndAt) }
-              : {}),
+            ...(body.plannedStartAt !== undefined ? { plannedStartAt: body.plannedStartAt } : {}),
+            ...(body.plannedEndAt !== undefined ? { plannedEndAt: body.plannedEndAt } : {}),
             ...(body.affectedStationIds !== undefined
               ? { affectedStationIds: body.affectedStationIds }
               : {}),
@@ -986,8 +981,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId } = request.params as z.infer<typeof siteIdParams>;
-      const rawQ = request.query as { startAt: string; endAt: string };
-      const q = { startAt: new Date(rawQ.startAt), endAt: new Date(rawQ.endAt) };
+      const q = parseZodRequest(stationPreviewQuery, request.query);
       const { userId } = request.user as { userId: string };
       if (!(await checkSiteAccess(siteId, userId))) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
@@ -1124,11 +1118,10 @@ export function maintenancePreviewRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const body = request.body as z.infer<typeof previewMessageBody>;
+      const body = parseZodRequest(previewMessageBody, request.body);
       const tpl = body.template ?? (await getDefaultMessageTemplate());
       const compiled = Handlebars.compile(tpl, { noEscape: true });
-      const endTime =
-        body.endTime != null ? new Date(body.endTime) : new Date(Date.now() + 60 * 60 * 1000);
+      const endTime = body.endTime ?? new Date(Date.now() + 60 * 60 * 1000);
       const durationMinutes =
         body.durationMinutes ?? Math.round((endTime.getTime() - Date.now()) / 60_000);
       const rendered = compiled({

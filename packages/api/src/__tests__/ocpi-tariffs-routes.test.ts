@@ -251,6 +251,15 @@ describe('OCPI tariff mapping routes', () => {
       });
     });
 
+    it('trims the OCPI tariff id before storing and pushing it', async () => {
+      setupDbResults([{ id: 'trf_000000000001' }], [], [{ id: 7 }], [makeMapping({ id: 7 })]);
+      const res = await post({ ocpiTariffId: '  T-1  ', tariffId: 'trf_000000000001' });
+      expect(res.statusCode).toBe(201);
+      expect(publishOcpiTariffPush).toHaveBeenCalledWith({
+        targets: [{ partnerId: null, ocpiTariffId: 'T-1' }],
+      });
+    });
+
     it('rejects a mapping without a source or with both', async () => {
       for (const payload of [
         { ocpiTariffId: 'T-1' },
@@ -326,6 +335,31 @@ describe('OCPI tariff mapping routes', () => {
         url: '/ocpi/tariff-mappings/1',
         headers: { authorization: `Bearer ${token}` },
         payload: { pricingGroupId: 'pgr_000000000001', ocpiTariffId: 'NEW-1' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(publishOcpiTariffPush).toHaveBeenCalledWith({
+        targets: [
+          { partnerId: null, ocpiTariffId: 'NEW-1' },
+          { partnerId: null, ocpiTariffId: 'OLD-1' },
+        ],
+      });
+    });
+
+    it('trims the OCPI tariff id before storing and pushing it', async () => {
+      const existing = {
+        id: 1,
+        tariffId: 'trf_000000000001',
+        pricingGroupId: null,
+        partnerId: null,
+        ocpiTariffId: 'OLD-1',
+      };
+      // existing, id free, update, reload
+      setupDbResults([existing], [], [], [makeMapping({ ocpiTariffId: 'NEW-1' })]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/ocpi/tariff-mappings/1',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { ocpiTariffId: '  NEW-1 ' },
       });
       expect(res.statusCode).toBe(200);
       expect(publishOcpiTariffPush).toHaveBeenCalledWith({

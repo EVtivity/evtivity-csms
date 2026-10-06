@@ -155,6 +155,7 @@ import {
   DuplicateTokenError,
 } from '../services/token.service.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
+import * as databaseModule from '@evtivity/database';
 
 beforeEach(() => {
   dbResults = [];
@@ -335,7 +336,7 @@ describe('createToken', () => {
     // dup pre-check returns empty, but the insert throws a unique-violation as
     // a concurrent insert won the TOCTOU race.
     setupDbResults([]);
-    const { db } = await import('@evtivity/database');
+    const { db } = databaseModule;
     const uniqueErr = Object.assign(new Error('duplicate key'), { code: '23505' });
     vi.mocked(db.insert).mockImplementationOnce(
       () =>
@@ -353,7 +354,7 @@ describe('createToken', () => {
 
   it('rethrows non-unique-violation insert errors', async () => {
     setupDbResults([]);
-    const { db } = await import('@evtivity/database');
+    const { db } = databaseModule;
     const otherErr = new Error('connection lost');
     vi.mocked(db.insert).mockImplementationOnce(
       () =>

@@ -14,6 +14,7 @@ import {
   sites,
   reservations,
   writeAudit,
+  alertStationWatchersIfAvailable,
 } from '@evtivity/database';
 import { dispatchDriverNotification, AppError, renderMaintenanceMessage } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -856,6 +857,18 @@ async function runReleaseStations(
     'maintenance release side effects complete',
   );
   invalidateMaintenanceCheckCache();
+  // The window no longer covers these stations, which changes no connector
+  // status, so watching drivers are alerted here for each station that is now
+  // free by the shared driver availability rule (a disabled one is not).
+  // Per-station fail-open: the release is stored.
+  const pubsub = getPubSub();
+  await mapWithConcurrency(stations, STATION_FANOUT_CONCURRENCY, async (station) => {
+    try {
+      await alertStationWatchersIfAvailable(client, pubsub, station.id);
+    } catch (err) {
+      logger?.warn({ err, stationId: station.stationId }, 'maintenance station-watch check failed');
+    }
+  });
   await publishStateChange(event.siteId, event.id);
 }
 

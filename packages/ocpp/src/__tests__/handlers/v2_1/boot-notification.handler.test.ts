@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
 
@@ -71,6 +71,13 @@ const bootPayload = {
   },
 };
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let bootNotificationHandlerModule: typeof import('../../../handlers/v2_1/boot-notification.handler.js');
+beforeAll(async () => {
+  bootNotificationHandlerModule =
+    await import('../../../handlers/v2_1/boot-notification.handler.js');
+}, 30_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   whereResult = [];
@@ -80,8 +87,7 @@ beforeEach(() => {
 
 describe('v2_1 BootNotification handler', () => {
   it('publishes ocpp.BootNotification with normalized station fields', async () => {
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx, publishMock } = makeCtx(bootPayload);
     await handleBootNotification(ctx);
 
@@ -103,8 +109,7 @@ describe('v2_1 BootNotification handler', () => {
 
   it('accepts and returns the configured heartbeat interval when stationDbId is null', async () => {
     getHeartbeatIntervalSecondsMock.mockResolvedValue(120);
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx } = makeCtx(bootPayload);
     const response = await handleBootNotification(ctx);
 
@@ -116,8 +121,7 @@ describe('v2_1 BootNotification handler', () => {
   });
 
   it('handles a boot payload with no modem (iccid/imsi undefined)', async () => {
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx, publishMock } = makeCtx({
       reason: 'PowerUp',
       chargingStation: { vendorName: 'V', model: 'M' },
@@ -133,8 +137,7 @@ describe('v2_1 BootNotification handler', () => {
 
   it('accepts an onboarded station (status not blocked/pending)', async () => {
     whereResult = [{ onboardingStatus: 'accepted' }];
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx } = makeCtx(bootPayload, 'sta_1');
     const response = await handleBootNotification(ctx);
 
@@ -145,8 +148,7 @@ describe('v2_1 BootNotification handler', () => {
 
   it('rejects a blocked station', async () => {
     whereResult = [{ onboardingStatus: 'blocked' }];
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx } = makeCtx(bootPayload, 'sta_2');
     const response = await handleBootNotification(ctx);
 
@@ -158,8 +160,7 @@ describe('v2_1 BootNotification handler', () => {
   it('returns Pending for a pending station when policy is approval-required', async () => {
     whereResult = [{ onboardingStatus: 'pending' }];
     getRegistrationPolicyMock.mockResolvedValue('approval-required');
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx } = makeCtx(bootPayload, 'sta_3');
     const response = await handleBootNotification(ctx);
 
@@ -170,8 +171,7 @@ describe('v2_1 BootNotification handler', () => {
   it('accepts a pending station when policy is auto-approve', async () => {
     whereResult = [{ onboardingStatus: 'pending' }];
     getRegistrationPolicyMock.mockResolvedValue('auto-approve');
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx } = makeCtx(bootPayload, 'sta_4');
     const response = await handleBootNotification(ctx);
 
@@ -181,8 +181,7 @@ describe('v2_1 BootNotification handler', () => {
 
   it('accepts when the station row is not found (undefined onboardingStatus)', async () => {
     whereResult = [];
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx } = makeCtx(bootPayload, 'sta_missing');
     const response = await handleBootNotification(ctx);
 
@@ -192,8 +191,7 @@ describe('v2_1 BootNotification handler', () => {
 
   it('fails closed to Pending when the onboarding lookup throws', async () => {
     whereResult = new Error('db unreachable');
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx } = makeCtx(bootPayload, 'sta_5');
     const response = await handleBootNotification(ctx);
 
@@ -203,8 +201,7 @@ describe('v2_1 BootNotification handler', () => {
 
   it('fails closed to Pending when the lookup rejects with a non-Error value', async () => {
     whereFn.mockRejectedValueOnce('string failure');
-    const { handleBootNotification } =
-      await import('../../../handlers/v2_1/boot-notification.handler.js');
+    const { handleBootNotification } = bootNotificationHandlerModule;
     const { ctx } = makeCtx(bootPayload, 'sta_6');
     const response = await handleBootNotification(ctx);
 

@@ -212,6 +212,7 @@ vi.mock('../lib/site-access.js', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { siteRoutes } from '../routes/sites.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+import * as sessionRevenueModule from '@evtivity/services/session-revenue';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -714,7 +715,7 @@ describe('Site routes - handler logic', () => {
   describe('GET /v1/sites/:id/revenue-history', () => {
     it('returns daily revenue history zero-filled across the range', async () => {
       setupDbResults([{ timezone: 'UTC' }]);
-      const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
+      const { aggregateRevenueRows } = sessionRevenueModule;
       mockQueryRevenue.mockResolvedValueOnce(
         aggregateRevenueRows([
           { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 10 },
@@ -824,7 +825,7 @@ describe('Site routes - handler logic', () => {
       const utilizationStats = { sessionHours: 15, portCount: 4 };
       const financialStats = { totalElectricityCostCents: 5000 };
       // Revenue: 20 sessions of 1070 at 7%, 3600 at 20%, and a 595 fee at 19%.
-      const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
+      const { aggregateRevenueRows } = sessionRevenueModule;
       mockQueryRevenue.mockResolvedValueOnce(
         aggregateRevenueRows([
           { key: null, taxRate: '0.07', grossCents: 1070, source: 'session', count: 20 },

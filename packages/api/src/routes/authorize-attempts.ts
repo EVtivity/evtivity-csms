@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, ilike, sql, desc, gte, lte } from 'drizzle-orm';
 import { db, authorizeAttempts, chargingStations, chargingSessions } from '@evtivity/database';
-import { zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { paginatedResponse } from '../lib/response-schemas.js';
 import { authorize } from '../middleware/rbac.js';
@@ -93,7 +93,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
         outcome,
         from,
         to,
-      } = request.query as z.infer<typeof listQuery>;
+      } = parseZodRequest(listQuery, request.query);
       const offset = (page - 1) * limit;
 
       const conditions = [];

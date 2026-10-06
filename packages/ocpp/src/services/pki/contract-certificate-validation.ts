@@ -144,7 +144,17 @@ async function checkRevocation(
       if (local != null) return local;
       if (entry.responderURL === '') return 'error' as const;
       const result = await provider.getOcspStatus(entry);
-      if (result.status !== 'Accepted') return 'error' as const;
+      if (result.status !== 'Accepted') {
+        logger.warn(
+          {
+            serialNumber: entry.serialNumber,
+            responderURL: entry.responderURL,
+            reason: result.reason,
+          },
+          'Contract certificate OCSP status request failed',
+        );
+        return 'error' as const;
+      }
       try {
         return verifyOcspResponse(Buffer.from(result.ocspResult, 'base64'), entry, knownIssuers);
       } catch (err) {

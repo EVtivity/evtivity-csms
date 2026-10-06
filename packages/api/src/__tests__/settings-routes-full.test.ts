@@ -203,6 +203,12 @@ async function buildApp(): Promise<FastifyInstance> {
   return app;
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let libModule: typeof import('@evtivity/lib');
+beforeAll(async () => {
+  libModule = await import('@evtivity/lib');
+}, 30_000);
+
 describe('Settings routes - full coverage', () => {
   let app: FastifyInstance;
   let operatorToken: string;
@@ -824,7 +830,7 @@ describe('Settings routes - full coverage', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json().success).toBe(true);
 
-      const { encryptString } = await import('@evtivity/lib');
+      const { encryptString } = libModule;
       expect(encryptString).toHaveBeenCalledWith('AKIA123', 'test-encryption-key-32chars!!!!!');
       expect(encryptString).toHaveBeenCalledWith('secret123', 'test-encryption-key-32chars!!!!!');
       expect(mockClearS3ConfigCache).toHaveBeenCalled();

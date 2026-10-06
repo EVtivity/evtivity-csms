@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
-import { client } from '@evtivity/database';
+import { client, claimStationWatches } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -14,8 +14,9 @@ interface StationRow {
 
 /**
  * Dispatches the station-watch availability alert. Claims all active watches
- * for the station with a single DELETE ... RETURNING so the alert is one-shot
- * and safe against concurrent workers, then notifies each watching driver
+ * for the station with a single DELETE ... RETURNING, only while the station is
+ * free by the shared driver availability rule, so the alert is one-shot and
+ * safe against concurrent workers and duplicate signals, then notifies each watching driver
  * through their existing notification preferences.
  */
 export async function handleStationWatchDispatch(stationId: string, logger: Logger): Promise<void> {
@@ -33,24 +34,21 @@ export async function handleStationWatchDispatch(stationId: string, logger: Logg
   }
 
   // Claim the watches in one statement: the rows are deleted as they are read,
-  // so the alert fires once and two workers cannot double-send.
-  const claimed = (await client`
-    DELETE FROM station_watches
-    WHERE station_id = (SELECT id FROM charging_stations WHERE station_id = ${stationId})
-      AND expires_at > now()
-    RETURNING driver_id
-  `) as unknown as { driver_id: string }[];
+  // so the alert fires once and two workers cannot double-send. The claim
+  // applies the shared driver availability rule, so a stale signal for a
+  // station that is no longer free alerts nobody and keeps the watches.
+  const claimed = await claimStationWatches(client, stationId);
 
   if (claimed.length === 0) return;
 
   const pubsub = getPubSub();
-  for (const row of claimed) {
+  for (const driverId of claimed) {
     // dispatchDriverNotification is fail-open internally (warn + continue), so
     // one driver's delivery failure never blocks the rest.
     await dispatchDriverNotification(
       client,
       'watch.StationAvailable',
-      row.driver_id,
+      driverId,
       {
         stationId: station.station_id,
         stationName: station.station_id,

@@ -321,7 +321,7 @@ export function carbonRoutes(app: FastifyInstance): void {
           'Content-Disposition',
           'attachment; filename="sustainability-report.csv"',
         );
-        return 'Month,Site,CO₂ Avoided (kg),Energy (kWh),Sessions';
+        return buildCsv(['Month', 'Site', 'CO₂ Avoided (kg)', 'Energy (kWh)', 'Sessions'], []);
       }
 
       // Aggregate in SQL instead of pulling every session into JS. A

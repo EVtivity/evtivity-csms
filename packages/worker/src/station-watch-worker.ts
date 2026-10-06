@@ -15,11 +15,11 @@ interface StationWatchJobData {
 
 /**
  * Subscribes to the station_watch_available pub/sub channel (published by the
- * OCPP server when a station transitions to having a free connector) and
- * enqueues a dispatch job. No deterministic jobId: the projection's
- * previousDbStatus guard already prevents the same edge from firing twice, and
- * the dispatch claims watches via DELETE ... RETURNING, so a duplicate job just
- * no-ops. A static per-station jobId would instead drop a later legitimate fire
+ * API, OCPP and worker paths that can free a station, through
+ * alertStationWatchersIfAvailable) and enqueues a dispatch job. No
+ * deterministic jobId: several paths may signal the same change, and the
+ * dispatch claims watches via DELETE ... RETURNING under the shared
+ * availability rule, so a duplicate job just no-ops. A static per-station jobId would instead drop a later legitimate fire
  * for the same station while an earlier completed job is still retained.
  */
 export async function startStationWatchBridge(

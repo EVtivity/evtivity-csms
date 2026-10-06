@@ -92,6 +92,7 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { authorizeAttemptRoutes } from '../routes/authorize-attempts.js';
 import { registerAuth } from '../plugins/auth.js';
+import * as drizzleOrmModule from 'drizzle-orm';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -163,6 +164,23 @@ describe('Authorize attempts route', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().data).toEqual([]);
       expect(response.json().total).toBe(0);
+    });
+
+    it('filters by from/to as Date values, not the raw query strings', async () => {
+      const { gte, lte } = drizzleOrmModule;
+      setupDbResults([], [{ count: 0 }]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/authorize-attempts?from=2026-01-01T00:00:00Z&to=2026-01-31T23:59:59Z',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+
+      expect(response.statusCode).toBe(200);
+      // The timestamp column serializes its parameter with toISOString(), so a
+      // string here fails at query time.
+      expect(gte).toHaveBeenCalledWith('createdAt', new Date('2026-01-01T00:00:00Z'));
+      expect(lte).toHaveBeenCalledWith('createdAt', new Date('2026-01-31T23:59:59Z'));
     });
 
     it('rejects invalid outcome enum values', async () => {

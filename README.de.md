@@ -7,8 +7,9 @@
 <p align="center">
   <a href="https://github.com/EVtivity/evtivity-csms/releases/latest"><img src="https://img.shields.io/github/v/release/EVtivity/evtivity-csms?label=Release&color=4ade80" alt="Release" /></a>
   <a href="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml"><img src="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FEVtivity%2Fevtivity-csms%2Fbadges%2Fcoverage.json" alt="Coverage" /></a>
   <a href="https://github.com/EVtivity/evtivity-csms/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
-  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6.svg" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/TypeScript-6.x-3178C6.svg" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js-%3E%3D24-339933.svg" alt="Node.js" />
   <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.1-4ade80.svg" alt="OCPP" />
   <img src="https://img.shields.io/badge/OCPI-2.2.1%20%7C%202.3.0-4ade80.svg" alt="OCPI" />
@@ -246,6 +247,24 @@ Mit dem Helm-Chart wird jeder Dienst über eine eigene Subdomain via Gateway API
 | API-Dokumentation  | https://api.your-domain.com/docs   | 443         | 3001          |
 
 Alle Hostnamen teilen sich eine einzige Load-Balancer-IP. DNS-Einträge für jeden Hostnamen müssen auf diese IP zeigen. OCPP TLS (Port 8443) wird als separater `LoadBalancer`-Dienst für direkte Stationsverbindungen mit Security Profile 3 (mTLS) bereitgestellt.
+
+## Skills
+
+[EVtivity Agent Skills](https://github.com/EVtivity/evtivity-skills) bringen Ihrem KI-Coding-Agenten bei, mit EVtivity zu arbeiten. Sie folgen dem offenen Standard [Agent Skills](https://agentskills.io), daher funktionieren dieselben Skills in Claude Code, Codex, GitHub Copilot, Gemini CLI, Cursor und weiteren Agenten.
+
+| Skill                   | Hilft Ihnen                                                                               |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| `evtivity-setup`        | EVtivity mit Docker Compose aufsetzen, den Stack prüfen und sich anmelden                 |
+| `evtivity-troubleshoot` | Einen fehlerhaften Dienst, eine Stationsverbindung oder eine Anmeldung finden und beheben |
+| `evtivity-report-issue` | Version und bereinigte Logs sammeln und ein GitHub-Issue entwerfen                        |
+
+Für jeden Agenten installieren:
+
+```bash
+npx skills add EVtivity/evtivity-skills
+```
+
+Skill-Releases verwenden dieselben Tags wie EVtivity. Installieren Sie den Tag, der zu Ihrem Deployment passt. Pull Requests und Diskussionen zu neuen Skills sind willkommen.
 
 ## Lizenz
 

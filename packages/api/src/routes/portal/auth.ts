@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, isNull, isNotNull, ilike } from 'drizzle-orm';
+import { eq, and, isNull, isNotNull } from 'drizzle-orm';
 import argon2 from 'argon2';
 import {
   db,
@@ -23,6 +23,7 @@ import {
 } from '@evtivity/lib';
 import { setAuthCookies, clearAuthCookies, isSecureRequest } from '../../lib/auth-cookies.js';
 import { zodSchema } from '../../lib/zod-schema.js';
+import { emailEquals } from '../../lib/email-match.js';
 import { generateUserToken, hashUserToken } from '../../lib/user-token.js';
 import { validatePasswordComplexity } from '../../lib/password-validation.js';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
@@ -270,11 +271,11 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         if (!recaptchaOk) return;
       }
 
-      // Use ilike so jane@x.com cannot register again as Jane@x.com.
+      // Case-insensitive exact match so jane@x.com cannot register again as Jane@x.com.
       const [existing] = await db
         .select({ id: drivers.id })
         .from(drivers)
-        .where(ilike(drivers.email, body.email));
+        .where(emailEquals(drivers.email, body.email));
 
       if (existing != null) {
         await reply.status(409).send({ error: 'Email already registered', code: 'EMAIL_EXISTS' });
@@ -297,7 +298,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           })
           .returning(driverSelect);
       } catch (err) {
-        // The application-level ilike check above is non-transactional, so two
+        // The application-level email check above is non-transactional, so two
         // concurrent registrations with the same email both reach this INSERT.
         // The partial unique index on LOWER(email) (migration 0052) makes the
         // loser 23505; map it back to 409 EMAIL_EXISTS instead of leaking 500.
@@ -397,8 +398,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         if (!recaptchaOk) return;
       }
 
-      // Use ilike so a driver who registered as Jane@x.com can log in
-      // typing jane@x.com. The register path already uses ilike for the
+      // Case-insensitive match so a driver who registered as Jane@x.com can log in
+      // typing jane@x.com. The register path uses the same match for the
       // duplicate check, so login must match for the round-trip to work.
       // A driver an operator created has no password until they accept a
       // portal invite.
@@ -407,7 +408,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         .from(drivers)
         .where(
           and(
-            ilike(drivers.email, email),
+            emailEquals(drivers.email, email),
             isNotNull(drivers.passwordHash),
             eq(drivers.isActive, true),
           ),
@@ -875,7 +876,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         if (!recaptchaOk) return;
       }
 
-      // Match register/login path: ilike so a driver who registered with
+      // Match register/login path: case-insensitive so a driver who registered with
       // Jane@x.com can recover via jane@x.com. A driver without a password
       // gets no reset email, so knowing their address cannot take over the
       // record. The operator grants first access with a portal invite.
@@ -891,7 +892,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         .from(drivers)
         .where(
           and(
-            ilike(drivers.email, email),
+            emailEquals(drivers.email, email),
             isNotNull(drivers.passwordHash),
             eq(drivers.isActive, true),
           ),

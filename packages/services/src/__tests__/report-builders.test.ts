@@ -87,6 +87,29 @@ describe('buildXlsx', () => {
     await workbook.xlsx.load(new Uint8Array(data).buffer);
     expect(workbook.getWorksheet('S').getRow(2).getCell(1).numFmt).toBe('#,##0');
   });
+
+  it('neutralises formula text, keeps raw numbers, and keeps empty separator rows', async () => {
+    const data = await buildXlsx([
+      {
+        name: 'S',
+        headers: ['label', 'count'],
+        rows: [['=HYPERLINK("http://x")', 7], [], ['plain', null]],
+      },
+    ]);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(new Uint8Array(data).buffer);
+    const sheet = workbook.getWorksheet('S');
+
+    const label = sheet.getRow(2).getCell(1).value;
+    expect(typeof label).toBe('string');
+    expect(label).not.toMatch(/^=/);
+    expect(label).toContain('HYPERLINK');
+    expect(sheet.getRow(2).getCell(2).value).toBe(7);
+    expect(sheet.getRow(2).getCell(2).numFmt).toBeUndefined();
+    // The empty row stays as a separator; the next data row follows it.
+    expect(sheet.getRow(3).cellCount).toBe(0);
+    expect(sheet.getRow(4).getCell(1).value).toBe('plain');
+  });
 });
 
 describe('PdfReportBuilder', () => {
@@ -115,5 +138,28 @@ describe('PdfReportBuilder', () => {
         .build();
       expect(pdfParts(pdf).fonts).toEqual(expected);
     }
+  });
+
+  it('writes a subtitle and breaks a long table onto new pages', async () => {
+    const pageCount = (pdf: Buffer): number =>
+      [...pdf.toString('latin1').matchAll(/\/Type \/Page\b/g)].length;
+
+    const short = await new PdfReportBuilder('en')
+      .addTitle('Sessions')
+      .addSubtitle('2026-01-01 to 2026-01-31')
+      .addTable(['Station', 'kWh'], [['CS-1', '1.0']])
+      .build();
+    expect(pageCount(short)).toBe(1);
+    expect(pdfParts(short).streams.toLowerCase()).toContain(hex('2026-01-01 to 2026-01-31'));
+
+    const rows = Array.from({ length: 80 }, (_, i) => [`CS-${String(i)}`, String(i)]);
+    const long = await new PdfReportBuilder('en')
+      .addTitle('Sessions')
+      .addSubtitle('All stations')
+      .addTable(['Station', 'kWh'], rows)
+      .build();
+    // A4 landscape fits about 25 rows of 18 pt per page.
+    expect(pageCount(long)).toBeGreaterThanOrEqual(3);
+    expect(pdfParts(long).streams.toLowerCase()).toContain(hex('CS-79'));
   });
 });

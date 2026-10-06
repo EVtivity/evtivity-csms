@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
+import * as logRetentionPruneModule from '../../handlers/log-retention-prune.js';
 
 const { mockPruneOldRows } = vi.hoisted(() => ({
   mockPruneOldRows: vi.fn(),
@@ -105,7 +106,7 @@ beforeEach(() => {
 describe('logRetentionPruneHandler', () => {
   it('applies each table default retention and cutoff column when no settings exist', async () => {
     settingRows = [];
-    const { logRetentionPruneHandler } = await import('../../handlers/log-retention-prune.js');
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
     await logRetentionPruneHandler(makeLog());
 
     expect(mockPruneOldRows).toHaveBeenCalledTimes(TABLE_DEFAULTS.length);
@@ -119,7 +120,7 @@ describe('logRetentionPruneHandler', () => {
   });
 
   it('targets the seven log tables in declaration order', async () => {
-    const { logRetentionPruneHandler } = await import('../../handlers/log-retention-prune.js');
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
     await logRetentionPruneHandler(makeLog());
     const targeted = mockPruneOldRows.mock.calls.map((c) => (c[0] as { table: string }).table);
     expect(targeted).toEqual(TABLE_DEFAULTS.map((t) => t.table));
@@ -130,7 +131,7 @@ describe('logRetentionPruneHandler', () => {
       { key: 'logs.access.retentionDays', value: 7 },
       { key: 'logs.securityEvents.retentionDays', value: 730 },
     ];
-    const { logRetentionPruneHandler } = await import('../../handlers/log-retention-prune.js');
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
     await logRetentionPruneHandler(makeLog());
 
     const accessCall = mockPruneOldRows.mock.calls.find(
@@ -145,7 +146,7 @@ describe('logRetentionPruneHandler', () => {
 
   it('falls back to the default when a setting value is a non-number (string)', async () => {
     settingRows = [{ key: 'logs.access.retentionDays', value: '15' }];
-    const { logRetentionPruneHandler } = await import('../../handlers/log-retention-prune.js');
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
     await logRetentionPruneHandler(makeLog());
 
     const accessCall = mockPruneOldRows.mock.calls.find(
@@ -156,7 +157,7 @@ describe('logRetentionPruneHandler', () => {
 
   it('skips a single table whose retention is zero while still pruning the rest', async () => {
     settingRows = [{ key: 'logs.notifications.retentionDays', value: 0 }];
-    const { logRetentionPruneHandler } = await import('../../handlers/log-retention-prune.js');
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
     const log = makeLog();
     await logRetentionPruneHandler(log);
 
@@ -171,7 +172,7 @@ describe('logRetentionPruneHandler', () => {
 
   it('skips a table whose retention is negative', async () => {
     settingRows = [{ key: 'logs.portStatus.retentionDays', value: -10 }];
-    const { logRetentionPruneHandler } = await import('../../handlers/log-retention-prune.js');
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
     await logRetentionPruneHandler(makeLog());
     const targeted = mockPruneOldRows.mock.calls.map((c) => (c[0] as { table: string }).table);
     expect(targeted).not.toContain('port_status_log');
@@ -188,7 +189,7 @@ describe('logRetentionPruneHandler', () => {
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0);
 
-    const { logRetentionPruneHandler } = await import('../../handlers/log-retention-prune.js');
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
     const log = makeLog();
     await logRetentionPruneHandler(log);
 

@@ -4,6 +4,39 @@
 import { describe, it, expect, vi } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
+import { handleBatterySwap } from '../handlers/v2_1/battery-swap.handler.js';
+import { handleClearedChargingLimit } from '../handlers/v2_1/cleared-charging-limit.handler.js';
+import { handleFirmwareStatusNotification } from '../handlers/v2_1/firmware-status-notification.handler.js';
+import { handleGet15118EVCertificate } from '../handlers/v2_1/get-15118-ev-certificate.handler.js';
+import { handleGetCertificateChainStatus } from '../handlers/v2_1/get-certificate-chain-status.handler.js';
+import { handleGetCertificateStatus } from '../handlers/v2_1/get-certificate-status.handler.js';
+import { handleLogStatusNotification } from '../handlers/v2_1/log-status-notification.handler.js';
+import { handleMeterValues } from '../handlers/v2_1/meter-values.handler.js';
+import { handleNotifyAllowedEnergyTransfer } from '../handlers/v2_1/notify-allowed-energy-transfer.handler.js';
+import { handleNotifyChargingLimit } from '../handlers/v2_1/notify-charging-limit.handler.js';
+import { handleNotifyCustomerInformation } from '../handlers/v2_1/notify-customer-information.handler.js';
+import { handleNotifyDERAlarm } from '../handlers/v2_1/notify-der-alarm.handler.js';
+import { handleNotifyDERStartStop } from '../handlers/v2_1/notify-der-start-stop.handler.js';
+import { handleNotifyDisplayMessages } from '../handlers/v2_1/notify-display-messages.handler.js';
+import { handleNotifyEVChargingNeeds } from '../handlers/v2_1/notify-ev-charging-needs.handler.js';
+import { handleNotifyEVChargingSchedule } from '../handlers/v2_1/notify-ev-charging-schedule.handler.js';
+import { handleNotifyEvent } from '../handlers/v2_1/notify-event.handler.js';
+import { handleNotifyMonitoringReport } from '../handlers/v2_1/notify-monitoring-report.handler.js';
+import { handleNotifyPeriodicEventStream } from '../handlers/v2_1/notify-periodic-event-stream.handler.js';
+import { handleNotifyPriorityCharging } from '../handlers/v2_1/notify-priority-charging.handler.js';
+import { handleNotifyReport } from '../handlers/v2_1/notify-report.handler.js';
+import { handleNotifySettlement } from '../handlers/v2_1/notify-settlement.handler.js';
+import { handlePublishFirmwareStatusNotification } from '../handlers/v2_1/publish-firmware-status-notification.handler.js';
+import { handlePullDynamicScheduleUpdate } from '../handlers/v2_1/pull-dynamic-schedule-update.handler.js';
+import { handleReportChargingProfiles } from '../handlers/v2_1/report-charging-profiles.handler.js';
+import { handleReportDERControl } from '../handlers/v2_1/report-der-control.handler.js';
+import { handleReservationStatusUpdate } from '../handlers/v2_1/reservation-status-update.handler.js';
+import { handleSecurityEventNotification } from '../handlers/v2_1/security-event-notification.handler.js';
+import { handleSignCertificate } from '../handlers/v2_1/sign-certificate.handler.js';
+import { handleStatusNotification } from '../handlers/v2_1/status-notification.handler.js';
+import { handleTransactionEvent } from '../handlers/v2_1/transaction-event.handler.js';
+import { handleVatNumberValidation } from '../handlers/v2_1/vat-number-validation.handler.js';
+import { isPncEnabled } from '@evtivity/database';
 
 // Mock isPncEnabled to return true for certificate handler tests, and stub
 // the Drizzle `db.select(...).from(...).where(...)` chain to return [] so
@@ -83,7 +116,6 @@ function makeCtx(
 
 describe('BatterySwap handler', () => {
   it('publishes event and returns Accepted', async () => {
-    const { handleBatterySwap } = await import('../handlers/v2_1/battery-swap.handler.js');
     const { ctx, publishMock } = makeCtx('BatterySwap', {
       eventType: 'Started',
       transactionId: 'tx-1',
@@ -99,8 +131,6 @@ describe('BatterySwap handler', () => {
 
 describe('ClearedChargingLimit handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleClearedChargingLimit } =
-      await import('../handlers/v2_1/cleared-charging-limit.handler.js');
     const { ctx, publishMock } = makeCtx('ClearedChargingLimit', {
       chargingLimitSource: 'EMS',
       evseId: 1,
@@ -115,8 +145,6 @@ describe('ClearedChargingLimit handler', () => {
 
 describe('FirmwareStatusNotification handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleFirmwareStatusNotification } =
-      await import('../handlers/v2_1/firmware-status-notification.handler.js');
     const { ctx, publishMock } = makeCtx('FirmwareStatusNotification', {
       status: 'Installed',
       requestId: 42,
@@ -131,8 +159,6 @@ describe('FirmwareStatusNotification handler', () => {
 
 describe('Get15118EVCertificate handler', () => {
   it('publishes event and returns Accepted with empty exiResponse', async () => {
-    const { handleGet15118EVCertificate } =
-      await import('../handlers/v2_1/get-15118-ev-certificate.handler.js');
     const { ctx, publishMock } = makeCtx('Get15118EVCertificate', {
       iso15118SchemaVersion: '2',
       action: 'Install',
@@ -148,8 +174,6 @@ describe('Get15118EVCertificate handler', () => {
 
 describe('GetCertificateChainStatus handler', () => {
   it('publishes event and returns certificateStatus array', async () => {
-    const { handleGetCertificateChainStatus } =
-      await import('../handlers/v2_1/get-certificate-chain-status.handler.js');
     const { ctx, publishMock } = makeCtx('GetCertificateChainStatus', {
       certificateStatusRequests: [
         {
@@ -187,8 +211,6 @@ describe('GetCertificateChainStatus handler', () => {
 
 describe('GetCertificateStatus handler', () => {
   it('publishes event and returns Accepted', async () => {
-    const { handleGetCertificateStatus } =
-      await import('../handlers/v2_1/get-certificate-status.handler.js');
     const { ctx, publishMock } = makeCtx('GetCertificateStatus', {
       ocspRequestData: { hashAlgorithm: 'SHA256' },
     });
@@ -202,8 +224,6 @@ describe('GetCertificateStatus handler', () => {
 
 describe('LogStatusNotification handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleLogStatusNotification } =
-      await import('../handlers/v2_1/log-status-notification.handler.js');
     const { ctx, publishMock } = makeCtx('LogStatusNotification', {
       status: 'Uploaded',
       requestId: 1,
@@ -218,7 +238,6 @@ describe('LogStatusNotification handler', () => {
 
 describe('MeterValues handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleMeterValues } = await import('../handlers/v2_1/meter-values.handler.js');
     const { ctx, publishMock } = makeCtx('MeterValues', {
       evseId: 1,
       meterValue: [{ timestamp: '2024-01-01T00:00:00Z', sampledValue: [] }],
@@ -233,8 +252,6 @@ describe('MeterValues handler', () => {
 
 describe('NotifyAllowedEnergyTransfer handler', () => {
   it('publishes event and returns Accepted', async () => {
-    const { handleNotifyAllowedEnergyTransfer } =
-      await import('../handlers/v2_1/notify-allowed-energy-transfer.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyAllowedEnergyTransfer', {
       allowedEnergyTransfer: ['AC_single_phase'],
     });
@@ -248,8 +265,6 @@ describe('NotifyAllowedEnergyTransfer handler', () => {
 
 describe('NotifyChargingLimit handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyChargingLimit } =
-      await import('../handlers/v2_1/notify-charging-limit.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyChargingLimit', {
       chargingLimit: { chargingLimitSource: 'EMS' },
     });
@@ -263,8 +278,6 @@ describe('NotifyChargingLimit handler', () => {
 
 describe('NotifyCustomerInformation handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyCustomerInformation } =
-      await import('../handlers/v2_1/notify-customer-information.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyCustomerInformation', {
       data: 'customer-info',
       seqNo: 0,
@@ -281,7 +294,6 @@ describe('NotifyCustomerInformation handler', () => {
 
 describe('NotifyDERAlarm handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyDERAlarm } = await import('../handlers/v2_1/notify-der-alarm.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyDERAlarm', {
       controlType: 'FreqDroop',
       gridEventFault: 'OverVoltage',
@@ -297,8 +309,6 @@ describe('NotifyDERAlarm handler', () => {
 
 describe('NotifyDERStartStop handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyDERStartStop } =
-      await import('../handlers/v2_1/notify-der-start-stop.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyDERStartStop', {
       controlType: 'FreqDroop',
       started: true,
@@ -314,8 +324,6 @@ describe('NotifyDERStartStop handler', () => {
 
 describe('NotifyDisplayMessages handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyDisplayMessages } =
-      await import('../handlers/v2_1/notify-display-messages.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyDisplayMessages', {
       requestId: 1,
       messageInfo: [{ id: 1, priority: 'AlwaysFront', message: { content: 'test' } }],
@@ -330,8 +338,6 @@ describe('NotifyDisplayMessages handler', () => {
 
 describe('NotifyEVChargingNeeds handler', () => {
   it('publishes event and returns NoChargingProfile', async () => {
-    const { handleNotifyEVChargingNeeds } =
-      await import('../handlers/v2_1/notify-ev-charging-needs.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyEVChargingNeeds', {
       evseId: 1,
       chargingNeeds: { requestedEnergyTransfer: 'AC_single_phase' },
@@ -346,8 +352,6 @@ describe('NotifyEVChargingNeeds handler', () => {
 
 describe('NotifyEVChargingSchedule handler', () => {
   it('publishes event and returns Accepted', async () => {
-    const { handleNotifyEVChargingSchedule } =
-      await import('../handlers/v2_1/notify-ev-charging-schedule.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyEVChargingSchedule', {
       timeBase: '2024-01-01T00:00:00Z',
       evseId: 1,
@@ -363,7 +367,6 @@ describe('NotifyEVChargingSchedule handler', () => {
 
 describe('NotifyEvent handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyEvent } = await import('../handlers/v2_1/notify-event.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyEvent', {
       generatedAt: '2024-01-01T00:00:00Z',
       seqNo: 0,
@@ -377,7 +380,6 @@ describe('NotifyEvent handler', () => {
   });
 
   it('applies a Connector AvailabilityState as a connector status', async () => {
-    const { handleNotifyEvent } = await import('../handlers/v2_1/notify-event.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyEvent', {
       generatedAt: '2024-01-01T00:00:00Z',
       seqNo: 0,
@@ -408,7 +410,6 @@ describe('NotifyEvent handler', () => {
   });
 
   it('applies a ChargingStation AvailabilityState as the station status (EVSE 0)', async () => {
-    const { handleNotifyEvent } = await import('../handlers/v2_1/notify-event.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyEvent', {
       generatedAt: '2024-01-01T00:00:00Z',
       seqNo: 0,
@@ -438,7 +439,6 @@ describe('NotifyEvent handler', () => {
   });
 
   it('ignores EVSE AvailabilityState and unknown values', async () => {
-    const { handleNotifyEvent } = await import('../handlers/v2_1/notify-event.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyEvent', {
       generatedAt: '2024-01-01T00:00:00Z',
       seqNo: 0,
@@ -471,8 +471,6 @@ describe('NotifyEvent handler', () => {
 
 describe('NotifyMonitoringReport handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyMonitoringReport } =
-      await import('../handlers/v2_1/notify-monitoring-report.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyMonitoringReport', {
       requestId: 1,
       seqNo: 0,
@@ -488,8 +486,6 @@ describe('NotifyMonitoringReport handler', () => {
 
 describe('NotifyPeriodicEventStream handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyPeriodicEventStream } =
-      await import('../handlers/v2_1/notify-periodic-event-stream.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyPeriodicEventStream', {
       id: 1,
       data: [{ timestamp: '2024-01-01T00:00:00Z' }],
@@ -504,8 +500,6 @@ describe('NotifyPeriodicEventStream handler', () => {
 
 describe('NotifyPriorityCharging handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyPriorityCharging } =
-      await import('../handlers/v2_1/notify-priority-charging.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyPriorityCharging', {
       transactionId: 'tx-1',
       activated: true,
@@ -520,7 +514,6 @@ describe('NotifyPriorityCharging handler', () => {
 
 describe('NotifyReport handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleNotifyReport } = await import('../handlers/v2_1/notify-report.handler.js');
     const { ctx, publishMock } = makeCtx('NotifyReport', {
       requestId: 1,
       generatedAt: '2024-01-01T00:00:00Z',
@@ -534,7 +527,6 @@ describe('NotifyReport handler', () => {
   });
 
   it('sends SetChargingProfile when MaxExternalConstraintsId is reported', async () => {
-    const { handleNotifyReport } = await import('../handlers/v2_1/notify-report.handler.js');
     const sendCommandMock = vi.fn().mockResolvedValue({ status: 'Accepted' });
     const { ctx } = makeCtx('NotifyReport', {
       requestId: 1,
@@ -567,8 +559,6 @@ describe('NotifyReport handler', () => {
 
 describe('NotifySettlement handler', () => {
   it('publishes event and returns empty response (no receipt URL fabricated)', async () => {
-    const { handleNotifySettlement } =
-      await import('../handlers/v2_1/notify-settlement.handler.js');
     const { ctx, publishMock } = makeCtx('NotifySettlement', {
       pspRef: 'psp-123',
       status: 'Received',
@@ -584,8 +574,6 @@ describe('NotifySettlement handler', () => {
 
 describe('PublishFirmwareStatusNotification handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handlePublishFirmwareStatusNotification } =
-      await import('../handlers/v2_1/publish-firmware-status-notification.handler.js');
     const { ctx, publishMock } = makeCtx('PublishFirmwareStatusNotification', {
       status: 'Published',
       requestId: 1,
@@ -600,8 +588,6 @@ describe('PublishFirmwareStatusNotification handler', () => {
 
 describe('PullDynamicScheduleUpdate handler', () => {
   it('publishes event and returns Accepted', async () => {
-    const { handlePullDynamicScheduleUpdate } =
-      await import('../handlers/v2_1/pull-dynamic-schedule-update.handler.js');
     const { ctx, publishMock } = makeCtx('PullDynamicScheduleUpdate', {
       chargingProfileId: 1,
     });
@@ -615,8 +601,6 @@ describe('PullDynamicScheduleUpdate handler', () => {
 
 describe('ReportChargingProfiles handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleReportChargingProfiles } =
-      await import('../handlers/v2_1/report-charging-profiles.handler.js');
     const { ctx, publishMock } = makeCtx('ReportChargingProfiles', {
       requestId: 1,
       chargingLimitSource: 'EMS',
@@ -633,8 +617,6 @@ describe('ReportChargingProfiles handler', () => {
 
 describe('ReportDERControl handler', () => {
   it('publishes the reported control lists and returns empty object', async () => {
-    const { handleReportDERControl } =
-      await import('../handlers/v2_1/report-der-control.handler.js');
     const enterService = [
       {
         id: 'enterservice_1',
@@ -683,8 +665,6 @@ describe('ReportDERControl handler', () => {
   });
 
   it('defaults tbc to false and reports no controls when none are sent', async () => {
-    const { handleReportDERControl } =
-      await import('../handlers/v2_1/report-der-control.handler.js');
     const { ctx, publishMock } = makeCtx('ReportDERControl', { requestId: 2 });
     await handleReportDERControl(ctx);
     expect(publishMock).toHaveBeenCalledWith(
@@ -697,8 +677,6 @@ describe('ReportDERControl handler', () => {
 
 describe('ReservationStatusUpdate handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleReservationStatusUpdate } =
-      await import('../handlers/v2_1/reservation-status-update.handler.js');
     const { ctx, publishMock } = makeCtx('ReservationStatusUpdate', {
       reservationId: 1,
       reservationUpdateStatus: 'Expired',
@@ -713,8 +691,6 @@ describe('ReservationStatusUpdate handler', () => {
 
 describe('SecurityEventNotification handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleSecurityEventNotification } =
-      await import('../handlers/v2_1/security-event-notification.handler.js');
     const { ctx, publishMock } = makeCtx('SecurityEventNotification', {
       type: 'FirmwareUpdated',
       timestamp: '2024-01-01T00:00:00Z',
@@ -729,7 +705,6 @@ describe('SecurityEventNotification handler', () => {
 
 describe('SignCertificate handler', () => {
   it('publishes event and returns Accepted', async () => {
-    const { handleSignCertificate } = await import('../handlers/v2_1/sign-certificate.handler.js');
     const { ctx, publishMock } = makeCtx('SignCertificate', {
       csr: 'certificate-signing-request',
     });
@@ -742,10 +717,8 @@ describe('SignCertificate handler', () => {
 
   it('accepts ChargingStationCertificate even when PnC is disabled', async () => {
     // Override isPncEnabled to return false for this test
-    const { isPncEnabled } = await import('@evtivity/database');
     vi.mocked(isPncEnabled).mockResolvedValueOnce(false);
 
-    const { handleSignCertificate } = await import('../handlers/v2_1/sign-certificate.handler.js');
     const { ctx } = makeCtx('SignCertificate', {
       csr: 'csr-data',
       certificateType: 'ChargingStationCertificate',
@@ -755,10 +728,8 @@ describe('SignCertificate handler', () => {
   });
 
   it('rejects V2GCertificate when PnC is disabled', async () => {
-    const { isPncEnabled } = await import('@evtivity/database');
     vi.mocked(isPncEnabled).mockResolvedValueOnce(false);
 
-    const { handleSignCertificate } = await import('../handlers/v2_1/sign-certificate.handler.js');
     const { ctx } = makeCtx('SignCertificate', {
       csr: 'csr-data',
       certificateType: 'V2GCertificate',
@@ -770,8 +741,6 @@ describe('SignCertificate handler', () => {
 
 describe('StatusNotification handler', () => {
   it('publishes event and returns empty object', async () => {
-    const { handleStatusNotification } =
-      await import('../handlers/v2_1/status-notification.handler.js');
     const { ctx, publishMock } = makeCtx('StatusNotification', {
       timestamp: '2024-01-01T00:00:00Z',
       connectorStatus: 'Available',
@@ -788,8 +757,6 @@ describe('StatusNotification handler', () => {
 
 describe('TransactionEvent handler', () => {
   it('returns idTokenInfo Accepted for Started events with idToken', async () => {
-    const { handleTransactionEvent } =
-      await import('../handlers/v2_1/transaction-event.handler.js');
     const { ctx, publishMock } = makeCtx('TransactionEvent', {
       eventType: 'Started',
       timestamp: '2024-01-01T00:00:00Z',
@@ -813,8 +780,6 @@ describe('TransactionEvent handler', () => {
   });
 
   it('returns empty object for Updated events', async () => {
-    const { handleTransactionEvent } =
-      await import('../handlers/v2_1/transaction-event.handler.js');
     const { ctx } = makeCtx('TransactionEvent', {
       eventType: 'Updated',
       timestamp: '2024-01-01T00:30:00Z',
@@ -827,8 +792,6 @@ describe('TransactionEvent handler', () => {
   });
 
   it('emits ocpp.MeterValues when meterValue is present', async () => {
-    const { handleTransactionEvent } =
-      await import('../handlers/v2_1/transaction-event.handler.js');
     const { ctx, publishMock } = makeCtx('TransactionEvent', {
       eventType: 'Updated',
       timestamp: '2024-01-01T00:30:00Z',
@@ -853,8 +816,6 @@ describe('TransactionEvent handler', () => {
   });
 
   it('does not emit ocpp.MeterValues when meterValue is absent', async () => {
-    const { handleTransactionEvent } =
-      await import('../handlers/v2_1/transaction-event.handler.js');
     const { ctx, publishMock } = makeCtx('TransactionEvent', {
       eventType: 'Started',
       timestamp: '2024-01-01T00:00:00Z',
@@ -872,8 +833,6 @@ describe('TransactionEvent handler', () => {
 
 describe('VatNumberValidation handler', () => {
   it('publishes event and returns Accepted', async () => {
-    const { handleVatNumberValidation } =
-      await import('../handlers/v2_1/vat-number-validation.handler.js');
     const { ctx, publishMock } = makeCtx('VatNumberValidation', {
       vatNumber: 'VAT123',
       evseId: 1,

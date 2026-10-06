@@ -25,7 +25,7 @@ const getOcspStatus =
     (data: {
       serialNumber: string;
       responderURL: string;
-    }) => Promise<{ status: 'Accepted' | 'Failed'; ocspResult: string }>
+    }) => Promise<{ status: 'Accepted' | 'Failed'; ocspResult: string; reason?: string }>
   >();
 
 vi.mock('../../../services/pki/provider-factory.js', () => ({
@@ -73,7 +73,7 @@ function respondWith(revokedSerials: string[] = [], unreachable: string[] = []):
   const all = [contract, moSub2, moSub1];
   getOcspStatus.mockImplementation((data) => {
     if (unreachable.includes(data.serialNumber)) {
-      return Promise.resolve({ status: 'Failed', ocspResult: '' });
+      return Promise.resolve({ status: 'Failed', ocspResult: '', reason: 'fetch failed' });
     }
     const cert = all.find((c) => requestDataFor(c).serialNumber === data.serialNumber);
     if (cert?.issuer == null) return Promise.resolve({ status: 'Failed', ocspResult: '' });
@@ -118,12 +118,24 @@ describe('validateContractCertificate with iso15118CertificateHashData', () => {
   });
 
   it('is CertChainError when a responder cannot be reached', async () => {
+    vi.mocked(logger.warn).mockClear();
+    vi.mocked(logger.error).mockClear();
     respondWith([], [requestDataFor(moSub1).serialNumber]);
     const verdict = await validateContractCertificate(
       { iso15118CertificateHashData: hashData() },
       logger,
     );
     expect(verdict).toBe('CertChainError');
+    // The station named the responder: a warning, with the reason, not an error.
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      {
+        serialNumber: requestDataFor(moSub1).serialNumber,
+        responderURL: requestDataFor(moSub1).responderURL,
+        reason: 'fetch failed',
+      },
+      'Contract certificate OCSP status request failed',
+    );
+    expect(vi.mocked(logger.error)).not.toHaveBeenCalled();
   });
 
   it('is CertChainError when a response is not signed by the issuer', async () => {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as bullmqModule from '../bullmq.js';
 
 vi.mock('bullmq', () => ({
   Queue: vi.fn(),
@@ -26,7 +27,7 @@ describe('createBullMQConnection', () => {
   });
 
   it('creates a connection with the provided redis url', async () => {
-    const { createBullMQConnection } = await import('../bullmq.js');
+    const { createBullMQConnection } = bullmqModule;
     const conn = createBullMQConnection('redis://provided-host:6380');
     expect(conn).toBeDefined();
     expect(ctorCalls[0]?.[0]).toBe('redis://provided-host:6380');
@@ -35,7 +36,7 @@ describe('createBullMQConnection', () => {
 
   it('falls back to REDIS_URL env var', async () => {
     process.env['REDIS_URL'] = 'redis://env-host:6379';
-    const { createBullMQConnection } = await import('../bullmq.js');
+    const { createBullMQConnection } = bullmqModule;
     const conn = createBullMQConnection();
     expect(conn).toBeDefined();
     expect(ctorCalls[0]?.[0]).toBe('redis://env-host:6379');
@@ -45,7 +46,7 @@ describe('createBullMQConnection', () => {
   it('falls back to localhost default when no url and no REDIS_URL env var', async () => {
     const saved = process.env['REDIS_URL'];
     delete process.env['REDIS_URL'];
-    const { createBullMQConnection } = await import('../bullmq.js');
+    const { createBullMQConnection } = bullmqModule;
     const conn = createBullMQConnection();
     expect(conn).toBeDefined();
     expect(ctorCalls[0]?.[0]).toBe('redis://localhost:6379');

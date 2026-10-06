@@ -4,6 +4,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
+import * as databaseModule from '@evtivity/database';
+import * as getTransactionStatusHandlerModule from '../handlers/v2_1/get-transaction-status.handler.js';
 
 vi.mock('@evtivity/database', () => {
   const selectFn = vi.fn();
@@ -69,12 +71,11 @@ function makeCtx(
 
 describe('GetTransactionStatus handler', () => {
   it('returns ongoingIndicator true for active session', async () => {
-    const mod = (await import('@evtivity/database')) as Record<string, unknown>;
+    const mod = databaseModule as Record<string, unknown>;
     const mocks = mod['__mocks'] as { whereFn: ReturnType<typeof vi.fn> };
     mocks.whereFn.mockResolvedValue([{ status: 'active' }]);
 
-    const { handleGetTransactionStatus } =
-      await import('../handlers/v2_1/get-transaction-status.handler.js');
+    const { handleGetTransactionStatus } = getTransactionStatusHandlerModule;
 
     const ctx = makeCtx({ transactionId: 'tx-123' });
     const response = await handleGetTransactionStatus(ctx);
@@ -92,12 +93,11 @@ describe('GetTransactionStatus handler', () => {
   });
 
   it('returns ongoingIndicator false for completed session', async () => {
-    const mod = (await import('@evtivity/database')) as Record<string, unknown>;
+    const mod = databaseModule as Record<string, unknown>;
     const mocks = mod['__mocks'] as { whereFn: ReturnType<typeof vi.fn> };
     mocks.whereFn.mockResolvedValue([{ status: 'completed' }]);
 
-    const { handleGetTransactionStatus } =
-      await import('../handlers/v2_1/get-transaction-status.handler.js');
+    const { handleGetTransactionStatus } = getTransactionStatusHandlerModule;
 
     const ctx = makeCtx({ transactionId: 'tx-456' });
     const response = await handleGetTransactionStatus(ctx);
@@ -107,12 +107,11 @@ describe('GetTransactionStatus handler', () => {
   });
 
   it('returns ongoingIndicator false when session not found', async () => {
-    const mod = (await import('@evtivity/database')) as Record<string, unknown>;
+    const mod = databaseModule as Record<string, unknown>;
     const mocks = mod['__mocks'] as { whereFn: ReturnType<typeof vi.fn> };
     mocks.whereFn.mockResolvedValue([]);
 
-    const { handleGetTransactionStatus } =
-      await import('../handlers/v2_1/get-transaction-status.handler.js');
+    const { handleGetTransactionStatus } = getTransactionStatusHandlerModule;
 
     const ctx = makeCtx({ transactionId: 'tx-unknown' });
     const response = await handleGetTransactionStatus(ctx);
@@ -122,8 +121,7 @@ describe('GetTransactionStatus handler', () => {
   });
 
   it('returns defaults when no transactionId provided', async () => {
-    const { handleGetTransactionStatus } =
-      await import('../handlers/v2_1/get-transaction-status.handler.js');
+    const { handleGetTransactionStatus } = getTransactionStatusHandlerModule;
 
     const ctx = makeCtx({});
     const response = await handleGetTransactionStatus(ctx);
@@ -133,12 +131,11 @@ describe('GetTransactionStatus handler', () => {
   });
 
   it('returns defaults for an unregistered station without a lookup', async () => {
-    const mod = (await import('@evtivity/database')) as Record<string, unknown>;
+    const mod = databaseModule as Record<string, unknown>;
     const mocks = mod['__mocks'] as { whereFn: ReturnType<typeof vi.fn> };
     mocks.whereFn.mockClear();
 
-    const { handleGetTransactionStatus } =
-      await import('../handlers/v2_1/get-transaction-status.handler.js');
+    const { handleGetTransactionStatus } = getTransactionStatusHandlerModule;
 
     const response = await handleGetTransactionStatus(makeCtx({ transactionId: 'tx-1' }, null));
 

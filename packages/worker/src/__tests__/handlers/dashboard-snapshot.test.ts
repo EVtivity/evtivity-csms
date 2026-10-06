@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // `db.select({...}).from(sites)` resolves to the site list.
@@ -193,6 +193,14 @@ function upsertFor(siteId: string): unknown[] {
   return found.values;
 }
 
+// The module is imported after the mocks above are initialized. The first import loads the
+// whole module graph, which under coverage on a busy machine took longer than one test's
+// 5 s timeout, so it happens once here with its own timeout instead of inside the first test.
+let mod: typeof import('../../handlers/dashboard-snapshot.js');
+beforeAll(async () => {
+  mod = await import('../../handlers/dashboard-snapshot.js');
+}, 30_000);
+
 describe('dashboardSnapshotHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -202,7 +210,7 @@ describe('dashboardSnapshotHandler', () => {
 
   it('sums electricity cost and revenue only in the company currency', async () => {
     setSites([{ id: 'sit_1', timezone: 'UTC' }]);
-    const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
+    const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(makeLog());
 
     const callsOf = (kind: string) =>
@@ -231,7 +239,7 @@ describe('dashboardSnapshotHandler', () => {
     setSites([]);
     const log = makeLog();
 
-    const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
+    const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(log);
 
     expect(log.info).toHaveBeenCalledWith('No sites found, skipping dashboard snapshot');
@@ -245,7 +253,7 @@ describe('dashboardSnapshotHandler', () => {
     siteDataById = { sit_1: {} }; // all defaults
     const log = makeLog();
 
-    const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
+    const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(log);
 
     // ping + 6 per-site queries (yesterday, dayBoundaries, 3 reads, upsert) =
@@ -294,7 +302,7 @@ describe('dashboardSnapshotHandler', () => {
     siteDataById = { sit_1: {} };
     const log = makeLog();
 
-    const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
+    const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(log);
 
     const values = upsertFor('sit_1');
@@ -322,7 +330,7 @@ describe('dashboardSnapshotHandler', () => {
     };
     const log = makeLog();
 
-    const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
+    const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(log);
 
     const values = upsertFor('sit_empty');
@@ -344,7 +352,7 @@ describe('dashboardSnapshotHandler', () => {
     siteDataById = Object.fromEntries(sites.map((s) => [s.id, {}]));
     const log = makeLog();
 
-    const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
+    const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(log);
 
     // 1 ping + 6 sites * 6 queries = 37 execute calls, plus one revenue query per site
@@ -368,7 +376,7 @@ describe('dashboardSnapshotHandler', () => {
     siteRejects = { sit_bad: { kind: 'stations' } }; // sit_bad fails on its station query
     const log = makeLog();
 
-    const { dashboardSnapshotHandler } = await import('../../handlers/dashboard-snapshot.js');
+    const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(log);
 
     expect(log.error).toHaveBeenCalledWith(

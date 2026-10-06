@@ -648,7 +648,9 @@ export class ChaosOrchestrator {
     // ~2% chance of power outage simulation
     if (due == null && Math.random() < 0.02) {
       this.offlineStations.add(stationId);
-      this.journeys.drop(stationId);
+      // Ends only a journey that has not started charging: the simulator keeps
+      // its transaction through the outage, so a session still gets its stop.
+      this.journeys.record(stationId, 'goOffline', Date.now());
       console.log(`[chaos] ${stationId} -> goOffline (power outage simulation)`);
       try {
         await this.pubsub.publish(

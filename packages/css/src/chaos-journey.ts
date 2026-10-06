@@ -10,6 +10,10 @@ export const JOURNEY_WAIT_MS: Readonly<Record<JourneyStep, readonly [number, num
   finishing: [10_000, 60_000],
 };
 
+// Wait before retrying a due stop or unplug that is not possible yet while the
+// station still has a transaction, in milliseconds: [min, max].
+export const JOURNEY_RETRY_MS: readonly [number, number] = [30_000, 60_000];
+
 const NEXT_ACTION: Readonly<Record<JourneyStep, string>> = {
   plugged: 'startCharging',
   charging: 'stopCharging',
@@ -22,8 +26,15 @@ const STEP_AFTER_ACTION: Readonly<Record<string, JourneyStep>> = {
   stopCharging: 'finishing',
 };
 
-// Actions that take the station off its charging path, so its journey ends.
-const ENDS_JOURNEY: ReadonlySet<string> = new Set(['unplug', 'injectFault', 'goOffline']);
+// The unplug ends the session path, so the journey ends.
+const ENDS_JOURNEY: ReadonlySet<string> = new Set(['unplug']);
+
+// A fault or outage ends a journey that has not started charging. The
+// simulator keeps a transaction through both (it queues and replays its
+// TransactionEvents after an outage), so a charging or finishing journey goes
+// on: its stop and unplug still have to come, or the session never ends and
+// its driver token stays held.
+const INTERRUPTS_JOURNEY: ReadonlySet<string> = new Set(['injectFault', 'goOffline']);
 
 /**
  * Tracks stations chaos plugged in, so a later tick takes them through a whole
@@ -44,13 +55,17 @@ export class ChaosJourneys {
       this.journeys.delete(stationId);
       return;
     }
+    if (INTERRUPTS_JOURNEY.has(action)) {
+      if (this.journeys.get(stationId)?.step === 'plugged') this.journeys.delete(stationId);
+      return;
+    }
     const step = STEP_AFTER_ACTION[action];
     if (step == null) return;
-    const [min, max] = JOURNEY_WAIT_MS[step];
-    this.journeys.set(stationId, {
-      step,
-      dueAt: now + min + Math.floor(this.random() * (max - min)),
-    });
+    this.journeys.set(stationId, { step, dueAt: this.waitUntil(now, JOURNEY_WAIT_MS[step]) });
+  }
+
+  private waitUntil(now: number, [min, max]: readonly [number, number]): number {
+    return now + min + Math.floor(this.random() * (max - min));
   }
 
   // The first station whose next step is due, with that step's action.
@@ -65,13 +80,23 @@ export class ChaosJourneys {
    * The due step's action is not possible in the station's current state. A
    * station already in a transaction when its start is due started it itself
    * (a driver authorized before the plug-in, so the plug-in started it): the
-   * journey goes on to the stop. Any other station left the session path (a
-   * fault, an unplug, a stop by an operator), so its journey ends.
+   * journey goes on to the stop. A due stop or unplug on a station that still
+   * has a transaction (a fault, a connector state that refuses it for now) is
+   * retried later, so the session still ends. A station without a transaction
+   * left the session path (an unplug, a stop by an operator), so its journey
+   * ends.
    */
   skipDue(stationId: string, action: string, inTransaction: boolean, now: number): void {
-    if (action === 'startCharging' && inTransaction) {
-      this.record(stationId, 'startCharging', now);
-      return;
+    if (inTransaction) {
+      if (action === 'startCharging') {
+        this.record(stationId, 'startCharging', now);
+        return;
+      }
+      const journey = this.journeys.get(stationId);
+      if (journey != null) {
+        journey.dueAt = this.waitUntil(now, JOURNEY_RETRY_MS);
+        return;
+      }
     }
     this.journeys.delete(stationId);
   }

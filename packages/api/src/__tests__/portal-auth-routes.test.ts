@@ -147,6 +147,7 @@ import { AppError } from '@evtivity/lib';
 import { db } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { portalAuthRoutes } from '../routes/portal/auth.js';
+import * as argon2Module from 'argon2';
 
 const VALID_DRIVER_ID = 'drv_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
@@ -381,7 +382,7 @@ describe('Portal auth routes - handler logic', () => {
     });
 
     it('returns 401 when password is invalid', async () => {
-      const argon2 = await import('argon2');
+      const argon2 = argon2Module;
       vi.mocked(argon2.default.verify).mockResolvedValueOnce(false);
 
       setupDbResults([
@@ -412,7 +413,7 @@ describe('Portal auth routes - handler logic', () => {
     });
 
     it('returns driver and sets auth cookies on successful login', async () => {
-      const argon2 = await import('argon2');
+      const argon2 = argon2Module;
       vi.mocked(argon2.default.verify).mockResolvedValueOnce(true);
 
       setupDbResults([

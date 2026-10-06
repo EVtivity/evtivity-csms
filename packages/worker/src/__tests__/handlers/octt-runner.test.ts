@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 import type { RedisPubSubClient } from '@evtivity/lib';
 import type { RunConfig, RunSummary, TestCaseResult } from '@evtivity/octt';
+import * as octtRunnerModule from '../../handlers/octt-runner.js';
 
 // Capture the latest update().set() payload so tests can assert exact status
 // transitions in order.
@@ -123,7 +124,7 @@ describe('octtRunnerHandler', () => {
   it('marks the run running at start, then completed with summary counts on success', async () => {
     mockRunTests.mockResolvedValue(summary);
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     const log = makeLogger();
     await octtRunnerHandler({ runId: 7, ocppVersion: 'ocpp2.1', sutType: 'csms' }, log, pubsub);
 
@@ -149,7 +150,7 @@ describe('octtRunnerHandler', () => {
   it('passes version undefined to runTests when ocppVersion is "all"', async () => {
     mockRunTests.mockResolvedValue(summary);
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     await octtRunnerHandler({ runId: 1, ocppVersion: 'all', sutType: 'cs' }, makeLogger(), pubsub);
 
     const config = mockRunTests.mock.calls[0]?.[0] as RunConfig;
@@ -166,7 +167,7 @@ describe('octtRunnerHandler', () => {
     workerConfig.OCTT_OCSP_RESPONDER_URL = 'http://worker:7110/ocsp';
     mockRunTests.mockResolvedValue(summary);
     try {
-      const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+      const { octtRunnerHandler } = octtRunnerModule;
       await octtRunnerHandler(
         { runId: 3, ocppVersion: 'ocpp2.1', sutType: 'csms' },
         makeLogger(),
@@ -185,7 +186,7 @@ describe('octtRunnerHandler', () => {
     workerConfig.API_BASE_URL = 'http://api.internal:8000';
     mockRunTests.mockResolvedValue(summary);
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     await octtRunnerHandler(
       { runId: 2, ocppVersion: 'ocpp1.6', sutType: 'csms' },
       makeLogger(),
@@ -210,7 +211,7 @@ describe('octtRunnerHandler', () => {
       },
     );
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     await octtRunnerHandler(
       { runId: 9, ocppVersion: 'ocpp2.1', sutType: 'csms' },
       makeLogger(),
@@ -265,7 +266,7 @@ describe('octtRunnerHandler', () => {
       },
     );
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     await octtRunnerHandler(
       { runId: 5, ocppVersion: 'ocpp2.1', sutType: 'csms' },
       makeLogger(),
@@ -295,7 +296,7 @@ describe('octtRunnerHandler', () => {
       },
     );
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     await octtRunnerHandler(
       { runId: 3, ocppVersion: 'ocpp2.1', sutType: 'csms' },
       makeLogger(),
@@ -319,7 +320,7 @@ describe('octtRunnerHandler', () => {
       },
     );
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     await octtRunnerHandler({ runId: 4, ocppVersion: 'ocpp2.1', sutType: 'csms' }, log, pubsub);
 
     expect(log.warn).toHaveBeenCalledWith(
@@ -336,7 +337,7 @@ describe('octtRunnerHandler', () => {
     mockRunTests.mockRejectedValue(new Error('runner exploded'));
     const log = makeLogger();
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     await octtRunnerHandler({ runId: 11, ocppVersion: 'ocpp2.1', sutType: 'csms' }, log, pubsub);
 
     expect(updateSets).toHaveLength(2);
@@ -354,7 +355,7 @@ describe('octtRunnerHandler', () => {
     mockRunTests.mockRejectedValue('plain string failure');
     const log = makeLogger();
 
-    const { octtRunnerHandler } = await import('../../handlers/octt-runner.js');
+    const { octtRunnerHandler } = octtRunnerModule;
     await octtRunnerHandler({ runId: 12, ocppVersion: 'ocpp2.1', sutType: 'csms' }, log, pubsub);
 
     expect(log.error).toHaveBeenCalledWith(

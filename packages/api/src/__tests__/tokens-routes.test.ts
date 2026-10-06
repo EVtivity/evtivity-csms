@@ -134,8 +134,19 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   setPubSub: vi.fn(),
 }));
 
+import { db } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { tokenRoutes } from '../routes/tokens.js';
+
+// The argument of the first `method` call on any chain returned by db[kind]().
+function firstChainArg(kind: 'insert' | 'update', method: 'values' | 'set'): unknown {
+  for (const result of vi.mocked(db[kind]).mock.results) {
+    const chain = result.value as Record<string, { mock: { calls: unknown[][] } }>;
+    const call = chain[method]?.mock.calls[0];
+    if (call != null) return call[0];
+  }
+  return undefined;
+}
 
 const VALID_TOKEN_ID = 'dtk_000000000001';
 const TOKEN_ID_2 = 'dtk_000000000002';
@@ -611,9 +622,40 @@ describe('Token routes - handler logic', () => {
       const body = response.json();
       expect(body.driverId).toBe(VALID_DRIVER_ID);
     });
+
+    it('stores expiresAt as a Date, not the raw request string', async () => {
+      setupDbResults([], []);
+      await app.inject({
+        method: 'POST',
+        url: '/tokens',
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          idToken: 'RFID-EXPIRES',
+          tokenType: 'ISO14443',
+          expiresAt: '2027-01-01T00:00:00Z',
+        },
+      });
+      // The timestamp column serializes its value with toISOString().
+      expect(firstChainArg('insert', 'values')).toMatchObject({
+        expiresAt: new Date('2027-01-01T00:00:00Z'),
+      });
+    });
   });
 
   describe('PATCH /v1/tokens/:id', () => {
+    it('stores expiresAt as a Date, not the raw request string', async () => {
+      setupDbResults([{ idToken: 'OLD', tokenType: 'ISO14443' }], []);
+      await app.inject({
+        method: 'PATCH',
+        url: `/tokens/${VALID_TOKEN_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { expiresAt: '2027-01-01T00:00:00Z' },
+      });
+      expect(firstChainArg('update', 'set')).toMatchObject({
+        expiresAt: new Date('2027-01-01T00:00:00Z'),
+      });
+    });
+
     it('updates a token when found', async () => {
       const updated = {
         id: TOKEN_ID_2,

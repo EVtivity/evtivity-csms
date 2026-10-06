@@ -101,7 +101,23 @@ export {
   stationAvailabilitySql,
   stationStatusReasonSql,
   isStationLevelUnavailable,
+  stationLevelUnavailableSql,
 } from './lib/station-status.js';
+export {
+  STARTABLE_CONNECTOR_STATUSES,
+  stationOpenToDriversSql,
+  evseReservedSql,
+  evseOpenToDriversSql,
+  evseAvailableSql,
+  availableEvseCountSql,
+} from './lib/driver-availability.js';
+export {
+  STATION_WATCH_CHANNEL,
+  findDueStationWatch,
+  alertStationWatchersIfAvailable,
+  claimStationWatches,
+} from './lib/station-watch.js';
+export type { StationWatchPublisher } from './lib/station-watch.js';
 export type {
   StationAvailability,
   StationDisabledReason,

@@ -45,15 +45,9 @@ export class ManualProvider implements PkiProvider {
   async getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult> {
     // RFC 6960 request to the responder named by the station. The helper
     // applies the SSRF guard (private addresses only when allowlisted).
-    const result = await getOcspResultForStation(ocspRequestData);
-    if (result.status !== 'Accepted') {
-      logger.error(
-        { url: ocspRequestData.responderURL, reason: result.reason },
-        'OCSP status request failed',
-      );
-      return { status: 'Failed', ocspResult: '' };
-    }
-    return { status: 'Accepted', ocspResult: result.ocspResult };
+    // A failure is returned with its reason, not logged here: the caller logs
+    // it with the station that named the responder.
+    return getOcspResultForStation(ocspRequestData);
   }
 
   async getRootCertificates(type: string): Promise<string[]> {

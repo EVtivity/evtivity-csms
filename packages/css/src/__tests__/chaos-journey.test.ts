@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { ChaosJourneys, JOURNEY_WAIT_MS } from '../chaos-journey.js';
+import { ChaosJourneys, JOURNEY_RETRY_MS, JOURNEY_WAIT_MS } from '../chaos-journey.js';
 
 describe('ChaosJourneys', () => {
   it('takes a plugged-in station through start, stop and unplug', () => {
@@ -41,13 +41,55 @@ describe('ChaosJourneys', () => {
     expect(journeys.nextDue(JOURNEY_WAIT_MS.charging[0])?.action).toBe('stopCharging');
   });
 
-  it('ends the journey on a fault or outage', () => {
+  it('ends a journey that has not started charging on a fault or outage', () => {
     const journeys = new ChaosJourneys(() => 0);
     journeys.record('CS-1', 'plugIn', 0);
     journeys.record('CS-2', 'plugIn', 0);
     journeys.record('CS-1', 'injectFault', 1);
     journeys.record('CS-2', 'goOffline', 1);
     expect(journeys.size).toBe(0);
+  });
+
+  it('keeps a charging or finishing journey and its due time through a fault or outage', () => {
+    // The simulator keeps the transaction through both (it replays queued
+    // TransactionEvents after an outage), so the stop and unplug must still come.
+    const journeys = new ChaosJourneys(() => 0);
+    journeys.record('CS-1', 'startCharging', 0);
+    journeys.record('CS-2', 'startCharging', 0);
+    journeys.record('CS-2', 'stopCharging', 0);
+    journeys.record('CS-1', 'goOffline', 1);
+    journeys.record('CS-1', 'injectFault', 2);
+    journeys.record('CS-2', 'injectFault', 1);
+    journeys.record('CS-2', 'goOffline', 2);
+    expect(journeys.size).toBe(2);
+    expect(journeys.nextDue(JOURNEY_WAIT_MS.finishing[0])).toEqual({
+      stationId: 'CS-2',
+      action: 'unplug',
+    });
+    expect(journeys.nextDue(JOURNEY_WAIT_MS.charging[0])).toEqual({
+      stationId: 'CS-1',
+      action: 'stopCharging',
+    });
+  });
+
+  it('postpones a due stop or unplug that is not possible while a transaction is active', () => {
+    const journeys = new ChaosJourneys(() => 0);
+    journeys.record('CS-1', 'startCharging', 0);
+    journeys.record('CS-2', 'stopCharging', 0);
+    const now = JOURNEY_WAIT_MS.charging[0];
+    journeys.skipDue('CS-1', 'stopCharging', true, now);
+    journeys.skipDue('CS-2', 'unplug', true, now);
+    expect(journeys.size).toBe(2);
+    expect(journeys.nextDue(now + JOURNEY_RETRY_MS[0] - 1)).toBeNull();
+    expect(journeys.nextDue(now + JOURNEY_RETRY_MS[0])).toEqual({
+      stationId: 'CS-1',
+      action: 'stopCharging',
+    });
+    journeys.drop('CS-1');
+    expect(journeys.nextDue(now + JOURNEY_RETRY_MS[0])).toEqual({
+      stationId: 'CS-2',
+      action: 'unplug',
+    });
   });
 
   it('goes on to the stop when the station started the transaction itself', () => {
@@ -74,6 +116,10 @@ describe('ChaosJourneys', () => {
     journeys.skipDue('CS-1', 'startCharging', false, JOURNEY_WAIT_MS.plugged[0]);
     // A stop due on a station whose transaction an operator already stopped.
     journeys.skipDue('CS-2', 'stopCharging', false, JOURNEY_WAIT_MS.charging[0]);
+    expect(journeys.size).toBe(0);
+    // An unplug due on a station with no transaction left.
+    journeys.record('CS-3', 'stopCharging', 0);
+    journeys.skipDue('CS-3', 'unplug', false, JOURNEY_WAIT_MS.finishing[0]);
     expect(journeys.size).toBe(0);
   });
 

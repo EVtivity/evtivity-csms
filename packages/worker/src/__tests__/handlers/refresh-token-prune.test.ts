@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
+import * as refreshTokenPruneModule from '../../handlers/refresh-token-prune.js';
 
 // The handler calls `client` twice: first the settings SELECT, then the DELETE
 // (when retention is enabled). The mock records each call's rendered SQL and
@@ -51,7 +52,7 @@ beforeEach(() => {
 describe('refreshTokenPruneHandler', () => {
   it('uses the configured numeric retention and deletes revoked/expired rows', async () => {
     queueResults([{ value: 60 }], { count: 4 });
-    const { refreshTokenPruneHandler } = await import('../../handlers/refresh-token-prune.js');
+    const { refreshTokenPruneHandler } = refreshTokenPruneModule;
     const log = makeLog();
     await refreshTokenPruneHandler(log);
 
@@ -71,7 +72,7 @@ describe('refreshTokenPruneHandler', () => {
 
   it('defaults to 30 days when the setting row is missing', async () => {
     queueResults([], { count: 1 });
-    const { refreshTokenPruneHandler } = await import('../../handlers/refresh-token-prune.js');
+    const { refreshTokenPruneHandler } = refreshTokenPruneModule;
     await refreshTokenPruneHandler(makeLog());
 
     expect(mockClient).toHaveBeenCalledTimes(2);
@@ -80,7 +81,7 @@ describe('refreshTokenPruneHandler', () => {
 
   it('parses a numeric string setting value via parseInt', async () => {
     queueResults([{ value: '14' }], { count: 0 });
-    const { refreshTokenPruneHandler } = await import('../../handlers/refresh-token-prune.js');
+    const { refreshTokenPruneHandler } = refreshTokenPruneModule;
     await refreshTokenPruneHandler(makeLog());
 
     expect(calls[1]!.values).toContain(14);
@@ -88,7 +89,7 @@ describe('refreshTokenPruneHandler', () => {
 
   it('skips the DELETE and logs disabled when retention is zero', async () => {
     queueResults([{ value: 0 }]);
-    const { refreshTokenPruneHandler } = await import('../../handlers/refresh-token-prune.js');
+    const { refreshTokenPruneHandler } = refreshTokenPruneModule;
     const log = makeLog();
     await refreshTokenPruneHandler(log);
 
@@ -99,7 +100,7 @@ describe('refreshTokenPruneHandler', () => {
 
   it('skips the DELETE when a string setting parses to a non-positive number', async () => {
     queueResults([{ value: '-5' }]);
-    const { refreshTokenPruneHandler } = await import('../../handlers/refresh-token-prune.js');
+    const { refreshTokenPruneHandler } = refreshTokenPruneModule;
     const log = makeLog();
     await refreshTokenPruneHandler(log);
 
@@ -109,7 +110,7 @@ describe('refreshTokenPruneHandler', () => {
 
   it('skips the DELETE when a string setting parses to NaN (non-finite)', async () => {
     queueResults([{ value: 'not-a-number' }]);
-    const { refreshTokenPruneHandler } = await import('../../handlers/refresh-token-prune.js');
+    const { refreshTokenPruneHandler } = refreshTokenPruneModule;
     const log = makeLog();
     await refreshTokenPruneHandler(log);
 

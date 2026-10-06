@@ -121,15 +121,19 @@ function maxCurrentLabel(conns: ConnectorSummary[]): string | null {
 
 // Connector-summary row reused by both the nearby and search station cards.
 // Renders the plug-type list, max power badge, optional max current, and an
-// available/total chip.
+// available/total chip. Both counts are EVSEs: the API counts an EVSE available
+// with the shared driver availability rule (0 for a disabled, offline or
+// maintained station; a reserved EVSE is not counted).
 function ConnectorsRow({
   connectors,
   availableCount,
+  evseCount,
   showCurrent,
   availableLabel,
 }: {
   connectors: ConnectorSummary[];
   availableCount: number;
+  evseCount: number;
   showCurrent: boolean;
   availableLabel: string;
 }): React.JSX.Element | null {
@@ -151,7 +155,7 @@ function ConnectorsRow({
         <span className="text-xs text-muted-foreground">{current}</span>
       )}
       <Badge variant={availableCount > 0 ? 'success' : 'outline'} className="text-xs px-1.5 py-0">
-        {String(availableCount)}/{String(connectors.length)} {availableLabel}
+        {String(availableCount)}/{String(evseCount)} {availableLabel}
       </Badge>
     </div>
   );
@@ -388,6 +392,7 @@ export function StationSearchList({
                   <ConnectorsRow
                     connectors={station.connectors}
                     availableCount={station.availableCount}
+                    evseCount={station.evseCount}
                     showCurrent
                     availableLabel={t('chargerSearch.available')}
                   />
@@ -429,6 +434,7 @@ export function StationSearchList({
                 <ConnectorsRow
                   connectors={station.connectors}
                   availableCount={station.availableCount}
+                  evseCount={station.evseCount}
                   showCurrent={false}
                   availableLabel={t('chargerSearch.available')}
                 />

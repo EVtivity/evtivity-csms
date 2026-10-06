@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
 
@@ -89,6 +89,16 @@ function makeCtx(
   return { ctx, publishMock };
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let authorizeHandlerModule: typeof import('../handlers/v1_6/authorize.handler.js');
+let databaseModule: typeof import('@evtivity/database');
+let startTransactionHandlerModule: typeof import('../handlers/v1_6/start-transaction.handler.js');
+beforeAll(async () => {
+  authorizeHandlerModule = await import('../handlers/v1_6/authorize.handler.js');
+  databaseModule = await import('@evtivity/database');
+  startTransactionHandlerModule = await import('../handlers/v1_6/start-transaction.handler.js');
+}, 30_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   limitFn.mockResolvedValue([]);
@@ -105,7 +115,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   it('returns Accepted when an active token is found in driver_tokens', async () => {
     whereFn.mockResolvedValue([{ isActive: true, tokenType: 'ISO14443' }]);
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'ACTIVE-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -118,7 +128,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
       { isActive: false, tokenType: 'ISO15693' },
     ]);
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'BLOCKED-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -131,7 +141,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
       { isActive: false, tokenType: 'Local' },
     ]);
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'CENTRAL-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -142,7 +152,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
     // driver_tokens select: empty. guest_sessions select also empty (default limitFn).
     whereFn.mockResolvedValueOnce([]);
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'UNKNOWN-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -152,7 +162,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   it('returns Accepted for valid OCPI external token when roaming is enabled', async () => {
     // driver_tokens query returns no rows
     whereFn.mockResolvedValueOnce([]);
-    const { isRoamingEnabled } = await import('@evtivity/database');
+    const { isRoamingEnabled } = databaseModule;
     vi.mocked(isRoamingEnabled).mockResolvedValueOnce(true);
 
     // After driver_tokens, the handler runs:
@@ -175,7 +185,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
       .mockReturnValueOnce({ from: guestFromFn })
       .mockReturnValueOnce({ from: ocpiFromFn });
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'ROAMING-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -185,7 +195,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   it('returns Blocked for invalid OCPI external token when roaming is enabled', async () => {
     whereFn.mockResolvedValueOnce([]);
 
-    const { isRoamingEnabled } = await import('@evtivity/database');
+    const { isRoamingEnabled } = databaseModule;
     vi.mocked(isRoamingEnabled).mockResolvedValueOnce(true);
 
     const guestLimitFn = vi.fn().mockResolvedValue([]);
@@ -206,7 +216,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
       .mockReturnValueOnce({ from: guestFromFn })
       .mockReturnValueOnce({ from: ocpiFromFn });
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'BAD-ROAMING-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -216,7 +226,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   it('falls back to Accepted when OCPI table query throws', async () => {
     whereFn.mockResolvedValueOnce([]);
 
-    const { isRoamingEnabled } = await import('@evtivity/database');
+    const { isRoamingEnabled } = databaseModule;
     vi.mocked(isRoamingEnabled).mockResolvedValueOnce(true);
 
     const guestLimitFn = vi.fn().mockResolvedValue([]);
@@ -234,7 +244,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
       .mockReturnValueOnce({ from: guestFromFn })
       .mockReturnValueOnce({ from: throwingFromFn });
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'OCPI-ERR-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -248,7 +258,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
       throw new Error('connection refused');
     });
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'DB-ERR-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -261,7 +271,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
       { isActive: false, tokenType: 'ISO14443' },
     ]);
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'MIXED-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -275,7 +285,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
       { isActive: true, tokenType: 'ISO14443' },
     ]);
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'MULTI-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -285,7 +295,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   it('returns Blocked for inactive NoAuthorization token type', async () => {
     whereFn.mockResolvedValue([{ isActive: false, tokenType: 'NoAuthorization' }]);
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx('Authorize', { idTag: 'NOAUTH-TAG' });
     const response = await handleAuthorize(ctx);
 
@@ -295,7 +305,7 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
   it('publishes ocpp.Authorize event before performing token lookup', async () => {
     whereFn.mockResolvedValue([{ isActive: true, tokenType: 'ISO14443' }]);
 
-    const { handleAuthorize } = await import('../handlers/v1_6/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx, publishMock } = makeCtx('Authorize', { idTag: 'EVT-TAG' });
     await handleAuthorize(ctx);
 
@@ -321,8 +331,7 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
   it('claims a pending session when stationDbId is present and session exists', async () => {
     executeFn.mockResolvedValueOnce([{ transaction_id: '42' }]);
 
-    const { handleStartTransaction } =
-      await import('../handlers/v1_6/start-transaction.handler.js');
+    const { handleStartTransaction } = startTransactionHandlerModule;
     const { ctx, publishMock } = makeCtx(
       'StartTransaction',
       {
@@ -360,8 +369,7 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     // Second execute (sequence) returns nextval
     executeFn.mockResolvedValueOnce([{ nextval: '99' }]);
 
-    const { handleStartTransaction } =
-      await import('../handlers/v1_6/start-transaction.handler.js');
+    const { handleStartTransaction } = startTransactionHandlerModule;
     const { ctx } = makeCtx(
       'StartTransaction',
       {
@@ -384,8 +392,7 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     // Sequence fallback
     executeFn.mockResolvedValueOnce([{ nextval: '77' }]);
 
-    const { handleStartTransaction } =
-      await import('../handlers/v1_6/start-transaction.handler.js');
+    const { handleStartTransaction } = startTransactionHandlerModule;
     const { ctx } = makeCtx(
       'StartTransaction',
       {
@@ -406,8 +413,7 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     executeFn.mockResolvedValueOnce([{ transaction_id: '3.14' }]);
     executeFn.mockResolvedValueOnce([{ nextval: '55' }]);
 
-    const { handleStartTransaction } =
-      await import('../handlers/v1_6/start-transaction.handler.js');
+    const { handleStartTransaction } = startTransactionHandlerModule;
     const { ctx } = makeCtx(
       'StartTransaction',
       {
@@ -428,8 +434,7 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     // Sequence returns empty
     executeFn.mockResolvedValueOnce([]);
 
-    const { handleStartTransaction } =
-      await import('../handlers/v1_6/start-transaction.handler.js');
+    const { handleStartTransaction } = startTransactionHandlerModule;
     const { ctx } = makeCtx('StartTransaction', {
       connectorId: 1,
       idTag: 'TAG-005',
@@ -445,8 +450,7 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
   it('publishes event with reservationId when present in request', async () => {
     executeFn.mockResolvedValueOnce([{ nextval: '10' }]);
 
-    const { handleStartTransaction } =
-      await import('../handlers/v1_6/start-transaction.handler.js');
+    const { handleStartTransaction } = startTransactionHandlerModule;
     const { ctx, publishMock } = makeCtx('StartTransaction', {
       connectorId: 1,
       idTag: 'TAG-006',
@@ -470,8 +474,7 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     executeFn.mockResolvedValueOnce([undefined]);
     executeFn.mockResolvedValueOnce([{ nextval: '88' }]);
 
-    const { handleStartTransaction } =
-      await import('../handlers/v1_6/start-transaction.handler.js');
+    const { handleStartTransaction } = startTransactionHandlerModule;
     const { ctx } = makeCtx(
       'StartTransaction',
       {

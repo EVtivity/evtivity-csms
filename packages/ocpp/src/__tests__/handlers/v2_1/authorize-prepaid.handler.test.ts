@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
 import { clearPrepaidAuthorizations, prepaidCacheExpiry } from '../../../handlers/prepaid.js';
@@ -110,6 +110,12 @@ function makeCtx(payload: Record<string, unknown>): {
   return { ctx, publishMock };
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let authorizeHandlerModule: typeof import('../../../handlers/v2_1/authorize.handler.js');
+beforeAll(async () => {
+  authorizeHandlerModule = await import('../../../handlers/v2_1/authorize.handler.js');
+}, 30_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   clearPrepaidAuthorizations();
@@ -138,7 +144,7 @@ function isNow(value: unknown): boolean {
 describe('v2_1 Authorize handler - prepaid tokens (C17)', () => {
   it('accepts a prepaid token with credit and sets cacheExpiryDateTime to now (C17.FR.01)', async () => {
     whereQueue = [[tokenRow(5000)], []];
-    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({ idToken: { idToken: 'PREPAID-1', type: 'ISO14443' } });
 
     const response = await handleAuthorize(ctx);
@@ -153,7 +159,7 @@ describe('v2_1 Authorize handler - prepaid tokens (C17)', () => {
 
   it('answers NoCredit with cacheExpiryDateTime now when the balance is zero (C17.FR.02)', async () => {
     whereQueue = [[tokenRow(0)], []];
-    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({ idToken: { idToken: 'PREPAID-0', type: 'ISO14443' } });
 
     const response = await handleAuthorize(ctx);
@@ -171,7 +177,7 @@ describe('v2_1 Authorize handler - prepaid tokens (C17)', () => {
 
   it('answers NoCredit for a negative balance', async () => {
     whereQueue = [[tokenRow(-250)], []];
-    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({ idToken: { idToken: 'PREPAID-NEG', type: 'ISO14443' } });
 
     const response = await handleAuthorize(ctx);
@@ -181,7 +187,7 @@ describe('v2_1 Authorize handler - prepaid tokens (C17)', () => {
 
   it('keeps ConcurrentTx for a prepaid token with a running transaction', async () => {
     whereQueue = [[tokenRow(5000)], [{ id: 'ses_running' }]];
-    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({ idToken: { idToken: 'PREPAID-1', type: 'ISO14443' } });
 
     const response = await handleAuthorize(ctx);
@@ -191,7 +197,7 @@ describe('v2_1 Authorize handler - prepaid tokens (C17)', () => {
 
   it('omits cacheExpiryDateTime for a postpaid token without expiry', async () => {
     whereQueue = [[tokenRow(null)], []];
-    const { handleAuthorize } = await import('../../../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({ idToken: { idToken: 'POSTPAID', type: 'ISO14443' } });
 
     const response = await handleAuthorize(ctx);

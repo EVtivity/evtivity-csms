@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
+import * as maintenanceSchedulerModule from '../../handlers/maintenance-scheduler.js';
 
 // Drizzle chain mock. Queries run in order: dueScheduled SELECT, dueEnd SELECT.
 let dbResults: unknown[][] = [];
@@ -81,7 +82,7 @@ describe('maintenanceSchedulerHandler', () => {
   it('does nothing and logs a zero tick when no windows are due', async () => {
     setupDbResults([], []);
 
-    const { maintenanceSchedulerHandler } = await import('../../handlers/maintenance-scheduler.js');
+    const { maintenanceSchedulerHandler } = maintenanceSchedulerModule;
     await maintenanceSchedulerHandler(log);
 
     expect(mockEnter).not.toHaveBeenCalled();
@@ -92,7 +93,7 @@ describe('maintenanceSchedulerHandler', () => {
   it('activates every due scheduled window via enterMaintenance with the system actor', async () => {
     setupDbResults([{ id: 'mne_1' }, { id: 'mne_2' }], []);
 
-    const { maintenanceSchedulerHandler } = await import('../../handlers/maintenance-scheduler.js');
+    const { maintenanceSchedulerHandler } = maintenanceSchedulerModule;
     await maintenanceSchedulerHandler(log);
 
     expect(mockEnter).toHaveBeenCalledTimes(2);
@@ -105,7 +106,7 @@ describe('maintenanceSchedulerHandler', () => {
   it('ends every due active window via exitMaintenance with the system actor', async () => {
     setupDbResults([], [{ id: 'mne_end_1' }, { id: 'mne_end_2' }]);
 
-    const { maintenanceSchedulerHandler } = await import('../../handlers/maintenance-scheduler.js');
+    const { maintenanceSchedulerHandler } = maintenanceSchedulerModule;
     await maintenanceSchedulerHandler(log);
 
     expect(mockExit).toHaveBeenCalledTimes(2);
@@ -118,7 +119,7 @@ describe('maintenanceSchedulerHandler', () => {
   it('handles both activation and ending in the same tick', async () => {
     setupDbResults([{ id: 'mne_start' }], [{ id: 'mne_stop' }]);
 
-    const { maintenanceSchedulerHandler } = await import('../../handlers/maintenance-scheduler.js');
+    const { maintenanceSchedulerHandler } = maintenanceSchedulerModule;
     await maintenanceSchedulerHandler(log);
 
     expect(mockEnter).toHaveBeenCalledWith('mne_start', SYSTEM_ACTOR, log);
@@ -131,7 +132,7 @@ describe('maintenanceSchedulerHandler', () => {
     const err = new Error('enter blew up');
     mockEnter.mockRejectedValueOnce(err);
 
-    const { maintenanceSchedulerHandler } = await import('../../handlers/maintenance-scheduler.js');
+    const { maintenanceSchedulerHandler } = maintenanceSchedulerModule;
     await maintenanceSchedulerHandler(log);
 
     // Second event still processed despite the first throwing.
@@ -150,7 +151,7 @@ describe('maintenanceSchedulerHandler', () => {
     const err = new Error('exit blew up');
     mockExit.mockRejectedValueOnce(err);
 
-    const { maintenanceSchedulerHandler } = await import('../../handlers/maintenance-scheduler.js');
+    const { maintenanceSchedulerHandler } = maintenanceSchedulerModule;
     await maintenanceSchedulerHandler(log);
 
     expect(mockExit).toHaveBeenCalledTimes(2);

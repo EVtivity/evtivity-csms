@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 
 // Mock external dependencies
 const mockSendMail = vi.fn().mockResolvedValue({});
@@ -45,6 +45,12 @@ function setupSqlResults(...results: unknown[][]) {
   sqlCalls.length = 0;
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let notificationDispatchModule: typeof import('../notification-dispatch.js');
+beforeAll(async () => {
+  notificationDispatchModule = await import('../notification-dispatch.js');
+}, 30_000);
+
 describe('notification-dispatch', () => {
   let sql: ReturnType<typeof createSqlMock>;
 
@@ -63,14 +69,14 @@ describe('notification-dispatch', () => {
 
   describe('wrapEmailHtml', () => {
     it('wraps body HTML with default template', async () => {
-      const { wrapEmailHtml } = await import('../notification-dispatch.js');
+      const { wrapEmailHtml } = notificationDispatchModule;
       const result = wrapEmailHtml('<p>Hello</p>', 'TestCo');
       expect(result).toContain('<p>Hello</p>');
       expect(result).toContain('TestCo');
     });
 
     it('uses custom wrapper template when provided', async () => {
-      const { wrapEmailHtml } = await import('../notification-dispatch.js');
+      const { wrapEmailHtml } = notificationDispatchModule;
       const result = wrapEmailHtml(
         '<p>Hello</p>',
         'TestCo',
@@ -80,7 +86,7 @@ describe('notification-dispatch', () => {
     });
 
     it('falls back to default template when custom is empty', async () => {
-      const { wrapEmailHtml } = await import('../notification-dispatch.js');
+      const { wrapEmailHtml } = notificationDispatchModule;
       const result = wrapEmailHtml('<p>Hello</p>', 'TestCo', '');
       expect(result).toContain('TestCo');
       expect(result).toContain('<p>Hello</p>');
@@ -89,13 +95,13 @@ describe('notification-dispatch', () => {
 
   describe('compileTemplate', () => {
     it('compiles Handlebars template with variables', async () => {
-      const { compileTemplate } = await import('../notification-dispatch.js');
+      const { compileTemplate } = notificationDispatchModule;
       const result = compileTemplate('Hello {{name}}!', { name: 'World' });
       expect(result).toBe('Hello World!');
     });
 
     it('caches compiled templates', async () => {
-      const { compileTemplate } = await import('../notification-dispatch.js');
+      const { compileTemplate } = notificationDispatchModule;
       const result1 = compileTemplate('Hello {{name}}!', { name: 'A' });
       const result2 = compileTemplate('Hello {{name}}!', { name: 'B' });
       expect(result1).toBe('Hello A!');
@@ -105,7 +111,7 @@ describe('notification-dispatch', () => {
 
   describe('formatDateVariables', () => {
     it('formats ISO date variables into the given timezone', async () => {
-      const { formatDateVariables } = await import('../notification-dispatch.js');
+      const { formatDateVariables } = notificationDispatchModule;
       const iso = '2026-07-05T00:00:00.000Z';
       const result = formatDateVariables({ startedAt: iso }, 'America/New_York');
       expect(result['startedAt']).not.toBe(iso);
@@ -113,7 +119,7 @@ describe('notification-dispatch', () => {
     });
 
     it('formats issuedAt, dueAt and refundedAt the same way as startedAt', async () => {
-      const { formatDateVariables } = await import('../notification-dispatch.js');
+      const { formatDateVariables } = notificationDispatchModule;
       const iso = '2026-07-05T00:00:00.000Z';
       const result = formatDateVariables(
         { startedAt: iso, issuedAt: iso, dueAt: iso, refundedAt: iso },
@@ -127,7 +133,7 @@ describe('notification-dispatch', () => {
     });
 
     it('leaves non-date variables untouched', async () => {
-      const { formatDateVariables } = await import('../notification-dispatch.js');
+      const { formatDateVariables } = notificationDispatchModule;
       const result = formatDateVariables(
         { invoiceNumber: 'INV-001', issuedAt: '' },
         'America/New_York',
@@ -139,19 +145,19 @@ describe('notification-dispatch', () => {
 
   describe('resolveRecipients', () => {
     it('returns literal address as single recipient', async () => {
-      const { resolveRecipients } = await import('../notification-dispatch.js');
+      const { resolveRecipients } = notificationDispatchModule;
       const recipients = resolveRecipients(sql as never, 'user@test.com');
       expect(recipients).toEqual([{ address: 'user@test.com', language: 'en' }]);
     });
 
     it('returns empty array for empty string', async () => {
-      const { resolveRecipients } = await import('../notification-dispatch.js');
+      const { resolveRecipients } = notificationDispatchModule;
       const recipients = resolveRecipients(sql as never, '');
       expect(recipients).toEqual([]);
     });
 
     it('returns empty array for whitespace-only string', async () => {
-      const { resolveRecipients } = await import('../notification-dispatch.js');
+      const { resolveRecipients } = notificationDispatchModule;
       const recipients = resolveRecipients(sql as never, '   ');
       expect(recipients).toEqual([]);
     });
@@ -159,14 +165,14 @@ describe('notification-dispatch', () => {
 
   describe('loadDbTemplate', () => {
     it('returns template when found', async () => {
-      const { loadDbTemplate } = await import('../notification-dispatch.js');
+      const { loadDbTemplate } = notificationDispatchModule;
       setupSqlResults([{ subject: 'Test Subject', body_html: '<p>Test</p>' }]);
       const result = await loadDbTemplate(sql as never, 'test.event', 'email', 'en');
       expect(result).toEqual({ subject: 'Test Subject', bodyHtml: '<p>Test</p>' });
     });
 
     it('returns null when not found', async () => {
-      const { loadDbTemplate } = await import('../notification-dispatch.js');
+      const { loadDbTemplate } = notificationDispatchModule;
       setupSqlResults([]);
       const result = await loadDbTemplate(sql as never, 'test.event', 'email', 'en');
       expect(result).toBeNull();
@@ -175,7 +181,7 @@ describe('notification-dispatch', () => {
 
   describe('renderTemplate', () => {
     it('uses templateHtmlOverride when provided', async () => {
-      const { renderTemplate } = await import('../notification-dispatch.js');
+      const { renderTemplate } = notificationDispatchModule;
       const result = await renderTemplate(
         'email',
         'test.event',
@@ -189,7 +195,7 @@ describe('notification-dispatch', () => {
     });
 
     it('falls back to JSON dump when no templates available', async () => {
-      const { renderTemplate } = await import('../notification-dispatch.js');
+      const { renderTemplate } = notificationDispatchModule;
       const result = await renderTemplate('email', 'test.event', 'en', {
         companyName: 'TestCo',
       });
@@ -198,7 +204,7 @@ describe('notification-dispatch', () => {
     });
 
     it('uses DB template when available', async () => {
-      const { renderTemplate } = await import('../notification-dispatch.js');
+      const { renderTemplate } = notificationDispatchModule;
       setupSqlResults([{ subject: 'DB Subject', body_html: '<p>DB Body {{companyName}}</p>' }]);
       const result = await renderTemplate(
         'email',
@@ -213,7 +219,7 @@ describe('notification-dispatch', () => {
     });
 
     it('falls back to English DB template when language not found', async () => {
-      const { renderTemplate } = await import('../notification-dispatch.js');
+      const { renderTemplate } = notificationDispatchModule;
       setupSqlResults(
         [], // Spanish not found
         [{ subject: 'EN Subject', body_html: '<p>English</p>' }], // English fallback
@@ -229,7 +235,7 @@ describe('notification-dispatch', () => {
     });
 
     it('uses the generic subject when no subject template exists', async () => {
-      const { renderTemplate } = await import('../notification-dispatch.js');
+      const { renderTemplate } = notificationDispatchModule;
       const result = await renderTemplate('email', 'session.Started', 'en', {
         companyName: 'TestCo',
       });
@@ -239,7 +245,7 @@ describe('notification-dispatch', () => {
 
   describe('sendEmail', () => {
     it('sends email via nodemailer and returns true', async () => {
-      const { sendEmail } = await import('../notification-dispatch.js');
+      const { sendEmail } = notificationDispatchModule;
       const result = await sendEmail(
         {
           host: 'smtp.test.com',
@@ -265,7 +271,7 @@ describe('notification-dispatch', () => {
     });
 
     it('derives the text part from the HTML, not the HTML template', async () => {
-      const { sendEmail } = await import('../notification-dispatch.js');
+      const { sendEmail } = notificationDispatchModule;
       const html =
         '<img src="https://x.test/logo.png" alt="Logo"><h2 style="color:#111">Set up your account</h2>' +
         "<p>Hi Nightly,</p><a href='https://portal.test/activate?token&#x3D;abc'>Set Your Password</a>";
@@ -286,7 +292,7 @@ describe('notification-dispatch', () => {
     });
 
     it('sends the body as the text part without HTML', async () => {
-      const { sendEmail } = await import('../notification-dispatch.js');
+      const { sendEmail } = notificationDispatchModule;
       await sendEmail(
         { host: 'smtp.test.com', port: 587, username: '', password: '', from: 'f@test.com' },
         'to@test.com',
@@ -301,7 +307,7 @@ describe('notification-dispatch', () => {
 
     it('returns false on send failure', async () => {
       mockSendMail.mockRejectedValueOnce(new Error('SMTP error'));
-      const { sendEmail } = await import('../notification-dispatch.js');
+      const { sendEmail } = notificationDispatchModule;
       const result = await sendEmail(
         {
           host: 'smtp.test.com',
@@ -320,7 +326,7 @@ describe('notification-dispatch', () => {
 
   describe('sendSms', () => {
     it('sends SMS via Twilio API and returns true', async () => {
-      const { sendSms } = await import('../notification-dispatch.js');
+      const { sendSms } = notificationDispatchModule;
       const result = await sendSms(
         { accountSid: 'AC123', authToken: 'token', fromNumber: '+1234567890' },
         '+0987654321',
@@ -339,7 +345,7 @@ describe('notification-dispatch', () => {
         status: 400,
         text: () => Promise.resolve('Bad request'),
       });
-      const { sendSms } = await import('../notification-dispatch.js');
+      const { sendSms } = notificationDispatchModule;
       const result = await sendSms(
         { accountSid: 'AC123', authToken: 'token', fromNumber: '+1234567890' },
         '+0987654321',
@@ -350,7 +356,7 @@ describe('notification-dispatch', () => {
 
     it('returns false on fetch exception', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Network error'));
-      const { sendSms } = await import('../notification-dispatch.js');
+      const { sendSms } = notificationDispatchModule;
       const result = await sendSms(
         { accountSid: 'AC123', authToken: 'token', fromNumber: '+1234567890' },
         '+0987654321',
@@ -362,7 +368,7 @@ describe('notification-dispatch', () => {
 
   describe('sendWebhook', () => {
     it('sends webhook and returns ok', async () => {
-      const { sendWebhook } = await import('../notification-dispatch.js');
+      const { sendWebhook } = notificationDispatchModule;
       const result = await sendWebhook('https://webhook.test.com/hook', 'Subject', 'Body', {
         key: 'value',
       });
@@ -382,7 +388,7 @@ describe('notification-dispatch', () => {
         status: 500,
         text: () => Promise.resolve('Server error'),
       });
-      const { sendWebhook } = await import('../notification-dispatch.js');
+      const { sendWebhook } = notificationDispatchModule;
       const result = await sendWebhook('https://webhook.test.com/hook', 'Subject', 'Body', {});
       expect(result).toBe('http_error');
     });
@@ -390,7 +396,7 @@ describe('notification-dispatch', () => {
 
   describe('logNotification', () => {
     it('logs notification without throwing', async () => {
-      const { logNotification } = await import('../notification-dispatch.js');
+      const { logNotification } = notificationDispatchModule;
       expect(() => logNotification('email', 'test@test.com', 'Subject', 'Body')).not.toThrow();
     });
   });
@@ -399,7 +405,7 @@ describe('notification-dispatch', () => {
     it('returns smtp config when host is configured, and null when not', async () => {
       // getNotificationSettings has a 5-minute cache, so we test both in order
       // First call: with SMTP settings
-      const { getNotificationSettings } = await import('../notification-dispatch.js');
+      const { getNotificationSettings } = notificationDispatchModule;
       setupSqlResults([
         { key: 'smtp.host', value: 'smtp.test.com' },
         { key: 'smtp.port', value: '587' },
@@ -424,7 +430,7 @@ describe('notification-dispatch', () => {
 
   describe('dispatchDriverNotification', () => {
     it('sends email and SMS when enabled', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       setupSqlResults(
         [{ is_enabled: true }], // driver_event_settings
         [
@@ -456,7 +462,7 @@ describe('notification-dispatch', () => {
     });
 
     it('skips when event type is disabled', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       setupSqlResults(
         [{ is_enabled: false }], // disabled
       );
@@ -467,7 +473,7 @@ describe('notification-dispatch', () => {
     });
 
     it('skips when driver not found', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       // Dispatcher fans driver, prefs, company, settings in Promise.all
       // after the event-settings check. Cached helpers (company,
       // settings) may skip the DB on warm runs, so the call count is
@@ -489,7 +495,7 @@ describe('notification-dispatch', () => {
     });
 
     it('handles dispatch errors gracefully', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       setupSqlResults([]); // Will cause an access error
 
       // Should not throw

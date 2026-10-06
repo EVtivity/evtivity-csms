@@ -18,7 +18,9 @@ beforeAll(async () => {
   process.env['OCPP_MAX_MESSAGES_PER_IP_PER_SECOND'] = '3';
   const mod = await import('../server/ocpp-server.js');
   OcppServer = mod.OcppServer;
-});
+  // The first import transforms the whole server module graph; with coverage on a busy
+  // machine that took over the default 10 s hook limit.
+}, 60_000);
 
 let testPort = 19500;
 let server: OcppServerType | null = null;

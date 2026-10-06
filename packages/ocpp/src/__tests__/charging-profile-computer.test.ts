@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PubSubClient } from '@evtivity/lib';
+import * as chargingProfileComputerModule from '../services/charging-profile-computer.js';
 
 const sqlCalls: Array<{ strings: string[]; values: unknown[] }> = [];
 let sqlResults: Array<unknown[]> = [];
@@ -49,7 +50,7 @@ describe('computeAndSendChargingProfile', () => {
       close: vi.fn().mockResolvedValue(undefined),
     };
 
-    const mod = await import('../services/charging-profile-computer.js');
+    const mod = chargingProfileComputerModule;
     computeAndSendChargingProfile = mod.computeAndSendChargingProfile;
   });
 

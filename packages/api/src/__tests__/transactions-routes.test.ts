@@ -116,6 +116,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { transactionRoutes } from '../routes/transactions.js';
+import * as drizzleOrmModule from 'drizzle-orm';
 
 const VALID_SESSION_ID = 'ses_000000000001';
 
@@ -400,7 +401,7 @@ describe('Transaction routes', () => {
       expect(body.transactionId).toBe('txn-001');
       expect(body.status).toBe('completed');
       // A transactionId is unique per station only: the lookup names both.
-      const { eq } = await import('drizzle-orm');
+      const { eq } = drizzleOrmModule;
       expect(eq).toHaveBeenCalledWith('st.station_id', 'CS-001');
       expect(eq).toHaveBeenCalledWith('cs.transaction_id', 'txn-001');
     });

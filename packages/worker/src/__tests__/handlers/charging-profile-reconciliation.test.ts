@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
+import * as chargingProfileReconciliationModule from '../../handlers/charging-profile-reconciliation.js';
 
 // Drizzle chain mock. Each query chain (selectDistinct().from().where() or
 // select().from().where().orderBy()) resolves to the next queued result.
@@ -79,8 +80,7 @@ describe('chargingProfileReconciliationHandler', () => {
 
   it('returns early when no stations have csms_set profiles', async () => {
     setupQueries([]); // selectDistinct -> none
-    const { chargingProfileReconciliationHandler } =
-      await import('../../handlers/charging-profile-reconciliation.js');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await chargingProfileReconciliationHandler(makeLog());
 
@@ -95,8 +95,7 @@ describe('chargingProfileReconciliationHandler', () => {
       [], // reportedRows: nothing reported
     );
     const log = makeLog();
-    const { chargingProfileReconciliationHandler } =
-      await import('../../handlers/charging-profile-reconciliation.js');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await chargingProfileReconciliationHandler(log);
 
@@ -122,8 +121,7 @@ describe('chargingProfileReconciliationHandler', () => {
       [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }],
       [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 16 } }], // differs
     );
-    const { chargingProfileReconciliationHandler } =
-      await import('../../handlers/charging-profile-reconciliation.js');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await chargingProfileReconciliationHandler(makeLog());
 
@@ -137,8 +135,7 @@ describe('chargingProfileReconciliationHandler', () => {
       [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }], // identical
     );
     const log = makeLog();
-    const { chargingProfileReconciliationHandler } =
-      await import('../../handlers/charging-profile-reconciliation.js');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await chargingProfileReconciliationHandler(log);
 
@@ -159,8 +156,7 @@ describe('chargingProfileReconciliationHandler', () => {
         { stationId: 'sta_1', evseId: 1, profileData: { limit: 1 } }, // stale, ignored
       ],
     );
-    const { chargingProfileReconciliationHandler } =
-      await import('../../handlers/charging-profile-reconciliation.js');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await chargingProfileReconciliationHandler(makeLog());
 
@@ -180,8 +176,7 @@ describe('chargingProfileReconciliationHandler', () => {
         // sta_2 not reported -> mismatch
       ],
     );
-    const { chargingProfileReconciliationHandler } =
-      await import('../../handlers/charging-profile-reconciliation.js');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await chargingProfileReconciliationHandler(makeLog());
 
@@ -202,8 +197,7 @@ describe('chargingProfileReconciliationHandler', () => {
       [], // neither reported
     );
     const log = makeLog();
-    const { chargingProfileReconciliationHandler } =
-      await import('../../handlers/charging-profile-reconciliation.js');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await chargingProfileReconciliationHandler(log);
 
@@ -224,8 +218,7 @@ describe('chargingProfileReconciliationHandler', () => {
       ],
       [], // both mismatch
     );
-    const { chargingProfileReconciliationHandler } =
-      await import('../../handlers/charging-profile-reconciliation.js');
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await expect(chargingProfileReconciliationHandler(makeLog())).resolves.toBeUndefined();
     // First publish rejected, second still attempted.

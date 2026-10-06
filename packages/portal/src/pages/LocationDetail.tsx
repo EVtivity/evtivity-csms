@@ -14,11 +14,7 @@ import { LocationMap } from '@/components/LocationMap';
 import { PopularTimesChart } from '@/components/PopularTimesChart';
 import type { PopularTimesData } from '@/components/PopularTimesChart';
 import { api } from '@/lib/api';
-import {
-  STARTABLE_STATUSES,
-  connectorStatusVariant,
-  connectorStatusClassName,
-} from '@/lib/connector-status';
+import { connectorStatusVariant, connectorStatusClassName } from '@/lib/connector-status';
 
 interface ChargerInfo {
   stationId: string;
@@ -26,6 +22,9 @@ interface ChargerInfo {
   connectorType: string | null;
   maxPowerKw: string | null;
   status: string;
+  // The API's driver availability rule: station online, enabled and not under
+  // maintenance, EVSE not reserved, and a startable connector status.
+  available: boolean;
 }
 
 interface LocationInfo {
@@ -159,7 +158,11 @@ export function LocationDetail(): React.JSX.Element {
                 <p className="text-sm font-medium">{t('location.stations')}</p>
                 <div className="space-y-2">
                   {location.chargers.map((c) => {
-                    const isStartable = STARTABLE_STATUSES.includes(c.status);
+                    const isStartable = c.available;
+                    // A connector can report Available while its station is
+                    // disabled, offline, under maintenance or the EVSE is reserved.
+                    const shownStatus =
+                      !c.available && c.status === 'available' ? 'unavailable' : c.status;
                     const meta = (
                       <span className="text-xs text-muted-foreground">
                         {c.connectorType != null ? c.connectorType : ''}
@@ -179,9 +182,9 @@ export function LocationDetail(): React.JSX.Element {
                           {meta}
                           <Badge
                             variant={connectorStatusVariant()}
-                            className={connectorStatusClassName(c.status)}
+                            className={connectorStatusClassName(shownStatus)}
                           >
-                            {t(`status.${c.status}`)}
+                            {t(`status.${shownStatus}`)}
                           </Badge>
                         </span>
                       </>

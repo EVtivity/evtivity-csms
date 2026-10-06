@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import type { DomainEvent } from '@evtivity/lib';
 
 const mockGetNotificationSettings = vi.fn();
@@ -114,6 +114,12 @@ function createSqlMock() {
   return fn;
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let notificationDispatcherModule: typeof import('../server/notification-dispatcher.js');
+beforeAll(async () => {
+  notificationDispatcherModule = await import('../server/notification-dispatcher.js');
+}, 30_000);
+
 describe('dispatchOcppNotification', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -122,12 +128,12 @@ describe('dispatchOcppNotification', () => {
     sqlCallIndex = 0;
     mockRecordNotificationAttempt.mockResolvedValue(undefined);
     // Clear the in-memory settings cache between tests
-    const mod = await import('../server/notification-dispatcher.js');
+    const mod = notificationDispatcherModule;
     mod.clearOcppEventSettingsCache();
   });
 
   it('dispatches email notification when setting row exists', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     // Cache loads all ocpp_event_settings rows (row existence = active)
     setupSqlResults(
@@ -162,7 +168,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('skips when no setting row exists for the event type', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
     // Cache load returns no rows
     setupSqlResults([]);
 
@@ -174,7 +180,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('dispatches webhook when channel is webhook', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults(
       [
@@ -214,7 +220,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('falls back to log when SMTP not configured', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults(
       [
@@ -247,7 +253,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('dispatches to both email and webhook when both rows exist', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults(
       [
@@ -293,7 +299,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('serves the second dispatch from the in-memory settings cache', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults([
       {
@@ -328,7 +334,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('uses the recipient language when the setting has no language override', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults([
       {
@@ -365,7 +371,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('logs and swallows a failure thrown after loading settings', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults([
       {
@@ -389,7 +395,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('records smtp_send_failed when sendEmail returns false', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults([
       {
@@ -425,7 +431,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('records credentials_decrypt_failed when smtp credentials cannot decrypt', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults([
       {
@@ -467,7 +473,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('records a webhook failure reason when sendWebhook does not return ok', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults([
       {
@@ -502,7 +508,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('catches and logs a per-recipient render failure without throwing', async () => {
-    const { dispatchOcppNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification } = notificationDispatcherModule;
 
     setupSqlResults([
       {
@@ -532,8 +538,7 @@ describe('dispatchOcppNotification', () => {
   });
 
   it('returns an empty cache and skips dispatch when the settings query fails', async () => {
-    const { dispatchOcppNotification, clearOcppEventSettingsCache } =
-      await import('../server/notification-dispatcher.js');
+    const { dispatchOcppNotification, clearOcppEventSettingsCache } = notificationDispatcherModule;
     clearOcppEventSettingsCache();
 
     // SQL throws on the settings load -> loadSettingsCache catch returns an
@@ -556,8 +561,7 @@ describe('dispatchDriverNotification wrapper', () => {
   });
 
   it('forwards to the shared dispatcher with the default template dirs', async () => {
-    const { dispatchDriverNotification, ALL_TEMPLATES_DIRS } =
-      await import('../server/notification-dispatcher.js');
+    const { dispatchDriverNotification, ALL_TEMPLATES_DIRS } = notificationDispatcherModule;
     mockDispatchDriverNotification.mockResolvedValue(undefined);
 
     const sql = createSqlMock();
@@ -575,7 +579,7 @@ describe('dispatchDriverNotification wrapper', () => {
   });
 
   it('passes a caller-supplied templatesDir and pubsub through', async () => {
-    const { dispatchDriverNotification } = await import('../server/notification-dispatcher.js');
+    const { dispatchDriverNotification } = notificationDispatcherModule;
     mockDispatchDriverNotification.mockResolvedValue(undefined);
 
     const sql = createSqlMock();
@@ -606,7 +610,7 @@ describe('subscribeOcppEventSettingsInvalidation', () => {
   });
 
   it('clears the OCPP event settings cache on a matching cache message', async () => {
-    const mod = await import('../server/notification-dispatcher.js');
+    const mod = notificationDispatcherModule;
 
     let handler: ((p: string) => void) | null = null;
     const unsubscribe = vi.fn().mockResolvedValue(undefined);
@@ -674,7 +678,7 @@ describe('subscribeOcppEventSettingsInvalidation', () => {
   });
 
   it('clears the contract validation CA cache on a pkiCaCertificates message', async () => {
-    const mod = await import('../server/notification-dispatcher.js');
+    const mod = notificationDispatcherModule;
     let handler: ((p: string) => void) | null = null;
     const pubsub = {
       publish: vi.fn(),
@@ -695,7 +699,7 @@ describe('subscribeOcppEventSettingsInvalidation', () => {
   });
 
   it('clears the station message caches on a station_message message', async () => {
-    const mod = await import('../server/notification-dispatcher.js');
+    const mod = notificationDispatcherModule;
     let handler: ((p: string) => void) | null = null;
     const pubsub = {
       publish: vi.fn(),

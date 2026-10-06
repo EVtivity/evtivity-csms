@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
+import * as bullmqModule from 'bullmq';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
 // Keep the real withLock so the redis.set/eval lock assertions below exercise
@@ -71,10 +72,18 @@ beforeEach(() => {
   mockRunMaintenanceFanout.mockResolvedValue(undefined);
 });
 
+// The module is imported after the mocks above are initialized. The first import loads the
+// whole module graph, which under coverage on a busy machine took longer than one test's
+// 5 s timeout, so it happens once here with its own timeout instead of inside the first test.
+let mod: typeof import('../maintenance-fanout-worker.js');
+beforeAll(async () => {
+  mod = await import('../maintenance-fanout-worker.js');
+}, 30_000);
+
 describe('createMaintenanceFanoutWorker', () => {
   it('wires the Worker to the maintenance-fanout queue with concurrency 1 so fan-outs serialize in enqueue order', async () => {
-    const { Worker } = await import('bullmq');
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { Worker } = bullmqModule;
+    const { createMaintenanceFanoutWorker } = mod;
 
     createMaintenanceFanoutWorker({});
 
@@ -86,7 +95,7 @@ describe('createMaintenanceFanoutWorker', () => {
   });
 
   it('passes the provided connection through to the Worker', async () => {
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { createMaintenanceFanoutWorker } = mod;
     const connection = { host: 'redis-y' } as never;
 
     createMaintenanceFanoutWorker(connection);
@@ -95,7 +104,7 @@ describe('createMaintenanceFanoutWorker', () => {
   });
 
   it('processor logs start, runs the fan-out, then logs completion', async () => {
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { createMaintenanceFanoutWorker } = mod;
     createMaintenanceFanoutWorker({});
 
     const data = { eventId: 'mne_1', phase: 'enter' };
@@ -111,7 +120,7 @@ describe('createMaintenanceFanoutWorker', () => {
 
   it('processor logs failure and rethrows when the fan-out throws', async () => {
     mockRunMaintenanceFanout.mockRejectedValueOnce(new Error('fanout failed'));
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { createMaintenanceFanoutWorker } = mod;
     createMaintenanceFanoutWorker({});
 
     const job = makeJob('maintenance-fanout', { eventId: 'mne_2', phase: 'release' });
@@ -124,7 +133,7 @@ describe('createMaintenanceFanoutWorker', () => {
 
   it('processor uses "Unknown error" when a non-Error is thrown', async () => {
     mockRunMaintenanceFanout.mockRejectedValueOnce('weird');
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { createMaintenanceFanoutWorker } = mod;
     createMaintenanceFanoutWorker({});
 
     const job = makeJob('maintenance-fanout', { eventId: 'mne_3', phase: 'add' });
@@ -134,7 +143,7 @@ describe('createMaintenanceFanoutWorker', () => {
   });
 
   it('takes and releases a per-site lock when a lock client is provided', async () => {
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { createMaintenanceFanoutWorker } = mod;
     const lockRedis = {
       set: vi.fn().mockResolvedValue('OK'),
       eval: vi.fn().mockResolvedValue(1),
@@ -152,7 +161,7 @@ describe('createMaintenanceFanoutWorker', () => {
   });
 
   it('falls back to the eventId lock key when the job carries no siteId', async () => {
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { createMaintenanceFanoutWorker } = mod;
     const lockRedis = {
       set: vi.fn().mockResolvedValue('OK'),
       eval: vi.fn().mockResolvedValue(1),
@@ -168,7 +177,7 @@ describe('createMaintenanceFanoutWorker', () => {
 
   it('releases the lock even when the fan-out throws', async () => {
     mockRunMaintenanceFanout.mockRejectedValueOnce(new Error('boom'));
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { createMaintenanceFanoutWorker } = mod;
     const lockRedis = {
       set: vi.fn().mockResolvedValue('OK'),
       eval: vi.fn().mockResolvedValue(1),
@@ -184,7 +193,7 @@ describe('createMaintenanceFanoutWorker', () => {
   });
 
   it('registers a failed listener that logs jobs and ignores null jobs', async () => {
-    const { createMaintenanceFanoutWorker } = await import('../maintenance-fanout-worker.js');
+    const { createMaintenanceFanoutWorker } = mod;
     createMaintenanceFanoutWorker({});
 
     const failedHandler = onHandlers.get('failed');
@@ -208,7 +217,7 @@ describe('startMaintenanceFanoutBridge', () => {
   }
 
   it('subscribes to maintenance_fanout and returns a stop function', async () => {
-    const { startMaintenanceFanoutBridge } = await import('../maintenance-fanout-worker.js');
+    const { startMaintenanceFanoutBridge } = mod;
     const queue = makeQueue();
     const unsubscribe = vi.fn().mockResolvedValue(undefined);
     const subscribe = vi.fn().mockResolvedValue({ unsubscribe });
@@ -225,7 +234,7 @@ describe('startMaintenanceFanoutBridge', () => {
   });
 
   it('enqueues an enter job with a deterministic jobId', async () => {
-    const { startMaintenanceFanoutBridge } = await import('../maintenance-fanout-worker.js');
+    const { startMaintenanceFanoutBridge } = mod;
     const queue = makeQueue();
     let handler: ((payload: string) => void) | undefined;
     const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {
@@ -246,7 +255,7 @@ describe('startMaintenanceFanoutBridge', () => {
   });
 
   it('includes a sorted station-id hash in the jobId for add/remove', async () => {
-    const { startMaintenanceFanoutBridge } = await import('../maintenance-fanout-worker.js');
+    const { startMaintenanceFanoutBridge } = mod;
     const queue = makeQueue();
     let handler: ((payload: string) => void) | undefined;
     const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {
@@ -268,7 +277,7 @@ describe('startMaintenanceFanoutBridge', () => {
   });
 
   it('appends the nonce to the jobId so repeated reasserts for one station enqueue separately', async () => {
-    const { startMaintenanceFanoutBridge } = await import('../maintenance-fanout-worker.js');
+    const { startMaintenanceFanoutBridge } = mod;
     const queue = makeQueue();
     let handler: ((payload: string) => void) | undefined;
     const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {
@@ -296,7 +305,7 @@ describe('startMaintenanceFanoutBridge', () => {
   });
 
   it('warns and skips enqueue on a malformed payload', async () => {
-    const { startMaintenanceFanoutBridge } = await import('../maintenance-fanout-worker.js');
+    const { startMaintenanceFanoutBridge } = mod;
     const queue = makeQueue();
     let handler: ((payload: string) => void) | undefined;
     const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {
@@ -316,7 +325,7 @@ describe('startMaintenanceFanoutBridge', () => {
   });
 
   it('logs an error when enqueue fails (fail-open)', async () => {
-    const { startMaintenanceFanoutBridge } = await import('../maintenance-fanout-worker.js');
+    const { startMaintenanceFanoutBridge } = mod;
     const queue = { add: vi.fn().mockRejectedValue(new Error('redis down')) };
     let handler: ((payload: string) => void) | undefined;
     const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {

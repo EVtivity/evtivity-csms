@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
+import * as getCertificateStatusHandlerModule from '../../../handlers/v2_1/get-certificate-status.handler.js';
 
 const getOcspStatusMock = vi.fn();
 
@@ -66,8 +67,7 @@ beforeEach(() => {
 
 describe('v2_1 GetCertificateStatus handler', () => {
   it('publishes ocpp.GetCertificateStatus and returns the OCSP result on Accepted', async () => {
-    const { handleGetCertificateStatus } =
-      await import('../../../handlers/v2_1/get-certificate-status.handler.js');
+    const { handleGetCertificateStatus } = getCertificateStatusHandlerModule;
     const { ctx, publishMock } = makeCtx(reqPayload);
     const response = await handleGetCertificateStatus(ctx);
 
@@ -87,18 +87,41 @@ describe('v2_1 GetCertificateStatus handler', () => {
 
   it('returns Failed when the provider responds with a non-Accepted status', async () => {
     getOcspStatusMock.mockResolvedValue({ status: 'Failed', ocspResult: '' });
-    const { handleGetCertificateStatus } =
-      await import('../../../handlers/v2_1/get-certificate-status.handler.js');
+    const { handleGetCertificateStatus } = getCertificateStatusHandlerModule;
     const { ctx } = makeCtx(reqPayload);
     const response = await handleGetCertificateStatus(ctx);
 
     expect(response).toEqual({ status: 'Failed', ocspResult: '' });
   });
 
+  it('logs a failed station-named responder at warn with the station and the reason', async () => {
+    // The station names the responder, so its failure is no CSMS error (P9).
+    getOcspStatusMock.mockResolvedValue({
+      status: 'Failed',
+      ocspResult: '',
+      reason: 'fetch failed',
+    });
+    const { handleGetCertificateStatus } = getCertificateStatusHandlerModule;
+    const { ctx } = makeCtx(reqPayload);
+    const warn = vi.spyOn(ctx.logger, 'warn');
+    const error = vi.spyOn(ctx.logger, 'error');
+
+    await handleGetCertificateStatus(ctx);
+
+    expect(warn).toHaveBeenCalledWith(
+      {
+        stationId: 'CS-001',
+        responderURL: 'http://ocsp.example.com',
+        reason: 'fetch failed',
+      },
+      'GetCertificateStatus: OCSP status request failed',
+    );
+    expect(error).not.toHaveBeenCalled();
+  });
+
   it('returns Failed when the provider throws (OCSP responder unreachable)', async () => {
     getOcspStatusMock.mockRejectedValue(new Error('connection refused'));
-    const { handleGetCertificateStatus } =
-      await import('../../../handlers/v2_1/get-certificate-status.handler.js');
+    const { handleGetCertificateStatus } = getCertificateStatusHandlerModule;
     const { ctx, publishMock } = makeCtx(reqPayload);
     const response = await handleGetCertificateStatus(ctx);
 
@@ -108,8 +131,7 @@ describe('v2_1 GetCertificateStatus handler', () => {
 
   it('returns Failed when the provider throws a non-Error value', async () => {
     getOcspStatusMock.mockRejectedValue('string failure');
-    const { handleGetCertificateStatus } =
-      await import('../../../handlers/v2_1/get-certificate-status.handler.js');
+    const { handleGetCertificateStatus } = getCertificateStatusHandlerModule;
     const { ctx } = makeCtx(reqPayload);
     const response = await handleGetCertificateStatus(ctx);
 

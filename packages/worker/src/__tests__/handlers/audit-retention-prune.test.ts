@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import type { Logger } from 'pino';
 
 const { mockPruneOldRows } = vi.hoisted(() => ({
@@ -53,6 +53,12 @@ const EXPECTED_TABLES = [
   'authorize_attempts',
 ];
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let auditRetentionPruneModule: typeof import('../../handlers/audit-retention-prune.js');
+beforeAll(async () => {
+  auditRetentionPruneModule = await import('../../handlers/audit-retention-prune.js');
+}, 30_000);
+
 beforeEach(() => {
   settingValue = undefined;
   mockPruneOldRows.mockReset();
@@ -62,7 +68,7 @@ beforeEach(() => {
 describe('auditRetentionPruneHandler', () => {
   it('uses the default retention (1095 days) when the setting row is missing', async () => {
     settingValue = undefined; // no row
-    const { auditRetentionPruneHandler } = await import('../../handlers/audit-retention-prune.js');
+    const { auditRetentionPruneHandler } = auditRetentionPruneModule;
     const log = makeLog();
     await auditRetentionPruneHandler(log);
 
@@ -74,7 +80,7 @@ describe('auditRetentionPruneHandler', () => {
 
   it('uses the operator-configured numeric retention value', async () => {
     settingValue = 30;
-    const { auditRetentionPruneHandler } = await import('../../handlers/audit-retention-prune.js');
+    const { auditRetentionPruneHandler } = auditRetentionPruneModule;
     await auditRetentionPruneHandler(makeLog());
 
     expect(
@@ -86,7 +92,7 @@ describe('auditRetentionPruneHandler', () => {
 
   it('falls back to default when the setting value is a non-number (string)', async () => {
     settingValue = '45';
-    const { auditRetentionPruneHandler } = await import('../../handlers/audit-retention-prune.js');
+    const { auditRetentionPruneHandler } = auditRetentionPruneModule;
     await auditRetentionPruneHandler(makeLog());
 
     expect((mockPruneOldRows.mock.calls[0]![0] as { retentionDays: number }).retentionDays).toBe(
@@ -96,7 +102,7 @@ describe('auditRetentionPruneHandler', () => {
 
   it('prunes every per-entity audit_log table plus authorize_attempts', async () => {
     settingValue = 90;
-    const { auditRetentionPruneHandler } = await import('../../handlers/audit-retention-prune.js');
+    const { auditRetentionPruneHandler } = auditRetentionPruneModule;
     await auditRetentionPruneHandler(makeLog());
 
     const targeted = mockPruneOldRows.mock.calls.map((c) => (c[0] as { table: string }).table);
@@ -105,7 +111,7 @@ describe('auditRetentionPruneHandler', () => {
 
   it('skips pruning entirely when retention is zero (disabled)', async () => {
     settingValue = 0;
-    const { auditRetentionPruneHandler } = await import('../../handlers/audit-retention-prune.js');
+    const { auditRetentionPruneHandler } = auditRetentionPruneModule;
     const log = makeLog();
     await auditRetentionPruneHandler(log);
 
@@ -118,7 +124,7 @@ describe('auditRetentionPruneHandler', () => {
 
   it('skips pruning when retention is negative', async () => {
     settingValue = -1;
-    const { auditRetentionPruneHandler } = await import('../../handlers/audit-retention-prune.js');
+    const { auditRetentionPruneHandler } = auditRetentionPruneModule;
     await auditRetentionPruneHandler(makeLog());
     expect(mockPruneOldRows).not.toHaveBeenCalled();
   });
@@ -132,7 +138,7 @@ describe('auditRetentionPruneHandler', () => {
       .mockResolvedValueOnce(12)
       .mockResolvedValueOnce(0);
 
-    const { auditRetentionPruneHandler } = await import('../../handlers/audit-retention-prune.js');
+    const { auditRetentionPruneHandler } = auditRetentionPruneModule;
     const log = makeLog();
     await auditRetentionPruneHandler(log);
 

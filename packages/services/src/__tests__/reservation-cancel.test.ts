@@ -9,7 +9,9 @@ const {
   getReservationSettingsMock,
   writeReservationAuditMock,
   chargeCancellationFeeMock,
+  alertStationWatchersMock,
 } = vi.hoisted(() => ({
+  alertStationWatchersMock: vi.fn(async (..._args: unknown[]) => false),
   executeMock: vi.fn(),
   updateMock: vi.fn(),
   getReservationSettingsMock: vi.fn(),
@@ -35,6 +37,8 @@ vi.mock('@evtivity/database', () => ({
   reservations: { id: 'id' },
   getReservationSettings: getReservationSettingsMock,
   writeReservationAudit: writeReservationAuditMock,
+  alertStationWatchersIfAvailable: alertStationWatchersMock,
+  client: { tag: 'client' },
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -123,6 +127,37 @@ describe('applyReservationCancellation', () => {
         notes: 'changed plans',
       }),
     );
+  });
+
+  // A cancelled reservation can free the station with no connector change, so
+  // the cancel checks the station watches with the shared availability rule.
+  it('checks the station watches after a winning cancel', async () => {
+    executeMock.mockResolvedValueOnce([
+      { id: 'rsv_1', status_before: 'active', station_id: 'sta_1' },
+    ]);
+    await applyReservationCancellation(baseInput({ chargeFee: false, payments: undefined }));
+    expect(alertStationWatchersMock).toHaveBeenCalledWith(
+      { tag: 'client' },
+      expect.objectContaining({ publish: expect.any(Function) }),
+      'sta_1',
+    );
+  });
+
+  it('still cancels when the station watch check fails', async () => {
+    executeMock.mockResolvedValueOnce([
+      { id: 'rsv_1', status_before: 'active', station_id: 'sta_1' },
+    ]);
+    alertStationWatchersMock.mockRejectedValueOnce(new Error('db down'));
+    const result = await applyReservationCancellation(
+      baseInput({ chargeFee: false, payments: undefined }),
+    );
+    expect(result.cancelled).toBe(true);
+  });
+
+  it('does not check the station watches when the cancel lost the race', async () => {
+    executeMock.mockResolvedValueOnce([]);
+    await applyReservationCancellation(baseInput());
+    expect(alertStationWatchersMock).not.toHaveBeenCalled();
   });
 
   it('does not charge a fee for the system actor even when chargeFee=true and inside the window', async () => {

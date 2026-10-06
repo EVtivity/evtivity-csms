@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type Mock } from 'vitest';
 import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
 
 // SQL mock: a function that handles tagged template calls and returns configurable results
@@ -129,6 +129,12 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/station-status.js',
   )),
+  // The real driver availability rule (station-watch alert).
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/driver-availability.js',
+  )),
+  // The real station-watch check, running on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/station-watch.js')),
   // The real session pricing writes (tariff snapshot, segments, final cost),
   // running on the mocked client. The cost itself comes from mockPriceSessionAt.
   ...(await vi.importActual<Record<string, unknown>>(
@@ -265,6 +271,13 @@ describe('Event projections - coverage expansion', () => {
   let eventBus: ReturnType<typeof createMockEventBus>;
   const timerCallbacks: Array<{ fn: () => void; interval: number }> = [];
   let mockPubSub: PubSubClient;
+
+  // The first import loads the whole projection module graph, which under coverage on a busy
+  // machine took longer than one test's 5 s timeout. Load it once here so setup() reads it
+  // from the module cache.
+  beforeAll(async () => {
+    await import('../server/event-projections.js');
+  }, 30_000);
 
   beforeEach(() => {
     vi.useFakeTimers();

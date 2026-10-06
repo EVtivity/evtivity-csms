@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as jobLoggerModule from '../job-logger.js';
+import * as drizzleOrmModule from 'drizzle-orm';
 
 let returningRows: unknown[] = [];
 const insertValues: Record<string, unknown>[] = [];
@@ -55,7 +57,7 @@ describe('job-logger', () => {
   describe('logJobStarted', () => {
     it('inserts a started row and returns the new id', async () => {
       returningRows = [{ id: 99 }];
-      const { logJobStarted } = await import('../job-logger.js');
+      const { logJobStarted } = jobLoggerModule;
 
       const id = await logJobStarted('reservation-activate', 'reservations');
 
@@ -69,7 +71,7 @@ describe('job-logger', () => {
 
     it('throws when the insert returns no rows', async () => {
       returningRows = [];
-      const { logJobStarted } = await import('../job-logger.js');
+      const { logJobStarted } = jobLoggerModule;
 
       await expect(logJobStarted('job', 'queue')).rejects.toThrow(
         'Failed to insert worker job log',
@@ -79,8 +81,8 @@ describe('job-logger', () => {
 
   describe('logJobCompleted', () => {
     it('updates the row to completed with duration', async () => {
-      const { eq } = await import('drizzle-orm');
-      const { logJobCompleted } = await import('../job-logger.js');
+      const { eq } = drizzleOrmModule;
+      const { logJobCompleted } = jobLoggerModule;
 
       await logJobCompleted(5, 1234);
 
@@ -92,8 +94,8 @@ describe('job-logger', () => {
 
   describe('logJobFailed', () => {
     it('updates the row to failed with duration and error', async () => {
-      const { eq } = await import('drizzle-orm');
-      const { logJobFailed } = await import('../job-logger.js');
+      const { eq } = drizzleOrmModule;
+      const { logJobFailed } = jobLoggerModule;
 
       await logJobFailed(8, 500, 'boom');
 
@@ -108,7 +110,7 @@ describe('job-logger', () => {
 
     it('truncates the error message to 5000 characters', async () => {
       const longError = 'x'.repeat(6000);
-      const { logJobFailed } = await import('../job-logger.js');
+      const { logJobFailed } = jobLoggerModule;
 
       await logJobFailed(9, 100, longError);
 

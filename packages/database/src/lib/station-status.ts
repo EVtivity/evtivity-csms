@@ -443,3 +443,11 @@ export function isStationLevelUnavailable(state: StationLevelState): boolean {
     state.reportedStatus === 'faulted'
   );
 }
+
+// SQL form of isStationLevelUnavailable for the charging_stations row aliased
+// `stationAlias`. Never NULL. The alias is a code constant, never user input.
+export function stationLevelUnavailableSql(stationAlias: string): string {
+  const s = stationAlias;
+  return `(${s}.disabled_reason IS NOT NULL OR ${s}.firmware_state IS NOT NULL
+    OR COALESCE(${s}.reported_status = 'unavailable' OR ${s}.reported_status = 'faulted', false))`;
+}

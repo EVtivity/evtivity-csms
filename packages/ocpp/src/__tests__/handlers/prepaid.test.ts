@@ -57,3 +57,40 @@ describe('prepaid authorization time', () => {
     expect(prepaidCacheExpiry('CS-1', 'TOKEN', now)).toBe(now.toISOString());
   });
 });
+
+describe('prepaid authorization memory bound', () => {
+  const MAX = 10_000;
+  const base = Date.parse('2026-10-02T10:00:00.000Z');
+
+  it('drops expired entries when the memory is full', () => {
+    for (let i = 0; i < MAX; i++) {
+      rememberPrepaidAuthorization('CS-OLD', `T${String(i)}`, new Date(base));
+    }
+    // A second live entry made after the first ones expired.
+    const later = new Date(base + 11 * 60 * 1000);
+    rememberPrepaidAuthorization('CS-NEW', 'FRESH', later);
+    rememberPrepaidAuthorization('CS-NEW', 'SECOND', later);
+
+    // Both new decisions are remembered: the expired ones made room, so the
+    // oldest-entry fallback did not drop FRESH.
+    expect(prepaidCacheExpiry('CS-NEW', 'FRESH', later)).toBe(later.toISOString());
+    expect(prepaidCacheExpiry('CS-NEW', 'SECOND', later)).toBe(later.toISOString());
+    // The expired entries are gone even when asked about at their own time.
+    const atBase = new Date(base + 1000);
+    expect(prepaidCacheExpiry('CS-OLD', 'T0', atBase)).toBe(atBase.toISOString());
+  });
+
+  it('evicts the oldest entry when the memory is full of live entries', () => {
+    for (let i = 0; i < MAX; i++) {
+      rememberPrepaidAuthorization('CS', `T${String(i)}`, new Date(base + i));
+    }
+    const at = new Date(base + MAX);
+    rememberPrepaidAuthorization('CS', 'NEXT', at);
+
+    const check = new Date(base + MAX + 1);
+    // The first entry made room; the second and the new one are still remembered.
+    expect(prepaidCacheExpiry('CS', 'T0', check)).toBe(check.toISOString());
+    expect(prepaidCacheExpiry('CS', 'T1', check)).toBe(new Date(base + 1).toISOString());
+    expect(prepaidCacheExpiry('CS', 'NEXT', check)).toBe(at.toISOString());
+  });
+});

@@ -287,7 +287,8 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
             : {}),
           ...(request.certificate != null ? { certificate: request.certificate } : {}),
         },
-        ctx.logger,
+        // The station names the OCSP responders, so their failures carry it.
+        ctx.logger.child({ stationId: ctx.stationId }),
       );
     } catch (err) {
       ctx.logger.error(

@@ -14,8 +14,7 @@ You indicate agreement by checking the CLA checkbox in your pull request.
 2. Create a feature branch from `main`.
 3. Make your changes.
 4. Run `npm run typecheck && npm run lint && npm test` before submitting.
-5. Run `npm run test:integration` if your changes affect API routes, database queries, or authentication.
-6. Open a pull request against `main`.
+5. Open a pull request against `main`. Maintainers run the integration suites before merging changes to API routes, database queries, or authentication.
 
 ## What We Accept
 

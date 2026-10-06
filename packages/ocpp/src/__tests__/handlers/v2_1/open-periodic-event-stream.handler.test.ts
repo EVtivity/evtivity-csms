@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
+import * as openPeriodicEventStreamHandlerModule from '../../../handlers/v2_1/open-periodic-event-stream.handler.js';
 
 const logger = pino({ level: 'silent' });
 
@@ -44,8 +45,7 @@ beforeEach(() => {
 
 describe('v2_1 OpenPeriodicEventStream handler', () => {
   it('publishes ocpp.OpenPeriodicEventStream and returns Accepted', async () => {
-    const { handleOpenPeriodicEventStream } =
-      await import('../../../handlers/v2_1/open-periodic-event-stream.handler.js');
+    const { handleOpenPeriodicEventStream } = openPeriodicEventStreamHandlerModule;
     const constantStreamData = {
       id: 5,
       variableMonitoringId: 9,

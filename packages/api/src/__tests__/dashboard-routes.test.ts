@@ -138,6 +138,7 @@ import { registerAuth } from '../plugins/auth.js';
 import { dashboardRoutes } from '../routes/dashboard.js';
 import { db } from '@evtivity/database';
 import { getUserSiteIds } from '../lib/site-access.js';
+import * as sessionRevenueModule from '@evtivity/services/session-revenue';
 
 const getUserSiteIdsMock = getUserSiteIds as ReturnType<typeof vi.fn>;
 
@@ -337,7 +338,7 @@ describe('Dashboard routes', () => {
   it('GET /v1/dashboard/financial-stats returns revenue, electricity cost, and profit in the company currency', async () => {
     setupDbResults([{ totalElectricityCostCents: 120000, dayElectricityCostCents: 3000 }]);
     // The shared revenue definition (session-revenue.ts), split by today.
-    const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
+    const { aggregateRevenueRows } = sessionRevenueModule;
     mockQueryRevenue.mockResolvedValueOnce(
       aggregateRevenueRows([
         { key: 'false', taxRate: '0.19', grossCents: 1190, source: 'session', count: 392 },
@@ -395,7 +396,7 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/revenue-history returns daily revenue data', async () => {
-    const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
+    const { aggregateRevenueRows } = sessionRevenueModule;
     mockQueryRevenue.mockResolvedValueOnce(
       aggregateRevenueRows([
         { key: '2025-01-02', taxRate: '0', grossCents: 500, source: 'session', count: 14 },

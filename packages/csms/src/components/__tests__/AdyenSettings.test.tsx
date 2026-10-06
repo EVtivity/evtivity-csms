@@ -271,6 +271,17 @@ describe('AdyenSettings', () => {
     });
   });
 
+  it('does not query the webhook setup before the Adyen API key is configured', async () => {
+    // A fresh install: the API would answer 400 PAYMENT_PROVIDER_NOT_CONFIGURED.
+    SETTINGS = { ...SETTINGS_WITH_SECRETS, apiKey: null, apiKeyConfigured: false };
+    mockGets();
+    renderSettings();
+    expect(await screen.findByText('settings.adyenWebhookNotConfigured')).toBeTruthy();
+    expect(getMock.mock.calls.some(([url]) => String(url).startsWith(WEBHOOK_GET_PREFIX))).toBe(
+      false,
+    );
+  });
+
   it("lists other EVtivity deployments' webhooks apart", async () => {
     const otherUrl = 'https://dev.example.com/v1/webhooks/payments/adyen';
     mockGets({

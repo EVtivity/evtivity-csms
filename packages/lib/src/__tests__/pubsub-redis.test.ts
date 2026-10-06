@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 type Instance = {
   status: string;
@@ -64,10 +64,14 @@ describe('RedisPubSubClient', () => {
     return RedisPubSubClient;
   }
 
-  beforeEach(async () => {
+  // Imported once, not in each beforeEach: loading the module graph can exceed the 10 s hook timeout under load.
+  beforeAll(async () => {
+    RedisPubSubClientClass = await importClient();
+  }, 30_000);
+
+  beforeEach(() => {
     vi.clearAllMocks();
     mockInstances.length = 0;
-    RedisPubSubClientClass = await importClient();
   });
 
   function makeClient() {

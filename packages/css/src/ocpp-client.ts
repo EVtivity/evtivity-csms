@@ -573,9 +573,9 @@ export class OcppClient {
 
       if (this.onIncomingCall == null) {
         console.warn(
-          `[${this._stationId}] No incoming call handler registered, returning NotSupported for ${action}`,
+          `[${this._stationId}] No incoming call handler registered, answering ${action} with NotImplemented`,
         );
-        this.sendCallResult(messageId, { status: 'NotSupported' });
+        this.sendCallError(messageId, 'NotImplemented', `${action} NotImplemented`);
         return;
       }
 

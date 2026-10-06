@@ -8,7 +8,9 @@ import {
   formatCents,
   formatDate,
   formatDistance,
+  formatDuration,
   formatEnergy,
+  formatMonthYear,
   formatNumber,
   formatTaxPercent,
   formatUnitPrice,
@@ -186,5 +188,46 @@ describe('formatting in the UI language', () => {
     await i18next.changeLanguage('de');
     expect(formatTaxPercent(0.19)).toBe('19');
     expect(formatTaxPercent(0.075)).toBe('7,5');
+  });
+});
+
+describe('formatDuration', () => {
+  it('returns n/a when either end is missing', () => {
+    expect(formatDuration(null, '2026-01-01T00:00:00Z')).toBe('n/a');
+    expect(formatDuration('2026-01-01T00:00:00Z', undefined)).toBe('n/a');
+  });
+
+  it('returns n/a when the end is before the start', () => {
+    expect(formatDuration('2026-01-01T01:00:00Z', '2026-01-01T00:00:00Z')).toBe('n/a');
+  });
+
+  it('formats minutes, then hours and minutes', () => {
+    expect(formatDuration('2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')).toBe('0m');
+    expect(formatDuration('2026-01-01T00:00:00Z', '2026-01-01T00:59:20Z')).toBe('59m');
+    expect(formatDuration(new Date('2026-01-01T00:00:00Z'), new Date('2026-01-01T01:00:00Z'))).toBe(
+      '1h 0m',
+    );
+    expect(formatDuration('2026-01-01T00:00:00Z', '2026-01-01T02:15:00Z')).toBe('2h 15m');
+  });
+});
+
+describe('formatDistance edge cases', () => {
+  it('returns n/a for a missing or non-numeric energy value', () => {
+    expect(formatDistance(null, 3.5)).toBe('n/a');
+    expect(formatDistance('abc', 3.5)).toBe('n/a');
+  });
+
+  it('parses a string energy value', () => {
+    expect(formatDistance('10000', 3)).toBe('30 Miles');
+  });
+
+  it('converts miles to km', () => {
+    expect(formatDistance(10000, 3, 'km')).toBe('48 km');
+  });
+});
+
+describe('formatMonthYear', () => {
+  it('formats the month and year in upper case', () => {
+    expect(formatMonthYear(new Date(2026, 2, 15))).toBe('MARCH 2026');
   });
 });

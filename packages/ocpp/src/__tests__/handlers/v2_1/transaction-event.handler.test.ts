@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
 import { sessionPricedKey, transactionKey } from '../../../server/projection-queue.js';
@@ -86,6 +86,15 @@ function makeCtx(payload: Record<string, unknown>): {
   return { ctx, publishMock };
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let transactionEventHandlerModule: typeof import('../../../handlers/v2_1/transaction-event.handler.js');
+let prepaidModule: typeof import('../../../handlers/prepaid.js');
+beforeAll(async () => {
+  transactionEventHandlerModule =
+    await import('../../../handlers/v2_1/transaction-event.handler.js');
+  prepaidModule = await import('../../../handlers/prepaid.js');
+}, 30_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   whereResult = [];
@@ -98,8 +107,7 @@ beforeEach(() => {
 
 describe('v2_1 TransactionEvent handler', () => {
   it('publishes a normalized ocpp.TransactionEvent for a Started event', async () => {
-    const { handleTransactionEvent } =
-      await import('../../../handlers/v2_1/transaction-event.handler.js');
+    const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({
       eventType: 'Started',
       timestamp: '2026-06-04T00:00:00Z',
@@ -135,8 +143,7 @@ describe('v2_1 TransactionEvent handler', () => {
   });
 
   it('defaults evseId to 0 when no evse is present', async () => {
-    const { handleTransactionEvent } =
-      await import('../../../handlers/v2_1/transaction-event.handler.js');
+    const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({
       eventType: 'Updated',
       timestamp: '2026-06-04T00:00:00Z',
@@ -155,8 +162,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
   it('publishes ocpp.MeterValues when meterValue is present', async () => {
     const meterValue = [{ timestamp: '2026-06-04T00:00:00Z', sampledValue: [{ value: 10 }] }];
-    const { handleTransactionEvent } =
-      await import('../../../handlers/v2_1/transaction-event.handler.js');
+    const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({
       eventType: 'Updated',
       timestamp: '2026-06-04T00:00:00Z',
@@ -184,8 +190,7 @@ describe('v2_1 TransactionEvent handler', () => {
   });
 
   it('passes the reported connector on the transaction event', async () => {
-    const { handleTransactionEvent } =
-      await import('../../../handlers/v2_1/transaction-event.handler.js');
+    const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({
       eventType: 'Started',
       timestamp: '2026-06-04T00:00:00Z',
@@ -206,8 +211,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
   it('keeps the transactionId on MeterValues when no evse is present', async () => {
     const meterValue = [{ timestamp: '2026-06-04T00:00:00Z', sampledValue: [{ value: 7 }] }];
-    const { handleTransactionEvent } =
-      await import('../../../handlers/v2_1/transaction-event.handler.js');
+    const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({
       eventType: 'Updated',
       timestamp: '2026-06-04T00:00:00Z',
@@ -227,8 +231,7 @@ describe('v2_1 TransactionEvent handler', () => {
   });
 
   it('does not publish MeterValues for an empty meterValue array', async () => {
-    const { handleTransactionEvent } =
-      await import('../../../handlers/v2_1/transaction-event.handler.js');
+    const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({
       eventType: 'Updated',
       timestamp: '2026-06-04T00:00:00Z',
@@ -246,8 +249,7 @@ describe('v2_1 TransactionEvent handler', () => {
   });
 
   it('forwards stoppedReason on an Ended event (EVConnectTimeout)', async () => {
-    const { handleTransactionEvent } =
-      await import('../../../handlers/v2_1/transaction-event.handler.js');
+    const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({
       eventType: 'Ended',
       timestamp: '2026-06-04T00:05:00Z',
@@ -290,8 +292,7 @@ describe('v2_1 TransactionEvent handler', () => {
       whereResult = [
         { id: 'dtk_1', driverId: 'drv_1', isActive: true, expiresAt, revokedAt: null },
       ];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken());
       const response = await handleTransactionEvent(ctx);
 
@@ -308,8 +309,7 @@ describe('v2_1 TransactionEvent handler', () => {
       whereResult = [
         { id: 'dtk_nd', driverId: null, isActive: true, expiresAt: null, revokedAt: null },
       ];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken());
       const response = await handleTransactionEvent(ctx);
 
@@ -325,8 +325,7 @@ describe('v2_1 TransactionEvent handler', () => {
       whereResult = [
         { id: 'dtk_2', driverId: 'drv_2', isActive: true, expiresAt: null, revokedAt: null },
       ];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken());
       const response = await handleTransactionEvent(ctx);
 
@@ -342,8 +341,7 @@ describe('v2_1 TransactionEvent handler', () => {
       whereResult = [
         { id: 'dtk_3', driverId: 'drv_3', isActive: false, expiresAt: null, revokedAt: null },
       ];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken());
       const response = await handleTransactionEvent(ctx);
 
@@ -354,8 +352,7 @@ describe('v2_1 TransactionEvent handler', () => {
       whereResult = [
         { id: 'dtk_4', driverId: 'drv_4', isActive: true, expiresAt: null, revokedAt: new Date() },
       ];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken());
       const response = await handleTransactionEvent(ctx);
 
@@ -372,8 +369,7 @@ describe('v2_1 TransactionEvent handler', () => {
           revokedAt: null,
         },
       ];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken());
       const response = await handleTransactionEvent(ctx);
 
@@ -382,8 +378,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('accepts with groupIdToken when no driver_tokens row exists', async () => {
       whereResult = [];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(
         startedWithToken({ idToken: { idToken: 'central-1', type: 'Central' } }),
       );
@@ -399,8 +394,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('accepts (status only) when the token lookup throws', async () => {
       whereResult = new Error('db down');
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken());
       const response = await handleTransactionEvent(ctx);
 
@@ -411,8 +405,7 @@ describe('v2_1 TransactionEvent handler', () => {
       whereResult = [
         { id: 'dtk_6', driverId: 'drv_6', isActive: true, expiresAt: null, revokedAt: null },
       ];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken());
       await handleTransactionEvent(ctx);
       // logAuthorizeAttempt is fire-and-forget; allow the microtask to flush
@@ -424,8 +417,7 @@ describe('v2_1 TransactionEvent handler', () => {
       whereResult = [
         { id: 'dtk_7', driverId: 'drv_7', isActive: true, expiresAt: null, revokedAt: null },
       ];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(startedWithToken({ eventType: 'Updated' }));
       await handleTransactionEvent(ctx);
       await Promise.resolve();
@@ -453,13 +445,11 @@ describe('v2_1 TransactionEvent handler', () => {
     });
 
     it('returns the credit as transactionLimit.maxCost with the Authorize cacheExpiryDateTime', async () => {
-      const { rememberPrepaidAuthorization, clearPrepaidAuthorizations } =
-        await import('../../../handlers/prepaid.js');
+      const { rememberPrepaidAuthorization, clearPrepaidAuthorizations } = prepaidModule;
       clearPrepaidAuthorizations();
       const authorizedAt = rememberPrepaidAuthorization('CS-001', 'PREPAID-1');
       whereResult = prepaidRow(1234);
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(event('Started'));
 
       const response = await handleTransactionEvent(ctx);
@@ -476,11 +466,10 @@ describe('v2_1 TransactionEvent handler', () => {
     });
 
     it('sets cacheExpiryDateTime to now when the station did not authorize first', async () => {
-      const { clearPrepaidAuthorizations } = await import('../../../handlers/prepaid.js');
+      const { clearPrepaidAuthorizations } = prepaidModule;
       clearPrepaidAuthorizations();
       whereResult = prepaidRow(500);
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(event('Started'));
 
       const response = await handleTransactionEvent(ctx);
@@ -493,8 +482,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('omits transactionLimit on the Ended event', async () => {
       whereResult = prepaidRow(1234);
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx({ ...event('Ended'), triggerReason: 'StopAuthorized' });
 
       const response = await handleTransactionEvent(ctx);
@@ -504,8 +492,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('answers NoCredit without a limit when the balance is not positive', async () => {
       whereResult = prepaidRow(0);
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(event('Started'));
 
       const response = await handleTransactionEvent(ctx);
@@ -531,8 +518,7 @@ describe('v2_1 TransactionEvent handler', () => {
     it('returns the payment limit when the transaction starts', async () => {
       whereResult = [];
       findLimitMock.mockResolvedValue({ maxEnergy: 20000, maxCost: 50 });
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(directPayment('Started'));
 
       const response = await handleTransactionEvent(ctx);
@@ -544,8 +530,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('does not look up a limit on Updated events', async () => {
       whereResult = [];
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(directPayment('Updated'));
 
       const response = await handleTransactionEvent(ctx);
@@ -557,8 +542,7 @@ describe('v2_1 TransactionEvent handler', () => {
     it('responds without a limit when the lookup fails', async () => {
       whereResult = [];
       findLimitMock.mockRejectedValue(new Error('db down'));
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(directPayment('Started'));
 
       const response = await handleTransactionEvent(ctx);
@@ -586,8 +570,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('returns the final cost in major units and passes it and meterStop to the projection', async () => {
       costMock.mockResolvedValue({ totalCostCents: 1234, calculated: true });
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx, publishMock } = makeCtx(ended());
 
       const response = await handleTransactionEvent(ctx);
@@ -617,8 +600,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('returns 0.00 for an unbilled session without passing a cost to the projection', async () => {
       costMock.mockResolvedValue({ totalCostCents: 0, calculated: false });
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx, publishMock } = makeCtx(ended());
 
       const response = await handleTransactionEvent(ctx);
@@ -631,8 +613,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('passes the end reasons of an EVConnectTimeout end to the cost lookup (C20.FR.03)', async () => {
       costMock.mockResolvedValue({ totalCostCents: 0, calculated: false });
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx, publishMock } = makeCtx(
         ended({
           triggerReason: 'EVConnectTimeout',
@@ -656,8 +637,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('omits totalCost when the session is unknown', async () => {
       costMock.mockResolvedValue(null);
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(ended());
 
       const response = await handleTransactionEvent(ctx);
@@ -666,8 +646,7 @@ describe('v2_1 TransactionEvent handler', () => {
     });
 
     it('omits totalCost when the station calculates the cost (costDetails, TC_E_108)', async () => {
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx, publishMock } = makeCtx(
         ended({
           costDetails: {
@@ -688,8 +667,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('omits totalCost when earlier projections do not finish in time', async () => {
       settledMock.mockResolvedValue(false);
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(ended());
 
       const response = await handleTransactionEvent(ctx);
@@ -700,8 +678,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('omits totalCost when the cost lookup fails', async () => {
       costMock.mockRejectedValue(new Error('db down'));
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(ended());
 
       const response = await handleTransactionEvent(ctx);
@@ -711,8 +688,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('returns the running cost on Updated without meterStop or finalCostCents', async () => {
       costMock.mockResolvedValue({ totalCostCents: 450, calculated: true });
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx, publishMock } = makeCtx(ended({ eventType: 'Updated' }));
 
       const response = await handleTransactionEvent(ctx);
@@ -735,8 +711,7 @@ describe('v2_1 TransactionEvent handler', () => {
 
     it('returns the running cost on Started once the session is priced', async () => {
       costMock.mockResolvedValue({ totalCostCents: 100, calculated: true });
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx, publishMock } = makeCtx(ended({ eventType: 'Started', meterValue: undefined }));
 
       const response = await handleTransactionEvent(ctx);
@@ -752,8 +727,7 @@ describe('v2_1 TransactionEvent handler', () => {
     it('omits totalCost on Started when the session is not priced in time', async () => {
       waitForSignalMock.mockResolvedValue(false);
       settledMock.mockResolvedValue(false);
-      const { handleTransactionEvent } =
-        await import('../../../handlers/v2_1/transaction-event.handler.js');
+      const { handleTransactionEvent } = transactionEventHandlerModule;
       const { ctx } = makeCtx(ended({ eventType: 'Started', meterValue: undefined }));
 
       const response = await handleTransactionEvent(ctx);

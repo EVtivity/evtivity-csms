@@ -3,13 +3,14 @@
 
 import type { FastifyInstance } from 'fastify';
 import { SAML } from '@node-saml/node-saml';
-import { eq, ilike } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db, getSsoConfig, users, roles, writeAudit, userAuditLog } from '@evtivity/database';
 import { generateId } from '@evtivity/lib';
 import { setAuthCookies, isSecureRequest } from '../lib/auth-cookies.js';
 import { createRefreshToken } from '../services/refresh-token.service.js';
 import { config as apiConfig } from '../lib/config.js';
 import { errorWith } from '../lib/response-schemas.js';
+import { emailEquals } from '../lib/email-match.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 
@@ -119,7 +120,7 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
           isActive: users.isActive,
         })
         .from(users)
-        .where(ilike(users.email, email))
+        .where(emailEquals(users.email, email))
         .limit(1);
 
       if (existingUser != null) {

@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
+import * as closePeriodicEventStreamHandlerModule from '../../../handlers/v2_1/close-periodic-event-stream.handler.js';
 
 const logger = pino({ level: 'silent' });
 
@@ -44,8 +45,7 @@ beforeEach(() => {
 
 describe('v2_1 ClosePeriodicEventStream handler', () => {
   it('publishes ocpp.ClosePeriodicEventStream and returns an empty response', async () => {
-    const { handleClosePeriodicEventStream } =
-      await import('../../../handlers/v2_1/close-periodic-event-stream.handler.js');
+    const { handleClosePeriodicEventStream } = closePeriodicEventStreamHandlerModule;
     const { ctx, publishMock } = makeCtx({ id: 5 });
     const response = await handleClosePeriodicEventStream(ctx);
 

@@ -151,7 +151,14 @@ function AdyenAvailability(): React.JSX.Element | null {
   );
 }
 
-function AdyenWebhookCard({ canWrite }: { canWrite: boolean }): React.JSX.Element {
+function AdyenWebhookCard({
+  canWrite,
+  apiKeyConfigured,
+}: {
+  canWrite: boolean;
+  /** From GET /v1/settings/adyen. */
+  apiKeyConfigured: boolean;
+}): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -165,11 +172,15 @@ function AdyenWebhookCard({ canWrite }: { canWrite: boolean }): React.JSX.Elemen
       api.get<AdyenWebhookResponse>(
         webhookSetupPath('/v1/settings/adyen/webhook', urlState.queryUrl),
       ),
+    // Without an API key the API answers 400 PAYMENT_PROVIDER_NOT_CONFIGURED,
+    // so the card shows the not-configured state without asking.
+    enabled: apiKeyConfigured,
     staleTime: 30_000,
     retry: false,
     placeholderData: keepPreviousData,
   });
-  const notConfigured = getApiErrorCode(webhook.error) === 'PAYMENT_PROVIDER_NOT_CONFIGURED';
+  const notConfigured =
+    !apiKeyConfigured || getApiErrorCode(webhook.error) === 'PAYMENT_PROVIDER_NOT_CONFIGURED';
 
   return (
     <Card>
@@ -604,7 +615,7 @@ export function AdyenSettings(): React.JSX.Element {
         </CardContent>
       </Card>
 
-      <AdyenWebhookCard canWrite={canWrite} />
+      <AdyenWebhookCard canWrite={canWrite} apiKeyConfigured={data.apiKeyConfigured} />
     </div>
   );
 }

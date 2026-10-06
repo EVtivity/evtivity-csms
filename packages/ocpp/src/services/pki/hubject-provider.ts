@@ -145,15 +145,9 @@ export class HubjectProvider implements PkiProvider {
     // OCSP is answered by the responder in the certificate's AIA extension,
     // not by the Hubject API. The helper sends the RFC 6960 request and
     // applies the SSRF guard (private addresses only when allowlisted).
-    const result = await getOcspResultForStation(ocspRequestData);
-    if (result.status !== 'Accepted') {
-      logger.error(
-        { url: ocspRequestData.responderURL, reason: result.reason },
-        'OCSP status request failed',
-      );
-      return { status: 'Failed', ocspResult: '' };
-    }
-    return { status: 'Accepted', ocspResult: result.ocspResult };
+    // A failure is returned with its reason, not logged here: the caller logs
+    // it with the station that named the responder.
+    return getOcspResultForStation(ocspRequestData);
   }
 
   async getRootCertificates(type: string): Promise<string[]> {

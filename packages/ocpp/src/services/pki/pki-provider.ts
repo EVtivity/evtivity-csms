@@ -38,6 +38,11 @@ export interface ContractCertResult {
 export interface OcspResult {
   status: 'Accepted' | 'Failed';
   ocspResult: string;
+  /**
+   * Why a Failed request failed. The responder is the one the station names,
+   * so the caller logs it at warn with the station (a provider has no station).
+   */
+  reason?: string;
 }
 
 export interface PkiProvider {

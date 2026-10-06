@@ -47,7 +47,8 @@ import {
   revokeAllUserRefreshTokens,
   revokeAllUserSessions,
 } from '../services/refresh-token.service.js';
-import { zodSchema } from '../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
+import { emailEquals } from '../lib/email-match.js';
 import { generateUserToken, hashUserToken } from '../lib/user-token.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -356,7 +357,7 @@ export function userRoutes(app: FastifyInstance): void {
       const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
       if (!recaptchaOk) return;
 
-      const [user] = await db.select().from(users).where(ilike(users.email, email));
+      const [user] = await db.select().from(users).where(emailEquals(users.email, email));
 
       if (user == null) {
         // Equalize timing with the user-exists branch so email enumeration
@@ -577,7 +578,7 @@ export function userRoutes(app: FastifyInstance): void {
           language: users.language,
         })
         .from(users)
-        .where(ilike(users.email, email));
+        .where(emailEquals(users.email, email));
 
       if (user != null) {
         // Revoke existing password_reset tokens
@@ -832,7 +833,7 @@ export function userRoutes(app: FastifyInstance): void {
         typeof forceChangePasswordBody
       >;
 
-      const [user] = await db.select().from(users).where(ilike(users.email, email));
+      const [user] = await db.select().from(users).where(emailEquals(users.email, email));
 
       if (user == null) {
         // Equalize timing with the user-exists branch (see login handler).
@@ -1173,15 +1174,15 @@ export function userRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const body = request.body as z.infer<typeof createUserBody>;
+      const body = parseZodRequest(createUserBody, request.body);
 
       // Pre-check the unique email constraint (case-insensitive) so we return
       // a clean 409 instead of letting Postgres raise a 500. Body email is
-      // already lowercased + trimmed by the Zod transform on createUserBody.
+      // lowercased + trimmed by the Zod transform on createUserBody.
       const [existing] = await db
         .select({ id: users.id })
         .from(users)
-        .where(ilike(users.email, body.email))
+        .where(emailEquals(users.email, body.email))
         .limit(1);
       if (existing != null) {
         await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });

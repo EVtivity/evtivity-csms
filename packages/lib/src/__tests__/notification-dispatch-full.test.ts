@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import { encryptString } from '../encryption.js';
 
 // --- Mocks ---
@@ -76,6 +76,11 @@ async function freshImport() {
 
 describe('notification-dispatch (full coverage)', () => {
   let sql: ReturnType<typeof createSqlMock>;
+
+  // Loaded once here, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+  beforeAll(async () => {
+    await freshImport();
+  }, 30_000);
 
   beforeEach(() => {
     sql = createSqlMock();

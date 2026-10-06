@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
+import * as stationWatchPruneModule from '../../handlers/station-watch-prune.js';
 
 const { mockClient, lastQuery } = vi.hoisted(() => {
   const lastQuery: { sql: string | null } = { sql: null };
@@ -29,7 +30,7 @@ beforeEach(() => {
 describe('stationWatchPruneHandler', () => {
   it('deletes expired watches and logs the count', async () => {
     mockClient.result = { count: 4 };
-    const { stationWatchPruneHandler } = await import('../../handlers/station-watch-prune.js');
+    const { stationWatchPruneHandler } = stationWatchPruneModule;
     const log = makeLog();
     await stationWatchPruneHandler(log);
 

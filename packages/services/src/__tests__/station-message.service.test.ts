@@ -185,6 +185,8 @@ import {
   type TransactionSessionRow,
 } from '../station-message.service.js';
 import { formatStationElapsed } from '@evtivity/lib';
+import * as nodeCryptoModule from 'node:crypto';
+import * as drizzleOrmModule from 'drizzle-orm';
 
 const mockLogger = {
   info: vi.fn(),
@@ -361,7 +363,7 @@ describe('station-message.service', () => {
 
     it('skips dispatch when contentHash matches existing push (no-op)', async () => {
       // Pre-compute the hash for "rendered:available", "rendered:faulted", "rendered:unavailable"
-      const crypto = await import('node:crypto');
+      const crypto = nodeCryptoModule;
       const idleHash = crypto.createHash('sha256').update('rendered:available').digest('hex');
       const faultedHash = crypto.createHash('sha256').update('rendered:faulted').digest('hex');
       const unavailableHash = crypto
@@ -734,10 +736,7 @@ describe('station-message.service', () => {
     });
 
     it('skips dispatch when the transaction content hash matches the existing push', async () => {
-      const hash = (await import('node:crypto'))
-        .createHash('sha256')
-        .update('rendered:charging')
-        .digest('hex');
+      const hash = nodeCryptoModule.createHash('sha256').update('rendered:charging').digest('hex');
       setupDbResults(
         [{ ocppMessageId: STATION_MESSAGE_SLOT_CHARGING, contentHash: hash }],
         [{ value: '7000', unit: 'W' }],
@@ -1354,7 +1353,7 @@ describe('station-message.service', () => {
 
   describe('pushAllMessagesToAllStations', () => {
     it('narrows the stations to a station, a site, or a pricing group', async () => {
-      const drizzle = await import('drizzle-orm');
+      const drizzle = drizzleOrmModule;
       const eqMock = vi.mocked(drizzle.eq);
       const sqlMock = vi.mocked(drizzle.sql);
 

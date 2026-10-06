@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
 
 // SQL mock: a function that handles tagged template calls and returns configurable results
@@ -87,6 +87,12 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/station-status.js',
   )),
+  // The real driver availability rule (station-watch alert).
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/driver-availability.js',
+  )),
+  // The real station-watch check, running on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/station-watch.js')),
   // The real session pricing writes (tariff snapshot, segments, final cost),
   // running on the mocked client. The cost itself comes from mockPriceSessionAt.
   ...(await vi.importActual<Record<string, unknown>>(
@@ -107,6 +113,7 @@ vi.mock('@evtivity/database', async () => ({
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
+  writeReservationAudit: vi.fn().mockResolvedValue(undefined),
   // The real Postgres error readers.
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
 }));
@@ -201,6 +208,12 @@ function makeDomainEvent(
 describe('Event projections', () => {
   let eventBus: ReturnType<typeof createMockEventBus>;
   let timerCallback: (() => void) | null = null;
+
+  // Importing the projections module cold is slow on a loaded machine; do it
+  // once here so no single test pays for it against its own timeout.
+  beforeAll(async () => {
+    await import('../server/event-projections.js');
+  }, 60_000);
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -594,6 +607,156 @@ describe('Event projections', () => {
       await eventBus.emit('ocpp.Heartbeat', makeDomainEvent('ocpp.Heartbeat', 'CS-001', {}));
 
       expect(sqlCalls.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  // A station becomes free for a watching driver through many inputs, not only
+  // a connector status. Every projection that can free a station checks the
+  // watches with the shared driver availability rule (findDueStationWatch) and
+  // publishes the signal; the worker claim makes repeated signals one alert.
+  describe('station watch alerts', () => {
+    let watchDue = true;
+    let availabilityChanges = true;
+
+    function routeWatch(): void {
+      sqlRoute = (text) => {
+        if (text.includes('FROM charging_stations WHERE station_id')) {
+          return [{ id: 'sta_000000000001' }];
+        }
+        if (text.includes('SELECT id FROM evses WHERE station_id')) {
+          return [{ id: 'evs_000000000001' }];
+        }
+        if (text.includes('AS previous_status')) {
+          return [{ previous_status: 'unavailable', applied: true }];
+        }
+        if (text.includes('SET availability')) {
+          return availabilityChanges ? [{ id: 'sta_000000000001' }] : [];
+        }
+        if (text.includes('FROM station_watches w')) {
+          return watchDue ? [{ station_id: 'CS-001' }] : [];
+        }
+        if (text.includes('SELECT onboarding_status')) return [{ onboarding_status: 'accepted' }];
+        if (text.includes('UPDATE reservations')) {
+          return [{ id: 'res_1', driver_id: null, station_id: 'sta_000000000001' }];
+        }
+        return [];
+      };
+    }
+
+    function watchSignals(): unknown[][] {
+      return (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c: unknown[]) => c[0] === 'station_watch_available',
+      );
+    }
+
+    beforeEach(() => {
+      watchDue = true;
+      availabilityChanges = true;
+    });
+
+    it('checks the watches with the shared rule when a connector becomes available', async () => {
+      await setup();
+      routeWatch();
+      const { availableEvseCountSql } = await vi.importActual<
+        typeof import('../../../database/src/lib/driver-availability.js')
+      >('../../../database/src/lib/driver-availability.js');
+      const available = (): DomainEvent =>
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 1,
+          connectorId: 1,
+          connectorStatus: 'Available',
+        });
+
+      // Not free by the rule (for example disabled): no signal.
+      watchDue = false;
+      await eventBus.emit('ocpp.StatusNotification', available());
+      const check = sqlCalls.find((c) => c.strings.join('?').includes('FROM station_watches w'));
+      expect(check?.values).toContain(availableEvseCountSql('cs'));
+      expect(watchSignals()).toHaveLength(0);
+
+      watchDue = true;
+      await eventBus.emit('ocpp.StatusNotification', available());
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'station_watch_available',
+        JSON.stringify({ stationId: 'CS-001' }),
+      );
+    });
+
+    it('checks the watches when the station reports itself available (EVSE 0)', async () => {
+      await setup();
+      routeWatch();
+      await eventBus.emit(
+        'ocpp.StatusNotification',
+        makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+          evseId: 0,
+          connectorId: 0,
+          connectorStatus: 'Available',
+        }),
+      );
+      expect(watchSignals()).toHaveLength(1);
+    });
+
+    it('checks the watches when the station comes back online', async () => {
+      await setup();
+      routeWatch();
+      await eventBus.emit(
+        'station.Connected',
+        makeDomainEvent('station.Connected', 'CS-001', { ocppProtocol: 'ocpp2.1' }),
+      );
+      expect(watchSignals()).toHaveLength(1);
+    });
+
+    it('checks the watches when a firmware install finishes', async () => {
+      await setup();
+      routeWatch();
+      await eventBus.emit(
+        'ocpp.FirmwareStatusNotification',
+        makeDomainEvent('ocpp.FirmwareStatusNotification', 'CS-001', { status: 'Installed' }),
+      );
+      expect(watchSignals()).toHaveLength(1);
+    });
+
+    it('does not check the watches when a firmware status changes no availability', async () => {
+      await setup();
+      routeWatch();
+      availabilityChanges = false;
+      await eventBus.emit(
+        'ocpp.FirmwareStatusNotification',
+        makeDomainEvent('ocpp.FirmwareStatusNotification', 'CS-001', { status: 'Installed' }),
+      );
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('FROM station_watches w'))).toBe(
+        false,
+      );
+    });
+
+    it('checks the watches when a reboot ends a firmware install', async () => {
+      await setup();
+      routeWatch();
+      await eventBus.emit(
+        'ocpp.BootNotification',
+        makeDomainEvent('ocpp.BootNotification', 'CS-001', {
+          status: 'Accepted',
+          firmwareVersion: '1.0',
+          model: 'M',
+          serialNumber: 'S',
+        }),
+      );
+      expect(watchSignals()).toHaveLength(1);
+    });
+
+    it('checks the watches when the station expires or removes a reservation', async () => {
+      await setup();
+      routeWatch();
+      for (const reservationUpdateStatus of ['Expired', 'Removed']) {
+        await eventBus.emit(
+          'ocpp.ReservationStatusUpdate',
+          makeDomainEvent('ocpp.ReservationStatusUpdate', 'CS-001', {
+            reservationId: 7,
+            reservationUpdateStatus,
+          }),
+        );
+      }
+      expect(watchSignals()).toHaveLength(2);
     });
   });
 

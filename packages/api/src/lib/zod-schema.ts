@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { zodToJsonSchema } from 'zod-to-json-schema';
-import type { ZodTypeAny } from 'zod';
+import type { z, ZodTypeAny } from 'zod';
 import { ValidationError } from '@evtivity/lib';
 
 export function zodSchema(schema: ZodTypeAny): Record<string, unknown> {
@@ -36,15 +36,19 @@ function allowNullInNullableEnums(node: unknown): void {
 }
 
 /**
- * zodSchema() hands Fastify a JSON Schema, and zod-to-json-schema drops
- * `.refine()` and `.superRefine()`, so Ajv never runs them. Routes whose request
- * schema carries refinements call this with the Ajv-validated value to enforce
- * them. Throws a 400 VALIDATION_ERROR with the first failing rule's message.
+ * zodSchema() hands Fastify a JSON Schema, so Ajv validates the request and Zod
+ * never runs on it. zod-to-json-schema drops `.refine()` and `.superRefine()`,
+ * and Ajv leaves the value as sent where Zod would change it: `.transform()`,
+ * `.trim()`, `.toLowerCase()`, `z.coerce.date()`. A route whose request schema
+ * (body, querystring or params) carries any of these parses the Ajv-validated
+ * value with this and uses the result, never the raw request value. Throws a
+ * 400 VALIDATION_ERROR with the first failing rule's message.
  */
-export function assertZodRefinements(schema: ZodTypeAny, value: unknown): void {
+export function parseZodRequest<T extends ZodTypeAny>(schema: T, value: unknown): z.output<T> {
   const result = schema.safeParse(value);
   if (!result.success) {
     const issue = result.error.issues[0];
     throw new ValidationError(issue?.message ?? 'Validation failed', result.error.issues);
   }
+  return result.data as z.output<T>;
 }

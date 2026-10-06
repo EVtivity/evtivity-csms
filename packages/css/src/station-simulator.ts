@@ -6228,8 +6228,9 @@ export class StationSimulator {
       }
 
       default:
+        // OCPP-J: an action the station does not implement is answered with CALLERROR NotImplemented.
         console.log(`[${this.config.stationId}] Unhandled action: ${action}`);
-        return { status: 'NotSupported' };
+        throw new Error('NotImplemented');
     }
   }
 

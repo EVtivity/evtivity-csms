@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import type { Job } from 'bullmq';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
@@ -53,6 +53,14 @@ function makeJob(name: string, data: unknown): Job {
   return { name, data } as unknown as Job;
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let bullmqModule: typeof import('bullmq');
+let reservationWorkerModule: typeof import('../reservation-worker.js');
+beforeAll(async () => {
+  bullmqModule = await import('bullmq');
+  reservationWorkerModule = await import('../reservation-worker.js');
+}, 30_000);
+
 beforeEach(() => {
   capturedProcessor = undefined;
   onHandlers.clear();
@@ -72,8 +80,8 @@ beforeEach(() => {
 
 describe('createReservationWorker', () => {
   it('wires the Worker to the reservations queue with concurrency 5', async () => {
-    const { Worker } = await import('bullmq');
-    const { createReservationWorker } = await import('../reservation-worker.js');
+    const { Worker } = bullmqModule;
+    const { createReservationWorker } = reservationWorkerModule;
 
     createReservationWorker({}, mockPubsub);
 
@@ -86,7 +94,7 @@ describe('createReservationWorker', () => {
   });
 
   it('passes the provided connection through to the Worker', async () => {
-    const { createReservationWorker } = await import('../reservation-worker.js');
+    const { createReservationWorker } = reservationWorkerModule;
     const connection = { host: 'redis-x' } as never;
 
     createReservationWorker(connection, mockPubsub);
@@ -95,7 +103,7 @@ describe('createReservationWorker', () => {
   });
 
   it('processor logs start, runs the handler, then logs completion', async () => {
-    const { createReservationWorker } = await import('../reservation-worker.js');
+    const { createReservationWorker } = reservationWorkerModule;
     createReservationWorker({}, mockPubsub);
 
     const job = makeJob('reservation-activate', { reservationDbId: 'rsv_1' });
@@ -111,7 +119,7 @@ describe('createReservationWorker', () => {
 
   it('processor logs failure and rethrows when the handler throws an Error', async () => {
     mockHandleReservationActivate.mockRejectedValueOnce(new Error('activate failed'));
-    const { createReservationWorker } = await import('../reservation-worker.js');
+    const { createReservationWorker } = reservationWorkerModule;
     createReservationWorker({}, mockPubsub);
 
     const job = makeJob('reservation-activate', { reservationDbId: 'rsv_2' });
@@ -125,7 +133,7 @@ describe('createReservationWorker', () => {
 
   it('processor uses "Unknown error" when a non-Error is thrown', async () => {
     mockHandleReservationActivate.mockRejectedValueOnce('weird');
-    const { createReservationWorker } = await import('../reservation-worker.js');
+    const { createReservationWorker } = reservationWorkerModule;
     createReservationWorker({}, mockPubsub);
 
     const job = makeJob('reservation-activate', { reservationDbId: 'rsv_3' });
@@ -137,7 +145,7 @@ describe('createReservationWorker', () => {
   it('processor swallows a logJobFailed error but still rethrows the original', async () => {
     mockHandleReservationActivate.mockRejectedValueOnce(new Error('original'));
     mockLogJobFailed.mockRejectedValueOnce(new Error('log write failed'));
-    const { createReservationWorker } = await import('../reservation-worker.js');
+    const { createReservationWorker } = reservationWorkerModule;
     createReservationWorker({}, mockPubsub);
 
     const job = makeJob('reservation-activate', { reservationDbId: 'rsv_4' });
@@ -145,7 +153,7 @@ describe('createReservationWorker', () => {
   });
 
   it('registers a failed listener that logs jobs and ignores null jobs', async () => {
-    const { createReservationWorker } = await import('../reservation-worker.js');
+    const { createReservationWorker } = reservationWorkerModule;
     createReservationWorker({}, mockPubsub);
 
     const failedHandler = onHandlers.get('failed');
@@ -169,7 +177,7 @@ describe('startReservationBridge', () => {
   }
 
   it('subscribes to reservation_schedule and returns a stop function', async () => {
-    const { startReservationBridge } = await import('../reservation-worker.js');
+    const { startReservationBridge } = reservationWorkerModule;
     const queue = makeReservationQueue();
     const unsubscribe = vi.fn().mockResolvedValue(undefined);
     const subscribe = vi.fn().mockResolvedValue({ unsubscribe });
@@ -186,7 +194,7 @@ describe('startReservationBridge', () => {
   });
 
   it('enqueues a delayed reservation-activate job on a valid payload', async () => {
-    const { startReservationBridge } = await import('../reservation-worker.js');
+    const { startReservationBridge } = reservationWorkerModule;
     const queue = makeReservationQueue();
     let handler: ((payload: string) => void) | undefined;
     const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {
@@ -211,7 +219,7 @@ describe('startReservationBridge', () => {
   });
 
   it('warns and skips enqueue on a malformed payload', async () => {
-    const { startReservationBridge } = await import('../reservation-worker.js');
+    const { startReservationBridge } = reservationWorkerModule;
     const queue = makeReservationQueue();
     let handler: ((payload: string) => void) | undefined;
     const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {
@@ -231,7 +239,7 @@ describe('startReservationBridge', () => {
   });
 
   it('logs an error when enqueue fails (fail-open)', async () => {
-    const { startReservationBridge } = await import('../reservation-worker.js');
+    const { startReservationBridge } = reservationWorkerModule;
     const queue = { add: vi.fn().mockRejectedValue(new Error('redis down')) };
     let handler: ((payload: string) => void) | undefined;
     const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {

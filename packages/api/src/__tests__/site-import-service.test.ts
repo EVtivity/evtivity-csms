@@ -137,6 +137,7 @@ import {
   importSitesCsv,
 } from '../services/site-import.service.js';
 import { writeAudit } from '@evtivity/database';
+import * as databaseModule from '@evtivity/database';
 
 beforeEach(() => {
   dbResults = [];
@@ -188,7 +189,7 @@ describe('exportSitesCsv', () => {
   });
 
   it('exports the operator choice as stationStatus, not the computed availability', async () => {
-    const { db } = await import('@evtivity/database');
+    const { db } = databaseModule;
     setupDbResults([]);
 
     await exportSitesCsv();

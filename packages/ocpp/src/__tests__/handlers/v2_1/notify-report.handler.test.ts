@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
+import * as notifyReportHandlerModule from '../../../handlers/v2_1/notify-report.handler.js';
 
 const logger = pino({ level: 'silent' });
 
@@ -46,7 +47,7 @@ beforeEach(() => {
 
 describe('v2_1 NotifyReport handler', () => {
   it('publishes ocpp.NotifyReport with the report metadata and returns empty', async () => {
-    const { handleNotifyReport } = await import('../../../handlers/v2_1/notify-report.handler.js');
+    const { handleNotifyReport } = notifyReportHandlerModule;
     const reportData = [{ component: { name: 'X' }, variable: { name: 'Y' } }];
     const { ctx, publishMock } = makeCtx({
       requestId: 42,
@@ -75,7 +76,7 @@ describe('v2_1 NotifyReport handler', () => {
   });
 
   it('does not send a command when reportData is absent', async () => {
-    const { handleNotifyReport } = await import('../../../handlers/v2_1/notify-report.handler.js');
+    const { handleNotifyReport } = notifyReportHandlerModule;
     const { ctx, sendCommandMock } = makeCtx({
       requestId: 1,
       generatedAt: '2026-06-04T00:00:00Z',
@@ -87,7 +88,7 @@ describe('v2_1 NotifyReport handler', () => {
   });
 
   it('does not send a command when MaxExternalConstraintsId is not in the report', async () => {
-    const { handleNotifyReport } = await import('../../../handlers/v2_1/notify-report.handler.js');
+    const { handleNotifyReport } = notifyReportHandlerModule;
     const { ctx, sendCommandMock } = makeCtx({
       requestId: 1,
       generatedAt: '2026-06-04T00:00:00Z',
@@ -106,7 +107,7 @@ describe('v2_1 NotifyReport handler', () => {
   });
 
   it('sends SetChargingProfile with the reported MaxExternalConstraintsId', async () => {
-    const { handleNotifyReport } = await import('../../../handlers/v2_1/notify-report.handler.js');
+    const { handleNotifyReport } = notifyReportHandlerModule;
     const { ctx, sendCommandMock } = makeCtx({
       requestId: 1,
       generatedAt: '2026-06-04T00:00:00Z',
@@ -135,7 +136,7 @@ describe('v2_1 NotifyReport handler', () => {
   });
 
   it('does not send a command when MaxExternalConstraintsId is not a number', async () => {
-    const { handleNotifyReport } = await import('../../../handlers/v2_1/notify-report.handler.js');
+    const { handleNotifyReport } = notifyReportHandlerModule;
     const { ctx, sendCommandMock } = makeCtx({
       requestId: 1,
       generatedAt: '2026-06-04T00:00:00Z',
@@ -154,7 +155,7 @@ describe('v2_1 NotifyReport handler', () => {
   });
 
   it('handles a report entry with no variableAttribute (value resolves null)', async () => {
-    const { handleNotifyReport } = await import('../../../handlers/v2_1/notify-report.handler.js');
+    const { handleNotifyReport } = notifyReportHandlerModule;
     const { ctx, sendCommandMock } = makeCtx({
       requestId: 1,
       generatedAt: '2026-06-04T00:00:00Z',
@@ -172,7 +173,7 @@ describe('v2_1 NotifyReport handler', () => {
   });
 
   it('swallows a dispatcher.sendCommand failure and still returns empty', async () => {
-    const { handleNotifyReport } = await import('../../../handlers/v2_1/notify-report.handler.js');
+    const { handleNotifyReport } = notifyReportHandlerModule;
     const { ctx, sendCommandMock } = makeCtx({
       requestId: 1,
       generatedAt: '2026-06-04T00:00:00Z',
@@ -193,7 +194,7 @@ describe('v2_1 NotifyReport handler', () => {
   });
 
   it('treats an empty reportData array as no constraints to apply', async () => {
-    const { handleNotifyReport } = await import('../../../handlers/v2_1/notify-report.handler.js');
+    const { handleNotifyReport } = notifyReportHandlerModule;
     const { ctx, sendCommandMock } = makeCtx({
       requestId: 1,
       generatedAt: '2026-06-04T00:00:00Z',

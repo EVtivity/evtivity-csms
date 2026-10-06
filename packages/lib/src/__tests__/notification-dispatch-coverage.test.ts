@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 
 // --- Mocks ---
 
@@ -115,6 +115,14 @@ function advanceClock(): { restore: () => void } {
   };
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let notificationDispatchModule: typeof import('../notification-dispatch.js');
+let safeFetchModule: typeof import('../safe-fetch.js');
+beforeAll(async () => {
+  notificationDispatchModule = await import('../notification-dispatch.js');
+  safeFetchModule = await import('../safe-fetch.js');
+}, 30_000);
+
 describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
   let sql: ReturnType<typeof createSqlMock>;
 
@@ -140,22 +148,22 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
   describe('normalizeE164', () => {
     it('keeps an already-+-prefixed number after stripping punctuation', async () => {
-      const { normalizeE164 } = await import('../notification-dispatch.js');
+      const { normalizeE164 } = notificationDispatchModule;
       expect(normalizeE164('+1 (555) 123-4567')).toBe('+15551234567');
     });
 
     it('prepends +1 to a bare 10-digit US number', async () => {
-      const { normalizeE164 } = await import('../notification-dispatch.js');
+      const { normalizeE164 } = notificationDispatchModule;
       expect(normalizeE164('555.123.4567')).toBe('+15551234567');
     });
 
     it('prepends + to an 11-digit number that starts with 1', async () => {
-      const { normalizeE164 } = await import('../notification-dispatch.js');
+      const { normalizeE164 } = notificationDispatchModule;
       expect(normalizeE164('1 555 123 4567')).toBe('+15551234567');
     });
 
     it('returns punctuation-stripped value for non-US-shaped numbers', async () => {
-      const { normalizeE164 } = await import('../notification-dispatch.js');
+      const { normalizeE164 } = notificationDispatchModule;
       expect(normalizeE164('00 44 20 7946 0958')).toBe('00442079460958');
     });
   });
@@ -166,7 +174,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
   describe('wrapEmailHtml fallback', () => {
     it('falls back to default wrapper when custom template fails to compile', async () => {
-      const { wrapEmailHtml } = await import('../notification-dispatch.js');
+      const { wrapEmailHtml } = notificationDispatchModule;
       // Unclosed Handlebars block expression throws at compile time.
       const result = wrapEmailHtml('<p>Body</p>', 'Acme', '{{#if open}}no close');
       // Default wrapper used: body content present and DOCTYPE shell rendered.
@@ -183,7 +191,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
   describe('clearNotificationSettingsCache', () => {
     it('forces the next getNotificationSettings to re-read from the database', async () => {
       const { getNotificationSettings, clearNotificationSettingsCache } =
-        await import('../notification-dispatch.js');
+        notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults([{ key: 'smtp.host', value: 'first.example.com' }]);
@@ -208,7 +216,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
   describe('getSystemTimezoneCached', () => {
     it('reads the configured value and caches it on the second call', async () => {
       const { getSystemTimezoneCached, clearNotificationSettingsCache } =
-        await import('../notification-dispatch.js');
+        notificationDispatchModule;
       const clock = advanceClock();
       clearNotificationSettingsCache();
 
@@ -228,7 +236,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
     it('falls back to America/New_York when no row is configured', async () => {
       const { getSystemTimezoneCached, clearNotificationSettingsCache } =
-        await import('../notification-dispatch.js');
+        notificationDispatchModule;
       const clock = advanceClock();
       clearNotificationSettingsCache();
 
@@ -246,7 +254,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
   describe('loadTemplateFile cache', () => {
     it('returns cached content on the second call without re-reading the file', async () => {
-      const { loadTemplateFile } = await import('../notification-dispatch.js');
+      const { loadTemplateFile } = notificationDispatchModule;
       const uniquePath = `/cache-hit-${String(Date.now())}-${String(Math.random())}.hbs`;
       mockReadFile.mockResolvedValueOnce('<p>Cached body</p>');
 
@@ -267,14 +275,14 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
   describe('sendWebhook edge cases', () => {
     it('blocks delivery to a private/internal URL without calling fetch', async () => {
-      const { sendWebhook } = await import('../notification-dispatch.js');
+      const { sendWebhook } = notificationDispatchModule;
       const result = await sendWebhook('http://127.0.0.1/hook', 'Sub', 'Body', {});
       expect(result).toBe('blocked_private_url');
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('delivers to a private host in the webhook allowlist', async () => {
-      const { sendWebhook } = await import('../notification-dispatch.js');
+      const { sendWebhook } = notificationDispatchModule;
       mockFetch.mockResolvedValueOnce({ ok: true, status: 200, text: () => Promise.resolve('') });
       const result = await sendWebhook('http://10.0.0.7/hook', 'Sub', 'Body', {}, ['10.0.0.7']);
       expect(result).toBe('ok');
@@ -285,15 +293,15 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('still blocks a private host that is not in the allowlist', async () => {
-      const { sendWebhook } = await import('../notification-dispatch.js');
+      const { sendWebhook } = notificationDispatchModule;
       const result = await sendWebhook('http://10.0.0.8/hook', 'Sub', 'Body', {}, ['10.0.0.7']);
       expect(result).toBe('blocked_private_url');
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
     it('blocks delivery when the host resolves to a private address at connect time', async () => {
-      const { sendWebhook } = await import('../notification-dispatch.js');
-      const { BlockedDestinationError } = await import('../safe-fetch.js');
+      const { sendWebhook } = notificationDispatchModule;
+      const { BlockedDestinationError } = safeFetchModule;
       mockFetch.mockRejectedValueOnce(
         new TypeError('fetch failed', {
           cause: new BlockedDestinationError('hook.example.com', '10.0.0.7'),
@@ -304,7 +312,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('returns timeout when the request aborts', async () => {
-      const { sendWebhook } = await import('../notification-dispatch.js');
+      const { sendWebhook } = notificationDispatchModule;
       const abortErr = new Error('The operation was aborted');
       abortErr.name = 'AbortError';
       mockFetch.mockRejectedValueOnce(abortErr);
@@ -314,7 +322,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
     it('aborts the controller via the 10s timer and returns timeout', async () => {
       vi.useFakeTimers();
-      const { sendWebhook } = await import('../notification-dispatch.js');
+      const { sendWebhook } = notificationDispatchModule;
 
       // fetch resolves only when its abort signal fires, so advancing the
       // fake clock past 10s triggers the setTimeout callback -> controller.abort().
@@ -344,7 +352,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
   describe('renderTemplate array templatesDir', () => {
     it('searches multiple directories and uses the first dir that has the template', async () => {
-      const { renderTemplate } = await import('../notification-dispatch.js');
+      const { renderTemplate } = notificationDispatchModule;
       setupSqlResults([]); // DB miss for 'en'
       mockReadFile.mockResolvedValueOnce('<p>From first dir {{companyName}}</p>');
 
@@ -363,7 +371,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('falls through to the second directory when the first misses', async () => {
-      const { renderTemplate } = await import('../notification-dispatch.js');
+      const { renderTemplate } = notificationDispatchModule;
       setupSqlResults([]); // DB miss for 'en'
       // first dir miss, second dir hit
       mockReadFile
@@ -390,7 +398,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
   describe('recordNotificationAttempt', () => {
     it('inserts a row with all fields and json-encoded metadata', async () => {
-      const { recordNotificationAttempt } = await import('../notification-dispatch.js');
+      const { recordNotificationAttempt } = notificationDispatchModule;
       setupSqlResults([]);
 
       await recordNotificationAttempt(sql as never, {
@@ -422,7 +430,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
   describe('dispatchDriverNotification push + pubsub', () => {
     it('records email sent, sms sent, and push rows when both channels configured', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -487,7 +495,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('publishes notification.created to portal_events when pubsub provided', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();
       const publish = vi.fn().mockResolvedValue(undefined);
       const pubsub = { publish } as unknown as import('../pubsub.js').PubSubClient;
@@ -531,7 +539,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('swallows pubsub publish failure and still completes (fail-open)', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();
       const publish = vi.fn().mockRejectedValue(new Error('redis down'));
       const pubsub = { publish } as unknown as import('../pubsub.js').PubSubClient;
@@ -574,7 +582,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records email failure reason smtp_send_failed when send rejects', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();
       mockSendMail.mockRejectedValueOnce(new Error('connection refused'));
 
@@ -615,7 +623,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records sms failure reason twilio_send_failed when Twilio returns non-2xx', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();
       mockFetch.mockResolvedValueOnce({
         ok: false,
@@ -657,7 +665,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records credentials_decrypt_failed when SMTP creds failed to decrypt and send fails', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();
       process.env['SETTINGS_ENCRYPTION_KEY'] = 'a-key';
       mockSendMail.mockRejectedValueOnce(new Error('auth failed'));
@@ -700,7 +708,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records credentials_decrypt_failed when Twilio creds failed to decrypt and send fails', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();
       process.env['SETTINGS_ENCRYPTION_KEY'] = 'a-key';
       mockFetch.mockRejectedValueOnce(new Error('auth failed'));
@@ -740,7 +748,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('redacts a 6-digit code in the push body for sensitive event types', async () => {
-      const { dispatchDriverNotification } = await import('../notification-dispatch.js');
+      const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -780,7 +788,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
   describe('dispatchSystemNotification', () => {
     it('skips entirely when system event type is disabled', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       setupSqlResults([{ is_enabled: false }]);
 
       await dispatchSystemNotification(
@@ -796,7 +804,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('sends email + sms when both configured and records sent rows', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -850,7 +858,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records recipient_missing when email and phone are absent', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -876,7 +884,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records smtp_not_configured / twilio_not_configured when settings missing but recipient present', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -903,7 +911,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('skips SMS row entirely when operator opted out (sms_enabled=false)', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -929,7 +937,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('keeps SMS enabled when userId is set but no preference row exists', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -964,7 +972,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('keeps SMS path when user pref row says sms_enabled=true', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -999,7 +1007,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records smtp_send_failed when system email send rejects', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
       mockSendMail.mockRejectedValueOnce(new Error('smtp down'));
 
@@ -1032,7 +1040,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records twilio_send_failed when system SMS send rejects', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
       mockFetch.mockRejectedValueOnce(new Error('twilio down'));
 
@@ -1064,7 +1072,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records credentials_decrypt_failed for system email when creds bad and send fails', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
       process.env['SETTINGS_ENCRYPTION_KEY'] = 'a-key';
       mockSendMail.mockRejectedValueOnce(new Error('auth failed'));
@@ -1098,7 +1106,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('records credentials_decrypt_failed for system SMS when creds bad and send fails', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
       process.env['SETTINGS_ENCRYPTION_KEY'] = 'a-key';
       mockFetch.mockRejectedValueOnce(new Error('auth failed'));
@@ -1131,7 +1139,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('wraps system email HTML when the rendered template has html', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -1166,7 +1174,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('uses default timezone and en language when omitted', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -1192,7 +1200,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('proceeds when no system_event_settings row exists (defaults enabled)', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();
 
       setupSqlResults(
@@ -1216,7 +1224,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
 
     it('catches and swallows top-level errors (fail-open)', async () => {
-      const { dispatchSystemNotification } = await import('../notification-dispatch.js');
+      const { dispatchSystemNotification } = notificationDispatchModule;
       const throwingSql = (() => {
         throw new Error('db down');
       }) as unknown;

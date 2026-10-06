@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Job } from 'bullmq';
 import type { PubSubClient } from '@evtivity/lib';
 
@@ -44,6 +44,7 @@ function makeChain(): Record<string, unknown> {
 }
 
 const mockWriteAudit = vi.fn().mockResolvedValue(undefined);
+const mockAlertStationWatchers = vi.fn(async (..._args: unknown[]) => false);
 vi.mock('@evtivity/database', () => ({
   client: {},
   db: {
@@ -69,6 +70,7 @@ vi.mock('@evtivity/database', () => ({
   connectors: { status: 'connectors.status', evseId: 'connectors.evseId' },
   evses: { id: 'evses.id', stationId: 'evses.stationId', evseId: 'evses.evseId' },
   writeReservationAudit: (...args: unknown[]) => mockWriteAudit(...args),
+  alertStationWatchersIfAvailable: (...args: unknown[]) => mockAlertStationWatchers(...args),
   reservationDiffChanged: vi.fn().mockReturnValue(false),
   getReservationSettings: vi.fn().mockResolvedValue({
     enabled: true,
@@ -118,6 +120,14 @@ function reserveNowPublished(): boolean {
   return reserveNowCall() != null;
 }
 
+// The handler is imported after the mocks above are initialized. The first import loads the
+// whole handler graph, which can take longer than one test's 5 s timeout on a busy machine,
+// so it happens once here with its own timeout instead of inside the first test.
+let handleReservationActivate: typeof import('../../handlers/reservation-activate.js').handleReservationActivate;
+beforeAll(async () => {
+  ({ handleReservationActivate } = await import('../../handlers/reservation-activate.js'));
+}, 30_000);
+
 describe('handleReservationActivate', () => {
   beforeEach(() => {
     setupDbResults();
@@ -147,7 +157,6 @@ describe('handleReservationActivate', () => {
       [{ driverId: 'drv_1' }],
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockDispatchDriver).toHaveBeenCalledTimes(1);
@@ -190,7 +199,6 @@ describe('handleReservationActivate', () => {
       [],
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockDispatchDriver).not.toHaveBeenCalled();
@@ -217,7 +225,6 @@ describe('handleReservationActivate', () => {
       [{ driverId: null }],
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockDispatchDriver).not.toHaveBeenCalled();
@@ -243,14 +250,12 @@ describe('handleReservationActivate', () => {
     );
     mockDispatchDriver.mockRejectedValueOnce(new Error('SMTP down'));
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await expect(handleReservationActivate(makeJob('rsv_1'), pubsub)).resolves.toBeUndefined();
   });
 
   it('skips activation when the reservation row is not found', async () => {
     setupDbResults([]); // SELECT reservation -> no row
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('missing'), pubsub);
 
     expect(mockPublish).not.toHaveBeenCalled();
@@ -273,7 +278,6 @@ describe('handleReservationActivate', () => {
       },
     ]);
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockPublish).not.toHaveBeenCalled();
@@ -298,7 +302,6 @@ describe('handleReservationActivate', () => {
       [{ id: 'rsv_1' }], // UPDATE -> expired, one row affected
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).toHaveBeenCalledWith(
@@ -312,6 +315,8 @@ describe('handleReservationActivate', () => {
       }),
     );
     expect(reserveNowPublished()).toBe(false);
+    // The lapsed reservation no longer holds the EVSE: check the station watches.
+    expect(mockAlertStationWatchers).toHaveBeenCalledWith(expect.anything(), pubsub, 'sta_1');
   });
 
   it('does not audit expiry when the guarded expire-update matches no row', async () => {
@@ -332,7 +337,6 @@ describe('handleReservationActivate', () => {
       [], // UPDATE expired -> no rows (lost race)
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).not.toHaveBeenCalled();
@@ -359,7 +363,6 @@ describe('handleReservationActivate', () => {
       [{ id: 'rsv_1' }], // guarded UPDATE scheduled->active
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     // Status flipped to active and audited exactly once.
@@ -414,7 +417,6 @@ describe('handleReservationActivate', () => {
       [{ id: 'rsv_1' }], // guarded UPDATE scheduled->active
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     const [, raw] = reserveNowCall() as [string, string];
@@ -442,7 +444,6 @@ describe('handleReservationActivate', () => {
       [], // guarded UPDATE -> no rows (already activated by a concurrent run)
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockPublish).not.toHaveBeenCalled();
@@ -469,7 +470,6 @@ describe('handleReservationActivate', () => {
       [{ driverId: 'drv_1' }], // UPDATE cancelled -> returns driver
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).toHaveBeenCalledWith(
@@ -510,7 +510,6 @@ describe('handleReservationActivate', () => {
       [{ driverId: 'drv_1' }], // UPDATE cancelled
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).toHaveBeenCalledWith(
@@ -542,7 +541,6 @@ describe('handleReservationActivate', () => {
       [], // UPDATE cancelled -> no rows
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).not.toHaveBeenCalled();
@@ -570,7 +568,6 @@ describe('handleReservationActivate', () => {
       [], // UPDATE chargingSessions link
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).toHaveBeenCalledWith(
@@ -606,7 +603,6 @@ describe('handleReservationActivate', () => {
       [], // UPDATE scheduled->in_use matches no row (lost race)
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).not.toHaveBeenCalled();
@@ -633,7 +629,6 @@ describe('handleReservationActivate', () => {
       [{ driverId: 'drv_1' }], // UPDATE cancelled
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).toHaveBeenCalledWith(
@@ -662,7 +657,6 @@ describe('handleReservationActivate', () => {
       [{ id: 'rsv_1' }], // guarded UPDATE scheduled->active
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     const [, raw] = reserveNowCall() as [string, string];
@@ -690,7 +684,6 @@ describe('handleReservationActivate', () => {
       [{ driverId: null }], // UPDATE cancelled -> returns null driver
     );
 
-    const { handleReservationActivate } = await import('../../handlers/reservation-activate.js');
     await handleReservationActivate(makeJob('rsv_1'), pubsub);
 
     expect(mockWriteAudit).toHaveBeenCalledWith(

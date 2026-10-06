@@ -7,8 +7,9 @@
 <p align="center">
   <a href="https://github.com/EVtivity/evtivity-csms/releases/latest"><img src="https://img.shields.io/github/v/release/EVtivity/evtivity-csms?label=Release&color=4ade80" alt="Release" /></a>
   <a href="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml"><img src="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://github.com/EVtivity/evtivity-csms/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FEVtivity%2Fevtivity-csms%2Fbadges%2Fcoverage.json" alt="Coverage" /></a>
   <a href="https://github.com/EVtivity/evtivity-csms/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/License-BUSL--1.1-blue.svg" alt="License: BUSL-1.1" /></a>
-  <img src="https://img.shields.io/badge/TypeScript-5.x-3178C6.svg" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/TypeScript-6.x-3178C6.svg" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Node.js-%3E%3D24-339933.svg" alt="Node.js" />
   <img src="https://img.shields.io/badge/OCPP-1.6%20%7C%202.1-4ade80.svg" alt="OCPP" />
   <img src="https://img.shields.io/badge/OCPI-2.2.1%20%7C%202.3.0-4ade80.svg" alt="OCPI" />
@@ -246,6 +247,24 @@ Helm 차트를 사용하면 각 서비스는 Gateway API를 통해 자체 하위
 | API 문서           | https://api.your-domain.com/docs   | 443       | 3001      |
 
 모든 호스트네임은 단일 로드 밸런서 IP를 공유합니다. 각 호스트네임의 DNS 레코드를 해당 IP로 지정해야 합니다. OCPP TLS(포트 8443)는 Security Profile 3(mTLS)을 사용한 스테이션 직접 연결을 위해 별도의 `LoadBalancer` 서비스로 프로비저닝됩니다.
+
+## Skills
+
+[EVtivity Agent Skills](https://github.com/EVtivity/evtivity-skills)는 AI 코딩 에이전트가 EVtivity를 다룰 수 있게 해 줍니다. 공개 표준 [Agent Skills](https://agentskills.io)를 따르므로 같은 스킬이 Claude Code, Codex, GitHub Copilot, Gemini CLI, Cursor 등 여러 에이전트에서 동작합니다.
+
+| 스킬                    | 도움                                                          |
+| ----------------------- | ------------------------------------------------------------- |
+| `evtivity-setup`        | Docker Compose로 EVtivity를 구성하고, 스택을 점검하고, 로그인 |
+| `evtivity-troubleshoot` | 장애가 난 서비스, 충전소 연결, 로그인 문제를 찾아 해결        |
+| `evtivity-report-issue` | 버전과 민감 정보를 지운 로그를 모아 GitHub 이슈 초안 작성     |
+
+모든 에이전트에 설치:
+
+```bash
+npx skills add EVtivity/evtivity-skills
+```
+
+스킬 릴리스는 EVtivity와 같은 태그를 사용합니다. 배포한 버전에 맞는 태그를 설치하세요. 새 스킬에 대한 풀 리퀘스트와 토론을 환영합니다.
 
 ## 라이선스
 

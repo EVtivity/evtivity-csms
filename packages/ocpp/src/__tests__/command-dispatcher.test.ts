@@ -4,6 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 import { CommandDispatcher } from '../server/command-dispatcher.js';
+import * as commandTranslationModule from '../server/command-translation.js';
 
 vi.mock('../server/command-translation.js', () => ({
   translateCommand: vi.fn(
@@ -91,7 +92,7 @@ describe('CommandDispatcher', () => {
       const conn = makeConnection();
       connectionManager.get.mockReturnValue(conn);
 
-      const { translateCommand } = await import('../server/command-translation.js');
+      const { translateCommand } = commandTranslationModule;
       vi.mocked(translateCommand).mockReturnValueOnce(null);
 
       await expect(
@@ -103,7 +104,7 @@ describe('CommandDispatcher', () => {
       const conn = makeConnection('ocpp1.6');
       connectionManager.get.mockReturnValue(conn);
 
-      const { translateCommand } = await import('../server/command-translation.js');
+      const { translateCommand } = commandTranslationModule;
       vi.mocked(translateCommand).mockReturnValueOnce({ action: 'NotSupported', payload: {} });
 
       await expect(

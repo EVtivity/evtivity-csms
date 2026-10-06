@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Job, Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { PubSubClient } from '@evtivity/lib';
@@ -108,6 +108,14 @@ const TRANSACTION = {
   chargingState: 'Charging',
 };
 
+// The module is imported after the mocks above are initialized. The first import loads
+// the whole worker graph, which can take longer than one test's 5 s timeout on a busy
+// machine, so it happens once here with its own timeout instead of inside the first test.
+let mod: typeof import('../station-message-worker.js');
+beforeAll(async () => {
+  mod = await import('../station-message-worker.js');
+}, 30_000);
+
 beforeEach(() => {
   capturedProcessor = undefined;
   workerCtorCalls.length = 0;
@@ -118,8 +126,7 @@ beforeEach(() => {
 
 describe('startStationMessageBridge', () => {
   it('enqueues one debounced repush job per scope', async () => {
-    const { startStationMessageBridge, STATION_MESSAGE_REPUSH_DEBOUNCE_MS } =
-      await import('../station-message-worker.js');
+    const { startStationMessageBridge, STATION_MESSAGE_REPUSH_DEBOUNCE_MS } = mod;
     const deps = makeBridgeDeps();
     await startStationMessageBridge(deps.pubsub, deps.queue);
 
@@ -156,8 +163,7 @@ describe('startStationMessageBridge', () => {
   });
 
   it('turns a station event into one debounced refresh job per station', async () => {
-    const { startStationMessageBridge, STATION_MESSAGE_EVENT_DEBOUNCE_MS } =
-      await import('../station-message-worker.js');
+    const { startStationMessageBridge, STATION_MESSAGE_EVENT_DEBOUNCE_MS } = mod;
     const deps = makeBridgeDeps();
     await startStationMessageBridge(deps.pubsub, deps.queue);
 
@@ -184,7 +190,7 @@ describe('startStationMessageBridge', () => {
   });
 
   it('turns a session event into one debounced transaction job per session', async () => {
-    const { startStationMessageBridge } = await import('../station-message-worker.js');
+    const { startStationMessageBridge } = mod;
     const deps = makeBridgeDeps();
     await startStationMessageBridge(deps.pubsub, deps.queue);
 
@@ -202,7 +208,7 @@ describe('startStationMessageBridge', () => {
   });
 
   it('drops malformed payloads with a warning', async () => {
-    const { startStationMessageBridge } = await import('../station-message-worker.js');
+    const { startStationMessageBridge } = mod;
     const deps = makeBridgeDeps();
     await startStationMessageBridge(deps.pubsub, deps.queue);
 
@@ -217,7 +223,7 @@ describe('startStationMessageBridge', () => {
 
 describe('createStationMessageWorker', () => {
   async function processor(): Promise<(job: Job) => Promise<void>> {
-    const { createStationMessageWorker } = await import('../station-message-worker.js');
+    const { createStationMessageWorker } = mod;
     createStationMessageWorker({}, lockRedis);
     if (capturedProcessor == null) throw new Error('no processor');
     return capturedProcessor;

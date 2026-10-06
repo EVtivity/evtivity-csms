@@ -50,6 +50,7 @@ import {
   pgConstraintName,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
+  alertStationWatchersIfAvailable,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
 import {
@@ -642,6 +643,19 @@ export function registerProjections(
     }
   }
 
+  // Station-watch alert: the station may now be free for a watching driver
+  // (a connector became available, the station came online, reported itself
+  // available, finished a firmware install, or lost a reservation). The shared
+  // driver availability rule decides, and the worker claim makes repeated
+  // signals one alert. Fail-open: the state that triggered it is stored.
+  async function checkStationWatches(stationUuid: string): Promise<void> {
+    try {
+      await alertStationWatchersIfAvailable(sql, pubsub, stationUuid);
+    } catch (err) {
+      logger.warn({ err, stationUuid }, 'Station-watch check failed');
+    }
+  }
+
   // A session started with a partner's (eMSP's) token is our CPO session for
   // that partner. The link row in ocpi_roaming_sessions is what the OCPI
   // server serves on GET /cpo/sessions, pushes to the partner, and resolves
@@ -808,6 +822,8 @@ export function registerProjections(
       if (siteId != null) {
         await notifyOcpiPush('location', { siteId });
       }
+      // Back online: the station may be free again with no connector change.
+      await checkStationWatches(stationUuid);
     },
     { retryOnConnectionError: true },
   );
@@ -1111,7 +1127,9 @@ export function registerProjections(
       // Availability comes from its inputs, so a disable or fault survives the
       // reboot. A reboot ends a firmware install, so one still marked
       // installing is cleared; a failed install stays until the operator enables.
-      await clearStationFirmwareInstalling(sql, stationUuid);
+      const bootChange = await clearStationFirmwareInstalling(sql, stationUuid);
+      // A reboot that ends an install frees the station with no connector change.
+      if (bootChange.availabilityChanged) await checkStationWatches(stationUuid);
     } else {
       // Pending or blocked: update hardware info and online status but do not touch availability
       await sql`
@@ -1431,6 +1449,7 @@ export function registerProjections(
         if (stationSiteId != null) {
           await notifyOcpiPush('location', { siteId: stationSiteId });
         }
+        if (reported === 'available') await checkStationWatches(stationUuid);
         return;
       }
 
@@ -1602,49 +1621,11 @@ export function registerProjections(
       `;
       }
 
-      // Station-watch alert: a connector just became available. When it is the
-      // ONLY available connector at the station (full -> free edge), a driver is
-      // watching, and the site is not under maintenance, publish so the worker
-      // notifies the watchers. One combined indexed query, run only on this rare
-      // available-edge (never on every StatusNotification). Kept last in the
-      // handler so its query never reorders the writes above. Fail-open.
+      // Station-watch alert: a connector just became available. Only on this
+      // rare available-edge (never on every StatusNotification). Kept last in
+      // the handler so its query never reorders the writes above.
       if (dbStatus === 'available' && previousDbStatus !== 'available') {
-        try {
-          const edgeRows = await sql`
-          SELECT
-            (SELECT count(*) FROM connectors c
-               JOIN evses e ON e.id = c.evse_id
-               WHERE e.station_id = ${stationUuid} AND c.status = 'available') AS available_count,
-            EXISTS (
-              SELECT 1 FROM station_watches w
-              WHERE w.station_id = ${stationUuid} AND w.expires_at > now()
-            ) AS has_watchers,
-            EXISTS (
-              SELECT 1 FROM maintenance_events m
-              WHERE m.status = 'active'
-                AND m.site_id = (SELECT site_id FROM charging_stations WHERE id = ${stationUuid})
-                AND (
-                  m.affected_station_ids IS NULL
-                  OR array_length(m.affected_station_ids, 1) IS NULL
-                  OR ${stationUuid} = ANY (m.affected_station_ids)
-                )
-            ) AS under_maintenance
-        `;
-          const edge = edgeRows[0];
-          if (
-            edge != null &&
-            Number(edge.available_count) === 1 &&
-            edge.has_watchers === true &&
-            edge.under_maintenance === false
-          ) {
-            await pubsub.publish(
-              'station_watch_available',
-              JSON.stringify({ stationId: event.aggregateId }),
-            );
-          }
-        } catch (err) {
-          logger.warn({ err, stationUuid }, 'Station-watch edge check failed');
-        }
+        await checkStationWatches(stationUuid);
       }
     },
     { retryOnConnectionError: true },
@@ -3196,6 +3177,8 @@ export function registerProjections(
     }
     if (fwChange?.availabilityChanged === true) {
       await notifyChange('station.status', stationUuid, await resolveSiteId(stationUuid));
+      // A finished or ended install frees the station with no connector change.
+      await checkStationWatches(stationUuid);
     }
 
     // Persist to firmware_updates table
@@ -3410,12 +3393,14 @@ export function registerProjections(
       // Expired reservations stay on the dedicated 'expired' status path,
       // which has its own no-show fee handling in the worker. Conditional
       // UPDATE so we only audit on the actual transition.
-      const expired = await sql<Array<{ id: string; driver_id: string | null }>>`
+      const expired = await sql<
+        Array<{ id: string; driver_id: string | null; station_id: string }>
+      >`
         UPDATE reservations
         SET status = 'expired', updated_at = now()
         WHERE reservation_id = ${reservationOcppId}
           AND status IN ('active', 'scheduled', 'in_use')
-        RETURNING id, driver_id
+        RETURNING id, driver_id, station_id
       `;
       const expiredRow = expired[0];
       if (expiredRow != null) {
@@ -3433,6 +3418,7 @@ export function registerProjections(
           logger,
         );
         await notifyChange('reservation.changed', null, null);
+        await checkStationWatches(expiredRow.station_id);
       }
       return;
     }
@@ -3475,6 +3461,7 @@ export function registerProjections(
           logger,
         );
         await notifyChange('reservation.changed', stationUuid, null);
+        await checkStationWatches(stationUuid);
       }
 
       const driverId = cancelled[0]?.driver_id ?? null;

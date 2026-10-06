@@ -89,6 +89,7 @@ import {
   userCanAccessSite,
   checkStationSiteAccess,
 } from '../lib/site-access.js';
+import * as databaseModule from '@evtivity/database';
 
 beforeEach(() => {
   dbResults = [];
@@ -153,7 +154,7 @@ describe('getUserSiteIds', () => {
     clearCache(userId);
     setupDbResults([{ hasAllSiteAccess: true }]);
 
-    const { db } = await import('@evtivity/database');
+    const { db } = databaseModule;
 
     const first = await getUserSiteIds(userId);
     expect(first).toBeNull();
@@ -210,7 +211,7 @@ describe('clearSiteAccessCacheLocal', () => {
     expect(publishMock).not.toHaveBeenCalled();
 
     // Cache was cleared: next call hits the DB again.
-    const { db } = await import('@evtivity/database');
+    const { db } = databaseModule;
     const before = vi.mocked(db.select).mock.calls.length;
     setupDbResults([{ hasAllSiteAccess: false }], [{ siteId: 'site-x' }]);
     const result = await getUserSiteIds(userId);

@@ -101,6 +101,7 @@ vi.mock('../middleware/rbac.js', () => ({
 }));
 
 import { registerAuth } from '../plugins/auth.js';
+import * as databaseModule from '@evtivity/database';
 
 // Generate a valid 64-char hex token for testing
 const RAW_TOKEN = 'a'.repeat(64);
@@ -216,7 +217,7 @@ describe('API key authentication in authenticate decorator', () => {
     // Should get 401 from JWT verify failure, not from API key path
     expect(res.statusCode).toBe(401);
     // DB should NOT have been called since the token is not 64-char hex
-    const { db } = await import('@evtivity/database');
+    const { db } = databaseModule;
     expect(db.select).not.toHaveBeenCalled();
   });
 

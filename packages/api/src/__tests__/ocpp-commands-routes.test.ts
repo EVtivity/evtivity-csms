@@ -55,6 +55,7 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { ocppCommandRoutes } from '../routes/ocpp-commands.js';
+import * as ocppModule from '@evtivity/ocpp';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -170,7 +171,7 @@ describe('OCPP command routes', () => {
 
   it('returns 400 when v21 payload validation fails', async () => {
     // Override validateRequest to return false for this test
-    const { ActionRegistry } = await import('@evtivity/ocpp');
+    const { ActionRegistry } = ocppModule;
     const originalValidate = ActionRegistry['Reset'].validateRequest;
     (
       ActionRegistry['Reset'] as unknown as { validateRequest: ReturnType<typeof vi.fn> }

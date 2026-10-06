@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // `db.select(...).from().innerJoin().where()` resolves to the active sessions.
@@ -118,6 +118,14 @@ const breakdown = (grossCents: number) => ({
   components: null,
 });
 
+// The module is imported after the mocks above are initialized. The first import loads the
+// whole module graph, which under coverage on a busy machine took longer than one test's
+// 5 s timeout, so it happens once here with its own timeout instead of inside the first test.
+let mod: typeof import('../../handlers/tariff-boundary-check.js');
+beforeAll(async () => {
+  mod = await import('../../handlers/tariff-boundary-check.js');
+}, 30_000);
+
 describe('tariffBoundaryCheckHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -138,7 +146,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockIsStationMessageEnabled.mockResolvedValue(false);
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSelect).not.toHaveBeenCalled();
@@ -153,7 +161,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue(newTariff());
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     // The session's energy so far (1500 Wh) selects energy-threshold tariffs.
@@ -168,7 +176,7 @@ describe('tariffBoundaryCheckHandler', () => {
 
   it('resolves a session without energy at 0 kWh', async () => {
     activeSessions = [activeSession({ energyDeliveredWh: null })];
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(makeLog());
 
     expect(mockResolveTariff).toHaveBeenCalledWith(
@@ -183,7 +191,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue(newTariff());
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSwitchTariffSegment).not.toHaveBeenCalled();
@@ -194,7 +202,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue(null);
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSwitchTariffSegment).not.toHaveBeenCalled();
@@ -212,7 +220,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue(tariff);
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSwitchTariffSegment).toHaveBeenCalledTimes(1);
@@ -252,7 +260,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockPriceSessionAt.mockResolvedValue(null);
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSwitchTariffSegment).toHaveBeenCalledWith(
@@ -282,7 +290,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue(newTariff());
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSwitchTariffSegment).toHaveBeenCalledTimes(1);
@@ -294,7 +302,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue(newTariff());
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSwitchTariffSegment).toHaveBeenCalledTimes(1);
@@ -306,7 +314,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue(newTariff());
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSwitchTariffSegment).toHaveBeenCalledTimes(1);
@@ -322,7 +330,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockSwitchTariffSegment.mockRejectedValueOnce(new Error('tx failed'));
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(log.error).toHaveBeenCalledWith(
@@ -338,7 +346,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockIsStationMessageEnabled.mockResolvedValue(true);
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSelect).not.toHaveBeenCalled();
@@ -353,7 +361,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockResolveTariff.mockResolvedValue(newTariff());
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockSwitchTariffSegment).toHaveBeenCalledTimes(1);
@@ -364,7 +372,7 @@ describe('tariffBoundaryCheckHandler', () => {
     mockIsStationMessageEnabled.mockResolvedValue(true);
     const log = makeLog();
 
-    const { tariffBoundaryCheckHandler } = await import('../../handlers/tariff-boundary-check.js');
+    const { tariffBoundaryCheckHandler } = mod;
     await tariffBoundaryCheckHandler(log);
 
     expect(mockResolveTariff).not.toHaveBeenCalled();

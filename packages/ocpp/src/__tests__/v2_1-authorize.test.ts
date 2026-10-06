@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
 
@@ -72,6 +72,12 @@ function makeCtx(payload: Record<string, unknown>): {
   return { ctx, publishMock };
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let authorizeHandlerModule: typeof import('../handlers/v2_1/authorize.handler.js');
+beforeAll(async () => {
+  authorizeHandlerModule = await import('../handlers/v2_1/authorize.handler.js');
+}, 30_000);
+
 beforeEach(() => {
   vi.clearAllMocks();
   fromFn.mockReturnValue({ where: whereFn });
@@ -80,7 +86,7 @@ beforeEach(() => {
 
 describe('v2_1 Authorize handler', () => {
   it('accepts NoAuthorization token without DB lookup', async () => {
-    const { handleAuthorize } = await import('../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx, publishMock } = makeCtx({
       idToken: { idToken: 'no-auth', type: 'NoAuthorization' },
     });
@@ -95,7 +101,7 @@ describe('v2_1 Authorize handler', () => {
 
   it('accepts Central token not found in DB', async () => {
     whereFn.mockResolvedValue([]);
-    const { handleAuthorize } = await import('../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({
       idToken: { idToken: 'central-token', type: 'Central' },
     });
@@ -114,7 +120,7 @@ describe('v2_1 Authorize handler', () => {
 
   it('returns Invalid for ISO14443 token not found in DB', async () => {
     whereFn.mockResolvedValue([]);
-    const { handleAuthorize } = await import('../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({
       idToken: { idToken: 'unknown-rfid', type: 'ISO14443' },
     });
@@ -125,7 +131,7 @@ describe('v2_1 Authorize handler', () => {
 
   it('accepts active token found in DB', async () => {
     whereFn.mockResolvedValue([{ isActive: true }]);
-    const { handleAuthorize } = await import('../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({
       idToken: { idToken: 'active-rfid', type: 'ISO14443' },
     });
@@ -138,7 +144,7 @@ describe('v2_1 Authorize handler', () => {
 
   it('blocks inactive token found in DB', async () => {
     whereFn.mockResolvedValue([{ isActive: false }]);
-    const { handleAuthorize } = await import('../handlers/v2_1/authorize.handler.js');
+    const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({
       idToken: { idToken: 'blocked-rfid', type: 'ISO14443' },
     });

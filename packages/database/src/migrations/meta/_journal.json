@@ -1065,6 +1065,13 @@
       "when": 1791000012050,
       "tag": "0151_session_cost_ceiling",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1791000012058,
+      "tag": "0152_payment_pending_operation_check_validate",
+      "breakpoints": true
     }
   ]
 }

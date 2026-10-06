@@ -178,6 +178,7 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { firmwareCampaignRoutes } from '../routes/firmware-campaigns.js';
+import * as databaseModule from '@evtivity/database';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -455,7 +456,7 @@ describe('Firmware campaign routes', () => {
       });
 
       expect(response.statusCode).toBe(201);
-      const { db } = await import('@evtivity/database');
+      const { db } = databaseModule;
       const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
         values: ReturnType<typeof vi.fn>;
       };
@@ -497,7 +498,7 @@ describe('Firmware campaign routes', () => {
 
       expect(response.statusCode).toBe(400);
       expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
-      const { db } = await import('@evtivity/database');
+      const { db } = databaseModule;
       expect(db.insert).not.toHaveBeenCalled();
     });
   });
@@ -641,7 +642,7 @@ describe('Firmware campaign routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      const { db } = await import('@evtivity/database');
+      const { db } = databaseModule;
       const updateChain = vi.mocked(db.update).mock.results[0]?.value as {
         set: ReturnType<typeof vi.fn>;
       };
@@ -661,7 +662,7 @@ describe('Firmware campaign routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
-      const { db } = await import('@evtivity/database');
+      const { db } = databaseModule;
       const updateChain = vi.mocked(db.update).mock.results[0]?.value as {
         set: ReturnType<typeof vi.fn>;
       };

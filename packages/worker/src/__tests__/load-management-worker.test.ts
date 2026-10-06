@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import type { Job } from 'bullmq';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
@@ -64,6 +64,14 @@ function makeJob(name: string, data: unknown = {}): Job {
   return { name, data } as unknown as Job;
 }
 
+// Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
+let loadManagementWorkerModule: typeof import('../load-management-worker.js');
+let bullmqModule: typeof import('bullmq');
+beforeAll(async () => {
+  loadManagementWorkerModule = await import('../load-management-worker.js');
+  bullmqModule = await import('bullmq');
+}, 30_000);
+
 beforeEach(() => {
   capturedProcessor = undefined;
   onHandlers.clear();
@@ -85,7 +93,7 @@ beforeEach(() => {
 
 describe('enqueueLoadManagementJobs', () => {
   it('enqueues one job per enabled site with deduplication jobId', async () => {
-    const { enqueueLoadManagementJobs } = await import('../load-management-worker.js');
+    const { enqueueLoadManagementJobs } = loadManagementWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     await enqueueLoadManagementJobs({ add } as never);
 
@@ -104,7 +112,7 @@ describe('enqueueLoadManagementJobs', () => {
 
   it('enqueues nothing when no sites have load management enabled', async () => {
     mockSelectWhere.mockResolvedValueOnce([]);
-    const { enqueueLoadManagementJobs } = await import('../load-management-worker.js');
+    const { enqueueLoadManagementJobs } = loadManagementWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     await enqueueLoadManagementJobs({ add } as never);
 
@@ -114,8 +122,8 @@ describe('enqueueLoadManagementJobs', () => {
 
 describe('createLoadManagementWorker', () => {
   it('wires the Worker to the load-management queue with concurrency 5', async () => {
-    const { Worker } = await import('bullmq');
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { Worker } = bullmqModule;
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     createLoadManagementWorker({}, { add: vi.fn() } as never);
 
     expect(Worker).toHaveBeenCalledWith(
@@ -126,7 +134,7 @@ describe('createLoadManagementWorker', () => {
   });
 
   it('passes the provided connection through to the Worker', async () => {
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     const connection = { host: 'redis-load' } as never;
     createLoadManagementWorker(connection, { add: vi.fn() } as never);
 
@@ -134,7 +142,7 @@ describe('createLoadManagementWorker', () => {
   });
 
   it('coordinator job fans out per-site jobs and never starts a per-site job log', async () => {
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     createLoadManagementWorker({}, { add } as never);
 
@@ -152,7 +160,7 @@ describe('createLoadManagementWorker', () => {
   });
 
   it('per-site job runs the allocation cycle and logs start then completion', async () => {
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     createLoadManagementWorker({}, { add: vi.fn() } as never);
 
     await capturedProcessor?.(makeJob('load-management', { siteId: 'site-42' }));
@@ -171,7 +179,7 @@ describe('createLoadManagementWorker', () => {
 
   it('per-site job logs failure and rethrows when the cycle throws', async () => {
     mockRunLoadManagementCycle.mockRejectedValueOnce(new Error('allocation failed'));
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     createLoadManagementWorker({}, { add: vi.fn() } as never);
 
     await expect(
@@ -186,7 +194,7 @@ describe('createLoadManagementWorker', () => {
 
   it('per-site job uses "Unknown error" when a non-Error is thrown', async () => {
     mockRunLoadManagementCycle.mockRejectedValueOnce('weird');
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     createLoadManagementWorker({}, { add: vi.fn() } as never);
 
     await expect(
@@ -199,7 +207,7 @@ describe('createLoadManagementWorker', () => {
   it('per-site job swallows a logJobFailed write error but rethrows the original', async () => {
     mockRunLoadManagementCycle.mockRejectedValueOnce(new Error('original'));
     mockLogJobFailed.mockRejectedValueOnce(new Error('log write failed'));
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     createLoadManagementWorker({}, { add: vi.fn() } as never);
 
     await expect(
@@ -210,7 +218,7 @@ describe('createLoadManagementWorker', () => {
 
 describe('load-management-worker failed listener', () => {
   it('logs the failed job with its siteId', async () => {
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     createLoadManagementWorker({}, { add: vi.fn() } as never);
 
     const failedHandler = onHandlers.get('failed');
@@ -225,7 +233,7 @@ describe('load-management-worker failed listener', () => {
   });
 
   it('ignores a null job', async () => {
-    const { createLoadManagementWorker } = await import('../load-management-worker.js');
+    const { createLoadManagementWorker } = loadManagementWorkerModule;
     createLoadManagementWorker({}, { add: vi.fn() } as never);
 
     const failedHandler = onHandlers.get('failed');

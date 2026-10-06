@@ -205,4 +205,55 @@ describe('OcppClient socket state', () => {
     await closed;
     expect(client.isConnected).toBe(false);
   });
+
+  async function serverAndClient(): Promise<{ client: OcppClient; server: WebSocket }> {
+    const wss = new WebSocketServer({
+      port: 0,
+      host: '127.0.0.1',
+      handleProtocols: (p) => [...p][0] ?? false,
+    });
+    await new Promise<void>((resolve) => wss.once('listening', resolve));
+    const address = wss.address();
+    if (address == null || typeof address === 'string') throw new Error('no address');
+    const serverSide = new Promise<WebSocket>((resolve) => wss.once('connection', resolve));
+    const client = new OcppClient({
+      serverUrl: `ws://127.0.0.1:${String(address.port)}`,
+      stationId: 'CALL-TEST',
+      ocppProtocol: 'ocpp2.1',
+      securityProfile: 0,
+    });
+    client.setDisconnectedHandler(() => {});
+    cleanups.push(async () => {
+      client.disconnect();
+      for (const ws of wss.clients) ws.terminate();
+      await new Promise<void>((resolve) => wss.close(() => resolve()));
+    });
+    await client.connect();
+    return { client, server: await serverSide };
+  }
+
+  function nextFrame(server: WebSocket): Promise<unknown[]> {
+    return new Promise((resolve) => {
+      server.once('message', (data: Buffer) => resolve(JSON.parse(data.toString()) as unknown[]));
+    });
+  }
+
+  it('answers a CSMS call with CALLERROR NotImplemented when no handler is registered', async () => {
+    const { server } = await serverAndClient();
+    const reply = nextFrame(server);
+    server.send(JSON.stringify([2, 'c1', 'SomeAction', {}]));
+    const frame = await reply;
+    expect(frame[0]).toBe(4);
+    expect(frame[1]).toBe('c1');
+    expect(frame[2]).toBe('NotImplemented');
+  });
+
+  it('sends the OCPP error code a handler throws as a CALLERROR', async () => {
+    const { client, server } = await serverAndClient();
+    client.setIncomingCallHandler(() => Promise.reject(new Error('NotImplemented')));
+    const reply = nextFrame(server);
+    server.send(JSON.stringify([2, 'c2', 'NoSuchAction', {}]));
+    const frame = await reply;
+    expect(frame).toEqual([4, 'c2', 'NotImplemented', 'NoSuchAction NotImplemented', {}]);
+  });
 });

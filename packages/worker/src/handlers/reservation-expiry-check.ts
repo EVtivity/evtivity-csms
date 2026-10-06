@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
-import { client, resolveStationTariff, writeReservationAudit } from '@evtivity/database';
+import {
+  alertStationWatchersIfAvailable,
+  client,
+  resolveStationTariff,
+  writeReservationAudit,
+} from '@evtivity/database';
 import { dispatchDriverNotification, publishOcppCommand } from '@evtivity/lib';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -120,6 +125,19 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
           'Failed to publish CancelReservation for expired reservation',
         );
       }
+    }
+
+    // The reservation no longer holds the EVSE, which changes no connector
+    // status until the station reports one, so watching drivers are alerted
+    // here when the station is now free by the shared driver availability rule.
+    // Fail-open: the expiry is stored.
+    try {
+      await alertStationWatchersIfAvailable(client, pubsub, row.station_uuid);
+    } catch (err) {
+      log.warn(
+        { err, reservationId: row.id },
+        'Station-watch check after reservation expiry failed',
+      );
     }
 
     // No-show fee. Charge the holding rate * minutes the connector was held

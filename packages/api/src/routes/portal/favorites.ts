@@ -4,14 +4,8 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
-import { db } from '@evtivity/database';
-import {
-  driverFavoriteStations,
-  chargingStations,
-  sites,
-  evses,
-  connectors,
-} from '@evtivity/database';
+import { db, availableEvseCountSql } from '@evtivity/database';
+import { driverFavoriteStations, chargingStations, sites, evses } from '@evtivity/database';
 import { zodSchema } from '../../lib/zod-schema.js';
 import {
   successResponse,
@@ -32,7 +26,13 @@ const favoriteItem = z
     siteState: z.string().max(100).nullable().describe('State or region'),
     isOnline: z.boolean().describe('Whether the station is currently online'),
     evseCount: z.number().int().min(0).describe('Total EVSEs at this station'),
-    availableCount: z.number().int().min(0).describe('Number of available EVSEs at this station'),
+    availableCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Number of EVSEs a driver can use now: 0 when the station is offline, disabled, installing firmware, faulted at station level, or under maintenance; a reserved EVSE is not counted',
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the station was favorited'),
   })
   .passthrough();
@@ -76,6 +76,7 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
           siteCity: sites.city,
           siteState: sites.state,
           isOnline: chargingStations.isOnline,
+          availableCount: sql<number>`${sql.raw(availableEvseCountSql('charging_stations'))}`,
           createdAt: driverFavoriteStations.createdAt,
         })
         .from(driverFavoriteStations)
@@ -86,16 +87,14 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
 
       // Batch fetch EVSE counts
       const stationUuids = rows.map((r) => r.stationUuid);
-      let evseCounts: Array<{ stationId: string; total: number; available: number }> = [];
+      let evseCounts: Array<{ stationId: string; total: number }> = [];
       if (stationUuids.length > 0) {
         evseCounts = await db
           .select({
             stationId: evses.stationId,
-            total: sql<number>`count(DISTINCT ${evses.id})::int`,
-            available: sql<number>`count(DISTINCT ${evses.id}) FILTER (WHERE ${connectors.status} = 'available')::int`,
+            total: sql<number>`count(*)::int`,
           })
           .from(evses)
-          .leftJoin(connectors, eq(connectors.evseId, evses.id))
           .where(inArray(evses.stationId, stationUuids))
           .groupBy(evses.stationId);
       }
@@ -113,7 +112,7 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
           siteState: r.siteState,
           isOnline: r.isOnline,
           evseCount: counts?.total ?? 0,
-          availableCount: counts?.available ?? 0,
+          availableCount: r.availableCount,
           createdAt: r.createdAt,
         };
       });

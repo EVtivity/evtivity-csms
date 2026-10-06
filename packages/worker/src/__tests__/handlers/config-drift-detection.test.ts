@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // Drizzle chain mock: each builder call returns the chain; awaiting it pulls the
@@ -82,6 +82,14 @@ const log = {
   debug: vi.fn(),
 } as unknown as Logger;
 
+// The module is imported after the mocks above are initialized. The first import loads the
+// whole module graph, which under coverage on a busy machine took longer than one test's
+// 5 s timeout, so it happens once here with its own timeout instead of inside the first test.
+let mod: typeof import('../../handlers/config-drift-detection.js');
+beforeAll(async () => {
+  mod = await import('../../handlers/config-drift-detection.js');
+}, 30_000);
+
 describe('configDriftDetectionHandler', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -93,8 +101,7 @@ describe('configDriftDetectionHandler', () => {
   it('does nothing when there are no templates', async () => {
     setupDbResults([]); // templates
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     expect(mockPublish).not.toHaveBeenCalled();
@@ -104,8 +111,7 @@ describe('configDriftDetectionHandler', () => {
   it('skips templates with no variables', async () => {
     setupDbResults([{ id: 'tpl_empty', variables: [], targetFilter: null }]);
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     // No target-station query issued for an empty-variable template.
@@ -125,8 +131,7 @@ describe('configDriftDetectionHandler', () => {
       [], // targetStations empty
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     expect(mockPublish).not.toHaveBeenCalled();
@@ -153,8 +158,7 @@ describe('configDriftDetectionHandler', () => {
       ],
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
@@ -183,8 +187,7 @@ describe('configDriftDetectionHandler', () => {
       [], // station has no configurations at all -> find() returns undefined
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
@@ -225,8 +228,7 @@ describe('configDriftDetectionHandler', () => {
       ],
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     expect(mockPublish).not.toHaveBeenCalled();
@@ -264,8 +266,7 @@ describe('configDriftDetectionHandler', () => {
       ],
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
@@ -300,8 +301,7 @@ describe('configDriftDetectionHandler', () => {
       ],
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     expect(mockPublish).toHaveBeenCalledTimes(1);
@@ -323,8 +323,7 @@ describe('configDriftDetectionHandler', () => {
       [], // no stations -> short-circuit, we only care about the filter build
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     // isOnline + siteId + vendorId + model = 4 eq conditions for this template.
@@ -357,8 +356,7 @@ describe('configDriftDetectionHandler', () => {
       ],
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await expect(configDriftDetectionHandler(log)).resolves.toBeUndefined();
 
     // driftCount still incremented despite the publish failure.
@@ -405,8 +403,7 @@ describe('configDriftDetectionHandler', () => {
       ],
     );
 
-    const { configDriftDetectionHandler } =
-      await import('../../handlers/config-drift-detection.js');
+    const { configDriftDetectionHandler } = mod;
     await configDriftDetectionHandler(log);
 
     expect(log.info).toHaveBeenCalledWith({ driftCount: 1 }, 'Configuration drift detected');
