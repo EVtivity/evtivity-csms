@@ -171,6 +171,19 @@ describe('Adyen Management API client', () => {
     expect(hasAdyenWebhookRole(['Management API - Webhooks read'])).toBe(false);
     expect(hasAdyenWebhookRole([])).toBe(false);
   });
+
+  it('normalizes the spacing around the separator', () => {
+    expect(hasAdyenWebhookRole(['  management api  -  WEBHOOKS read and write '])).toBe(true);
+    expect(hasAdyenWebhookRole(['Management API-Webhooks read and write'])).toBe(true);
+    expect(hasAdyenWebhookRole(['Management API -- Webhooks read and write'])).toBe(false);
+  });
+
+  it('matches a role with a long run of spaces in linear time', () => {
+    const role = `Management API${' '.repeat(100_000)}x`;
+    const started = performance.now();
+    expect(hasAdyenWebhookRole([role])).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
 });
 
 describe('AdyenPaymentProvider webhook registration', () => {

@@ -637,6 +637,8 @@ describe('OcppServer integration', () => {
           '1',
           '-subj',
           '/CN=127.0.0.1',
+          '-addext',
+          'subjectAltName=IP:127.0.0.1',
         ]);
       } catch {
         return;
@@ -658,7 +660,7 @@ describe('OcppServer integration', () => {
 
       const secureOpened = await new Promise<boolean>((resolve) => {
         const ws = new WebSocket(`wss://127.0.0.1:${String(tlsPort)}/TEST-TLS`, ['ocpp2.1'], {
-          rejectUnauthorized: false,
+          ca: readFileSync(certPath),
           headers: {
             authorization: 'Basic ' + Buffer.from('TEST-TLS:password').toString('base64'),
           },
@@ -761,6 +763,8 @@ describe('OcppServer stop drains event handlers', () => {
           '1',
           '-subj',
           '/CN=127.0.0.1',
+          '-addext',
+          'subjectAltName=IP:127.0.0.1',
         ],
         { stdio: 'ignore' },
       );
@@ -783,7 +787,7 @@ describe('OcppServer stop drains event handlers', () => {
       });
       const ws = await new Promise<WebSocket>((resolve, reject) => {
         const sock = new WebSocket(`wss://127.0.0.1:${String(tlsPort)}/TLS-STOP-001`, ['ocpp2.1'], {
-          rejectUnauthorized: false,
+          ca: readFileSync(certPath),
           headers: {
             authorization: 'Basic ' + Buffer.from('TLS-STOP-001:password').toString('base64'),
           },
@@ -807,7 +811,7 @@ describe('OcppServer stop drains event handlers', () => {
       expect(order).toEqual(['disconnected:TLS-STOP-001', 'stopped']);
       const refused = await new Promise<boolean>((resolve) => {
         const late = new WebSocket(`wss://127.0.0.1:${String(tlsPort)}/TLS-STOP-002`, ['ocpp2.1'], {
-          rejectUnauthorized: false,
+          ca: readFileSync(certPath),
         });
         late.on('open', () => {
           late.close();

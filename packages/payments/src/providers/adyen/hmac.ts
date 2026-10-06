@@ -63,18 +63,27 @@ export function isValidAdyenHmac(
   });
 }
 
-function digest(value: string): Buffer {
-  return crypto.createHash('sha256').update(value, 'utf8').digest();
+/**
+ * Constant-time string equality. The comparison always runs over the given
+ * (caller-supplied) length, so its time reveals neither where the strings
+ * differ nor the expected length.
+ */
+function constantTimeEqual(given: string, expected: string): boolean {
+  const givenBytes = Buffer.from(given, 'utf8');
+  const expectedBytes = Buffer.from(expected, 'utf8');
+  const padded = Buffer.alloc(givenBytes.length);
+  expectedBytes.copy(padded);
+  const sameBytes = crypto.timingSafeEqual(givenBytes, padded);
+  return sameBytes && givenBytes.length === expectedBytes.length;
 }
 
 /**
  * True when the Authorization header is Basic auth with this username and
- * password. Compares SHA-256 digests in constant time, so neither the length
- * nor the content leaks through timing.
+ * password, compared in constant time.
  */
 export function isValidBasicAuth(header: string, username: string, password: string): boolean {
   const match = /^Basic\s+(\S+)$/i.exec(header.trim());
   if (match?.[1] == null) return false;
   const given = Buffer.from(match[1], 'base64').toString('utf8');
-  return crypto.timingSafeEqual(digest(given), digest(`${username}:${password}`));
+  return constantTimeEqual(given, `${username}:${password}`);
 }

@@ -47,12 +47,16 @@ export const ADYEN_WEBHOOK_EVENT_CODES = [
 
 /** Roles as `/me` lists them; Adyen writes the separator as a hyphen or a dash. */
 function normalizeRole(role: string): string {
-  return role
-    .replace(/[‐-―-]/g, '-')
-    .replace(/\s*-\s*/g, ' - ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  return (
+    role
+      .replace(/[‐-―-]/g, '-')
+      // Space the hyphen, then collapse the whitespace around it. One `\s*-\s*`
+      // pass would be quadratic on a long run of spaces without a hyphen.
+      .replace(/-/g, ' - ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase()
+  );
 }
 
 export function hasAdyenWebhookRole(roles: readonly string[]): boolean {

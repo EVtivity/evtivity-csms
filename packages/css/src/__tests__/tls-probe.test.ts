@@ -60,7 +60,7 @@ describe('isTlsReachable', () => {
     expect(await isTlsReachable(`wss://localhost:${String(port)}`)).toBe(true);
   });
 
-  it('does not verify the certificate, whatever TLS_REJECT_UNAUTHORIZED says', async () => {
+  it('counts a certificate that fails verification as reachable, whatever TLS_REJECT_UNAUTHORIZED says', async () => {
     // The station's OcppClient verifies (and reports a refused certificate);
     // the probe only decides whether to start the station.
     const port = await listen(createTlsServer(selfSigned));
@@ -79,6 +79,14 @@ describe('isTlsReachable', () => {
   it('is not reachable when the server never completes the handshake', async () => {
     const port = await listen(createNetServer());
     expect(await isTlsReachable(`wss://localhost:${String(port)}`, 200)).toBe(false);
+  });
+
+  it('is not reachable when the server answers without TLS', async () => {
+    const server = createNetServer((socket) => {
+      socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+    });
+    const port = await listen(server);
+    expect(await isTlsReachable(`wss://localhost:${String(port)}`)).toBe(false);
   });
 
   it('is not reachable for a URL it cannot parse', async () => {

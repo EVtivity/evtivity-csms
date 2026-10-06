@@ -252,8 +252,11 @@ export class OcppServer {
         key: options.tls.key,
         ...(options.tls.ca != null ? { ca: options.tls.ca } : {}),
         requestCert: true,
-        // Must be false: SP2 stations connect without client certs on the same port.
-        // SP3 client cert validation is handled by the auth middleware.
+        // Must be false: SP2 stations connect without a client certificate on the
+        // same port, and true would drop them during the handshake. Node still
+        // verifies any client certificate against `ca` and records the result in
+        // socket.authorized; the auth middleware (authenticate.ts) rejects an SP3
+        // station whose certificate is missing or not authorized.
         rejectUnauthorized: false,
       });
       this.httpsServer = httpsServer;

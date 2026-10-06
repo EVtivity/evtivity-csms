@@ -86,6 +86,13 @@ describe('Adyen HMAC (documented example)', () => {
     expect(isValidBasicAuth(`basic ${Buffer.from('u:p').toString('base64')}`, 'u', 'p')).toBe(true);
     expect(isValidBasicAuth(basicAuth('u', 'wrong'), 'u', 'p')).toBe(false);
     expect(isValidBasicAuth('Bearer token', 'u', 'p')).toBe(false);
+    // A prefix, an extension, or an empty credential never matches.
+    expect(isValidBasicAuth(basicAuth('u', 'pass'), 'u', 'password')).toBe(false);
+    expect(isValidBasicAuth(basicAuth('u', 'password1'), 'u', 'password')).toBe(false);
+    expect(isValidBasicAuth(basicAuth('u', 'passwore'), 'u', 'password')).toBe(false);
+    expect(isValidBasicAuth(basicAuth('v', 'password'), 'u', 'password')).toBe(false);
+    expect(isValidBasicAuth(`Basic ${Buffer.from('').toString('base64')}=`, 'u', 'p')).toBe(false);
+    expect(isValidBasicAuth(basicAuth('u', 'pässwört'), 'u', 'pässwört')).toBe(true);
   });
 });
 
