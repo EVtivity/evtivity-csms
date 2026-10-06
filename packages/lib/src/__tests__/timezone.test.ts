@@ -176,8 +176,12 @@ describe('formatRelativeTime with locale', () => {
   it('formats relative time in the locale (de)', () => {
     const now = Date.now();
     vi.spyOn(Date, 'now').mockReturnValue(now);
-    expect(formatRelativeTime(new Date(now - 30_000), 'UTC', 'de')).toBe('vor 30 s');
-    expect(formatRelativeTime(new Date(now - 3 * 3600_000), 'UTC', 'de')).toBe('vor 3 Std.');
+    // Narrow German labels differ between ICU versions, so compare against the runtime's own output.
+    const de = new Intl.RelativeTimeFormat('de', { style: 'narrow' });
+    expect(formatRelativeTime(new Date(now - 30_000), 'UTC', 'de')).toBe(de.format(-30, 'second'));
+    expect(formatRelativeTime(new Date(now - 3 * 3600_000), 'UTC', 'de')).toBe(
+      de.format(-3, 'hour'),
+    );
     vi.restoreAllMocks();
   });
 
