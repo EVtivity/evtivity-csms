@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { GenerateButton } from '@/components/generate-button';
 import { Input } from '@/components/ui/input';
@@ -220,6 +221,10 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
               </Select>
             </div>
           </div>
+
+          {generateMutation.isError && (
+            <p className="text-sm text-destructive">{getErrorMessage(generateMutation.error, t)}</p>
+          )}
 
           <GenerateButton
             type="submit"

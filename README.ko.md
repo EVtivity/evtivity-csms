@@ -218,7 +218,7 @@ graph TB
 | 다국어 UI        | 6개 언어: 영어, 독일어, 스페인어, 한국어, 간체/번체 중국어                                         |
 | 반응형 필터      | 모든 목록 페이지의 필터가 태블릿/모바일에서 드롭다운으로 접힘                                      |
 | 서버 다운 페이지 | API 미응답 시 CSMS/포털에서 재시도 가능한 친절한 에러 페이지                                       |
-| 릴리스 관리      | stable, alpha, beta, nightly 채널. 각 stable 릴리스가 Helm 차트와 AWS CDK 앱을 해당 버전으로 올림  |
+| 릴리스 관리      | stable, alpha, beta 채널. 각 stable 릴리스가 Helm 차트와 AWS CDK 앱을 해당 버전으로 올림           |
 
 ## 배포
 

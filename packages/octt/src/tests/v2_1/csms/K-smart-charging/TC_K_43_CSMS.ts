@@ -34,12 +34,13 @@ export const TC_K_43_CSMS: TestCase = {
         if (action === 'GetCompositeSchedule') {
           received = true;
           reqPayload = payload;
-          const rateUnit = payload['chargingRateUnit'] as string;
+          const rateUnit = (payload['chargingRateUnit'] as string | undefined) ?? 'A';
           return {
             status: 'Accepted',
             schedule: {
               evseId: 1,
               duration: 300,
+              scheduleStart: new Date().toISOString(),
               chargingRateUnit: rateUnit,
               chargingSchedulePeriod: [
                 { startPeriod: 0, limit: rateUnit === 'W' ? 10000.0 : 10.0 },
@@ -109,12 +110,13 @@ export const TC_K_44_CSMS: TestCase = {
         if (action === 'GetCompositeSchedule') {
           received = true;
           reqPayload = payload;
-          const rateUnit = payload['chargingRateUnit'] as string;
+          const rateUnit = (payload['chargingRateUnit'] as string | undefined) ?? 'A';
           return {
             status: 'Accepted',
             schedule: {
               evseId: 0,
               duration: 300,
+              scheduleStart: new Date().toISOString(),
               chargingRateUnit: rateUnit,
               chargingSchedulePeriod: [
                 { startPeriod: 0, limit: rateUnit === 'W' ? 10000.0 : 10.0 },

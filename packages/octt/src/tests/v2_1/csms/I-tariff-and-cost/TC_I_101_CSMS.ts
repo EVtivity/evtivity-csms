@@ -193,7 +193,7 @@ export const TC_I_102_CSMS: TestCase = {
  * Use case: I07
  * Scenario:
  *   1. CSMS sends SetDefaultTariffRequest
- *   2. Test System responds with SetDefaultTariffResponse ConditionsNotSupported
+ *   2. Test System responds with SetDefaultTariffResponse ConditionNotSupported
  */
 export const TC_I_105_CSMS: TestCase = {
   id: 'TC_I_105_CSMS',
@@ -218,7 +218,7 @@ export const TC_I_105_CSMS: TestCase = {
       async (_messageId: string, action: string, payload: Record<string, unknown>) => {
         if (action === 'SetDefaultTariff') {
           receivedSetDefaultTariff = true;
-          return { status: 'ConditionsNotSupported' };
+          return { status: 'ConditionNotSupported' };
         }
         return defaultReply('ocpp2.1', action, payload);
       },
@@ -248,11 +248,11 @@ export const TC_I_105_CSMS: TestCase = {
 
     steps.push({
       step: 1,
-      description: 'CSMS sends SetDefaultTariffRequest, respond ConditionsNotSupported',
+      description: 'CSMS sends SetDefaultTariffRequest, respond ConditionNotSupported',
       status: receivedSetDefaultTariff ? 'passed' : 'failed',
       expected: 'SetDefaultTariffRequest received',
       actual: receivedSetDefaultTariff
-        ? 'Received, responded with ConditionsNotSupported'
+        ? 'Received, responded with ConditionNotSupported'
         : 'No SetDefaultTariffRequest received',
     });
 

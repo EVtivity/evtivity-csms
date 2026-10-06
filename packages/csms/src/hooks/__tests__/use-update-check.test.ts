@@ -62,7 +62,7 @@ describe('useUpdateCheck', () => {
   });
 
   it('stays quiet when the published stable version is older than the prerelease', async () => {
-    version.current = '0.1.38-nightly.2';
+    version.current = '0.1.38-beta.2';
     serveLatest('v0.1.37');
     renderHook(() => {
       useUpdateCheck();

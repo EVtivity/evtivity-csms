@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { rateLimitedMessage } from '@/lib/error-message';
 import type { Theme } from '@/lib/theme';
 import type { PriceDisplay } from '@evtivity/lib/price-display';
 
@@ -54,8 +55,8 @@ export function MfaChallenge(): React.JSX.Element {
         challengeId,
       });
       await completeMfaLogin(data.driver);
-    } catch {
-      setError(t('auth.mfaInvalidCode'));
+    } catch (err) {
+      setError(rateLimitedMessage(err, t) ?? t('auth.mfaInvalidCode'));
     } finally {
       setLoading(false);
     }
@@ -70,8 +71,8 @@ export function MfaChallenge(): React.JSX.Element {
       });
       setChallengeId(data.challengeId);
       setError(null);
-    } catch {
-      setError(t('auth.mfaResendFailed'));
+    } catch (err) {
+      setError(rateLimitedMessage(err, t) ?? t('auth.mfaResendFailed'));
     } finally {
       setResending(false);
     }

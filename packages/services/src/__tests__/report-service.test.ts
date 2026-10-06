@@ -140,6 +140,7 @@ import {
   computeNextRunAtInTz,
   operatorReportLanguage,
   renderReport,
+  reportFileFormat,
   reportFiltersError,
   reportJobId,
   sweepStaleReports,
@@ -216,6 +217,23 @@ describe('queueReport', () => {
       expect.objectContaining({ reportId: 'report-lost' }),
       'Failed to queue report generation; the report sweep retries it',
     );
+  });
+
+  it('stores a NEVI report as xlsx whatever format was asked', async () => {
+    const { db } = await import('@evtivity/database');
+    setupDbResults([{ id: 'report-nevi' }]);
+
+    await queueReport(
+      { ...params, reportType: 'nevi', format: 'csv', filters: { quarter: 1, year: 2026 } },
+      vi.fn().mockResolvedValue(undefined),
+    );
+
+    const chain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ format: 'xlsx' }));
+    expect(reportFileFormat('nevi', 'pdf')).toBe('xlsx');
+    expect(reportFileFormat('sessions', 'pdf')).toBe('pdf');
   });
 
   it('returns an empty string and dispatches nothing when insert returns no row', async () => {

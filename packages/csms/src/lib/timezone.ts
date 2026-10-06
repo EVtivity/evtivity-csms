@@ -30,6 +30,16 @@ export function formatDate(
   return formatLocaleDate(timestamp, timezone, options, uiLocale());
 }
 
+/** Chart axis and tooltip time (epoch ms) without year and seconds, in the time zone and UI language. */
+export function formatChartTime(timestamp: number, timezone: string): string {
+  return formatDateTime(new Date(timestamp), timezone, {
+    year: undefined,
+    second: undefined,
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 /** Format a past timestamp relative to now in the UI language, e.g. "5m ago" or "vor 5 m". */
 export function formatRelativeTime(timestamp: string | Date, timezone: string): string {
   return formatLocaleRelativeTime(timestamp, timezone, uiLocale());

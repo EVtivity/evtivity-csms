@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth';
 import { CHART_COLORS, getGridColor } from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
+import { formatChartTime, useUserTimezone } from '@/lib/timezone';
 
 interface MeterValueSeries {
   measurand: string;
@@ -21,33 +22,22 @@ interface StationPowerChartProps {
 }
 
 export function StationPowerChart({ data }: StationPowerChartProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const timezone = useUserTimezone();
   const isDark = useAuth((s) => s.theme) === 'dark';
   const powerSeries = data.find((s) => s.measurand === 'Power.Active.Import');
 
-  if (powerSeries == null || powerSeries.values.length === 0) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">{t('charts.powerKw')}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-center text-sm text-muted-foreground">{t('charts.noPowerData')}</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const unit = powerSeries.unit ?? 'W';
+  const unit = powerSeries?.unit ?? 'W';
   const divisor = unit === 'W' || unit === 'Wh' ? 1000 : 1;
+  const values = powerSeries?.values;
 
   const seriesData = useMemo(
     () =>
-      powerSeries.values.map((v) => ({
+      (values ?? []).map((v) => ({
         x: new Date(v.timestamp).getTime(),
         y: Number(v.value) / divisor,
       })),
-    [powerSeries.values, divisor],
+    [values, divisor],
   );
 
   const options = useMemo<ApexOptions>(
@@ -65,10 +55,11 @@ export function StationPowerChart({ data }: StationPowerChartProps): React.JSX.E
       xaxis: {
         type: 'datetime',
         labels: {
-          datetimeFormatter: {
-            hour: 'HH:mm',
-            minute: 'HH:mm',
-          },
+          // ApexCharts formats in UTC with English month names; use the user time zone and
+          // UI language instead.
+          datetimeUTC: false,
+          formatter: (_value: string, timestamp?: number) =>
+            timestamp == null ? '' : formatChartTime(timestamp, timezone),
         },
       },
       yaxis: {
@@ -81,7 +72,7 @@ export function StationPowerChart({ data }: StationPowerChartProps): React.JSX.E
         },
       },
       tooltip: {
-        x: { format: 'MMM dd HH:mm' },
+        x: { formatter: (val: number) => formatChartTime(val, timezone) },
         y: {
           formatter: (val: number) => t('charts.powerValue', { value: formatNumber(val, 2) }),
         },
@@ -96,10 +87,23 @@ export function StationPowerChart({ data }: StationPowerChartProps): React.JSX.E
         },
       ],
     }),
-    [isDark, t],
+    [isDark, t, timezone, i18n.language],
   );
 
   const series = useMemo(() => [{ name: t('charts.power'), data: seriesData }], [t, seriesData]);
+
+  if (powerSeries == null || powerSeries.values.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">{t('charts.powerKw')}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-center text-sm text-muted-foreground">{t('charts.noPowerData')}</p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>

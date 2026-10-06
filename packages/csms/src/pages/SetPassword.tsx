@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api, ApiError } from '@/lib/api';
+import { rateLimitedMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth';
 
 interface ForceChangePasswordUserResponse {
@@ -101,7 +102,10 @@ export function SetPassword(): React.JSX.Element {
       await completeMfaLogin(data.user, data.role?.name ?? null);
       void navigate('/');
     } catch (err) {
-      if (err instanceof ApiError) {
+      const limited = rateLimitedMessage(err, t);
+      if (limited != null) {
+        setError(limited);
+      } else if (err instanceof ApiError) {
         const body = err.body as { error?: string; code?: string } | null;
         if (body?.code === 'INVALID_CREDENTIALS') {
           setError(t('auth.invalidCredentials'));

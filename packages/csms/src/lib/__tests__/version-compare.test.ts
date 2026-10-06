@@ -54,14 +54,14 @@ describe('compareVersions', () => {
     expect(cmp('0.1.10', '0.1.9')).toBe(1);
     expect(cmp('1.0.0', '0.99.99')).toBe(1);
     expect(cmp('v0.1.38', '0.1.38')).toBe(0);
-    expect(cmp('0.1.38-nightly.2', '0.1.38-nightly.10')).toBe(-1);
+    expect(cmp('0.1.38-beta.2', '0.1.38-beta.10')).toBe(-1);
   });
 });
 
 describe('isNewerVersion', () => {
   it('tells a prerelease install about its stable release', () => {
     expect(isNewerVersion('v0.1.38', '0.1.38-beta.1')).toBe(true);
-    expect(isNewerVersion('v0.1.38', '0.1.38-nightly.3')).toBe(true);
+    expect(isNewerVersion('v0.1.38', '0.1.38-alpha.3')).toBe(true);
     expect(isNewerVersion('v0.1.38', '0.1.38-rc.1')).toBe(true);
   });
 

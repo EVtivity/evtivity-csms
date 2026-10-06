@@ -27,7 +27,13 @@ afterEach(async () => {
 });
 
 async function connectAndCaptureHeaders(securityProfile: number): Promise<IncomingHttpHeaders> {
-  const wss = new WebSocketServer({ port: 0, handleProtocols: () => 'ocpp2.1' });
+  // Listen on the address the client dials: a wildcard listener can share its port number with
+  // another test's 127.0.0.1 server, which then answers the upgrade with 404.
+  const wss = new WebSocketServer({
+    host: '127.0.0.1',
+    port: 0,
+    handleProtocols: () => 'ocpp2.1',
+  });
   server = wss;
   await new Promise<void>((resolve) => wss.once('listening', () => resolve()));
   const { port } = wss.address() as AddressInfo;

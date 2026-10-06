@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
+import { rateLimitedMessage } from '@/lib/error-message';
 import { executeRecaptcha } from '@/lib/recaptcha';
 
 interface SecurityPublic {
@@ -59,11 +60,7 @@ export function ForgotPassword(): React.JSX.Element {
       await api.post('/v1/portal/auth/forgot-password', { email, recaptchaToken });
       setSent(true);
     } catch (err) {
-      if (err instanceof ApiError) {
-        setError(t('errors.unknown'));
-      } else {
-        setError(t('errors.unknown'));
-      }
+      setError(rateLimitedMessage(err, t) ?? t('errors.unknown'));
     } finally {
       setLoading(false);
     }

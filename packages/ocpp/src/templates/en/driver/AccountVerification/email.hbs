@@ -39,3 +39,24 @@
     >{{email}}</td>
   </tr>
 </table>
+{{#if verifyUrl}}
+  <table
+    cellpadding='0'
+    cellspacing='0'
+    border='0'
+    width='100%'
+    style='border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+  >
+    <tr>
+      <td align='center' style='padding:32px 0;'>
+        <a
+          href='{{verifyUrl}}'
+          style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;"
+        >Verify Email</a>
+      </td>
+    </tr>
+  </table>
+  <p
+    style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+  >This link expires in 24 hours. If you did not create an account, you can ignore this email.</p>
+{{/if}}

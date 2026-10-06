@@ -18,8 +18,8 @@ permissions:
   packages: write
 
 jobs:
-  # Four channels: stable (v0.1.38), alpha (v0.1.39-alpha.1), beta (v0.1.38-beta.2)
-  # and nightly (v0.1.38-nightly.7). An alpha, beta or nightly is a prerelease:
+  # Three channels: stable (v0.1.38), alpha (v0.1.39-alpha.1) and beta
+  # (v0.1.38-beta.2). An alpha or beta is a prerelease:
   # exact-version images plus its channel alias, a GitHub prerelease, and no Helm
   # chart or CDK bump.
   # scripts/release-version.sh holds the tag grammar and rejects other labels.
@@ -39,7 +39,7 @@ jobs:
         run: |
           source scripts/release-version.sh
           if ! release_tag_is_valid "$REF_NAME"; then
-            echo "::error::$REF_NAME is not v + semver (v1.2.3 or v1.2.3-<prerelease>)"
+            echo "::error::$REF_NAME is not a release tag. $RELEASE_TAG_HELP"
             exit 1
           fi
           if release_tag_is_prerelease "$REF_NAME"; then
@@ -119,7 +119,6 @@ jobs:
             type=raw,value=stable,enable=${{ needs.prepare.outputs.channel == 'stable' }}
             type=raw,value=alpha,enable=${{ needs.prepare.outputs.channel == 'alpha' }}
             type=raw,value=beta,enable=${{ needs.prepare.outputs.channel == 'beta' }}
-            type=raw,value=nightly,enable=${{ needs.prepare.outputs.channel == 'nightly' }}
             type=ref,event=branch
           labels: |
             org.opencontainers.image.title=evtivity-${{ matrix.image }}

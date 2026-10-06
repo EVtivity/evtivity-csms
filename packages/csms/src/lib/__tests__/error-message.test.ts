@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import i18next, { type TFunction } from 'i18next';
 import { ApiError } from '../api';
-import { getErrorMessage } from '../error-message';
+import { getErrorMessage, rateLimitedMessage } from '../error-message';
 
 let t: TFunction;
 
@@ -16,6 +16,7 @@ beforeAll(async () => {
       en: {
         translation: {
           errors: {
+            RATE_LIMITED: 'Too many requests. Wait a moment and try again.',
             unknown: 'An unexpected error occurred',
             STATION_NOT_FOUND: 'Station not found',
           },
@@ -82,5 +83,27 @@ describe('getErrorMessage', () => {
 
   it('returns errors.unknown for non-Error values', () => {
     expect(getErrorMessage('boom', t)).toBe('An unexpected error occurred');
+  });
+});
+
+describe('rateLimitedMessage', () => {
+  it('returns the RATE_LIMITED translation for a 429', () => {
+    const err = new ApiError(429, {
+      error: 'Rate limit exceeded, retry in 11 seconds',
+      code: 'RATE_LIMITED',
+    });
+    expect(rateLimitedMessage(err, t)).toBe('Too many requests. Wait a moment and try again.');
+  });
+
+  it('returns the translation for a 429 without a body', () => {
+    expect(rateLimitedMessage(new ApiError(429, null), t)).toBe(
+      'Too many requests. Wait a moment and try again.',
+    );
+  });
+
+  it('returns null for other errors', () => {
+    expect(rateLimitedMessage(new ApiError(401, { code: 'INVALID_CREDENTIALS' }), t)).toBeNull();
+    expect(rateLimitedMessage(new Error('boom'), t)).toBeNull();
+    expect(rateLimitedMessage(undefined, t)).toBeNull();
   });
 });

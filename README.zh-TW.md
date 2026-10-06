@@ -207,18 +207,18 @@ graph TB
 
 ### 部署與運維
 
-| 功能           | 說明                                                                                             |
-| -------------- | ------------------------------------------------------------------------------------------------ |
-| 部署選項       | Docker Compose、Kubernetes Helm Chart（Istio/Envoy Gateway）與 AWS CDK（ECS）                    |
-| 水平擴展       | 無狀態服務，跨 Pod 使用 Redis 為基礎的 OCPP 連線註冊                                             |
-| 自動擴縮       | 對 API 與 OCPP 的 Kubernetes HPA，含可感知 WebSocket 的縮容穩定化                                |
-| 速率限制       | 可設定全域與按端點的速率限制，並對驗證設獨立限額                                                 |
-| 可觀測性       | Prometheus 指標、Grafana 儀表板、Loki 日誌彙整                                                   |
-| 一致性測試     | 內建 OCTT 1.6/2.1 測試執行器，可對 CSMS 與充電樁 SUT 執行並輸出儀表板報告與模組結果              |
-| 多語言 UI      | 6 種語言：英文、德文、西班牙文、韓文、簡體與繁體中文                                             |
-| 響應式篩選     | 所有列表頁面的篩選控制項在平板與行動上摺疊為下拉                                                 |
-| 伺服器離線頁面 | 當 API 無法連線時，CSMS 與入口顯示可重試的友善錯誤頁                                             |
-| 發行管理       | stable、alpha、beta 與 nightly 通道。每個 stable 版本會將 Helm Chart 與 AWS CDK 應用提升至其版本 |
+| 功能           | 說明                                                                                    |
+| -------------- | --------------------------------------------------------------------------------------- |
+| 部署選項       | Docker Compose、Kubernetes Helm Chart（Istio/Envoy Gateway）與 AWS CDK（ECS）           |
+| 水平擴展       | 無狀態服務，跨 Pod 使用 Redis 為基礎的 OCPP 連線註冊                                    |
+| 自動擴縮       | 對 API 與 OCPP 的 Kubernetes HPA，含可感知 WebSocket 的縮容穩定化                       |
+| 速率限制       | 可設定全域與按端點的速率限制，並對驗證設獨立限額                                        |
+| 可觀測性       | Prometheus 指標、Grafana 儀表板、Loki 日誌彙整                                          |
+| 一致性測試     | 內建 OCTT 1.6/2.1 測試執行器，可對 CSMS 與充電樁 SUT 執行並輸出儀表板報告與模組結果     |
+| 多語言 UI      | 6 種語言：英文、德文、西班牙文、韓文、簡體與繁體中文                                    |
+| 響應式篩選     | 所有列表頁面的篩選控制項在平板與行動上摺疊為下拉                                        |
+| 伺服器離線頁面 | 當 API 無法連線時，CSMS 與入口顯示可重試的友善錯誤頁                                    |
+| 發行管理       | stable、alpha 與 beta 通道。每個 stable 版本會將 Helm Chart 與 AWS CDK 應用提升至其版本 |
 
 ## 部署
 

@@ -13,6 +13,7 @@ vi.mock('../theme', () => ({ applyTheme: vi.fn(), resolveInitialTheme: () => 'li
 
 import { useAuth } from '../auth';
 import {
+  formatChartTime,
   formatDate,
   formatDateTime,
   formatRelativeTime,
@@ -32,6 +33,14 @@ describe('formatDateTime', () => {
       hour12: false,
     });
     expect(out).toBe('3/1/2026, 15:04');
+  });
+});
+
+describe('formatChartTime', () => {
+  it('formats epoch ms in the given time zone without year and seconds', () => {
+    const ms = Date.UTC(2026, 9, 6, 4, 30, 15);
+    expect(formatChartTime(ms, 'America/New_York')).toBe('Oct 6, 12:30 AM');
+    expect(formatChartTime(ms, 'UTC')).toBe('Oct 6, 4:30 AM');
   });
 });
 

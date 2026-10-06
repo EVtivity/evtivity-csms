@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Pagination } from '@/components/ui/pagination';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { CancelButton } from '@/components/cancel-button';
@@ -167,6 +168,8 @@ export function SchedulesTab(): React.JSX.Element {
     setDateFrom('');
     setDateTo('');
     setHasSubmitted(false);
+    createMutation.reset();
+    updateMutation.reset();
   }
 
   function closeDialog(): void {
@@ -245,6 +248,7 @@ export function SchedulesTab(): React.JSX.Element {
   }
 
   const isPending = createMutation.isPending || updateMutation.isPending;
+  const saveError = createMutation.error ?? updateMutation.error;
 
   return (
     <Card>
@@ -533,6 +537,10 @@ export function SchedulesTab(): React.JSX.Element {
                   <p className="text-sm text-destructive">{scheduleErrors.recipientEmails}</p>
                 )}
               </div>
+
+              {saveError != null && (
+                <p className="text-sm text-destructive">{getErrorMessage(saveError, t)}</p>
+              )}
 
               <DialogFooter>
                 <CancelButton onClick={closeDialog} />

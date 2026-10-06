@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { useAuth } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
+import { rateLimitedMessage } from '@/lib/error-message';
 import { executeRecaptcha } from '@/lib/recaptcha';
 import { MfaChallenge } from '@/components/MfaChallenge';
 
@@ -102,7 +103,10 @@ export function Login(): React.JSX.Element {
       }
       await login(email, password, recaptchaToken);
     } catch (err) {
-      if (err instanceof ApiError) {
+      const limited = rateLimitedMessage(err, t);
+      if (limited != null) {
+        setError(limited);
+      } else if (err instanceof ApiError) {
         const body = err.body as { code?: string } | null;
         if (body?.code === 'RECAPTCHA_REQUIRED' || body?.code === 'RECAPTCHA_FAILED') {
           setError(t('auth.recaptchaFailed'));

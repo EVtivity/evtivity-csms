@@ -69,7 +69,7 @@ export const TC_O_06_CSMS = makeTransactionDisplayTest(
   'TC_O_06_CSMS',
   'Set Display Message - Specific transaction - Success',
   'CSMS sends ClearDisplayMessageRequest.',
-  'Unknown',
+  'Accepted',
 );
 export const TC_O_10_CSMS = makeTransactionDisplayTest(
   'TC_O_10_CSMS',

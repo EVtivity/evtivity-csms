@@ -2,19 +2,23 @@
 # Release tag helpers shared by scripts/release.sh and .github/workflows/release.yml.
 #
 # Source this file; it defines functions only. Tags are `v` plus a semver 2.0.0
-# version (https://semver.org) in one of four channels: stable `v0.1.38`, alpha
-# `v0.1.38-alpha.1`, beta `v0.1.38-beta.2` and nightly `v0.1.38-nightly.7` (the
-# number is optional). No other prerelease label (rc, preview) is used, so this
-# grammar rejects them. Build metadata (`+...`) is rejected because Docker image
-# tags cannot hold `+`.
+# version (https://semver.org) in one of three channels: stable `v0.1.38`, alpha
+# `v0.1.39-alpha.1` and beta `v0.1.38-beta.2` (the number is optional). No other
+# prerelease label (nightly, rc, preview) is used, so this grammar rejects them.
+# Older `-nightly` tags stay in the repo as history and are ignored, including as a
+# changelog base. Build metadata (`+...`) is rejected because Docker image tags
+# cannot hold `+`.
 #
 # Usage from a shell: bash scripts/release-version.sh <function> [args...]
 
 RELEASE_NUM='(0|[1-9][0-9]*)'
 RELEASE_STABLE_RE="^v${RELEASE_NUM}\\.${RELEASE_NUM}\\.${RELEASE_NUM}\$"
-RELEASE_TAG_RE="^v${RELEASE_NUM}\\.${RELEASE_NUM}\\.${RELEASE_NUM}(-(alpha|beta|nightly)(\\.${RELEASE_NUM})?)?\$"
+RELEASE_TAG_RE="^v${RELEASE_NUM}\\.${RELEASE_NUM}\\.${RELEASE_NUM}(-(alpha|beta)(\\.${RELEASE_NUM})?)?\$"
 
-# release_tag_is_valid <tag>: exit 0 when the tag is a stable, alpha, beta or nightly tag.
+# Printed when a tag does not match the grammar.
+RELEASE_TAG_HELP='Use v + semver: v1.2.3 (stable), v1.2.3-alpha.N or v1.2.3-beta.N. The only prerelease channels are alpha and beta (no nightly, rc or preview, no +build metadata).'
+
+# release_tag_is_valid <tag>: exit 0 when the tag is a stable, alpha or beta tag.
 release_tag_is_valid() {
   [[ "${1:-}" =~ $RELEASE_TAG_RE ]]
 }
@@ -25,7 +29,7 @@ release_tag_is_prerelease() {
 }
 
 # release_tag_channel <tag>: print the release channel, which is also the floating
-# image tag (alias) the release moves: `stable`, `alpha`, `beta` or `nightly`. Exit 1 for an
+# image tag (alias) the release moves: `stable`, `alpha` or `beta`. Exit 1 for an
 # invalid tag.
 release_tag_channel() {
   local tag="${1:-}" pre
@@ -75,7 +79,8 @@ release_next_stable_tag() {
 # change since the last stable release, prereleases included. A prerelease
 # compares against the previous tag of any kind, so its notes cover only what
 # changed since the last build that was tested. Order is semver precedence:
-# versionsort.suffix=- sorts v0.1.38-beta.1 before v0.1.38.
+# versionsort.suffix=- sorts v0.1.38-beta.1 before v0.1.38. Tags outside the
+# grammar (old -nightly tags, rc) are skipped.
 release_previous_tag() {
   local tag="${1:?release_previous_tag needs a tag}" tags
   tags=$(git -c versionsort.suffix=- tag -l 'v*' --sort=v:refname | grep -E "$RELEASE_TAG_RE" || true)

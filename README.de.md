@@ -207,18 +207,18 @@ graph TB
 
 ### Deployment und Betrieb
 
-| Funktion               | Beschreibung                                                                                                   |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Deployment-Optionen    | Docker Compose, Kubernetes-Helm-Chart (Istio/Envoy Gateway) und AWS CDK (ECS)                                  |
-| Horizontale Skalierung | Zustandslose Dienste mit Redis-basiertem OCPP-Verbindungs-Register über Pods hinweg                            |
-| Auto-Scaling           | Kubernetes-HPA für API und OCPP mit WebSocket-fähiger Scale-down-Stabilisierung                                |
-| Rate-Limiting          | Konfigurierbares globales und endpunktbasiertes Rate-Limiting mit separaten Auth-Limits                        |
-| Observability          | Prometheus-Metriken, Grafana-Dashboards, Loki-Log-Aggregation                                                  |
-| Konformitäts-Tests     | Integrierter OCTT-1.6/2.1-Testrunner für CSMS- und Ladestations-SUT mit Dashboard und Modul-Ergebnissen        |
-| Mehrsprachige UI       | 6 Sprachen: Englisch, Deutsch, Spanisch, Koreanisch, vereinfachtes und traditionelles Chinesisch               |
-| Responsive Filter      | Filtersteuerung klappt auf Tablet und Mobil in ein Dropdown für alle Listenseiten ein                          |
-| Server-Down-Seite      | Freundliche Fehlerseite mit Retry bei unerreichbarer API in CSMS und Portal                                    |
-| Release-Management     | Kanäle Stable, Alpha, Beta und Nightly. Jedes Stable-Release hebt Helm-Chart und AWS-CDK-App auf seine Version |
+| Funktion               | Beschreibung                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------- |
+| Deployment-Optionen    | Docker Compose, Kubernetes-Helm-Chart (Istio/Envoy Gateway) und AWS CDK (ECS)                           |
+| Horizontale Skalierung | Zustandslose Dienste mit Redis-basiertem OCPP-Verbindungs-Register über Pods hinweg                     |
+| Auto-Scaling           | Kubernetes-HPA für API und OCPP mit WebSocket-fähiger Scale-down-Stabilisierung                         |
+| Rate-Limiting          | Konfigurierbares globales und endpunktbasiertes Rate-Limiting mit separaten Auth-Limits                 |
+| Observability          | Prometheus-Metriken, Grafana-Dashboards, Loki-Log-Aggregation                                           |
+| Konformitäts-Tests     | Integrierter OCTT-1.6/2.1-Testrunner für CSMS- und Ladestations-SUT mit Dashboard und Modul-Ergebnissen |
+| Mehrsprachige UI       | 6 Sprachen: Englisch, Deutsch, Spanisch, Koreanisch, vereinfachtes und traditionelles Chinesisch        |
+| Responsive Filter      | Filtersteuerung klappt auf Tablet und Mobil in ein Dropdown für alle Listenseiten ein                   |
+| Server-Down-Seite      | Freundliche Fehlerseite mit Retry bei unerreichbarer API in CSMS und Portal                             |
+| Release-Management     | Kanäle Stable, Alpha und Beta. Jedes Stable-Release hebt Helm-Chart und AWS-CDK-App auf seine Version   |
 
 ## Deployment
 

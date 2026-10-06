@@ -193,6 +193,12 @@ export function reportJobId(reportId: string): string {
  * generation in the worker. A dispatch that fails is logged and the report
  * stays pending; the worker's report sweep queues it again.
  */
+// The format a report's file is written in. NEVI follows the EV-ChART template, an XLSX
+// workbook, whatever format was asked, so its row and download say xlsx.
+export function reportFileFormat(reportType: string, format: string): string {
+  return reportType === 'nevi' ? 'xlsx' : format;
+}
+
 export async function queueReport(
   params: {
     name: string;
@@ -208,7 +214,7 @@ export async function queueReport(
     .values({
       name: params.name,
       reportType: params.reportType,
-      format: params.format,
+      format: reportFileFormat(params.reportType, params.format),
       filters: params.filters,
       generatedById: params.userId,
     })

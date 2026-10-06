@@ -9,6 +9,7 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api, ApiError } from '@/lib/api';
+import { rateLimitedMessage } from '@/lib/error-message';
 
 export function ResetPassword(): React.JSX.Element {
   const { t } = useTranslation();
@@ -44,7 +45,10 @@ export function ResetPassword(): React.JSX.Element {
       await api.post('/v1/portal/auth/reset-password', { token, password });
       setSuccess(true);
     } catch (err) {
-      if (err instanceof ApiError) {
+      const limited = rateLimitedMessage(err, t);
+      if (limited != null) {
+        setError(limited);
+      } else if (err instanceof ApiError) {
         const body = err.body as { code?: string } | null;
         if (body?.code === 'INVALID_TOKEN') {
           setError(t('auth.invalidResetLink'));

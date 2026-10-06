@@ -218,7 +218,7 @@ graph TB
 | UI multi-idioma          | 6 idiomas: inglés, alemán, español, coreano, chino simplificado y tradicional                                   |
 | Filtros responsivos      | Los controles de filtro colapsan en un dropdown en tablet y móvil en todas las listas                           |
 | Página de servidor caído | Página de error amigable con reintento cuando la API no responde, en CSMS y Portal                              |
-| Gestión de releases      | Canales stable, alpha, beta y nightly. Cada release stable sube el Helm chart y la app de AWS CDK a su versión  |
+| Gestión de releases      | Canales stable, alpha y beta. Cada release stable sube el Helm chart y la app de AWS CDK a su versión           |
 
 ## Despliegue
 

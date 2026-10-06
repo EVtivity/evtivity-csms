@@ -218,7 +218,7 @@ graph TB
 | Multi-language UI   | 6 languages: English, German, Spanish, Korean, Simplified and Traditional Chinese                                                   |
 | Responsive Filters  | Filter controls collapse into dropdown on tablet and mobile for all list pages                                                      |
 | Server-down Page    | Friendly error page with retry when API is unreachable, on both CSMS and Portal                                                     |
-| Release Management  | Stable, alpha, beta and nightly channels. Each stable release bumps the Helm chart and AWS CDK app to its version                   |
+| Release Management  | Stable, alpha and beta channels. Each stable release bumps the Helm chart and AWS CDK app to its version                            |
 
 ## Deployment
 
@@ -282,12 +282,11 @@ Versions follow [Semantic Versioning](https://semver.org): `vMAJOR.MINOR.PATCH`.
 
 ### Channels
 
-| Channel | Tag example         | Purpose                                                      | GitHub release |
-| ------- | ------------------- | ------------------------------------------------------------ | -------------- |
-| Stable  | `v0.1.38`           | Production release                                           | Latest         |
-| Beta    | `v0.1.38-beta.2`    | Feature-complete preview of the next stable release          | Pre-release    |
-| Alpha   | `v0.1.39-alpha.1`   | Early preview while the version's features are still in work | Pre-release    |
-| Nightly | `v0.1.38-nightly.7` | Test build between alphas or betas                           | Pre-release    |
+| Channel | Tag example       | Purpose                                                      | GitHub release |
+| ------- | ----------------- | ------------------------------------------------------------ | -------------- |
+| Stable  | `v0.1.38`         | Production release                                           | Latest         |
+| Beta    | `v0.1.38-beta.2`  | Feature-complete preview of the next stable release          | Pre-release    |
+| Alpha   | `v0.1.39-alpha.1` | Early preview while the version's features are still in work | Pre-release    |
 
 Prereleases rank below the stable version they lead to (`v0.1.38-beta.2` comes before `v0.1.38`). Run only stable releases in production.
 
@@ -299,7 +298,7 @@ Images are published to `ghcr.io/evtivity/evtivity-csms/<service>` for `linux/am
 
 - Every release has an exact, immutable tag: `0.1.38`, `0.1.38-beta.2`.
 - Stable releases also move `0.1`, `0`, `latest` and `stable`.
-- Prereleases move the alias of their channel only: `beta`, `alpha` or `nightly`.
+- Prereleases move the alias of their channel only: `beta` or `alpha`.
 
 Aliases always point to the newest image of their channel, and a deployment picks up a new one only when it pulls the image again. Pin an exact tag in production.
 
