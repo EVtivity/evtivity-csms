@@ -137,7 +137,9 @@ import {
   cancelOpenSessionHold,
   cancelSessionHold,
   captureSessionHold,
+  belowMinimumCaptureReason,
   holdTerms,
+  isReleasedBelowMinimum,
   retryShortfallForRecord,
   retryShortfalls,
   settleAdjustedHold,
@@ -1106,6 +1108,25 @@ describe('retryShortfalls', () => {
       stillFailed: 0,
       notCollectable: 0,
     });
+  });
+});
+
+describe('isReleasedBelowMinimum', () => {
+  it('is true only for a hold released below the provider minimum', () => {
+    const reason = belowMinimumCaptureReason(22, 50, 'usd');
+    expect(reason).toBe(
+      'Capture below the provider minimum charge (50c USD); 22c not collectable, hold released',
+    );
+    expect(isReleasedBelowMinimum({ status: 'cancelled', failureReason: reason })).toBe(true);
+    expect(isReleasedBelowMinimum({ status: 'cancelled', failureReason: null })).toBe(false);
+    expect(isReleasedBelowMinimum({ status: 'failed', failureReason: reason })).toBe(false);
+    expect(
+      isReleasedBelowMinimum({
+        status: 'captured',
+        failureReason:
+          'Top-up below the provider minimum charge (50c USD); shortfall 2c not collectable',
+      }),
+    ).toBe(false);
   });
 });
 

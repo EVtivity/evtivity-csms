@@ -2335,7 +2335,8 @@ describe('Event projections - coverage round 2', () => {
 
     it('captured and recorded: sends the receipt in the session currency', async () => {
       mockSettleSessionPayment.mockResolvedValueOnce(captured({ capturedCents: 1750 }));
-      await emitEndedSecondOnly([sessionRow()], [{ name: 'Site A' }]);
+      // [] = the session-end notifications find no driver session (notifySessionEnded).
+      await emitEndedSecondOnly([sessionRow()], [], [{ name: 'Site A' }]);
       expect(driverCalls('session.PaymentReceived')).toEqual([
         [
           expect.anything(),

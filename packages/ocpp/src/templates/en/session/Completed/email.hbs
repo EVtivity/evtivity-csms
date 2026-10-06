@@ -79,3 +79,8 @@
     >{{endedAt}}</td>
   </tr>
 </table>
+{{#if notCharged}}
+  <p
+    style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+  >Nothing was charged for this session: the amount is below the minimum charge of the payment provider, so the hold on your payment method was released.</p>
+{{/if}}

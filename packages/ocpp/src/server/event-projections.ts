@@ -56,6 +56,7 @@ import type { TariffPriceSnapshot } from '@evtivity/database';
 import {
   authorizeSessionHold,
   classifySessionPayment,
+  isReleasedBelowMinimum,
   recordTerminalSettlement,
   settleSessionPayment,
 } from '@evtivity/payments';
@@ -2631,92 +2632,9 @@ export function registerProjections(
           logger.debug({ err, sessionId }, 'Transaction-ended SSE publish failed; continuing');
         }
 
-        // Driver notification: transaction completed (skip when the session
-        // didn't actually complete successfully). The earlier hasPaymentFailure
-        // check only covered Stripe-decline cases (a payment_records row with
-        // status='failed') and missed the MissingPaymentMethod path, which
-        // never inserts a payment record - so drivers who tapped without a PM
-        // received a phantom "session is complete" + "session receipt" pair
-        // alongside the correct payment-required notification.
-        const endedDriverRows = await sql`
-          SELECT driver_id, energy_delivered_wh, final_cost_cents, started_at, ended_at, status,
-                 tariff_tax_rate, UPPER(currency) AS currency
-          FROM charging_sessions WHERE id = ${sessionId}`;
-        const endedSession = endedDriverRows[0];
-        const endedSessionStatus = endedSession?.status as string | undefined;
-        const isTerminalSuccess =
-          endedSessionStatus !== 'faulted' && endedSessionStatus !== 'failed';
-        if (
-          endedSession != null &&
-          endedSession.driver_id != null &&
-          !hasPaymentFailure &&
-          isTerminalSuccess
-        ) {
-          const startedAtDate = new Date(endedSession.started_at as string);
-          const endedAtDate = new Date(endedSession.ended_at as string);
-          const durationMinutes = Math.round(
-            (endedAtDate.getTime() - startedAtDate.getTime()) / 60000,
-          );
-          const endedSiteName = await resolveSiteName(stationUuid);
-          void eventBus.track(
-            dispatchDriverNotification(
-              sql,
-              'session.Completed',
-              endedSession.driver_id as string,
-              {
-                siteName: endedSiteName ?? '',
-                stationId,
-                transactionId,
-                energyDeliveredWh: endedSession.energy_delivered_wh as number,
-                finalCostCents: endedSession.final_cost_cents as number,
-                costFormatted: notificationMoney(
-                  (endedSession.final_cost_cents as number | null) ?? 0,
-                  endedSession.currency as string,
-                ),
-                costIncludesTax: costIncludesTax(
-                  endedSession.final_cost_cents as number | null,
-                  endedSession.tariff_tax_rate as string | null,
-                ),
-                currency: endedSession.currency as string,
-                durationMinutes,
-                startedAt: endedSession.started_at as string,
-                endedAt: endedSession.ended_at as string,
-              },
-              ALL_TEMPLATES_DIRS,
-              pubsub,
-            ),
-          );
-
-          // Session receipt notification
-          void eventBus.track(
-            dispatchDriverNotification(
-              sql,
-              'session.Receipt',
-              endedSession.driver_id as string,
-              {
-                siteName: endedSiteName ?? '',
-                stationId,
-                transactionId,
-                energyDeliveredWh: endedSession.energy_delivered_wh as number,
-                finalCostCents: endedSession.final_cost_cents as number,
-                costFormatted: notificationMoney(
-                  (endedSession.final_cost_cents as number | null) ?? 0,
-                  endedSession.currency as string,
-                ),
-                costIncludesTax: costIncludesTax(
-                  endedSession.final_cost_cents as number | null,
-                  endedSession.tariff_tax_rate as string | null,
-                ),
-                currency: endedSession.currency as string,
-                durationMinutes,
-                startedAt: endedSession.started_at as string,
-                endedAt: endedSession.ended_at as string,
-              },
-              ALL_TEMPLATES_DIRS,
-              pubsub,
-            ),
-          );
-        }
+        // The driver's session.Completed and session.Receipt are sent after the
+        // payment settlement (notifySessionEnded, from settleTransactionEnded), so
+        // they can say when nothing was charged.
 
         // The station does not know a session the CSMS ended (superseded or
         // ghost), and may be in a new transaction: its screen is left alone.
@@ -3966,6 +3884,71 @@ export function registerProjections(
     await stopSession('AnonymousSession');
   }
 
+  // Driver notifications at the end of a session: session.Completed and
+  // session.Receipt. Sent after the settlement so the state is read at dispatch
+  // (P5): no notification for a faulted or failed session (a payment failure
+  // or a missing payment method faults it, which also covers the path that
+  // never wrote a payment record), and `notCharged` when the hold was released
+  // because the cost is below the provider minimum charge.
+  async function notifySessionEnded(
+    sessionId: string,
+    stationId: string,
+    transactionId: string,
+    stationUuid: string,
+  ): Promise<void> {
+    const [endedSession] = await sql`
+      SELECT driver_id, energy_delivered_wh, final_cost_cents, started_at, ended_at, status,
+             tariff_tax_rate, UPPER(currency) AS currency
+      FROM charging_sessions WHERE id = ${sessionId}`;
+    if (endedSession == null || endedSession.driver_id == null) return;
+    const status = endedSession.status as string;
+    if (status === 'faulted' || status === 'failed' || status === 'active') return;
+    const [record] = await sql`
+      SELECT status, failure_reason FROM payment_records
+      WHERE session_id = ${sessionId}
+      ORDER BY id LIMIT 1`;
+    const notCharged =
+      record != null &&
+      isReleasedBelowMinimum({
+        status: record.status as string,
+        failureReason: record.failure_reason as string | null,
+      });
+    const startedAtDate = new Date(endedSession.started_at as string);
+    const endedAtDate = new Date(endedSession.ended_at as string);
+    const durationMinutes = Math.round((endedAtDate.getTime() - startedAtDate.getTime()) / 60000);
+    const endedSiteName = await resolveSiteName(stationUuid);
+    const finalCostCents = endedSession.final_cost_cents as number | null;
+    const variables = {
+      siteName: endedSiteName ?? '',
+      stationId,
+      transactionId,
+      energyDeliveredWh: endedSession.energy_delivered_wh as number,
+      finalCostCents: finalCostCents as number,
+      costFormatted: notificationMoney(finalCostCents ?? 0, endedSession.currency as string),
+      costIncludesTax: costIncludesTax(
+        finalCostCents,
+        endedSession.tariff_tax_rate as string | null,
+      ),
+      currency: endedSession.currency as string,
+      durationMinutes,
+      startedAt: endedSession.started_at as string,
+      endedAt: endedSession.ended_at as string,
+      notCharged,
+    };
+    for (const eventType of ['session.Completed', 'session.Receipt']) {
+      void eventBus.track(
+        dispatchDriverNotification(
+          sql,
+          eventType,
+          endedSession.driver_id as string,
+          variables,
+          ALL_TEMPLATES_DIRS,
+          pubsub,
+        ),
+      );
+    }
+  }
+
   // Payment auto-capture on session end (separate subscriber, no race with session creation)
   async function settleTransactionEnded(event: DomainEvent): Promise<void> {
     const payload = event.payload;
@@ -3991,6 +3974,16 @@ export function registerProjections(
       // guest-session worker. Idempotent: the record moves only from its
       // open state, and the provider calls carry keys derived from it.
       const outcome = await settleSessionPayment(session.id as string, paymentContext(logger));
+      try {
+        await notifySessionEnded(
+          session.id as string,
+          stationId,
+          transactionId,
+          session.station_uuid as string,
+        );
+      } catch (err) {
+        logger.warn({ err, sessionId: session.id }, 'Session end notifications failed; continuing');
+      }
       const sessionCurrency = session.currency as string;
       const finalCostCents = session.final_cost_cents as number | null;
 

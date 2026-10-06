@@ -79,3 +79,8 @@
     >{{endedAt}}</td>
   </tr>
 </table>
+{{#if notCharged}}
+  <p
+    style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+  >Für diesen Ladevorgang wurde nichts berechnet: Der Betrag liegt unter dem Mindestbetrag des Zahlungsanbieters, daher wurde die Vorautorisierung auf deiner Zahlungsmethode freigegeben.</p>
+{{/if}}

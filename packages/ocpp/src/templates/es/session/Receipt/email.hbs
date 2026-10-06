@@ -63,3 +63,8 @@
     >{{endedAt}}</td>
   </tr>
 </table>
+{{#if notCharged}}
+  <p
+    style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+  >No se le cobró nada por esta sesión: el importe es inferior al cargo mínimo del proveedor de pagos, por lo que se liberó la retención en su método de pago.</p>
+{{/if}}

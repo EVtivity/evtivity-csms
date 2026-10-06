@@ -453,6 +453,7 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'durationMinutes',
     'startedAt',
     'endedAt',
+    'notCharged',
   ],
   'session.Faulted': ['firstName', 'lastName', 'email', 'stationId', 'reason'],
   'session.PaymentReceived': [
@@ -492,6 +493,7 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'startedAt',
     'endedAt',
     'stationName',
+    'notCharged',
   ],
 };
 
@@ -1361,6 +1363,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         totalCents: 1250,
         cancellationFeeCents: 595,
         costIncludesTax: true,
+        notCharged: false,
         idleFeeIncludesTax: true,
         evseId: 1,
         connectorId: 1,

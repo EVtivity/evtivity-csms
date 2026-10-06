@@ -79,3 +79,8 @@
     >{{endedAt}}</td>
   </tr>
 </table>
+{{#if notCharged}}
+  <p
+    style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+  >本次充电会话未收取任何费用：金额低于支付服务商的最低收费金额，因此已释放您付款方式上的预授权。</p>
+{{/if}}

@@ -480,6 +480,24 @@ function belowMinimumReason(
   return `Top-up below the provider minimum charge (${String(minimumCents)}c ${currency.toUpperCase()}); shortfall ${String(shortfallCents)}c not collectable`;
 }
 
+/** Start of the failure reason of a hold released because the cost is below the provider minimum. */
+export const BELOW_MINIMUM_CAPTURE_PREFIX = 'Capture below the provider minimum charge';
+
+/**
+ * True when a payment record is a hold released, not captured, because the
+ * session cost was below the provider minimum charge: nothing was charged.
+ */
+export function isReleasedBelowMinimum(record: {
+  status: string;
+  failureReason: string | null;
+}): boolean {
+  return (
+    record.status === 'cancelled' &&
+    record.failureReason != null &&
+    record.failureReason.startsWith(BELOW_MINIMUM_CAPTURE_PREFIX)
+  );
+}
+
 /**
  * Failure reason of a cost too small to capture: the hold is released and the
  * cost stays unpaid. A capture the provider refuses would leave the hold open.
@@ -489,7 +507,7 @@ export function belowMinimumCaptureReason(
   minimumCents: number,
   currency: string,
 ): string {
-  return `Capture below the provider minimum charge (${String(minimumCents)}c ${currency.toUpperCase()}); ${String(costCents)}c not collectable, hold released`;
+  return `${BELOW_MINIMUM_CAPTURE_PREFIX} (${String(minimumCents)}c ${currency.toUpperCase()}); ${String(costCents)}c not collectable, hold released`;
 }
 
 class ShortfallBelowMinimumError extends Error {

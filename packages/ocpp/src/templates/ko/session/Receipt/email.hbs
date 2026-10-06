@@ -63,3 +63,8 @@
     >{{endedAt}}</td>
   </tr>
 </table>
+{{#if notCharged}}
+  <p
+    style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+  >이 세션에는 요금이 청구되지 않았습니다. 금액이 결제 서비스 제공업체의 최소 청구 금액보다 적어 결제 수단의 사전 승인 금액이 해제되었습니다.</p>
+{{/if}}

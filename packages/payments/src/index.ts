@@ -172,10 +172,12 @@ export { closeUnstartedRemoteStart, failUnstartedGuestSession } from './unstarte
 export type { UnstartedGuestOutcome, UnstartedStartOutcome } from './unstarted-starts.js';
 export {
   authorizeSessionHold,
+  BELOW_MINIMUM_CAPTURE_PREFIX,
   cancelOpenSessionHold,
   cancelSessionHold,
   captureSessionHold,
   holdTerms,
+  isReleasedBelowMinimum,
   retryShortfallForRecord,
   retryShortfalls,
   settleSessionPayment,

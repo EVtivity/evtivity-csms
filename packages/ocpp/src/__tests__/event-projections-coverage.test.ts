@@ -1320,9 +1320,14 @@ describe('Event projections - coverage expansion', () => {
         [], // carbon query (no region found)
         [{ site_id: null }], // resolveSiteId
         // notifyChange and TransactionEnded go through pubsub (not SQL)
+        [], // SELECT ocpp_protocol (station_message_transaction)
+        // Second subscriber (auto-capture Ended)
+        [{ id: 'session-1', final_cost_cents: 2500, site_id: null }], // SELECT session
+        // Driver notifications after the settlement (notifySessionEnded)
         [
           {
             driver_id: 'driver-ended',
+            status: 'completed',
             energy_delivered_wh: 10000,
             final_cost_cents: 2500,
             tariff_tax_rate: '0.19',
@@ -1331,9 +1336,7 @@ describe('Event projections - coverage expansion', () => {
             ended_at: '2024-01-01T01:00:00Z',
           },
         ], // SELECT driver info for notification
-        // Second subscriber (auto-capture Ended)
-        [{ id: 'session-1', final_cost_cents: 2500, site_id: null }], // SELECT session
-        [], // SELECT payment_records (empty - no pre-auth)
+        [], // SELECT payment_records (no hold)
       );
 
       await eventBus.emit(
@@ -1371,10 +1374,86 @@ describe('Event projections - coverage expansion', () => {
           finalCostCents: 2500,
           currency: 'EUR',
           costIncludesTax: true,
+          notCharged: false,
         }),
         ['/mock/templates'],
         expect.anything(),
       );
+    });
+
+    it('says nothing was charged when the hold was released below the provider minimum', async () => {
+      mockDispatchDriver.mockClear();
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // SELECT payment_records (no failed payment)
+        [], // UPDATE charging_sessions
+        [
+          {
+            id: 'session-min',
+            tariff_id: null,
+            current_cost_cents: 0,
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T01:00:00Z',
+            energy_delivered_wh: 1000,
+            currency: 'USD',
+            tariff_price_per_kwh: null,
+            tariff_price_per_minute: null,
+            tariff_price_per_session: null,
+            tariff_idle_fee_price_per_minute: null,
+            tariff_tax_rate: null,
+          },
+        ],
+        [], // INSERT transaction_events
+        [], // carbon query (no region found)
+        [{ site_id: null }], // resolveSiteId
+        [], // SELECT ocpp_protocol (station_message_transaction)
+        [{ id: 'session-min', final_cost_cents: 22, site_id: null }], // settlement session
+        [
+          {
+            driver_id: 'driver-min',
+            status: 'completed',
+            energy_delivered_wh: 1000,
+            final_cost_cents: 22,
+            tariff_tax_rate: null,
+            currency: 'USD',
+            started_at: '2024-01-01T00:00:00Z',
+            ended_at: '2024-01-01T01:00:00Z',
+          },
+        ],
+        [
+          {
+            status: 'cancelled',
+            failure_reason:
+              'Capture below the provider minimum charge (50c USD); 22c not collectable, hold released',
+          },
+        ],
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Ended',
+          stationId: 'CS-001',
+          transactionId: 'tx-end-min',
+          seqNo: 2,
+          triggerReason: 'EVDeparted',
+          timestamp: '2024-01-01T01:00:00Z',
+          stoppedReason: 'Local',
+        }),
+      );
+
+      for (const eventType of ['session.Completed', 'session.Receipt']) {
+        expect(mockDispatchDriver).toHaveBeenCalledWith(
+          expect.anything(),
+          eventType,
+          'driver-min',
+          expect.objectContaining({ finalCostCents: 22, notCharged: true }),
+          ['/mock/templates'],
+          expect.anything(),
+        );
+      }
     });
   });
 
@@ -3193,9 +3272,14 @@ describe('Event projections - coverage expansion', () => {
       [], // INSERT transaction_events
       [], // carbon query (no region found)
       [{ site_id: null }], // resolveSiteId
+      [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_transaction)
+      // Settlement subscriber
+      settlementSession == null ? [] : [settlementSession], // SELECT session + station
+      // Driver notifications after the settlement (notifySessionEnded)
       [
         {
           driver_id: 'driver-capture',
+          status: 'completed',
           energy_delivered_wh: 10000,
           final_cost_cents: 2000,
           currency: 'USD',
@@ -3203,10 +3287,8 @@ describe('Event projections - coverage expansion', () => {
           ended_at: '2024-01-01T01:00:00Z',
         },
       ], // SELECT driver info for notification
+      [], // SELECT payment_records
       [{ name: null }], // resolveSiteName
-      [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_transaction)
-      // Settlement subscriber
-      settlementSession == null ? [] : [settlementSession], // SELECT session + station
       ...after,
     ];
     const settlementRow = (finalCostCents: number | null, currency = 'USD') => ({
@@ -4022,6 +4104,9 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [], // carbon query (no region found)
         [{ site_id: null }], // resolveSiteId
+        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_transaction)
+        // Second subscriber (settlement)
+        [{ id: 'session-connect-timeout', final_cost_cents: 0, site_id: null }],
         [
           {
             driver_id: 'drv_1',
@@ -4032,10 +4117,7 @@ describe('Event projections - coverage expansion', () => {
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T00:01:00Z',
           },
-        ], // SELECT for driver notification
-        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_transaction)
-        // Second subscriber (settlement)
-        [{ id: 'session-connect-timeout', final_cost_cents: 0, site_id: null }],
+        ], // SELECT for driver notification (after the settlement)
       );
 
       await eventBus.emit(
@@ -4268,16 +4350,6 @@ describe('Event projections - coverage expansion', () => {
         [],
         [], // carbon query
         [{ site_id: null }],
-        [
-          {
-            driver_id: null,
-            energy_delivered_wh: 0,
-            final_cost_cents: null,
-            currency: 'USD',
-            started_at: '2024-01-01T00:00:00Z',
-            ended_at: '2024-01-01T01:00:00Z',
-          },
-        ],
         [], // SELECT ocpp_protocol
         // Second subscriber
         [
@@ -4341,7 +4413,6 @@ describe('Event projections - coverage expansion', () => {
         [],
         [], // carbon query
         [{ site_id: null }],
-        [{ driver_id: null, energy_delivered_wh: 0, final_cost_cents: null, currency: 'USD' }],
         [], // SELECT ocpp_protocol
         [{ id: 'session-pp-end', final_cost_cents: 1000, station_uuid: null, currency: 'USD' }],
       );

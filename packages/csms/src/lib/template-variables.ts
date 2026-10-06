@@ -376,6 +376,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'durationMinutes', description: 'Duration in minutes' },
     { name: 'startedAt', description: 'Start timestamp' },
     { name: 'endedAt', description: 'End timestamp' },
+    {
+      name: 'notCharged',
+      description:
+        'Nothing was charged: the cost is below the payment provider minimum and the hold was released; use with #if',
+    },
   ],
   'session.Faulted': [
     { name: 'firstName', description: 'Driver first name' },
@@ -593,6 +598,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'durationMinutes', description: 'Duration in minutes' },
     { name: 'startedAt', description: 'Start timestamp' },
     { name: 'endedAt', description: 'End timestamp' },
+    {
+      name: 'notCharged',
+      description:
+        'Nothing was charged: the cost is below the payment provider minimum and the hold was released; use with #if',
+    },
   ],
   'invoice.Sent': [
     { name: 'firstName', description: 'Driver first name' },
