@@ -109,7 +109,10 @@ vi.mock('../payment-records.js', () => ({
   recordGuestHold: m.recordGuestHold,
 }));
 
-vi.mock('../session-payments.js', () => ({ holdTerms: m.holdTerms }));
+vi.mock('../session-payments.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../session-payments.js')>()),
+  holdTerms: m.holdTerms,
+}));
 
 import {
   attachGuestAuthorisation,
@@ -126,7 +129,14 @@ import type { GuestEventDeps, GuestHoldInput } from '../guest-payments.js';
 import { PaymentDeclinedError, PaymentProviderNotConfiguredError } from '../errors.js';
 import type { PaymentProviderRegistry } from '../registry.js';
 
-const provider = {
+const provider: {
+  id: string;
+  authorizeHold: ReturnType<typeof vi.fn>;
+  continueHold: ReturnType<typeof vi.fn>;
+  capture: ReturnType<typeof vi.fn>;
+  cancelHold: ReturnType<typeof vi.fn>;
+  minimumChargeCents?: (currency: string) => number | null;
+} = {
   id: 'stripe',
   authorizeHold: vi.fn(),
   continueHold: vi.fn(),
@@ -189,6 +199,7 @@ function receiptSession(overrides: Record<string, unknown> = {}): Record<string,
 }
 
 beforeEach(() => {
+  delete provider.minimumChargeCents;
   m.selectQueue.length = 0;
   m.updates.length = 0;
   m.updateReturns.length = 0;
@@ -349,6 +360,40 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
   async function end(): Promise<void> {
     await handleGuestSessionEvent({ type: 'TransactionEnded', sessionId: 'ses_1' }, deps);
   }
+
+  it('releases the hold of a cost below the provider minimum, without a receipt', async () => {
+    provider.minimumChargeCents = () => 50;
+    m.findSessionRecord.mockResolvedValue(record());
+    m.selectQueue.push([finalizeGuest()], [chargedSession(22)]);
+
+    await end();
+
+    expect(provider.capture).not.toHaveBeenCalled();
+    expect(provider.cancelHold).toHaveBeenCalledWith({
+      paymentId: 'pi_1',
+      merchantReference: 'sess_ses_1',
+      idempotencyKey: 'cancel_pi_1',
+    });
+    expect(m.markCancelled).toHaveBeenCalledWith(
+      11,
+      null,
+      'Capture below the provider minimum charge (50c EUR); 22c not collectable, hold released',
+    );
+    expect(m.markHoldFailed).not.toHaveBeenCalled();
+    expect(m.updates.at(-1)?.values).toMatchObject({ status: 'completed' });
+    expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
+  });
+
+  it('captures a cost at exactly the provider minimum', async () => {
+    provider.minimumChargeCents = () => 800;
+    m.findSessionRecord.mockResolvedValue(record());
+    m.selectQueue.push([finalizeGuest()], [chargedSession(800)], [receiptSession()]);
+
+    await end();
+
+    expect(provider.capture).toHaveBeenCalledWith(expect.objectContaining({ amountCents: 800 }));
+    expect(provider.cancelHold).not.toHaveBeenCalled();
+  });
 
   it('captures a cost below the hold and sends the receipt', async () => {
     m.findSessionRecord.mockResolvedValue(record());

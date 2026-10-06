@@ -1245,7 +1245,7 @@ describe('settleSessionPayment', () => {
       merchantReference: 'sess_s1',
       idempotencyKey: 'cancel_pi_1',
     });
-    expect(h.markCancelled).toHaveBeenCalledWith(42, null);
+    expect(h.markCancelled).toHaveBeenCalledWith(42, null, null);
     expect(stripe.capture).not.toHaveBeenCalled();
   });
 
@@ -1260,6 +1260,29 @@ describe('settleSessionPayment', () => {
       { paymentRecordId: 42, paymentId: 'pi_1' },
       'Payment settled at the provider but the record had moved on',
     );
+  });
+
+  it('releases the hold of a final cost below the provider minimum', async () => {
+    h.results.push([{ ...SESSION, finalCostCents: 22 }]);
+    stripe.minimumChargeCents = vi.fn(() => 50);
+    expect(await settleSessionPayment('s1', ctx)).toEqual({
+      mode: 'card',
+      status: 'cancelled',
+      paymentRecordId: 42,
+      recorded: true,
+    });
+    expect(stripe.capture).not.toHaveBeenCalled();
+    expect(stripe.cancelHold).toHaveBeenCalledWith({
+      paymentId: 'pi_1',
+      merchantReference: 'sess_s1',
+      idempotencyKey: 'cancel_pi_1',
+    });
+    expect(h.markCancelled).toHaveBeenCalledWith(
+      42,
+      null,
+      'Capture below the provider minimum charge (50c EUR); 22c not collectable, hold released',
+    );
+    expect(h.markHoldFailed).not.toHaveBeenCalled();
   });
 
   it('captures the final cost within the hold', async () => {
@@ -1464,7 +1487,7 @@ describe('async providers record pending captures and cancels (P10a)', () => {
   it('settlement records an optimistic cancel with its pending reference', async () => {
     h.results.push([{ ...SESSION, finalCostCents: 0 }]);
     expect(await settleSessionPayment('s1', ctx)).toMatchObject({ status: 'cancelled' });
-    expect(h.markCancelled).toHaveBeenCalledWith(42, 'CXL1');
+    expect(h.markCancelled).toHaveBeenCalledWith(42, 'CXL1', null);
   });
 
   it('an operator capture and cancel record their pending references', async () => {

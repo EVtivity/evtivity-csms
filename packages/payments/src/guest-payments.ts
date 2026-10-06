@@ -33,7 +33,7 @@ import {
   recordGuestHold,
 } from './payment-records.js';
 import { PAYOUT_NOT_READY_REASON } from './payout-accounts.js';
-import { holdTerms } from './session-payments.js';
+import { belowMinimumCaptureReason, belowMinimumCharge, holdTerms } from './session-payments.js';
 import type { HoldTerms } from './session-payments.js';
 import type {
   BrowserContext,
@@ -645,6 +645,29 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
   const merchantReference = `sess_${sessionId}`;
   try {
     const finalCost = session.finalCostCents ?? 0;
+    const minimumCents =
+      finalCost > 0 ? belowMinimumCharge(provider, record.currency, finalCost) : null;
+    if (minimumCents != null) {
+      // The provider refuses a charge this small, and every retry of a refused
+      // capture failed until the exhausted hook released the hold: release it now.
+      const cancelled = await provider.cancelHold({
+        paymentId,
+        merchantReference,
+        idempotencyKey: cancelKey(paymentId),
+      });
+      deps.logger.warn(
+        { guestSessionId: guest.id, finalCost, minimumCents },
+        'Guest cost below the provider minimum charge; hold released, cost uncollected',
+      );
+      await markCancelled(
+        record.id,
+        pendingRef(cancelled),
+        belowMinimumCaptureReason(finalCost, minimumCents, record.currency),
+      );
+      // Nothing was charged, so no receipt.
+      await completeGuestSession(guest.id);
+      return;
+    }
     if (finalCost > 0) {
       const holdCents = record.preAuthAmountCents ?? finalCost;
       const captureCents = Math.min(finalCost, holdCents);

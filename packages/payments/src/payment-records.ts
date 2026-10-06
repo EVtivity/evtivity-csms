@@ -255,6 +255,7 @@ function pendingFields(
 export async function markCancelled(
   id: number,
   pendingRef: string | null = null,
+  failureReason: string | null = null,
 ): Promise<boolean> {
   return updated(
     await db
@@ -262,6 +263,7 @@ export async function markCancelled(
       .set({
         status: 'cancelled',
         capturedAmountCents: 0,
+        ...(failureReason != null ? { failureReason: failureReason.slice(0, 500) } : {}),
         ...pendingFields('cancel', pendingRef),
         updatedAt: new Date(),
       })

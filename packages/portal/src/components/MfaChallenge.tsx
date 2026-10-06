@@ -107,6 +107,8 @@ export function MfaChallenge(): React.JSX.Element {
             <Input
               id="mfaCode"
               aria-label={t('auth.mfaCodeLabel')}
+              inputMode="numeric"
+              autoComplete="one-time-code"
               value={code}
               onChange={(e) => {
                 setCode(e.target.value);

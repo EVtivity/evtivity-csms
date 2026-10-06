@@ -20,6 +20,12 @@ function getInitialLanguage(): string {
 
 const savedLanguage = getInitialLanguage();
 
+// The page language follows the UI language, so screen readers read the text in
+// that language (WCAG 3.1.1). index.html starts with lang="en".
+i18n.on('languageChanged', (lng: string) => {
+  document.documentElement.lang = lng;
+});
+
 void i18n.use(initReactI18next).init({
   resources: {
     en: { translation: en },

@@ -462,7 +462,7 @@ interface ShortfallTarget {
  * would refuse that charge), else null. Providers without a known minimum
  * never block.
  */
-function belowMinimumCharge(
+export function belowMinimumCharge(
   provider: PaymentProvider,
   currency: string,
   amountCents: number,
@@ -478,6 +478,18 @@ function belowMinimumReason(
   currency: string,
 ): string {
   return `Top-up below the provider minimum charge (${String(minimumCents)}c ${currency.toUpperCase()}); shortfall ${String(shortfallCents)}c not collectable`;
+}
+
+/**
+ * Failure reason of a cost too small to capture: the hold is released and the
+ * cost stays unpaid. A capture the provider refuses would leave the hold open.
+ */
+export function belowMinimumCaptureReason(
+  costCents: number,
+  minimumCents: number,
+  currency: string,
+): string {
+  return `Capture below the provider minimum charge (${String(minimumCents)}c ${currency.toUpperCase()}); ${String(costCents)}c not collectable, hold released`;
 }
 
 class ShortfallBelowMinimumError extends Error {
@@ -917,9 +929,34 @@ async function settleHold(
   let adjustedHoldCents: number | null = null;
   // The reference of a capture or cancel an async provider confirms later.
   let operationRef: string | null = null;
+  // Set when the cost is below the provider minimum: the hold is released, not captured.
+  let uncollectableReason: string | null = null;
   try {
     const provider = await pinnedProvider(ctx.registry, record.provider);
-    if (finalCostCents == null || finalCostCents <= 0) {
+    const captureMinimumCents =
+      finalCostCents != null && finalCostCents > 0
+        ? belowMinimumCharge(provider, record.currency, finalCostCents)
+        : null;
+    if (finalCostCents != null && captureMinimumCents != null) {
+      // The provider refuses a charge this small, and a refused capture left the
+      // hold open until it expired (P4): release it now; the cost is not collectable.
+      operationRef = pendingRef(
+        await provider.cancelHold({
+          paymentId,
+          merchantReference,
+          idempotencyKey: cancelKey(paymentId),
+        }),
+      );
+      uncollectableReason = belowMinimumCaptureReason(
+        finalCostCents,
+        captureMinimumCents,
+        record.currency,
+      );
+      ctx.logger.warn(
+        { paymentRecordId: record.id, finalCostCents, minimumCents: captureMinimumCents },
+        'Cost below the provider minimum charge; hold released, cost uncollected',
+      );
+    } else if (finalCostCents == null || finalCostCents <= 0) {
       operationRef = pendingRef(
         await provider.cancelHold({
           paymentId,
@@ -1027,11 +1064,11 @@ async function settleHold(
     return { mode: 'card', status: 'failed', paymentRecordId: record.id, driverId, reason };
   }
 
-  const cancelled = finalCostCents == null || finalCostCents <= 0;
+  const cancelled = finalCostCents == null || finalCostCents <= 0 || uncollectableReason != null;
   let recorded: boolean;
   try {
     recorded = cancelled
-      ? await markCancelled(record.id, operationRef)
+      ? await markCancelled(record.id, operationRef, uncollectableReason)
       : await markCaptured(record.id, {
           capturedCents,
           failureReason: topUpFailureReason,
