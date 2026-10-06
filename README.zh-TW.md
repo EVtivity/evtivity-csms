@@ -206,22 +206,32 @@ graph TB
 
 ### 部署與運維
 
-| 功能           | 說明                                                                                |
-| -------------- | ----------------------------------------------------------------------------------- |
-| 部署選項       | Docker Compose、Kubernetes Helm Chart（Istio/Envoy Gateway）與 AWS CDK（ECS）       |
-| 水平擴展       | 無狀態服務，跨 Pod 使用 Redis 為基礎的 OCPP 連線註冊                                |
-| 自動擴縮       | 對 API 與 OCPP 的 Kubernetes HPA，含可感知 WebSocket 的縮容穩定化                   |
-| 速率限制       | 可設定全域與按端點的速率限制，並對驗證設獨立限額                                    |
-| 可觀測性       | Prometheus 指標、Grafana 儀表板、Loki 日誌彙整                                      |
-| 一致性測試     | 內建 OCTT 1.6/2.1 測試執行器，可對 CSMS 與充電樁 SUT 執行並輸出儀表板報告與模組結果 |
-| 多語言 UI      | 6 種語言：英文、德文、西班牙文、韓文、簡體與繁體中文                                |
-| 響應式篩選     | 所有列表頁面的篩選控制項在平板與行動上摺疊為下拉                                    |
-| 伺服器離線頁面 | 當 API 無法連線時，CSMS 與入口顯示可重試的友善錯誤頁                                |
-| 發行管理       | 透過發行腳本自動為所有套件與 Helm Chart 提升版號                                    |
+| 功能           | 說明                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------ |
+| 部署選項       | Docker Compose、Kubernetes Helm Chart（Istio/Envoy Gateway）與 AWS CDK（ECS）                    |
+| 水平擴展       | 無狀態服務，跨 Pod 使用 Redis 為基礎的 OCPP 連線註冊                                             |
+| 自動擴縮       | 對 API 與 OCPP 的 Kubernetes HPA，含可感知 WebSocket 的縮容穩定化                                |
+| 速率限制       | 可設定全域與按端點的速率限制，並對驗證設獨立限額                                                 |
+| 可觀測性       | Prometheus 指標、Grafana 儀表板、Loki 日誌彙整                                                   |
+| 一致性測試     | 內建 OCTT 1.6/2.1 測試執行器，可對 CSMS 與充電樁 SUT 執行並輸出儀表板報告與模組結果              |
+| 多語言 UI      | 6 種語言：英文、德文、西班牙文、韓文、簡體與繁體中文                                             |
+| 響應式篩選     | 所有列表頁面的篩選控制項在平板與行動上摺疊為下拉                                                 |
+| 伺服器離線頁面 | 當 API 無法連線時，CSMS 與入口顯示可重試的友善錯誤頁                                             |
+| 發行管理       | stable、alpha、beta 與 nightly 通道。每個 stable 版本會將 Helm Chart 與 AWS CDK 應用提升至其版本 |
 
-## 服務
+## 部署
 
-以 Helm Chart 部署時，每個服務透過 Gateway API 暴露於各自的子網域：
+| 方式                  | 適用情境                                         | 原始碼                                                                        | 指南                                                                             |
+| --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Docker Compose        | 本機開發與單主機安裝                             | 本儲存庫中的 `docker-compose.yml`                                             | [Docker Compose](https://www.evtivity.com/zh-TW/docs/deployment/docker-compose/) |
+| Kubernetes Helm Chart | Kubernetes 正式環境（Istio 或 Envoy Gateway）    | [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm) | [Helm Chart](https://www.evtivity.com/zh-TW/docs/deployment/helm-chart/)         |
+| AWS CDK               | AWS 正式環境（ECS Fargate、Aurora、ElastiCache） | [EVtivity/evtivity-csms-cdk](https://github.com/EVtivity/evtivity-csms-cdk)   | [AWS](https://www.evtivity.com/zh-TW/docs/deployment/aws/)                       |
+
+Helm Chart 與 AWS CDK 應用只跟隨 stable 版本。每個 stable 版本會將兩者提升至其版本。
+
+### 服務端點
+
+使用 Helm Chart 時，每個服務透過 Gateway API 暴露於各自的子網域：
 
 | 服務               | URL                                | 公開連接埠 | 內部連接埠 |
 | ------------------ | ---------------------------------- | ---------- | ---------- |
@@ -236,10 +246,6 @@ graph TB
 | API 文件           | https://api.your-domain.com/docs   | 443        | 3001       |
 
 所有主機名共用同一個負載平衡 IP。請將各主機名的 DNS 紀錄指向該 IP。OCPP TLS（連接埠 8443）以獨立的 `LoadBalancer` 服務佈建，供使用 Security Profile 3（mTLS）的充電樁直連。
-
-## Helm Chart
-
-Kubernetes Helm Chart 於獨立的儲存庫維護：[EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm)
 
 ## 授權
 

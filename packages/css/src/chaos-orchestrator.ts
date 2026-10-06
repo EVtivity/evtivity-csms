@@ -3,6 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
+import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
 import { ChaosJourneys } from './chaos-journey.js';
 
@@ -516,9 +517,17 @@ export class ChaosOrchestrator {
     if (this.stationLimit > 0 && stations.length > this.stationLimit) {
       stations = stations.slice(0, this.stationLimit);
     }
+    // The OCTT runner's tokens belong to its run: a chaos session with one
+    // would take a token a conformance test is using and keep the run's driver
+    // and tariff referenced, so the run's cleanup could not delete them.
     const tokens = (
       await this.sql<Array<{ id_token: string; token_type: string }>>`
-        SELECT id_token, token_type FROM driver_tokens WHERE is_active = true
+        SELECT t.id_token, t.token_type FROM driver_tokens t
+        WHERE t.is_active = true
+          AND NOT EXISTS (
+            SELECT 1 FROM drivers d
+            WHERE d.id = t.driver_id AND d.email = ${OCTT_TEST_DRIVER_EMAIL}
+          )
       `
     ).map((r) => ({ idToken: r.id_token, tokenType: r.token_type }));
     return { stations, tokens };
@@ -719,8 +728,9 @@ export class ChaosOrchestrator {
     if (due != null) {
       action = actions.find((a) => a.name === due.action);
       if (action == null) {
-        // The station left the session path (fault, unplug, stop by an operator).
-        this.journeys.drop(stationId);
+        // The station already started the transaction itself, or it left the
+        // session path (fault, unplug, stop by an operator).
+        this.journeys.skipDue(stationId, due.action, hasActiveTx, Date.now());
         return;
       }
     } else {

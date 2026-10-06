@@ -327,6 +327,9 @@ export function registerProjections(
   // a transactionId is unique per station only) gets a sequential promise chain
   // (projection-queue.ts, shared with handlers that wait for projected state).
   const projectionQueue = projectionQueueFor(eventBus);
+  // How long a transaction projection waits for the station lane to create an
+  // EVSE the station just reported (see the Started insert).
+  const EVSE_LANE_WAIT_MS = 5000;
 
   function enqueueForStation(id: string, work: () => Promise<void>): Promise<void> {
     return projectionQueue.enqueue(id, work);
@@ -1750,7 +1753,20 @@ export function registerProjections(
             : typeof payload.evseId === 'string'
               ? parseInt(payload.evseId, 10)
               : 0;
-        const txEvseUuid = await resolveEvseUuid(stationUuid, ocppEvseId);
+        let txEvseUuid = await resolveEvseUuid(stationUuid, ocppEvseId);
+        if (txEvseUuid == null && ocppEvseId > 0 && projectionLane(event) !== stationId) {
+          // The EVSE is created by the projection of the station's first
+          // StatusNotification, which runs on the station lane, while this
+          // event runs on the transaction lane. A new station that reports the
+          // EVSE and starts a transaction right after would get a session
+          // without its EVSE and connector, which nothing fills in later. The
+          // station sent that StatusNotification before this event, so its
+          // projection is already queued: wait for the station lane (bounded)
+          // and look again. An event already on the station lane never waits
+          // for its own lane.
+          await projectionQueue.settled([stationId], EVSE_LANE_WAIT_MS);
+          txEvseUuid = await resolveEvseUuid(stationUuid, ocppEvseId, true);
+        }
         // OCPP 1.6 StartTransaction carries meterStart; OCPP 2.1 TransactionEvent Started does
         // not. Insert NULL when absent so the MeterValues handler captures the first energy
         // reading as meter_start. Inserting 0 here would defeat that guard and cause

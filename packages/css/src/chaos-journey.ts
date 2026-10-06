@@ -61,6 +61,21 @@ export class ChaosJourneys {
     return null;
   }
 
+  /**
+   * The due step's action is not possible in the station's current state. A
+   * station already in a transaction when its start is due started it itself
+   * (a driver authorized before the plug-in, so the plug-in started it): the
+   * journey goes on to the stop. Any other station left the session path (a
+   * fault, an unplug, a stop by an operator), so its journey ends.
+   */
+  skipDue(stationId: string, action: string, inTransaction: boolean, now: number): void {
+    if (action === 'startCharging' && inTransaction) {
+      this.record(stationId, 'startCharging', now);
+      return;
+    }
+    this.journeys.delete(stationId);
+  }
+
   drop(stationId: string): void {
     this.journeys.delete(stationId);
   }

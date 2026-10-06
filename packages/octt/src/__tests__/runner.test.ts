@@ -353,6 +353,36 @@ describe('runTests', () => {
       ]);
     });
 
+    it('restores the settings when the cleanup cannot delete the test tariff', async () => {
+      // A session outside the run (the chaos simulator) kept the run's tariff
+      // referenced: the DELETE fails with a foreign key violation. The run
+      // used to stop there and leave PnC enabled with the local provider.
+      vi.useFakeTimers();
+      vi.mocked(db.execute).mockImplementation(((query: Query) => {
+        if (query.text.includes('DELETE FROM tariffs')) {
+          return Promise.reject(
+            Object.assign(new Error('violates foreign key constraint'), { code: '23503' }),
+          );
+        }
+        return Promise.resolve(
+          query.text.includes('SELECT key, value FROM settings')
+            ? [{ key: 'pnc.enabled', value: false }]
+            : [],
+        );
+      }) as never);
+
+      const run = runTests({ ...config, provisionStations: true }, vi.fn());
+      await vi.advanceTimersByTimeAsync(PNC_SETTINGS_CACHE_TTL_MS + 1_000);
+      const summary = await run;
+
+      expect(summary.total).toBe(3);
+      const restores = vi
+        .mocked(db.execute)
+        .mock.calls.map((call) => call[0] as unknown as Query)
+        .filter((q) => q.text.includes('UPDATE settings'));
+      expect(restores.map((q) => [q.values[1], q.values[0]])).toEqual([['pnc.enabled', 'false']]);
+    });
+
     it('sets the local provider and the test eMAID prefix when none is set, and restores them', async () => {
       vi.useFakeTimers();
       settingsSelect([

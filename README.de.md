@@ -206,22 +206,32 @@ graph TB
 
 ### Deployment und Betrieb
 
-| Funktion               | Beschreibung                                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------------------------------- |
-| Deployment-Optionen    | Docker Compose, Kubernetes-Helm-Chart (Istio/Envoy Gateway) und AWS CDK (ECS)                           |
-| Horizontale Skalierung | Zustandslose Dienste mit Redis-basiertem OCPP-Verbindungs-Register über Pods hinweg                     |
-| Auto-Scaling           | Kubernetes-HPA für API und OCPP mit WebSocket-fähiger Scale-down-Stabilisierung                         |
-| Rate-Limiting          | Konfigurierbares globales und endpunktbasiertes Rate-Limiting mit separaten Auth-Limits                 |
-| Observability          | Prometheus-Metriken, Grafana-Dashboards, Loki-Log-Aggregation                                           |
-| Konformitäts-Tests     | Integrierter OCTT-1.6/2.1-Testrunner für CSMS- und Ladestations-SUT mit Dashboard und Modul-Ergebnissen |
-| Mehrsprachige UI       | 6 Sprachen: Englisch, Deutsch, Spanisch, Koreanisch, vereinfachtes und traditionelles Chinesisch        |
-| Responsive Filter      | Filtersteuerung klappt auf Tablet und Mobil in ein Dropdown für alle Listenseiten ein                   |
-| Server-Down-Seite      | Freundliche Fehlerseite mit Retry bei unerreichbarer API in CSMS und Portal                             |
-| Release-Management     | Automatisierte Versions-Erhöhung über alle Pakete und Helm-Chart per Release-Skript                     |
+| Funktion               | Beschreibung                                                                                                   |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Deployment-Optionen    | Docker Compose, Kubernetes-Helm-Chart (Istio/Envoy Gateway) und AWS CDK (ECS)                                  |
+| Horizontale Skalierung | Zustandslose Dienste mit Redis-basiertem OCPP-Verbindungs-Register über Pods hinweg                            |
+| Auto-Scaling           | Kubernetes-HPA für API und OCPP mit WebSocket-fähiger Scale-down-Stabilisierung                                |
+| Rate-Limiting          | Konfigurierbares globales und endpunktbasiertes Rate-Limiting mit separaten Auth-Limits                        |
+| Observability          | Prometheus-Metriken, Grafana-Dashboards, Loki-Log-Aggregation                                                  |
+| Konformitäts-Tests     | Integrierter OCTT-1.6/2.1-Testrunner für CSMS- und Ladestations-SUT mit Dashboard und Modul-Ergebnissen        |
+| Mehrsprachige UI       | 6 Sprachen: Englisch, Deutsch, Spanisch, Koreanisch, vereinfachtes und traditionelles Chinesisch               |
+| Responsive Filter      | Filtersteuerung klappt auf Tablet und Mobil in ein Dropdown für alle Listenseiten ein                          |
+| Server-Down-Seite      | Freundliche Fehlerseite mit Retry bei unerreichbarer API in CSMS und Portal                                    |
+| Release-Management     | Kanäle Stable, Alpha, Beta und Nightly. Jedes Stable-Release hebt Helm-Chart und AWS-CDK-App auf seine Version |
 
-## Dienste
+## Deployment
 
-Beim Deployment per Helm-Chart wird jeder Dienst über eine eigene Subdomain via Gateway API bereitgestellt:
+| Option                | Einsatz                                               | Quelle                                                                        | Anleitung                                                                     |
+| --------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Docker Compose        | Lokale Entwicklung und Installationen auf einem Host  | `docker-compose.yml` in diesem Repository                                     | [Docker Compose](https://www.evtivity.com/de/docs/deployment/docker-compose/) |
+| Kubernetes-Helm-Chart | Produktion auf Kubernetes (Istio oder Envoy Gateway)  | [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm) | [Helm-Chart](https://www.evtivity.com/de/docs/deployment/helm-chart/)         |
+| AWS CDK               | Produktion auf AWS (ECS Fargate, Aurora, ElastiCache) | [EVtivity/evtivity-csms-cdk](https://github.com/EVtivity/evtivity-csms-cdk)   | [AWS](https://www.evtivity.com/de/docs/deployment/aws/)                       |
+
+Helm-Chart und AWS-CDK-App folgen nur Stable-Releases. Jedes Stable-Release hebt beide auf seine Version.
+
+### Dienst-Endpunkte
+
+Mit dem Helm-Chart wird jeder Dienst über eine eigene Subdomain via Gateway API bereitgestellt:
 
 | Dienst             | URL                                | Public Port | Internal Port |
 | ------------------ | ---------------------------------- | ----------- | ------------- |
@@ -236,10 +246,6 @@ Beim Deployment per Helm-Chart wird jeder Dienst über eine eigene Subdomain via
 | API-Dokumentation  | https://api.your-domain.com/docs   | 443         | 3001          |
 
 Alle Hostnamen teilen sich eine einzige Load-Balancer-IP. DNS-Einträge für jeden Hostnamen müssen auf diese IP zeigen. OCPP TLS (Port 8443) wird als separater `LoadBalancer`-Dienst für direkte Stationsverbindungen mit Security Profile 3 (mTLS) bereitgestellt.
-
-## Helm-Chart
-
-Das Kubernetes-Helm-Chart wird in einem separaten Repository gepflegt: [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm)
 
 ## Lizenz
 

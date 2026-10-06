@@ -120,7 +120,20 @@ vi.mock('drizzle-orm', () => ({
 // PubSub mock
 let mockSubscribeCallback: ((raw: string) => void) | null = null;
 const mockUnsubscribe = vi.fn().mockResolvedValue(undefined);
-const mockPublish = vi.fn().mockResolvedValue(undefined);
+// Answers the station's reply once the route has published its OCPP command,
+// so the reply never arrives before the command under load.
+let commandPublishedHandler: (() => void) | null = null;
+function afterCommandPublished(handler: () => void): void {
+  commandPublishedHandler = handler;
+}
+const mockPublish = vi.fn((channel: string, _message: string) => {
+  if (channel === 'ocpp_commands' && commandPublishedHandler != null) {
+    const handler = commandPublishedHandler;
+    commandPublishedHandler = null;
+    setImmediate(handler);
+  }
+  return Promise.resolve(undefined);
+});
 const mockSubscribe = vi
   .fn()
   .mockImplementation(async (_channel: string, cb: (raw: string) => void) => {
@@ -233,6 +246,7 @@ describe('Reservation routes', () => {
   beforeEach(() => {
     setupDbResults();
     mockSubscribeCallback = null;
+    commandPublishedHandler = null;
     mockPublish.mockClear();
     mockSubscribe.mockClear();
     mockUnsubscribe.mockClear();
@@ -395,13 +409,11 @@ describe('Reservation routes', () => {
     };
 
     function triggerAcceptedResponse() {
-      // After subscribe + publish, fire the callback with an Accepted response.
-      // We need to extract the commandId from the publish call.
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -410,7 +422,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
     }
 
     it('returns 401 without token', async () => {
@@ -593,11 +605,11 @@ describe('Reservation routes', () => {
         [reservation],
       );
 
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -606,7 +618,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'POST',
@@ -635,11 +647,11 @@ describe('Reservation routes', () => {
         [reservation],
       );
 
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -648,7 +660,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'POST',
@@ -677,11 +689,11 @@ describe('Reservation routes', () => {
       );
 
       // Simulate timeout by sending back an error with the timeout message via callback
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -690,7 +702,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'POST',
@@ -720,11 +732,11 @@ describe('Reservation routes', () => {
       );
 
       // Simulate an error from OCPP
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -733,7 +745,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'POST',
@@ -763,11 +775,11 @@ describe('Reservation routes', () => {
       );
 
       // Simulate station response with Rejected status
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -776,7 +788,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'POST',
@@ -1029,11 +1041,11 @@ describe('Reservation routes', () => {
       );
 
       // Simulate successful CancelReservation response
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -1042,7 +1054,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'DELETE',
@@ -1061,11 +1073,11 @@ describe('Reservation routes', () => {
       );
 
       // Simulate OCPP error during cancel
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -1074,7 +1086,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'DELETE',
@@ -1088,11 +1100,11 @@ describe('Reservation routes', () => {
 
     describe('cancellation fee', () => {
       function triggerCancelAccepted() {
-        setTimeout(() => {
+        afterCommandPublished(() => {
           if (mockSubscribeCallback != null) {
             const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
             if (publishCall != null) {
-              const notification = JSON.parse(publishCall[1] as string);
+              const notification = JSON.parse(publishCall[1]);
               mockSubscribeCallback(
                 JSON.stringify({
                   commandId: notification.commandId,
@@ -1101,7 +1113,7 @@ describe('Reservation routes', () => {
               );
             }
           }
-        }, 10);
+        });
       }
 
       it('charges fee when operator opts in and cancelling within the window', async () => {
@@ -1397,7 +1409,7 @@ describe('Reservation routes', () => {
       );
 
       // Send invalid JSON first, then a valid response
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           // This should be caught by the try/catch in the callback and ignored
           mockSubscribeCallback('not valid json {{{');
@@ -1405,7 +1417,7 @@ describe('Reservation routes', () => {
           // Then send a valid response so the test completes
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -1414,7 +1426,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'POST',
@@ -1436,7 +1448,7 @@ describe('Reservation routes', () => {
         [],
       );
 
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           // Send a valid JSON but with a different commandId (should be ignored)
           mockSubscribeCallback(
@@ -1449,7 +1461,7 @@ describe('Reservation routes', () => {
           // Then send the correct one
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -1458,7 +1470,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'POST',
@@ -1485,11 +1497,11 @@ describe('Reservation routes', () => {
       );
 
       // Send a response with no status field -- passes the status check
-      setTimeout(() => {
+      afterCommandPublished(() => {
         if (mockSubscribeCallback != null) {
           const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
           if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1] as string);
+            const notification = JSON.parse(publishCall[1]);
             mockSubscribeCallback(
               JSON.stringify({
                 commandId: notification.commandId,
@@ -1498,7 +1510,7 @@ describe('Reservation routes', () => {
             );
           }
         }
-      }, 10);
+      });
 
       const res = await app.inject({
         method: 'POST',
@@ -1724,7 +1736,7 @@ describe('Reservation routes', () => {
         if (driven === 0 && commandCalls.length >= 1) {
           // Respond to ReserveNow (first ocpp_commands publish)
           if (mockSubscribeCallback != null) {
-            const notification = JSON.parse(commandCalls[0]![1] as string);
+            const notification = JSON.parse(commandCalls[0]![1]);
             if (reserveNowStatus !== 'error') {
               mockSubscribeCallback(
                 JSON.stringify({
@@ -1746,7 +1758,7 @@ describe('Reservation routes', () => {
         } else if (driven === 1 && commandCalls.length >= 2) {
           // Respond to CancelReservation (second ocpp_commands publish, best effort)
           if (mockSubscribeCallback != null) {
-            const notification = JSON.parse(commandCalls[1]![1] as string);
+            const notification = JSON.parse(commandCalls[1]![1]);
             if (cancelResponse != null) {
               mockSubscribeCallback(
                 JSON.stringify({ commandId: notification.commandId, response: cancelResponse }),

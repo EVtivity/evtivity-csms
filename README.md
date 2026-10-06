@@ -217,11 +217,21 @@ graph TB
 | Multi-language UI   | 6 languages: English, German, Spanish, Korean, Simplified and Traditional Chinese                                                   |
 | Responsive Filters  | Filter controls collapse into dropdown on tablet and mobile for all list pages                                                      |
 | Server-down Page    | Friendly error page with retry when API is unreachable, on both CSMS and Portal                                                     |
-| Release Management  | Automated version bumping across all packages and Helm chart via release script                                                     |
+| Release Management  | Stable, alpha, beta and nightly channels. Each stable release bumps the Helm chart and AWS CDK app to its version                   |
 
-## Services
+## Deployment
 
-When deployed with the Helm chart, each service is exposed on its own subdomain via Gateway API:
+| Option                | Use it for                                           | Source                                                                        | Guide                                                                      |
+| --------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Docker Compose        | Local development and single-host installs           | `docker-compose.yml` in this repository                                       | [Docker Compose](https://www.evtivity.com/docs/deployment/docker-compose/) |
+| Kubernetes Helm chart | Production on Kubernetes (Istio or Envoy Gateway)    | [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm) | [Helm chart](https://www.evtivity.com/docs/deployment/helm-chart/)         |
+| AWS CDK               | Production on AWS (ECS Fargate, Aurora, ElastiCache) | [EVtivity/evtivity-csms-cdk](https://github.com/EVtivity/evtivity-csms-cdk)   | [AWS](https://www.evtivity.com/docs/deployment/aws/)                       |
+
+The Helm chart and the AWS CDK app track stable releases only. See [Helm chart and AWS CDK versions](#helm-chart-and-aws-cdk-versions).
+
+### Service endpoints
+
+With the Helm chart, each service is exposed on its own subdomain via Gateway API:
 
 | Service            | URL                                | Public Port | Internal Port |
 | ------------------ | ---------------------------------- | ----------- | ------------- |
@@ -236,10 +246,6 @@ When deployed with the Helm chart, each service is exposed on its own subdomain 
 | API Docs           | https://api.your-domain.com/docs   | 443         | 3001          |
 
 All hostnames share a single load balancer IP. DNS records for each hostname must point to that IP. OCPP TLS (port 8443) is provisioned as a separate `LoadBalancer` service for direct station connections using Security Profile 3 (mTLS).
-
-## Helm Chart
-
-The Kubernetes Helm chart is maintained in a separate repository: [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm)
 
 ## Releases
 
@@ -268,9 +274,9 @@ Images are published to `ghcr.io/evtivity/evtivity-csms/<service>` for `linux/am
 
 Aliases always point to the newest image of their channel, and a deployment picks up a new one only when it pulls the image again. Pin an exact tag in production.
 
-### Helm chart and AWS CDK
+### Helm chart and AWS CDK versions
 
-The [Helm chart](https://github.com/EVtivity/evtivity-csms-helm) and the AWS CDK app follow stable releases only. Each stable release bumps them to its version. To try a prerelease, set the image tag yourself, for example `image.tag=0.1.38-beta.2`.
+The [Helm chart](https://github.com/EVtivity/evtivity-csms-helm) and the [AWS CDK app](https://github.com/EVtivity/evtivity-csms-cdk) follow stable releases only. Each stable release bumps them to its version. To try a prerelease, set the image tag yourself, for example `image.tag=0.1.38-beta.2`.
 
 ### Release notes and upgrades
 

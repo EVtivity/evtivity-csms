@@ -377,3 +377,5 @@ export {
   SIMULATOR_CONNECTION_HEADER,
   SIMULATOR_CONNECTION_HEADER_VALUE,
 } from './simulator-connection.js';
+
+export { OCTT_TEST_DRIVER_EMAIL } from './octt-test-driver.js';

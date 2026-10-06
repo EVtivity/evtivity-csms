@@ -50,6 +50,33 @@ describe('ChaosJourneys', () => {
     expect(journeys.size).toBe(0);
   });
 
+  it('goes on to the stop when the station started the transaction itself', () => {
+    // An authorize before the plug-in: the plug-in starts the transaction, so
+    // startCharging is filtered out when it is due. The session must still end.
+    const journeys = new ChaosJourneys(() => 0);
+    journeys.record('CS-1', 'plugIn', 0);
+    const due = JOURNEY_WAIT_MS.plugged[0];
+    expect(journeys.nextDue(due)?.action).toBe('startCharging');
+
+    journeys.skipDue('CS-1', 'startCharging', true, due);
+    expect(journeys.nextDue(due + JOURNEY_WAIT_MS.charging[0] - 1)).toBeNull();
+    expect(journeys.nextDue(due + JOURNEY_WAIT_MS.charging[0])).toEqual({
+      stationId: 'CS-1',
+      action: 'stopCharging',
+    });
+  });
+
+  it('ends the journey when the due step is not possible otherwise', () => {
+    const journeys = new ChaosJourneys(() => 0);
+    journeys.record('CS-1', 'plugIn', 0);
+    journeys.record('CS-2', 'startCharging', 0);
+    // A start due on a station without a transaction (unplugged meanwhile).
+    journeys.skipDue('CS-1', 'startCharging', false, JOURNEY_WAIT_MS.plugged[0]);
+    // A stop due on a station whose transaction an operator already stopped.
+    journeys.skipDue('CS-2', 'stopCharging', false, JOURNEY_WAIT_MS.charging[0]);
+    expect(journeys.size).toBe(0);
+  });
+
   it('ignores actions that are not session steps', () => {
     const journeys = new ChaosJourneys(() => 0);
     journeys.record('CS-1', 'sendHeartbeat', 0);

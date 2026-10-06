@@ -206,22 +206,32 @@ graph TB
 
 ### 部署与运维
 
-| 功能           | 描述                                                                              |
-| -------------- | --------------------------------------------------------------------------------- |
-| 部署选项       | Docker Compose、Kubernetes Helm Chart（Istio/Envoy Gateway）与 AWS CDK（ECS）     |
-| 水平扩展       | 无状态服务，跨 Pod 使用基于 Redis 的 OCPP 连接注册                                |
-| 自动扩缩       | API 与 OCPP 的 Kubernetes HPA，缩容稳定化感知 WebSocket                           |
-| 限流           | 可配置全局与按端点限流，并对认证设独立限制                                        |
-| 可观测性       | Prometheus 指标、Grafana 仪表盘、Loki 日志聚合                                    |
-| 一致性测试     | 面向 CSMS 与充电桩 SUT 的内置 OCTT 1.6/2.1 测试运行器，提供仪表盘报告与按模块结果 |
-| 多语言 UI      | 6 种语言：英语、德语、西班牙语、韩语、简体与繁体中文                              |
-| 响应式筛选     | 所有列表页的筛选控件在平板与移动端折叠为下拉                                      |
-| 服务器宕机页面 | CSMS 与门户在 API 不可达时显示带重试的友好错误页                                  |
-| 发布管理       | 通过发布脚本自动提升所有包与 Helm Chart 的版本                                    |
+| 功能           | 描述                                                                                           |
+| -------------- | ---------------------------------------------------------------------------------------------- |
+| 部署选项       | Docker Compose、Kubernetes Helm Chart（Istio/Envoy Gateway）与 AWS CDK（ECS）                  |
+| 水平扩展       | 无状态服务，跨 Pod 使用基于 Redis 的 OCPP 连接注册                                             |
+| 自动扩缩       | API 与 OCPP 的 Kubernetes HPA，缩容稳定化感知 WebSocket                                        |
+| 限流           | 可配置全局与按端点限流，并对认证设独立限制                                                     |
+| 可观测性       | Prometheus 指标、Grafana 仪表盘、Loki 日志聚合                                                 |
+| 一致性测试     | 面向 CSMS 与充电桩 SUT 的内置 OCTT 1.6/2.1 测试运行器，提供仪表盘报告与按模块结果              |
+| 多语言 UI      | 6 种语言：英语、德语、西班牙语、韩语、简体与繁体中文                                           |
+| 响应式筛选     | 所有列表页的筛选控件在平板与移动端折叠为下拉                                                   |
+| 服务器宕机页面 | CSMS 与门户在 API 不可达时显示带重试的友好错误页                                               |
+| 发布管理       | stable、alpha、beta 与 nightly 渠道。每个 stable 版本将 Helm Chart 与 AWS CDK 应用提升到其版本 |
 
-## 服务
+## 部署
 
-通过 Helm Chart 部署时，每个服务通过 Gateway API 公开在各自子域名上：
+| 方式                  | 适用场景                                         | 源码                                                                          | 指南                                                                          |
+| --------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Docker Compose        | 本地开发与单主机安装                             | 本仓库中的 `docker-compose.yml`                                               | [Docker Compose](https://www.evtivity.com/zh/docs/deployment/docker-compose/) |
+| Kubernetes Helm Chart | Kubernetes 生产环境（Istio 或 Envoy Gateway）    | [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm) | [Helm Chart](https://www.evtivity.com/zh/docs/deployment/helm-chart/)         |
+| AWS CDK               | AWS 生产环境（ECS Fargate、Aurora、ElastiCache） | [EVtivity/evtivity-csms-cdk](https://github.com/EVtivity/evtivity-csms-cdk)   | [AWS](https://www.evtivity.com/zh/docs/deployment/aws/)                       |
+
+Helm Chart 与 AWS CDK 应用只跟随 stable 版本。每个 stable 版本会将两者提升到其版本。
+
+### 服务端点
+
+使用 Helm Chart 时，每个服务通过 Gateway API 公开在各自子域名上：
 
 | 服务               | URL                                | 公网端口 | 内部端口 |
 | ------------------ | ---------------------------------- | -------- | -------- |
@@ -236,10 +246,6 @@ graph TB
 | API 文档           | https://api.your-domain.com/docs   | 443      | 3001     |
 
 所有主机名共享同一个负载均衡 IP。请将各主机名的 DNS 记录指向该 IP。OCPP TLS（端口 8443）作为独立的 `LoadBalancer` 服务以供使用 Security Profile 3（mTLS）的桩直连。
-
-## Helm Chart
-
-Kubernetes Helm Chart 在独立仓库中维护：[EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm)
 
 ## 许可证
 

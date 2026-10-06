@@ -217,11 +217,21 @@ graph TB
 | UI multi-idioma          | 6 idiomas: inglés, alemán, español, coreano, chino simplificado y tradicional                                   |
 | Filtros responsivos      | Los controles de filtro colapsan en un dropdown en tablet y móvil en todas las listas                           |
 | Página de servidor caído | Página de error amigable con reintento cuando la API no responde, en CSMS y Portal                              |
-| Gestión de releases      | Bump automático de versión en todos los paquetes y el Helm chart mediante el script de release                  |
+| Gestión de releases      | Canales stable, alpha, beta y nightly. Cada release stable sube el Helm chart y la app de AWS CDK a su versión  |
 
-## Servicios
+## Despliegue
 
-Cuando se despliega con el Helm chart, cada servicio se expone en su propio subdominio vía Gateway API:
+| Opción                   | Uso                                                  | Código                                                                        | Guía                                                                          |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Docker Compose           | Desarrollo local e instalaciones en un solo host     | `docker-compose.yml` en este repositorio                                      | [Docker Compose](https://www.evtivity.com/es/docs/deployment/docker-compose/) |
+| Helm chart de Kubernetes | Producción en Kubernetes (Istio o Envoy Gateway)     | [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm) | [Helm chart](https://www.evtivity.com/es/docs/deployment/helm-chart/)         |
+| AWS CDK                  | Producción en AWS (ECS Fargate, Aurora, ElastiCache) | [EVtivity/evtivity-csms-cdk](https://github.com/EVtivity/evtivity-csms-cdk)   | [AWS](https://www.evtivity.com/es/docs/deployment/aws/)                       |
+
+El Helm chart y la app de AWS CDK siguen solo las releases stable. Cada release stable los sube a su versión.
+
+### Endpoints de servicio
+
+Con el Helm chart, cada servicio se expone en su propio subdominio vía Gateway API:
 
 | Servicio             | URL                                | Puerto público | Puerto interno |
 | -------------------- | ---------------------------------- | -------------- | -------------- |
@@ -236,10 +246,6 @@ Cuando se despliega con el Helm chart, cada servicio se expone en su propio subd
 | Documentación API    | https://api.your-domain.com/docs   | 443            | 3001           |
 
 Todos los hostnames comparten una sola IP de load balancer. Los registros DNS de cada hostname deben apuntar a esa IP. OCPP TLS (puerto 8443) se aprovisiona como un servicio `LoadBalancer` separado para conexiones directas con Security Profile 3 (mTLS).
-
-## Helm Chart
-
-El Helm chart de Kubernetes se mantiene en un repositorio separado: [EVtivity/evtivity-csms-helm](https://github.com/EVtivity/evtivity-csms-helm)
 
 ## Licencia
 

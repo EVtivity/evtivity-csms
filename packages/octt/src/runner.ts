@@ -12,6 +12,7 @@ import {
   PNC_SETTINGS_CACHE_TTL_MS,
 } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
+import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
 import { and, asc, like, eq, sql } from 'drizzle-orm';
 
 import type {
@@ -230,25 +231,37 @@ export async function runTests(
 
   // Clean up test driver and tokens (FK is ON DELETE SET NULL, so delete tokens first for clarity)
   if (provisionStations) {
-    // Deferred to run end (not per-test) so the OCPP server's async projections
-    // finish before the rows are deleted. Removes OCTT stations plus the artifacts
-    // that do not cascade from them (CSRs, tariff segments, domain/authorize logs).
-    await deleteOcttStationsAndArtifacts();
-    logger.info('OCTT test stations cleaned up');
+    // A row the cleanup cannot delete (a session elsewhere that still
+    // references the test driver or tariff) must not leave the CSMS with the
+    // run's PnC settings: the settings are restored either way, and the next
+    // run removes the leftover stations and reuses the test driver.
+    try {
+      // Deferred to run end (not per-test) so the OCPP server's async projections
+      // finish before the rows are deleted. Removes OCTT stations plus the artifacts
+      // that do not cascade from them (CSRs, tariff segments, domain/authorize logs).
+      await deleteOcttStationsAndArtifacts();
+      logger.info('OCTT test stations cleaned up');
 
-    // Clean up tariff and pricing group (cascade deletes handle child records)
-    if (octtTariffId != null) {
-      await db.execute(sql`DELETE FROM tariffs WHERE id = ${octtTariffId}`);
+      // Clean up tariff and pricing group (cascade deletes handle child records)
+      if (octtTariffId != null) {
+        await db.execute(sql`DELETE FROM tariffs WHERE id = ${octtTariffId}`);
+      }
+      if (octtPricingGroupId != null) {
+        await db.execute(sql`DELETE FROM pricing_groups WHERE id = ${octtPricingGroupId}`);
+      }
+      await db.delete(driverTokens).where(eq(driverTokens.driverId, testDriverId));
+      await db.delete(drivers).where(eq(drivers.id, testDriverId));
+      logger.info('Test driver, tokens, and tariff cleaned up');
+    } catch (err) {
+      logger.error(
+        { err, testDriverId, octtTariffId, octtPricingGroupId },
+        'OCTT cleanup failed; the test rows stay until the next run',
+      );
     }
-    if (octtPricingGroupId != null) {
-      await db.execute(sql`DELETE FROM pricing_groups WHERE id = ${octtPricingGroupId}`);
-    }
-    await db.delete(driverTokens).where(eq(driverTokens.driverId, testDriverId));
-    await db.delete(drivers).where(eq(drivers.id, testDriverId));
 
     // Restore the settings the run changed.
     await restoreRunSettings(settingsChanges);
-    logger.info('Test driver, tokens, tariff, and PnC settings cleaned up');
+    logger.info('PnC settings restored');
   }
 
   return summary;
@@ -473,7 +486,7 @@ async function provisionTestDriver(driverId: string): Promise<string> {
   const existing = await db
     .select({ id: drivers.id })
     .from(drivers)
-    .where(eq(drivers.email, 'octt-test@evtivity.local'))
+    .where(eq(drivers.email, OCTT_TEST_DRIVER_EMAIL))
     .limit(1);
 
   const existingId = existing[0]?.id;
@@ -487,7 +500,7 @@ async function provisionTestDriver(driverId: string): Promise<string> {
     id: driverId,
     firstName: 'OCTT',
     lastName: 'Test Driver',
-    email: 'octt-test@evtivity.local',
+    email: OCTT_TEST_DRIVER_EMAIL,
   });
   return driverId;
 }
