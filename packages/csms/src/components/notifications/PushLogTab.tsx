@@ -24,6 +24,7 @@ import {
 } from '@/lib/template-variables';
 import { type NotificationRecord, statusBadgeClass, formatTimestamp } from './shared';
 import { LoadingLogo } from '@/components/loading-logo';
+import { useUserTimezone } from '@/lib/timezone';
 
 const EVENT_CATEGORIES: Record<string, readonly string[]> = {
   driver: DRIVER_EVENT_TYPES,
@@ -44,6 +45,7 @@ function parsePushBody(body: string): { title: string; message: string } | null 
 }
 
 export function PushLogTab(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [eventCategory, setEventCategory] = useState('');
@@ -199,7 +201,7 @@ export function PushLogTab(): React.JSX.Element {
                     }}
                   >
                     <TableCell className="whitespace-nowrap" data-testid="row-click-target">
-                      {formatTimestamp(msg.sentAt, msg.createdAt)}
+                      {formatTimestamp(msg.sentAt, msg.createdAt, timezone)}
                     </TableCell>
                     <TableCell>{msg.recipient}</TableCell>
                     <TableCell>{msg.eventType ?? '-'}</TableCell>

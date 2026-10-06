@@ -769,7 +769,7 @@ describe('Reservation routes (additional coverage)', () => {
         expect.anything(),
         'reservation.Created',
         DRV_ID,
-        expect.objectContaining({ reservationId: 6, stationId: 'CS-001' }),
+        expect.objectContaining({ reservationId: 6, stationId: 'CS-001', expiresAt }),
         [],
         expect.anything(),
       );
@@ -803,6 +803,7 @@ describe('Reservation routes (additional coverage)', () => {
 
     it('schedules a future reservation through the worker and notifies the driver', async () => {
       const startsAt = inHours(5);
+      const expiresAt = inHours(6);
       setupDbResults(
         [makeStation({ isOnline: false })],
         [],
@@ -814,7 +815,7 @@ describe('Reservation routes (additional coverage)', () => {
         stationId: 'CS-001',
         driverId: DRV_ID,
         startsAt,
-        expiresAt: inHours(6),
+        expiresAt,
       });
       expect(res.statusCode).toBe(200);
       expect(res.json().status).toBe('scheduled');
@@ -830,7 +831,7 @@ describe('Reservation routes (additional coverage)', () => {
         expect.anything(),
         'reservation.Created',
         DRV_ID,
-        expect.anything(),
+        expect.objectContaining({ expiresAt }),
         [],
         expect.anything(),
       );

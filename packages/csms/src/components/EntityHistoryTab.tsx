@@ -18,6 +18,7 @@ import {
 import { Pagination } from '@/components/ui/pagination';
 import { Badge } from '@/components/ui/badge';
 import { LoadingLogo } from '@/components/loading-logo';
+import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 export interface AuditEntry {
   id: number;
@@ -93,9 +94,9 @@ function actorBadge(actor: AuditEntry['actor']): React.ReactNode {
   }
 }
 
-function formatTimestamp(iso: string): string {
+function formatTimestamp(iso: string, timezone: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+  return Number.isNaN(d.getTime()) ? iso : formatDateTime(d, timezone);
 }
 
 export function EntityHistoryTab({
@@ -105,6 +106,7 @@ export function EntityHistoryTab({
   extraColumns = [],
   title,
 }: Props): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const canReadAudit = useHasPermission('audit:read');
   // Default the header to the shared "History" label so every detail page
@@ -176,7 +178,7 @@ export function EntityHistoryTab({
                 {rows.map((row) => (
                   <TableRow key={row.id}>
                     <TableCell className="whitespace-nowrap text-xs">
-                      {formatTimestamp(row.createdAt)}
+                      {formatTimestamp(row.createdAt, timezone)}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary">{row.action}</Badge>

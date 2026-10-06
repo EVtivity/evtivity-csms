@@ -16,6 +16,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DriverCombobox } from '@/components/driver-combobox';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 interface SupportCase {
   id: string;
@@ -48,6 +49,7 @@ const CATEGORY_OPTIONS = [
 const PRIORITY_OPTIONS = ['low', 'medium', 'high', 'urgent'] as const;
 
 export function SupportCaseCreate(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -255,7 +257,7 @@ export function SupportCaseCreate(): React.JSX.Element {
                               : s.id;
                           const station = s.stationName ?? '';
                           const startedLabel =
-                            s.startedAt != null ? new Date(s.startedAt).toLocaleString() : '';
+                            s.startedAt != null ? formatDateTime(s.startedAt, timezone) : '';
                           return (
                             <button
                               key={s.id}

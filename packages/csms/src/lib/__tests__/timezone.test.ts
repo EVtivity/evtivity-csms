@@ -22,8 +22,8 @@ import {
 
 describe('formatDateTime', () => {
   it('formats in the given time zone', () => {
-    expect(formatDateTime('2026-03-01T15:04:05Z', 'UTC')).toBe('3/1/2026, 3:04:05 PM');
-    expect(formatDateTime('2026-03-01T15:04:05Z', 'Asia/Tokyo')).toBe('3/2/2026, 12:04:05 AM');
+    expect(formatDateTime('2026-03-01T15:04:05Z', 'UTC')).toBe('Mar 1, 2026, 3:04:05 PM');
+    expect(formatDateTime('2026-03-01T15:04:05Z', 'Asia/Tokyo')).toBe('Mar 2, 2026, 12:04:05 AM');
   });
 
   it('accepts a Date and lets options override defaults', () => {
@@ -37,8 +37,8 @@ describe('formatDateTime', () => {
 
 describe('formatDate', () => {
   it('formats the calendar date in the given time zone', () => {
-    expect(formatDate('2026-03-01T23:30:00Z', 'UTC')).toBe('3/1/2026');
-    expect(formatDate('2026-03-01T23:30:00Z', 'Asia/Tokyo')).toBe('3/2/2026');
+    expect(formatDate('2026-03-01T23:30:00Z', 'UTC')).toBe('Mar 1, 2026');
+    expect(formatDate('2026-03-01T23:30:00Z', 'Asia/Tokyo')).toBe('Mar 2, 2026');
   });
 
   it('accepts a Date and options', () => {
@@ -75,7 +75,7 @@ describe('formatRelativeTime', () => {
 
   it('falls back to the full date and time after a day', () => {
     at('2026-03-02T12:00:00Z');
-    expect(formatRelativeTime('2026-03-01T12:00:00Z', 'UTC')).toBe('3/1/2026, 12:00:00 PM');
+    expect(formatRelativeTime('2026-03-01T12:00:00Z', 'UTC')).toBe('Mar 1, 2026, 12:00:00 PM');
   });
 });
 

@@ -1197,7 +1197,7 @@ export function reservationRoutes(app: FastifyInstance): void {
             {
               reservationId: reservation.reservationId,
               stationId: body.stationId,
-              expiresAt: new Date(body.expiresAt).toLocaleString(),
+              expiresAt: body.expiresAt,
             },
             ALL_TEMPLATES_DIRS,
             getPubSub(),
@@ -1310,7 +1310,7 @@ export function reservationRoutes(app: FastifyInstance): void {
           {
             reservationId: reservation.reservationId,
             stationId: body.stationId,
-            expiresAt: new Date(body.expiresAt).toLocaleString(),
+            expiresAt: body.expiresAt,
           },
           ALL_TEMPLATES_DIRS,
           getPubSub(),

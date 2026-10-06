@@ -23,6 +23,9 @@
     "./price-display": {
       "import": "./src/price-display.ts"
     },
+    "./timezone": {
+      "import": "./src/timezone.ts"
+    },
     "./station-password": {
       "import": "./src/station-password.ts"
     },

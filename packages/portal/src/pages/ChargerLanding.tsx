@@ -19,7 +19,7 @@ import type { PricingInfo } from '@/components/PricingDisplay';
 import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
-import { cn } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 import {
   connectorStatusVariant,
   connectorStatusClassName,
@@ -65,6 +65,8 @@ export function ChargerLanding(): React.JSX.Element {
   const [searchParams] = useSearchParams();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const priceDisplay = usePriceDisplay();
+  // Signed-out visitors see times in the browser's time zone.
+  const timezone = useAuth((s) => s.driver?.timezone);
   const { companyName, companyLogo, branding } = useAuthBranding();
   useStationEvents(stationId);
 
@@ -230,7 +232,7 @@ export function ChargerLanding(): React.JSX.Element {
               {charger.maintenance.plannedEndAt != null && (
                 <p className="mt-1 text-xs">
                   {t('charger.maintenanceUntil', {
-                    time: new Date(charger.maintenance.plannedEndAt).toLocaleString(),
+                    time: formatDate(charger.maintenance.plannedEndAt, timezone),
                   })}
                 </p>
               )}

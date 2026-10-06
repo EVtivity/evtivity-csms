@@ -52,7 +52,7 @@ afterEach(() => {
 describe('StationSimulatorConflict', () => {
   it('shows when the conflicting connection arrived', () => {
     renderBanner();
-    expect(screen.getByText(/stations\.simulatorConflict:time=10\/4\/2026/)).toBeTruthy();
+    expect(screen.getByText(/stations\.simulatorConflict:time=Oct 4, 2026/)).toBeTruthy();
   });
 
   it('confirms a real station after the dialog and shows a success toast', async () => {

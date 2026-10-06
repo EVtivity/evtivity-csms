@@ -1,53 +1,38 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import {
+  formatDate as formatLocaleDate,
+  formatDateTime as formatLocaleDateTime,
+  formatRelativeTime as formatLocaleRelativeTime,
+} from '@evtivity/lib/timezone';
 import { useAuth } from './auth';
+import { uiLocale } from './formatting';
 
+/**
+ * Format date and time in the time zone and the UI language, e.g.
+ * "Mar 5, 2026, 9:04:09 AM" (en) or "05.03.2026, 09:04:09" (de).
+ */
 export function formatDateTime(
   timestamp: string | Date,
   timezone: string,
   options?: Intl.DateTimeFormatOptions,
 ): string {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
-  return date.toLocaleString('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    second: '2-digit',
-    ...options,
-  });
+  return formatLocaleDateTime(timestamp, timezone, options, uiLocale());
 }
 
+/** Format the date in the time zone and the UI language, e.g. "Mar 5, 2026" or "05.03.2026". */
 export function formatDate(
   timestamp: string | Date,
   timezone: string,
   options?: Intl.DateTimeFormatOptions,
 ): string {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
-  return date.toLocaleDateString('en-US', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    ...options,
-  });
+  return formatLocaleDate(timestamp, timezone, options, uiLocale());
 }
 
+/** Format a past timestamp relative to now in the UI language, e.g. "5m ago" or "vor 5 m". */
 export function formatRelativeTime(timestamp: string | Date, timezone: string): string {
-  const date = typeof timestamp === 'string' ? new Date(timestamp) : timestamp;
-  const now = Date.now();
-  const diffMs = now - date.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-
-  if (diffSec < 60) return `${String(diffSec)}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${String(diffMin)}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${String(diffHr)}h ago`;
-  return formatDateTime(timestamp, timezone);
+  return formatLocaleRelativeTime(timestamp, timezone, uiLocale());
 }
 
 export const TIMEZONE_OPTIONS = [

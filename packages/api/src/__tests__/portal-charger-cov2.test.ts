@@ -1320,6 +1320,15 @@ describe('Portal charger routes - remaining branches', () => {
         action: 'ReserveNow',
         payload: { evseId: 2, expiryDateTime: expiresAt, idToken: { idToken: DRIVER_ID } },
       });
+      // The notification formats the ISO timestamp in the driver's language and time zone.
+      expect(mockDispatchDriverNotification).toHaveBeenCalledWith(
+        expect.anything(),
+        'reservation.Created',
+        DRIVER_ID,
+        expect.objectContaining({ expiresAt }),
+        [],
+        expect.anything(),
+      );
     });
   });
 });

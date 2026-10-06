@@ -33,6 +33,7 @@ import { API_BASE_URL } from '@/lib/config';
 import { useAuth } from '@/lib/auth';
 import { useToast } from '@/components/ui/toast';
 import { PermissionEditor } from '@/components/PermissionEditor';
+import { formatDate, useUserTimezone } from '@/lib/timezone';
 
 const CODE_TABS = ['cURL', 'JavaScript', 'Python'] as const;
 type CodeTab = (typeof CODE_TABS)[number];
@@ -66,6 +67,7 @@ const EXPIRY_OPTIONS = [
 ] as const;
 
 export function ApiKeysSettings(): React.JSX.Element {
+  const timezone = useUserTimezone();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -244,10 +246,10 @@ print(data)`;
                       <TableCell className="text-muted-foreground">
                         {key.tokenSuffix != null ? `...${key.tokenSuffix}` : 'n/a'}
                       </TableCell>
-                      <TableCell>{new Date(key.createdAt).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDate(key.createdAt, timezone)}</TableCell>
                       <TableCell>
                         {key.lastUsedAt != null
-                          ? new Date(key.lastUsedAt).toLocaleDateString()
+                          ? formatDate(key.lastUsedAt, timezone)
                           : t('settings.apiKeyNeverUsed')}
                       </TableCell>
                       <TableCell>
@@ -256,7 +258,7 @@ print(data)`;
                         ) : isExpired(key.expiresAt) ? (
                           <Badge variant="destructive">{t('settings.apiKeyExpired')}</Badge>
                         ) : (
-                          new Date(key.expiresAt).toLocaleDateString()
+                          formatDate(key.expiresAt, timezone)
                         )}
                       </TableCell>
                       <TableCell className="text-right">
