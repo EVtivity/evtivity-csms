@@ -92,6 +92,7 @@ import {
   invoiceLineItems,
 } from './schema/index.js';
 import { acceptPendingFixtureStations } from './lib/fixture-stations.js';
+import { REBILL_DEMO_METHOD_ID } from './seed-demo-cards.js';
 import argon2 from 'argon2';
 import {
   encryptString,
@@ -1579,7 +1580,7 @@ async function seed(): Promise<void> {
     driverId: driver.id,
     provider: 'simulated',
     providerCustomerId: `cus_sim_${padNum(i + 1, 6)}`,
-    providerPaymentMethodId: `pm_sim_${padNum(i + 1, 6)}`,
+    providerPaymentMethodId: i === 0 ? REBILL_DEMO_METHOD_ID : `pm_sim_${padNum(i + 1, 6)}`,
     cardBrand: cardBrands[i % cardBrands.length] ?? 'visa',
     cardLast4: '4242',
     isDefault: true,
@@ -2614,7 +2615,8 @@ async function seed(): Promise<void> {
   // ------ Re-bill sessions (session detail Billing card) ------
   // One session the CSMS gave up ending (an operator can bill it) and one left
   // to manual billing after a declined re-bill, for the first demo driver
-  // (simulated saved card pm_sim_000001) on the first demo station.
+  // (simulated saved card REBILL_DEMO_METHOD_ID, always approved) on the first
+  // demo station.
   const [rebillTariff] = await db
     .select({
       id: tariffs.id,
@@ -2642,7 +2644,7 @@ async function seed(): Promise<void> {
       evseId: rebillEvse.id,
       driverId: at(createdDrivers, 0).id,
       customerId: `cus_sim_${padNum(1, 6)}`,
-      methodId: `pm_sim_${padNum(1, 6)}`,
+      methodId: REBILL_DEMO_METHOD_ID,
       currency: companyCurrency,
       tariff: rebillTariff,
       actorUserId: rebillActor?.id ?? null,
