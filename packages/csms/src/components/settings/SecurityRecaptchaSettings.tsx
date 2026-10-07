@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 interface Props {
   settings: Record<string, unknown> | undefined;
@@ -140,7 +141,9 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
             <p className="text-sm text-green-600">{t('settings.recaptchaSaved')}</p>
           )}
           {mutation.isError && (
-            <p className="text-sm text-destructive">{t('settings.recaptchaSaveFailed')}</p>
+            <p className="text-sm text-destructive">
+              {getErrorMessage(mutation.error, t, 'settings.recaptchaSaveFailed')}
+            </p>
           )}
         </form>
       </CardContent>

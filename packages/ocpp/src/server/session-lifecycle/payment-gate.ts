@@ -79,7 +79,15 @@ export type PaymentGateDecision =
     }
   | {
       kind: 'stop';
-      why: 'hold_declined' | 'hold_record_failed';
+      why: 'hold_declined';
+      reason: 'PaymentFailed';
+      /** `declined`: the provider refused the card. `provider_error`: the provider call failed. */
+      failure: 'declined' | 'provider_error';
+      notice: PreAuthFailedNotice;
+    }
+  | {
+      kind: 'stop';
+      why: 'hold_record_failed';
       reason: 'PaymentFailed';
       notice: PreAuthFailedNotice;
     }
@@ -183,6 +191,7 @@ export function decideAfterHold(outcome: HoldOutcome, driverId: string): Payment
         kind: 'stop',
         why: 'hold_declined',
         reason: 'PaymentFailed',
+        failure: outcome.failure,
         notice: { kind: 'preAuthFailed', driverId, reason: outcome.reason },
       };
     case 'record_failed':
@@ -285,10 +294,19 @@ function logStop(deps: ProjectionDeps, input: PaymentGateInput, decision: StopDe
       );
       return;
     case 'hold_declined':
-      logger.error(
-        { sessionId, reason: decision.notice.reason },
-        'Auto pre-auth failed, stopping session',
-      );
+      // A card decline is an expected driver outcome (warn). A provider
+      // failure (unreachable, rejected credentials) needs an operator (error).
+      if (decision.failure === 'declined') {
+        logger.warn(
+          { sessionId, reason: decision.notice.reason },
+          'Auto pre-auth declined, stopping session',
+        );
+      } else {
+        logger.error(
+          { sessionId, reason: decision.notice.reason },
+          'Auto pre-auth failed, stopping session',
+        );
+      }
       return;
     case 'hold_record_failed':
       return;

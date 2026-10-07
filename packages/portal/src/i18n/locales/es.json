@@ -659,6 +659,7 @@
     "RATE_LIMITED": "Demasiadas solicitudes. Espere un momento y vuelva a intentarlo.",
     "RECAPTCHA_FAILED": "Verificación de reCAPTCHA fallida",
     "RECAPTCHA_REQUIRED": "Se requiere token de reCAPTCHA",
+    "RECAPTCHA_SECRET_REQUIRED": "Se requiere una clave secreta de reCAPTCHA para activar reCAPTCHA",
     "REFUND_EXCEEDS_REMAINING": "El importe del reembolso excede el restante ...",
     "REFUND_TOP_UP_UNKNOWN": "Este pago incluye un cargo adicional sin ID de pago registrado. Reembolse ese cargo en el panel del proveedor de pago.",
     "REGION_NOT_FOUND": "Región no encontrada",

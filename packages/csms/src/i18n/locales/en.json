@@ -2697,6 +2697,7 @@
     "RATE_LIMITED": "Too many requests. Wait a moment and try again.",
     "RECAPTCHA_FAILED": "reCAPTCHA verification failed",
     "RECAPTCHA_REQUIRED": "reCAPTCHA token is required",
+    "RECAPTCHA_SECRET_REQUIRED": "A reCAPTCHA secret key is required to enable reCAPTCHA",
     "REFUND_EXCEEDS_REMAINING": "Refund amount exceeds remaining ...",
     "REFUND_TOP_UP_UNKNOWN": "This payment includes a top-up charge with no recorded payment id. Refund the top-up in the payment provider's dashboard.",
     "REGION_NOT_FOUND": "Region not found",

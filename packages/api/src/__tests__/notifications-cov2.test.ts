@@ -97,7 +97,6 @@ vi.mock('@evtivity/database', () => ({
   },
   notificationTemplates: {},
   driverEventSettings: {},
-  systemEventSettings: { eventType: 'sys.eventType' },
   ocppEventSettings: {},
   settings: {},
 }));
@@ -523,40 +522,14 @@ describe('Notification routes: validation, test sends, templates', () => {
     });
   });
 
-  describe('system event settings', () => {
-    it('lists system event settings', async () => {
-      setupDbResults([{ id: 3, eventType: 'site.PayoutOnboarding', isEnabled: true, ...TS }]);
-      const res = await req('GET', '/system-event-settings');
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual([
-        { id: 3, eventType: 'site.PayoutOnboarding', isEnabled: true, ...TS },
-      ]);
-    });
-
-    it('records a system event type without a switch', async () => {
-      setupDbResults([{ id: 4, eventType: 'site.PayoutOnboarding', isEnabled: true, ...TS }]);
-      const res = await req('PUT', '/system-event-settings', {
+  describe('system event settings (removed)', () => {
+    it('no longer serves GET or PUT /system-event-settings', async () => {
+      const getRes = await req('GET', '/system-event-settings');
+      expect(getRes.statusCode).toBe(404);
+      const putRes = await req('PUT', '/system-event-settings', {
         eventType: 'site.PayoutOnboarding',
       });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ id: 4, eventType: 'site.PayoutOnboarding' });
-      expect(chains[0]?.['values']).toHaveBeenCalledWith({ eventType: 'site.PayoutOnboarding' });
-      expect(chains[0]?.['onConflictDoUpdate']).toHaveBeenCalledWith(
-        expect.objectContaining({
-          target: ['sys.eventType'],
-          set: expect.not.objectContaining({ isEnabled: expect.anything() }),
-        }),
-      );
-    });
-
-    it('ignores isEnabled: system events are always on', async () => {
-      setupDbResults([{ id: 4, eventType: 'site.PayoutOnboarding', isEnabled: true, ...TS }]);
-      const res = await req('PUT', '/system-event-settings', {
-        eventType: 'site.PayoutOnboarding',
-        isEnabled: false,
-      });
-      expect(res.statusCode).toBe(200);
-      expect(chains[0]?.['values']).toHaveBeenCalledWith({ eventType: 'site.PayoutOnboarding' });
+      expect(putRes.statusCode).toBe(404);
     });
   });
 

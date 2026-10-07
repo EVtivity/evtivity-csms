@@ -146,12 +146,31 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
         body: zodSchema(recaptchaBody),
         response: {
           200: successResponse,
+          400: errorWith('Enabling reCAPTCHA without a secret key', [
+            ERROR_CODES.RECAPTCHA_SECRET_REQUIRED,
+          ]),
           500: errorWith('Encryption key missing', [ERROR_CODES.ENCRYPTION_KEY_MISSING]),
         },
       },
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof recaptchaBody>;
+      const secretKey = body.secretKey ?? '';
+      const secretSent = secretKey !== '';
+
+      // Enabled with no secret fails closed at runtime (recaptcha-check.ts), so
+      // protected portal routes would return 500. Refuse the save instead.
+      if (body.enabled && !secretSent) {
+        const stored = await loadCurrentValues(['security.recaptcha.secretKeyEnc']);
+        const storedSecret = stored.get('security.recaptcha.secretKeyEnc');
+        if (typeof storedSecret !== 'string' || storedSecret === '') {
+          await reply.status(400).send({
+            error: 'A reCAPTCHA secret key is required to enable reCAPTCHA',
+            code: 'RECAPTCHA_SECRET_REQUIRED',
+          });
+          return;
+        }
+      }
 
       const upsert = (key: string, value: unknown) =>
         db
@@ -168,9 +187,9 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
         { key: 'security.recaptcha.threshold', value: body.threshold },
       ];
 
-      if (body.secretKey !== undefined && body.secretKey !== '') {
+      if (secretSent) {
         try {
-          const encrypted = encryptString(body.secretKey, getEncryptionKey());
+          const encrypted = encryptString(secretKey, getEncryptionKey());
           written.push({ key: 'security.recaptcha.secretKeyEnc', value: encrypted });
         } catch (err) {
           request.log.error(

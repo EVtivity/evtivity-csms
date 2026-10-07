@@ -158,7 +158,11 @@ import {
 } from '../session-payments.js';
 import { fakeAdyenProvider, MODIFICATION_PSP } from '../testing/fake-adyen.js';
 import type { SessionHoldInput } from '../session-payments.js';
-import { PaymentDeclinedError, PaymentProviderNotConfiguredError } from '../errors.js';
+import {
+  PaymentDeclinedError,
+  PaymentProviderNotConfiguredError,
+  PaymentProviderUnavailableError,
+} from '../errors.js';
 import type { PaymentContext } from '../context.js';
 import type { PaymentRecord } from '../payment-records.js';
 import type { PaymentProviderRegistry } from '../registry.js';
@@ -497,6 +501,7 @@ describe('authorizeSessionHold', () => {
       outcome: 'declined',
       reason: 'This site cannot accept card payments yet',
       paymentRecordId: 78,
+      failure: 'declined',
       code: 'payout_account_not_ready',
     });
     expect(stripe.authorizeHold).not.toHaveBeenCalled();
@@ -546,6 +551,7 @@ describe('authorizeSessionHold', () => {
       outcome: 'declined',
       reason: 'Payment requires authentication',
       paymentRecordId: 78,
+      failure: 'declined',
     });
     const err = logger.warn.mock.calls[0]?.[0] as { err: unknown };
     expect(err.err).toBeInstanceOf(PaymentDeclinedError);
@@ -559,6 +565,7 @@ describe('authorizeSessionHold', () => {
       outcome: 'declined',
       reason: 'card_declined',
       paymentRecordId: 78,
+      failure: 'declined',
     });
     expect(h.recordFailedHold).toHaveBeenCalledWith({
       sessionId: 's1',
@@ -576,6 +583,17 @@ describe('authorizeSessionHold', () => {
       expect.objectContaining({ sessionId: 's1', trigger: 'projection_gate' }),
       'Session pre-authorization declined',
     );
+  });
+
+  it('marks a provider failure apart from a card decline', async () => {
+    h.results.push([METHOD], [{ currency: 'EUR' }]);
+    stripe.authorizeHold.mockRejectedValue(new PaymentProviderUnavailableError('provider down'));
+    expect(await authorizeSessionHold(input, ctx)).toEqual({
+      outcome: 'declined',
+      reason: 'provider down',
+      paymentRecordId: 78,
+      failure: 'provider_error',
+    });
   });
 
   it('records the hold amount of an operator decline, with a fallback reason', async () => {
@@ -597,6 +615,7 @@ describe('authorizeSessionHold', () => {
       outcome: 'declined',
       reason: 'declined',
       paymentRecordId: null,
+      failure: 'provider_error',
     });
     expect(logger.error).toHaveBeenCalledWith(
       { err: dbErr, sessionId: 's1' },

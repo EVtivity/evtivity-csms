@@ -12,7 +12,6 @@ import {
   notifications,
   notificationTemplates,
   driverEventSettings,
-  systemEventSettings,
   ocppEventSettings,
   settings,
 } from '@evtivity/database';
@@ -319,10 +318,6 @@ const driverEventSettingBody = z.object({
     .describe(
       'Whether the driver event type is sent. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, mfa.VerificationCode) cannot be turned off.',
     ),
-});
-
-const systemEventSettingBody = z.object({
-  eventType: z.string().max(255).describe('System event type identifier'),
 });
 
 const ocppEventSettingsBody = z.object({
@@ -1038,55 +1033,6 @@ export function notificationRoutes(app: FastifyInstance): void {
             isEnabled: body.isEnabled,
             updatedAt: new Date(),
           },
-        })
-        .returning();
-      return saved;
-    },
-  );
-
-  // --- System Event Settings ---
-
-  app.get(
-    '/system-event-settings',
-    {
-      onRequest: [authorize('notifications:read')],
-      schema: {
-        tags: ['Notifications'],
-        summary: 'List system event settings',
-        operationId: 'getSystemEventSettings',
-        security: [{ bearerAuth: [] }],
-        response: { 200: arrayResponse(eventToggleSettingItem) },
-      },
-    },
-    async () => {
-      const rows = await db.select().from(systemEventSettings);
-      return rows;
-    },
-  );
-
-  app.put(
-    '/system-event-settings',
-    {
-      onRequest: [authorize('notifications:write')],
-      schema: {
-        tags: ['Notifications'],
-        summary: 'Record a system event setting',
-        description:
-          'System notifications are always on. This records the event type; it has no on/off switch.',
-        operationId: 'updateSystemEventSettings',
-        security: [{ bearerAuth: [] }],
-        body: zodSchema(systemEventSettingBody),
-        response: { 200: itemResponse(eventToggleSettingItem) },
-      },
-    },
-    async (request) => {
-      const body = request.body as z.infer<typeof systemEventSettingBody>;
-      const [saved] = await db
-        .insert(systemEventSettings)
-        .values({ eventType: body.eventType })
-        .onConflictDoUpdate({
-          target: [systemEventSettings.eventType],
-          set: { updatedAt: new Date() },
         })
         .returning();
       return saved;

@@ -659,6 +659,7 @@
     "RATE_LIMITED": "請求過多。請稍候再試。",
     "RECAPTCHA_FAILED": "reCAPTCHA 驗證失敗",
     "RECAPTCHA_REQUIRED": "需要 reCAPTCHA 權杖",
+    "RECAPTCHA_SECRET_REQUIRED": "啟用 reCAPTCHA 需要 reCAPTCHA 密鑰",
     "REFUND_EXCEEDS_REMAINING": "退款金額超過剩餘可退款金額 ...",
     "REFUND_TOP_UP_UNKNOWN": "此付款包含一筆未記錄付款 ID 的補充扣款。請在支付服務商後台退還該筆扣款。",
     "REGION_NOT_FOUND": "找不到區域",

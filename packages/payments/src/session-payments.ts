@@ -102,13 +102,17 @@ export type HoldOutcome =
   | { outcome: 'exists'; paymentRecordId: number; status: PaymentStatus }
   /**
    * Declined or not authorizable off session; a `failed` record was written
-   * when none existed. `code` is set when the site's payout account is not
-   * ready (no provider call was made).
+   * when none existed. `failure` is `declined` when the provider refused the
+   * payment (card declined, authentication required) or the site's payout
+   * account is not ready (`code` set, no provider call was made), and
+   * `provider_error` when the provider call failed (unreachable, rejected
+   * credentials or configuration).
    */
   | {
       outcome: 'declined';
       reason: string;
       paymentRecordId: number | null;
+      failure: 'declined' | 'provider_error';
       code?: 'payout_account_not_ready';
     }
   /** The provider the method is pinned to is not available in this process. */
@@ -226,6 +230,7 @@ export async function authorizeSessionHold(
       outcome: 'declined',
       reason: PAYOUT_NOT_READY_REASON,
       paymentRecordId: recordId,
+      failure: 'declined',
       code: 'payout_account_not_ready',
     };
   }
@@ -265,7 +270,12 @@ export async function authorizeSessionHold(
         'Failed to record the declined pre-authorization',
       );
     }
-    return { outcome: 'declined', reason, paymentRecordId: recordId };
+    return {
+      outcome: 'declined',
+      reason,
+      paymentRecordId: recordId,
+      failure: err instanceof PaymentDeclinedError ? 'declined' : 'provider_error',
+    };
   }
 
   try {

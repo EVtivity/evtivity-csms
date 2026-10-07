@@ -189,6 +189,7 @@ export const ERROR_CODES = {
   RATE_LIMITED: 'RATE_LIMITED',
   RECAPTCHA_FAILED: 'RECAPTCHA_FAILED',
   RECAPTCHA_REQUIRED: 'RECAPTCHA_REQUIRED',
+  RECAPTCHA_SECRET_REQUIRED: 'RECAPTCHA_SECRET_REQUIRED',
   REFUND_EXCEEDS_REMAINING: 'REFUND_EXCEEDS_REMAINING',
   REFUND_TOP_UP_UNKNOWN: 'REFUND_TOP_UP_UNKNOWN',
   REGION_NOT_FOUND: 'REGION_NOT_FOUND',
@@ -450,6 +451,7 @@ export type ErrorCode =
   | 'RATE_LIMITED'
   | 'RECAPTCHA_FAILED'
   | 'RECAPTCHA_REQUIRED'
+  | 'RECAPTCHA_SECRET_REQUIRED'
   | 'REFUND_EXCEEDS_REMAINING'
   | 'REFUND_TOP_UP_UNKNOWN'
   | 'REGION_NOT_FOUND'
@@ -725,6 +727,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   RATE_LIMITED: 'Too many requests. Wait a moment and try again.',
   RECAPTCHA_FAILED: 'reCAPTCHA verification failed',
   RECAPTCHA_REQUIRED: 'reCAPTCHA token is required',
+  RECAPTCHA_SECRET_REQUIRED: 'A reCAPTCHA secret key is required to enable reCAPTCHA',
   REFUND_EXCEEDS_REMAINING: 'Refund amount exceeds remaining ...',
   REFUND_TOP_UP_UNKNOWN:
     "This payment includes a top-up charge with no recorded payment id. Refund the top-up in the payment provider's dashboard.",

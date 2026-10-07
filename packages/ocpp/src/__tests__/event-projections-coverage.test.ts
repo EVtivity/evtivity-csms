@@ -179,6 +179,7 @@ vi.mock('../server/notification-dispatcher.js', () => ({
 
 const mockDecryptString = vi.fn().mockReturnValue('sk_test_decrypted');
 const mockLoggerError = vi.fn();
+const mockLoggerWarn = vi.fn();
 
 vi.mock('@evtivity/lib', async () => {
   const actual = await vi.importActual<typeof import('@evtivity/lib')>('@evtivity/lib');
@@ -187,12 +188,12 @@ vi.mock('@evtivity/lib', async () => {
     decryptString: mockDecryptString,
     createLogger: () => ({
       info: vi.fn(),
-      warn: vi.fn(),
+      warn: mockLoggerWarn,
       error: mockLoggerError,
       debug: vi.fn(),
       child: () => ({
         info: vi.fn(),
-        warn: vi.fn(),
+        warn: mockLoggerWarn,
         error: mockLoggerError,
         debug: vi.fn(),
       }),
@@ -2645,15 +2646,21 @@ describe('Event projections - coverage expansion', () => {
         outcome: 'declined',
         reason: 'card_declined',
         paymentRecordId: 9,
+        failure: 'declined',
       });
       await setup();
       mockLoggerError.mockClear();
+      mockLoggerWarn.mockClear();
       setupSqlResults(...driverStartedResults());
 
       await emitDriverStarted('tx-decline');
 
-      expect(mockLoggerError).toHaveBeenCalledWith(
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
         { sessionId: 'session-preauth', reason: 'card_declined' },
+        'Auto pre-auth declined, stopping session',
+      );
+      expect(mockLoggerError).not.toHaveBeenCalledWith(
+        expect.anything(),
         'Auto pre-auth failed, stopping session',
       );
       const stops = stopCommands();
@@ -2685,6 +2692,7 @@ describe('Event projections - coverage expansion', () => {
         outcome: 'declined',
         reason: longReason,
         paymentRecordId: null,
+        failure: 'declined',
       });
       await setup();
       setupSqlResults(...driverStartedResults());
@@ -2737,6 +2745,7 @@ describe('Event projections - coverage expansion', () => {
         outcome: 'declined',
         reason: 'card_declined',
         paymentRecordId: 9,
+        failure: 'declined',
       });
       await setup();
       vi.mocked(mockPubSub.publish).mockRejectedValue(new Error('redis down'));
@@ -2751,7 +2760,12 @@ describe('Event projections - coverage expansion', () => {
     it.each([
       { outcome: { outcome: 'no_method' }, reason: 'MissingPaymentMethod' },
       {
-        outcome: { outcome: 'declined', reason: 'card_declined', paymentRecordId: 9 },
+        outcome: {
+          outcome: 'declined',
+          reason: 'card_declined',
+          paymentRecordId: 9,
+          failure: 'declined',
+        },
         reason: 'PaymentFailed',
       },
     ])(

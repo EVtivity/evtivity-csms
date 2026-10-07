@@ -1326,6 +1326,7 @@ describe('Payment routes - handler logic', () => {
         outcome: 'declined',
         reason: 'Your card was declined.',
         paymentRecordId: 1,
+        failure: 'declined',
       });
 
       const response = await preAuthorize();
@@ -1347,6 +1348,7 @@ describe('Payment routes - handler logic', () => {
         outcome: 'declined',
         reason: 'This site cannot accept card payments yet',
         paymentRecordId: 1,
+        failure: 'declined',
         code: 'payout_account_not_ready',
       });
 
@@ -1365,6 +1367,7 @@ describe('Payment routes - handler logic', () => {
         outcome: 'declined',
         reason: 'Card cannot be used off session',
         paymentRecordId: null,
+        failure: 'declined',
       });
 
       const response = await preAuthorize();

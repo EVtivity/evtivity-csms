@@ -2697,6 +2697,7 @@
     "RATE_LIMITED": "请求过多。请稍候再试。",
     "RECAPTCHA_FAILED": "reCAPTCHA 验证失败",
     "RECAPTCHA_REQUIRED": "需要 reCAPTCHA 令牌",
+    "RECAPTCHA_SECRET_REQUIRED": "启用 reCAPTCHA 需要 reCAPTCHA 密钥",
     "REFUND_EXCEEDS_REMAINING": "退款金额超过剩余 ...",
     "REFUND_TOP_UP_UNKNOWN": "此付款包含一笔未记录付款 ID 的补充扣款。请在支付服务商控制台中退还该笔扣款。",
     "REGION_NOT_FOUND": "未找到区域",

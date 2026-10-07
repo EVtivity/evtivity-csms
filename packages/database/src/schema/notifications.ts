@@ -90,18 +90,6 @@ export const driverEventSettings = pgTable(
   (table) => [unique('uq_driver_event_settings_event_type').on(table.eventType)],
 );
 
-export const systemEventSettings = pgTable(
-  'system_event_settings',
-  {
-    id: serial('id').primaryKey(),
-    eventType: varchar('event_type', { length: 255 }).notNull(),
-    isEnabled: boolean('is_enabled').notNull().default(true),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [unique('uq_system_event_settings_event_type').on(table.eventType)],
-);
-
 // Native push tokens registered by the mobile app (Expo / APNs / FCM). One row
 // per device token; the dispatcher fans a driver notification out to all of a
 // driver's tokens when push is enabled.

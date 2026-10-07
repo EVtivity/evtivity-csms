@@ -2697,6 +2697,7 @@
     "RATE_LIMITED": "Zu viele Anfragen. Warten Sie einen Moment und versuchen Sie es erneut.",
     "RECAPTCHA_FAILED": "reCAPTCHA-Verifizierung fehlgeschlagen",
     "RECAPTCHA_REQUIRED": "reCAPTCHA-Token ist erforderlich",
+    "RECAPTCHA_SECRET_REQUIRED": "Zum Aktivieren von reCAPTCHA ist ein reCAPTCHA-Geheimschlüssel erforderlich",
     "REFUND_EXCEEDS_REMAINING": "Erstattungsbetrag überschreitet den verbleibenden Betrag ...",
     "REFUND_TOP_UP_UNKNOWN": "Diese Zahlung enthält eine Nachbelastung ohne gespeicherte Zahlungs-ID. Erstatten Sie diese im Dashboard des Zahlungsanbieters.",
     "REGION_NOT_FOUND": "Region nicht gefunden",

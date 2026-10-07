@@ -997,6 +997,7 @@ describe('Portal charger routes - handler logic', () => {
         outcome: 'declined',
         reason: 'Your card was declined.',
         paymentRecordId: 3,
+        failure: 'declined',
       });
 
       const response = await startWithCard();

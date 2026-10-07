@@ -210,12 +210,28 @@ describe('decideAfterHold', () => {
       },
     ],
     [
-      { outcome: 'declined', reason: 'card_declined', paymentRecordId: 7 },
+      { outcome: 'declined', reason: 'card_declined', paymentRecordId: 7, failure: 'declined' },
       {
         kind: 'stop',
         why: 'hold_declined',
         reason: 'PaymentFailed',
+        failure: 'declined',
         notice: { kind: 'preAuthFailed', driverId: 'drv-1', reason: 'card_declined' },
+      },
+    ],
+    [
+      {
+        outcome: 'declined',
+        reason: 'provider unreachable',
+        paymentRecordId: 7,
+        failure: 'provider_error',
+      },
+      {
+        kind: 'stop',
+        why: 'hold_declined',
+        reason: 'PaymentFailed',
+        failure: 'provider_error',
+        notice: { kind: 'preAuthFailed', driverId: 'drv-1', reason: 'provider unreachable' },
       },
     ],
     [
@@ -223,12 +239,14 @@ describe('decideAfterHold', () => {
         outcome: 'declined',
         reason: 'Payout account not ready',
         paymentRecordId: null,
+        failure: 'declined',
         code: 'payout_account_not_ready',
       },
       {
         kind: 'stop',
         why: 'hold_declined',
         reason: 'PaymentFailed',
+        failure: 'declined',
         notice: { kind: 'preAuthFailed', driverId: 'drv-1', reason: 'Payout account not ready' },
       },
     ],
@@ -320,11 +338,31 @@ describe('runPaymentGate', () => {
     },
   );
 
-  it('logs, stops, then tracks the notice, then publishes, for a declined hold', async () => {
+  it('logs at warn, stops, then tracks the notice, then publishes, for a declined hold', async () => {
     mockAuthorizeSessionHold.mockResolvedValue({
       outcome: 'declined',
       reason: 'card_declined',
       paymentRecordId: 7,
+      failure: 'declined',
+    });
+
+    const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+    expect(decision).toMatchObject({ kind: 'stop', why: 'hold_declined' });
+    expect(calls).toEqual(['log', 'stop', 'track', 'publish']);
+    expect(logger.warn).toHaveBeenCalledWith(
+      { sessionId: 'sess-1', reason: 'card_declined' },
+      'Auto pre-auth declined, stopping session',
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('logs at error and stops when the provider call failed', async () => {
+    mockAuthorizeSessionHold.mockResolvedValue({
+      outcome: 'declined',
+      reason: 'provider unreachable',
+      paymentRecordId: 7,
+      failure: 'provider_error',
     });
 
     const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
@@ -332,7 +370,7 @@ describe('runPaymentGate', () => {
     expect(decision).toMatchObject({ kind: 'stop', why: 'hold_declined' });
     expect(calls).toEqual(['log', 'stop', 'track', 'publish']);
     expect(logger.error).toHaveBeenCalledWith(
-      { sessionId: 'sess-1', reason: 'card_declined' },
+      { sessionId: 'sess-1', reason: 'provider unreachable' },
       'Auto pre-auth failed, stopping session',
     );
   });

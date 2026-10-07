@@ -1114,6 +1114,13 @@
       "when": 1791000012099,
       "tag": "0158_drop_suffixless_secret_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 159,
+      "version": "7",
+      "when": 1791000012100,
+      "tag": "0159_drop_system_event_settings",
+      "breakpoints": true
     }
   ]
 }
