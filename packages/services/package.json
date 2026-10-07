@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/services",
-  "version": "0.1.40",
+  "version": "0.1.41-alpha.1",
   "private": true,
   "type": "module",
   "exports": {
