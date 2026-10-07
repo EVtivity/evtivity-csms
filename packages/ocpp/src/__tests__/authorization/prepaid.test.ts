@@ -8,7 +8,7 @@ import {
   prepaidCredit,
   prepaidMaxCost,
   rememberPrepaidAuthorization,
-} from '../../handlers/prepaid.js';
+} from '../../authorization/prepaid.js';
 
 beforeEach(() => {
   clearPrepaidAuthorizations();

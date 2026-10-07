@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
-import { clearPrepaidAuthorizations, prepaidCacheExpiry } from '../../../handlers/prepaid.js';
+import { clearPrepaidAuthorizations, prepaidCacheExpiry } from '../../../authorization/prepaid.js';
 
 // db.select(...).from(...).where(...) is used for three different lookups in
 // the handler: driver_tokens (no .limit), ocpi_external_tokens (.limit(1)) and

@@ -83,7 +83,10 @@ export async function logAuthorizeAttempt(
         }),
       );
     } catch (err) {
-      logger.debug({ err }, 'authorize.attempt SSE publish failed; continuing');
+      logger.warn(
+        { err, stationId: args.stationId },
+        'authorize.attempt SSE publish failed; the Authorize Log page will not refresh itself',
+      );
     }
   }
 }

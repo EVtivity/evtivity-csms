@@ -19,7 +19,7 @@ import {
   parseOcpiValidThru,
   setAuthorizeLogPubSub,
   type AuthorizeOutcome,
-} from '../../handlers/authorize-log.js';
+} from '../../authorization/authorize-log.js';
 import type { PubSubClient } from '@evtivity/lib';
 
 const logger = pino({ level: 'silent' });

@@ -146,6 +146,45 @@ export default tseslint.config(
       ],
     },
   },
+  // Token authorization runs through the shared pipeline (packages/ocpp/src/authorization/):
+  // OCPP code outside it records decisions with recordAuthorizeDecision, never
+  // logAuthorizeAttempt (start.ts still wires setAuthorizeLogPubSub), and the
+  // pipeline stays version-neutral (no generated OCPP types).
+  {
+    files: ['packages/ocpp/src/**/*.ts'],
+    ignores: ['packages/ocpp/src/authorization/**', '**/__tests__/**', '**/__integration__/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: 'authorization/authorize-log\\.js$',
+              importNames: ['logAuthorizeAttempt'],
+              message:
+                'Record authorize decisions with recordAuthorizeDecision from authorization/authorize-token.js.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/ocpp/src/authorization/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/generated/**'],
+              message: 'The authorize pipeline is version-neutral: map OCPP types in the adapters.',
+            },
+          ],
+        },
+      ],
+    },
+  },
   {
     // Playwright E2E code (private repo only) is type-checked by e2e/tsconfig.json,
     // which the per-package tsconfigs found by the project service do not include.

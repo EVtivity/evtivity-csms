@@ -143,7 +143,7 @@ describe('OCPP 1.6 Authorize handler', () => {
       expect(lastAttemptRow()).toMatchObject({
         outcome: 'accepted',
         reason: 'free_vend',
-        tokenType: null,
+        tokenType: 'ISO14443',
         matchedTokenId: 'dtk_fv',
         matchedDriverId: 'drv_fv',
       });
@@ -224,7 +224,7 @@ describe('OCPP 1.6 Authorize handler', () => {
         matchedTokenId: 'dtk_ok',
         matchedDriverId: 'drv_ok',
         tokenType: 'ISO14443',
-        reason: null,
+        reason: 'active',
       });
     });
 
@@ -288,7 +288,7 @@ describe('OCPP 1.6 Authorize handler', () => {
       expect(response).toEqual({ idTagInfo: { status: 'Blocked' } });
       expect(lastAttemptRow()).toMatchObject({
         outcome: 'blocked',
-        reason: 'inactive_or_revoked',
+        reason: 'inactive',
         matchedTokenId: 'dtk_inact',
       });
     });
@@ -310,7 +310,7 @@ describe('OCPP 1.6 Authorize handler', () => {
       const response = await handleAuthorize(ctx);
 
       expect(response).toEqual({ idTagInfo: { status: 'Blocked' } });
-      expect(lastAttemptRow()).toMatchObject({ outcome: 'blocked', reason: 'inactive_or_revoked' });
+      expect(lastAttemptRow()).toMatchObject({ outcome: 'blocked', reason: 'revoked' });
     });
 
     it('prefers the usable token when both usable and unusable rows match', async () => {
@@ -399,7 +399,7 @@ describe('OCPP 1.6 Authorize handler', () => {
         outcome: 'accepted',
         reason: 'driver_id',
         matchedDriverId: 'drv_123',
-        tokenType: null,
+        tokenType: 'ISO14443',
       });
     });
 
@@ -654,8 +654,8 @@ describe('OCPP 1.6 Authorize handler', () => {
         idTagInfo: { status: 'Accepted', expiryDate: future.toISOString() },
       });
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ idTag: 'WARN-TAG' }),
-        'Concurrent-tx lookup failed (1.6)',
+        expect.objectContaining({ idToken: 'WARN-TAG' }),
+        'Concurrent transaction lookup failed; keeping the decision',
       );
       expect(lastAttemptRow()).toMatchObject({ outcome: 'accepted' });
       warnSpy.mockRestore();

@@ -54,11 +54,13 @@ export const TC_C_20_CSMS: TestCase = {
     const idTokenInfo = txRes['idTokenInfo'] as Record<string, unknown> | undefined;
     const authStatus = idTokenInfo?.['status'] as string | undefined;
 
+    // The CSMS checks the idToken of the TransactionEvent (C12.FR.03): an
+    // unknown token is Invalid or Unknown (C12 tool validation, step 2).
     steps.push({
       step: 2,
       description: 'Send TransactionEvent Updated with invalid cached idToken',
-      status: authStatus === 'Accepted' ? 'passed' : 'failed',
-      expected: 'idTokenInfo.status = Accepted',
+      status: authStatus === 'Invalid' || authStatus === 'Unknown' ? 'passed' : 'failed',
+      expected: 'idTokenInfo.status = Invalid or Unknown',
       actual: `idTokenInfo.status = ${String(authStatus)}`,
     });
 

@@ -756,14 +756,14 @@ describe('StatusNotification handler', () => {
 });
 
 describe('TransactionEvent handler', () => {
-  it('returns idTokenInfo Accepted for Started events with idToken', async () => {
+  it('returns idTokenInfo Accepted for Started events with a CSMS-issued idToken', async () => {
     const { ctx, publishMock } = makeCtx('TransactionEvent', {
       eventType: 'Started',
       timestamp: '2024-01-01T00:00:00Z',
       triggerReason: 'Authorized',
       seqNo: 0,
       transactionInfo: { transactionId: 'tx-1' },
-      idToken: { idToken: 'TEST-TOKEN-001', type: 'ISO14443' },
+      idToken: { idToken: 'TEST-TOKEN-001', type: 'Central' },
     });
     const response = await handleTransactionEvent(ctx);
     // The handler returns groupIdToken when the token is not blocked/expired
@@ -771,7 +771,7 @@ describe('TransactionEvent handler', () => {
     expect(response).toEqual({
       idTokenInfo: {
         status: 'Accepted',
-        groupIdToken: { idToken: 'TEST-TOKEN-001', type: 'ISO14443' },
+        groupIdToken: { idToken: 'TEST-TOKEN-001', type: 'Central' },
       },
     });
     expect(publishMock).toHaveBeenCalledWith(

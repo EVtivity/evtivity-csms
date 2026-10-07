@@ -1,13 +1,18 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and } from 'drizzle-orm';
-import { client, db, driverTokens } from '@evtivity/database';
+import { client } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { TransactionEventRequest } from '../../generated/v2_1/types/messages/TransactionEventRequest.js';
 import type { TransactionEventResponse } from '../../generated/v2_1/types/messages/TransactionEventResponse.js';
-import { logAuthorizeAttempt } from '../authorize-log.js';
-import { prepaidCacheExpiry, prepaidCredit, prepaidMaxCost } from '../prepaid.js';
+import { prepaidCacheExpiry, prepaidMaxCost } from '../../authorization/prepaid.js';
+import type { AuthorizeTokenInput } from '../../authorization/authorize-context.js';
+import {
+  authorizeToken,
+  logAuthorizeDecision,
+  recordAuthorizeDecision,
+} from '../../authorization/authorize-token.js';
+import { groupIdTokenFor, idTokenStatusFor } from './id-token-info.js';
 import { findAdHocTransactionLimit } from '../ad-hoc-payment-limit.js';
 import { limitToSupported, stationSupportedLimits } from '../supported-limits.js';
 import type { TransactionLimitType } from '../../generated/v2_1/types/common/TransactionLimitType.js';
@@ -129,96 +134,47 @@ export async function handleTransactionEvent(
   }
 
   // Per OCPP 2.1 spec, include idTokenInfo when the request contains an idToken.
-  // Stations may suspend charging when idTokenInfo is missing. We mirror the
-  // Authorize handler's column-driven status so a card revoked or expired
+  // Stations may suspend charging when idTokenInfo is missing. The token goes
+  // through the shared authorize pipeline so a card revoked or expired
   // mid-session sends the station an explicit Blocked/Expired and lets it
   // abort, rather than a stale Accepted from a hardcoded response.
   if (request.idToken != null) {
     const { idToken, type: tokenType } = request.idToken;
-    let groupIdToken: { idToken: string; type: string } | undefined;
-    let status: TransactionEventResponse['idTokenInfo'] extends infer T
-      ? T extends { status: infer S }
-        ? S
-        : never
-      : never = 'Accepted';
-    let matchedTokenId: string | null = null;
-    let matchedDriverId: string | null = null;
-    let matchedExpiresAt: Date | null = null;
-    let matchedPrepaidBalanceCents: number | null = null;
-    let outcome: 'accepted' | 'blocked' | 'expired' | 'no_credit' | 'unknown' | 'db_error' =
-      'accepted';
-    let reason: string | null = null;
-
-    try {
-      const [token] = await db
-        .select({
-          id: driverTokens.id,
-          driverId: driverTokens.driverId,
-          isActive: driverTokens.isActive,
-          expiresAt: driverTokens.expiresAt,
-          revokedAt: driverTokens.revokedAt,
-          prepaidBalanceCents: driverTokens.prepaidBalanceCents,
-        })
-        .from(driverTokens)
-        .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
-
-      if (token != null) {
-        matchedTokenId = token.id;
-        matchedDriverId = token.driverId ?? null;
-        const now = new Date();
-        if (!token.isActive || token.revokedAt != null) {
-          status = 'Blocked';
-          outcome = 'blocked';
-          reason = token.revokedAt != null ? 'revoked' : 'inactive';
-        } else if (token.expiresAt != null && token.expiresAt.getTime() <= now.getTime()) {
-          status = 'Expired';
-          outcome = 'expired';
-          reason = 'expired';
-        } else {
-          groupIdToken = { idToken, type: tokenType };
-          matchedExpiresAt = token.expiresAt;
-          matchedPrepaidBalanceCents = token.prepaidBalanceCents ?? null;
-        }
-      } else {
-        // No row in driver_tokens. For Central/Local types this is expected
-        // (CSMS-issued or station-local tokens). Accept without group.
-        groupIdToken = { idToken, type: tokenType };
-        outcome = 'unknown';
-        reason = 'no_match';
-      }
-    } catch (err) {
-      ctx.logger.warn(
-        { err, stationId: ctx.stationId, idToken },
-        'Token lookup failed on TransactionEvent; accepting without groupIdToken',
-      );
-      outcome = 'db_error';
-      reason = 'db_unreachable';
-    }
+    const input: AuthorizeTokenInput = {
+      stationId: ctx.stationId,
+      stationDbId: ctx.stationDbId,
+      evseId: request.evse?.id ?? null,
+      token: { value: idToken, type: tokenType },
+      context: request.eventType === 'Started' ? 'tx_start' : 'tx_update',
+      ocppVersion: 'ocpp2.1',
+    };
+    const decision = await authorizeToken(input, ctx.logger);
+    logAuthorizeDecision(input, decision, ctx.logger);
+    const status = idTokenStatusFor(decision);
+    const groupIdToken = groupIdTokenFor(decision, idToken, tokenType);
 
     // Prepaid token (C17): the remaining credit is the transaction's cost
     // limit (C17.FR.03), sent once: stations send the idToken only in the event
     // after authorization. The cacheExpiryDateTime repeats the Authorize one.
     let prepaidExpiry: string | undefined;
     let transactionLimit: TransactionLimitType | null = null;
-    const credit =
-      status === 'Accepted' ? prepaidCredit(matchedPrepaidBalanceCents) : 'not_prepaid';
-    if (credit === 'credit' && matchedPrepaidBalanceCents != null) {
+    if (decision.status === 'accepted' && decision.prepaid) {
       prepaidExpiry = prepaidCacheExpiry(ctx.stationId, idToken);
-      if (request.eventType !== 'Ended') {
-        transactionLimit = { maxCost: prepaidMaxCost(matchedPrepaidBalanceCents) };
+      if (request.eventType !== 'Ended' && decision.prepaidBalanceCents != null) {
+        transactionLimit = { maxCost: prepaidMaxCost(decision.prepaidBalanceCents) };
       }
-    } else if (credit === 'no_credit') {
+    } else if (decision.status === 'no_credit') {
       prepaidExpiry = new Date().toISOString();
-      status = 'NoCredit';
-      outcome = 'no_credit';
-      reason = 'no_credit';
-      groupIdToken = undefined;
     }
 
     // Ad hoc payment (C24 payment terminal, C25 QR code): the CSMS started the
     // transaction with the payment's idToken and returns its limit when the
     // transaction starts (C24.FR.02, C25.FR.24).
-    if (request.eventType === 'Started' && matchedTokenId == null && status === 'Accepted') {
+    if (
+      request.eventType === 'Started' &&
+      decision.matchedTokenId == null &&
+      decision.status === 'accepted'
+    ) {
       try {
         transactionLimit = await findAdHocTransactionLimit(ctx.stationId, idToken);
       } catch (err) {
@@ -239,29 +195,16 @@ export async function handleTransactionEvent(
       ...(groupIdToken != null ? { groupIdToken } : {}),
       ...(prepaidExpiry != null
         ? { cacheExpiryDateTime: prepaidExpiry }
-        : status === 'Accepted' && matchedExpiresAt != null
-          ? { cacheExpiryDateTime: matchedExpiresAt.toISOString() }
+        : decision.status === 'accepted' && decision.expiresAt != null
+          ? { cacheExpiryDateTime: decision.expiresAt.toISOString() }
           : {}),
     };
 
-    // Forensic log on session start only: stations using LocalAuthList skip
-    // the Authorize call and come straight to TransactionEvent[Started],
-    // so this is the only record of the authorization decision for those
-    // flows. Mirrors the 1.6 StartTransaction logging path.
+    // Attempts log on session start only: stations using LocalAuthList skip
+    // the Authorize call and come straight to TransactionEvent[Started], so
+    // this is the only record of the authorization decision for those flows.
     if (request.eventType === 'Started') {
-      void logAuthorizeAttempt(
-        {
-          stationId: ctx.stationId,
-          idToken,
-          tokenType,
-          matchedTokenId,
-          matchedDriverId,
-          outcome,
-          ocppVersion: 'ocpp2.1',
-          reason,
-        },
-        ctx.logger,
-      );
+      recordAuthorizeDecision(input, decision, ctx.logger);
     }
   }
 

@@ -26,7 +26,9 @@ vi.mock('@evtivity/database', () => {
     },
     chargingSessions: { id: 'id', tokenId: 'token_id', status: 'status' },
     authorizeAttempts: { __table: 'authorize_attempts' },
+    ocpiExternalTokens: { uid: 'uid', isValid: 'is_valid', whitelist: 'whitelist' },
     isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
+    isRoamingEnabled: vi.fn().mockResolvedValue(false),
   };
 });
 
@@ -447,7 +449,7 @@ describe('OCPP 1.6 StartTransaction handler', () => {
       expect(response.idTagInfo).toEqual({ status: 'Blocked' });
       expect(lastAttemptRow()).toMatchObject({
         outcome: 'blocked',
-        reason: 'inactive_or_revoked',
+        reason: 'inactive',
         matchedTokenId: 'dtk_x',
       });
     });
@@ -617,8 +619,8 @@ describe('OCPP 1.6 StartTransaction handler', () => {
         expiryDate: future.toISOString(),
       });
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ idTag: 'WARN-TAG' }),
-        'Concurrent-tx lookup failed (1.6 start)',
+        expect.objectContaining({ idToken: 'WARN-TAG' }),
+        'Concurrent transaction lookup failed; keeping the decision',
       );
       warnSpy.mockRestore();
     });

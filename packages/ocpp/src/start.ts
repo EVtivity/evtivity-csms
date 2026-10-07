@@ -19,7 +19,7 @@ import { registerProjections } from './server/event-projections.js';
 import { subscribeOcppEventSettingsInvalidation } from './server/notification-dispatcher.js';
 import { subscribePncCommands } from './services/pki/root-certificate-refresh.js';
 import { startSessionEndSweep, subscribeSessionEndRequests } from './server/csms-session-end.js';
-import { setAuthorizeLogPubSub } from './handlers/authorize-log.js';
+import { setAuthorizeLogPubSub } from './authorization/authorize-log.js';
 import { setPaymentPubSub } from './lib/payments.js';
 import { config } from './lib/config.js';
 import { connectionAuthLimitsFromConfig } from './server/connection-auth-limiter.js';

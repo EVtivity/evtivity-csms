@@ -95,11 +95,11 @@ function makeCtx(payload: Record<string, unknown>): {
 
 // Imported once, not in the first test: loading the module graph can exceed the 5 s test timeout under load.
 let transactionEventHandlerModule: typeof import('../../../handlers/v2_1/transaction-event.handler.js');
-let prepaidModule: typeof import('../../../handlers/prepaid.js');
+let prepaidModule: typeof import('../../../authorization/prepaid.js');
 beforeAll(async () => {
   transactionEventHandlerModule =
     await import('../../../handlers/v2_1/transaction-event.handler.js');
-  prepaidModule = await import('../../../handlers/prepaid.js');
+  prepaidModule = await import('../../../authorization/prepaid.js');
 }, 30_000);
 
 beforeEach(() => {

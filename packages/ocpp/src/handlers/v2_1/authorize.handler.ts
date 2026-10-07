@@ -1,15 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and } from 'drizzle-orm';
 import {
-  db,
   client,
-  driverTokens,
-  ocpiExternalTokens,
-  chargingSessions,
-  isRoamingEnabled,
-  isSiteFreeVendEnabledByStation,
   getCompanyCurrency,
   getCompanyTaxBasis,
   resolveStationTariff,
@@ -18,25 +11,26 @@ import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
 import type { AuthorizeResponse } from '../../generated/v2_1/types/messages/AuthorizeResponse.js';
 import { netUnitPrice, vatPercentFromFraction, type Logger } from '@evtivity/lib';
-import { logAuthorizeAttempt, parseOcpiValidThru } from '../authorize-log.js';
 import {
   applyContractCertificateVerdict,
   validateContractCertificate,
   type ContractCertificateVerdict,
 } from '../../services/pki/contract-certificate-validation.js';
-import { prepaidCredit, rememberPrepaidAuthorization } from '../prepaid.js';
+import { rememberPrepaidAuthorization } from '../../authorization/prepaid.js';
+import type { AuthorizeTokenInput } from '../../authorization/authorize-context.js';
+import {
+  authorizeToken,
+  logAuthorizeDecision,
+  recordAuthorizeDecision,
+} from '../../authorization/authorize-token.js';
+import { groupIdTokenFor, idTokenStatusFor } from './id-token-info.js';
 
-// Tokens of these types may be generated on the fly (portal remote start) and
-// are accepted when not present in driver_tokens. Inactive matches still block.
-const ACCEPT_WHEN_NOT_FOUND = new Set(['Central', 'Local', 'NoAuthorization']);
-
-// Token types accepted unconditionally without DB lookup.
-// MasterPass: stop-any-transaction admin token (OCPP 2.1 spec).
-// DirectPayment: payment terminal handles authorization.
-// An eMAID is looked up like any other token: C07 checks both the contract
-// certificate (below) and the eMAID itself (C07.FR.13).
-const ACCEPT_WITHOUT_LOOKUP = new Set(['MasterPass', 'DirectPayment']);
-
+/**
+ * OCPP 2.1 Authorize: an adapter over the shared authorize pipeline. Around
+ * the decision it runs the C07 contract certificate check, remembers a prepaid
+ * authorization for the TransactionEventResponse (C17), and resolves the
+ * tariff the station shows.
+ */
 export async function handleAuthorize(ctx: HandlerContext): Promise<Record<string, unknown>> {
   const request = ctx.payload as unknown as AuthorizeRequest;
   const { idToken, type: tokenType } = request.idToken;
@@ -50,227 +44,27 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     payload: { idToken, tokenType, stationId: ctx.stationId },
   });
 
-  // Free-vend short-circuit. Cached at 60s so the per-station hot path
-  // does not pay a JOIN on every authorize.
-  if (await isSiteFreeVendEnabledByStation(ctx.stationId)) {
-    ctx.logger.info({ stationId: ctx.stationId, idToken, tokenType }, 'Free vend site, accepting');
-    // Best-effort match against driver_tokens so the forensic log still
-    // links a free-vend swipe to a registered driver when the operator
-    // taps a known card. Failure here doesn't block the accept.
-    let freeVendMatchedTokenId: string | null = null;
-    let freeVendMatchedDriverId: string | null = null;
-    try {
-      const [row] = await db
-        .select({ id: driverTokens.id, driverId: driverTokens.driverId })
-        .from(driverTokens)
-        .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
-      if (row != null) {
-        freeVendMatchedTokenId = row.id;
-        freeVendMatchedDriverId = row.driverId ?? null;
-      }
-    } catch (err) {
-      ctx.logger.warn(
-        { err, stationId: ctx.stationId, idToken },
-        'Free-vend matched-token lookup failed; accepting without match',
-      );
-    }
-    void logAuthorizeAttempt(
-      {
-        stationId: ctx.stationId,
-        idToken,
-        tokenType,
-        matchedTokenId: freeVendMatchedTokenId,
-        matchedDriverId: freeVendMatchedDriverId,
-        outcome: 'accepted',
-        ocppVersion: 'ocpp2.1',
-        reason: 'free_vend',
-      },
-      ctx.logger,
-    );
+  const input: AuthorizeTokenInput = {
+    stationId: ctx.stationId,
+    stationDbId: ctx.stationDbId,
+    evseId: null,
+    token: { value: idToken, type: tokenType },
+    context: 'authorize',
+    ocppVersion: 'ocpp2.1',
+  };
+  let decision = await authorizeToken(input, ctx.logger);
+
+  // Free vend accepts any token as is: no certificate check, tariff or cache expiry.
+  if (decision.source === 'free_vend') {
+    logAuthorizeDecision(input, decision, ctx.logger);
+    recordAuthorizeDecision(input, decision, ctx.logger);
     const fvResponse: AuthorizeResponse = { idTokenInfo: { status: 'Accepted' } };
     return fvResponse as unknown as Record<string, unknown>;
   }
 
-  let status: AuthorizeResponse['idTokenInfo']['status'] = 'Accepted';
-  let outcome:
-    | 'accepted'
-    | 'invalid'
-    | 'blocked'
-    | 'expired'
-    | 'no_credit'
-    | 'concurrent_tx'
-    | 'unknown'
-    | 'db_error' = 'accepted';
-  let matchedTokenId: string | null = null;
-  let matchedDriverId: string | null = null;
-  let logReason: string | null = null;
-
-  let groupIdToken: AuthorizeResponse['idTokenInfo']['groupIdToken'] | undefined;
+  let status = idTokenStatusFor(decision);
+  let groupIdToken = groupIdTokenFor(decision, idToken, tokenType);
   let certificateStatus: AuthorizeResponse['certificateStatus'] | undefined;
-  let matchedExpiresAt: Date | null = null;
-  let matchedPrepaidBalanceCents: number | null = null;
-
-  if (ACCEPT_WITHOUT_LOOKUP.has(tokenType)) {
-    ctx.logger.info(
-      { stationId: ctx.stationId, idToken, tokenType },
-      `Token type ${tokenType} accepted without lookup`,
-    );
-    groupIdToken = { idToken, type: tokenType };
-    logReason = 'no_lookup_type';
-  } else if (tokenType !== 'NoAuthorization') {
-    try {
-      const [token] = await db
-        .select({
-          id: driverTokens.id,
-          driverId: driverTokens.driverId,
-          isActive: driverTokens.isActive,
-          expiresAt: driverTokens.expiresAt,
-          revokedAt: driverTokens.revokedAt,
-          prepaidBalanceCents: driverTokens.prepaidBalanceCents,
-        })
-        .from(driverTokens)
-        .where(and(eq(driverTokens.idToken, idToken), eq(driverTokens.tokenType, tokenType)));
-
-      if (token == null && !ACCEPT_WHEN_NOT_FOUND.has(tokenType)) {
-        // OCPI 2.2.1+: gate on `is_valid` AND `whitelist != NEVER` AND any
-        // `valid_thru` in tokenData JSONB still being in the future. Any of
-        // those failing produces Blocked / Expired.
-        let externalToken: { isValid: boolean; whitelist: string; tokenData: unknown } | undefined;
-        if (await isRoamingEnabled()) {
-          try {
-            [externalToken] = await db
-              .select({
-                isValid: ocpiExternalTokens.isValid,
-                whitelist: ocpiExternalTokens.whitelist,
-                tokenData: ocpiExternalTokens.tokenData,
-              })
-              .from(ocpiExternalTokens)
-              .where(eq(ocpiExternalTokens.uid, idToken))
-              .limit(1);
-          } catch (err) {
-            ctx.logger.debug(
-              { err, idToken },
-              'OCPI external-token lookup failed; OCPI tables may not exist',
-            );
-          }
-        }
-        if (externalToken != null) {
-          const validThru = parseOcpiValidThru(externalToken.tokenData);
-          const expiredByValidThru = validThru != null && validThru.getTime() <= Date.now();
-          const allowed =
-            externalToken.isValid && externalToken.whitelist !== 'NEVER' && !expiredByValidThru;
-          if (expiredByValidThru) {
-            status = 'Expired';
-            outcome = 'expired';
-            logReason = 'ocpi_external_valid_thru_expired';
-          } else {
-            status = allowed ? 'Accepted' : 'Blocked';
-            outcome = allowed ? 'accepted' : 'blocked';
-            logReason = allowed
-              ? 'ocpi_external'
-              : `ocpi_external_${externalToken.whitelist.toLowerCase()}`;
-          }
-          ctx.logger.info(
-            {
-              stationId: ctx.stationId,
-              idToken,
-              tokenType,
-              whitelist: externalToken.whitelist,
-              validThru,
-            },
-            `OCPI external token ${status}`,
-          );
-        } else {
-          status = 'Invalid';
-          outcome = 'unknown';
-          logReason = 'token_not_found';
-          ctx.logger.info({ stationId: ctx.stationId, idToken, tokenType }, 'Token not found');
-        }
-      } else if (token != null) {
-        const now = new Date();
-        if (!token.isActive || token.revokedAt != null) {
-          status = 'Blocked';
-          outcome = 'blocked';
-          matchedTokenId = token.id;
-          matchedDriverId = token.driverId;
-          logReason = 'inactive_or_revoked';
-          ctx.logger.info(
-            { stationId: ctx.stationId, idToken, tokenType },
-            'Token blocked (inactive/revoked)',
-          );
-        } else if (token.expiresAt != null && token.expiresAt.getTime() <= now.getTime()) {
-          status = 'Expired';
-          outcome = 'expired';
-          matchedTokenId = token.id;
-          matchedDriverId = token.driverId;
-          logReason = 'expired_at';
-          ctx.logger.info({ stationId: ctx.stationId, idToken, tokenType }, 'Token expired');
-        } else {
-          matchedTokenId = token.id;
-          matchedDriverId = token.driverId;
-          matchedExpiresAt = token.expiresAt;
-          matchedPrepaidBalanceCents = token.prepaidBalanceCents ?? null;
-          groupIdToken = { idToken, type: tokenType };
-          logReason = 'active';
-        }
-      } else {
-        // ACCEPT_WHEN_NOT_FOUND, no row -> accept
-        groupIdToken = { idToken, type: tokenType };
-        logReason = 'accept_when_not_found';
-      }
-    } catch (err) {
-      ctx.logger.error(
-        { stationId: ctx.stationId, idToken, tokenType, err },
-        'Token lookup failed, accepting by default',
-      );
-      status = 'Accepted';
-      outcome = 'db_error';
-      logReason = 'db_unreachable';
-    }
-  } else {
-    logReason = 'no_authorization';
-  }
-
-  // Concurrent-tx check: a token already mid-transaction must not start a
-  // second one. Only check matched driver_tokens rows -- OCPI/guest/no-lookup
-  // paths don't write `charging_sessions.token_id` so the join would be moot.
-  if (status === 'Accepted' && matchedTokenId != null) {
-    try {
-      const [activeSession] = await db
-        .select({ id: chargingSessions.id })
-        .from(chargingSessions)
-        .where(
-          and(eq(chargingSessions.tokenId, matchedTokenId), eq(chargingSessions.status, 'active')),
-        )
-        .limit(1);
-      if (activeSession != null) {
-        status = 'ConcurrentTx';
-        outcome = 'concurrent_tx';
-        logReason = `concurrent_session ${activeSession.id}`;
-        groupIdToken = undefined;
-        ctx.logger.info(
-          { stationId: ctx.stationId, idToken, tokenType, conflictingSessionId: activeSession.id },
-          'Token rejected: concurrent transaction',
-        );
-      }
-    } catch (err) {
-      ctx.logger.warn({ err, idToken }, 'Concurrent-tx lookup failed');
-    }
-  }
-
-  // Prepaid token (C17.FR.01/02): NoCredit when the balance is not positive,
-  // and cacheExpiryDateTime = now either way so the station does not cache it.
-  let prepaidExpiry: string | undefined;
-  const credit = status === 'Accepted' ? prepaidCredit(matchedPrepaidBalanceCents) : 'not_prepaid';
-  if (credit !== 'not_prepaid') {
-    prepaidExpiry = rememberPrepaidAuthorization(ctx.stationId, idToken);
-    if (credit === 'no_credit') {
-      status = 'NoCredit';
-      outcome = 'no_credit';
-      logReason = 'no_credit';
-      groupIdToken = undefined;
-    }
-  }
 
   // C07: a contract certificate chain (hash data or PEM chain) is checked via
   // OCSP whatever the token type, and a bad chain overrides the token status
@@ -301,8 +95,14 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     certificateStatus = applied.certificateStatus;
     if (applied.status !== status) {
       status = applied.status;
-      outcome = status === 'Expired' ? 'expired' : 'invalid';
-      logReason = `contract_certificate_${verdict}`;
+      const rejected = status === 'Expired' ? 'expired' : 'invalid';
+      decision = {
+        ...decision,
+        status: rejected,
+        outcome: rejected,
+        reason: `contract_certificate_${verdict}`,
+        echoGroupId: false,
+      };
       groupIdToken = undefined;
     }
     ctx.logger.info(
@@ -311,11 +111,22 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     );
   }
 
+  // Prepaid token (C17.FR.01/02): cacheExpiryDateTime = now so the station
+  // does not cache it, remembered for the TransactionEventResponse. After C07:
+  // a token the contract certificate check rejected is not remembered.
+  const prepaidExpiry =
+    decision.prepaid && (status === 'Accepted' || status === 'NoCredit')
+      ? rememberPrepaidAuthorization(ctx.stationId, idToken)
+      : undefined;
+
+  // Logged after C07 so the line names the final status.
+  logAuthorizeDecision(input, decision, ctx.logger);
+
   let tariff: Record<string, unknown> | undefined;
   if (status === 'Accepted' && tokenType !== 'NoAuthorization') {
     try {
       tariff = await resolveDriverTariff(
-        matchedDriverId,
+        decision.matchedDriverId,
         ctx.stationId,
         ctx.stationDbId,
         ctx.logger,
@@ -328,19 +139,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     }
   }
 
-  void logAuthorizeAttempt(
-    {
-      stationId: ctx.stationId,
-      idToken,
-      tokenType,
-      matchedTokenId,
-      matchedDriverId,
-      outcome,
-      ocppVersion: 'ocpp2.1',
-      reason: logReason,
-    },
-    ctx.logger,
-  );
+  recordAuthorizeDecision(input, decision, ctx.logger);
 
   const response: AuthorizeResponse = {
     idTokenInfo: {
@@ -348,8 +147,8 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
       ...(groupIdToken != null ? { groupIdToken } : {}),
       ...(prepaidExpiry != null
         ? { cacheExpiryDateTime: prepaidExpiry }
-        : status === 'Accepted' && matchedExpiresAt != null
-          ? { cacheExpiryDateTime: matchedExpiresAt.toISOString() }
+        : status === 'Accepted' && decision.expiresAt != null
+          ? { cacheExpiryDateTime: decision.expiresAt.toISOString() }
           : {}),
     },
     ...(certificateStatus != null ? { certificateStatus } : {}),

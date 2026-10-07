@@ -332,6 +332,22 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     // No resend, then the UPDATE claims a waiting remote start
     executeFn.mockResolvedValueOnce([]);
     executeFn.mockResolvedValueOnce([{ transaction_id: '42' }]);
+    // The idTag is an active driver token (the concurrent check finds no session).
+    whereFn.mockReturnValueOnce(
+      Object.assign(
+        Promise.resolve([
+          {
+            id: 'dtk-1',
+            driverId: 'drv-1',
+            isActive: true,
+            expiresAt: null,
+            revokedAt: null,
+            prepaidBalanceCents: null,
+          },
+        ]),
+        { limit: limitFn },
+      ),
+    );
 
     const { handleStartTransaction } = startTransactionHandlerModule;
     const { ctx, publishMock } = makeCtx(
