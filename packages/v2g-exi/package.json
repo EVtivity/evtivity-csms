@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/v2g-exi",
-  "version": "0.1.41-alpha.3",
+  "version": "0.1.41-alpha.4",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
