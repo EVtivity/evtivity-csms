@@ -197,6 +197,34 @@ describe('decideAfterHold', () => {
       { kind: 'allow', why: 'hold_exists' },
     ],
     [
+      { outcome: 'exists', paymentRecordId: 1, status: 'pending' },
+      { kind: 'allow', why: 'hold_exists' },
+    ],
+    [
+      { outcome: 'exists', paymentRecordId: 1, status: 'captured' },
+      { kind: 'allow', why: 'hold_exists' },
+    ],
+    [
+      { outcome: 'exists', paymentRecordId: 1, status: 'failed' },
+      {
+        kind: 'stop',
+        why: 'hold_terminal',
+        reason: 'PaymentFailed',
+        status: 'failed',
+        notice: null,
+      },
+    ],
+    [
+      { outcome: 'exists', paymentRecordId: 1, status: 'cancelled' },
+      {
+        kind: 'stop',
+        why: 'hold_terminal',
+        reason: 'PaymentFailed',
+        status: 'cancelled',
+        notice: null,
+      },
+    ],
+    [
       { outcome: 'not_configured', providerId: 'adyen' },
       { kind: 'allow', why: 'provider_not_configured', providerId: 'adyen' },
     ],
@@ -373,6 +401,50 @@ describe('runPaymentGate', () => {
       { sessionId: 'sess-1', reason: 'provider unreachable' },
       'Auto pre-auth failed, stopping session',
     );
+  });
+
+  it.each(['failed', 'cancelled'] as const)(
+    'logs at warn and stops with PaymentFailed, without a notice, when the hold record is %s',
+    async (status) => {
+      mockAuthorizeSessionHold.mockResolvedValue({
+        outcome: 'exists',
+        paymentRecordId: 3,
+        status,
+      });
+
+      const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+      expect(decision).toEqual({
+        kind: 'stop',
+        why: 'hold_terminal',
+        reason: 'PaymentFailed',
+        status,
+        notice: null,
+      });
+      expect(calls).toEqual(['log', 'stop']);
+      expect(mockStopSessionForPayment).toHaveBeenCalledWith(
+        deps,
+        expect.objectContaining({ sessionId: 'sess-1' }),
+        'PaymentFailed',
+      );
+      expect(logger.warn).toHaveBeenCalledWith(
+        { sessionId: 'sess-1', status },
+        'Session hold record is not valid, stopping session',
+      );
+    },
+  );
+
+  it('allows the session when the existing hold record is pre-authorized', async () => {
+    mockAuthorizeSessionHold.mockResolvedValue({
+      outcome: 'exists',
+      paymentRecordId: 3,
+      status: 'pre_authorized',
+    });
+
+    const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+    expect(decision).toEqual({ kind: 'allow', why: 'hold_exists' });
+    expect(mockStopSessionForPayment).not.toHaveBeenCalled();
   });
 
   it('logs, stops, then tracks the notice, for a guest without an authorized payment', async () => {

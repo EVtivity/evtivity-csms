@@ -68,6 +68,14 @@ const PAYMENT_STATUS_I18N: Record<string, string> = {
   partially_refunded: 'payments.statuses.partially_refunded',
 };
 
+const PAYMENT_SOURCE_I18N: Record<string, string> = {
+  web_portal: 'payments.sources.web_portal',
+  guest: 'payments.sources.guest',
+  prepaid: 'payments.sources.prepaid',
+  ocpp_terminal: 'payments.sources.ocpp_terminal',
+  operator: 'payments.sources.operator',
+};
+
 /** Captured minus refunded, counting refunds still pending at the provider (as the API does). */
 function refundableCents(payment: PaymentRecord): number {
   const pending = (payment.providerRefunds ?? [])
@@ -182,7 +190,13 @@ export function SessionPaymentTab({
                     )}
                   </Badge>
                 </Row>
-                <Row label={t('sessions.paymentSource')}>{payment.paymentSource}</Row>
+                <Row label={t('sessions.paymentSource')}>
+                  {t(
+                    (PAYMENT_SOURCE_I18N[payment.paymentSource] ??
+                      payment.paymentSource) as 'payments.sources.operator',
+                    payment.paymentSource,
+                  )}
+                </Row>
                 {showPreAuth && (
                   <Row label={t('sessions.preAuthAmount')}>
                     {formatCents(payment.preAuthAmountCents, payment.currency)}

@@ -91,7 +91,9 @@ const paymentRecordItem = z
     paymentSource: z
       .string()
       .max(20)
-      .describe('Source channel (web_portal, guest, terminal, etc.)'),
+      .describe(
+        'Who started the payment: web_portal (driver), guest, prepaid, ocpp_terminal, or operator (re-bill and reservation fee charges)',
+      ),
     failureReason: z
       .string()
       .max(500)

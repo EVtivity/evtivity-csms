@@ -63,7 +63,12 @@ const FAILABLE: PaymentStatus[] = ['pending', 'pre_authorized'];
 /** A hold given up on that the session re-bill may take over (`claimRebillRecord`). */
 const FROM_GIVEN_UP: PaymentStatus[] = ['cancelled', 'failed'];
 
-export type PaymentSource = 'web_portal' | 'guest' | 'prepaid' | 'ocpp_terminal';
+/**
+ * Who started the payment. `operator`: an off-session charge the CSMS starts
+ * for an operator, not the driver (the session re-bill and the reservation
+ * cancellation and no-show fees).
+ */
+export type PaymentSource = 'web_portal' | 'guest' | 'prepaid' | 'ocpp_terminal' | 'operator';
 
 /** The provider columns of a record. */
 function providerIds(
@@ -811,7 +816,7 @@ export async function recordPendingCharge(input: PendingChargeInput): Promise<nu
       driverId: input.driverId,
       sitePaymentConfigId: input.sitePaymentConfigId,
       ...providerIds(input.provider, { customerId: input.customerId, methodId: input.methodId }),
-      paymentSource: 'web_portal',
+      paymentSource: 'operator',
       currency: input.currency,
       taxRate: String(input.taxRate),
       status: 'pending',
@@ -1059,7 +1064,7 @@ export async function claimRebillRecord(input: RebillRecordInput): Promise<Rebil
           driverId: input.driverId,
           sitePaymentConfigId: input.sitePaymentConfigId,
           ...ids,
-          paymentSource: 'web_portal',
+          paymentSource: 'operator',
           currency: request.currency,
           status: 'pending',
           metadata: { rebill: { requestedAt, request } },
@@ -1121,7 +1126,7 @@ export async function claimRebillRecord(input: RebillRecordInput): Promise<Rebil
         driverId: input.driverId,
         sitePaymentConfigId: input.sitePaymentConfigId,
         ...ids,
-        paymentSource: 'web_portal',
+        paymentSource: 'operator',
         currency: request.currency,
         preAuthAmountCents: null,
         capturedAmountCents: null,

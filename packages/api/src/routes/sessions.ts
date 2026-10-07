@@ -119,7 +119,12 @@ const paymentRecordItem = z
   .object({
     id: z.string().describe('Payment record identifier'),
     status: z.enum(paymentStatusEnum.enumValues).describe('Payment lifecycle status'),
-    paymentSource: z.string().max(50).describe('Payment source (e.g. stripe, card_on_file, guest)'),
+    paymentSource: z
+      .string()
+      .max(50)
+      .describe(
+        'Who started the payment: web_portal (driver), guest, prepaid, ocpp_terminal, or operator (re-bill and reservation fee charges)',
+      ),
     currency: z.string().length(3).describe('ISO 4217 currency code'),
     preAuthAmountCents: z
       .number()

@@ -1665,8 +1665,13 @@
     "refunded": "환불됨",
     "failed": "실패",
     "cancelled": "취소됨",
-    "webPortal": "웹 포털",
-    "ocppTerminal": "OCPP 터미널",
+    "sources": {
+      "web_portal": "운전자 포털",
+      "guest": "게스트 결제",
+      "prepaid": "선불",
+      "ocpp_terminal": "충전소 결제 단말기",
+      "operator": "운영자"
+    },
     "manual": "수동",
     "energyCost": "에너지 비용",
     "timeCost": "시간 비용",

@@ -1665,8 +1665,13 @@
     "refunded": "Refunded",
     "failed": "Failed",
     "cancelled": "Cancelled",
-    "webPortal": "Web Portal",
-    "ocppTerminal": "OCPP Terminal",
+    "sources": {
+      "web_portal": "Driver portal",
+      "guest": "Guest checkout",
+      "prepaid": "Prepaid",
+      "ocpp_terminal": "Station payment terminal",
+      "operator": "Operator"
+    },
     "manual": "Manual",
     "energyCost": "Energy Cost",
     "timeCost": "Time Cost",

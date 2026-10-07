@@ -87,6 +87,14 @@ export type PaymentGateDecision =
     }
   | {
       kind: 'stop';
+      /** The session's hold record already ended `failed` or `cancelled` (P5: terminal). */
+      why: 'hold_terminal';
+      reason: 'PaymentFailed';
+      status: 'failed' | 'cancelled';
+      notice: null;
+    }
+  | {
+      kind: 'stop';
       why: 'hold_record_failed';
       reason: 'PaymentFailed';
       notice: PreAuthFailedNotice;
@@ -175,6 +183,19 @@ export function decideAfterHold(outcome: HoldOutcome, driverId: string): Payment
     case 'authorized':
       return { kind: 'allow', why: 'hold_authorized' };
     case 'exists':
+      // A failed or cancelled hold is terminal (P5): the session has no
+      // valid authorization, so it stops. The trigger that ended the hold
+      // (portal start, earlier gate run, operator) already informed the
+      // driver, so no second notice.
+      if (outcome.status === 'failed' || outcome.status === 'cancelled') {
+        return {
+          kind: 'stop',
+          why: 'hold_terminal',
+          reason: 'PaymentFailed',
+          status: outcome.status,
+          notice: null,
+        };
+      }
       return { kind: 'allow', why: 'hold_exists' };
     case 'no_method':
       return {
@@ -307,6 +328,12 @@ function logStop(deps: ProjectionDeps, input: PaymentGateInput, decision: StopDe
           'Auto pre-auth failed, stopping session',
         );
       }
+      return;
+    case 'hold_terminal':
+      logger.warn(
+        { sessionId, status: decision.status },
+        'Session hold record is not valid, stopping session',
+      );
       return;
     case 'hold_record_failed':
       return;

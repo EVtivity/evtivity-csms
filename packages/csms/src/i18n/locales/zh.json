@@ -1665,8 +1665,13 @@
     "refunded": "已退款",
     "failed": "失败",
     "cancelled": "已取消",
-    "webPortal": "网页端",
-    "ocppTerminal": "OCPP终端",
+    "sources": {
+      "web_portal": "驾驶员门户",
+      "guest": "访客结账",
+      "prepaid": "预付费",
+      "ocpp_terminal": "充电站支付终端",
+      "operator": "运营商"
+    },
     "manual": "手动",
     "energyCost": "电费",
     "timeCost": "时间费",

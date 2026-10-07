@@ -1121,6 +1121,13 @@
       "when": 1791000012100,
       "tag": "0159_drop_system_event_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 160,
+      "version": "7",
+      "when": 1791000012101,
+      "tag": "0160_operator_payment_source",
+      "breakpoints": true
     }
   ]
 }

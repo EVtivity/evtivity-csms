@@ -1665,8 +1665,13 @@
     "refunded": "已退款",
     "failed": "失敗",
     "cancelled": "已取消",
-    "webPortal": "網頁端",
-    "ocppTerminal": "OCPP 終端",
+    "sources": {
+      "web_portal": "駕駛員入口網站",
+      "guest": "訪客結帳",
+      "prepaid": "預付",
+      "ocpp_terminal": "充電站付款終端",
+      "operator": "營運商"
+    },
     "manual": "手動",
     "energyCost": "電費",
     "timeCost": "時間費",

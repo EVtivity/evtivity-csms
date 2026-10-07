@@ -1665,8 +1665,13 @@
     "refunded": "Erstattet",
     "failed": "Fehlgeschlagen",
     "cancelled": "Storniert",
-    "webPortal": "Webportal",
-    "ocppTerminal": "OCPP-Terminal",
+    "sources": {
+      "web_portal": "Fahrerportal",
+      "guest": "Gast-Checkout",
+      "prepaid": "Prepaid",
+      "ocpp_terminal": "Zahlungsterminal der Station",
+      "operator": "Betreiber"
+    },
     "manual": "Manuell",
     "energyCost": "Energiekosten",
     "timeCost": "Zeitkosten",

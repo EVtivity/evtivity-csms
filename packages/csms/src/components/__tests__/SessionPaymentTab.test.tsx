@@ -51,6 +51,14 @@ afterEach(() => {
 });
 
 describe('SessionPaymentTab', () => {
+  it('labels a known payment source and shows an unknown one as stored', () => {
+    renderTab({ ...base, paymentSource: 'operator' });
+    expect(screen.getByText('payments.sources.operator')).toBeDefined();
+    cleanup();
+    renderTab(base);
+    expect(screen.getByText('card_on_file')).toBeDefined();
+  });
+
   it('shows a capture awaiting provider confirmation and why refunds wait', () => {
     renderTab({ ...base, pendingOperation: 'capture' }, false);
     expect(screen.getByText('sessions.pendingOperation.capture')).toBeDefined();
