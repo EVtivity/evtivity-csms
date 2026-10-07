@@ -13,12 +13,23 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { useAuth, MustResetPasswordError } from '@/lib/auth';
 import { api, ApiError } from '@/lib/api';
-import { rateLimitedMessage } from '@/lib/error-message';
+import { isRateLimited } from '@/lib/error-message';
 import { executeRecaptcha } from '@/lib/recaptcha';
 import { MfaChallenge } from '@/components/MfaChallenge';
 import { API_BASE_URL } from '@/lib/config';
 
 const DEV_AUTO_LOGIN = import.meta.env.VITE_CSMS_AUTO_LOGIN;
+
+// The error is kept as a translation key and translated at render, so it follows the active
+// language instead of the one loaded when it was set.
+type LoginErrorKey =
+  | 'auth.invalidCredentials'
+  | 'auth.recaptchaFailed'
+  | 'auth.ssoNoEmail'
+  | 'auth.ssoAccountDisabled'
+  | 'auth.ssoUserNotFound'
+  | 'auth.ssoConfigError'
+  | 'errors.RATE_LIMITED';
 
 interface SecurityPublic {
   recaptchaEnabled: boolean;
@@ -35,7 +46,7 @@ export function Login(): React.JSX.Element {
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<LoginErrorKey | null>(null);
   const [loading, setLoading] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const autoLoginAttempted = useRef(false);
@@ -47,15 +58,15 @@ export function Login(): React.JSX.Element {
   useEffect(() => {
     const ssoError = searchParams.get('error');
     if (ssoError == null) return;
-    const errorMap: Record<string, string> = {
-      sso_no_email: t('auth.ssoNoEmail'),
-      sso_account_disabled: t('auth.ssoAccountDisabled'),
-      sso_user_not_found: t('auth.ssoUserNotFound'),
-      sso_config_error: t('auth.ssoConfigError'),
+    const errorMap: Record<string, LoginErrorKey> = {
+      sso_no_email: 'auth.ssoNoEmail',
+      sso_account_disabled: 'auth.ssoAccountDisabled',
+      sso_user_not_found: 'auth.ssoUserNotFound',
+      sso_config_error: 'auth.ssoConfigError',
     };
-    const message = errorMap[ssoError];
-    if (message != null) setError(message);
-  }, [searchParams, t]);
+    const key = errorMap[ssoError];
+    if (key != null) setError(key);
+  }, [searchParams]);
 
   const { data: securityPublic } = useQuery({
     queryKey: ['security-public'],
@@ -117,18 +128,17 @@ export function Login(): React.JSX.Element {
         void navigate('/set-password', { state: { email } });
         return;
       }
-      const limited = rateLimitedMessage(err, t);
-      if (limited != null) {
-        setError(limited);
+      if (isRateLimited(err)) {
+        setError('errors.RATE_LIMITED');
       } else if (err instanceof ApiError) {
         const body = err.body as { code?: string } | null;
         if (body?.code === 'RECAPTCHA_REQUIRED' || body?.code === 'RECAPTCHA_FAILED') {
-          setError(t('auth.recaptchaFailed'));
+          setError('auth.recaptchaFailed');
         } else {
-          setError(t('auth.invalidCredentials'));
+          setError('auth.invalidCredentials');
         }
       } else {
-        setError(t('auth.invalidCredentials'));
+        setError('auth.invalidCredentials');
       }
     } finally {
       setLoading(false);
@@ -156,7 +166,7 @@ export function Login(): React.JSX.Element {
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <h2 className="text-2xl font-semibold">{t('auth.signIn')}</h2>
-          {error != null && <p className="mt-2 text-sm text-destructive">{error}</p>}
+          {error != null && <p className="mt-2 text-sm text-destructive">{t(error)}</p>}
         </CardHeader>
         <CardContent>
           <form

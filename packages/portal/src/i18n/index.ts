@@ -41,9 +41,10 @@ void i18n.use(initReactI18next).init({
   initImmediate: false,
 });
 
-if (savedLanguage !== 'en') {
-  void loadLanguage(savedLanguage);
-}
+// Resolves once the saved language bundle is loaded and active. main.tsx waits for it before
+// the first render, so no page (the login session-expired notice included) shows English first.
+export const i18nReady: Promise<void> =
+  savedLanguage === 'en' ? Promise.resolve() : loadLanguage(savedLanguage);
 
 export async function loadLanguage(lang: string): Promise<void> {
   if (lang === 'en' || i18n.hasResourceBundle(lang, 'translation')) {

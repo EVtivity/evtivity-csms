@@ -54,8 +54,9 @@ interface EventSettingsLayoutProps {
     selectedEvent: string;
     channel: string;
     language: string;
-    markDirty: () => void;
   }) => React.ReactNode;
+  /** Whether the settings extra differs from its stored value for this event and channel. */
+  isSettingsExtraDirty?: (props: { selectedEvent: string; channel: string }) => boolean;
   onSave?: (props: {
     eventType: string;
     channel: string;
@@ -75,6 +76,7 @@ export function EventSettingsLayout({
   defaultEnabled,
   eventSwitch,
   renderSettingsExtra,
+  isSettingsExtraDirty,
   onSave,
 }: EventSettingsLayoutProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -83,12 +85,24 @@ export function EventSettingsLayout({
   const [selectedEvent, setSelectedEvent] = useState('');
   const [channel, setChannel] = useState<string>(channels[0] ?? 'email');
   const [language, setLanguage] = useState<string>('en');
-  const [isDirty, setIsDirty] = useState(false);
   const [pendingEvent, setPendingEvent] = useState<string | null>(null);
   // Local toggle override: tracks unsaved active/inactive state per eventType:channel
   const [localToggle, setLocalToggle] = useState<Map<string, boolean>>(new Map());
   const templatePanelRef = useRef<TemplateEditPanelHandle>(null);
   const [statusMessage, setStatusMessage] = useState({ success: '', error: '' });
+  const [templateDirty, setTemplateDirty] = useState(false);
+
+  const hasToggle = toggleEndpoint != null && toggleQueryKey != null && enabledMap != null;
+
+  // Unsaved changes are differences from the stored values, never "a change event fired":
+  // the template panel compares its fields with the loaded template, a toggle counts only
+  // while it differs from the stored state, and the settings extra compares itself.
+  const toggleDirty =
+    hasToggle &&
+    [...localToggle].some(([key, on]) => on !== (enabledMap.get(key) ?? defaultEnabled ?? false));
+  const extraDirty =
+    selectedEvent !== '' && (isSettingsExtraDirty?.({ selectedEvent, channel }) ?? false);
+  const isDirty = templateDirty || toggleDirty || extraDirty;
   const dirtyRef = useRef(false);
   dirtyRef.current = isDirty;
 
@@ -105,7 +119,6 @@ export function EventSettingsLayout({
     };
   }, []);
 
-  const hasToggle = toggleEndpoint != null && toggleQueryKey != null && enabledMap != null;
   const [switchSaving, setSwitchSaving] = useState(false);
 
   function isEventOn(et: string): boolean {
@@ -138,7 +151,6 @@ export function EventSettingsLayout({
       return;
     }
     setSelectedEvent(et);
-    setIsDirty(false);
   }, []);
 
   return (
@@ -328,7 +340,6 @@ export function EventSettingsLayout({
                                   next.set(toggleKey, !isActive);
                                   return next;
                                 });
-                                setIsDirty(true);
                               }}
                               className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
                                 isActive ? 'bg-primary' : 'bg-muted'
@@ -354,9 +365,6 @@ export function EventSettingsLayout({
                         selectedEvent,
                         channel,
                         language,
-                        markDirty: () => {
-                          setIsDirty(true);
-                        },
                       })}
                     </div>
                   </CardContent>
@@ -370,9 +378,7 @@ export function EventSettingsLayout({
                   channel={channel as 'email' | 'sms' | 'webhook'}
                   language={language}
                   variables={variables}
-                  markDirty={() => {
-                    setIsDirty(true);
-                  }}
+                  onDirtyChange={setTemplateDirty}
                   onStatusChange={setStatusMessage}
                   onSave={
                     onSave != null
@@ -402,7 +408,6 @@ export function EventSettingsLayout({
                             next.delete(toggleKey);
                             return next;
                           });
-                          setIsDirty(false);
                         }
                       : undefined
                   }
@@ -424,7 +429,6 @@ export function EventSettingsLayout({
         onConfirm={() => {
           if (pendingEvent != null) {
             setSelectedEvent(pendingEvent);
-            setIsDirty(false);
             setLocalToggle(new Map());
             setPendingEvent(null);
           }

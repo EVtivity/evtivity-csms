@@ -31,9 +31,14 @@ export function getErrorMessage(
 // A throttled request (429 RATE_LIMITED) gets the translated "too many requests" text, so a
 // page that maps its own failures (wrong password, invalid code) never shows those instead.
 export function rateLimitedMessage(error: unknown, t: TFunction): string | null {
-  if (!(error instanceof ApiError)) return null;
+  return isRateLimited(error) ? t('errors.RATE_LIMITED') : null;
+}
+
+// True for a throttled request (429 or code RATE_LIMITED). For pages that keep the error as a
+// translation key (errors.RATE_LIMITED) and translate it at render.
+export function isRateLimited(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
   const body = error.body as { code?: unknown } | null;
   const code = body != null && typeof body === 'object' ? body.code : undefined;
-  if (error.status !== 429 && code !== 'RATE_LIMITED') return null;
-  return t('errors.RATE_LIMITED');
+  return error.status === 429 || code === 'RATE_LIMITED';
 }

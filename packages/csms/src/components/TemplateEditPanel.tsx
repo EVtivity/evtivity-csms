@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '@/components/ui/card';
@@ -35,7 +35,8 @@ interface TemplateEditPanelProps {
   language: string;
   variables: TemplateVariable[];
   onSave?: (() => void | Promise<void>) | undefined;
-  markDirty?: (() => void) | undefined;
+  /** Reports whether the subject or body differ from the loaded (or last saved) template. */
+  onDirtyChange?: ((dirty: boolean) => void) | undefined;
   onStatusChange?: (status: { success: string; error: string }) => void;
   disabled?: boolean;
 }
@@ -57,7 +58,7 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
       language,
       variables,
       onSave,
-      markDirty,
+      onDirtyChange,
       onStatusChange,
       disabled = false,
     },
@@ -84,14 +85,31 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
     });
 
     const [loadedKey, setLoadedKey] = useState('');
+    // The template as loaded or last saved. Unsaved changes are the differences from it, so
+    // loading a template (editor normalization included) never counts as a change.
+    const [baseline, setBaseline] = useState({ subject: '', body: '' });
     const currentKey = `${eventType}:${channel}:${language}`;
     if (template != null && currentKey !== loadedKey) {
       setSubject(template.subject ?? '');
       setBodyHtml(template.bodyHtml ?? '');
       setBodyText(channel !== 'email' ? (template.bodyHtml ?? '') : '');
+      setBaseline({
+        subject: channel === 'email' ? (template.subject ?? '') : '',
+        body: template.bodyHtml ?? '',
+      });
       setLoadedKey(currentKey);
       onStatusChange?.({ success: '', error: '' });
     }
+
+    const isDirty =
+      loadedKey === currentKey &&
+      (channel === 'email'
+        ? subject !== baseline.subject || bodyHtml !== baseline.body
+        : bodyText !== baseline.body);
+
+    useEffect(() => {
+      onDirtyChange?.(isDirty);
+    }, [isDirty, onDirtyChange]);
 
     const saveMutation = useMutation({
       mutationFn: async () => {
@@ -99,15 +117,21 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
         if (onSave != null) {
           await onSave();
         }
+        const saved = {
+          subject: channel === 'email' ? subject : '',
+          body: channel === 'email' ? bodyHtml : bodyText,
+        };
         await api.put('/v1/notification-templates', {
           eventType,
           channel,
           language,
-          subject: channel === 'email' ? subject : null,
-          bodyHtml: channel === 'email' ? bodyHtml : bodyText,
+          subject: channel === 'email' ? saved.subject : null,
+          bodyHtml: saved.body,
         });
+        return saved;
       },
-      onSuccess: () => {
+      onSuccess: (saved) => {
+        setBaseline(saved);
         void queryClient.invalidateQueries({ queryKey: templateQueryKey });
       },
       onError: (err: unknown) => {
@@ -199,20 +223,11 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
             <TemplateEditor
               channel={channel}
               subject={subject}
-              onSubjectChange={(v) => {
-                setSubject(v);
-                markDirty?.();
-              }}
+              onSubjectChange={setSubject}
               bodyText={bodyText}
-              onBodyTextChange={(v) => {
-                setBodyText(v);
-                markDirty?.();
-              }}
+              onBodyTextChange={setBodyText}
               bodyHtml={bodyHtml}
-              onBodyHtmlChange={(v) => {
-                setBodyHtml(v);
-                markDirty?.();
-              }}
+              onBodyHtmlChange={setBodyHtml}
               variables={variables}
             />
           </CardContent>

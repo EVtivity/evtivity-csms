@@ -142,6 +142,12 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
     const [showSource, setShowSource] = useState(false);
     const [sourceValue, setSourceValue] = useState('');
     const sourceRef = useRef<HTMLTextAreaElement>(null);
+    // The value last loaded from outside and the editor's HTML for it. The editor normalizes
+    // HTML, so when an edit (or an undo) brings the document back to that HTML, onChange
+    // reports the loaded value: a parent comparing it with the saved template sees no change.
+    const loadedRef = useRef<{ value: string; html: string } | null>(null);
+    // The source text when the HTML source view opened, and the value at that moment.
+    const sourceOpenRef = useRef<{ text: string; value: string } | null>(null);
 
     const editor = useEditor({
       extensions: [
@@ -174,7 +180,9 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
       ],
       content: value,
       onUpdate: ({ editor: ed }) => {
-        onChange(cleanCellParagraphs(ed.getHTML()));
+        const html = cleanCellParagraphs(ed.getHTML());
+        const loaded = loadedRef.current;
+        onChange(loaded != null && html === loaded.html ? loaded.value : html);
       },
       editorProps: {
         handleDrop: (_view, event) => {
@@ -215,13 +223,18 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
       [editor, showSource, sourceValue, onChange],
     );
 
-    // Sync external value changes into the editor (e.g. after reset to default).
+    // Sync external value changes into the editor (e.g. after reset to default). A value this
+    // editor emitted (an edit, or the loaded value reported back after an undo) is not reloaded.
     useEffect(() => {
       if (editor.isDestroyed) return;
       const current = cleanCellParagraphs(editor.getHTML());
-      if (current !== value) {
-        editor.commands.setContent(value, { emitUpdate: false });
+      const loaded = loadedRef.current;
+      if (current === value || (loaded?.value === value && loaded.html === current)) {
+        loadedRef.current ??= { value, html: current };
+        return;
       }
+      editor.commands.setContent(value, { emitUpdate: false });
+      loadedRef.current = { value, html: cleanCellParagraphs(editor.getHTML()) };
     }, [editor, value]);
 
     // Native DOM listeners for drag-and-drop variable insertion.
@@ -260,14 +273,20 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
 
     const toggleSource = useCallback(() => {
       if (showSource) {
-        editor.commands.setContent(sourceValue, { emitUpdate: false });
-        onChange(sourceValue);
+        // Unedited source changes nothing: viewing the HTML is not an edit.
+        if (sourceValue !== sourceOpenRef.current?.text) {
+          editor.commands.setContent(sourceValue, { emitUpdate: false });
+          onChange(sourceValue);
+        }
+        sourceOpenRef.current = null;
         setShowSource(false);
       } else {
-        setSourceValue(formatHtml(cleanCellParagraphs(editor.getHTML())));
+        const text = formatHtml(cleanCellParagraphs(editor.getHTML()));
+        sourceOpenRef.current = { text, value };
+        setSourceValue(text);
         setShowSource(true);
       }
-    }, [showSource, sourceValue, editor, onChange]);
+    }, [showSource, sourceValue, editor, onChange, value]);
 
     const addLink = useCallback(() => {
       const url = window.prompt('URL');
@@ -444,8 +463,10 @@ export const WysiwygEditor = forwardRef<WysiwygEditorHandle, WysiwygEditorProps>
             className="w-full min-h-[200px] p-3 font-mono text-sm bg-background resize-y focus:outline-hidden"
             value={sourceValue}
             onChange={(e) => {
-              setSourceValue(e.target.value);
-              onChange(e.target.value);
+              const text = e.target.value;
+              setSourceValue(text);
+              const opened = sourceOpenRef.current;
+              onChange(opened != null && text === opened.text ? opened.value : text);
             }}
           />
         ) : (
