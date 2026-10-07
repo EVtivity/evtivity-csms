@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { and, eq, inArray } from 'drizzle-orm';
-import { decryptString } from '@evtivity/lib';
+import { decryptSettingOrNull } from '@evtivity/lib';
 import type { PayoutAccountState } from './types.js';
 import { db, settings, sitePaymentConfigs } from '@evtivity/database';
 
@@ -110,25 +110,20 @@ function nonEmptyString(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
 }
 
-function decrypted(value: unknown, encryptionKey: string): string | null {
-  const stored = nonEmptyString(value);
-  return stored == null ? null : decryptString(stored, encryptionKey);
-}
-
 function adyenSettings(byKey: Map<string, unknown>, encryptionKey: string): AdyenSettings {
   const region = byKey.get('adyen.liveRegion');
   const adjustment = byKey.get('adyen.authorisationAdjustment');
   return {
-    apiKey: decrypted(byKey.get('adyen.apiKeyEnc'), encryptionKey),
+    apiKey: decryptSettingOrNull(byKey.get('adyen.apiKeyEnc'), encryptionKey),
     merchantAccount: nonEmptyString(byKey.get('adyen.merchantAccount')),
     clientKey: nonEmptyString(byKey.get('adyen.clientKey')),
     environment: byKey.get('adyen.environment') === 'live' ? 'live' : 'test',
     liveUrlPrefix: nonEmptyString(byKey.get('adyen.liveUrlPrefix')),
     liveRegion: ADYEN_LIVE_REGIONS.find((r) => r === region) ?? 'eu',
-    hmacKey: decrypted(byKey.get('adyen.hmacKeyEnc'), encryptionKey),
-    hmacKeyPrevious: decrypted(byKey.get('adyen.hmacKeyPreviousEnc'), encryptionKey),
+    hmacKey: decryptSettingOrNull(byKey.get('adyen.hmacKeyEnc'), encryptionKey),
+    hmacKeyPrevious: decryptSettingOrNull(byKey.get('adyen.hmacKeyPreviousEnc'), encryptionKey),
     webhookUsername: nonEmptyString(byKey.get('adyen.webhookUsername')),
-    webhookPassword: decrypted(byKey.get('adyen.webhookPasswordEnc'), encryptionKey),
+    webhookPassword: decryptSettingOrNull(byKey.get('adyen.webhookPasswordEnc'), encryptionKey),
     authorisationAdjustment: adjustment === true || adjustment === 'true',
   };
 }
@@ -189,10 +184,13 @@ export async function getPaymentSettings(encryptionKey: string): Promise<Payment
     preAuthAmountCents:
       Number.isInteger(preAuth) && preAuth > 0 ? preAuth : DEFAULT_PRE_AUTH_AMOUNT_CENTS,
     stripe: {
-      secretKey: decrypted(byKey.get('stripe.secretKeyEnc'), encryptionKey),
+      secretKey: decryptSettingOrNull(byKey.get('stripe.secretKeyEnc'), encryptionKey),
       publishableKey: nonEmptyString(byKey.get('stripe.publishableKey')),
-      webhookSecret: decrypted(byKey.get('stripe.webhookSecretEnc'), encryptionKey),
-      connectWebhookSecret: decrypted(byKey.get('stripe.connectWebhookSecretEnc'), encryptionKey),
+      webhookSecret: decryptSettingOrNull(byKey.get('stripe.webhookSecretEnc'), encryptionKey),
+      connectWebhookSecret: decryptSettingOrNull(
+        byKey.get('stripe.connectWebhookSecretEnc'),
+        encryptionKey,
+      ),
     },
     adyen: adyenSettings(byKey, encryptionKey),
     simulated: simulatedSettings(byKey),

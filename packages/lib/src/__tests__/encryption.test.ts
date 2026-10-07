@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { encryptString, decryptString } from '../encryption.js';
+import { encryptString, decryptString, decryptSettingOrNull } from '../encryption.js';
 
 describe('encryption', () => {
   const passphrase = 'test-passphrase-for-unit-tests';
@@ -73,5 +73,28 @@ describe('encryption', () => {
 
   it('decryptString fails with empty string input', () => {
     expect(() => decryptString('', passphrase)).toThrow();
+  });
+});
+
+describe('decryptSettingOrNull', () => {
+  const passphrase = 'test-passphrase-for-unit-tests';
+
+  it('returns null for an empty stored value', () => {
+    expect(decryptSettingOrNull('', passphrase)).toBeNull();
+  });
+
+  it('returns null for a missing or non-string value', () => {
+    expect(decryptSettingOrNull(undefined, passphrase)).toBeNull();
+    expect(decryptSettingOrNull(null, passphrase)).toBeNull();
+    expect(decryptSettingOrNull(42, passphrase)).toBeNull();
+  });
+
+  it('decrypts valid ciphertext', () => {
+    const encrypted = encryptString('AKIAEXAMPLE', passphrase);
+    expect(decryptSettingOrNull(encrypted, passphrase)).toBe('AKIAEXAMPLE');
+  });
+
+  it('throws on stored garbage', () => {
+    expect(() => decryptSettingOrNull('not-ciphertext', passphrase)).toThrow();
   });
 });

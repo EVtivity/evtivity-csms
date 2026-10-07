@@ -44,3 +44,14 @@ export function decryptString(encoded: string, passphrase: string): string {
   const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
   return decrypted.toString('utf8');
 }
+
+/**
+ * Decrypts the stored value of an `*Enc` setting. An unset setting (no row,
+ * null, a non-string, or the empty string the seed and a cleared field store)
+ * returns null. Stored ciphertext that cannot be decrypted throws, so the
+ * caller decides whether a bad secret is recoverable (P9).
+ */
+export function decryptSettingOrNull(stored: unknown, passphrase: string): string | null {
+  if (typeof stored !== 'string' || stored === '') return null;
+  return decryptString(stored, passphrase);
+}

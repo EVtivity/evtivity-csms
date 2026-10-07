@@ -15,7 +15,10 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 vi.mock('@evtivity/lib', () => ({
-  decryptString: decryptStringMock,
+  decryptSettingOrNull: (stored: unknown, passphrase: string) =>
+    typeof stored === 'string' && stored !== ''
+      ? (decryptStringMock(stored, passphrase) as string)
+      : null,
   verifyRecaptcha: verifyRecaptchaMock,
 }));
 
@@ -109,5 +112,16 @@ describe('checkRecaptcha', () => {
     expect(result).toBe(true);
     expect(verifyRecaptchaMock).toHaveBeenCalledWith('good-token', 'secret-key', 0.7);
     expect(status).not.toHaveBeenCalled();
+  });
+
+  it('throws a clear error when enabled with an empty secret key', async () => {
+    getRecaptchaConfigMock.mockResolvedValue({ secretKeyEnc: '', threshold: 0.5 });
+    const { reply } = makeReply();
+
+    await expect(checkRecaptcha('token', reply)).rejects.toThrow(
+      'reCAPTCHA is enabled but security.recaptcha.secretKeyEnc is not set',
+    );
+    expect(decryptStringMock).not.toHaveBeenCalled();
+    expect(verifyRecaptchaMock).not.toHaveBeenCalled();
   });
 });

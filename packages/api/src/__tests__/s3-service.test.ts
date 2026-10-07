@@ -80,7 +80,11 @@ vi.mock('@evtivity/database', () => ({
 }));
 
 vi.mock('@evtivity/lib', () => ({
-  decryptString: mockDecryptString,
+  // Same contract as the real helper: an unset stored value is null.
+  decryptSettingOrNull: (stored: unknown, passphrase: string) =>
+    typeof stored === 'string' && stored !== ''
+      ? (mockDecryptString(stored, passphrase) as string)
+      : null,
 }));
 
 vi.mock('@aws-sdk/client-s3', () => {
@@ -274,20 +278,38 @@ describe('s3.service', () => {
       expect(second).toBeNull();
     });
 
-    it('throws when SETTINGS_ENCRYPTION_KEY is not set', async () => {
-      mockConfig.SETTINGS_ENCRYPTION_KEY = '';
-      setupDbResults(settingsRows());
-      await expect(getS3Config()).rejects.toThrow(
-        'SETTINGS_ENCRYPTION_KEY environment variable is required',
-      );
+    it('uses the default credential chain when the stored keys are empty strings', async () => {
+      setupDbResults([
+        { key: 's3.bucket', value: 'my-bucket' },
+        { key: 's3.region', value: 'us-east-1' },
+        { key: 's3.accessKeyIdEnc', value: '' },
+        { key: 's3.secretAccessKeyEnc', value: '' },
+      ]);
+      const config = await getS3Config();
+      expect(config).not.toBeNull();
+      expect(config!.bucket).toBe('my-bucket');
+      expect(mockS3ClientCtor).toHaveBeenLastCalledWith({ region: 'us-east-1' });
+      expect(mockDecryptString).not.toHaveBeenCalled();
     });
 
-    it('throws when SETTINGS_ENCRYPTION_KEY is empty string', async () => {
-      mockConfig.SETTINGS_ENCRYPTION_KEY = '';
+    it('returns null when only one stored key is non-empty', async () => {
+      setupDbResults([
+        { key: 's3.bucket', value: 'my-bucket' },
+        { key: 's3.region', value: 'us-east-1' },
+        { key: 's3.accessKeyIdEnc', value: 'enc-access-key' },
+        { key: 's3.secretAccessKeyEnc', value: '' },
+      ]);
+      const config = await getS3Config();
+      expect(config).toBeNull();
+      expect(mockS3ClientCtor).not.toHaveBeenCalled();
+    });
+
+    it('throws when a stored key cannot be decrypted', async () => {
+      mockDecryptString.mockImplementationOnce(() => {
+        throw new Error('Invalid initialization vector');
+      });
       setupDbResults(settingsRows());
-      await expect(getS3Config()).rejects.toThrow(
-        'SETTINGS_ENCRYPTION_KEY environment variable is required',
-      );
+      await expect(getS3Config()).rejects.toThrow('Invalid initialization vector');
     });
   });
 

@@ -37,7 +37,7 @@ export type { DependencyContainer } from './container.js';
 
 export { formatDateTime, formatDate, formatRelativeTime, isValidTimezone } from './timezone.js';
 
-export { encryptString, decryptString } from './encryption.js';
+export { encryptString, decryptString, decryptSettingOrNull } from './encryption.js';
 
 export {
   assertTemplateAllowed,

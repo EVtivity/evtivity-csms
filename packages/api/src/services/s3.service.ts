@@ -11,7 +11,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { like } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { settings } from '@evtivity/database';
-import { decryptString } from '@evtivity/lib';
+import { decryptSettingOrNull } from '@evtivity/lib';
 import { config as apiConfig } from '../lib/config.js';
 
 export interface S3Config {
@@ -26,14 +26,6 @@ interface CachedConfig {
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 let cachedConfig: CachedConfig | null = null;
-
-function getEncryptionKey(): string {
-  const key = apiConfig.SETTINGS_ENCRYPTION_KEY;
-  if (key === '') {
-    throw new Error('SETTINGS_ENCRYPTION_KEY environment variable is required');
-  }
-  return key;
-}
 
 export function clearS3ConfigCache(): void {
   cachedConfig = null;
@@ -54,34 +46,24 @@ export async function getS3Config(): Promise<S3Config | null> {
 
   const bucket = map.get('s3.bucket') as string | undefined;
   const region = map.get('s3.region') as string | undefined;
-  const accessKeyIdEnc = map.get('s3.accessKeyIdEnc') as string | undefined;
-  const secretAccessKeyEnc = map.get('s3.secretAccessKeyEnc') as string | undefined;
-
   // A cleared field is stored as an empty string: not configured.
   if (bucket == null || bucket === '' || region == null || region === '') {
     return null;
   }
-  // No stored keys means use the default credential chain (the ECS task role).
-  // A single stored key is a half-finished configuration, so S3 stays disabled.
-  const hasAccessKey = accessKeyIdEnc != null;
-  const hasSecretKey = secretAccessKeyEnc != null;
-  if (hasAccessKey !== hasSecretKey) {
+  // No stored keys (no row, or the empty string the seed and a cleared field
+  // store) means use the default credential chain (the ECS task role). A single
+  // stored key is a half-finished configuration, so S3 stays disabled.
+  const encryptionKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
+  const accessKeyId = decryptSettingOrNull(map.get('s3.accessKeyIdEnc'), encryptionKey);
+  const secretAccessKey = decryptSettingOrNull(map.get('s3.secretAccessKeyEnc'), encryptionKey);
+  if ((accessKeyId == null) !== (secretAccessKey == null)) {
     return null;
   }
 
-  let client: S3Client;
-  if (hasAccessKey && hasSecretKey) {
-    const encryptionKey = getEncryptionKey();
-    client = new S3Client({
-      region,
-      credentials: {
-        accessKeyId: decryptString(accessKeyIdEnc, encryptionKey),
-        secretAccessKey: decryptString(secretAccessKeyEnc, encryptionKey),
-      },
-    });
-  } else {
-    client = new S3Client({ region });
-  }
+  const client =
+    accessKeyId != null && secretAccessKey != null
+      ? new S3Client({ region, credentials: { accessKeyId, secretAccessKey } })
+      : new S3Client({ region });
 
   const config: S3Config = { client, bucket };
   cachedConfig = { config, expiresAt: Date.now() + CACHE_TTL_MS };

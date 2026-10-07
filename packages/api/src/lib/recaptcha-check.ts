@@ -3,7 +3,7 @@
 
 import type { FastifyReply } from 'fastify';
 import { getRecaptchaConfig } from '@evtivity/database';
-import { decryptString, verifyRecaptcha } from '@evtivity/lib';
+import { decryptSettingOrNull, verifyRecaptcha } from '@evtivity/lib';
 import { config as apiConfig } from './config.js';
 
 /**
@@ -27,7 +27,11 @@ export async function checkRecaptcha(
       .send({ error: 'reCAPTCHA token is required', code: 'RECAPTCHA_REQUIRED' });
     return false;
   }
-  const secretKey = decryptString(config.secretKeyEnc, apiConfig.SETTINGS_ENCRYPTION_KEY);
+  const secretKey = decryptSettingOrNull(config.secretKeyEnc, apiConfig.SETTINGS_ENCRYPTION_KEY);
+  // Enabled without a secret key is a misconfiguration. Fail closed (P9).
+  if (secretKey == null) {
+    throw new Error('reCAPTCHA is enabled but security.recaptcha.secretKeyEnc is not set');
+  }
   const result = await verifyRecaptcha(token, secretKey, config.threshold);
   if (!result.success) {
     await reply
