@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/payments",
-  "version": "0.1.40-alpha.6",
+  "version": "0.1.40-alpha.7",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
