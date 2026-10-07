@@ -5,11 +5,9 @@ import { and, eq, lt, sql } from 'drizzle-orm';
 import { db, reports, users, getSystemTimezone } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { isUiLanguage, type UiLanguage } from '@evtivity/lib/languages';
-import {
-  generateNeviReport,
-  neviFiltersValid,
-  NEVI_FILTERS_ERROR,
-} from './report-generators/nevi-report.js';
+import { ReportGeneratorRegistry, REPORT_FORMATS } from './report-registry.js';
+import type { ReportFormat, ReportGeneratorResult } from './report-registry.js';
+import { generateNeviReport, neviFiltersError } from './report-generators/nevi-report.js';
 import { generateRevenueReport } from './report-generators/revenue-report.js';
 import { generateEnergyReport } from './report-generators/energy-report.js';
 import { generateSessionsReport } from './report-generators/sessions-report.js';
@@ -82,23 +80,7 @@ export async function computeNextRunAtInTz(
   return row.next_run_at instanceof Date ? row.next_run_at : new Date(row.next_run_at);
 }
 
-export interface ReportGeneratorResult {
-  data: Buffer;
-  fileName: string;
-}
-
-/**
- * Builds a report file. `language` sets its labels and PDF formatting
- * (report-generators/report-locale.ts). NEVI ignores it: the EV-ChART template
- * has fixed English field names.
- */
-export type ReportGenerator = (
-  filters: Record<string, unknown>,
-  format: string,
-  language: UiLanguage,
-) => Promise<ReportGeneratorResult>;
-
-/** Report types a generator exists for. */
+/** Built-in report types. The API validates requests against this list. */
 export const REPORT_TYPES = [
   'nevi',
   'revenue',
@@ -113,21 +95,45 @@ export const REPORT_TYPES = [
 export type ReportType = (typeof REPORT_TYPES)[number];
 
 // The worker generates every report (`reports` queue); the API only stores and
-// announces it. Schedules render ad hoc files with renderReport, so the
-// generators are part of this module rather than registered at startup.
-const generators: Record<ReportType, ReportGenerator> = {
-  nevi: generateNeviReport,
-  revenue: generateRevenueReport,
-  energy: generateEnergyReport,
-  sessions: generateSessionsReport,
-  utilization: generateUtilizationReport,
-  stationHealth: generateStationHealthReport,
-  sustainability: generateSustainabilityReport,
-  driverActivity: generateDriverActivityReport,
-};
+// announces it. Schedules render ad hoc files with renderReport, so the built-in
+// generators are registered here, once per process, rather than at startup.
+export const reportGenerators = new ReportGeneratorRegistry();
 
-function isReportType(value: string): value is ReportType {
-  return (REPORT_TYPES as readonly string[]).includes(value);
+// Registration order is the order the CSMS lists the types in.
+for (const [type, generate] of [
+  ['revenue', generateRevenueReport],
+  ['utilization', generateUtilizationReport],
+  ['energy', generateEnergyReport],
+  ['stationHealth', generateStationHealthReport],
+  ['sessions', generateSessionsReport],
+  ['sustainability', generateSustainabilityReport],
+  ['driverActivity', generateDriverActivityReport],
+] as const) {
+  reportGenerators.register({ type, generate, formats: REPORT_FORMATS, generateFromUi: true });
+}
+reportGenerators.register({
+  type: 'nevi',
+  generate: generateNeviReport,
+  // The EV-ChART template is an XLSX workbook. Its quarter and year come from
+  // the NEVI Compliance tab, so the Generate and Schedules tabs do not offer it.
+  formats: ['xlsx'],
+  generateFromUi: false,
+  validateFilters: neviFiltersError,
+});
+
+export interface ReportTypeInfo {
+  type: string;
+  formats: readonly ReportFormat[];
+  generateFromUi: boolean;
+}
+
+/** The registered report types, for the CSMS report pages. */
+export function listReportTypes(): ReportTypeInfo[] {
+  return reportGenerators.list().map(({ type, formats, generateFromUi }) => ({
+    type,
+    formats,
+    generateFromUi,
+  }));
 }
 
 /** Why the filters cannot produce this report type, or null when they can. */
@@ -135,8 +141,7 @@ export function reportFiltersError(
   reportType: string,
   filters: Record<string, unknown>,
 ): string | null {
-  if (reportType === 'nevi' && !neviFiltersValid(filters)) return NEVI_FILTERS_ERROR;
-  return null;
+  return reportGenerators.get(reportType)?.validateFilters?.(filters) ?? null;
 }
 
 /**
@@ -163,10 +168,11 @@ export async function renderReport(
   format: string,
   language: UiLanguage,
 ): Promise<ReportGeneratorResult> {
-  if (!isReportType(reportType)) {
+  const descriptor = reportGenerators.get(reportType);
+  if (descriptor == null) {
     throw new Error(`No generator registered for report type: ${reportType}`);
   }
-  return generators[reportType](filters, format, language);
+  return descriptor.generate(filters, format, language);
 }
 
 /**
@@ -189,16 +195,20 @@ export function reportJobId(reportId: string): string {
 }
 
 /**
+ * The format a report's file is written in: the asked format when the generator writes it,
+ * else its first format (NEVI is always xlsx), so the row and the download match the file.
+ */
+export function reportFileFormat(reportType: string, format: string): string {
+  const formats: readonly string[] | undefined = reportGenerators.get(reportType)?.formats;
+  if (formats == null || formats.includes(format)) return format;
+  return formats[0] ?? format;
+}
+
+/**
  * Stores a pending report and hands it to `dispatch`, which queues the
  * generation in the worker. A dispatch that fails is logged and the report
  * stays pending; the worker's report sweep queues it again.
  */
-// The format a report's file is written in. NEVI follows the EV-ChART template, an XLSX
-// workbook, whatever format was asked, so its row and download say xlsx.
-export function reportFileFormat(reportType: string, format: string): string {
-  return reportType === 'nevi' ? 'xlsx' : format;
-}
-
 export async function queueReport(
   params: {
     name: string;
@@ -257,7 +267,7 @@ export async function generateReport(reportId: string): Promise<void> {
 
   const stillGenerating = and(eq(reports.id, reportId), eq(reports.status, 'generating'));
 
-  const generator = isReportType(report.reportType) ? generators[report.reportType] : undefined;
+  const generator = reportGenerators.get(report.reportType)?.generate;
   if (generator == null) {
     await db
       .update(reports)

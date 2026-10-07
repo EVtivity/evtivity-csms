@@ -142,11 +142,7 @@ async function reportStep(
     actual: String(resp['status']),
   });
   let report: Record<string, unknown> | null = null;
-  try {
-    report = await ctx.server.waitForMessage('ReportChargingProfiles', 10_000);
-  } catch {
-    report = null;
-  }
+  report = await ctx.server.waitForMessageOrNull('ReportChargingProfiles', 10_000);
   const reported = ((report?.['chargingProfile'] ?? []) as Array<Record<string, unknown>>).find(
     (p) => p['id'] === profile['id'],
   );
@@ -242,9 +238,7 @@ async function energyTransferStarted(
 async function booted(ctx: CsTestContext, steps: StepResult[], step: number): Promise<void> {
   const reset = await ctx.server.sendCommand('Reset', { type: 'Immediate' });
   let ok = reset['status'] === 'Accepted';
-  try {
-    await ctx.server.waitForMessage('BootNotification', 15_000);
-  } catch {
+  if ((await ctx.server.waitForMessageOrNull('BootNotification', 15_000)) == null) {
     ok = false;
   }
   steps.push({

@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { isRequiredDriverEventType } from '@evtivity/lib/notification-events';
 import { EventSettingsLayout } from '@/components/EventSettingsLayout';
+import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
 import {
   DRIVER_SESSION_EVENTS,
   DRIVER_ACCOUNT_EVENTS,
@@ -11,12 +15,33 @@ import {
   DRIVER_INVOICE_EVENTS,
   DRIVER_SUPPORT_EVENTS,
   DRIVER_MFA_EVENTS,
+  DRIVER_TOKEN_EVENTS,
+  DRIVER_MAINTENANCE_EVENTS,
+  DRIVER_WATCH_EVENTS,
 } from '@/lib/template-variables';
 
 const CHANNELS = ['email', 'sms'] as const;
 
+interface DriverEventSetting {
+  eventType: string;
+  isEnabled: boolean;
+}
+
 export function DriverEvents(): React.JSX.Element {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const canEdit = useHasPermission('notifications:write');
+
+  const { data: settings } = useQuery({
+    queryKey: ['driver-event-settings'],
+    queryFn: () => api.get<DriverEventSetting[]>('/v1/driver-event-settings'),
+    staleTime: 60_000,
+  });
+
+  const enabledMap = new Map<string, boolean>();
+  for (const setting of settings ?? []) {
+    enabledMap.set(setting.eventType, setting.isEnabled);
+  }
 
   return (
     <EventSettingsLayout
@@ -30,9 +55,23 @@ export function DriverEvents(): React.JSX.Element {
         { title: t('notifications.invoiceEvents'), events: DRIVER_INVOICE_EVENTS },
         { title: t('notifications.supportEvents'), events: DRIVER_SUPPORT_EVENTS },
         { title: t('notifications.mfaEvents'), events: DRIVER_MFA_EVENTS },
+        { title: t('notifications.tokenEvents'), events: DRIVER_TOKEN_EVENTS },
+        { title: t('notifications.maintenanceEvents'), events: DRIVER_MAINTENANCE_EVENTS },
+        { title: t('notifications.watchEvents'), events: DRIVER_WATCH_EVENTS },
       ]}
       channels={CHANNELS}
       channelTooltip={t('notifications.channelTooltipDriver')}
+      eventSwitch={{
+        enabledMap,
+        isRequired: isRequiredDriverEventType,
+        requiredTooltip: t('notifications.requiredEventTooltip'),
+        switchTooltip: t('notifications.eventSwitchTooltip'),
+        canEdit,
+        onChange: async (eventType, isEnabled) => {
+          await api.put('/v1/driver-event-settings', { eventType, isEnabled });
+          await queryClient.invalidateQueries({ queryKey: ['driver-event-settings'] });
+        },
+      }}
     />
   );
 }

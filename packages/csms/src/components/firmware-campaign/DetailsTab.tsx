@@ -113,12 +113,8 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
     if (!editName.trim()) errors.editName = t('validation.required');
     if (!editFirmwareUrl.trim()) {
       errors.editFirmwareUrl = t('validation.required');
-    } else {
-      try {
-        new URL(editFirmwareUrl);
-      } catch {
-        errors.editFirmwareUrl = t('validation.invalidUrl');
-      }
+    } else if (!URL.canParse(editFirmwareUrl)) {
+      errors.editFirmwareUrl = t('validation.invalidUrl');
     }
     return errors;
   }

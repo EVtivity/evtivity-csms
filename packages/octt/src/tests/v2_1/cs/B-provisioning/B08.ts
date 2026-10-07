@@ -39,13 +39,13 @@ export const TC_B_16_CS: CsTestCase = {
         expected: `requestId = ${String(requestId)}`,
         actual: `requestId = ${String(reqIdReported)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'NotifyReportRequest received',
         status: 'failed',
         expected: 'NotifyReportRequest received',
-        actual: 'Timed out waiting for NotifyReport',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -107,13 +107,13 @@ export const TC_B_17_CS: CsTestCase = {
         expected: 'variable.name = AvailabilityState',
         actual: `variable.name = ${varName}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'NotifyReportRequest received',
         status: 'failed',
         expected: 'NotifyReportRequest received',
-        actual: 'Timed out waiting for NotifyReport',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -166,13 +166,13 @@ export const TC_B_18_CS: CsTestCase = {
         expected: 'NotifyReportRequest received',
         actual: 'NotifyReportRequest received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'NotifyReport received for Available criteria',
         status: 'failed',
         expected: 'NotifyReportRequest received',
-        actual: 'Timed out',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -278,13 +278,13 @@ export const TC_B_54_CS: CsTestCase = {
         expected: 'Multiple reportData entries for different instances',
         actual: `reportData entries: ${String(reportData?.length ?? 0)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'NotifyReportRequest received',
         status: 'failed',
         expected: 'NotifyReportRequest received',
-        actual: 'Timed out waiting for NotifyReport',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -340,13 +340,13 @@ export const TC_B_55_CS: CsTestCase = {
         expected: 'variable.instance = GetReport',
         actual: `variable.instance = ${varInstance}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'NotifyReportRequest received',
         status: 'failed',
         expected: 'NotifyReportRequest received',
-        actual: 'Timed out waiting for NotifyReport',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -401,13 +401,13 @@ export const TC_B_56_CS: CsTestCase = {
         expected: 'reportData entries for all EVSEs',
         actual: `reportData entries: ${String(reportData?.length ?? 0)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'NotifyReportRequest received',
         status: 'failed',
         expected: 'NotifyReportRequest received',
-        actual: 'Timed out waiting for NotifyReport',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

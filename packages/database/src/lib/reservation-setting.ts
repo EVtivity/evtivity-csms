@@ -4,6 +4,9 @@
 import { inArray } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('reservation-setting');
 
 export interface ReservationSettings {
   enabled: boolean;
@@ -81,7 +84,11 @@ export async function getReservationSettings(): Promise<ReservationSettings> {
     };
     cachedAt = now;
     return cache;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'reservation.*' },
+      'getReservationSettings failed, using the cached value or default',
+    );
     return cache ?? { ...DEFAULTS };
   }
 }

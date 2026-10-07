@@ -9,6 +9,7 @@ import {
   driverPaymentMethods,
   driverTokens,
   getPlatformFeePercent,
+  pgConnectionErrorKind,
 } from '@evtivity/database';
 import { sessionChargeTax } from '@evtivity/lib';
 import { errorMessage, pendingRef } from './context.js';
@@ -31,7 +32,9 @@ import {
   recordFailedHold,
   recordHold,
   setAdjustmentRef,
+  reclaimStaleAdjustment,
   settlePrepaidSession,
+  staleAdjustmentClaims,
 } from './payment-records.js';
 import type { PaymentRecord } from './payment-records.js';
 import {
@@ -724,7 +727,14 @@ export async function retryShortfalls(
 
 export type SettlementOutcome =
   /** The prepaid balance of the session's token was debited. */
-  | { mode: 'prepaid'; tokenId: string; debitedCents: number; balanceCents: number }
+  | {
+      mode: 'prepaid';
+      tokenId: string;
+      debitedCents: number;
+      balanceCents: number;
+      /** The debit was already recorded (a repeated settlement); nothing was debited now. */
+      repeated?: true;
+    }
   | {
       mode: 'card';
       status: 'captured';
@@ -798,11 +808,13 @@ async function settlementSession(sessionId: string): Promise<SettlementSession |
  * (only from `pre_authorized`, P5). When the provider charged but the record
  * cannot be updated, the outcome says `recorded: false` and the error is
  * logged; no failure is reported to the driver. A guest hold is left to the
- * worker. Notifications stay with the caller.
+ * worker. Notifications stay with the caller. See `SettlementOptions` for a
+ * caller that retries the settlement after a lost database connection.
  */
 export async function settleSessionPayment(
   sessionId: string,
   ctx: PaymentContext,
+  options: SettlementOptions = SETTLEMENT_DEFAULTS,
 ): Promise<SettlementOutcome> {
   const session = await settlementSession(sessionId);
   if (session == null) return { mode: 'none' };
@@ -813,6 +825,9 @@ export async function settleSessionPayment(
       const settled = await settlePrepaidSession(sessionId, ctx.logger);
       if (settled != null) return { mode: 'prepaid', ...settled };
     } catch (err) {
+      // A lost connection is the caller's to retry: reporting no debit here
+      // would leave the balance undebited for good.
+      if (options.rethrowConnectionErrors && pgConnectionErrorKind(err) != null) throw err;
       ctx.logger.error({ err, sessionId }, 'Prepaid balance debit failed');
     }
   }
@@ -824,6 +839,20 @@ export async function settleSessionPayment(
   if (record.driverId == null) return { mode: 'guest' };
   if (record.providerPaymentId == null) return { mode: 'none' };
   if (record.pendingOperation === 'adjust') {
+    // A rerun finds a claim without a provider reference that no settlement
+    // in flight can still own (older than RESUME_ADJUSTMENT_MIN_AGE_MS): it
+    // takes the claim over atomically and asks the provider again with the
+    // same key. A fresher claim, its own first run's included, stays with its
+    // owner, its webhook, or the reconciliation re-drive.
+    if (options.resumeAdjustment && record.pendingOperationRef == null) {
+      const claimed = await reclaimStaleAdjustment(
+        record.id,
+        new Date(Date.now() - RESUME_ADJUSTMENT_MIN_AGE_MS),
+      );
+      if (claimed != null) {
+        return settleHold(claimed, session, { adjust: true, resume: true }, ctx, options);
+      }
+    }
     // An earlier settlement is raising the hold; its webhook settles.
     return {
       mode: 'card',
@@ -832,7 +861,103 @@ export async function settleSessionPayment(
       driverId: record.driverId,
     };
   }
-  return settleHold(record, session, { adjust: true }, ctx);
+  return settleHold(record, session, { adjust: true, resume: false }, ctx, options);
+}
+
+/**
+ * How a caller that retries the settlement wants it run. The defaults keep
+ * the behavior of a caller that does not retry.
+ */
+export interface SettlementOptions {
+  /**
+   * Throw a lost database connection (`pgConnectionErrorKind`) raised before
+   * any provider call, and in the prepaid debit, for the caller to retry.
+   * False (the default, and a retrying caller's last run): the prepaid
+   * debit failure is logged and the hold is marked failed, as without retry.
+   */
+  rethrowConnectionErrors: boolean;
+  /**
+   * A rerun: a hold whose adjustment is claimed without a provider reference
+   * (`pending_operation = 'adjust'`, no `pending_operation_ref`) is adjusted
+   * again with the same key (`adjust_<paymentId>_<finalCost>`) instead of
+   * being left to a webhook that may never come.
+   */
+  resumeAdjustment: boolean;
+}
+
+export const SETTLEMENT_DEFAULTS: SettlementOptions = {
+  rethrowConnectionErrors: false,
+  resumeAdjustment: false,
+};
+
+/** Adjustment claims without a provider reference older than this are re-driven. */
+export const STALE_ADJUSTMENT_HOURS = 1;
+
+/**
+ * How old a claim without a reference must be before a settlement rerun takes
+ * it over. A settlement in flight holds its claim without a reference for at
+ * most its provider call: the Adyen client allows 3 attempts of 30 s with 0.5
+ * and 1 s backoff (about 92 s), then stores the reference. Two minutes is past
+ * that, and far past the projection retry window (about 1.5 s of backoff plus
+ * the pool's connect timeouts), so a rerun only takes over a claim whose owner
+ * is gone, never one a delivery in flight or its webhook may still settle.
+ */
+export const RESUME_ADJUSTMENT_MIN_AGE_MS = 120_000;
+
+export interface StaleAdjustmentResult {
+  resumed: number;
+  /** Claims that could not be re-driven, with why (reported by the caller). */
+  skipped: Array<{ paymentRecordId: number; reason: string }>;
+}
+
+/**
+ * Re-drives adjustment claims the provider never answered or whose reference
+ * was never stored (a settlement that lost its connection, P11 second layer
+ * behind the settlement's own rerun). Each claim older than
+ * STALE_ADJUSTMENT_HOURS is adjusted again with the same key, so the provider
+ * replays its first answer, and the settlement continues as on session end.
+ * Fail-open per record (warn): one record does not stop the rest.
+ */
+export async function resumeStaleAdjustments(
+  ctx: PaymentContext,
+  now: Date = new Date(),
+): Promise<StaleAdjustmentResult> {
+  const olderThan = new Date(now.getTime() - STALE_ADJUSTMENT_HOURS * 3600_000);
+  const records = await staleAdjustmentClaims(olderThan);
+  const result: StaleAdjustmentResult = { resumed: 0, skipped: [] };
+  for (const stale of records) {
+    try {
+      // Taken over atomically: a concurrent re-drive, or a webhook that stored
+      // the reference since the read, leaves nothing to take.
+      const record = await reclaimStaleAdjustment(stale.id, olderThan);
+      if (record == null) {
+        ctx.logger.info(
+          { paymentRecordId: stale.id },
+          'Stale adjustment already taken over or settled; skipped',
+        );
+        continue;
+      }
+      const session = record.sessionId != null ? await settlementSession(record.sessionId) : null;
+      if (
+        session == null ||
+        session.finalCostCents == null ||
+        record.driverId == null ||
+        record.providerPaymentId == null
+      ) {
+        const reason = 'no session final cost to adjust the hold to';
+        ctx.logger.warn({ paymentRecordId: record.id }, `Stale adjustment not resumed: ${reason}`);
+        result.skipped.push({ paymentRecordId: record.id, reason });
+        continue;
+      }
+      await settleHold(record, session, { adjust: true, resume: true }, ctx, SETTLEMENT_DEFAULTS);
+      result.resumed++;
+    } catch (err) {
+      const reason = errorMessage(err, 'Unknown error');
+      ctx.logger.warn({ err, paymentRecordId: stale.id }, 'Stale adjustment resume failed');
+      result.skipped.push({ paymentRecordId: stale.id, reason });
+    }
+  }
+  return result;
 }
 
 /**
@@ -856,10 +981,15 @@ export async function settleAdjustedHold(
   const heldCents = adjustment.success
     ? Math.max(holdCents, adjustment.authorizedCents)
     : holdCents;
-  return settleHold(record, session, { adjust: false, heldCents }, ctx);
+  return settleHold(record, session, { adjust: false, heldCents }, ctx, SETTLEMENT_DEFAULTS);
 }
 
 type HoldAdjustment = { kind: 'held'; heldCents: number } | { kind: 'pending' };
+
+/** Set once the settlement asked the provider anything. */
+interface ProviderCalls {
+  provider: boolean;
+}
 
 /**
  * Raises the hold to the final cost when the provider adjusts holds. The
@@ -874,11 +1004,14 @@ async function adjustHoldToFinalCost(
   finalCostCents: number,
   holdCents: number,
   ctx: PaymentContext,
+  calls: ProviderCalls,
+  resume: boolean,
 ): Promise<HoldAdjustment> {
   if (provider.capabilities.shortfall !== 'adjust_hold' || provider.adjustHold == null) {
     return { kind: 'held', heldCents: holdCents };
   }
-  if (!(await markAdjustmentPending(record.id))) {
+  // A resume finds the claim already made (by the run it continues).
+  if (!resume && !(await markAdjustmentPending(record.id))) {
     ctx.logger.info(
       { paymentRecordId: record.id },
       'Hold already being adjusted by another settlement; its webhook settles',
@@ -886,6 +1019,7 @@ async function adjustHoldToFinalCost(
     return { kind: 'pending' };
   }
   try {
+    calls.provider = true;
     const result = await provider.adjustHold({
       paymentId,
       newTotalCents: finalCostCents,
@@ -894,10 +1028,22 @@ async function adjustHoldToFinalCost(
       idempotencyKey: adjustKey(paymentId, finalCostCents),
     });
     if (result.state === 'pending') {
-      if (!(await setAdjustmentRef(record.id, result.operationRef))) {
-        ctx.logger.info(
-          { paymentRecordId: record.id, operationRef: result.operationRef },
-          'Adjustment settled by its webhook before its reference was stored',
+      // The provider accepted the adjustment: from here the claim must stay,
+      // or the hold would be captured while the provider raises it. A failed
+      // reference write keeps the claim; the webhook matches a claim without
+      // a reference, and resumeStaleAdjustments asks again with the same key
+      // (the provider replays the same reference).
+      try {
+        if (!(await setAdjustmentRef(record.id, result.operationRef))) {
+          ctx.logger.info(
+            { paymentRecordId: record.id, operationRef: result.operationRef },
+            'Adjustment settled by its webhook before its reference was stored',
+          );
+        }
+      } catch (refErr) {
+        ctx.logger.warn(
+          { err: refErr, paymentRecordId: record.id, operationRef: result.operationRef },
+          'Adjustment reference not stored; the claim stays for its webhook or the reconciliation',
         );
       }
       return { kind: 'pending' };
@@ -930,8 +1076,9 @@ async function adjustHoldToFinalCost(
 async function settleHold(
   record: PaymentRecord,
   session: SettlementSession,
-  hold: { adjust: true } | { adjust: false; heldCents: number },
+  hold: { adjust: true; resume: boolean } | { adjust: false; heldCents: number },
   ctx: PaymentContext,
+  options: SettlementOptions,
 ): Promise<SettlementOutcome> {
   const sessionId = session.id;
   const paymentId = record.providerPaymentId as string;
@@ -949,6 +1096,7 @@ async function settleHold(
   let operationRef: string | null = null;
   // Set when the cost is below the provider minimum: the hold is released, not captured.
   let uncollectableReason: string | null = null;
+  const calls: ProviderCalls = { provider: false };
   try {
     const provider = await pinnedProvider(ctx.registry, record.provider);
     const captureMinimumCents =
@@ -958,6 +1106,7 @@ async function settleHold(
     if (finalCostCents != null && captureMinimumCents != null) {
       // The provider refuses a charge this small, and a refused capture left the
       // hold open until it expired (P4): release it now; the cost is not collectable.
+      calls.provider = true;
       operationRef = pendingRef(
         await provider.cancelHold({
           paymentId,
@@ -975,6 +1124,7 @@ async function settleHold(
         'Cost below the provider minimum charge; hold released, cost uncollected',
       );
     } else if (finalCostCents == null || finalCostCents <= 0) {
+      calls.provider = true;
       operationRef = pendingRef(
         await provider.cancelHold({
           paymentId,
@@ -993,6 +1143,8 @@ async function settleHold(
           finalCostCents,
           holdCents,
           ctx,
+          calls,
+          hold.resume,
         );
         if (adjusted.kind === 'pending') {
           return { mode: 'card', status: 'adjusting', paymentRecordId: record.id, driverId };
@@ -1009,6 +1161,7 @@ async function settleHold(
         costBreakdown: session.costBreakdown,
       });
       const platformFeePercent = await getPlatformFeePercent(session.siteId);
+      calls.provider = true;
       operationRef = pendingRef(
         await provider.capture({
           paymentId,
@@ -1069,6 +1222,12 @@ async function settleHold(
       }
     }
   } catch (err) {
+    // A lost database connection before the provider was asked anything is
+    // the caller's to retry: the hold is untouched, so it is not a capture
+    // failure. After a provider call the failure is recorded as before.
+    if (options.rethrowConnectionErrors && !calls.provider && pgConnectionErrorKind(err) != null) {
+      throw err;
+    }
     ctx.logger.error({ err, sessionId, paymentRecordId: record.id }, 'Auto capture/cancel failed');
     const reason = errorMessage(err, 'Unknown capture error');
     try {

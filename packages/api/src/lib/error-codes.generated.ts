@@ -142,6 +142,7 @@ export const ERROR_CODES = {
   NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
   NOT_PENDING: 'NOT_PENDING',
   NOT_SUPPORTED: 'NOT_SUPPORTED',
+  NOTIFICATION_EVENT_REQUIRED: 'NOTIFICATION_EVENT_REQUIRED',
   OCPP_COMMAND_FAILED: 'OCPP_COMMAND_FAILED',
   OCPP_VERSION_MISMATCH: 'OCPP_VERSION_MISMATCH',
   OCTT_RUN_NOT_FOUND: 'OCTT_RUN_NOT_FOUND',
@@ -218,6 +219,9 @@ export const ERROR_CODES = {
   SESSION_CREATE_FAILED: 'SESSION_CREATE_FAILED',
   SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
   SESSION_NOT_LINKED: 'SESSION_NOT_LINKED',
+  SESSION_REBILL_IN_PROGRESS: 'SESSION_REBILL_IN_PROGRESS',
+  SESSION_REBILL_NOT_ELIGIBLE: 'SESSION_REBILL_NOT_ELIGIBLE',
+  SESSION_REBILL_PAYMENT_PENDING: 'SESSION_REBILL_PAYMENT_PENDING',
   SETTING_NOT_FOUND: 'SETTING_NOT_FOUND',
   SITE_HAS_STATIONS: 'SITE_HAS_STATIONS',
   SITE_NOT_FOUND: 'SITE_NOT_FOUND',
@@ -399,6 +403,7 @@ export type ErrorCode =
   | 'NOT_IMPLEMENTED'
   | 'NOT_PENDING'
   | 'NOT_SUPPORTED'
+  | 'NOTIFICATION_EVENT_REQUIRED'
   | 'OCPP_COMMAND_FAILED'
   | 'OCPP_VERSION_MISMATCH'
   | 'OCTT_RUN_NOT_FOUND'
@@ -475,6 +480,9 @@ export type ErrorCode =
   | 'SESSION_CREATE_FAILED'
   | 'SESSION_NOT_FOUND'
   | 'SESSION_NOT_LINKED'
+  | 'SESSION_REBILL_IN_PROGRESS'
+  | 'SESSION_REBILL_NOT_ELIGIBLE'
+  | 'SESSION_REBILL_PAYMENT_PENDING'
   | 'SETTING_NOT_FOUND'
   | 'SITE_HAS_STATIONS'
   | 'SITE_NOT_FOUND'
@@ -664,6 +672,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   NOT_IMPLEMENTED: 'Remote start on partner networks requires the OCPI Commands module',
   NOT_PENDING: 'Station is not pending approval',
   NOT_SUPPORTED: 'Not supported for OCPP 1.6',
+  NOTIFICATION_EVENT_REQUIRED:
+    'This notification is required for account access and cannot be turned off',
   OCPP_COMMAND_FAILED: 'OCPP command failed',
   OCPP_VERSION_MISMATCH: 'The command is for a different OCPP version than the station uses',
   OCTT_RUN_NOT_FOUND: 'Conformance run not found',
@@ -747,6 +757,10 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SESSION_CREATE_FAILED: 'Failed to create session',
   SESSION_NOT_FOUND: 'Session not found',
   SESSION_NOT_LINKED: 'Session not linked to this case',
+  SESSION_REBILL_IN_PROGRESS: 'The session is being billed. Try again in a few minutes.',
+  SESSION_REBILL_NOT_ELIGIBLE: 'This session cannot be billed',
+  SESSION_REBILL_PAYMENT_PENDING:
+    'The session has a payment the provider has not settled yet. Try again later.',
   SETTING_NOT_FOUND: 'Setting not found',
   SITE_HAS_STATIONS: 'Cannot delete site with stations. Remove or reassign stations first.',
   SITE_NOT_FOUND: 'Site not found',

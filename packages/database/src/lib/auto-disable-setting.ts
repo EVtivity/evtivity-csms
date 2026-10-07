@@ -4,6 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('auto-disable-setting');
 
 let cachedValue: boolean | undefined;
 let cachedAt = 0;
@@ -27,7 +30,11 @@ export async function isAutoDisableOnCriticalEnabled(): Promise<boolean> {
     cachedValue = row == null || row.value !== false;
     cachedAt = now;
     return cachedValue;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'security.autoDisableOnCritical' },
+      'isAutoDisableOnCriticalEnabled failed, using the cached value or default',
+    );
     return cachedValue ?? true;
   }
 }

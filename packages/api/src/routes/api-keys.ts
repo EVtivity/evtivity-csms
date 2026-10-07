@@ -14,7 +14,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { createApiKey, listApiKeys, revokeApiKey } from '../services/api-key.service.js';
-import { PERMISSIONS, isSubsetOf } from '@evtivity/lib';
+import { isSubsetOf, permissionCatalog } from '@evtivity/lib';
 import {
   db,
   userPermissions,
@@ -177,8 +177,7 @@ export function apiKeyRoutes(app: FastifyInstance): void {
       }
 
       // Validate all permissions are in the catalog
-      const catalogSet = new Set<string>(PERMISSIONS);
-      const invalid = body.permissions.filter((p) => !catalogSet.has(p));
+      const invalid = body.permissions.filter((p) => !permissionCatalog.isKnown(p));
       if (invalid.length > 0) {
         await reply.status(400).send({
           error: `Invalid permissions: ${invalid.join(', ')}`,
@@ -319,8 +318,7 @@ export function apiKeyRoutes(app: FastifyInstance): void {
       }
 
       // Validate permissions
-      const catalogSet = new Set<string>(PERMISSIONS);
-      const invalid = body.permissions.filter((p) => !catalogSet.has(p));
+      const invalid = body.permissions.filter((p) => !permissionCatalog.isKnown(p));
       if (invalid.length > 0) {
         await reply.status(400).send({
           error: `Invalid permissions: ${invalid.join(', ')}`,

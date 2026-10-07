@@ -105,6 +105,7 @@ function signedBy(cert: Certificate, issuer: Certificate): boolean {
       new crypto.X509Certificate(issuerDer).publicKey,
     );
   } catch {
+    // fail-open: a signature that cannot be checked counts as not signed, so the chain is refused
     return false;
   }
 }

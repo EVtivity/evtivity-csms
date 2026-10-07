@@ -3,6 +3,7 @@
 
 import { like } from 'drizzle-orm';
 import {
+  createLogger,
   MOBILE_APP_ANDROID_PACKAGES_KEY,
   MOBILE_APP_URL_SCHEMES_KEY,
   parseMobileAppList,
@@ -10,6 +11,8 @@ import {
 } from '@evtivity/lib';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+
+const logger = createLogger('mobile-app-settings');
 
 // The operator's mobile app builds (`mobile.app.*` settings, see
 // `@evtivity/lib` mobile-app.ts). Read on every app card setup, so cached.
@@ -44,9 +47,13 @@ export async function getMobileAppConfig(): Promise<MobileAppConfig> {
     cache = parse(rows);
     cachedAt = now;
     return cache;
-  } catch {
+  } catch (err) {
     // Fail closed: without the settings no app return URL is accepted, and
     // the next call retries the read.
+    logger.warn(
+      { err, key: 'mobile.app.*' },
+      'getMobileAppConfig failed, using the cached value or no app builds',
+    );
     return cache ?? EMPTY;
   }
 }

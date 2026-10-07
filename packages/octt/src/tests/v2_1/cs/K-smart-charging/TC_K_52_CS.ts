@@ -105,13 +105,13 @@ export const TC_K_52_CS: CsTestCase = {
         expected: 'ChargingStationExternalConstraints',
         actual: `purpose: ${String(purpose)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');

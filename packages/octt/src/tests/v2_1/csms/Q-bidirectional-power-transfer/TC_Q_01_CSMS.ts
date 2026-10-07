@@ -76,13 +76,13 @@ export const TC_Q_102_CSMS: TestCase = {
         expected: 'status = Accepted',
         actual: `status = ${authStatus ?? 'unknown'}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Send AuthorizeRequest',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     return {
@@ -132,13 +132,13 @@ export const TC_Q_103_CSMS: TestCase = {
         expected: 'status = Rejected or NoChargingProfile',
         actual: `status = ${status}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send NotifyEVChargingNeedsRequest',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     return {

@@ -3,7 +3,7 @@
 
 import { Worker, type Queue, type ConnectionOptions } from 'bullmq';
 import type { PubSubClient } from '@evtivity/lib';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, tryParseJson } from '@evtivity/lib';
 import { failExhaustedGuestCapture, handleGuestSessionEvent } from '@evtivity/payments';
 import { QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
@@ -52,12 +52,8 @@ export async function startGuestSessionBridge(
   guestSessionQueue: Queue,
 ): Promise<() => Promise<void>> {
   const subscription = await pubsub.subscribe('csms_events', (payload: string) => {
-    let event: CsmsEvent;
-    try {
-      event = JSON.parse(payload) as CsmsEvent;
-    } catch {
-      return;
-    }
+    const event = tryParseJson(payload) as CsmsEvent | null | undefined;
+    if (event == null || typeof event !== 'object') return;
 
     if (event.type === 'TransactionStarted' && event.idToken?.idToken != null) {
       enqueueGuestSessionStarted(guestSessionQueue, {

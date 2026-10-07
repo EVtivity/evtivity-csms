@@ -70,13 +70,17 @@ const h = vi.hoisted(() => {
     settlePrepaidSession: vi.fn(),
     markShortfallRecovered: vi.fn(),
     markShortfallRetryFailed: vi.fn(),
+    staleAdjustmentClaims: vi.fn(),
+    reclaimStaleAdjustment: vi.fn(),
     recordFailedHold: vi.fn(),
     recordHold: vi.fn(),
     sitePayoutReadiness: vi.fn(),
   };
 });
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  // The real Postgres error readers (lost connections are rethrown).
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   db: { select: h.select, execute: h.execute },
   chargingSessions: {
     id: 'cs.id',
@@ -99,7 +103,10 @@ vi.mock('@evtivity/database', () => ({
   },
   getPlatformFeePercent: h.getPlatformFeePercent,
 }));
-vi.mock('@evtivity/lib', () => ({ sessionChargeTax: h.sessionChargeTax }));
+vi.mock('@evtivity/lib', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  sessionChargeTax: h.sessionChargeTax,
+}));
 vi.mock('drizzle-orm', () => ({
   and: (...args: unknown[]) => ({ op: 'and', args }),
   eq: (col: unknown, value: unknown) => ({ op: 'eq', col, value }),
@@ -126,6 +133,8 @@ vi.mock('../payment-records.js', () => ({
   markHoldFailed: h.markHoldFailed,
   setAdjustmentRef: h.setAdjustmentRef,
   settlePrepaidSession: h.settlePrepaidSession,
+  staleAdjustmentClaims: h.staleAdjustmentClaims,
+  reclaimStaleAdjustment: h.reclaimStaleAdjustment,
   markShortfallRecovered: h.markShortfallRecovered,
   markShortfallRetryFailed: h.markShortfallRetryFailed,
   recordFailedHold: h.recordFailedHold,
@@ -141,10 +150,13 @@ import {
   holdTerms,
   isReleasedBelowMinimum,
   retryShortfallForRecord,
+  RESUME_ADJUSTMENT_MIN_AGE_MS,
+  resumeStaleAdjustments,
   retryShortfalls,
   settleAdjustedHold,
   settleSessionPayment,
 } from '../session-payments.js';
+import { fakeAdyenProvider, MODIFICATION_PSP } from '../testing/fake-adyen.js';
 import type { SessionHoldInput } from '../session-payments.js';
 import { PaymentDeclinedError, PaymentProviderNotConfiguredError } from '../errors.js';
 import type { PaymentContext } from '../context.js';
@@ -190,6 +202,14 @@ const ctx: PaymentContext = {
 };
 
 const FEE_TAX = { taxRate: 0.19, tag: 'fee-tax' };
+
+// A postgres.js connection error (Errors.connection) or Node socket error.
+function connectionError(code: string): Error {
+  return Object.assign(new Error(`write ${code} localhost:5433`), { code });
+}
+
+// How the retried OCPP settlement calls it before its last run.
+const RETRYING = { rethrowConnectionErrors: true, resumeAdjustment: false };
 
 function record(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
   return {
@@ -1198,6 +1218,73 @@ describe('settleSessionPayment', () => {
     );
   });
 
+  it('throws a lost connection in the prepaid debit for the caller to retry', async () => {
+    h.results.push([{ ...SESSION, prepaid: true }]);
+    const err = connectionError('ECONNRESET');
+    h.settlePrepaidSession.mockRejectedValue(err);
+    await expect(settleSessionPayment('s1', ctx, RETRYING)).rejects.toBe(err);
+    expect(h.findSessionHold).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('throws a lost connection before the provider is asked, leaving the hold open', async () => {
+    h.results.push([SESSION]);
+    const err = connectionError('CONNECT_TIMEOUT');
+    h.getPlatformFeePercent.mockRejectedValueOnce(err);
+    await expect(settleSessionPayment('s1', ctx, RETRYING)).rejects.toBe(err);
+    expect(stripe.capture).not.toHaveBeenCalled();
+    expect(h.markHoldFailed).not.toHaveBeenCalled();
+  });
+
+  it('keeps the behavior without retry by default: a lost connection fails the hold', async () => {
+    h.results.push([SESSION]);
+    h.getPlatformFeePercent.mockRejectedValueOnce(connectionError('CONNECT_TIMEOUT'));
+    expect(await settleSessionPayment('s1', ctx)).toMatchObject({ status: 'failed' });
+    expect(h.markHoldFailed).toHaveBeenCalledOnce();
+  });
+
+  it('logs a lost connection in the prepaid debit by default and falls through', async () => {
+    h.results.push([{ ...SESSION, prepaid: true }]);
+    h.settlePrepaidSession.mockRejectedValue(connectionError('ECONNRESET'));
+    h.findSessionHold.mockResolvedValue(null);
+    expect(await settleSessionPayment('s1', ctx)).toEqual({ mode: 'none' });
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1' }),
+      'Prepaid balance debit failed',
+    );
+  });
+
+  it('records a failure after the provider was asked, whatever the error', async () => {
+    h.results.push([SESSION]);
+    stripe.capture.mockRejectedValue(connectionError('ECONNRESET'));
+    expect(await settleSessionPayment('s1', ctx)).toMatchObject({ status: 'failed' });
+    expect(h.markHoldFailed).toHaveBeenCalledOnce();
+  });
+
+  it('never captures twice when run again after the capture record failed', async () => {
+    // First run: captured at the provider, the record update lost its connection.
+    h.results.push([SESSION]);
+    h.markCaptured.mockRejectedValueOnce(connectionError('ECONNRESET'));
+    expect(await settleSessionPayment('s1', ctx)).toMatchObject({
+      status: 'captured',
+      recorded: false,
+    });
+    // The update committed: the hold is no longer pre_authorized, so the
+    // rerun finds no open hold and asks the provider nothing.
+    h.results.push([SESSION]);
+    h.findSessionHold.mockResolvedValueOnce(null);
+    expect(await settleSessionPayment('s1', ctx)).toEqual({ mode: 'none' });
+    expect(stripe.capture).toHaveBeenCalledOnce();
+    // The update did not commit: the rerun captures with the same key, which
+    // the provider answers from the first capture.
+    h.results.push([SESSION]);
+    await settleSessionPayment('s1', ctx);
+    const keys = stripe.capture.mock.calls.map(
+      (call) => (call[0] as { idempotencyKey: string }).idempotencyKey,
+    );
+    expect(keys).toEqual(['capture_pi_1', 'capture_pi_1']);
+  });
+
   it('does not try a prepaid debit for a card session', async () => {
     h.results.push([SESSION]);
     h.findSessionHold.mockResolvedValue(null);
@@ -1566,6 +1653,87 @@ describe('authorisation adjustment of a hold below the final cost (P10 Part D)',
     h.clearPendingAdjustment.mockResolvedValue(true);
   });
 
+  it('throws a lost connection on the adjustment claim before the provider is asked', async () => {
+    h.results.push([SESSION]);
+    const err = connectionError('CONNECT_TIMEOUT');
+    h.markAdjustmentPending.mockRejectedValueOnce(err);
+    await expect(settleSessionPayment('s1', ctx, RETRYING)).rejects.toBe(err);
+    expect(adjustHold).not.toHaveBeenCalled();
+    expect(stripe.capture).not.toHaveBeenCalled();
+    expect(h.markHoldFailed).not.toHaveBeenCalled();
+  });
+
+  it('leaves a claimed adjustment to its webhook on a first run', async () => {
+    h.results.push([SESSION]);
+    h.findSessionHold.mockResolvedValue(hold({ pendingOperation: 'adjust' }));
+    expect(await settleSessionPayment('s1', ctx, RETRYING)).toMatchObject({
+      status: 'adjusting',
+    });
+    expect(adjustHold).not.toHaveBeenCalled();
+  });
+
+  it('resumes a claimed adjustment without a reference on a rerun, with the same key', async () => {
+    h.results.push([SESSION]);
+    h.findSessionHold.mockResolvedValue(hold({ pendingOperation: 'adjust' }));
+    h.reclaimStaleAdjustment.mockResolvedValueOnce(hold({ pendingOperation: 'adjust' }));
+    expect(
+      await settleSessionPayment('s1', ctx, {
+        rethrowConnectionErrors: true,
+        resumeAdjustment: true,
+      }),
+    ).toMatchObject({ status: 'captured', capturedCents: 7000 });
+    expect(h.markAdjustmentPending).not.toHaveBeenCalled();
+    expect(adjustHold).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'adjust_pi_1_7000' }),
+    );
+  });
+
+  it('does not resume a fresh claim on a rerun: its owner may still be settling it', async () => {
+    h.results.push([SESSION]);
+    h.findSessionHold.mockResolvedValue(hold({ pendingOperation: 'adjust' }));
+    h.reclaimStaleAdjustment.mockResolvedValueOnce(null);
+    const before = Date.now();
+    expect(
+      await settleSessionPayment('s1', ctx, {
+        rethrowConnectionErrors: true,
+        resumeAdjustment: true,
+      }),
+    ).toMatchObject({ status: 'adjusting' });
+    expect(adjustHold).not.toHaveBeenCalled();
+    const [id, olderThan] = h.reclaimStaleAdjustment.mock.calls[0] as [number, Date];
+    expect(id).toBe(42);
+    expect(before - olderThan.getTime()).toBeGreaterThanOrEqual(RESUME_ADJUSTMENT_MIN_AGE_MS - 50);
+  });
+
+  it('does not resume an adjustment that has its provider reference', async () => {
+    h.results.push([SESSION]);
+    h.findSessionHold.mockResolvedValue(
+      hold({ pendingOperation: 'adjust', pendingOperationRef: 'PSP1' }),
+    );
+    expect(
+      await settleSessionPayment('s1', ctx, {
+        rethrowConnectionErrors: true,
+        resumeAdjustment: true,
+      }),
+    ).toMatchObject({ status: 'adjusting' });
+    expect(adjustHold).not.toHaveBeenCalled();
+  });
+
+  it('keeps the claim when the reference of an accepted adjustment cannot be stored', async () => {
+    h.results.push([SESSION]);
+    adjustHold.mockResolvedValueOnce({ state: 'pending', operationRef: 'PSP1' });
+    h.setAdjustmentRef.mockRejectedValueOnce(connectionError('ECONNRESET'));
+    expect(await settleSessionPayment('s1', ctx, RETRYING)).toMatchObject({
+      status: 'adjusting',
+    });
+    expect(h.clearPendingAdjustment).not.toHaveBeenCalled();
+    expect(stripe.capture).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentRecordId: 42, operationRef: 'PSP1' }),
+      'Adjustment reference not stored; the claim stays for its webhook or the reconciliation',
+    );
+  });
+
   it('raises the hold synchronously and captures the whole final cost', async () => {
     h.results.push([SESSION]);
     h.findSessionHold.mockResolvedValue(
@@ -1776,5 +1944,135 @@ describe('authorisation adjustment of a hold below the final cost (P10 Part D)',
       );
       expect(stripe.capture).toHaveBeenCalledWith(expect.objectContaining({ amountCents: 7000 }));
     });
+  });
+});
+
+describe('resumeStaleAdjustments', () => {
+  const SESSION = {
+    id: 's1',
+    driverId: 'd1',
+    isRoaming: false,
+    freeVend: false,
+    prepaid: false,
+    finalCostCents: 7000,
+    tariffTaxRate: '0.19',
+    costBreakdown: { energy: 7000 },
+    siteId: 'site1',
+  };
+  const claim = (overrides: Partial<PaymentRecord> = {}): PaymentRecord =>
+    record({
+      provider: 'adyen',
+      providerPaymentId: 'KHQC5N7G84BLNK43',
+      preAuthAmountCents: 5000,
+      capturedAmountCents: null,
+      pendingOperation: 'adjust',
+      pendingOperationRef: null,
+      pendingOperationAt: new Date(Date.now() - 2 * 3600_000),
+      ...overrides,
+    });
+  const syncAdjust = () =>
+    vi.fn(() => Promise.resolve({ state: 'succeeded', authorizedCents: 7000 }));
+
+  // The atomic take-over: each claim can be taken once.
+  let taken: Set<number>;
+
+  beforeEach(() => {
+    h.setAdjustmentRef.mockResolvedValue(true);
+    h.clearPendingAdjustment.mockResolvedValue(true);
+    h.markHoldFailed.mockResolvedValue(true);
+    taken = new Set();
+    h.reclaimStaleAdjustment.mockImplementation((id: number) => {
+      if (taken.has(id)) return Promise.resolve(null);
+      taken.add(id);
+      return Promise.resolve(claim({ id }));
+    });
+  });
+
+  it('re-drives a claim once when two reconciliations run together', async () => {
+    h.staleAdjustmentClaims.mockResolvedValue([claim()]);
+    stripe.capabilities = { shortfall: 'adjust_hold' };
+    stripe.adjustHold = syncAdjust();
+    h.results.push([SESSION], [SESSION]);
+    const [a, b] = await Promise.all([resumeStaleAdjustments(ctx), resumeStaleAdjustments(ctx)]);
+    expect(a.resumed + b.resumed).toBe(1);
+    expect([...a.skipped, ...b.skipped]).toEqual([]);
+    expect(stripe.adjustHold).toHaveBeenCalledOnce();
+  });
+
+  it('skips a claim whose reference a webhook stored after the read', async () => {
+    h.staleAdjustmentClaims.mockResolvedValue([claim()]);
+    stripe.capabilities = { shortfall: 'adjust_hold' };
+    stripe.adjustHold = syncAdjust();
+    // The conditional take-over finds a reference and takes nothing.
+    h.reclaimStaleAdjustment.mockResolvedValueOnce(null);
+    expect(await resumeStaleAdjustments(ctx)).toEqual({ resumed: 0, skipped: [] });
+    expect(stripe.adjustHold).not.toHaveBeenCalled();
+    expect(h.findSessionHold).not.toHaveBeenCalled();
+  });
+
+  it('asks for claims older than an hour', async () => {
+    h.staleAdjustmentClaims.mockResolvedValue([claim()]);
+    h.reclaimStaleAdjustment.mockResolvedValueOnce(null);
+    const now = new Date('2026-10-07T12:00:00Z');
+    expect(await resumeStaleAdjustments(ctx, now)).toEqual({ resumed: 0, skipped: [] });
+    expect(h.staleAdjustmentClaims).toHaveBeenCalledWith(new Date('2026-10-07T11:00:00Z'));
+    // The take-over uses the same age bound.
+    expect(h.reclaimStaleAdjustment).toHaveBeenCalledWith(42, new Date('2026-10-07T11:00:00Z'));
+  });
+
+  it('finishes a claim whose reference was lost: Adyen replays the first answer for the key', async () => {
+    const { provider, adyen } = fakeAdyenProvider(
+      { authorisationAdjustment: true },
+      { idempotencyReplay: true },
+    );
+    getPaymentProvider.mockResolvedValue(provider);
+    // The settlement on session end: Adyen accepted the adjustment, the
+    // reference write lost its connection, the claim stayed.
+    h.results.push([SESSION]);
+    h.findSessionHold.mockResolvedValue(claim({ pendingOperation: null }));
+    h.markAdjustmentPending.mockResolvedValue(true);
+    h.setAdjustmentRef.mockRejectedValueOnce(connectionError('ECONNRESET'));
+    expect(await settleSessionPayment('s1', ctx)).toMatchObject({ status: 'adjusting' });
+    expect(h.clearPendingAdjustment).not.toHaveBeenCalled();
+
+    // The reconciliation an hour later asks again with the same key and
+    // stores the reference Adyen answered the first time.
+    h.staleAdjustmentClaims.mockResolvedValue([claim()]);
+    h.results.push([SESSION]);
+    expect(await resumeStaleAdjustments(ctx)).toEqual({ resumed: 1, skipped: [] });
+    const adjustCalls = adyen.calls.filter((c) => c.path.endsWith('/amountUpdates'));
+    expect(adjustCalls.map((c) => c.headers['idempotency-key'])).toEqual([
+      'adjust_KHQC5N7G84BLNK43_7000',
+      'adjust_KHQC5N7G84BLNK43_7000',
+    ]);
+    expect(h.setAdjustmentRef).toHaveBeenLastCalledWith(42, MODIFICATION_PSP);
+    expect(h.markAdjustmentPending).toHaveBeenCalledOnce();
+  });
+
+  it('reports a claim without a session final cost and goes on', async () => {
+    h.staleAdjustmentClaims.mockResolvedValue([claim({ id: 7 }), claim({ id: 8 })]);
+    stripe.capabilities = { shortfall: 'adjust_hold' };
+    stripe.adjustHold = syncAdjust();
+    h.results.push([{ ...SESSION, finalCostCents: null }], [SESSION]);
+    expect(await resumeStaleAdjustments(ctx)).toEqual({
+      resumed: 1,
+      skipped: [{ paymentRecordId: 7, reason: 'no session final cost to adjust the hold to' }],
+    });
+    expect(stripe.adjustHold).toHaveBeenCalledOnce();
+  });
+
+  it('is fail-open per claim', async () => {
+    h.staleAdjustmentClaims.mockResolvedValue([claim({ id: 7 }), claim({ id: 8 })]);
+    stripe.capabilities = { shortfall: 'adjust_hold' };
+    stripe.adjustHold = syncAdjust();
+    h.results.push(new Error('session read failed') as unknown as unknown[], [SESSION]);
+    expect(await resumeStaleAdjustments(ctx)).toEqual({
+      resumed: 1,
+      skipped: [{ paymentRecordId: 7, reason: 'session read failed' }],
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentRecordId: 7 }),
+      'Stale adjustment resume failed',
+    );
   });
 });

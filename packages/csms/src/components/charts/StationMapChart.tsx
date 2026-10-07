@@ -52,10 +52,10 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
 
         const map = new mapsLib.Map(mapRef.current, {
           center: {
-            lat: Number(mapsSettings.defaultLat),
-            lng: Number(mapsSettings.defaultLng),
+            lat: mapsSettings.defaultLat,
+            lng: mapsSettings.defaultLng,
           },
-          zoom: Number(mapsSettings.defaultZoom),
+          zoom: mapsSettings.defaultZoom,
           mapId: 'evtivity-dashboard-map',
           gestureHandling: 'cooperative',
           streetViewControl: false,
@@ -99,8 +99,9 @@ export function StationMapChart({ info }: { info?: string }): React.JSX.Element 
         // Map stays at the operator-configured default center/zoom from
         // Settings > Integrations > Google Maps. Auto-fitting to markers
         // would override the configured view every time a new site is added.
-      } catch {
+      } catch (err) {
         // Markers failed but map is still usable
+        console.warn('Render site markers on the map failed', err);
       }
     })();
   }, [siteLocations, mapInstance]);

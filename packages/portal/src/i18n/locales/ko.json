@@ -20,7 +20,9 @@
     "deactivate": "비활성화",
     "remove": "제거",
     "inclTax": "세금 포함",
-    "amountInclTax": "{{amount}} (세금 포함)"
+    "amountInclTax": "{{amount}} (세금 포함)",
+    "close": "닫기",
+    "toggleSuggestions": "제안 표시/숨기기"
   },
   "nav": {
     "home": "홈",
@@ -145,7 +147,7 @@
     "charging": "충전 중",
     "idle": "유휴",
     "limitReached": {
-      "cost": "충전 일시 중지: 세션이 비용 한도(카드에 보류된 금액)에 도달했습니다.",
+      "cost": "충전 일시 중지: 세션이 비용 한도에 도달했습니다.",
       "energy": "충전 일시 중지: 세션이 에너지 한도에 도달했습니다.",
       "time": "충전 일시 중지: 세션이 시간 한도에 도달했습니다."
     },
@@ -246,7 +248,8 @@
     "priceDisplayDefault": "운영자 기본값 ({{value}})",
     "priceDisplayGross": "세금 포함 (총액)",
     "priceDisplayNet": "세금 별도 (순액)",
-    "priceDisplayHelper": "세금 포함은 세금이 더해진 가격을 표시합니다. 세금 별도는 세전 가격을 표시합니다. 청구 금액은 어느 쪽이든 같으며, 직접 선택하기 전에는 운영자 기본값이 적용됩니다."
+    "priceDisplayHelper": "세금 포함은 세금이 더해진 가격을 표시합니다. 세금 별도는 세전 가격을 표시합니다. 청구 금액은 어느 쪽이든 같으며, 직접 선택하기 전에는 운영자 기본값이 적용됩니다.",
+    "mfaQrCode": "인증 앱 QR 코드"
   },
   "charger": {
     "loadingInfo": "충전기 정보 로딩 중...",
@@ -593,6 +596,7 @@
     "MFA_TOTP_NO_RESEND": "TOTP 코드는 재전송할 수 없습니다",
     "MISSING_PAYMENT_INTENT": "결제 인텐트가 누락되었습니다",
     "MISSING_VERSION_URL": "등록을 위해 파트너 버전 URL이 필요합니다",
+    "NOTIFICATION_EVENT_REQUIRED": "계정 접근에 필요한 알림이므로 끌 수 없습니다",
     "NOT_BLOCKED": "충전소가 차단되어 있지 않습니다",
     "NOT_CHARGING": "세션이 현재 충전 중이 아닙니다",
     "NOT_DRAFT": "초안 캠페인만 업데이트할 수 있습니다",
@@ -683,6 +687,9 @@
     "SESSION_CREATE_FAILED": "세션 생성에 실패했습니다",
     "SESSION_NOT_FOUND": "세션을 찾을 수 없습니다",
     "SESSION_NOT_LINKED": "세션이 이 문의에 연결되어 있지 않습니다",
+    "SESSION_REBILL_IN_PROGRESS": "세션 청구가 진행 중입니다. 몇 분 후에 다시 시도하세요.",
+    "SESSION_REBILL_NOT_ELIGIBLE": "이 세션은 청구할 수 없습니다",
+    "SESSION_REBILL_PAYMENT_PENDING": "세션에 결제 제공업체가 아직 정산하지 않은 결제가 있습니다. 나중에 다시 시도하세요.",
     "SETTING_NOT_FOUND": "설정을 찾을 수 없습니다",
     "SITE_HAS_STATIONS": "충전소가 있는 사이트는 삭제할 수 없습니다. 먼저 충전소를 제거하거나 재할당하세요.",
     "SITE_NOT_FOUND": "사이트를 찾을 수 없습니다",
@@ -764,7 +771,9 @@
     "co2Avoided": "CO₂ 절감량",
     "co2AvoidedMessage": "이번 달 {{amount}} kg CO₂를 절감했습니다",
     "miles": "마일",
-    "km": "km"
+    "km": "km",
+    "previousMonth": "이전 달",
+    "nextMonth": "다음 달"
   },
   "statement": {
     "title": "월간 명세서",
@@ -982,5 +991,12 @@
         "home": "홈으로 이동"
       }
     }
+  },
+  "sessionStatus": {
+    "active": "진행 중",
+    "completed": "완료",
+    "invalid": "유효하지 않음",
+    "faulted": "결함",
+    "failed": "실패"
   }
 }

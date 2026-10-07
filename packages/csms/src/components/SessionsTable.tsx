@@ -89,6 +89,8 @@ export interface Session {
   freeVend: boolean | null;
   isGuestSession?: boolean;
   co2AvoidedKg: number | null;
+  /** Operator re-bill of a session the CSMS could not end; 'manual' waits for billing outside the platform. */
+  rebillStatus?: 'in_progress' | 'billed' | 'manual' | null;
 }
 
 function formatCost(session: Session): string {
@@ -231,6 +233,11 @@ export const SessionsTable = memo(function SessionsTable({
                         ? t('status.idle')
                         : session.status}
                     </Badge>
+                    {session.rebillStatus === 'manual' && (
+                      <Badge variant="warning" className="ml-2">
+                        {t('sessions.manualBilling')}
+                      </Badge>
+                    )}
                   </TableCell>
                 )}
                 {isVisible('started') && (

@@ -29,11 +29,10 @@ export const TC_B_20_CS: CsTestCase = {
 
     // Step 3: Station reboots autonomously - wait for BootNotification
     let bootReceived = false;
-    try {
-      const bootPayload = await ctx.server.waitForMessage('BootNotification', 10000);
+    // Timeout - station did not reboot
+    const bootPayload = await ctx.server.waitForMessageOrNull('BootNotification', 10000);
+    if (bootPayload != null) {
       bootReceived = bootPayload != null;
-    } catch {
-      // Timeout - station did not reboot
     }
     steps.push({
       step: 3,
@@ -60,13 +59,13 @@ export const TC_B_20_CS: CsTestCase = {
         expected: 'connectorStatus = Available',
         actual: `connectorStatus = ${connectorStatus}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'StatusNotificationRequest: connectorStatus = Available',
         status: 'failed',
         expected: 'connectorStatus = Available',
-        actual: 'Timed out waiting for StatusNotification',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

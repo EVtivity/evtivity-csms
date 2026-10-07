@@ -73,13 +73,13 @@ export const TC_L_17_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp65 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send PublishFirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -159,13 +159,13 @@ export const TC_L_24_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp147 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send PublishFirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -245,13 +245,13 @@ export const TC_L_19_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp229 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send PublishFirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -331,13 +331,13 @@ export const TC_L_20_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp311 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send PublishFirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }

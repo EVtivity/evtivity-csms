@@ -118,6 +118,14 @@ describe('OcpiClient verbs', () => {
       'Failed to parse OCPI response from https://p.example/ocpi/x: 502',
     );
   });
+
+  it('keeps the parse error as the cause', async () => {
+    safeFetchMock.mockResolvedValue(respond(502, '<html>Bad Gateway</html>'));
+
+    await expect(client.put('https://p.example/ocpi/x', {})).rejects.toMatchObject({
+      cause: expect.any(SyntaxError),
+    });
+  });
 });
 
 describe('OcpiClient redirects', () => {

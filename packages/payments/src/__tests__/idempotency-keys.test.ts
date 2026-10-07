@@ -8,6 +8,7 @@ import {
   captureKey,
   MAX_IDEMPOTENCY_KEY_LENGTH,
   refundKey,
+  rebillKey,
   reservationFeeKey,
   topUpKey,
   topUpRetryKey,
@@ -71,5 +72,14 @@ describe('reservationFeeKey', () => {
   it('keeps the key reservation fees were always charged with', () => {
     expect(reservationFeeKey('reservation_cancellation', 'rsv_1')).toBe('cancellation-fee-rsv_1');
     expect(reservationFeeKey('reservation_no_show', 'rsv_1')).toBe('no-show-fee-rsv_1');
+  });
+});
+
+describe('rebillKey', () => {
+  it('is one key per session, bounded to the Adyen limit', () => {
+    expect(rebillKey('ses_abc123def456')).toBe('rebill_ses_abc123def456');
+    const long = rebillKey('x'.repeat(80));
+    expect(long).toMatch(/^rebill_[0-9a-f]{40}$/);
+    expect(rebillKey('x'.repeat(80))).toBe(long);
   });
 });

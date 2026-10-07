@@ -62,13 +62,13 @@ export const TC_N_25_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp52 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: steps.length + 1,
           description: `Send LogStatusNotification ${logStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -281,13 +281,13 @@ export const TC_N_100_CSMS: TestCase = {
         ],
       });
       pushSendAckStep(steps, 1, 'Send NotifyEventRequest with trigger Periodic', resp1);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send NotifyEventRequest',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     return {

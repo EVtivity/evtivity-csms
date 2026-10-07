@@ -91,7 +91,10 @@
     "filterByReportType": "Nach Berichtstyp filtern",
     "filterByStation": "Nach Station filtern",
     "filterByModule": "Nach Modul filtern",
-    "na": "n/a"
+    "na": "n/a",
+    "startDate": "Startdatum",
+    "endDate": "Enddatum",
+    "dateRange": "Zeitraum"
   },
   "status": {
     "online": "Online",
@@ -439,7 +442,8 @@
     "netRevenue": "Gesamtumsatz (netto)",
     "todayNetRevenue": "Heutiger Umsatz (netto)",
     "taxCollected": "Vereinnahmte Steuer gesamt",
-    "todayTaxCollected": "Heute vereinnahmte Steuer"
+    "todayTaxCollected": "Heute vereinnahmte Steuer",
+    "showPage": "Seite {{page}} von {{total}} anzeigen"
   },
   "sites": {
     "title": "Standorte",
@@ -890,7 +894,8 @@
     "enabledSuccess": "Station aktiviert",
     "disabledSuccess": "Station deaktiviert",
     "maxPowerUnknown": "Maximale Leistung unbekannt",
-    "maxPowerUnknownHint": "Das Lastmanagement kann diesen Anschluss erst begrenzen, wenn seine maximale Leistung gesetzt ist. Bearbeiten Sie das EVSE, um sie festzulegen. OCPP-2.1-Stationen tragen sie aus ihrem Konfigurationsbericht ein."
+    "maxPowerUnknownHint": "Das Lastmanagement kann diesen Anschluss erst begrenzen, wenn seine maximale Leistung gesetzt ist. Bearbeiten Sie das EVSE, um sie festzulegen. OCPP-2.1-Stationen tragen sie aus ihrem Konfigurationsbericht ein.",
+    "removeTag": "Tag {{tag}} entfernen"
   },
   "eventAlertRules": {
     "title": "Ereigniswarnregeln",
@@ -993,7 +998,42 @@
       "failed": "Fehlgeschlagen"
     },
     "refundPending": "Erstattung angefordert. Der Zahlungsanbieter bestätigt sie in Kürze.",
-    "refundAfterConfirmation": "Erstattungen sind möglich, sobald der Anbieter den Einzug bestätigt."
+    "refundAfterConfirmation": "Erstattungen sind möglich, sobald der Anbieter den Einzug bestätigt.",
+    "manualBilling": "Manuelle Abrechnung",
+    "rebill": {
+      "cardTitle": "Abrechnung",
+      "unbilledBadge": "Nicht abgerechnet",
+      "unbilledHelp": "Das CSMS konnte diesen Ladevorgang nicht beenden, deshalb wurde er nicht abgerechnet. Rechnen Sie ihn ab, um ihn anhand seiner Messwerte zu bepreisen und die gespeicherte Karte oder das Prepaid-Guthaben des Fahrers zu belasten. Ein Ladevorgang, der nicht belastet werden kann, wird zur manuellen Abrechnung markiert.",
+      "billedBadge": "Von einem Betreiber abgerechnet",
+      "billedHelp": "Ein Betreiber hat diesen Ladevorgang abgerechnet, nachdem das CSMS ihn nicht beenden konnte.",
+      "manualHelp": "Das CSMS konnte diesen Ladevorgang nicht beenden und ihn nicht automatisch belasten. Ziehen Sie {{cost}} außerhalb der Plattform ein.",
+      "button": "Ladevorgang abrechnen",
+      "confirmTitle": "Diesen Ladevorgang abrechnen?",
+      "confirmDescription": "Die Kosten werden aus den Messwerten neu berechnet und der gespeicherten Standardkarte oder dem Prepaid-Guthaben des Fahrers belastet. Kann der Ladevorgang nicht belastet werden, wird er zur manuellen Abrechnung markiert.",
+      "inProgress": "Der Ladevorgang wird gerade abgerechnet.",
+      "paymentPending": "Für den Ladevorgang gibt es eine Zahlung, die der Zahlungsanbieter noch nicht abgeschlossen hat.",
+      "charged": "Ladevorgang abgerechnet: Die Karte wurde belastet",
+      "prepaid": "Ladevorgang abgerechnet: Das Prepaid-Guthaben wurde belastet",
+      "noCharge": "Ladevorgang abgerechnet: Nichts zu belasten",
+      "manual": "Der Ladevorgang konnte nicht belastet werden und ist zur manuellen Abrechnung markiert",
+      "failed": "Abrechnung fehlgeschlagen",
+      "manualReason": {
+        "no_payment_method": "Der Fahrer hat keine gespeicherte Karte.",
+        "payment_failed": "Die Karte wurde abgelehnt oder erfordert eine Authentifizierung des Karteninhabers.",
+        "guest": "Gastladevorgänge haben keine gespeicherte Karte.",
+        "no_driver": "Der Ladevorgang hat keinen Fahrer.",
+        "prepaid_not_debited": "Das Prepaid-Guthaben konnte nicht belastet werden.",
+        "prepaid_record_exists": "Die Sitzung hat bereits einen Zahlungsdatensatz, daher wurde das Prepaid-Guthaben nicht belastet."
+      },
+      "notEligible": {
+        "status": "Hier kann nur ein Ladevorgang abgerechnet werden, den das CSMS nicht beenden konnte.",
+        "already_rebilled": "Der Ladevorgang wurde bereits abgerechnet.",
+        "roaming": "Roaming-Ladevorgänge rechnet der Roaming-Partner ab.",
+        "free_vend": "Ladevorgänge mit freiem Laden werden nicht abgerechnet.",
+        "no_tariff": "Der Ladevorgang hat keinen Tarif zur Preisberechnung.",
+        "paid": "Der Ladevorgang wurde bereits bezahlt."
+      }
+    }
   },
   "drivers": {
     "title": "Fahrer",
@@ -1209,7 +1249,46 @@
     "pagePermissions": "Seiten",
     "settingsPermissions": "Einstellungen",
     "noPermissions": "Keine Berechtigungen zugewiesen.",
-    "writeImpliesRead": "Schreibberechtigung schließt Lesezugriff ein."
+    "writeImpliesRead": "Schreibberechtigung schließt Lesezugriff ein.",
+    "permissionRead": "Lesen",
+    "permissionWrite": "Schreiben",
+    "permissionGroups": {
+      "dashboard": "Dashboard",
+      "stations": "Stationen",
+      "sites": "Standorte",
+      "sessions": "Ladevorgänge",
+      "drivers": "Fahrer",
+      "fleets": "Flotten",
+      "reservations": "Reservierungen",
+      "support": "Supportfälle",
+      "payments": "Zahlungen",
+      "pricing": "Preise",
+      "roaming": "Roaming",
+      "smartCharging": "Smart Charging",
+      "certificates": "Zertifikate",
+      "conformance": "Konformität",
+      "reports": "Berichte",
+      "sustainability": "Nachhaltigkeit",
+      "loadManagement": "Lastmanagement",
+      "notifications": "Benachrichtigungen",
+      "logs": "Protokolle",
+      "users": "Benutzer",
+      "audit": "Audit-Protokoll",
+      "maintenance": "Wartung",
+      "settings": {
+        "system": "System",
+        "notification": "Benachrichtigung",
+        "payment": "Zahlung",
+        "integrations": "Integrationen und Funktionen",
+        "security": "Sicherheit",
+        "apiKeys": "API-Schlüssel",
+        "firmware": "Firmware-Kampagne",
+        "stationConfig": "Stationskonfigurationen",
+        "smartCharging": "Smart Charging",
+        "ai": "KI",
+        "conformance": "Konformität"
+      }
+    }
   },
   "profile": {
     "title": "Profil",
@@ -1279,7 +1358,8 @@
     "supportAiTone": "Antwort-Ton",
     "supportAiSystemPrompt": "System-Prompt",
     "supportAiRemoveConfig": "Konfiguration entfernen",
-    "supportAiRemoveConfirm": "Persönliche Support-KI-Konfiguration entfernen? Stattdessen wird die Systemvoreinstellung verwendet."
+    "supportAiRemoveConfirm": "Persönliche Support-KI-Konfiguration entfernen? Stattdessen wird die Systemvoreinstellung verwendet.",
+    "mfaQrCode": "QR-Code für die Authenticator-App"
   },
   "fleets": {
     "title": "Flotten",
@@ -2180,7 +2260,10 @@
     "secretStoredHint": "Ein Wert ist gespeichert. Zum Anzeigen ist die Leseberechtigung für „Settings - System“ erforderlich. Lassen Sie das Feld leer, um ihn zu behalten, oder geben Sie einen neuen Wert ein, um ihn zu ersetzen.",
     "secretRemove": "Gespeicherten Wert entfernen",
     "secretRemovePending": "Der gespeicherte Wert wird beim Speichern entfernt.",
-    "secretRemoveUndo": "Behalten"
+    "secretRemoveUndo": "Behalten",
+    "copyCode": "Code kopieren",
+    "themeColorPicker": "Designfarbe auswählen",
+    "emailLayoutPreviewFrame": "Vorschau des E-Mail-Layouts"
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -2275,6 +2358,7 @@
     "ocppEventSettingsSaved": "Einstellung gespeichert.",
     "ocppEvents": "OCPP-Ereignisse",
     "ocppCommonEvents": "Gemeinsam (1.6 und 2.1)",
+    "ocpp16Events": "Nur OCPP 1.6",
     "ocpp21Events": "Nur OCPP 2.1",
     "driverEvents": "Fahrer-Ereignisse",
     "systemEvents": "Systemereignisse",
@@ -2285,8 +2369,16 @@
     "invoiceEvents": "Rechnungsereignisse",
     "sessionEvents": "Ladevorgänge",
     "supportEvents": "Supportfälle",
+    "sessionAlertEvents": "Ladevorgangswarnungen",
     "siteHostEvents": "Standortbetreiber",
     "mfaEvents": "Mehrfaktor-Authentifizierung",
+    "tokenEvents": "Token",
+    "maintenanceEvents": "Wartung",
+    "watchEvents": "Stationsbeobachtung",
+    "requiredEventTooltip": "Immer aktiv. Fahrer benötigen diese Benachrichtigung, um auf ihr Konto zuzugreifen.",
+    "eventSwitchTooltip": "Wenn deaktiviert, erhält kein Fahrer diese Benachrichtigung. Wenn aktiviert, gelten die Benachrichtigungseinstellungen jedes Fahrers.",
+    "eventTurnedOn": "Benachrichtigung aktiviert.",
+    "eventTurnedOff": "Benachrichtigung deaktiviert.",
     "channelTooltipDriver": "Die Zustellung per E-Mail und SMS hängt von den Benachrichtigungseinstellungen jedes Fahrers in seinem Portal-Konto ab.",
     "channelTooltipSystem": "Die Zustellung per E-Mail und SMS hängt von den Benachrichtigungseinstellungen jedes Betreibers ab.",
     "recipientLabel": "Empfänger",
@@ -2306,6 +2398,7 @@
       "driver.Welcome": "Willkommen",
       "driver.ForgotPassword": "Passwort vergessen",
       "driver.PortalInvite": "Einladung zum Fahrerportal",
+      "session.EndRequestFailed": "Beenden des Ladevorgangs fehlgeschlagen",
       "site.PayoutOnboarding": "Einrichtung der Standortauszahlungen",
       "driver.PasswordChanged": "Passwort geändert",
       "driver.MfaDisabled": "Zwei-Faktor-Authentifizierung deaktiviert",
@@ -2322,7 +2415,8 @@
       "mfa.VerificationCode": "MFA-Bestätigungscode",
       "session.IdlingStarted": "Ladevorgangs-Leerlauf gestartet"
     },
-    "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:"
+    "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
+    "htmlPreview": "HTML-Vorschau"
   },
   "reservations": {
     "title": "Reservierungen",
@@ -2431,7 +2525,8 @@
     "actor": "Akteur",
     "changes": "Änderungen",
     "token": "Token",
-    "evse": "EVSE"
+    "evse": "EVSE",
+    "removeSlotStation": "Station entfernen"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Konto deaktiviert",
@@ -2539,6 +2634,7 @@
     "MFA_TOTP_NO_RESEND": "TOTP-Codes können nicht erneut gesendet werden",
     "MISSING_PAYMENT_INTENT": "Payment Intent fehlt",
     "MISSING_VERSION_URL": "Partner-Versions-URL ist für die Registrierung erforderlich",
+    "NOTIFICATION_EVENT_REQUIRED": "Diese Benachrichtigung wird für den Kontozugang benötigt und kann nicht deaktiviert werden",
     "NOT_BLOCKED": "Station ist nicht blockiert",
     "NOT_CHARGING": "Der Ladevorgang lädt derzeit nicht",
     "NOT_DRAFT": "Nur Entwurfskampagnen können aktualisiert werden",
@@ -2629,6 +2725,9 @@
     "SESSION_CREATE_FAILED": "Ladevorgang konnte nicht erstellt werden",
     "SESSION_NOT_FOUND": "Ladevorgang nicht gefunden",
     "SESSION_NOT_LINKED": "Ladevorgang ist nicht mit diesem Fall verknüpft",
+    "SESSION_REBILL_IN_PROGRESS": "Der Ladevorgang wird gerade abgerechnet. Versuchen Sie es in einigen Minuten erneut.",
+    "SESSION_REBILL_NOT_ELIGIBLE": "Dieser Ladevorgang kann nicht abgerechnet werden",
+    "SESSION_REBILL_PAYMENT_PENDING": "Für den Ladevorgang gibt es eine Zahlung, die der Zahlungsanbieter noch nicht abgeschlossen hat. Versuchen Sie es später erneut.",
     "SETTING_NOT_FOUND": "Einstellung nicht gefunden",
     "SITE_HAS_STATIONS": "Standort mit Stationen kann nicht gelöscht werden. Entfernen oder verschieben Sie zunächst die Stationen.",
     "SITE_NOT_FOUND": "Standort nicht gefunden",
@@ -3230,7 +3329,9 @@
     "perPhaseUtilization": "Auslastung pro Phase",
     "oversubscriptionRatio": "Überbuchungsverhältnis",
     "oversubscribed": "Überbucht",
-    "oversubscriptionWarning": "Ein Verhältnis über 1,0 erlaubt die Installation von mehr Stationskapazität als der Schalttafelbemessung. Lastmanagement erzwingt das Schutzschalterlimit dynamisch."
+    "oversubscriptionWarning": "Ein Verhältnis über 1,0 erlaubt die Installation von mehr Stationskapazität als der Schalttafelbemessung. Lastmanagement erzwingt das Schutzschalterlimit dynamisch.",
+    "priorityFor": "Priorität für {{stationId}}",
+    "deleteLoad": "Last {{name}} löschen"
   },
   "chatbotAi": {
     "title": "Chatbot-KI",
@@ -3650,5 +3751,23 @@
         "backToDriver": "Zurück zum Fahrer"
       }
     }
+  },
+  "editor": {
+    "bold": "Fett",
+    "italic": "Kursiv",
+    "strikethrough": "Durchgestrichen",
+    "heading1": "Überschrift 1",
+    "heading2": "Überschrift 2",
+    "heading3": "Überschrift 3",
+    "bulletList": "Aufzählung",
+    "orderedList": "Nummerierte Liste",
+    "alignLeft": "Linksbündig",
+    "alignCenter": "Zentriert",
+    "alignRight": "Rechtsbündig",
+    "insertLink": "Link einfügen",
+    "textColor": "Textfarbe",
+    "undo": "Rückgängig",
+    "redo": "Wiederholen",
+    "htmlSource": "HTML-Quelltext"
   }
 }

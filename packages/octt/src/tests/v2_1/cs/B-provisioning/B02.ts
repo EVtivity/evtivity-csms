@@ -122,11 +122,8 @@ export const TC_B_02_CS: CsTestCase = {
     });
 
     // Wait for NotifyReport messages
-    try {
-      await ctx.server.waitForMessage('NotifyReport', 10000);
-    } catch {
-      // NotifyReport may or may not arrive in test context
-    }
+    // NotifyReport may or may not arrive in test context
+    await ctx.server.waitForMessageOrNull('NotifyReport', 10000);
 
     // Step 11: CSMS sends RequestStartTransaction (should be rejected during Pending)
     const startTxRes = await ctx.server.sendCommand('RequestStartTransaction', {
@@ -168,13 +165,13 @@ export const TC_B_02_CS: CsTestCase = {
           expected: 'reason = Triggered',
           actual: `reason = ${reason}`,
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: 15,
           description: 'BootNotificationRequest with reason = Triggered',
           status: 'failed',
           expected: 'reason = Triggered',
-          actual: 'Timed out waiting for BootNotification',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -190,13 +187,13 @@ export const TC_B_02_CS: CsTestCase = {
         expected: 'connectorStatus = Available',
         actual: `connectorStatus = ${connectorStatus}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 17,
         description: 'StatusNotificationRequest: connectorStatus = Available',
         status: 'failed',
         expected: 'connectorStatus = Available',
-        actual: 'Timed out waiting for StatusNotification',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

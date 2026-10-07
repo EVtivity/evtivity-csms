@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { PubSubClient, Subscription } from './pubsub.js';
+import { tryParseJson } from './safe-json.js';
 
 export interface AwaitReplyOptions {
   /** Channel the other process publishes its reply on. */
@@ -44,12 +45,8 @@ export async function awaitPubSubReply<T extends { commandId: string }>(
 
       pubsub
         .subscribe(options.replyChannel, (raw: string) => {
-          let parsed: T;
-          try {
-            parsed = JSON.parse(raw) as T;
-          } catch {
-            return;
-          }
+          const parsed = tryParseJson(raw) as T | null | undefined;
+          if (parsed == null || typeof parsed !== 'object') return;
           if (settled || parsed.commandId !== options.commandId) return;
           settled = true;
           clearTimeout(timeout);

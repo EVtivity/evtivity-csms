@@ -583,7 +583,7 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                 )}
                 <div className="overflow-hidden rounded-md border">
                   <iframe
-                    title="Email layout preview"
+                    title={t('settings.emailLayoutPreviewFrame')}
                     srcDoc={preview.data?.html ?? ''}
                     className="h-[500px] w-full"
                     sandbox=""

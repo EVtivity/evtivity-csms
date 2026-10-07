@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/select';
 import { LANGUAGES } from '@/components/ui/language-select';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { TIMEZONE_OPTIONS } from '@/lib/timezone';
 import { AccountNotificationPrefs } from '@/components/account/AccountNotificationPrefs';
 
@@ -68,8 +69,8 @@ export function Profile(): React.JSX.Element {
       await api.patch('/v1/portal/driver/profile', { firstName, lastName, phone });
       hydrate();
       setProfileMsg(t('profile.profileUpdated'));
-    } catch {
-      setProfileMsg(t('profile.profileUpdateFailed'));
+    } catch (err) {
+      setProfileMsg(getErrorMessage(err, t, 'profile.profileUpdateFailed'));
     } finally {
       setProfileLoading(false);
     }
@@ -85,8 +86,8 @@ export function Profile(): React.JSX.Element {
       await setTimezone(selectedTimezone);
       await setTheme(selectedTheme);
       setPrefsSettingsMsg(t('profile.preferencesSaved'));
-    } catch {
-      setPrefsSettingsMsg(t('profile.preferencesFailed'));
+    } catch (err) {
+      setPrefsSettingsMsg(getErrorMessage(err, t, 'profile.preferencesFailed'));
     } finally {
       setPrefsSettingsLoading(false);
     }
@@ -102,8 +103,8 @@ export function Profile(): React.JSX.Element {
       setPasswordMsg(t('profile.passwordChanged'));
       setCurrentPassword('');
       setNewPassword('');
-    } catch {
-      setPasswordMsg(t('profile.passwordChangeFailed'));
+    } catch (err) {
+      setPasswordMsg(getErrorMessage(err, t, 'profile.passwordChangeFailed'));
     } finally {
       setPasswordLoading(false);
     }
@@ -135,8 +136,8 @@ export function Profile(): React.JSX.Element {
         { method: selectedMfaMethod },
       );
       setMfaSetupData(data);
-    } catch {
-      setMfaMsg(t('profile.mfaSetupFailed'));
+    } catch (err) {
+      setMfaMsg(getErrorMessage(err, t, 'profile.mfaSetupFailed'));
     } finally {
       setMfaLoading(false);
     }
@@ -157,8 +158,8 @@ export function Profile(): React.JSX.Element {
       setMfaMethod(selectedMfaMethod);
       setMfaSetupData(null);
       setMfaCode('');
-    } catch {
-      setMfaMsg(t('profile.mfaVerifyFailed'));
+    } catch (err) {
+      setMfaMsg(getErrorMessage(err, t, 'profile.mfaVerifyFailed'));
     } finally {
       setMfaLoading(false);
     }
@@ -174,8 +175,8 @@ export function Profile(): React.JSX.Element {
       setMfaEnabled(false);
       setMfaMethod(null);
       setDisablePassword('');
-    } catch {
-      setMfaMsg(t('profile.mfaDisableFailed'));
+    } catch (err) {
+      setMfaMsg(getErrorMessage(err, t, 'profile.mfaDisableFailed'));
     } finally {
       setMfaLoading(false);
     }
@@ -258,7 +259,7 @@ export function Profile(): React.JSX.Element {
               <p className="text-sm text-muted-foreground">{prefsSettingsMsg}</p>
             )}
             <Select
-              aria-label="Language"
+              aria-label={t('profile.language')}
               value={selectedLanguage}
               onChange={(e) => {
                 setSelectedLanguage(e.target.value);
@@ -448,7 +449,11 @@ export function Profile(): React.JSX.Element {
                 {selectedMfaMethod === 'totp' && mfaSetupData.qrDataUri != null && (
                   <div className="space-y-3">
                     <p className="text-sm font-medium">{t('profile.mfaScanQr')}</p>
-                    <img src={mfaSetupData.qrDataUri} alt="QR Code" className="mx-auto" />
+                    <img
+                      src={mfaSetupData.qrDataUri}
+                      alt={t('profile.mfaQrCode')}
+                      className="mx-auto"
+                    />
                     {mfaSetupData.secret != null && (
                       <div className="space-y-1">
                         <p className="text-sm text-muted-foreground">

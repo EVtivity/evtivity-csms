@@ -11,18 +11,7 @@ import { isRoamingEnabled } from '@evtivity/database';
 import { ocpiResponse, OcpiStatusCode } from './lib/ocpi-response.js';
 import { versionRoutes } from './routes/versions.js';
 import { credentialRoutes } from './routes/credentials.js';
-import { cpoLocationRoutes } from './routes/cpo/locations.js';
-import { cpoSessionRoutes, cpoCdrRoutes } from './routes/cpo/sessions.js';
-import { cpoTariffRoutes } from './routes/cpo/tariffs.js';
-import { cpoTokenRoutes } from './routes/cpo/tokens.js';
-import { emspLocationRoutes } from './routes/emsp/locations.js';
-import { emspSessionRoutes } from './routes/emsp/sessions.js';
-import { emspCdrRoutes } from './routes/emsp/cdrs.js';
-import { emspTariffRoutes } from './routes/emsp/tariffs.js';
-import { emspTokenRoutes } from './routes/emsp/tokens.js';
-import { cpoCommandRoutes } from './routes/cpo/commands.js';
-import { emspCommandRoutes } from './routes/emsp/commands.js';
-import { hubClientInfoRoutes } from './routes/hubclientinfo.js';
+import { OCPI_MODULES } from './modules.js';
 
 export async function buildOcpiApp(opts: FastifyServerOptions = {}): Promise<FastifyInstance> {
   const app = Fastify(opts);
@@ -68,19 +57,11 @@ export async function buildOcpiApp(opts: FastifyServerOptions = {}): Promise<Fas
 
   await app.register(versionRoutes);
   await app.register(credentialRoutes);
-  await app.register(cpoLocationRoutes);
-  await app.register(cpoSessionRoutes);
-  await app.register(cpoCdrRoutes);
-  await app.register(cpoTariffRoutes);
-  await app.register(cpoTokenRoutes);
-  await app.register(emspLocationRoutes);
-  await app.register(emspSessionRoutes);
-  await app.register(emspCdrRoutes);
-  await app.register(emspTariffRoutes);
-  await app.register(emspTokenRoutes);
-  await app.register(cpoCommandRoutes);
-  await app.register(emspCommandRoutes);
-  await app.register(hubClientInfoRoutes);
+  for (const module of OCPI_MODULES) {
+    for (const routes of module.routes) {
+      await app.register(routes);
+    }
+  }
 
   // Block all OCPI endpoints when roaming is disabled
   app.addHook('onRequest', async (request, reply) => {

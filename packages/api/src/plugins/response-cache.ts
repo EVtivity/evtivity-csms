@@ -195,8 +195,8 @@ export function registerResponseCache(app: FastifyInstance): void {
   if (process.env['NODE_ENV'] !== 'test') {
     try {
       getCacheRedis();
-    } catch {
-      // Redis down at boot: every request degrades to uncached pass-through.
+    } catch (err) {
+      logger.warn({ err }, 'Response cache Redis connect failed at boot, serving uncached');
     }
   }
 
@@ -219,8 +219,8 @@ export function registerResponseCache(app: FastifyInstance): void {
           .send(cached);
       }
       request.responseCacheCtx = { key, ttlSeconds: rule.ttlSeconds };
-    } catch {
-      // Redis down: pass through uncached.
+    } catch (err) {
+      logger.debug({ err, url: request.url }, 'Response cache read failed, serving uncached');
     }
     return;
   });
@@ -235,8 +235,8 @@ export function registerResponseCache(app: FastifyInstance): void {
     reply.header('X-Cache', 'MISS');
     try {
       await getCacheRedis().setex(ctx.key, ctx.ttlSeconds, payload);
-    } catch {
-      // Redis down: response still goes out, just not cached.
+    } catch (err) {
+      logger.debug({ err, url: request.url }, 'Response cache write failed, response not cached');
     }
     return payload;
   });
@@ -251,8 +251,11 @@ export function registerResponseCache(app: FastifyInstance): void {
     try {
       const redis = getCacheRedis();
       await Promise.all(tagsForWrite(resource).map((tag) => redis.incr(`rc:ver:${tag}`)));
-    } catch {
-      // Redis down: nothing was being served from cache either.
+    } catch (err) {
+      logger.debug(
+        { err, resource },
+        'Response cache invalidation failed, nothing was served from the cache either',
+      );
     }
   });
 }
@@ -261,7 +264,7 @@ export function cacheRoutes(app: FastifyInstance): void {
   app.post(
     '/cache/flush',
     {
-      onRequest: [authorize('settings:write')],
+      onRequest: [authorize('settings.system:write')],
       schema: {
         tags: ['Settings'],
         summary: 'Flush the HTTP response cache',
@@ -285,7 +288,8 @@ export function cacheRoutes(app: FastifyInstance): void {
         } while (cursor !== '0');
         request.log.info({ deleted }, 'response cache flushed');
         return { success: true };
-      } catch {
+      } catch (err) {
+        request.log.warn({ err }, 'Response cache flush failed, cache backend unreachable');
         await reply
           .status(500)
           .send({ error: 'Cache backend unreachable', code: 'INTERNAL_ERROR' });

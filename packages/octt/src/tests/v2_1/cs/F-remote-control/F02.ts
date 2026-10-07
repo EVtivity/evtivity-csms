@@ -53,11 +53,7 @@ export const TC_F_02_CS: CsTestCase = {
 
     // Plug in cable after remote start
     await ctx.station.plugIn(evseId);
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
 
     // Step 2: Execute Reusable State EnergyTransferStarted
     const txEvent = await ctx.server.waitForMessage('TransactionEvent', 30000);
@@ -109,11 +105,7 @@ export const TC_F_03_CS: CsTestCase = {
 
     // Plug in cable after remote start
     await ctx.station.plugIn(evseId);
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
 
     // Step 2: Execute Reusable State EnergyTransferStarted
     const txEvent = await ctx.server.waitForMessage('TransactionEvent', 30000);
@@ -139,13 +131,10 @@ async function evConnectTimeoutEndedStep(server: OcppTestServer): Promise<StepRe
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    try {
-      const msg = await server.waitForMessage('TransactionEvent', remaining);
-      if (msg['triggerReason'] === 'EVConnectTimeout') {
-        txEvent = msg;
-        break;
-      }
-    } catch {
+    const msg = await server.waitForMessageOrNull('TransactionEvent', remaining);
+    if (msg == null) break;
+    if (msg['triggerReason'] === 'EVConnectTimeout') {
+      txEvent = msg;
       break;
     }
   }
@@ -216,11 +205,7 @@ export const TC_F_04_CS: CsTestCase = {
     }
 
     // Drain StatusNotification Available that comes after timeout cleanup
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
 
     // Step 3: Execute Reusable State Authorized (remote) to verify EVSE ready for new session
     const retryRes = await ctx.server.sendCommand('RequestStartTransaction', {

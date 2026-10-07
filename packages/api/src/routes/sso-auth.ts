@@ -92,7 +92,8 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
           return;
         }
         profile = result.profile;
-      } catch {
+      } catch (err) {
+        request.log.warn({ err }, 'SAML response did not validate, redirecting to login');
         await reply.redirect('/login?error=sso_config_error');
         return;
       }

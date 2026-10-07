@@ -70,26 +70,23 @@ export const TC_I_107_CS: CsTestCase = {
     let hasTariffProblem = false;
     const notifyDeadline = Date.now() + 10000;
     while (Date.now() < notifyDeadline) {
-      try {
-        const notifyPayload = await ctx.server.waitForMessage(
-          'NotifyEvent',
-          notifyDeadline - Date.now(),
-        );
-        const eventData = (notifyPayload as Record<string, unknown>).eventData as
-          | Array<Record<string, unknown>>
-          | undefined;
-        if (
-          eventData != null &&
-          eventData.some((e) => {
-            const component = e.component as Record<string, unknown> | undefined;
-            const variable = e.variable as Record<string, unknown> | undefined;
-            return component?.name === 'TariffCostCtrlr' && variable?.name === 'Problem';
-          })
-        ) {
-          hasTariffProblem = true;
-          break;
-        }
-      } catch {
+      const notifyPayload = await ctx.server.waitForMessageOrNull(
+        'NotifyEvent',
+        notifyDeadline - Date.now(),
+      );
+      if (notifyPayload == null) break;
+      const eventData = (notifyPayload as Record<string, unknown>).eventData as
+        | Array<Record<string, unknown>>
+        | undefined;
+      if (
+        eventData != null &&
+        eventData.some((e) => {
+          const component = e.component as Record<string, unknown> | undefined;
+          const variable = e.variable as Record<string, unknown> | undefined;
+          return component?.name === 'TariffCostCtrlr' && variable?.name === 'Problem';
+        })
+      ) {
+        hasTariffProblem = true;
         break;
       }
     }
@@ -150,8 +147,11 @@ export const TC_I_108_CS: CsTestCase = {
     await ctx.station.plugIn(1);
     try {
       await ctx.station.startCharging(1, 'OCTT-TOKEN-001');
-    } catch {
-      // startCharging fails because station deauthorizes; that is expected behavior
+    } catch (err) {
+      ctx.logger.debug(
+        { err },
+        'startCharging failed because the station deauthorized, as expected',
+      );
     }
 
     // Step 2: Wait for NotifyEventRequest with TariffCostCtrlr Problem
@@ -159,26 +159,23 @@ export const TC_I_108_CS: CsTestCase = {
     let hasTariffProblem108 = false;
     const notifyDeadline108 = Date.now() + 10000;
     while (Date.now() < notifyDeadline108) {
-      try {
-        const notifyPayload = await ctx.server.waitForMessage(
-          'NotifyEvent',
-          notifyDeadline108 - Date.now(),
-        );
-        const eventData = (notifyPayload as Record<string, unknown>).eventData as
-          | Array<Record<string, unknown>>
-          | undefined;
-        if (
-          eventData != null &&
-          eventData.some((e) => {
-            const component = e.component as Record<string, unknown> | undefined;
-            const variable = e.variable as Record<string, unknown> | undefined;
-            return component?.name === 'TariffCostCtrlr' && variable?.name === 'Problem';
-          })
-        ) {
-          hasTariffProblem108 = true;
-          break;
-        }
-      } catch {
+      const notifyPayload = await ctx.server.waitForMessageOrNull(
+        'NotifyEvent',
+        notifyDeadline108 - Date.now(),
+      );
+      if (notifyPayload == null) break;
+      const eventData = (notifyPayload as Record<string, unknown>).eventData as
+        | Array<Record<string, unknown>>
+        | undefined;
+      if (
+        eventData != null &&
+        eventData.some((e) => {
+          const component = e.component as Record<string, unknown> | undefined;
+          const variable = e.variable as Record<string, unknown> | undefined;
+          return component?.name === 'TariffCostCtrlr' && variable?.name === 'Problem';
+        })
+      ) {
+        hasTariffProblem108 = true;
         break;
       }
     }
@@ -191,13 +188,11 @@ export const TC_I_108_CS: CsTestCase = {
     });
 
     // Post: Charging Station shall not deliver energy - verify no Charging TransactionEvent
-    try {
-      const txPayload = await ctx.server.waitForMessage('TransactionEvent', 5000);
-      const chargingState = (
-        (txPayload as Record<string, unknown>).transactionInfo as
-          | Record<string, unknown>
-          | undefined
-      )?.chargingState;
+    const txPayload = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (txPayload != null) {
+      const chargingState = (txPayload['transactionInfo'] as Record<string, unknown> | undefined)?.[
+        'chargingState'
+      ];
       steps.push({
         step: 4,
         description: 'Charging Station shall not deliver energy',
@@ -205,13 +200,13 @@ export const TC_I_108_CS: CsTestCase = {
         expected: 'No TransactionEventRequest with ChargingState Charging',
         actual: `chargingState: ${String(chargingState)}`,
       });
-    } catch {
+    } else {
       steps.push({
         step: 4,
         description: 'Charging Station shall not deliver energy',
         status: 'passed',
         expected: 'No TransactionEventRequest with ChargingState Charging',
-        actual: 'No TransactionEvent received (correct)',
+        actual: 'No TransactionEventRequest received',
       });
     }
 

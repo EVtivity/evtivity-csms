@@ -114,11 +114,8 @@ export const TC_C_09_CS: CsTestCase = {
 
     // Station should NOT start a transaction
     let txReceived = false;
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
+    if ((await ctx.server.waitForMessageOrNull('TransactionEvent', 5000)) != null) {
       txReceived = true;
-    } catch {
-      // Expected
     }
     steps.push({
       step: 2,
@@ -174,11 +171,8 @@ export const TC_C_10_CS: CsTestCase = {
     });
 
     let txReceived = false;
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
+    if ((await ctx.server.waitForMessageOrNull('TransactionEvent', 5000)) != null) {
       txReceived = true;
-    } catch {
-      // Expected
     }
     steps.push({
       step: 2,
@@ -234,11 +228,8 @@ export const TC_C_11_CS: CsTestCase = {
     });
 
     let txReceived = false;
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
+    if ((await ctx.server.waitForMessageOrNull('TransactionEvent', 5000)) != null) {
       txReceived = true;
-    } catch {
-      // Expected
     }
     steps.push({
       step: 2,
@@ -413,15 +404,12 @@ export const TC_C_14_CS: CsTestCase = {
     let stopAuthorized = false;
     let lastTrigger = '';
     for (let i = 0; i < 10; i++) {
-      try {
-        const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        const trigger = tx['triggerReason'] as string | undefined;
-        lastTrigger = String(trigger);
-        if (trigger === 'StopAuthorized') {
-          stopAuthorized = true;
-          break;
-        }
-      } catch {
+      const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (tx == null) break;
+      const trigger = tx['triggerReason'] as string | undefined;
+      lastTrigger = String(trigger);
+      if (trigger === 'StopAuthorized') {
+        stopAuthorized = true;
         break;
       }
     }
@@ -840,11 +828,8 @@ export const TC_C_57_CS: CsTestCase = {
 
     // Station should NOT send AuthorizeRequest (DisablePostAuthorize = true)
     let authReceived = false;
-    try {
-      await ctx.server.waitForMessage('Authorize', 5000);
+    if ((await ctx.server.waitForMessageOrNull('Authorize', 5000)) != null) {
       authReceived = true;
-    } catch {
-      // Expected: no AuthorizeRequest
     }
     steps.push({
       step: 3,
@@ -856,13 +841,11 @@ export const TC_C_57_CS: CsTestCase = {
 
     // Station should NOT start charging
     let txStarted = false;
-    try {
-      const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (tx != null) {
       const txInfo = tx['transactionInfo'] as Record<string, unknown> | undefined;
       const chargingState = txInfo?.['chargingState'] as string | undefined;
       if (chargingState === 'Charging') txStarted = true;
-    } catch {
-      // Expected
     }
     steps.push({
       step: 5,

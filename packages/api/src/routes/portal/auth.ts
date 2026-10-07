@@ -654,7 +654,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       let payload: { driverId: string; type: string; mfaPending?: boolean };
       try {
         payload = app.jwt.verify(mfaToken);
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'MFA token did not verify, refusing it');
         await reply
           .status(401)
           .send({ error: 'Invalid or expired MFA token', code: 'MFA_TOKEN_EXPIRED' });
@@ -781,7 +782,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       let payload: { driverId: string; type: string; mfaPending?: boolean };
       try {
         payload = app.jwt.verify(mfaToken);
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'MFA token did not verify, refusing it');
         await reply
           .status(401)
           .send({ error: 'Invalid or expired MFA token', code: 'MFA_TOKEN_EXPIRED' });
@@ -943,8 +945,12 @@ export function portalAuthRoutes(app: FastifyInstance): void {
             },
             ALL_TEMPLATES_DIRS,
           );
-        } catch {
-          // Silently fail to not leak driver existence
+        } catch (err) {
+          // The response stays the same so it does not reveal whether the driver exists.
+          request.log.warn(
+            { err, driverId: driver.id },
+            'Password reset email dispatch failed, answering success anyway',
+          );
         }
       }
 

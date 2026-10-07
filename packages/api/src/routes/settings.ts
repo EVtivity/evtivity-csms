@@ -10,6 +10,17 @@ import {
   isReservationEnabled,
   isSupportEnabled,
   isRoamingEnabled,
+  isPncEnabled,
+  isFleetEnabled,
+  isGuestChargingEnabled,
+  isChatbotAiEnabled,
+  clearRoamingCache,
+  clearSupportCache,
+  clearFleetCache,
+  clearGuestChargingCache,
+  clearChatbotAiSettingsCache,
+  clearSupportAiSettingsCache,
+  clearPncSettingsCache,
   writeAudit,
   settingAuditLog,
 } from '@evtivity/database';
@@ -48,9 +59,13 @@ import {
   MOBILE_APP_ANDROID_PACKAGES_KEY,
   parseAllowedPrivateHosts,
   MAX_ALLOWED_PRIVATE_HOSTS,
+  createLogger,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+
+/** The SVG drawn in the center of station QR codes. */
+const QR_CODE_ICON_KEY = 'qr_code_icon';
 
 const NOTIFICATION_SETTINGS_KEY_PREFIXES = ['smtp.', 'twilio.', 'email.', 'company.'];
 const NOTIFICATION_SETTINGS_EXACT_KEYS = new Set(['system.timezone']);
@@ -60,6 +75,8 @@ function affectsNotificationSettings(key: string): boolean {
   return NOTIFICATION_SETTINGS_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
+const logger = createLogger('settings');
+
 async function invalidateNotificationSettings(): Promise<void> {
   clearNotificationSettingsCache();
   try {
@@ -67,8 +84,11 @@ async function invalidateNotificationSettings(): Promise<void> {
       'cache_invalidate',
       JSON.stringify({ kind: 'notification_settings' }),
     );
-  } catch {
-    // Non-critical: peers refresh from the 60s TTL anyway.
+  } catch (err) {
+    logger.warn(
+      { err },
+      'Notification settings invalidation publish failed, peers refresh within 60s',
+    );
   }
 }
 import { zodSchema } from '../lib/zod-schema.js';
@@ -212,6 +232,13 @@ function clearCachesForKey(key: string): void {
   if (isPaymentSettingKey(key)) clearPaymentCaches();
   if (isMobileAppSettingKey(key)) clearMobileAppConfigCache();
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) clearWebhookSettingsCache();
+  if (key === 'roaming.enabled') clearRoamingCache();
+  if (key === 'support.enabled') clearSupportCache();
+  if (key === 'fleet.enabled') clearFleetCache();
+  if (key === 'guest.enabled') clearGuestChargingCache();
+  if (key.startsWith('pnc.')) clearPncSettingsCache();
+  if (key === 'chatbotAi.enabled') clearChatbotAiSettingsCache();
+  if (key === 'supportAi.enabled') clearSupportAiSettingsCache();
 }
 
 const settingItem = z
@@ -239,17 +266,35 @@ export function settingsRoutes(app: FastifyInstance): void {
         summary: 'Get portal branding settings',
         operationId: 'getPortalBranding',
         security: [],
-        response: { 200: itemResponse(z.record(z.string())) },
+        response: {
+          200: itemResponse(
+            z
+              .record(z.string())
+              .describe(
+                'Public branding values. Every company.* and marketing.* setting under its key without the prefix (for example name, logo, favicon), currency, priceDisplay, taxBasis, and qrCodeIcon (the SVG drawn in the center of station QR codes, absent when none is set). Values that are not strings are returned as an empty string',
+              ),
+          ),
+        },
       },
     },
     async () => {
       const rows = await db
         .select()
         .from(settings)
-        .where(or(like(settings.key, 'company.%'), like(settings.key, 'marketing.%')));
+        .where(
+          or(
+            like(settings.key, 'company.%'),
+            like(settings.key, 'marketing.%'),
+            eq(settings.key, QR_CODE_ICON_KEY),
+          ),
+        );
       const result: Record<string, string> = {};
       for (const row of rows) {
-        const shortKey = row.key.replace(/^(company|marketing)\./, '');
+        // The QR code icon is printed on every station, so it is public.
+        const shortKey =
+          row.key === QR_CODE_ICON_KEY
+            ? 'qrCodeIcon'
+            : row.key.replace(/^(company|marketing)\./, '');
         result[shortKey] = typeof row.value === 'string' ? row.value : '';
       }
       // Normalized like the server reads them: an unset or invalid stored
@@ -284,6 +329,18 @@ export function settingsRoutes(app: FastifyInstance): void {
                 roamingEnabled: z
                   .boolean()
                   .describe('Whether OCPI roaming charger search is enabled in the portal'),
+                pncEnabled: z
+                  .boolean()
+                  .describe('Whether Plug and Charge (ISO 15118 contract certificates) is enabled'),
+                fleetEnabled: z.boolean().describe('Whether the fleet feature is enabled'),
+                guestChargingEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether guest charging (pay at the station without an account) is enabled',
+                  ),
+                chatbotAiEnabled: z
+                  .boolean()
+                  .describe('Whether the AI assistant is enabled for CSMS users'),
                 reservationCancellationFeeCents: z
                   .number()
                   .int()
@@ -318,12 +375,20 @@ export function settingsRoutes(app: FastifyInstance): void {
       const reservationEnabled = await isReservationEnabled();
       const supportEnabled = await isSupportEnabled();
       const roamingEnabled = await isRoamingEnabled();
+      const pncEnabled = await isPncEnabled();
+      const fleetEnabled = await isFleetEnabled();
+      const guestChargingEnabled = await isGuestChargingEnabled();
+      const chatbotAiEnabled = await isChatbotAiEnabled();
       const reservationConfig = await getReservationSettings();
       const currency = await getCompanyCurrency();
       return {
         reservationEnabled,
         supportEnabled,
         roamingEnabled,
+        pncEnabled,
+        fleetEnabled,
+        guestChargingEnabled,
+        chatbotAiEnabled,
         reservationCancellationFeeCents: reservationConfig.cancellationFeeCents,
         reservationCancellationWindowMinutes: reservationConfig.cancellationWindowMinutes,
         reservationMaxHours: reservationConfig.maxHours,

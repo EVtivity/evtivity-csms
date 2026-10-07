@@ -13,6 +13,7 @@ export function resolveLocale(locale: string): string {
   try {
     return Intl.getCanonicalLocales(locale)[0] ?? FALLBACK_LOCALE;
   } catch {
+    // fail-open: Intl rejects a malformed locale tag, en-US is the documented fallback
     return FALLBACK_LOCALE;
   }
 }

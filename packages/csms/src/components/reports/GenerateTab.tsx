@@ -11,29 +11,25 @@ import { GenerateButton } from '@/components/generate-button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
-
-const REPORT_TYPES = [
-  'revenue',
-  'utilization',
-  'energy',
-  'stationHealth',
-  'sessions',
-  'sustainability',
-  'driverActivity',
-] as const;
-
-const FORMATS = ['csv', 'pdf', 'xlsx'] as const;
+import { reportTypeFormats, useReportTypes } from '@/hooks/use-report-types';
+import { ReportTypesLoadError } from '@/components/reports/ReportTypesLoadError';
 
 export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React.JSX.Element {
   const { t } = useTranslation();
   const [name, setName] = useState('');
-  const [reportType, setReportType] = useState<string>(REPORT_TYPES[0]);
-  const [format, setFormat] = useState<string>(FORMATS[0]);
+  const [reportType, setReportType] = useState('');
+  const [format, setFormat] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [siteId, setSiteId] = useState('');
   const [stationId, setStationId] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
+
+  const { offered, isError: reportTypesError, refetch: refetchReportTypes } = useReportTypes();
+  // Until the operator picks one, the first offered type and its first format are selected.
+  const selectedType = reportType !== '' ? reportType : (offered[0]?.type ?? '');
+  const formats = reportTypeFormats(offered, selectedType);
+  const selectedFormat = formats.includes(format) ? format : (formats[0] ?? '');
 
   const { data: sitesResponse } = useQuery({
     queryKey: ['sites'],
@@ -79,13 +75,18 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
   function handleSubmit(e: React.SyntheticEvent): void {
     e.preventDefault();
     setHasSubmitted(true);
-    if (Object.keys(generateErrors).length > 0) return;
+    if (Object.keys(generateErrors).length > 0 || selectedType === '') return;
     const filters: Record<string, string> = {};
     if (dateFrom) filters['dateFrom'] = dateFrom;
     if (dateTo) filters['dateTo'] = dateTo;
     if (siteId) filters['siteId'] = siteId;
     if (stationId) filters['stationId'] = stationId;
-    generateMutation.mutate({ name, reportType, format, filters });
+    generateMutation.mutate({
+      name,
+      reportType: selectedType,
+      format: selectedFormat,
+      filters,
+    });
   }
 
   return (
@@ -112,54 +113,58 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
             )}
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="report-type" className="leading-6">
-                {t('reports.reportType')}
-              </Label>
-              <Select
-                id="report-type"
-                className="h-9"
-                value={reportType}
-                onChange={(e) => {
-                  setReportType(e.target.value);
-                }}
-              >
-                {REPORT_TYPES.map((rt) => (
-                  <option key={rt} value={rt}>
-                    {t(`reports.types.${rt}`, rt)}
-                  </option>
-                ))}
-              </Select>
-            </div>
+          {reportTypesError ? (
+            <ReportTypesLoadError onRetry={refetchReportTypes} />
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="report-type" className="leading-6">
+                  {t('reports.reportType')}
+                </Label>
+                <Select
+                  id="report-type"
+                  className="h-9"
+                  value={selectedType}
+                  onChange={(e) => {
+                    setReportType(e.target.value);
+                  }}
+                >
+                  {offered.map(({ type }) => (
+                    <option key={type} value={type}>
+                      {t(`reports.types.${type}`, type)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="report-format" className="leading-6">
-                {t('reports.format')}
-              </Label>
-              <Select
-                id="report-format"
-                className="h-9"
-                value={format}
-                onChange={(e) => {
-                  setFormat(e.target.value);
-                }}
-              >
-                {FORMATS.map((f) => (
-                  <option key={f} value={f}>
-                    {t(`reports.formats.${f}`, f)}
-                  </option>
-                ))}
-              </Select>
+              <div className="space-y-2">
+                <Label htmlFor="report-format" className="leading-6">
+                  {t('reports.format')}
+                </Label>
+                <Select
+                  id="report-format"
+                  className="h-9"
+                  value={selectedFormat}
+                  onChange={(e) => {
+                    setFormat(e.target.value);
+                  }}
+                >
+                  {formats.map((f) => (
+                    <option key={f} value={f}>
+                      {t(`reports.formats.${f}`, f)}
+                    </option>
+                  ))}
+                </Select>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label className="leading-6">{t('reports.dateRange')}</Label>
             <div className="flex items-center gap-2">
               <Input
                 type="date"
-                aria-label="Start date"
+                aria-label={t('common.startDate')}
                 value={dateFrom}
                 onChange={(e) => {
                   setDateFrom(e.target.value);
@@ -168,7 +173,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
               <span className="text-sm text-muted-foreground">{t('dashboard.to')}</span>
               <Input
                 type="date"
-                aria-label="End date"
+                aria-label={t('common.endDate')}
                 value={dateTo}
                 onChange={(e) => {
                   setDateTo(e.target.value);
@@ -229,7 +234,7 @@ export function GenerateTab({ onGenerated }: { onGenerated: () => void }): React
           <GenerateButton
             type="submit"
             label={generateMutation.isPending ? t('reports.generating') : t('reports.generate')}
-            disabled={generateMutation.isPending}
+            disabled={generateMutation.isPending || selectedType === ''}
           />
         </form>
       </CardContent>

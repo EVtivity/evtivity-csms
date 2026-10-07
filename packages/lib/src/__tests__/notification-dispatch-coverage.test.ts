@@ -771,7 +771,8 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT push
       );
 
-      await dispatchDriverNotification(sql as never, 'mfa.VerificationCode', 'drv_mfa', {});
+      // driver.Welcome is sensitive but not required, so the driver's opt-outs apply.
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'drv_mfa', {});
 
       const push = decodeInsert(findInsert('push')!);
       const parsed = JSON.parse(push.body) as { message: string };
@@ -782,25 +783,115 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
     });
   });
 
+  describe('dispatchDriverNotification required event types', () => {
+    it('ignores the switch and the driver opt-outs for a required event type', async () => {
+      const { dispatchDriverNotification } = notificationDispatchModule;
+      const clock = advanceClock();
+      setupSqlResults(
+        [
+          {
+            first_name: 'Req',
+            last_name: 'User',
+            email: 'req@test.com',
+            phone: null,
+            language: 'en',
+            timezone: 'UTC',
+          },
+        ],
+        [{ email_enabled: false, sms_enabled: false, push_enabled: false }],
+        [{ key: 'company.name', value: 'SecureCo' }],
+        [],
+      );
+
+      await dispatchDriverNotification(sql as never, 'driver.ForgotPassword', 'drv_req', {});
+
+      const readsSwitch = sqlCalls.some((c) => c.strings.join('').includes('event_settings'));
+      expect(readsSwitch).toBe(false);
+      // the email path ran although the driver turned email off
+      expect(findInsert('email')).toBeDefined();
+
+      clock.restore();
+    });
+  });
+
   // -----------------------------------------------------------------------
   // dispatchSystemNotification
   // -----------------------------------------------------------------------
 
   describe('dispatchSystemNotification', () => {
-    it('skips entirely when system event type is disabled', async () => {
+    it('never reads system_event_settings: system events are always on', async () => {
+      const { dispatchSystemNotification } = notificationDispatchModule;
+      setupSqlResults([]);
+
+      await dispatchSystemNotification(
+        sql as never,
+        'session.EndRequestFailed',
+        { email: 'op@test.com' },
+        {},
+      );
+
+      const readsSystem = sqlCalls.some((c) =>
+        c.strings.join('').includes('system_event_settings'),
+      );
+      expect(readsSystem).toBe(false);
+      expect(findInsert('email')).toBeDefined();
+    });
+
+    it('skips a driver event it sends when the Driver Events switch is off', async () => {
       const { dispatchSystemNotification } = notificationDispatchModule;
       setupSqlResults([{ is_enabled: false }]);
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.ForgotPassword',
-        { email: 'op@test.com' },
+        'session.Receipt',
+        { email: 'g@test.com' },
         {},
       );
 
-      // only the system_event_settings SELECT ran, no INSERTs
+      // only the driver_event_settings SELECT ran, no INSERTs
       expect(sqlCalls.length).toBe(1);
+      expect(sqlCalls[0]?.strings.join('')).toContain('driver_event_settings');
       expect(notificationInserts()).toHaveLength(0);
+    });
+
+    it('sends a required driver event whatever the switch says', async () => {
+      const { dispatchSystemNotification } = notificationDispatchModule;
+      setupSqlResults([{ is_enabled: false }]);
+
+      await dispatchSystemNotification(
+        sql as never,
+        'driver.ForgotPassword',
+        { email: 'd@test.com' },
+        {},
+      );
+
+      const readsSwitch = sqlCalls.some((c) => c.strings.join('').includes('event_settings'));
+      expect(readsSwitch).toBe(false);
+      expect(findInsert('email')).toBeDefined();
+    });
+
+    it('sends an MFA code by SMS even when the operator opted out of SMS', async () => {
+      const { dispatchSystemNotification } = notificationDispatchModule;
+      const clock = advanceClock();
+      setupSqlResults(
+        [{ key: 'company.name', value: 'SysCo' }], // company
+        [], // settings (no smtp/twilio)
+      );
+
+      await dispatchSystemNotification(
+        sql as never,
+        'mfa.VerificationCode',
+        { email: 'op@test.com', phone: '+15551112222', userId: 'usr_1' },
+        {},
+      );
+
+      const readsPrefs = sqlCalls.some((c) =>
+        c.strings.join('').includes('user_notification_preferences'),
+      );
+      expect(readsPrefs).toBe(false);
+      expect(findInsert('sms')).toBeDefined();
+
+      clock.restore();
     });
 
     it('sends email + sms when both configured and records sent rows', async () => {
@@ -808,7 +899,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }], // system_event_settings
+        [{ is_enabled: true }], // driver_event_settings
         [{ key: 'company.name', value: 'SysCo' }], // company.*
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
@@ -828,7 +919,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.ForgotPassword',
+        'session.EndRequestFailed',
         {
           email: 'op@test.com',
           phone: '+15551112222',
@@ -869,7 +960,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT sms
       );
 
-      await dispatchSystemNotification(sql as never, 'operator.PasswordChanged', {}, {});
+      await dispatchSystemNotification(sql as never, 'session.EndRequestFailed', {}, {});
 
       expect(mockSendMail).not.toHaveBeenCalled();
       const email = decodeInsert(findInsert('email')!);
@@ -897,7 +988,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222' },
         {},
       );
@@ -915,7 +1006,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }], // system_event_settings
+        [{ is_enabled: true }], // driver_event_settings
         [{ key: 'company.name', value: 'SysCo' }], // company
         [], // settings (no smtp/twilio)
         [], // INSERT email
@@ -924,7 +1015,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222', userId: 'usr_1' },
         {},
       );
@@ -956,7 +1047,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { phone: '+15551112222', userId: 'usr_norow' },
         {},
       );
@@ -991,7 +1082,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222', userId: 'usr_2' },
         {},
       );
@@ -1027,7 +1118,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { email: 'op@test.com' },
         {},
       );
@@ -1059,7 +1150,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { phone: '+15551112222' },
         {},
       );
@@ -1093,7 +1184,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { email: 'op@test.com' },
         {},
       );
@@ -1126,7 +1217,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { phone: '+15551112222' },
         {},
       );
@@ -1159,7 +1250,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { email: 'op@test.com' },
         {},
       );
@@ -1187,7 +1278,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222' },
         { occurredAt: '2026-01-01T00:00:00.000Z' },
       );
@@ -1213,7 +1304,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await dispatchSystemNotification(
         sql as never,
-        'operator.PasswordChanged',
+        'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222' },
         {},
       );
@@ -1232,11 +1323,40 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       await expect(
         dispatchSystemNotification(
           throwingSql as never,
-          'operator.PasswordChanged',
+          'session.EndRequestFailed',
           { email: 'op@test.com' },
           {},
         ),
       ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('isDriverEventDisabled', () => {
+    it('is off when the driver_event_settings row is disabled', async () => {
+      const { isDriverEventDisabled } = notificationDispatchModule;
+      setupSqlResults([{ is_enabled: false }]);
+
+      await expect(isDriverEventDisabled(sql as never, 'session.Receipt')).resolves.toBe(true);
+      const query = sqlCalls[0]?.strings.join('') ?? '';
+      expect(query).toContain('driver_event_settings');
+      expect(query).not.toContain('system_event_settings');
+    });
+
+    it('is on without a row or with an enabled row', async () => {
+      const { isDriverEventDisabled } = notificationDispatchModule;
+      setupSqlResults([]);
+      await expect(isDriverEventDisabled(sql as never, 'session.Receipt')).resolves.toBe(false);
+      setupSqlResults([{ is_enabled: true }]);
+      await expect(isDriverEventDisabled(sql as never, 'session.Receipt')).resolves.toBe(false);
+    });
+
+    it('is always on for a required event type, without a query', async () => {
+      const { isDriverEventDisabled } = notificationDispatchModule;
+      setupSqlResults([{ is_enabled: false }]);
+      await expect(isDriverEventDisabled(sql as never, 'driver.ForgotPassword')).resolves.toBe(
+        false,
+      );
+      expect(sqlCalls).toHaveLength(0);
     });
   });
 });

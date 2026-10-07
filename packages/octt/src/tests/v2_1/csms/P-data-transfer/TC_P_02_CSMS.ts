@@ -32,13 +32,13 @@ export const TC_P_02_CSMS: TestCase = {
         expected: 'status = UnknownVendorId/UnknownMessageId/Rejected',
         actual: `status = ${status}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send DataTransferRequest',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     return {
@@ -72,13 +72,13 @@ export const TC_P_03_CSMS: TestCase = {
         customData: { vendorId: 'TestVendor', testField: 'testValue' },
       });
       pushSendAckStep(steps, 1, 'Send StatusNotification with customData', resp1);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send StatusNotification with customData',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     try {
@@ -95,13 +95,13 @@ export const TC_P_03_CSMS: TestCase = {
         customData: { vendorId: 'TestVendor', customField: 123 },
       });
       pushSendAckStep(steps, 2, 'Send TransactionEvent with customData', resp2);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Send TransactionEvent with customData',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     return {

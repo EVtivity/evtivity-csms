@@ -33,11 +33,7 @@ export const TC_F_01_CS: CsTestCase = {
 
     // Before: State is EVConnectedPreSession (cable plugged in)
     await ctx.station.plugIn(evseId);
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
 
     // Step 1: Execute Reusable State Authorized (remote) - CSMS sends RequestStartTransaction
     const startRes = await ctx.server.sendCommand('RequestStartTransaction', {

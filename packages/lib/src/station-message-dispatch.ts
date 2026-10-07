@@ -4,12 +4,15 @@
 import type { Sql } from 'postgres';
 import type { PubSubClient } from './pubsub.js';
 import { publishOcppCommand } from './ocpp-command-publish.js';
+import { createLogger } from './logger.js';
 import {
   renderStationMessage,
   type StationMessageContext,
   type StationMessageState,
 } from './station-message.js';
 import { isStationMessageLanguage } from './station-message-defaults.js';
+
+const logger = createLogger('station-message-dispatch');
 
 // One-shot display-message dispatch helper. Used for event-driven station
 // messages that aren't tied to a MessageState slot (9000-9005) - payment
@@ -84,7 +87,11 @@ export async function clearStationMessage(
     const rows =
       await sql`SELECT ocpp_protocol FROM charging_stations WHERE id = ${args.stationDbId}`;
     protocol = (rows[0]?.['ocpp_protocol'] as string | null | undefined) ?? null;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, stationId: args.stationOcppId },
+      'Station protocol lookup failed, the display message is not cleared',
+    );
     return false;
   }
   if (protocol == null) return false;
@@ -112,7 +119,11 @@ export async function clearStationMessage(
       });
       return true;
     }
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, stationId: args.stationOcppId },
+      'Clear display message publish failed, the message stays until it expires',
+    );
     return false;
   }
   return false;
@@ -160,7 +171,11 @@ export async function dispatchOneShotStationMessage(
     `;
     protocol = (rows[0]?.['ocpp_protocol'] as string | null | undefined) ?? null;
     siteLanguage = rows[0]?.['station_message_language'];
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, stationId: args.stationOcppId, state: args.state },
+      'Station lookup failed, the one-shot display message is not sent',
+    );
     return false;
   }
   if (protocol == null) return false;
@@ -174,7 +189,11 @@ export async function dispatchOneShotStationMessage(
       args.context,
       isStationMessageLanguage(siteLanguage) ? siteLanguage : undefined,
     );
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, stationId: args.stationOcppId, state: args.state },
+      'Station message render failed, the one-shot display message is not sent',
+    );
     return false;
   }
   if (content === '') return false;
@@ -211,7 +230,11 @@ export async function dispatchOneShotStationMessage(
       });
       published = true;
     }
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, stationId: args.stationOcppId, state: args.state },
+      'One-shot display message publish failed',
+    );
     return false;
   }
 

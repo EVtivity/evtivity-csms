@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type Stripe from 'stripe';
+import { createLogger } from '@evtivity/lib';
 import {
   PaymentProviderPermissionError,
   PaymentProviderUnavailableError,
@@ -14,6 +15,8 @@ import type {
   WebhookRegistrationInput,
 } from '../../types.js';
 import { partitionWebhookEndpoints } from '../../webhook-endpoint-url.js';
+
+const logger = createLogger('stripe-webhook-endpoints');
 
 /**
  * Snapshot event shape of the endpoints EVtivity creates: the API version the
@@ -173,7 +176,11 @@ export async function registerStripeWebhookEndpoints(
   for (const old of existing) {
     try {
       await stripe.webhookEndpoints.del(old.id);
-    } catch {
+    } catch (err) {
+      logger.warn(
+        { err, endpointId: old.id },
+        'Old Stripe webhook endpoint delete failed, it stays listed for the operator',
+      );
       leftOver.push(old);
     }
   }

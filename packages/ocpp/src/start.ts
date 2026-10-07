@@ -47,8 +47,10 @@ async function deriveInstanceId(): Promise<string> {
       const data = (await res.json()) as { TaskARN?: string };
       const taskId = (data.TaskARN ?? '').split('/').pop();
       if (taskId != null && taskId !== '') return `ocpp-${taskId}`;
-    } catch {
-      // fall through to hostname
+    } catch (err) {
+      server
+        .getLogger()
+        .warn({ err }, 'ECS task metadata lookup failed; using the hostname as instance ID');
     }
   }
   return hostname();

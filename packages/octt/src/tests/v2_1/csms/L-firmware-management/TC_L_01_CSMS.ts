@@ -84,13 +84,13 @@ export const TC_L_01_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp82 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error or rejection',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -109,13 +109,13 @@ export const TC_L_01_CSMS: TestCase = {
         expected: 'status = Accepted',
         actual: `status = ${bootStatus}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 7,
         description: 'Send BootNotification with reason FirmwareUpdate',
         status: 'failed',
         expected: 'status = Accepted',
-        actual: 'Error sending BootNotification',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -128,13 +128,13 @@ export const TC_L_01_CSMS: TestCase = {
         connectorId: 1,
       });
       pushSendAckStep(steps, 8, 'Send StatusNotification Available after reboot', resp8);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 8,
         description: 'Send StatusNotification Available after reboot',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -146,13 +146,13 @@ export const TC_L_01_CSMS: TestCase = {
           (updateFirmwarePayload as unknown as Record<string, unknown>)?.['requestId'] ?? 1,
       });
       pushSendAckStep(steps, 9, 'Send FirmwareStatusNotification with status Installed', resp9);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 9,
         description: 'Send FirmwareStatusNotification with status Installed',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -239,13 +239,13 @@ export const TC_L_02_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp249 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -347,13 +347,13 @@ export const TC_L_03_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp363 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -540,13 +540,13 @@ export const TC_L_06_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp581 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -558,13 +558,13 @@ export const TC_L_06_CSMS: TestCase = {
         timestamp: new Date().toISOString(),
       });
       pushSendAckStep(steps, 5, 'Send SecurityEventNotification InvalidFirmwareSignature', resp5);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'Send SecurityEventNotification InvalidFirmwareSignature',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -634,13 +634,13 @@ export const TC_L_07_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp688 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -718,13 +718,13 @@ export const TC_L_08_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp779 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -811,13 +811,13 @@ export const TC_L_09_CSMS: TestCase = {
         status: 'InstallationFailed',
       });
       pushSendAckStep(steps, 3, 'Send FirmwareStatusNotification InstallationFailed', resp3);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Send FirmwareStatusNotification InstallationFailed',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -889,13 +889,13 @@ export const TC_L_10_CSMS: TestCase = {
         resp2,
         'FirmwareStatusNotificationResponse received',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Send FirmwareStatusNotification with status InstallationFailed',
         status: 'failed',
         expected: 'FirmwareStatusNotificationResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -1064,13 +1064,13 @@ export const TC_L_13_CSMS: TestCase = {
         'Send FirmwareStatusNotification with status DownloadScheduled',
         resp2,
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Send FirmwareStatusNotification with status DownloadScheduled',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -1088,13 +1088,13 @@ export const TC_L_13_CSMS: TestCase = {
         'Send StatusNotification Unavailable for non-transaction connector',
         resp3,
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Send StatusNotification Unavailable for non-transaction connector',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -1114,13 +1114,13 @@ export const TC_L_13_CSMS: TestCase = {
         resp4,
         'TransactionEventResponse received',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 4,
         description: 'End the ongoing transaction',
         status: 'failed',
         expected: 'TransactionEventResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -1148,13 +1148,13 @@ export const TC_L_13_CSMS: TestCase = {
           expected: 'Response received',
           actual: resp1266 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: 5 + i,
           description: `Send FirmwareStatusNotification with status ${fwStatus}`,
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -1173,13 +1173,13 @@ export const TC_L_13_CSMS: TestCase = {
         expected: 'status = Accepted',
         actual: `status = ${bootStatus}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 10,
         description: 'Send BootNotification after reboot',
         status: 'failed',
         expected: 'status = Accepted',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -1191,8 +1191,8 @@ export const TC_L_13_CSMS: TestCase = {
         evseId: 1,
         connectorId: 1,
       });
-    } catch {
-      // non-critical
+    } catch (err) {
+      ctx.logger.warn({ err }, 'StatusNotification Available after reboot failed, continuing');
     }
 
     // Final Installed status
@@ -1202,13 +1202,13 @@ export const TC_L_13_CSMS: TestCase = {
         requestId: requestId ?? 1,
       });
       pushSendAckStep(steps, 11, 'Send FirmwareStatusNotification with status Installed', resp11);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 11,
         description: 'Send FirmwareStatusNotification with status Installed',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

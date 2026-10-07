@@ -17,8 +17,10 @@ const LIMIT_TRIGGERS: Record<string, SessionLimitReached> = {
  * or null. A station that reaches its maxCost (the guest hold), maxEnergy or
  * maxTime suspends charging (SuspendedEVSE), so the portal tells the driver
  * why the session went idle instead of showing only "Idle". An OCPP 1.6
- * station has no transaction limit: the CSMS stops a guest transaction at its
- * hold (stopped_reason GuestHoldExhausted), which reports the cost limit too.
+ * station has no transaction limit, and a 2.1 station may ignore it: the CSMS
+ * stops the transaction at the session's cost ceiling (stopped_reason
+ * GuestHoldExhausted for a guest's hold, PrepaidCreditExhausted for a prepaid
+ * token's credit), which reports the cost limit too.
  */
 export async function sessionLimitReached(sessionId: string): Promise<SessionLimitReached | null> {
   const [row] = await client<Array<{ trigger_reason: string | null }>>`
@@ -29,7 +31,8 @@ export async function sessionLimitReached(sessionId: string): Promise<SessionLim
        ORDER BY seq_no DESC
        LIMIT 1),
       (SELECT 'CostLimitReached' FROM charging_sessions
-       WHERE id = ${sessionId} AND stopped_reason = 'GuestHoldExhausted')
+       WHERE id = ${sessionId}
+         AND stopped_reason IN ('GuestHoldExhausted', 'PrepaidCreditExhausted'))
     ) AS trigger_reason
   `;
   return row?.trigger_reason != null ? (LIMIT_TRIGGERS[row.trigger_reason] ?? null) : null;

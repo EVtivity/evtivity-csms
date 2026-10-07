@@ -106,13 +106,13 @@ export const TC_K_01_CS: CsTestCase = {
         expected: 'ReportChargingProfilesRequest with profile',
         actual: hasProfile ? 'Profile reported' : 'No report',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'ReportChargingProfilesRequest',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

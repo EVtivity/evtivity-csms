@@ -119,6 +119,7 @@ export function verifySignature(
       sig.signatureValue,
     );
   } catch {
+    // fail-open: a malformed key or signature makes verify throw, which means it does not verify
     ok = false;
   }
   return ok ? { valid: true } : { valid: false, reason: 'signature' };

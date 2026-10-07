@@ -78,6 +78,15 @@ export function refundKey(
 }
 
 /**
+ * The operator re-bill of a session the CSMS gave up ending (creates a
+ * payment: one per session, so two requests or a retry charge once). It is
+ * also the charge's provider reference.
+ */
+export function rebillKey(sessionId: string): string {
+  return bounded('rebill', `rebill_${sessionId}`);
+}
+
+/**
  * A reservation cancellation or no-show fee charge (creates a payment: one
  * per reservation and fee type). It is also the charge's provider reference,
  * which a refund of the fee reuses. Not bounded: it must stay the key the

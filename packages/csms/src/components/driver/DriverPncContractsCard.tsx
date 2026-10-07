@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
@@ -54,17 +55,13 @@ export function DriverPncContractsCard({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('drivers:write');
-  const canReadSettings = useHasPermission('settings.system:read');
   const [createOpen, setCreateOpen] = useState(false);
   const [pcid, setPcid] = useState('');
   const [revokeTarget, setRevokeTarget] = useState<PncContract | null>(null);
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
-    enabled: canReadSettings,
-    staleTime: 60_000,
-  });
+  const {
+    flags: { pncEnabled },
+  } = useFeatureFlags();
   const { data: contracts } = useQuery({
     queryKey: ['drivers', driverId, 'pnc-contracts'],
     queryFn: () => api.get<PncContract[]>(`/v1/drivers/${driverId}/pnc-contracts`),
@@ -115,7 +112,6 @@ export function DriverPncContractsCard({
     },
   });
 
-  const pncEnabled = settings?.['pnc.enabled'] === true;
   const list = contracts ?? [];
   if (!pncEnabled && list.length === 0) return null;
 

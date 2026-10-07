@@ -32,13 +32,13 @@ export const TC_E_09_CSMS: TestCase = {
         connectorId: 1,
       });
       pushSendAckStep(steps, 1, 'Send StatusNotification with connectorStatus Occupied', resp1);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send StatusNotification with connectorStatus Occupied',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -64,13 +64,13 @@ export const TC_E_09_CSMS: TestCase = {
         expected: 'TransactionEventResponse received',
         actual: txRes != null ? `Response keys: ${Object.keys(txRes).join(', ')}` : 'No response',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Send TransactionEvent Started with chargingState EVConnected',
         status: 'failed',
         expected: 'TransactionEventResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -116,13 +116,13 @@ export const TC_E_11_CSMS: TestCase = {
         expected: 'idTokenInfo.status = Accepted',
         actual: `idTokenInfo.status = ${String(idTokenStatus)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send AuthorizeRequest',
         status: 'failed',
         expected: 'AuthorizeResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -176,13 +176,13 @@ export const TC_E_11_CSMS: TestCase = {
         expected: 'TransactionEventResponse received',
         actual: `idTokenInfo.status = ${String(txStatus ?? 'not present')}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Send TransactionEvent Started with SignedDataReceived trigger',
         status: 'failed',
         expected: 'TransactionEventResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -205,13 +205,13 @@ export const TC_E_11_CSMS: TestCase = {
         resp3,
         'TransactionEventResponse received',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Send TransactionEvent Updated with chargingState Charging',
         status: 'failed',
         expected: 'TransactionEventResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -263,13 +263,13 @@ export const TC_E_12_CSMS: TestCase = {
         'TransactionEventResponse received',
         `Response keys: ${Object.keys(txRes).join(', ')}`,
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send TransactionEvent Started with triggerReason EVDetected',
         status: 'failed',
         expected: 'TransactionEventResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -325,13 +325,13 @@ export const TC_E_53_CSMS: TestCase = {
         resp1,
         'TransactionEventResponse received',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Transaction 1: TransactionEvent Started with seqNo = 0',
         status: 'failed',
         expected: 'TransactionEventResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -352,13 +352,13 @@ export const TC_E_53_CSMS: TestCase = {
         resp2,
         'TransactionEventResponse received',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Transaction 1: TransactionEvent Ended',
         status: 'failed',
         expected: 'TransactionEventResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -382,13 +382,13 @@ export const TC_E_53_CSMS: TestCase = {
         expected: 'CSMS accepts seqNo = 0 for new transaction',
         actual: resp3 != null ? 'Response received' : 'No response',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Transaction 2: TransactionEvent Started with seqNo = 0',
         status: 'failed',
         expected: 'CSMS accepts seqNo = 0',
-        actual: 'Error - CSMS rejected seqNo = 0',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -409,13 +409,13 @@ export const TC_E_53_CSMS: TestCase = {
         resp4,
         'TransactionEventResponse received',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 4,
         description: 'Transaction 2: TransactionEvent Ended',
         status: 'failed',
         expected: 'TransactionEventResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

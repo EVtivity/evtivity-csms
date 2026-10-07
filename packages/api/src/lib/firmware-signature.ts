@@ -49,6 +49,7 @@ export function assertFirmwareSignature(
     try {
       new X509Certificate(signingCertificate);
     } catch {
+      // fail-open: a certificate that does not parse is reported as invalidCertificate
       error = 'invalidCertificate';
     }
   }

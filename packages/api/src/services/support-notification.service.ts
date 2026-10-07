@@ -5,7 +5,9 @@ import { eq } from 'drizzle-orm';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, client, users, roles, isSupportEnabled } from '@evtivity/database';
-import { dispatchSystemNotification } from '@evtivity/lib';
+import { createLogger, dispatchSystemNotification } from '@evtivity/lib';
+
+const logger = createLogger('support-notification');
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = resolve(currentDir, '..', 'templates');
@@ -76,7 +78,10 @@ export async function dispatchOperatorNotification(
       },
       TEMPLATES_DIR,
     );
-  } catch {
-    // Non-critical: do not block the request
+  } catch (err) {
+    logger.warn(
+      { err, caseId, type },
+      'Support case operator notification failed, the request continues',
+    );
   }
 }

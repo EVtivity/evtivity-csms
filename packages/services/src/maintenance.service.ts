@@ -16,7 +16,12 @@ import {
   writeAudit,
   alertStationWatchersIfAvailable,
 } from '@evtivity/database';
-import { dispatchDriverNotification, AppError, renderMaintenanceMessage } from '@evtivity/lib';
+import {
+  createLogger,
+  dispatchDriverNotification,
+  AppError,
+  renderMaintenanceMessage,
+} from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { buildDerivedStatusSubquery } from './station-derived-status.js';
 import { sleep } from './sleep.js';
@@ -30,6 +35,8 @@ import {
   STATION_MESSAGE_SLOT_UNAVAILABLE,
 } from './station-message.service.js';
 import { ALL_TEMPLATES_DIRS } from './template-dirs.js';
+
+const moduleLogger = createLogger('maintenance');
 
 export type MaintenanceEventType = 'immediate' | 'one_off';
 export type MaintenanceStatus = 'scheduled' | 'active' | 'completed' | 'cancelled';
@@ -154,8 +161,11 @@ async function loadDerivedStatuses(stationDbIds: string[]): Promise<Map<string, 
       .from(chargingStations)
       .where(inArray(chargingStations.id, stationDbIds));
     for (const row of rows) map.set(row.id, row.status);
-  } catch {
-    // status snapshots are diagnostic; the fan-out proceeds without them
+  } catch (err) {
+    moduleLogger.warn(
+      { err, stationCount: stationDbIds.length },
+      'Station status snapshot failed, the fan-out proceeds without it',
+    );
   }
   return map;
 }
@@ -211,8 +221,12 @@ function makeActiveAbortCheck(eventId: string): () => Promise<boolean> {
     try {
       const fresh = await loadEventById(eventId);
       aborted = fresh == null || fresh.status !== 'active';
-    } catch {
-      // a transient read failure must not abort a legitimate fan-out
+    } catch (err) {
+      // A transient read failure must not abort a legitimate fan-out.
+      moduleLogger.warn(
+        { err, eventId },
+        'Maintenance event recheck failed, the fan-out continues',
+      );
     }
     return aborted;
   };
@@ -278,8 +292,8 @@ async function publishStateChange(siteId: string, eventId: string): Promise<void
       'csms_events',
       JSON.stringify({ eventType: 'maintenance.changed', siteId, eventId }),
     );
-  } catch {
-    // best-effort
+  } catch (err) {
+    moduleLogger.warn({ err, siteId, eventId }, 'Maintenance change event publish failed');
   }
 }
 

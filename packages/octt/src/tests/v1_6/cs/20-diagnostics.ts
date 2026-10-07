@@ -66,11 +66,7 @@ export const TC_045_2_CS: CsTestCase = {
       retries: 0,
     });
     // Uploading (optional)
-    try {
-      await ctx.server.waitForMessage('DiagnosticsStatusNotification', 30_000);
-    } catch {
-      /* optional */
-    }
+    await ctx.server.waitForMessageOrNull('DiagnosticsStatusNotification', 30_000);
     const ds = await ctx.server.waitForMessage('DiagnosticsStatusNotification', 60_000);
     steps.push({
       step: 5,

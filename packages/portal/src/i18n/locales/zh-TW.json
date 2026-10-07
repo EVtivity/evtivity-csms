@@ -20,7 +20,9 @@
     "deactivate": "停用",
     "remove": "移除",
     "inclTax": "含稅",
-    "amountInclTax": "{{amount}}（含稅）"
+    "amountInclTax": "{{amount}}（含稅）",
+    "close": "關閉",
+    "toggleSuggestions": "顯示或隱藏建議"
   },
   "nav": {
     "home": "首頁",
@@ -145,7 +147,7 @@
     "charging": "充電中",
     "idle": "閒置",
     "limitReached": {
-      "cost": "充電已暫停：工作階段已達到費用上限（您卡上預授權的金額）。",
+      "cost": "充電已暫停：工作階段已達到費用上限。",
       "energy": "充電已暫停：工作階段已達到電量上限。",
       "time": "充電已暫停：工作階段已達到時間上限。"
     },
@@ -246,7 +248,8 @@
     "priceDisplayDefault": "營運商預設（{{value}}）",
     "priceDisplayGross": "含稅（總價）",
     "priceDisplayNet": "未稅（淨價）",
-    "priceDisplayHelper": "含稅顯示加上稅額後的價格。未稅顯示稅前價格。兩種方式下實際扣款金額相同，未選擇時使用營運商的預設設定。"
+    "priceDisplayHelper": "含稅顯示加上稅額後的價格。未稅顯示稅前價格。兩種方式下實際扣款金額相同，未選擇時使用營運商的預設設定。",
+    "mfaQrCode": "驗證器應用程式 QR Code"
   },
   "charger": {
     "loadingInfo": "載入充電站資訊...",
@@ -593,6 +596,7 @@
     "MFA_TOTP_NO_RESEND": "無法重新傳送 TOTP 驗證碼",
     "MISSING_PAYMENT_INTENT": "缺少 payment intent",
     "MISSING_VERSION_URL": "註冊時必須提供合作夥伴 version URL",
+    "NOTIFICATION_EVENT_REQUIRED": "此通知是存取帳戶所必需的，無法關閉",
     "NOT_BLOCKED": "充電站未被封鎖",
     "NOT_CHARGING": "工作階段目前並未充電中",
     "NOT_DRAFT": "僅能更新草稿狀態的行銷活動",
@@ -683,6 +687,9 @@
     "SESSION_CREATE_FAILED": "建立工作階段失敗",
     "SESSION_NOT_FOUND": "找不到工作階段",
     "SESSION_NOT_LINKED": "工作階段未關聯至此案件",
+    "SESSION_REBILL_IN_PROGRESS": "此工作階段正在計費。請幾分鐘後再試。",
+    "SESSION_REBILL_NOT_ELIGIBLE": "無法對此工作階段計費",
+    "SESSION_REBILL_PAYMENT_PENDING": "此工作階段有一筆支付服務商尚未結算的付款。請稍後再試。",
     "SETTING_NOT_FOUND": "找不到設定",
     "SITE_HAS_STATIONS": "無法刪除仍有充電站的站點。請先移除或重新指派充電站。",
     "SITE_NOT_FOUND": "找不到站點",
@@ -764,7 +771,9 @@
     "co2Avoided": "減少的 CO₂",
     "co2AvoidedMessage": "本月您減少了 {{amount}} 公斤 CO₂排放",
     "miles": "英里",
-    "km": "公里"
+    "km": "公里",
+    "previousMonth": "上個月",
+    "nextMonth": "下個月"
   },
   "statement": {
     "title": "月度帳單",
@@ -982,5 +991,12 @@
         "home": "前往首頁"
       }
     }
+  },
+  "sessionStatus": {
+    "active": "進行中",
+    "completed": "已完成",
+    "invalid": "無效",
+    "faulted": "故障",
+    "failed": "失敗"
   }
 }

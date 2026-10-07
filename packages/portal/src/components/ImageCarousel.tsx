@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Spinner } from '@/components/ui/spinner';
@@ -69,6 +70,7 @@ function ImageOverlay({
   initialIndex: number;
   onClose: () => void;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const currentImage = images[currentIndex];
 
@@ -132,7 +134,7 @@ function ImageOverlay({
         type="button"
         onClick={onClose}
         className="absolute right-4 top-4 z-10 rounded-full bg-black/50 p-2 text-white transition-colors hover:bg-black/70"
-        aria-label="Close"
+        aria-label={t('common.close')}
       >
         <X className="h-5 w-5" />
       </button>
@@ -146,7 +148,7 @@ function ImageOverlay({
             goPrev();
           }}
           className="absolute left-2 z-10 rounded-full bg-black/50 p-2 text-white transition-colors hover:bg-black/70"
-          aria-label="Previous"
+          aria-label={t('common.previous')}
         >
           <ChevronLeft className="h-6 w-6" />
         </button>
@@ -184,7 +186,7 @@ function ImageOverlay({
             goNext();
           }}
           className="absolute right-2 z-10 rounded-full bg-black/50 p-2 text-white transition-colors hover:bg-black/70"
-          aria-label="Next"
+          aria-label={t('common.next')}
         >
           <ChevronRight className="h-6 w-6" />
         </button>

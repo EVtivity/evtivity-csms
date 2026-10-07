@@ -57,13 +57,13 @@ function makeBaseReportTest(
           expected: 'seqNo = 0',
           actual: `seqNo = ${String(seqNo)}`,
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: 3,
           description: 'NotifyReportRequest received',
           status: 'failed',
           expected: 'NotifyReportRequest received',
-          actual: 'Timed out waiting for NotifyReport',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
 

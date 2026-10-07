@@ -28,12 +28,8 @@ export async function bootStation(
   // Wait for StatusNotification(s) from the station
   const evseCount = options?.evseCount ?? 1;
   for (let i = 0; i < evseCount; i++) {
-    try {
-      await server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      // Some implementations may not send StatusNotification on boot
-      break;
-    }
+    // Some implementations may not send StatusNotification on boot
+    if ((await server.waitForMessageOrNull('StatusNotification', 5000)) == null) break;
   }
 
   return bootResponse;
@@ -77,11 +73,7 @@ export async function bootStationPending(server: OcppTestServer): Promise<void> 
   await server.waitForMessage('BootNotification', 15000);
 
   // Wait for StatusNotification
-  try {
-    await server.waitForMessage('StatusNotification', 5000);
-  } catch {
-    // Optional
-  }
+  await server.waitForMessageOrNull('StatusNotification', 5000);
 }
 
 /**

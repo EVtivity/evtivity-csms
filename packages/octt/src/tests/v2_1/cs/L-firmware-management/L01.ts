@@ -84,12 +84,11 @@ async function firmwareStatuses(
   const seen: Array<{ status: string; requestId: unknown }> = [];
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    let msg: Record<string, unknown>;
-    try {
-      msg = await ctx.server.waitForMessage('FirmwareStatusNotification', deadline - Date.now());
-    } catch {
-      break;
-    }
+    const msg = await ctx.server.waitForMessageOrNull(
+      'FirmwareStatusNotification',
+      deadline - Date.now(),
+    );
+    if (msg == null) break;
     seen.push({ status: String(msg['status']), requestId: msg['requestId'] });
     if (final.includes(String(msg['status']))) break;
   }
@@ -110,15 +109,12 @@ async function securityEvent(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      const msg = await ctx.server.waitForMessage(
-        'SecurityEventNotification',
-        deadline - Date.now(),
-      );
-      if (msg['type'] === type) return true;
-    } catch {
-      return false;
-    }
+    const msg = await ctx.server.waitForMessageOrNull(
+      'SecurityEventNotification',
+      deadline - Date.now(),
+    );
+    if (msg == null) return false;
+    if (msg['type'] === type) return true;
   }
   return false;
 }
@@ -210,11 +206,7 @@ async function installedSteps(
   const seen = [...seenBefore, ...(await firmwareStatuses(ctx, ['Installed'], 30_000))];
   steps.push(sequenceStep(firstStep, seen, ['Installing', 'Installed']));
   let boot: Record<string, unknown> | null = null;
-  try {
-    boot = await ctx.server.waitForMessage('BootNotification', 5000);
-  } catch {
-    boot = null;
-  }
+  boot = await ctx.server.waitForMessageOrNull('BootNotification', 5000);
   steps.push({
     step: firstStep + 1,
     description: 'Charging Station reboots to activate the firmware (BootNotificationRequest)',

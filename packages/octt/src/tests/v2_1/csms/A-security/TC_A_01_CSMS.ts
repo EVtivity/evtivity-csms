@@ -57,13 +57,13 @@ export const TC_A_01_CSMS: TestCase = {
         'Send StatusNotification (Available) and CSMS responds accordingly',
         resp3,
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Send StatusNotification (Available) and CSMS responds accordingly',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error or rejection',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

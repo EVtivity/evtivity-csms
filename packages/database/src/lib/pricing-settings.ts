@@ -4,6 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('pricing-settings');
 
 let cachedSplitBilling: boolean | undefined;
 let cachedSplitBillingAt = 0;
@@ -24,7 +27,11 @@ export async function isSplitBillingEnabled(): Promise<boolean> {
     cachedSplitBilling = row == null || row.value === true;
     cachedSplitBillingAt = now;
     return cachedSplitBilling;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'pricing.splitBillingEnabled' },
+      'isSplitBillingEnabled failed, using the cached value or default',
+    );
     return cachedSplitBilling ?? true;
   }
 }

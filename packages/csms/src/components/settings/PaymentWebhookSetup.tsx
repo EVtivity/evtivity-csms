@@ -94,12 +94,8 @@ export function useWebhookUrl(path: string): WebhookUrlState {
 
 function checkWebhookUrl(raw: string, path: string, allowHttp: boolean): boolean {
   const value = raw.trim();
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
+  const url = URL.parse(value);
+  if (url == null) return false;
   const protocolOk = url.protocol === 'https:' || (allowHttp && url.protocol === 'http:');
   return (
     protocolOk &&

@@ -92,12 +92,8 @@ async function monitoringReport(
   const monitors: Array<Record<string, unknown>> = [];
   if (resp['status'] === 'Accepted') {
     for (;;) {
-      let part: Record<string, unknown>;
-      try {
-        part = await ctx.server.waitForMessage('NotifyMonitoringReport', 10_000);
-      } catch {
-        break;
-      }
+      const part = await ctx.server.waitForMessageOrNull('NotifyMonitoringReport', 10_000);
+      if (part == null) break;
       if (part['requestId'] !== requestId) continue;
       monitors.push(...((part['monitor'] ?? []) as Array<Record<string, unknown>>));
       if (part['tbc'] !== true) break;
@@ -633,9 +629,7 @@ export const TC_N_53_CS = create(
       actual: String(reset['status']),
     });
     let booted = true;
-    try {
-      await ctx.server.waitForMessage('BootNotification', 15_000);
-    } catch {
+    if ((await ctx.server.waitForMessageOrNull('BootNotification', 15_000)) == null) {
       booted = false;
     }
     steps.push({

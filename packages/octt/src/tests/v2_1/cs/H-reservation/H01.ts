@@ -372,9 +372,9 @@ export const TC_H_08_CS: CsTestCase = {
     });
 
     // Optionally wait for StatusNotificationRequest Reserved
-    try {
-      const statusMsg = await ctx.server.waitForMessage('StatusNotification', 10000);
-      const connectorStatus = (statusMsg as Record<string, unknown>)['connectorStatus'] as string;
+    const statusMsg = await ctx.server.waitForMessageOrNull('StatusNotification', 10000);
+    if (statusMsg != null) {
+      const connectorStatus = statusMsg['connectorStatus'] as string;
       steps.push({
         step: 3,
         description: 'StatusNotificationRequest (optional) - connectorStatus must be Reserved',
@@ -382,7 +382,7 @@ export const TC_H_08_CS: CsTestCase = {
         expected: 'connectorStatus = Reserved',
         actual: `connectorStatus = ${connectorStatus}`,
       });
-    } catch {
+    } else {
       steps.push({
         step: 3,
         description: 'StatusNotificationRequest (optional) - not received (acceptable)',

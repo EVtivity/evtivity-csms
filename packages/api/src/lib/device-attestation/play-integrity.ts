@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { GoogleAuth } from 'google-auth-library';
+import { createLogger, tryParseJson } from '@evtivity/lib';
+
+const logger = createLogger('device-attestation');
 
 export interface PlayIntegrityConfig {
   packageName: string;
@@ -41,9 +44,19 @@ export async function verifyPlayIntegrity(
   expectedNonce: string,
   cfg: PlayIntegrityConfig,
 ): Promise<PlayIntegrityResult> {
+  const credentials = tryParseJson(cfg.serviceAccountJson);
+  if (credentials == null || typeof credentials !== 'object' || Array.isArray(credentials)) {
+    logger.error(
+      { key: 'mobile.attestation.android.serviceAccountEnc' },
+      'Play Integrity service account is not a JSON object, refusing the request',
+    );
+    return { ok: false };
+  }
   try {
-    const credentials = JSON.parse(cfg.serviceAccountJson) as Record<string, unknown>;
-    const auth = new GoogleAuth({ credentials, scopes: [SCOPE] });
+    const auth = new GoogleAuth({
+      credentials: credentials as Record<string, unknown>,
+      scopes: [SCOPE],
+    });
     const client = await auth.getClient();
     const url = `https://playintegrity.googleapis.com/v1/${encodeURIComponent(
       cfg.packageName,
@@ -66,7 +79,13 @@ export async function verifyPlayIntegrity(
     if (!deviceVerdicts.includes('MEETS_DEVICE_INTEGRITY')) return { ok: false };
 
     return { ok: true };
-  } catch {
+  } catch (err) {
+    // Log the message only: a Google client error carries the request config,
+    // which holds the access token.
+    logger.warn(
+      { error: err instanceof Error ? err.message : String(err), packageName: cfg.packageName },
+      'Play Integrity verification failed, refusing the request',
+    );
     return { ok: false };
   }
 }

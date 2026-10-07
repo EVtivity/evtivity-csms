@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { client } from '@evtivity/database';
-import { LEGACY_CONNECTION_NAME } from '@evtivity/lib';
+import { LEGACY_CONNECTION_NAME, tryParseJson } from '@evtivity/lib';
 import type { PaymentProviderId } from './types.js';
 
 /**
@@ -104,18 +104,15 @@ export async function legacyProcessCheck(): Promise<LegacyProcessCheck> {
 }
 
 function parseWatchState(raw: string | null): ProcessWatchState | null {
-  if (raw == null) return null;
-  try {
-    const parsed = JSON.parse(raw) as Partial<ProcessWatchState>;
-    if (typeof parsed.checkedAt !== 'string') return null;
-    return {
-      checkedAt: parsed.checkedAt,
-      legacySeenAt: typeof parsed.legacySeenAt === 'string' ? parsed.legacySeenAt : null,
-    };
-  } catch {
-    // A value this code did not write: treated as no watch (the guard refuses).
-    return null;
-  }
+  // A value this code did not write is treated as no watch (the guard refuses).
+  const parsed = tryParseJson(raw);
+  if (parsed == null || typeof parsed !== 'object') return null;
+  const { checkedAt, legacySeenAt } = parsed as Partial<ProcessWatchState>;
+  if (typeof checkedAt !== 'string') return null;
+  return {
+    checkedAt,
+    legacySeenAt: typeof legacySeenAt === 'string' ? legacySeenAt : null,
+  };
 }
 
 /**

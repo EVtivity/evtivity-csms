@@ -139,6 +139,7 @@ export function Sessions(): React.JSX.Element {
                 <option value="completed">{t('status.completed')}</option>
                 <option value="failed">{t('status.failed')}</option>
                 <option value="faulted">{t('status.faulted')}</option>
+                <option value="manual_billing">{t('sessions.manualBilling')}</option>
               </Select>
             </div>
           </>

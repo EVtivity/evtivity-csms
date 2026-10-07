@@ -103,18 +103,19 @@ export function closeConnectionAndRefuse(ctx: CsTestContext): void {
 /** The Test System accepts the next reconnection attempt and waits for it. */
 export async function acceptReconnect(ctx: CsTestContext, steps: StepResult[]): Promise<boolean> {
   ctx.server.acceptConnections();
-  let connected = true;
+  let failure: string | null = null;
   try {
     await ctx.server.waitForConnection(90_000);
-  } catch {
-    connected = false;
+  } catch (err) {
+    failure = err instanceof Error ? err.message : String(err);
   }
+  const connected = failure == null;
   steps.push({
     step: 0,
     description: 'Charging Station reconnects after the Test System accepts reconnection',
     status: connected ? 'passed' : 'failed',
     expected: 'WebSocket connection restored',
-    actual: connected ? 'Connected' : 'No reconnection within 90 s',
+    actual: failure ?? 'Connected',
   });
   return connected;
 }
@@ -131,15 +132,11 @@ export async function collectQueuedTransactionEvents(
   const queued: Record<string, unknown>[] = [];
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    let msg: Record<string, unknown>;
-    try {
-      msg = await ctx.server.waitForMessage(
-        'TransactionEvent',
-        queued.length === 0 ? deadline - Date.now() : Math.min(5000, deadline - Date.now()),
-      );
-    } catch {
-      break;
-    }
+    const msg = await ctx.server.waitForMessageOrNull(
+      'TransactionEvent',
+      queued.length === 0 ? deadline - Date.now() : Math.min(5000, deadline - Date.now()),
+    );
+    if (msg == null) break;
     if (msg['offline'] !== true) {
       // The first message generated after reconnecting ends the queue, unless
       // nothing was queued yet: then it is a validation failure for the caller.

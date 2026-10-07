@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 export function AccountNotificationPrefs(): React.JSX.Element {
   const { t } = useTranslation();
@@ -36,9 +37,9 @@ export function AccountNotificationPrefs(): React.JSX.Element {
       await api.put('/v1/portal/driver/notification-preferences', { emailEnabled, smsEnabled });
       setMsgType('success');
       setMsg(t('profile.preferencesSaved'));
-    } catch {
+    } catch (err) {
       setMsgType('error');
-      setMsg(t('profile.preferencesFailed'));
+      setMsg(getErrorMessage(err, t, 'profile.preferencesFailed'));
     } finally {
       setLoading(false);
     }

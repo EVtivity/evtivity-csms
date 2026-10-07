@@ -44,6 +44,7 @@ export function parseCertificateChain(pem: string): crypto.X509Certificate[] | n
   try {
     return blocks.map((block) => new crypto.X509Certificate(block));
   } catch {
+    // fail-open: a certificate that does not parse makes the chain null for the caller
     return null;
   }
 }
@@ -214,6 +215,7 @@ export function verifySignature(
   try {
     return crypto.verify('sha256', data, cert.publicKey, Buffer.from(signatureBase64, 'base64'));
   } catch {
+    // fail-open: a signature that cannot be checked counts as not verified
     return false;
   }
 }

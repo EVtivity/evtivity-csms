@@ -39,14 +39,11 @@ export const TC_E_06_CS: CsTestCase = {
     // Find TransactionEvent Ended (skip MeterValuePeriodic Updated events)
     let trigReason: string | undefined;
     for (let _i = 0; _i < 10; _i++) {
-      try {
-        const msg = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        const evtType = (msg as Record<string, unknown>)['eventType'] as string | undefined;
-        if (evtType === 'Ended') {
-          trigReason = (msg as Record<string, unknown>)['triggerReason'] as string | undefined;
-          break;
-        }
-      } catch {
+      const msg = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (msg == null) break;
+      const evtType = (msg as Record<string, unknown>)['eventType'] as string | undefined;
+      if (evtType === 'Ended') {
+        trigReason = (msg as Record<string, unknown>)['triggerReason'] as string | undefined;
         break;
       }
     }
@@ -61,11 +58,7 @@ export const TC_E_06_CS: CsTestCase = {
     // Step 2: Execute Reusable State EVConnectedPostSession
     // Drain any leftover StatusNotifications from stop
     for (let _d = 0; _d < 3; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
 
     // Step 3: Execute Reusable State EVDisconnected - unplug

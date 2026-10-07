@@ -533,24 +533,30 @@ describe('Notification routes: validation, test sends, templates', () => {
       ]);
     });
 
-    it('upserts a system event toggle', async () => {
-      setupDbResults([{ id: 4, eventType: 'payment.Complete', isEnabled: false, ...TS }]);
+    it('records a system event type without a switch', async () => {
+      setupDbResults([{ id: 4, eventType: 'site.PayoutOnboarding', isEnabled: true, ...TS }]);
       const res = await req('PUT', '/system-event-settings', {
-        eventType: 'payment.Complete',
-        isEnabled: false,
+        eventType: 'site.PayoutOnboarding',
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ id: 4, eventType: 'payment.Complete', isEnabled: false });
-      expect(chains[0]?.['values']).toHaveBeenCalledWith({
-        eventType: 'payment.Complete',
-        isEnabled: false,
-      });
+      expect(res.json()).toMatchObject({ id: 4, eventType: 'site.PayoutOnboarding' });
+      expect(chains[0]?.['values']).toHaveBeenCalledWith({ eventType: 'site.PayoutOnboarding' });
       expect(chains[0]?.['onConflictDoUpdate']).toHaveBeenCalledWith(
         expect.objectContaining({
           target: ['sys.eventType'],
-          set: expect.objectContaining({ isEnabled: false }),
+          set: expect.not.objectContaining({ isEnabled: expect.anything() }),
         }),
       );
+    });
+
+    it('ignores isEnabled: system events are always on', async () => {
+      setupDbResults([{ id: 4, eventType: 'site.PayoutOnboarding', isEnabled: true, ...TS }]);
+      const res = await req('PUT', '/system-event-settings', {
+        eventType: 'site.PayoutOnboarding',
+        isEnabled: false,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(chains[0]?.['values']).toHaveBeenCalledWith({ eventType: 'site.PayoutOnboarding' });
     });
   });
 

@@ -70,7 +70,7 @@ export function NotificationDrawer({
           <button
             onClick={onClose}
             className="rounded-full p-1 text-muted-foreground transition-colors hover:text-foreground"
-            aria-label="Close"
+            aria-label={t('common.close')}
           >
             <X className="h-5 w-5" />
           </button>

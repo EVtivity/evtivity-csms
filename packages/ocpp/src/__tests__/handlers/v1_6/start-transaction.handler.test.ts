@@ -33,10 +33,12 @@ vi.mock('@evtivity/database', () => {
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ type: 'eq', a, b })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
+  ne: vi.fn((a: unknown, b: unknown) => ({ type: 'ne', a, b })),
   sql: Object.assign(
-    (strings: TemplateStringsArray, ..._values: unknown[]) => ({
+    (strings: TemplateStringsArray, ...values: unknown[]) => ({
       type: 'sql',
       raw: strings.join('?'),
+      values,
     }),
     { raw: (s: string) => ({ type: 'sql-raw', raw: s }) },
   ),
@@ -156,30 +158,106 @@ describe('OCPP 1.6 StartTransaction handler', () => {
       );
     });
 
-    it('claims a pending session via UPDATE when one exists', async () => {
-      executeFn.mockResolvedValueOnce([{ transaction_id: '42' }]);
+    it('claims a waiting remote start via UPDATE when one exists', async () => {
+      executeFn.mockResolvedValueOnce([]).mockResolvedValueOnce([{ transaction_id: '42' }]);
       const { ctx, publishMock } = makeCtx(basePayload('TAG-CLAIM'), { stationDbId: 'sta_1' });
 
       const response = await handleStartTransaction(ctx);
 
       expect(response.transactionId).toBe(42);
-      // Only the UPDATE claim runs; no sequence call needed.
-      expect(executeFn).toHaveBeenCalledTimes(1);
+      // The resend lookup and the UPDATE claim run; no sequence call needed.
+      expect(executeFn).toHaveBeenCalledTimes(2);
       expect(publishMock).toHaveBeenCalledWith(expect.objectContaining({ aggregateId: '42' }));
     });
 
+    it('claims only a waiting remote start on the EVSE of the reported connector', async () => {
+      executeFn.mockResolvedValueOnce([]).mockResolvedValueOnce([{ transaction_id: '42' }]);
+      const { ctx } = makeCtx(
+        { ...basePayload('TAG-CLAIM'), connectorId: 2 },
+        {
+          stationDbId: 'sta_1',
+        },
+      );
+
+      await handleStartTransaction(ctx);
+
+      const claim = executeFn.mock.calls[1]?.[0] as { raw: string; values: unknown[] };
+      expect(claim.raw).toContain('e.evse_id = ?');
+      expect(claim.raw).toContain('pending.remote_start_id IS NOT NULL');
+      expect(claim.raw).toContain("pending.status = 'active'");
+      expect(claim.raw).toContain('NOT EXISTS');
+      expect(claim.raw).toContain('ORDER BY pending.started_at DESC');
+      expect(claim.values).toEqual(['sta_1', 2]);
+    });
+
+    it('answers a resent StartTransaction with the transaction id it already has', async () => {
+      executeFn.mockResolvedValueOnce([{ session_id: 'ses_1', transaction_id: '55' }]);
+      const { ctx, publishMock } = makeCtx(basePayload('TAG-RESEND'), { stationDbId: 'sta_1' });
+
+      const response = await handleStartTransaction(ctx);
+
+      expect(response.transactionId).toBe(55);
+      // No claim and no sequence call for a resend.
+      expect(executeFn).toHaveBeenCalledTimes(1);
+      const lookup = executeFn.mock.calls[0]?.[0] as { raw: string; values: unknown[] };
+      expect(lookup.raw).toContain("te.event_type = 'started'");
+      expect(lookup.values).toEqual(['sta_1', '2026-02-15T10:00:00Z', '1', 'TAG-RESEND', '1000']);
+      expect(publishMock).toHaveBeenCalledWith(expect.objectContaining({ aggregateId: '55' }));
+    });
+
+    it('does not count the resent transaction as a concurrent one', async () => {
+      executeFn.mockResolvedValueOnce([{ session_id: 'ses_1', transaction_id: '55' }]);
+      selectFn
+        .mockReturnValueOnce(
+          selectResolving([
+            {
+              id: 'tok_1',
+              driverId: 'drv_1',
+              isActive: true,
+              expiresAt: null,
+              revokedAt: null,
+              prepaidBalanceCents: null,
+            },
+          ]),
+        )
+        .mockReturnValueOnce(selectResolving([]));
+      const { ctx } = makeCtx(basePayload('TAG-RESEND'), { stationDbId: 'sta_1' });
+
+      const response = await handleStartTransaction(ctx);
+
+      expect(response.idTagInfo).toEqual({ status: 'Accepted' });
+      const { ne } = await import('drizzle-orm');
+      expect(ne).toHaveBeenCalledWith('id', 'ses_1');
+    });
+
+    it('allocates a new id when the resend row has no numeric transaction id', async () => {
+      executeFn
+        .mockResolvedValueOnce([{ session_id: 'ses_1', transaction_id: 'abc' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ nextval: '66' }]);
+      const { ctx } = makeCtx(basePayload('TAG-RESEND'), { stationDbId: 'sta_1' });
+
+      const response = await handleStartTransaction(ctx);
+
+      expect(response.transactionId).toBe(66);
+    });
+
     it('falls back to the sequence when the UPDATE claims no row', async () => {
-      executeFn.mockResolvedValueOnce([]).mockResolvedValueOnce([{ nextval: '77' }]);
+      executeFn
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ nextval: '77' }]);
       const { ctx } = makeCtx(basePayload('TAG-NOCLAIM'), { stationDbId: 'sta_2' });
 
       const response = await handleStartTransaction(ctx);
 
       expect(response.transactionId).toBe(77);
-      expect(executeFn).toHaveBeenCalledTimes(2);
+      expect(executeFn).toHaveBeenCalledTimes(3);
     });
 
     it('falls back to the sequence when the claimed transaction_id is not numeric', async () => {
       executeFn
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ transaction_id: 'not-a-number' }])
         .mockResolvedValueOnce([{ nextval: '88' }]);
       const { ctx } = makeCtx(basePayload('TAG-NAN'), { stationDbId: 'sta_3' });
@@ -191,6 +269,7 @@ describe('OCPP 1.6 StartTransaction handler', () => {
 
     it('falls back to the sequence when the claimed transaction_id is a float', async () => {
       executeFn
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([{ transaction_id: '3.14' }])
         .mockResolvedValueOnce([{ nextval: '99' }]);
       const { ctx } = makeCtx(basePayload('TAG-FLOAT'), { stationDbId: 'sta_4' });
@@ -201,7 +280,10 @@ describe('OCPP 1.6 StartTransaction handler', () => {
     });
 
     it('falls back to the sequence when the claim row is undefined', async () => {
-      executeFn.mockResolvedValueOnce([undefined]).mockResolvedValueOnce([{ nextval: '111' }]);
+      executeFn
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([undefined])
+        .mockResolvedValueOnce([{ nextval: '111' }]);
       const { ctx } = makeCtx(basePayload('TAG-UNDEF'), { stationDbId: 'sta_5' });
 
       const response = await handleStartTransaction(ctx);

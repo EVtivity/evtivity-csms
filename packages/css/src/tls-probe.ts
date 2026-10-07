@@ -52,15 +52,10 @@ const CERTIFICATE_VERIFY_ERRORS = new Set([
  * The probe sends no data: it closes the socket right after the handshake.
  */
 export function isTlsReachable(url: string, timeoutMs = 3000): Promise<boolean> {
-  let host: string;
-  let port: number;
-  try {
-    const parsed = new URL(url);
-    host = parsed.hostname;
-    port = Number(parsed.port) || 443;
-  } catch {
-    return Promise.resolve(false);
-  }
+  const parsed = URL.parse(url);
+  if (parsed == null) return Promise.resolve(false);
+  const host = parsed.hostname;
+  const port = Number(parsed.port) || 443;
   return new Promise<boolean>((resolve) => {
     const socket = tlsConnect({ host, port, timeout: timeoutMs }, () => {
       socket.destroy();

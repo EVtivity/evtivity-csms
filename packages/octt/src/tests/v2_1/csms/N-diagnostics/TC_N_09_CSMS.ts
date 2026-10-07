@@ -62,13 +62,13 @@ const makeCustomerInfoTest = (
           generatedAt: new Date().toISOString(),
         });
         pushSendAckStep(steps, 2, 'Send NotifyCustomerInformationRequest', resp2);
-      } catch {
+      } catch (err) {
         steps.push({
           step: 2,
           description: 'Send NotifyCustomerInformationRequest',
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }

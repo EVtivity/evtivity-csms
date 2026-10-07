@@ -57,7 +57,8 @@ export async function getS3Config(): Promise<S3Config | null> {
   const accessKeyIdEnc = map.get('s3.accessKeyIdEnc') as string | undefined;
   const secretAccessKeyEnc = map.get('s3.secretAccessKeyEnc') as string | undefined;
 
-  if (bucket == null || region == null) {
+  // A cleared field is stored as an empty string: not configured.
+  if (bucket == null || bucket === '' || region == null || region === '') {
     return null;
   }
   // No stored keys means use the default credential chain (the ECS task role).

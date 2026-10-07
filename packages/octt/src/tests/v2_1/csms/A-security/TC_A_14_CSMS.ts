@@ -118,14 +118,14 @@ export const TC_A_14_CSMS: TestCase = {
             expected: 'SecurityEventNotificationResponse received',
             actual: resp4 != null ? 'Response received' : 'No response',
           });
-        } catch {
+        } catch (err) {
           steps.push({
             step: 4,
             description:
               'Send SecurityEventNotificationRequest with type InvalidChargingStationCertificate',
             status: 'failed',
             expected: 'SecurityEventNotificationResponse received',
-            actual: 'Error or rejection',
+            actual: err instanceof Error ? err.message : String(err),
           });
         }
       }

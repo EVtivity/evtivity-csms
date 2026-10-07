@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import pino from 'pino';
 import { ConnectionManager } from '../server/connection-manager.js';
-import { PingMonitor, heartbeatTimeoutFor } from '../server/ping-monitor.js';
+import { PingMonitor } from '../server/ping-monitor.js';
 import { createSessionState } from '../server/session-state.js';
 
 const logger = pino({ level: 'silent' });
@@ -222,12 +222,6 @@ describe('PingMonitor', () => {
       vi.advanceTimersByTime(30_000);
 
       expect(ws.close).not.toHaveBeenCalled();
-    });
-
-    it('is 3 heartbeat intervals and never less than 15 minutes', () => {
-      expect(heartbeatTimeoutFor(300)).toBe(900_000);
-      expect(heartbeatTimeoutFor(60)).toBe(900_000);
-      expect(heartbeatTimeoutFor(900)).toBe(2_700_000);
     });
 
     it('does not close connection when heartbeat is recent', () => {

@@ -75,7 +75,8 @@ export class RedisPubSubClient implements PubSubClient {
       }
       await this.publisher.ping();
       return true;
-    } catch {
+    } catch (err) {
+      logger.warn({ err }, 'Redis ping failed, reporting pub/sub as unhealthy');
       return false;
     }
   }

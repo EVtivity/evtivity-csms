@@ -27,11 +27,8 @@ export const TC_023_4_CS: CsTestCase = {
     await ctx.station.authorize(1, 'INVALID_TAG');
 
     // Drain Authorize
-    try {
-      await ctx.server.waitForMessage('Authorize', 5000);
-    } catch {
-      /* consumed */
-    }
+    // consumed
+    await ctx.server.waitForMessageOrNull('Authorize', 5000);
 
     // Plug in cable
     await ctx.station.plugIn(1);
@@ -48,8 +45,7 @@ export const TC_023_4_CS: CsTestCase = {
     });
 
     // Verify no StartTransaction is sent
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
+    if ((await ctx.server.waitForMessageOrNull('StartTransaction', 5000)) != null) {
       steps.push({
         step: 4,
         description: 'No StartTransaction should be sent',
@@ -57,7 +53,7 @@ export const TC_023_4_CS: CsTestCase = {
         expected: 'No StartTransaction',
         actual: 'StartTransaction received',
       });
-    } catch {
+    } else {
       steps.push({
         step: 4,
         description: 'No StartTransaction sent (correct)',

@@ -68,11 +68,7 @@ async function resetAndResume(ctx: CsTestContext, allowEnergy: boolean): Promise
     actual: `status ${String(reset['status'])}`,
   });
   let boot: Record<string, unknown> | null = null;
-  try {
-    boot = await ctx.server.waitForMessage('BootNotification', 15_000);
-  } catch {
-    boot = null;
-  }
+  boot = await ctx.server.waitForMessageOrNull('BootNotification', 15_000);
   steps.push({
     step: 1,
     description: 'Booted: Charging Station sends BootNotificationRequest',
@@ -81,11 +77,7 @@ async function resetAndResume(ctx: CsTestContext, allowEnergy: boolean): Promise
     actual: boot != null ? `reason ${String(boot['reason'])}` : 'not received',
   });
   let security: Record<string, unknown> | null = null;
-  try {
-    security = await ctx.server.waitForMessage('SecurityEventNotification', 10_000);
-  } catch {
-    security = null;
-  }
+  security = await ctx.server.waitForMessageOrNull('SecurityEventNotification', 10_000);
   const securityType = security?.['type'] as string | undefined;
   steps.push({
     step: 1,

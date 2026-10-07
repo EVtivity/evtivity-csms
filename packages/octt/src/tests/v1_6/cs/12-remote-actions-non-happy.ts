@@ -32,32 +32,13 @@ export const TC_026_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    // consumed
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     const rsResp = await ctx.server.sendCommand('RemoteStartTransaction', {
       connectorId: 1,
@@ -139,32 +120,13 @@ export const TC_028_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    // consumed
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     const rsResp = await ctx.server.sendCommand('RemoteStopTransaction', { transactionId: 99999 });
     steps.push({

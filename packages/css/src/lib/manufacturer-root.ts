@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { tryParseJson } from '@evtivity/lib';
+
 /**
  * Factory-installed ManufacturerRootCertificate of the simulated charging
  * station (EC P-256, valid 2026-2056). Firmware signing certificates must chain
@@ -25,12 +27,7 @@ export const FIRMWARE_IMAGE_FORMAT = 'evtivity-css-firmware';
  * build.
  */
 export function parseFirmwareImage(data: Buffer): FirmwareImage | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(data.toString('utf8'));
-  } catch {
-    return null;
-  }
+  const parsed = tryParseJson(data.toString('utf8'));
   if (parsed == null || typeof parsed !== 'object') return null;
   const image = parsed as Record<string, unknown>;
   if (image['format'] !== FIRMWARE_IMAGE_FORMAT) return null;

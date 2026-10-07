@@ -2,6 +2,7 @@ import eslint from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 import headers from 'eslint-plugin-headers';
+import { evtivityPlugin } from './eslint-rules/handle-caught-error.js';
 
 export default tseslint.config(
   eslint.configs.recommended,
@@ -49,8 +50,10 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
+  // Registered for every file so `--rule '{"evtivity/handle-caught-error":"error"}'`
+  // works on any path. The rule itself is enabled only in the block below.
   {
-    plugins: { headers },
+    plugins: { headers, evtivity: evtivityPlugin },
     rules: {
       'headers/header-format': [
         'error',
@@ -62,6 +65,16 @@ export default tseslint.config(
           trailingNewlines: 2,
         },
       ],
+    },
+  },
+  // Every catch rethrows the error, logs it with context, or shows it to the
+  // user. An expected failure that carries no information uses a fallback
+  // helper (tryParseJson, URL.parse) or a "// fail-open: <reason>" comment.
+  {
+    files: ['packages/*/src/**/*.ts', 'packages/*/src/**/*.tsx'],
+    ignores: ['**/__tests__/**', '**/*.test.ts', '**/*.test.tsx', '**/__integration__/**'],
+    rules: {
+      'evtivity/handle-caught-error': 'error',
     },
   },
   // Processes couple only through pub/sub and BullMQ (design principle P8).
@@ -156,6 +169,7 @@ export default tseslint.config(
       '**/node_modules/',
       '**/generated/',
       'eslint.config.js',
+      'eslint-rules/',
       'vitest.workspace.ts',
       'vitest.integration.ts',
       'coverage/',

@@ -158,8 +158,10 @@ describe('docker/redis/acl-rules.conf', () => {
     expect(grantsKey(user('worker'), 'mfl:site-1', 'rw')).toBe(true);
     expect(grantsKey(user('worker'), 'sml:sta_1', 'rw')).toBe(true);
     expect(grantsKey(user('worker'), watchKey as string, 'rw')).toBe(true);
-    // The connection registry belongs to ocpp alone.
+    // The connection registry belongs to ocpp; the worker's offline sweep reads it.
     expect(grantsKey(user('ocpp'), `${registryPrefix as string}CS-1`, 'rw')).toBe(true);
+    expect(grantsKey(user('worker'), `${registryPrefix as string}CS-1`, 'r')).toBe(true);
+    expect(grantsKey(user('worker'), `${registryPrefix as string}CS-1`, 'rw')).toBe(false);
     // Response cache and attestation nonces; the watch key read-only.
     expect(grantsKey(user('api'), 'rc:ver:stations', 'rw')).toBe(true);
     expect(grantsKey(user('api'), `${noncePrefix as string}abc`, 'rw')).toBe(true);
@@ -172,7 +174,7 @@ describe('docker/redis/acl-rules.conf', () => {
     for (const name of ['api', 'ocpp', 'ocpi', 'css']) {
       expect(grantsKey(user(name), 'bull:cron-jobs:wait', 'r'), name).toBe(false);
     }
-    for (const name of ['api', 'worker', 'ocpi', 'css']) {
+    for (const name of ['api', 'ocpi', 'css']) {
       expect(grantsKey(user(name), `${registryPrefix as string}CS-1`, 'r'), name).toBe(false);
     }
     expect(user('css').keys).toEqual([]);

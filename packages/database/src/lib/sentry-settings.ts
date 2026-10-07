@@ -4,7 +4,10 @@
 import { inArray } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
 import type { SentryConfig } from '@evtivity/lib';
+
+const logger = createLogger('sentry-settings');
 
 let cached: SentryConfig | undefined;
 let cachedAt = 0;
@@ -34,7 +37,11 @@ export async function getSentryConfig(): Promise<SentryConfig> {
     };
     cachedAt = now;
     return cached;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'sentry.*' },
+      'getSentryConfig failed, using the cached value or default',
+    );
     return cached ?? { enabled: false, dsn: '', environment: 'production' };
   }
 }

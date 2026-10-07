@@ -25,6 +25,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@evtivity/lib": "*",
     "argon2": "^0.44.0",
     "drizzle-orm": "^0.45.2",
     "nanoid": "^6.0.1",

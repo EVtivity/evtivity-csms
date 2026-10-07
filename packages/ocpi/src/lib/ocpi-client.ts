@@ -192,12 +192,14 @@ export class OcpiClient {
         );
       }
       return parsed;
-    } catch {
+    } catch (err) {
       logger.error(
-        { url, status: response.status, body: text.slice(0, 500) },
+        { err, url, status: response.status, body: text.slice(0, 500) },
         'Failed to parse OCPI response',
       );
-      throw new Error(`Failed to parse OCPI response from ${url}: ${String(response.status)}`);
+      throw new Error(`Failed to parse OCPI response from ${url}: ${String(response.status)}`, {
+        cause: err,
+      });
     }
   }
 

@@ -38,13 +38,13 @@ export const TC_G_01_CSMS: TestCase = {
           expected: 'Response received (empty response body)',
           actual: 'Response received',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 1,
           description: `Send StatusNotification with status ${status}`,
           status: 'failed' as const,
           expected: 'Response received',
-          actual: 'Error or rejection',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }

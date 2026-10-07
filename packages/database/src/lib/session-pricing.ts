@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // The one session cost assembly (issue #33). Every running cost, final cost,
-// TransactionEventResponse totalCost, CostUpdated, prepaid stop, and stale
+// TransactionEventResponse totalCost, CostUpdated, cost ceiling stop, and stale
 // session close prices a session here, from its price snapshots, and stores
 // the cost with its net amount, tax, and breakdown in one statement.
 // Invoices, OCPI, the portal, and reports read the stored breakdown and never
@@ -167,8 +167,8 @@ async function loadSegments(sql: postgres.Sql, sessionId: string): Promise<Sessi
  * segments when split billing is on and the tariff changed during the
  * session, else its tariff snapshot, with the idle grace period and the
  * reservation holding fee, at most the session's cost ceiling (a guest's card
- * authorization: the tariff price above it is kept in pricedGrossCents and
- * not billed). Null for a session without a tariff snapshot (not billed, such
+ * authorization or a prepaid token's credit: the tariff price above it is
+ * kept in pricedGrossCents and not billed). Null for a session without a tariff snapshot (not billed, such
  * as free vend or no pricing).
  */
 export async function priceSession(
@@ -293,15 +293,14 @@ export async function storeFinalCost(
 
 /**
  * Copy a tariff's prices and the company tax basis onto a session (the
- * snapshot it is priced from) and open its first tariff segment with the
- * same prices.
+ * snapshot it is priced from). One UPDATE, safe to run again. The session's
+ * first tariff segment is opened by openFirstTariffSegment.
  */
 export async function snapshotSessionTariff(
   sql: postgres.Sql,
   sessionId: string,
   tariff: TariffPriceSnapshot,
   basis: TaxBasis,
-  startedAt: string | Date,
 ): Promise<void> {
   await sql`
     UPDATE charging_sessions
@@ -316,6 +315,18 @@ export async function snapshotSessionTariff(
         updated_at = now()
     WHERE id = ${sessionId}
   `;
+}
+
+/**
+ * Open a session's first tariff segment with the prices of its tariff. One
+ * INSERT: running it twice opens two segments.
+ */
+export async function openFirstTariffSegment(
+  sql: postgres.Sql,
+  sessionId: string,
+  tariff: TariffPriceSnapshot,
+  startedAt: string | Date,
+): Promise<void> {
   await insertSegment(sql, sessionId, tariff, startedAt, 0);
 }
 

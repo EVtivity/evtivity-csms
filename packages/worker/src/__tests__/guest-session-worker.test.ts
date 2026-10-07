@@ -5,9 +5,13 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import type { Job } from 'bullmq';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
-vi.mock('@evtivity/lib', () => ({
-  createLogger: vi.fn(() => mockLog),
-}));
+vi.mock('@evtivity/lib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
+  return {
+    createLogger: vi.fn(() => mockLog),
+    tryParseJson: actual.tryParseJson,
+  };
+});
 
 // Capture the Worker processor and the .on() handlers.
 let capturedProcessor: ((job: Job) => Promise<void>) | undefined;

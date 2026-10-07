@@ -14,23 +14,20 @@ import { isNonPublicAddress } from './safe-fetch.js';
  * which checks what the name resolves to at connect time.
  */
 export function isPrivateUrl(urlString: string): boolean {
-  try {
-    const parsed = new URL(urlString);
-    // Only http(s) is a valid outbound target. file://, gopher://, dict://
-    // and the like reach local files or internal services.
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
-    // The URL parser keeps IPv6 hosts in brackets ([::1]), which isIP() does
-    // not recognize, and keeps a trailing root dot (localhost.).
-    const host = parsed.hostname
-      .replace(/^\[(.*)\]$/, '$1')
-      .replace(/\.$/, '')
-      .toLowerCase();
-    if (host === '' || host === 'localhost') return true;
-    if (isIP(host) !== 0) return isNonPublicAddress(host);
-    return host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.localhost');
-  } catch {
-    return true; // Invalid URL = treat as private
-  }
+  const parsed = URL.parse(urlString);
+  if (parsed == null) return true;
+  // Only http(s) is a valid outbound target. file://, gopher://, dict://
+  // and the like reach local files or internal services.
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true;
+  // The URL parser keeps IPv6 hosts in brackets ([::1]), which isIP() does
+  // not recognize, and keeps a trailing root dot (localhost.).
+  const host = parsed.hostname
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '')
+    .toLowerCase();
+  if (host === '' || host === 'localhost') return true;
+  if (isIP(host) !== 0) return isNonPublicAddress(host);
+  return host.endsWith('.local') || host.endsWith('.internal') || host.endsWith('.localhost');
 }
 
 // A DNS hostname (RFC 1123 labels), without scheme or port.

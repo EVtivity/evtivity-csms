@@ -14,7 +14,7 @@ import {
   chargingSessions,
   ocpiLocationAudience,
 } from '@evtivity/database';
-import { createInFlightTracker, createLogger } from '@evtivity/lib';
+import { createInFlightTracker, createLogger, tryParseJson } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
 import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { OcpiClient } from '../lib/ocpi-client.js';
@@ -498,13 +498,12 @@ async function handlePushNotification(
   raw: string,
   onSessionCompleted: SessionCompletedHook | null,
 ): Promise<void> {
-  let notification: PushNotification;
-  try {
-    notification = JSON.parse(raw) as PushNotification;
-  } catch {
+  const parsed = tryParseJson(raw);
+  if (parsed === undefined) {
     logger.error({ raw }, 'Invalid push notification payload');
     return;
   }
+  const notification = parsed as PushNotification;
 
   switch (notification.type) {
     case 'location':

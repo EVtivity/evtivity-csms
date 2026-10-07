@@ -524,6 +524,42 @@ export function supportCaseRoutes(app: FastifyInstance): void {
     },
   );
 
+  // Whether attachments can be uploaded. Support users need this without the
+  // settings permission that GET /v1/settings/s3/status requires.
+  app.get(
+    '/support-cases/attachment-storage',
+    {
+      onRequest: [authorize('support:read')],
+      schema: {
+        tags: ['Support Cases'],
+        summary: 'Get whether support case attachment storage is configured',
+        operationId: 'getSupportAttachmentStorage',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                configured: z
+                  .boolean()
+                  .describe(
+                    'Whether S3 storage is configured, so attachments can be uploaded to support case messages',
+                  ),
+              })
+              .passthrough(),
+          ),
+        },
+      },
+    },
+    async (request) => {
+      try {
+        return { configured: (await getS3Config()) != null };
+      } catch (err) {
+        request.log.warn({ err }, 'S3 configuration could not be read');
+        return { configured: false };
+      }
+    },
+  );
+
   // Get support case detail
   app.get(
     '/support-cases/:id',

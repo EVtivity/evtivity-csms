@@ -7,7 +7,7 @@ import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
 import type { IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 import type postgres from 'postgres';
-import { createLogger, InMemoryEventBus, OcppError } from '@evtivity/lib';
+import { createLogger, InMemoryEventBus, OcppError, tryParseJson } from '@evtivity/lib';
 import { getHeartbeatIntervalSeconds } from '@evtivity/database';
 import type { Logger, EventBus, EventPersistence } from '@evtivity/lib';
 import { ConnectionManager } from './connection-manager.js';
@@ -596,13 +596,12 @@ export class OcppServer {
   }
 
   private async handleMessage(ws: WebSocket, session: SessionState, raw: string): Promise<void> {
-    let parsed: OcppMessage;
-    try {
-      parsed = JSON.parse(raw) as OcppMessage;
-    } catch {
+    const json = tryParseJson(raw);
+    if (json === undefined) {
       this.logger.warn({ stationId: session.stationId }, 'Invalid JSON received');
       return;
     }
+    const parsed = json as OcppMessage;
 
     if (!Array.isArray(parsed) || parsed.length < 3) {
       this.logger.warn({ stationId: session.stationId }, 'Invalid OCPP message format');

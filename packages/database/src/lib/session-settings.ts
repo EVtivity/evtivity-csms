@@ -4,6 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('session-settings');
 
 let cachedValue: number | undefined;
 let cachedAt = 0;
@@ -24,7 +27,11 @@ export async function getStaleSessionTimeoutHours(): Promise<number> {
     cachedValue = row != null && typeof row.value === 'number' ? row.value : 24;
     cachedAt = now;
     return cachedValue;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'session.staleTimeoutHours' },
+      'getStaleSessionTimeoutHours failed, using the cached value or default',
+    );
     return cachedValue ?? 24;
   }
 }

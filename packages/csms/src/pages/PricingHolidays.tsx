@@ -237,7 +237,7 @@ export function PricingHolidays(): React.JSX.Element {
                 <Input
                   id="holiday-date"
                   type="date"
-                  aria-label="Holiday date"
+                  aria-label={t('pricing.holidayDate')}
                   value={date}
                   onChange={(e) => {
                     setDate(e.target.value);

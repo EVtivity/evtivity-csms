@@ -22,9 +22,10 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/lib/api', () => ({ api: { get: getMock, post: postMock } }));
+// No settings permission: the card reads Plug & Charge from the public features endpoint.
 vi.mock('@/lib/auth', () => ({
   useHasPermission: (permission: string) =>
-    permission === 'drivers:write' ? state.canWrite : true,
+    permission === 'drivers:write' ? state.canWrite : false,
 }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 
@@ -41,7 +42,9 @@ const ACTIVE = {
 
 function renderCard(): void {
   getMock.mockImplementation((url: string) =>
-    Promise.resolve(url === '/v1/settings' ? { 'pnc.enabled': state.pncEnabled } : state.contracts),
+    Promise.resolve(
+      url === '/v1/portal/features' ? { pncEnabled: state.pncEnabled } : state.contracts,
+    ),
   );
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
@@ -67,6 +70,13 @@ describe('DriverPncContractsCard', () => {
       expect(getMock).toHaveBeenCalledWith('/v1/drivers/drv_1/pnc-contracts');
     });
     expect(screen.queryByTestId('driver-pnc-contracts')).toBeNull();
+  });
+
+  it('shows the card from the public feature flags, without reading settings', async () => {
+    renderCard();
+    expect(await screen.findByTestId('driver-pnc-contracts')).toBeTruthy();
+    expect(getMock).toHaveBeenCalledWith('/v1/portal/features');
+    expect(getMock).not.toHaveBeenCalledWith('/v1/settings');
   });
 
   it('lists contracts and revokes one after confirmation', async () => {

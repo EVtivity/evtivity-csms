@@ -3,6 +3,7 @@
 
 import { useState, useMemo, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
+import { tryParseJson } from '@evtivity/lib/safe-json';
 import { Badge } from '@/components/ui/badge';
 import { Select } from '@/components/ui/select';
 import { FilterPopover } from '@/components/FilterBar';
@@ -33,13 +34,12 @@ const EVENT_CATEGORIES: Record<string, readonly string[]> = {
 };
 
 function parsePushBody(body: string): { title: string; message: string } | null {
-  try {
-    const parsed = JSON.parse(body) as Record<string, unknown>;
-    if (typeof parsed.title === 'string' && typeof parsed.message === 'string') {
-      return { title: parsed.title, message: parsed.message };
-    }
-  } catch {
-    // Legacy push records stored HTML, not JSON
+  // Legacy push records stored HTML, not JSON
+  const parsed = tryParseJson(body);
+  if (parsed == null || typeof parsed !== 'object') return null;
+  const { title, message } = parsed as Record<string, unknown>;
+  if (typeof title === 'string' && typeof message === 'string') {
+    return { title, message };
   }
   return null;
 }

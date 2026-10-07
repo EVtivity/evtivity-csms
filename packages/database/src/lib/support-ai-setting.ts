@@ -4,6 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('support-ai-setting');
 
 let cachedValue: boolean | undefined;
 let cachedAt = 0;
@@ -24,7 +27,11 @@ export async function isSupportAiEnabled(): Promise<boolean> {
     cachedValue = row != null && row.value === true;
     cachedAt = now;
     return cachedValue;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'supportAi.enabled' },
+      'isSupportAiEnabled failed, using the cached value or default',
+    );
     return cachedValue ?? false;
   }
 }

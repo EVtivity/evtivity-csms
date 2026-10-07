@@ -162,18 +162,11 @@ export const TC_014_CS: CsTestCase = {
     });
 
     // BootNotification is optional for soft reset
-    try {
-      await ctx.server.waitForMessage('BootNotification', 15_000);
-    } catch {
-      /* optional */
-    }
+    await ctx.server.waitForMessageOrNull('BootNotification', 15_000);
 
     // Wait for StatusNotification post-reset
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 10_000);
-    } catch {
-      /* may not be sent if no boot */
-    }
+    // may not be sent if no boot
+    await ctx.server.waitForMessageOrNull('StatusNotification', 10_000);
 
     const ca2Resp = await ctx.server.sendCommand('ChangeAvailability', {
       connectorId: 1,
@@ -231,32 +224,12 @@ export const TC_015_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     // Step 1: CS sends Reset Hard
     const resetResp = await ctx.server.sendCommand('Reset', { type: 'Hard' });
@@ -324,32 +297,12 @@ export const TC_016_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     const resetResp = await ctx.server.sendCommand('Reset', { type: 'Soft' });
     steps.push({

@@ -308,7 +308,11 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
       try {
         const template = Handlebars.compile(body, { noEscape: true });
         rendered = template(ctx);
-      } catch {
+      } catch (err) {
+        request.log.debug(
+          { err },
+          'Station message template preview did not render, returning empty',
+        );
         rendered = '';
       }
 

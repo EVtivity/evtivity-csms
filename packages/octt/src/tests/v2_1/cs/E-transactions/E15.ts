@@ -34,11 +34,7 @@ export const TC_E_46_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT-TOKEN-001');
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // EV sends SessionStopReq(Terminate) - stop charging

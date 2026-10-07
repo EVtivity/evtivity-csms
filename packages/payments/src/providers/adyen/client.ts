@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { tryParseJson } from '@evtivity/lib';
 import { PaymentProviderUnavailableError, PaymentValidationError } from '../../errors.js';
 
 /** Checkout API version (https://docs.adyen.com/api-explorer/Checkout/latest/overview). */
@@ -92,12 +93,10 @@ const INVALID_JSON = Symbol('invalid-json');
 /** Undefined for an empty body; INVALID_JSON for one that does not parse (a proxy error page). */
 function parseJson(text: string): unknown {
   if (text === '') return undefined;
-  try {
-    return JSON.parse(text) as unknown;
-  } catch {
-    // JSON.parse throws only SyntaxError; the caller decides by status what that means.
-    return INVALID_JSON;
-  }
+  // JSON never parses to undefined, so undefined here means the text is not JSON.
+  // The caller decides by status what that means.
+  const parsed = tryParseJson(text);
+  return parsed === undefined ? INVALID_JSON : parsed;
 }
 
 /**

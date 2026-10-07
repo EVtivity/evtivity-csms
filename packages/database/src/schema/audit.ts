@@ -805,6 +805,37 @@ export const maintenanceEventAuditLog = pgTable(
   ],
 );
 
+// Charging session audit. Operator actions on a session: the re-bill of a
+// session the CSMS gave up ending ('rebilled' when it was charged, debited or
+// had nothing to charge, 'manual_billing' when it falls back to manual billing).
+export const sessionAuditActionEnum = pgEnum('session_audit_action', [
+  'rebilled',
+  'manual_billing',
+]);
+
+export const sessionAuditLog = pgTable(
+  'session_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    sessionId: text('session_id'),
+    sessionIdSnapshot: text('session_id_snapshot').notNull(),
+    action: sessionAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_session_audit_session_id').on(table.sessionId),
+    index('idx_session_audit_created_at').on(table.createdAt),
+  ],
+);
+
 // Map of every audit table keyed by the entityType used in API filters.
 // Used by the global GET /v1/audit endpoint (UNION over all tables) and by
 // the worker retention prune job (DELETE FROM each).
@@ -833,6 +864,7 @@ export const AUDIT_TABLES = {
   holiday: holidayAuditLog,
   pricing_assignment: pricingAssignmentAuditLog,
   maintenance_event: maintenanceEventAuditLog,
+  session: sessionAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

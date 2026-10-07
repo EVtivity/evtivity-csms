@@ -292,7 +292,7 @@ export function SessionDetail(): React.JSX.Element {
     ? t('sessionDetail.idle')
     : isActive
       ? t('sessionDetail.charging')
-      : session.status;
+      : t(`sessionStatus.${session.status}`, { defaultValue: session.status });
 
   return (
     <div className="space-y-4">

@@ -101,11 +101,8 @@ export const TC_E_112_CS: CsTestCase = {
 
     // Step 5: SecurityEventNotification (optional)
     let secEvtReceived = false;
-    try {
-      const secEvt = await ctx.server.waitForMessage('SecurityEventNotification', 5000);
-      if (secEvt) secEvtReceived = true;
-    } catch {
-      secEvtReceived = false;
+    if ((await ctx.server.waitForMessageOrNull('SecurityEventNotification', 5000)) != null) {
+      secEvtReceived = true;
     }
     steps.push({
       step: 5,
@@ -221,16 +218,9 @@ export const TC_E_114_CS: CsTestCase = {
     });
 
     // Wait for TransactionEvent and verify no TxResumed (should be Ended with AbnormalCondition)
-    let trigReason: string | undefined;
-    let evtType: string | undefined;
-    try {
-      const txMsg = await ctx.server.waitForMessage('TransactionEvent', 15000);
-      const txPayload = txMsg as Record<string, unknown> | null;
-      trigReason = txPayload?.['triggerReason'] as string | undefined;
-      evtType = txPayload?.['eventType'] as string | undefined;
-    } catch {
-      trigReason = undefined;
-    }
+    const txPayload = await ctx.server.waitForMessageOrNull('TransactionEvent', 15000);
+    const trigReason = txPayload?.['triggerReason'] as string | undefined;
+    const evtType = txPayload?.['eventType'] as string | undefined;
 
     steps.push({
       step: 2,

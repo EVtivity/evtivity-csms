@@ -30,7 +30,7 @@ function readVersion(): string {
       const pkg = JSON.parse(readFileSync(candidate, 'utf8')) as { version?: string };
       if (pkg.version != null && pkg.version !== '') return pkg.version;
     } catch {
-      // Not there in this layout: try the next candidate.
+      // fail-open: the package.json is not there in this layout, try the next candidate
     }
   }
   return 'unknown';

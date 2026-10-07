@@ -88,13 +88,13 @@ export const TC_K_37_CS: CsTestCase = {
         expected: 'triggerReason RemoteStart, remoteStartId present',
         actual: `trigger: ${String(trigger)}, hasRemoteStartId: ${String(hasRemoteStartId)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'TransactionEventRequest RemoteStart',
         status: 'failed',
         expected: 'RemoteStart trigger',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -135,13 +135,13 @@ export const TC_K_37_CS: CsTestCase = {
         expected: 'Profile report received',
         actual: 'Report received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 10,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'ReportChargingProfilesRequest',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -229,13 +229,13 @@ export const TC_K_38_CS: CsTestCase = {
         expected: 'triggerReason RemoteStart, remoteStartId present',
         actual: `trigger: ${String(trigger)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'TransactionEventRequest RemoteStart',
         status: 'failed',
         expected: 'RemoteStart trigger',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

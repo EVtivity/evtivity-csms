@@ -321,7 +321,8 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       let parsed: crypto.X509Certificate;
       try {
         parsed = new crypto.X509Certificate(body.certificate);
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'Uploaded CA certificate did not parse, refusing it');
         await reply.status(400).send({
           error: 'certificate is not a valid PEM-encoded X.509 certificate',
           code: 'VALIDATION_ERROR',
@@ -503,7 +504,8 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           throw new Error('No PEM certificate block found');
         }
         new crypto.X509Certificate(firstPemBlock + '-----END CERTIFICATE-----');
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'Signed certificate chain did not parse, refusing it');
         await reply.status(400).send({
           error: 'signedCertificateChain is not a valid PEM-encoded certificate',
           code: 'VALIDATION_ERROR',

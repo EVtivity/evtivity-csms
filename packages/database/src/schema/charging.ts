@@ -14,6 +14,7 @@ import {
   jsonb,
   index,
   uniqueIndex,
+  check,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
@@ -29,6 +30,10 @@ export const sessionStatusEnum = pgEnum('session_status', [
   'faulted',
   'failed',
 ]);
+
+/** charging_sessions.rebill_status: the state of an operator re-bill. */
+export const SESSION_REBILL_STATUSES = ['in_progress', 'billed', 'manual'] as const;
+export type SessionRebillStatus = (typeof SESSION_REBILL_STATUSES)[number];
 
 export const transactionEventTypeEnum = pgEnum('transaction_event_type', [
   'started',
@@ -83,10 +88,11 @@ export const chargingSessions = pgTable(
     netCents: integer('net_cents'),
     taxCents: integer('tax_cents'),
     costBreakdown: jsonb('cost_breakdown'),
-    // The most the session can be billed, tax included: the authorized
-    // amount of a guest's card hold, stamped when the session starts (OCPP
-    // 2.1 C25: the authorization is the ceiling for the cost). The cost
-    // assembly bills at most this amount. Null: no ceiling.
+    // The most the session can be billed, tax included, stamped when the
+    // session starts: the authorized amount of a guest's card hold (OCPP 2.1
+    // C25: the authorization is the ceiling for the cost) or a prepaid
+    // token's credit (C17.FR.03). The cost assembly bills at most this
+    // amount. Null: no ceiling.
     costCeilingCents: integer('cost_ceiling_cents'),
     idleStartedAt: timestamp('idle_started_at', { withTimezone: true }),
     idleMinutes: numeric('idle_minutes').notNull().default('0'),
@@ -101,6 +107,13 @@ export const chargingSessions = pgTable(
     endClaimedAt: timestamp('end_claimed_at', { withTimezone: true }),
     // Claims taken for the end request; the sweep gives up after a cap.
     endAttempts: integer('end_attempts').notNull().default(0),
+    // Operator re-bill of a session the CSMS gave up ending (stopped reason
+    // EndRequestFailed): 'in_progress' while a request holds the claim
+    // (rebill_claimed_at is its lease), then 'billed' (charged, debited or
+    // nothing to charge) or 'manual' (collected outside the platform). Null:
+    // never re-billed. See packages/api/src/services/session-rebill.service.ts.
+    rebillStatus: varchar('rebill_status', { length: 16 }).$type<SessionRebillStatus>(),
+    rebillClaimedAt: timestamp('rebill_claimed_at', { withTimezone: true }),
     metadata: jsonb('metadata'),
     freeVend: boolean('free_vend').notNull().default(false),
     co2AvoidedKg: numeric('co2_avoided_kg'),
@@ -130,6 +143,13 @@ export const chargingSessions = pgTable(
     index('idx_charging_sessions_end_request')
       .on(table.endRequestReason)
       .where(sql`status = 'active' AND end_request_reason IS NOT NULL`),
+    index('idx_charging_sessions_rebill_manual')
+      .on(table.createdAt)
+      .where(sql`rebill_status = 'manual'`),
+    check(
+      'charging_sessions_rebill_status_check',
+      sql`rebill_status IS NULL OR rebill_status IN ('in_progress', 'billed', 'manual')`,
+    ),
   ],
 );
 

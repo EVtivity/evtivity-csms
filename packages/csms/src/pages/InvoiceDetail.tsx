@@ -103,22 +103,15 @@ export function InvoiceDetail(): React.JSX.Element {
     enabled: id != null,
   });
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
+  // Public branding (company.* without the prefix), readable without settings permissions.
+  const { data: branding } = useQuery({
+    queryKey: ['branding'],
+    queryFn: () => api.get<Record<string, string>>('/v1/portal/branding'),
   });
   const companyName =
-    settings != null &&
-    typeof settings['company.name'] === 'string' &&
-    settings['company.name'] !== ''
-      ? settings['company.name']
-      : 'EVtivity';
+    branding?.['name'] != null && branding['name'] !== '' ? branding['name'] : 'EVtivity';
   const companyLogo =
-    settings != null &&
-    typeof settings['company.logo'] === 'string' &&
-    settings['company.logo'] !== ''
-      ? settings['company.logo']
-      : null;
+    branding?.['logo'] != null && branding['logo'] !== '' ? branding['logo'] : null;
 
   const voidMutation = useMutation({
     mutationFn: () => api.patch(`/v1/invoices/${id ?? ''}/void`, {}),

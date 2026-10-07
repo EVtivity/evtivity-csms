@@ -91,7 +91,10 @@
     "filterByReportType": "Filter by report type",
     "filterByStation": "Filter by station",
     "filterByModule": "Filter by module",
-    "na": "n/a"
+    "na": "n/a",
+    "startDate": "Start date",
+    "endDate": "End date",
+    "dateRange": "Date range"
   },
   "status": {
     "online": "Online",
@@ -439,7 +442,8 @@
     "netRevenue": "Total Revenue (excl. tax)",
     "todayNetRevenue": "Today's Revenue (excl. tax)",
     "taxCollected": "Total Tax Collected",
-    "todayTaxCollected": "Today's Tax Collected"
+    "todayTaxCollected": "Today's Tax Collected",
+    "showPage": "Show page {{page}} of {{total}}"
   },
   "sites": {
     "title": "Sites",
@@ -890,7 +894,8 @@
     "enabledSuccess": "Station enabled",
     "disabledSuccess": "Station disabled",
     "maxPowerUnknown": "Max power unknown",
-    "maxPowerUnknownHint": "Load management cannot cap this connector until its max power is set. Edit the EVSE to set it. OCPP 2.1 stations fill it in from their configuration report."
+    "maxPowerUnknownHint": "Load management cannot cap this connector until its max power is set. Edit the EVSE to set it. OCPP 2.1 stations fill it in from their configuration report.",
+    "removeTag": "Remove tag {{tag}}"
   },
   "eventAlertRules": {
     "title": "Event Alert Rules",
@@ -993,7 +998,42 @@
       "failed": "Failed"
     },
     "refundPending": "Refund requested. The payment provider confirms it shortly.",
-    "refundAfterConfirmation": "Refunds are possible once the provider confirms the capture."
+    "refundAfterConfirmation": "Refunds are possible once the provider confirms the capture.",
+    "manualBilling": "Manual billing",
+    "rebill": {
+      "cardTitle": "Billing",
+      "unbilledBadge": "Not billed",
+      "unbilledHelp": "The CSMS could not end this session, so it was not billed. Bill it to price it from its meter values and charge the driver's saved card or prepaid balance. A session that cannot be charged is marked for manual billing.",
+      "billedBadge": "Billed by an operator",
+      "billedHelp": "An operator billed this session after the CSMS could not end it.",
+      "manualHelp": "The CSMS could not end this session and it could not be charged automatically. Collect {{cost}} outside the platform.",
+      "button": "Bill session",
+      "confirmTitle": "Bill this session?",
+      "confirmDescription": "The cost is recomputed from the meter values and charged to the driver's default saved card or prepaid balance. If the session cannot be charged, it is marked for manual billing.",
+      "inProgress": "The session is being billed.",
+      "paymentPending": "The session has a payment the provider has not settled yet.",
+      "charged": "Session billed: the card was charged",
+      "prepaid": "Session billed: the prepaid balance was debited",
+      "noCharge": "Session billed: nothing to charge",
+      "manual": "The session could not be charged and is marked for manual billing",
+      "failed": "Billing failed",
+      "manualReason": {
+        "no_payment_method": "The driver has no saved card.",
+        "payment_failed": "The card was declined or needs the cardholder to authenticate.",
+        "guest": "Guest sessions have no saved card.",
+        "no_driver": "The session has no driver.",
+        "prepaid_not_debited": "The prepaid balance could not be debited.",
+        "prepaid_record_exists": "The session already has a payment record, so the prepaid balance was not debited."
+      },
+      "notEligible": {
+        "status": "Only a session the CSMS could not end can be billed here.",
+        "already_rebilled": "The session was billed already.",
+        "roaming": "Roaming sessions are billed by the roaming partner.",
+        "free_vend": "Free vend sessions are not billed.",
+        "no_tariff": "The session has no tariff to price it.",
+        "paid": "The session was paid already."
+      }
+    }
   },
   "drivers": {
     "title": "Drivers",
@@ -1209,7 +1249,46 @@
     "pagePermissions": "Pages",
     "settingsPermissions": "Settings",
     "noPermissions": "No permissions assigned.",
-    "writeImpliesRead": "Write permission includes read access."
+    "writeImpliesRead": "Write permission includes read access.",
+    "permissionRead": "Read",
+    "permissionWrite": "Write",
+    "permissionGroups": {
+      "dashboard": "Dashboard",
+      "stations": "Stations",
+      "sites": "Sites",
+      "sessions": "Sessions",
+      "drivers": "Drivers",
+      "fleets": "Fleets",
+      "reservations": "Reservations",
+      "support": "Support Cases",
+      "payments": "Payments",
+      "pricing": "Pricing",
+      "roaming": "Roaming",
+      "smartCharging": "Smart Charging",
+      "certificates": "Certificates",
+      "conformance": "Conformance",
+      "reports": "Reports",
+      "sustainability": "Sustainability",
+      "loadManagement": "Load Management",
+      "notifications": "Notifications",
+      "logs": "Logs",
+      "users": "Users",
+      "audit": "Audit Log",
+      "maintenance": "Maintenance",
+      "settings": {
+        "system": "System",
+        "notification": "Notification",
+        "payment": "Payment",
+        "integrations": "Integrations & Features",
+        "security": "Security",
+        "apiKeys": "API Keys",
+        "firmware": "Firmware Campaign",
+        "stationConfig": "Station Configurations",
+        "smartCharging": "Smart Charging",
+        "ai": "AI",
+        "conformance": "Conformance"
+      }
+    }
   },
   "profile": {
     "title": "Profile",
@@ -1279,7 +1358,8 @@
     "supportAiTone": "Reply Tone",
     "supportAiSystemPrompt": "System Prompt",
     "supportAiRemoveConfig": "Remove Configuration",
-    "supportAiRemoveConfirm": "Remove your personal support AI configuration? The system default will be used instead."
+    "supportAiRemoveConfirm": "Remove your personal support AI configuration? The system default will be used instead.",
+    "mfaQrCode": "Authenticator app QR code"
   },
   "fleets": {
     "title": "Fleets",
@@ -2180,7 +2260,10 @@
     "secretStoredHint": "A value is stored. Viewing it requires the Settings - System read permission. Leave the field empty to keep it, or enter a new value to replace it.",
     "secretRemove": "Remove stored value",
     "secretRemovePending": "The stored value is removed when you save.",
-    "secretRemoveUndo": "Keep it"
+    "secretRemoveUndo": "Keep it",
+    "copyCode": "Copy code",
+    "themeColorPicker": "Theme color picker",
+    "emailLayoutPreviewFrame": "Email layout preview"
   },
   "pnc": {
     "certificates": "Certificates",
@@ -2275,6 +2358,7 @@
     "ocppEventSettingsSaved": "Setting saved.",
     "ocppEvents": "OCPP Events",
     "ocppCommonEvents": "Common (1.6 and 2.1)",
+    "ocpp16Events": "OCPP 1.6 Only",
     "ocpp21Events": "OCPP 2.1 Only",
     "driverEvents": "Driver Events",
     "systemEvents": "System Events",
@@ -2285,8 +2369,16 @@
     "invoiceEvents": "Invoice Events",
     "sessionEvents": "Sessions",
     "supportEvents": "Support Cases",
+    "sessionAlertEvents": "Session Alerts",
     "siteHostEvents": "Site Hosts",
     "mfaEvents": "Multi-Factor Auth",
+    "tokenEvents": "Tokens",
+    "maintenanceEvents": "Maintenance",
+    "watchEvents": "Station Watch",
+    "requiredEventTooltip": "Always on. Drivers need this notification to get into their account.",
+    "eventSwitchTooltip": "When off, no driver receives this notification. When on, each driver's notification preferences apply.",
+    "eventTurnedOn": "Notification turned on.",
+    "eventTurnedOff": "Notification turned off.",
     "channelTooltipDriver": "Email and SMS delivery depends on each driver's notification preferences in their portal account.",
     "channelTooltipSystem": "Email and SMS delivery depends on each operator's notification preferences.",
     "recipientLabel": "Recipient",
@@ -2306,6 +2398,7 @@
       "driver.Welcome": "Welcome",
       "driver.ForgotPassword": "Forgot Password",
       "driver.PortalInvite": "Driver Portal Invite",
+      "session.EndRequestFailed": "Session End Failed",
       "site.PayoutOnboarding": "Site Payout Onboarding",
       "driver.PasswordChanged": "Password Changed",
       "driver.MfaDisabled": "Two-Factor Authentication Disabled",
@@ -2322,7 +2415,8 @@
       "mfa.VerificationCode": "MFA Verification Code",
       "session.IdlingStarted": "Session Idling Started"
     },
-    "templatePreviewInvalid": "The template has an error:"
+    "templatePreviewInvalid": "The template has an error:",
+    "htmlPreview": "HTML preview"
   },
   "reservations": {
     "title": "Reservations",
@@ -2431,7 +2525,8 @@
     "actor": "Actor",
     "changes": "Changes",
     "token": "Token",
-    "evse": "EVSE"
+    "evse": "EVSE",
+    "removeSlotStation": "Remove station"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Account deactivated",
@@ -2539,6 +2634,7 @@
     "MFA_TOTP_NO_RESEND": "Cannot resend TOTP codes",
     "MISSING_PAYMENT_INTENT": "Payment intent missing",
     "MISSING_VERSION_URL": "Partner version URL is required for registration",
+    "NOTIFICATION_EVENT_REQUIRED": "This notification is required for account access and cannot be turned off",
     "NOT_BLOCKED": "Station is not blocked",
     "NOT_CHARGING": "Session is not currently charging",
     "NOT_DRAFT": "Only draft campaigns can be updated",
@@ -2629,6 +2725,9 @@
     "SESSION_CREATE_FAILED": "Failed to create session",
     "SESSION_NOT_FOUND": "Session not found",
     "SESSION_NOT_LINKED": "Session not linked to this case",
+    "SESSION_REBILL_IN_PROGRESS": "The session is being billed. Try again in a few minutes.",
+    "SESSION_REBILL_NOT_ELIGIBLE": "This session cannot be billed",
+    "SESSION_REBILL_PAYMENT_PENDING": "The session has a payment the provider has not settled yet. Try again later.",
     "SETTING_NOT_FOUND": "Setting not found",
     "SITE_HAS_STATIONS": "Cannot delete site with stations. Remove or reassign stations first.",
     "SITE_NOT_FOUND": "Site not found",
@@ -3230,7 +3329,9 @@
     "perPhaseUtilization": "Per-Phase Utilization",
     "oversubscriptionRatio": "Oversubscription Ratio",
     "oversubscribed": "Oversubscribed",
-    "oversubscriptionWarning": "Ratio above 1.0 allows installing more station capacity than the panel rating. Load management enforces the breaker limit dynamically."
+    "oversubscriptionWarning": "Ratio above 1.0 allows installing more station capacity than the panel rating. Load management enforces the breaker limit dynamically.",
+    "priorityFor": "Priority for {{stationId}}",
+    "deleteLoad": "Delete load {{name}}"
   },
   "chatbotAi": {
     "title": "Chatbot AI",
@@ -3650,5 +3751,23 @@
         "backToDriver": "Back to the driver"
       }
     }
+  },
+  "editor": {
+    "bold": "Bold",
+    "italic": "Italic",
+    "strikethrough": "Strikethrough",
+    "heading1": "Heading 1",
+    "heading2": "Heading 2",
+    "heading3": "Heading 3",
+    "bulletList": "Bullet list",
+    "orderedList": "Ordered list",
+    "alignLeft": "Align left",
+    "alignCenter": "Align center",
+    "alignRight": "Align right",
+    "insertLink": "Insert link",
+    "textColor": "Text color",
+    "undo": "Undo",
+    "redo": "Redo",
+    "htmlSource": "HTML source"
   }
 }

@@ -540,7 +540,7 @@ describe('Portal location routes', () => {
       expect(body.defaultZoom).toBe(14);
     });
 
-    it('returns defaults when no settings exist', async () => {
+    it('returns the seeded default view (US center, zoom 4) when no settings exist', async () => {
       // 1. select settings (empty)
       setupDbResults([]);
 
@@ -552,9 +552,28 @@ describe('Portal location routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.apiKey).toBe('');
-      expect(body.defaultLat).toBe(37.7749);
-      expect(body.defaultLng).toBe(-122.4194);
-      expect(body.defaultZoom).toBe(12);
+      expect(body.defaultLat).toBe(39.8283);
+      expect(body.defaultLng).toBe(-98.5795);
+      expect(body.defaultZoom).toBe(4);
+    });
+
+    it('falls back per value when a stored view value is empty or not a number', async () => {
+      setupDbResults([
+        { key: 'googleMaps.defaultLat', value: '' },
+        { key: 'googleMaps.defaultLng', value: 'west' },
+        { key: 'googleMaps.defaultZoom', value: '6' },
+      ]);
+
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/map-config',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body);
+      expect(body.defaultLat).toBe(39.8283);
+      expect(body.defaultLng).toBe(-98.5795);
+      expect(body.defaultZoom).toBe(6);
     });
   });
 });

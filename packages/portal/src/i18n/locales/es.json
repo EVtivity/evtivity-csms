@@ -20,7 +20,9 @@
     "deactivate": "Desactivar",
     "remove": "Quitar",
     "inclTax": "impuestos incluidos",
-    "amountInclTax": "{{amount}} impuestos incluidos"
+    "amountInclTax": "{{amount}} impuestos incluidos",
+    "close": "Cerrar",
+    "toggleSuggestions": "Mostrar u ocultar sugerencias"
   },
   "nav": {
     "home": "Inicio",
@@ -145,7 +147,7 @@
     "charging": "Cargando",
     "idle": "Inactivo",
     "limitReached": {
-      "cost": "Carga en pausa: la sesión alcanzó su límite de costo (el importe retenido en su tarjeta).",
+      "cost": "Carga en pausa: la sesión alcanzó su límite de costo.",
       "energy": "Carga en pausa: la sesión alcanzó su límite de energía.",
       "time": "Carga en pausa: la sesión alcanzó su límite de tiempo."
     },
@@ -246,7 +248,8 @@
     "priceDisplayDefault": "Predeterminado del operador ({{value}})",
     "priceDisplayGross": "Impuestos incluidos (bruto)",
     "priceDisplayNet": "Sin impuestos (neto)",
-    "priceDisplayHelper": "Con impuestos muestra los precios con los impuestos sumados. Sin impuestos muestra los precios antes de impuestos. El importe cobrado es el mismo en ambos casos, y mientras no elija, se aplica la opción del operador."
+    "priceDisplayHelper": "Con impuestos muestra los precios con los impuestos sumados. Sin impuestos muestra los precios antes de impuestos. El importe cobrado es el mismo en ambos casos, y mientras no elija, se aplica la opción del operador.",
+    "mfaQrCode": "Código QR de la aplicación de autenticación"
   },
   "charger": {
     "loadingInfo": "Cargando información del cargador...",
@@ -593,6 +596,7 @@
     "MFA_TOTP_NO_RESEND": "No se pueden reenviar códigos TOTP",
     "MISSING_PAYMENT_INTENT": "Falta la intención de pago",
     "MISSING_VERSION_URL": "Se requiere la URL de versión del socio para el registro",
+    "NOTIFICATION_EVENT_REQUIRED": "Esta notificación es necesaria para acceder a la cuenta y no se puede desactivar",
     "NOT_BLOCKED": "La estación no está bloqueada",
     "NOT_CHARGING": "La sesión no está cargando actualmente",
     "NOT_DRAFT": "Solo se pueden actualizar las campañas en borrador",
@@ -683,6 +687,9 @@
     "SESSION_CREATE_FAILED": "Error al crear la sesión",
     "SESSION_NOT_FOUND": "Sesión no encontrada",
     "SESSION_NOT_LINKED": "La sesión no está vinculada a este caso",
+    "SESSION_REBILL_IN_PROGRESS": "La sesión se está facturando. Inténtelo de nuevo en unos minutos.",
+    "SESSION_REBILL_NOT_ELIGIBLE": "Esta sesión no se puede facturar",
+    "SESSION_REBILL_PAYMENT_PENDING": "La sesión tiene un pago que el proveedor de pago aún no ha liquidado. Inténtelo de nuevo más tarde.",
     "SETTING_NOT_FOUND": "Configuración no encontrada",
     "SITE_HAS_STATIONS": "No se puede eliminar el sitio con estaciones. Elimine o reasigne las estaciones primero.",
     "SITE_NOT_FOUND": "Sitio no encontrado",
@@ -764,7 +771,9 @@
     "co2Avoided": "CO₂ evitado",
     "co2AvoidedMessage": "Evitó {{amount}} kg de CO₂ este mes",
     "miles": "Millas",
-    "km": "km"
+    "km": "km",
+    "previousMonth": "Mes anterior",
+    "nextMonth": "Mes siguiente"
   },
   "statement": {
     "title": "Estado de Cuenta Mensual",
@@ -982,5 +991,12 @@
         "home": "Ir al inicio"
       }
     }
+  },
+  "sessionStatus": {
+    "active": "Activa",
+    "completed": "Completada",
+    "invalid": "No válida",
+    "faulted": "Con falla",
+    "failed": "Fallida"
   }
 }

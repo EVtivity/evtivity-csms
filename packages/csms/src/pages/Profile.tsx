@@ -13,11 +13,8 @@ import { ProfileNotifications } from '@/components/profile/ProfileNotifications'
 import { ProfileChatbotAi } from '@/components/profile/ProfileChatbotAi';
 import { ProfileSupportAi } from '@/components/profile/ProfileSupportAi';
 import { api } from '@/lib/api';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { LoadingLogo } from '@/components/loading-logo';
-
-interface SettingValue {
-  value: unknown;
-}
 
 export interface UserMe {
   id: string;
@@ -43,17 +40,15 @@ export function Profile(): React.JSX.Element {
     queryFn: () => api.get<UserMe>('/v1/users/me'),
   });
 
-  const { data: chatbotAiSetting } = useQuery({
-    queryKey: ['settings', 'chatbotAi.enabled'],
-    queryFn: () => api.get<SettingValue>('/v1/settings/chatbotAi.enabled'),
+  // Public flags: every user opens their profile, most without settings permissions.
+  const {
+    flags: { chatbotAiEnabled },
+  } = useFeatureFlags();
+  const { data: securityPublic } = useQuery({
+    queryKey: ['security-public'],
+    queryFn: () => api.get<{ supportAiEnabled: boolean }>('/v1/security/public'),
   });
-  const { data: supportAiSetting } = useQuery({
-    queryKey: ['settings', 'supportAi.enabled'],
-    queryFn: () => api.get<SettingValue>('/v1/settings/supportAi.enabled'),
-  });
-
-  const chatbotAiEnabled = chatbotAiSetting?.value === true || chatbotAiSetting?.value === 'true';
-  const supportAiEnabled = supportAiSetting?.value === true || supportAiSetting?.value === 'true';
+  const supportAiEnabled = securityPublic?.supportAiEnabled === true;
 
   if (isLoading) {
     return <LoadingLogo />;

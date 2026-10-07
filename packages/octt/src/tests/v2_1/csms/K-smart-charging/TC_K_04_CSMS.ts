@@ -318,13 +318,13 @@ export const TC_K_118_CSMS: TestCase = {
         resp3,
         'NotifyPriorityChargingResponse received',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Send NotifyPriorityChargingRequest with activated = true',
         status: 'failed',
         expected: 'NotifyPriorityChargingResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -417,13 +417,13 @@ export const TC_K_121_CSMS: TestCase = {
         'PullDynamicScheduleUpdateResponse received',
         `Response keys: ${Object.keys(pullRes1).join(', ')}`,
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Send PullDynamicScheduleUpdate with unknown chargingProfileId',
         status: 'failed',
         expected: 'PullDynamicScheduleUpdateResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -440,13 +440,13 @@ export const TC_K_121_CSMS: TestCase = {
         'PullDynamicScheduleUpdateResponse with schedule data',
         `Response keys: ${Object.keys(pullRes2).join(', ')}`,
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Send PullDynamicScheduleUpdate with correct chargingProfileId',
         status: 'failed',
         expected: 'PullDynamicScheduleUpdateResponse received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

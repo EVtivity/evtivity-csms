@@ -3,6 +3,7 @@
 
 import { useEffect, useRef } from 'react';
 import { type QueryClient, useQueryClient } from '@tanstack/react-query';
+import { tryParseJson } from '@evtivity/lib/safe-json';
 import { API_BASE_URL } from '../lib/config';
 import { useAuth } from '../lib/auth';
 import { getQueryKeysForEvent, IMMEDIATE_EVENT_TYPES, type CsmsEvent } from './event-query-keys';
@@ -109,12 +110,12 @@ export function useEventStream(): void {
       es.onmessage = (messageEvent: MessageEvent<string>) => {
         lastMessageAtRef.current = Date.now();
 
-        let event: CsmsEvent;
-        try {
-          event = JSON.parse(messageEvent.data) as CsmsEvent;
-        } catch {
+        const parsed = tryParseJson(messageEvent.data);
+        if (parsed == null || typeof parsed !== 'object') {
+          console.warn('Ignored a CSMS event that is not a JSON object', messageEvent.data);
           return;
         }
+        const event = parsed as CsmsEvent;
 
         const keys = getQueryKeysForEvent(event);
         if (keys.length === 0) return;

@@ -59,6 +59,7 @@ import {
 } from '@evtivity/services/maintenance-check';
 import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 import { renderMaintenanceMessage } from '@evtivity/lib';
+import type { ServiceLogger } from '@evtivity/lib';
 import {
   isStationCheckRateLimited,
   getCachedConnectorStatus,
@@ -70,6 +71,18 @@ import { activePaymentProvider, paymentContext } from '../../lib/payments.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
+
+// The seeded default map view (`googleMaps.default*` in seed.ts and migration
+// 0001): the center of the contiguous United States. Used when a row is missing
+// or does not hold a number.
+const DEFAULT_MAP_VIEW = { lat: 39.8283, lng: -98.5795, zoom: 4 } as const;
+
+function mapViewNumber(stored: unknown, fallback: number): number {
+  if (typeof stored !== 'string' && typeof stored !== 'number') return fallback;
+  if (typeof stored === 'string' && stored.trim() === '') return fallback;
+  const value = Number(stored);
+  return Number.isFinite(value) ? value : fallback;
+}
 
 const portalConnectorItem = z
   .object({
@@ -462,6 +475,7 @@ const startChargingBody = z.object({
 
 async function getMaintenancePayloadForStation(
   stationDbId: string,
+  log: ServiceLogger,
 ): Promise<{ active: boolean; plannedEndAt: Date | null; message: string | null } | null> {
   const event = await getActiveMaintenanceForStation(stationDbId);
   if (event == null) return null;
@@ -472,7 +486,11 @@ async function getMaintenancePayloadForStation(
       .from(sites)
       .where(eq(sites.id, event.siteId));
     message = await renderMaintenanceMessage(client, event, siteRow?.name ?? '');
-  } catch {
+  } catch (err) {
+    log.warn(
+      { err, stationDbId, maintenanceId: event.id },
+      'Rendering the maintenance message failed, sending none',
+    );
     message = null;
   }
   return { active: true, plannedEndAt: event.plannedEndAt, message };
@@ -588,7 +606,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       }
 
       const paymentProvider = await activePaymentProvider(request.log);
-      const maintenance = await getMaintenancePayloadForStation(station.id);
+      const maintenance = await getMaintenancePayloadForStation(station.id, request.log);
 
       return {
         stationId: station.stationId,
@@ -919,7 +937,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         response: { 200: itemResponse(mapConfigResponse) },
       },
     },
-    async () => {
+    async (request) => {
       const rows = await db
         .select({ key: settings.key, value: settings.value })
         .from(settings)
@@ -940,16 +958,20 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       if (rawApiKey !== '' && encryptionKey !== '') {
         try {
           apiKey = decryptString(rawApiKey, encryptionKey);
-        } catch {
+        } catch (err) {
           // Empty apiKey makes the frontend render "Maps not configured".
+          request.log.error(
+            { err, key: 'googleMaps.apiKeyEnc' },
+            'Decrypting the Google Maps API key failed, maps stay off',
+          );
         }
       }
 
       return {
         apiKey,
-        defaultLat: Number(map.get('googleMaps.defaultLat') ?? '37.7749'),
-        defaultLng: Number(map.get('googleMaps.defaultLng') ?? '-122.4194'),
-        defaultZoom: Number(map.get('googleMaps.defaultZoom') ?? '12'),
+        defaultLat: mapViewNumber(map.get('googleMaps.defaultLat'), DEFAULT_MAP_VIEW.lat),
+        defaultLng: mapViewNumber(map.get('googleMaps.defaultLng'), DEFAULT_MAP_VIEW.lng),
+        defaultZoom: mapViewNumber(map.get('googleMaps.defaultZoom'), DEFAULT_MAP_VIEW.zoom),
       };
     },
   );
@@ -1459,7 +1481,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const paymentProvider = await activePaymentProvider(request.log);
 
       const isContactPublic = station.siteContactIsPublic === true;
-      const maintenance = await getMaintenancePayloadForStation(station.id);
+      const maintenance = await getMaintenancePayloadForStation(station.id, request.log);
 
       return {
         stationId: station.stationId,
@@ -2635,8 +2657,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           .orderBy(desc(driverTokens.updatedAt))
           .limit(1);
         preferredTokenId = lastToken?.id ?? null;
-      } catch {
-        // Non-critical
+      } catch (err) {
+        request.log.warn(
+          { err, driverId },
+          'Looking up the driver token for the reservation failed, reserving without one',
+        );
       }
 
       const [reservation] = await db

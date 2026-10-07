@@ -164,7 +164,7 @@ export function SustainabilityTab(): React.JSX.Element {
         <CardContent className="flex flex-wrap items-center gap-2 pt-6">
           <input
             type="date"
-            aria-label="Start date"
+            aria-label={t('common.startDate')}
             value={fromDate}
             onChange={(e) => {
               setFromDate(e.target.value);
@@ -175,7 +175,7 @@ export function SustainabilityTab(): React.JSX.Element {
           <span className="text-sm text-muted-foreground">to</span>
           <input
             type="date"
-            aria-label="End date"
+            aria-label={t('common.endDate')}
             value={toDate}
             onChange={(e) => {
               setToDate(e.target.value);

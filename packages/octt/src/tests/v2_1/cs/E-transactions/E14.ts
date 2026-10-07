@@ -259,17 +259,9 @@ export const TC_E_32_CS: CsTestCase = {
     const txInfo32 = chargingMsg32?.['transactionInfo'] as Record<string, unknown> | undefined;
     const endedTxId = txInfo32?.['transactionId'] as string | undefined;
     await ctx.station.stopCharging(1, 'Local');
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
     await ctx.station.unplug(1);
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
 
     const resp = await ctx.server.sendCommand('GetTransactionStatus', {
       transactionId: endedTxId ?? 'UNKNOWN',

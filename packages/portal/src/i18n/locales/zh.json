@@ -20,7 +20,9 @@
     "deactivate": "停用",
     "remove": "移除",
     "inclTax": "含税",
-    "amountInclTax": "{{amount}}（含税）"
+    "amountInclTax": "{{amount}}（含税）",
+    "close": "关闭",
+    "toggleSuggestions": "显示或隐藏建议"
   },
   "nav": {
     "home": "首页",
@@ -145,7 +147,7 @@
     "charging": "充电中",
     "idle": "空闲",
     "limitReached": {
-      "cost": "充电已暂停：会话已达到费用上限（您卡上预授权的金额）。",
+      "cost": "充电已暂停：会话已达到费用上限。",
       "energy": "充电已暂停：会话已达到电量上限。",
       "time": "充电已暂停：会话已达到时间上限。"
     },
@@ -246,7 +248,8 @@
     "priceDisplayDefault": "运营商默认（{{value}}）",
     "priceDisplayGross": "含税（总价）",
     "priceDisplayNet": "不含税（净价）",
-    "priceDisplayHelper": "含税显示加上税费后的价格。不含税显示税前价格。两种方式下实际扣款金额相同，未选择时使用运营商的默认设置。"
+    "priceDisplayHelper": "含税显示加上税费后的价格。不含税显示税前价格。两种方式下实际扣款金额相同，未选择时使用运营商的默认设置。",
+    "mfaQrCode": "身份验证器应用二维码"
   },
   "charger": {
     "loadingInfo": "加载充电桩信息...",
@@ -593,6 +596,7 @@
     "MFA_TOTP_NO_RESEND": "无法重新发送 TOTP 代码",
     "MISSING_PAYMENT_INTENT": "缺少支付意图",
     "MISSING_VERSION_URL": "注册时需要合作伙伴版本 URL",
+    "NOTIFICATION_EVENT_REQUIRED": "此通知是访问账户所必需的，无法关闭",
     "NOT_BLOCKED": "充电站未被阻止",
     "NOT_CHARGING": "会话当前未在充电",
     "NOT_DRAFT": "只有草稿活动才能更新",
@@ -683,6 +687,9 @@
     "SESSION_CREATE_FAILED": "创建会话失败",
     "SESSION_NOT_FOUND": "未找到会话",
     "SESSION_NOT_LINKED": "会话未关联到该工单",
+    "SESSION_REBILL_IN_PROGRESS": "该会话正在计费。请几分钟后重试。",
+    "SESSION_REBILL_NOT_ELIGIBLE": "无法对此会话计费",
+    "SESSION_REBILL_PAYMENT_PENDING": "该会话有一笔支付服务商尚未结算的付款。请稍后重试。",
     "SETTING_NOT_FOUND": "未找到设置",
     "SITE_HAS_STATIONS": "无法删除存在充电站的站点。请先移除或重新分配充电站。",
     "SITE_NOT_FOUND": "未找到站点",
@@ -764,7 +771,9 @@
     "co2Avoided": "减少的CO₂",
     "co2AvoidedMessage": "本月您减少了 {{amount}} 千克CO₂排放",
     "miles": "英里",
-    "km": "公里"
+    "km": "公里",
+    "previousMonth": "上个月",
+    "nextMonth": "下个月"
   },
   "statement": {
     "title": "月度账单",
@@ -982,5 +991,12 @@
         "home": "返回首页"
       }
     }
+  },
+  "sessionStatus": {
+    "active": "进行中",
+    "completed": "已完成",
+    "invalid": "无效",
+    "faulted": "故障",
+    "failed": "失败"
   }
 }

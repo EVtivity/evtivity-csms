@@ -95,6 +95,7 @@ vi.mock('argon2', () => ({
 }));
 
 vi.mock('@evtivity/lib', () => ({
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
   AppError: class AppError extends Error {
     constructor(
       message: string,

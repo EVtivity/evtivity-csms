@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql as dsql, eq, and } from 'drizzle-orm';
+import { sql as dsql, eq, and, ne } from 'drizzle-orm';
 import {
   db,
   driverTokens,
@@ -48,22 +48,60 @@ export async function handleStartTransaction(
     'StartTransaction received (1.6)',
   );
 
-  // Atomically claim a pending session pre-created by the portal.
-  // FOR UPDATE SKIP LOCKED prevents two concurrent StartTransaction calls
-  // from claiming the same session.
   let transactionId: number | null = null;
+  // The session that already holds this transaction when the message is a
+  // resend. The concurrent-tx guard below must not count it.
+  let resentSessionId: string | null = null;
 
   if (ctx.stationDbId != null) {
+    // A resend (the station retries a StartTransaction whose response it did
+    // not get, OCPP 1.6 3.7.1) carries the same connectorId, idTag,
+    // meterStart and timestamp. It gets the transaction id it already has,
+    // found by the Started event the projection recorded for it.
+    const resent = await db.execute<{ session_id: string; transaction_id: string }>(
+      dsql`SELECT cs.id AS session_id, cs.transaction_id
+           FROM transaction_events te
+           JOIN charging_sessions cs ON cs.id = te.session_id
+           WHERE cs.station_id = ${ctx.stationDbId}
+             AND te.event_type = 'started'
+             AND te.timestamp = ${request.timestamp}
+             AND te.payload->>'connectorId' = ${String(request.connectorId)}
+             AND te.payload->>'idToken' = ${request.idTag}
+             AND te.payload->>'meterStart' = ${String(request.meterStart)}
+           ORDER BY te.id DESC
+           LIMIT 1`,
+    );
+    const resentRow = resent[0];
+    const resentId = resentRow != null ? Number(resentRow.transaction_id) : NaN;
+    if (resentRow != null && Number.isSafeInteger(resentId)) {
+      transactionId = resentId;
+      resentSessionId = resentRow.session_id;
+    }
+  }
+
+  if (ctx.stationDbId != null && transactionId == null) {
+    // Claim a remote start the portal created on the EVSE of this connector
+    // and that is still waiting for its transaction (no transaction_events
+    // row), the newest first, like the 2.1 remote-start link. A running
+    // session or one on another connector is never claimed. FOR UPDATE SKIP
+    // LOCKED keeps two concurrent StartTransactions from claiming the same
+    // session.
     const claimed = await db.execute<{ transaction_id: string }>(
       dsql`UPDATE charging_sessions
            SET updated_at = now()
            WHERE id = (
-             SELECT id FROM charging_sessions
-             WHERE station_id = ${ctx.stationDbId}
-               AND status = 'active'
-             ORDER BY created_at DESC
+             SELECT pending.id FROM charging_sessions pending
+             JOIN evses e ON e.id = pending.evse_id
+             WHERE pending.station_id = ${ctx.stationDbId}
+               AND e.evse_id = ${request.connectorId}
+               AND pending.remote_start_id IS NOT NULL
+               AND pending.status = 'active'
+               AND NOT EXISTS (
+                 SELECT 1 FROM transaction_events te WHERE te.session_id = pending.id
+               )
+             ORDER BY pending.started_at DESC
              LIMIT 1
-             FOR UPDATE SKIP LOCKED
+             FOR UPDATE OF pending SKIP LOCKED
            )
            RETURNING transaction_id`,
     );
@@ -252,8 +290,11 @@ export async function handleStartTransaction(
         }
       }
     }
-  } catch {
-    // DB unavailable: accept by default (fail-open)
+  } catch (err) {
+    ctx.logger.error(
+      { err, stationId: ctx.stationId, idTag: request.idTag },
+      'Token lookup failed (1.6 start), accepting by default',
+    );
     outcome = 'db_error';
     reason = 'db_unreachable';
   }
@@ -270,7 +311,11 @@ export async function handleStartTransaction(
         .select({ id: chargingSessions.id })
         .from(chargingSessions)
         .where(
-          and(eq(chargingSessions.tokenId, matchedTokenId), eq(chargingSessions.status, 'active')),
+          and(
+            eq(chargingSessions.tokenId, matchedTokenId),
+            eq(chargingSessions.status, 'active'),
+            resentSessionId != null ? ne(chargingSessions.id, resentSessionId) : undefined,
+          ),
         )
         .limit(1);
       if (activeSession != null) {

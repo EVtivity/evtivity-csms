@@ -33,22 +33,10 @@ export const TC_068_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain all messages from charging setup (Authorize, StatusNotification Preparing/Charging, StartTransaction)
     for (let i = 0; i < 10; i++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 1000);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 1000)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 1000);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 1000);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 1000);
+    await ctx.server.waitForMessageOrNull('Authorize', 1000);
 
     // Manual Action: Swipe same idTag to stop
     await ctx.station.stopCharging(1, 'Local');
@@ -112,32 +100,12 @@ export const TC_069_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     // Swipe different idTag with same parentIdTag
     await ctx.station.authorize(1, 'OCTT_TAG_002');
@@ -211,32 +179,12 @@ export const TC_005_1_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     // Manual Action: Unplug EV side
     await ctx.station.unplug(1);
@@ -310,32 +258,12 @@ export const TC_005_2_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     // Manual Action: Unplug EV side
     await ctx.station.unplug(1);
@@ -416,22 +344,10 @@ export const TC_005_3_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
 
     // Manual Action: Unplug EV side (StopTransactionOnEVSideDisconnect = false)
     await ctx.station.unplug(1);

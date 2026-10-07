@@ -65,13 +65,13 @@ const createGetSpecificTest = (
           expected: 'Message received',
           actual: 'Received',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: 2,
           description: 'NotifyDisplayMessagesRequest',
           status: 'failed',
           expected: 'Message received',
-          actual: 'Timeout',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }

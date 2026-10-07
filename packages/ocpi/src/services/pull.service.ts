@@ -12,7 +12,7 @@ import {
   ocpiCdrs,
   ocpiSyncLog,
 } from '@evtivity/database';
-import { createInFlightTracker, createLogger, withLock } from '@evtivity/lib';
+import { createInFlightTracker, createLogger, tryParseJson, withLock } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
 import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { OcpiClient } from '../lib/ocpi-client.js';
@@ -21,6 +21,10 @@ import { config } from '../lib/config.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
 import { priceExclTax } from '../lib/ocpi-price.js';
 import type { OcpiLocation, OcpiTariff, OcpiCdr } from '../types/ocpi.js';
+import type { OcpiModule } from '../modules.js';
+
+// The modules the listener dispatches to: index.ts passes OCPI_MODULES.
+export type OcpiPullModules = readonly Pick<OcpiModule, 'identifier' | 'pull'>[];
 
 const logger = createLogger('ocpi-pull');
 const CHANNEL = 'ocpi_sync';
@@ -34,7 +38,7 @@ interface SyncNotification {
   module: string;
 }
 
-interface SyncResult {
+export interface SyncResult {
   module: string;
   objectsCount: number;
   status: 'completed' | 'failed';
@@ -516,48 +520,46 @@ export async function pullCdrs(partnerId: string, lockRedis?: Redis): Promise<Sy
   return runLocked(lockRedis, partnerId, 'cdrs', () => pullCdrsInner(partnerId));
 }
 
-async function handleSyncNotification(raw: string, lockRedis: Redis | undefined): Promise<void> {
-  let notification: SyncNotification;
-  try {
-    notification = JSON.parse(raw) as SyncNotification;
-  } catch {
+async function handleSyncNotification(
+  raw: string,
+  modules: OcpiPullModules,
+  lockRedis: Redis | undefined,
+): Promise<void> {
+  const parsed = tryParseJson(raw);
+  if (parsed === undefined) {
     logger.error({ raw }, 'Invalid sync notification payload');
     return;
   }
+  const notification = parsed as SyncNotification;
 
   const { partnerId, module } = notification;
   logger.info({ partnerId, module }, 'Processing sync request');
 
-  switch (module) {
-    case 'locations':
-      await pullLocations(partnerId, lockRedis);
-      break;
-    case 'tariffs':
-      await pullTariffs(partnerId, lockRedis);
-      break;
-    case 'cdrs':
-      await pullCdrs(partnerId, lockRedis);
-      break;
-    default:
-      logger.warn({ module }, 'Unknown sync module');
+  const pull = modules.find((m) => m.identifier === module)?.pull;
+  if (pull == null) {
+    logger.warn({ module }, 'Unknown sync module');
+    return;
   }
+  await pull(partnerId, lockRedis);
 }
 
 export class OcpiPullListener {
   private readonly pubsub: PubSubClient;
+  private readonly modules: OcpiPullModules;
   private readonly lockRedis: Redis | undefined;
   private subscription: Subscription | null = null;
   private readonly inFlight = createInFlightTracker();
 
-  constructor(pubsub: PubSubClient, lockRedis?: Redis) {
+  constructor(pubsub: PubSubClient, modules: OcpiPullModules, lockRedis?: Redis) {
     this.pubsub = pubsub;
+    this.modules = modules;
     this.lockRedis = lockRedis;
   }
 
   async start(): Promise<void> {
     this.subscription = await this.pubsub.subscribe(CHANNEL, (payload: string) => {
       trackListenerWork(this.inFlight, logger, () =>
-        handleSyncNotification(payload, this.lockRedis),
+        handleSyncNotification(payload, this.modules, this.lockRedis),
       );
     });
     logger.info({ channel: CHANNEL }, 'Listening for OCPI sync notifications');

@@ -128,6 +128,9 @@ describe('assertProviderSelectable', () => {
     await expect(assertProviderSelectable('adyen', store('not json'), NOW)).rejects.toBeInstanceOf(
       PaymentProviderUpgradePendingError,
     );
+    await expect(assertProviderSelectable('adyen', store('null'), NOW)).rejects.toBeInstanceOf(
+      PaymentProviderUpgradePendingError,
+    );
   });
 
   it('(c) refuses when the watch saw an old connection within the clean window', async () => {

@@ -8,7 +8,19 @@ import { createServer as createHttpsServer, type Server as HttpsServer } from 'n
 import { createServer as createNetServer, type Server as NetServer, type Socket } from 'node:net';
 import type { SecureContextOptions, SecureVersion, TLSSocket } from 'node:tls';
 import { randomUUID, type X509Certificate } from 'node:crypto';
+import { tryParseJson } from '@evtivity/lib';
 import type { OcppVersion } from './types.js';
+
+/** The station did not send the awaited message within the wait. */
+export class MessageTimeoutError extends Error {
+  constructor(
+    readonly action: string,
+    readonly timeoutMs: number,
+  ) {
+    super(`Timed out waiting for ${action} after ${String(timeoutMs)}ms`);
+    this.name = 'MessageTimeoutError';
+  }
+}
 
 type OcppCall = [2, string, string, Record<string, unknown>];
 type OcppCallResult = [3, string, Record<string, unknown>];
@@ -278,6 +290,7 @@ export class OcppTestServer {
         try {
           suites = parseClientHelloCipherSuites(buffered);
         } catch {
+          // fail-open: a record that is not a ClientHello offers no cipher suites
           suites = [];
         }
         if (suites == null) return;
@@ -482,11 +495,28 @@ export class OcppTestServer {
           (w) => w.action === action && w.resolve === resolve,
         );
         if (idx !== -1) this.messageWaiters.splice(idx, 1);
-        reject(new Error(`Timed out waiting for ${action} after ${String(timeoutMs)}ms`));
+        reject(new MessageTimeoutError(action, timeoutMs));
       }, timeoutMs);
 
       this.messageWaiters.push({ action, resolve, reject, timeout });
     });
+  }
+
+  /**
+   * Like waitForMessage, for a wait whose timeout is an expected outcome:
+   * returns null when the station sends no matching message in time and
+   * rethrows any other failure.
+   */
+  async waitForMessageOrNull(
+    action: string,
+    timeoutMs = DEFAULT_COMMAND_TIMEOUT_MS,
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      return await this.waitForMessage(action, timeoutMs);
+    } catch (err) {
+      if (err instanceof MessageTimeoutError) return null;
+      throw err;
+    }
   }
 
   /**
@@ -593,13 +623,7 @@ export class OcppTestServer {
   }
 
   private handleMessage(data: Buffer | string): void {
-    let msg: unknown;
-    try {
-      msg = JSON.parse(typeof data === 'string' ? data : data.toString('utf-8'));
-    } catch {
-      return;
-    }
-
+    const msg = tryParseJson(typeof data === 'string' ? data : data.toString('utf-8'));
     if (!Array.isArray(msg) || msg.length < 3) return;
 
     const messageType = msg[0] as number;

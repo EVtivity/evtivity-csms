@@ -20,7 +20,9 @@
     "deactivate": "Deaktivieren",
     "remove": "Entfernen",
     "inclTax": "inkl. Steuer",
-    "amountInclTax": "{{amount}} inkl. Steuer"
+    "amountInclTax": "{{amount}} inkl. Steuer",
+    "close": "Schließen",
+    "toggleSuggestions": "Vorschläge ein- oder ausblenden"
   },
   "nav": {
     "home": "Startseite",
@@ -145,7 +147,7 @@
     "charging": "Lädt",
     "idle": "Leerlauf",
     "limitReached": {
-      "cost": "Laden pausiert: Der Ladevorgang hat sein Kostenlimit erreicht (den auf deiner Karte reservierten Betrag).",
+      "cost": "Laden pausiert: Der Ladevorgang hat sein Kostenlimit erreicht.",
       "energy": "Laden pausiert: Der Ladevorgang hat sein Energielimit erreicht.",
       "time": "Laden pausiert: Der Ladevorgang hat sein Zeitlimit erreicht."
     },
@@ -246,7 +248,8 @@
     "priceDisplayDefault": "Vorgabe des Betreibers ({{value}})",
     "priceDisplayGross": "Inklusive Steuer (brutto)",
     "priceDisplayNet": "Exklusive Steuer (netto)",
-    "priceDisplayHelper": "Inklusive Steuer zeigt Preise mit Steuer. Exklusive Steuer zeigt Preise vor Steuer. Der abgerechnete Betrag ist in beiden Fällen gleich, und solange du nichts wählst, gilt die Vorgabe des Betreibers."
+    "priceDisplayHelper": "Inklusive Steuer zeigt Preise mit Steuer. Exklusive Steuer zeigt Preise vor Steuer. Der abgerechnete Betrag ist in beiden Fällen gleich, und solange du nichts wählst, gilt die Vorgabe des Betreibers.",
+    "mfaQrCode": "QR-Code für die Authenticator-App"
   },
   "charger": {
     "loadingInfo": "Ladestationsinfos werden geladen...",
@@ -593,6 +596,7 @@
     "MFA_TOTP_NO_RESEND": "TOTP-Codes können nicht erneut gesendet werden",
     "MISSING_PAYMENT_INTENT": "Payment Intent fehlt",
     "MISSING_VERSION_URL": "Partner-Versions-URL ist für die Registrierung erforderlich",
+    "NOTIFICATION_EVENT_REQUIRED": "Diese Benachrichtigung wird für den Kontozugang benötigt und kann nicht deaktiviert werden",
     "NOT_BLOCKED": "Station ist nicht blockiert",
     "NOT_CHARGING": "Der Ladevorgang lädt derzeit nicht",
     "NOT_DRAFT": "Nur Entwurfskampagnen können aktualisiert werden",
@@ -683,6 +687,9 @@
     "SESSION_CREATE_FAILED": "Ladevorgang konnte nicht erstellt werden",
     "SESSION_NOT_FOUND": "Ladevorgang nicht gefunden",
     "SESSION_NOT_LINKED": "Ladevorgang ist nicht mit diesem Fall verknüpft",
+    "SESSION_REBILL_IN_PROGRESS": "Der Ladevorgang wird gerade abgerechnet. Versuchen Sie es in einigen Minuten erneut.",
+    "SESSION_REBILL_NOT_ELIGIBLE": "Dieser Ladevorgang kann nicht abgerechnet werden",
+    "SESSION_REBILL_PAYMENT_PENDING": "Für den Ladevorgang gibt es eine Zahlung, die der Zahlungsanbieter noch nicht abgeschlossen hat. Versuchen Sie es später erneut.",
     "SETTING_NOT_FOUND": "Einstellung nicht gefunden",
     "SITE_HAS_STATIONS": "Standort mit Stationen kann nicht gelöscht werden. Entferne oder verschiebe zunächst die Stationen.",
     "SITE_NOT_FOUND": "Standort nicht gefunden",
@@ -764,7 +771,9 @@
     "co2Avoided": "Vermiedenes CO₂",
     "co2AvoidedMessage": "Du hast in diesem Monat {{amount}} kg CO₂ vermieden",
     "miles": "Meilen",
-    "km": "km"
+    "km": "km",
+    "previousMonth": "Vorheriger Monat",
+    "nextMonth": "Nächster Monat"
   },
   "statement": {
     "title": "Monatsabrechnung",
@@ -982,5 +991,12 @@
         "home": "Zur Startseite"
       }
     }
+  },
+  "sessionStatus": {
+    "active": "Aktiv",
+    "completed": "Abgeschlossen",
+    "invalid": "Ungültig",
+    "faulted": "Fehlerhaft",
+    "failed": "Fehlgeschlagen"
   }
 }

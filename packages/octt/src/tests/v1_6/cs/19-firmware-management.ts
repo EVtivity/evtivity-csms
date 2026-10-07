@@ -94,11 +94,7 @@ export const TC_044_2_CS: CsTestCase = {
       retries: 0,
     });
     // Downloading (optional, may fail immediately)
-    try {
-      await ctx.server.waitForMessage('FirmwareStatusNotification', 30_000);
-    } catch {
-      /* optional */
-    }
+    await ctx.server.waitForMessageOrNull('FirmwareStatusNotification', 30_000);
     const fw = await ctx.server.waitForMessage('FirmwareStatusNotification', 60_000);
     steps.push({
       step: 5,

@@ -5,10 +5,13 @@ import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 import {
+  createLogger,
   DEFAULT_STATION_MESSAGE_LANGUAGE,
   isStationMessageLanguage,
   type StationMessageLanguage,
 } from '@evtivity/lib';
+
+const logger = createLogger('station-message-settings');
 
 const TTL_MS = 60_000;
 
@@ -45,7 +48,11 @@ export async function isStationMessageEnabled(): Promise<boolean> {
     cachedEnabled = row != null && row.value === true;
     cachedEnabledAt = now;
     return cachedEnabled;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'stationMessage.enabled' },
+      'isStationMessageEnabled failed, using the cached value or default',
+    );
     return cachedEnabled ?? false;
   }
 }
@@ -65,7 +72,11 @@ export async function getStationMessagePricingFormat(): Promise<string> {
     cachedPricingFormat = row != null && typeof row.value === 'string' ? row.value : 'compact';
     cachedPricingFormatAt = now;
     return cachedPricingFormat;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'stationMessage.pricingFormat' },
+      'getStationMessagePricingFormat failed, using the cached value or default',
+    );
     return cachedPricingFormat ?? 'compact';
   }
 }
@@ -86,7 +97,11 @@ export async function getStationMessageRefreshSeconds(): Promise<number> {
     cachedRefreshSeconds = typeof value === 'number' ? value : 30;
     cachedRefreshSecondsAt = now;
     return cachedRefreshSeconds;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'stationMessage.charging.refreshSeconds' },
+      'getStationMessageRefreshSeconds failed, using the cached value or default',
+    );
     return cachedRefreshSeconds ?? 30;
   }
 }
@@ -113,7 +128,11 @@ export async function getStationMessageEventTtlSeconds(): Promise<number> {
     cachedEventMessageTtl = typeof value === 'number' && value > 0 ? value : 30;
     cachedEventMessageTtlAt = now;
     return cachedEventMessageTtl;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'stationMessage.eventMessageTtlSeconds' },
+      'getStationMessageEventTtlSeconds failed, using the cached value or default',
+    );
     return cachedEventMessageTtl ?? 30;
   }
 }
@@ -133,7 +152,11 @@ export async function getStationMessageBrandLine(): Promise<string> {
     cachedBrandLine = row != null && typeof row.value === 'string' ? row.value : '';
     cachedBrandLineAt = now;
     return cachedBrandLine;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'stationMessage.brandLine' },
+      'getStationMessageBrandLine failed, using the cached value or default',
+    );
     return cachedBrandLine ?? '';
   }
 }
@@ -158,7 +181,11 @@ export async function getStationMessageLanguage(): Promise<StationMessageLanguag
       : DEFAULT_STATION_MESSAGE_LANGUAGE;
     cachedLanguageAt = now;
     return cachedLanguage;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'stationMessage.language' },
+      'getStationMessageLanguage failed, using the cached value or default',
+    );
     return cachedLanguage ?? DEFAULT_STATION_MESSAGE_LANGUAGE;
   }
 }

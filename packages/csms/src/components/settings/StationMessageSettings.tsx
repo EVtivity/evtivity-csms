@@ -335,7 +335,8 @@ export function StationMessageSettings({
             body: bodyDraft,
           });
           setPreview(result.rendered);
-        } catch {
+        } catch (err) {
+          console.warn('Render station message preview failed', err);
           setPreview('');
         }
       })();

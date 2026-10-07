@@ -21,6 +21,8 @@ import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { useGoogleMapsSettings } from '@/hooks/use-google-maps-settings';
 import { useHasPermission } from '@/lib/auth';
 import { Pagination } from '@/components/ui/pagination';
 import { SessionsTable, type Session } from '@/components/SessionsTable';
@@ -102,12 +104,9 @@ export function SiteDetail(): React.JSX.Element {
   });
   const underMaintenance = maintenanceStatus?.current != null;
 
-  const { data: settingsData } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
-  });
-  const guestChargingEnabled = settingsData?.['guest.enabled'] !== false;
-  const reservationEnabled = settingsData?.['reservation.enabled'] !== false;
+  const {
+    flags: { guestChargingEnabled, reservationEnabled },
+  } = useFeatureFlags();
 
   const stationsLimit = 10;
   const { data: stationsResponse } = useQuery({
@@ -148,15 +147,8 @@ export function SiteDetail(): React.JSX.Element {
   const sessionsData = sessionsResponse?.data;
   const sessionsTotalPages = Math.max(1, Math.ceil((sessionsResponse?.total ?? 0) / sessionsLimit));
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
-  });
-
-  const googleMapsApiKey =
-    settings != null && typeof settings['googleMaps.apiKeyEnc'] === 'string'
-      ? settings['googleMaps.apiKeyEnc']
-      : '';
+  const { data: mapsSettings } = useGoogleMapsSettings();
+  const googleMapsApiKey = mapsSettings?.apiKey ?? '';
 
   const deleteMutation = useMutation({
     mutationFn: () => api.delete<Site>(`/v1/sites/${id ?? ''}`),

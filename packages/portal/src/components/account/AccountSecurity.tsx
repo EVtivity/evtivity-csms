@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 export function AccountSecurity(): React.JSX.Element {
   const { t } = useTranslation();
@@ -57,8 +58,8 @@ export function AccountSecurity(): React.JSX.Element {
       setPasswordMsg(t('profile.passwordChanged'));
       setCurrentPassword('');
       setNewPassword('');
-    } catch {
-      setPasswordMsg(t('profile.passwordChangeFailed'));
+    } catch (err) {
+      setPasswordMsg(getErrorMessage(err, t, 'profile.passwordChangeFailed'));
     } finally {
       setPasswordLoading(false);
     }
@@ -75,8 +76,8 @@ export function AccountSecurity(): React.JSX.Element {
         { method: selectedMfaMethod },
       );
       setMfaSetupData(data);
-    } catch {
-      setMfaMsg(t('profile.mfaSetupFailed'));
+    } catch (err) {
+      setMfaMsg(getErrorMessage(err, t, 'profile.mfaSetupFailed'));
     } finally {
       setMfaLoading(false);
     }
@@ -97,8 +98,8 @@ export function AccountSecurity(): React.JSX.Element {
       setMfaMethod(selectedMfaMethod);
       setMfaSetupData(null);
       setMfaCode('');
-    } catch {
-      setMfaMsg(t('profile.mfaVerifyFailed'));
+    } catch (err) {
+      setMfaMsg(getErrorMessage(err, t, 'profile.mfaVerifyFailed'));
     } finally {
       setMfaLoading(false);
     }
@@ -114,8 +115,8 @@ export function AccountSecurity(): React.JSX.Element {
       setMfaEnabled(false);
       setMfaMethod(null);
       setDisablePassword('');
-    } catch {
-      setMfaMsg(t('profile.mfaDisableFailed'));
+    } catch (err) {
+      setMfaMsg(getErrorMessage(err, t, 'profile.mfaDisableFailed'));
     } finally {
       setMfaLoading(false);
     }
@@ -248,7 +249,11 @@ export function AccountSecurity(): React.JSX.Element {
               {selectedMfaMethod === 'totp' && mfaSetupData.qrDataUri != null && (
                 <div className="space-y-3">
                   <p className="text-sm font-medium">{t('profile.mfaScanQr')}</p>
-                  <img src={mfaSetupData.qrDataUri} alt="QR Code" className="mx-auto" />
+                  <img
+                    src={mfaSetupData.qrDataUri}
+                    alt={t('profile.mfaQrCode')}
+                    className="mx-auto"
+                  />
                   {mfaSetupData.secret != null && (
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">{t('profile.mfaManualEntry')}</p>

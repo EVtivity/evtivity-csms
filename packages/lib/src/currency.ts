@@ -69,6 +69,7 @@ export function formatCurrencyAmount(
       amountCents / 100,
     );
   } catch {
+    // fail-open: Intl rejects a code that is not ISO 4217, show the plain code instead
     return `${currency.toUpperCase()} ${(amountCents / 100).toFixed(2)}`;
   }
 }
@@ -111,6 +112,7 @@ export function formatUnitPrice(amount: number, currency: string, locale = 'en-U
       maximumFractionDigits: 4,
     }).format(amount);
   } catch {
+    // fail-open: Intl rejects a code that is not ISO 4217, show the plain code instead
     return `${currency.toUpperCase()} ${amount.toFixed(2)}`;
   }
 }

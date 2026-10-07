@@ -23,11 +23,7 @@ export const TC_B_21_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT-TOKEN-001');
 
     // Drain TransactionEvent Started from the buffer
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
 
     // Step 1: CSMS sends Reset OnIdle (should be Scheduled since transaction is ongoing)
     const resetRes = await ctx.server.sendCommand('Reset', { type: 'OnIdle' });
@@ -54,13 +50,13 @@ export const TC_B_21_CS: CsTestCase = {
         expected: 'BootNotification received',
         actual: bootPayload != null ? 'BootNotification received' : 'Not received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 7,
         description: 'Station rebooted after transaction ended',
         status: 'failed',
         expected: 'BootNotification received',
-        actual: 'Timed out waiting for reboot',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -113,13 +109,13 @@ export const TC_B_22_CS: CsTestCase = {
         expected: 'eventType = Ended',
         actual: `eventType = ${eventType}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'TransactionEventRequest received',
         status: 'failed',
         expected: 'TransactionEventRequest Ended',
-        actual: 'Timed out',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -172,13 +168,13 @@ export const TC_B_41_CS: CsTestCase = {
         expected: 'BootNotification received',
         actual: bootPayload != null ? 'BootNotification received' : 'Not received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 11,
         description: 'Station rebooted after all transactions ended',
         status: 'failed',
         expected: 'BootNotification received',
-        actual: 'Timed out',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -265,13 +261,13 @@ export const TC_B_27_CS: CsTestCase = {
         expected: 'eventType = Ended',
         actual: `eventType = ${eventType}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'TransactionEventRequest received',
         status: 'failed',
         expected: 'TransactionEventRequest Ended',
-        actual: 'Timed out',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

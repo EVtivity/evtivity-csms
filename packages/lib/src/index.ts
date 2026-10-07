@@ -73,6 +73,14 @@ export { createRedisClient, redisTlsOptions } from './redis-client.js';
 
 export { RedisConnectionRegistry } from './connection-registry.js';
 export type { ConnectionRegistry } from './connection-registry.js';
+export {
+  LIVENESS_WRITE_INTERVAL_SECONDS,
+  MIN_HEARTBEAT_TIMEOUT_MS,
+  OFFLINE_SWEEP_SLACK_MS,
+  heartbeatTimeoutFor,
+  offlineSweepThresholdMs,
+  shouldMarkStationOffline,
+} from './station-liveness.js';
 
 export {
   DEFAULT_CURRENCY,
@@ -155,6 +163,18 @@ export type { StationOcppProtocol, StationPasswordError } from './station-passwo
 export { UI_LANGUAGES, isUiLanguage, toUiLanguage } from './languages.js';
 export type { UiLanguage } from './languages.js';
 export {
+  REQUIRED_DRIVER_EVENT_TYPES,
+  isRequiredDriverEventType,
+  OCPP_NOTIFICATION_EVENTS,
+  OCPP_NOTIFICATION_EVENT_TYPES,
+  ocppNotificationEventsFor,
+} from './notification-events.js';
+export type { OcppNotificationVersion, OcppNotificationEventType } from './notification-events.js';
+export { LOAD_ALLOCATION_STRATEGIES } from './load-allocation.js';
+export type { LoadAllocationStrategy } from './load-allocation.js';
+export { OCPI_PULL_MODULES } from './ocpi-modules.js';
+export type { OcpiPullModule } from './ocpi-modules.js';
+export {
   FIRMWARE_SIGNING_CERTIFICATE_MAX_LENGTH,
   FIRMWARE_SIGNATURE_MAX_LENGTH,
   isBase64,
@@ -199,6 +219,8 @@ export {
   notificationTaxRate,
   formatLocalizedVariables,
 } from './notification-values.js';
+export { sessionReceiptVariables } from './session-receipt.js';
+export type { SessionReceiptInput } from './session-receipt.js';
 
 export {
   tariffRestrictionsSchema,
@@ -305,18 +327,20 @@ export type {
 } from './station-message-dispatch.js';
 
 export {
-  PERMISSIONS,
-  PAGE_PERMISSIONS,
-  SETTINGS_PERMISSIONS,
-  ADMIN_DEFAULT_PERMISSIONS,
-  OPERATOR_DEFAULT_PERMISSIONS,
-  VIEWER_DEFAULT_PERMISSIONS,
-  PERMISSION_GROUPS,
+  PermissionCatalog,
+  createPermissionCatalog,
+  permissionCatalog,
   hasPermission,
   isSubsetOf,
   hasAnySettingsPermission,
 } from './permissions.js';
-export type { Permission } from './permissions.js';
+export type {
+  Permission,
+  PermissionAction,
+  PermissionGroup,
+  PermissionGroupDefinition,
+  PermissionKind,
+} from './permissions.js';
 
 export {
   renderMaintenanceMessage,
@@ -379,3 +403,5 @@ export {
 } from './simulator-connection.js';
 
 export { OCTT_TEST_DRIVER_EMAIL } from './octt-test-driver.js';
+
+export { tryParseJson } from './safe-json.js';

@@ -62,13 +62,13 @@ export const TC_J_01_CSMS: TestCase = {
           expected: 'MeterValuesResponse received',
           actual: resp56 != null ? 'Response received' : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 1,
           description: `MeterValues clock-aligned #${String(i + 1)}`,
           status: 'failed',
           expected: 'MeterValuesResponse received',
-          actual: 'Error or rejection',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }
@@ -149,13 +149,13 @@ export const TC_J_02_CSMS: TestCase = {
         resp1,
         'MeterValuesResponse received',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'MeterValues clock-aligned for evseId=0',
         status: 'failed',
         expected: 'MeterValuesResponse received',
-        actual: 'Error or rejection',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -189,13 +189,13 @@ export const TC_J_02_CSMS: TestCase = {
           expected: 'TransactionEventResponse received',
           actual: res != null ? `Response keys: ${Object.keys(res).join(', ')}` : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 2,
           description: `TransactionEvent Updated MeterValueClock #${String(i + 1)}`,
           status: 'failed',
           expected: 'TransactionEventResponse received',
-          actual: 'Error or rejection',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }

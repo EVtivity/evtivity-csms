@@ -213,8 +213,8 @@ async function publishTokenChanged(tokenId: string | null): Promise<void> {
   try {
     const pubsub = getPubSub();
     await pubsub.publish('csms_events', JSON.stringify({ eventType: 'token.changed', tokenId }));
-  } catch {
-    // Non-critical
+  } catch (err) {
+    logger.warn({ err, tokenId }, 'token.changed publish failed, open token pages refresh later');
   }
 }
 
@@ -242,8 +242,11 @@ async function bumpStationsHoldingToken(tokenId: string): Promise<void> {
         JSON.stringify({ eventType: 'localAuthList.changed', stationId }),
       );
     }
-  } catch {
-    // Non-critical
+  } catch (err) {
+    logger.warn(
+      { err, tokenId },
+      'localAuthList.changed publish failed, open station pages refresh later',
+    );
   }
 }
 
@@ -539,8 +542,11 @@ export async function bulkSetActive(
           JSON.stringify({ eventType: 'localAuthList.changed', stationId }),
         );
       }
-    } catch {
-      // Non-critical
+    } catch (err) {
+      logger.warn(
+        { err, stationIds },
+        'localAuthList.changed publish failed, open station pages refresh later',
+      );
     }
   }
 

@@ -43,8 +43,10 @@ export function QrLanding(): React.JSX.Element {
         } else {
           setInvalid(true);
         }
-      } catch {
-        if (!controller.signal.aborted) setInvalid(true);
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        console.warn('Resolve the QR code station failed', err);
+        setInvalid(true);
       }
     })();
     return () => {

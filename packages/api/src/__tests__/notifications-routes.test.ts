@@ -4,6 +4,9 @@
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
+import { readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { OCPP_NOTIFICATION_EVENT_TYPES } from '@evtivity/lib/notification-events';
 
 // DB mock helpers
 let dbResults: unknown[][] = [];
@@ -143,7 +146,11 @@ vi.mock('@evtivity/lib', async () => {
 });
 
 import { registerAuth } from '../plugins/auth.js';
-import { notificationRoutes } from '../routes/notifications.js';
+import {
+  notificationRoutes,
+  DRIVER_EVENT_TYPES,
+  SYSTEM_EVENT_TYPES,
+} from '../routes/notifications.js';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -220,6 +227,10 @@ describe('Notification routes', () => {
     expect(body).toContain('ocpp.TransactionEvent');
     expect(body).toContain('session.Started');
     expect(body).toContain('driver.Welcome');
+    expect(body).toContain('session.EndRequestFailed');
+    for (const event of OCPP_NOTIFICATION_EVENT_TYPES) {
+      expect(body, event).toContain(event);
+    }
   });
 
   it('GET /v1/ocpp-event-settings returns all settings', async () => {
@@ -416,6 +427,42 @@ describe('Notification routes', () => {
     const body = JSON.parse(response.body);
     expect(body.eventType).toBe('session.Started');
     expect(body.isEnabled).toBe(true);
+  });
+
+  it('PUT /v1/driver-event-settings turns a driver event type off', async () => {
+    setupDbResults([
+      {
+        id: '2',
+        eventType: 'session.Receipt',
+        isEnabled: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/driver-event-settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { eventType: 'session.Receipt', isEnabled: false },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body).isEnabled).toBe(false);
+  });
+
+  it.each([
+    'driver.ForgotPassword',
+    'driver.AccountVerification',
+    'driver.PortalInvite',
+    'mfa.VerificationCode',
+  ])('PUT /v1/driver-event-settings refuses to turn off %s', async (eventType) => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/driver-event-settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { eventType, isEnabled: false },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('NOTIFICATION_EVENT_REQUIRED');
   });
 
   it('PUT /v1/driver-event-settings validates schema', async () => {
@@ -762,5 +809,65 @@ describe('Notification routes', () => {
     expect(response.statusCode).toBe(404);
     const body = JSON.parse(response.body);
     expect(body.code).toBe('TEMPLATE_NOT_FOUND');
+  });
+});
+
+describe('notification event type lists', () => {
+  // report.Scheduled is the scheduled report email the worker renders; it is not a notification event.
+  const NOT_NOTIFICATION_EVENTS = new Set(['report.Scheduled']);
+
+  // Driver and system templates ship in the api and ocpp packages. OCPP and station events
+  // are listed in OCPP_EVENT_TYPES.
+  const TEMPLATE_ROOTS = ['../templates', '../../../ocpp/src/templates'];
+  const OCPP_FAMILIES = new Set(['ocpp', 'station']);
+
+  function templateEventTypes(language: string): string[] {
+    return TEMPLATE_ROOTS.flatMap((root) => {
+      const dir = fileURLToPath(new URL(`${root}/${language}`, import.meta.url));
+      return readdirSync(dir, { withFileTypes: true })
+        .filter((family) => family.isDirectory() && !OCPP_FAMILIES.has(family.name))
+        .flatMap((family) =>
+          readdirSync(`${dir}/${family.name}`, { withFileTypes: true })
+            .filter((event) => event.isDirectory())
+            .map((event) => `${family.name}.${event.name}`),
+        );
+    });
+  }
+
+  it('lists every event with shipped templates in exactly one list', () => {
+    for (const language of ['en', 'de', 'es', 'ko', 'zh', 'zh-TW']) {
+      for (const event of templateEventTypes(language)) {
+        if (NOT_NOTIFICATION_EVENTS.has(event)) continue;
+        const count =
+          DRIVER_EVENT_TYPES.filter((e) => e === event).length +
+          SYSTEM_EVENT_TYPES.filter((e) => e === event).length;
+        expect(count, `${language}: ${event}`).toBe(1);
+      }
+    }
+  });
+
+  function ocppTemplateEventTypes(language: string): string[] {
+    const dir = fileURLToPath(new URL(`../../../ocpp/src/templates/${language}`, import.meta.url));
+    return [...OCPP_FAMILIES].flatMap((family) =>
+      readdirSync(`${dir}/${family}`, { withFileTypes: true })
+        .filter((event) => event.isDirectory())
+        .map((event) => `${family}.${event.name}`),
+    );
+  }
+
+  it('lists every OCPP and station event with shipped templates in the OCPP list, and only those', () => {
+    const listed: readonly string[] = OCPP_NOTIFICATION_EVENT_TYPES;
+    for (const language of ['en', 'de', 'es', 'ko', 'zh', 'zh-TW']) {
+      expect([...ocppTemplateEventTypes(language)].sort(), language).toEqual([...listed].sort());
+    }
+  });
+
+  it('keeps operator and site host events out of the driver list', () => {
+    for (const event of DRIVER_EVENT_TYPES) {
+      expect(event).not.toMatch(/^(operator|site)\./);
+    }
+    for (const event of SYSTEM_EVENT_TYPES) {
+      expect(event).not.toMatch(/^(driver|payment|token|watch|maintenance|mfa)\./);
+    }
   });
 });

@@ -54,11 +54,8 @@ export const TC_N_06_CS: CsTestCase = {
       actual: `status = ${getRes1['status']}`,
     });
 
-    try {
-      await ctx.server.waitForMessage('NotifyMonitoringReport', 15000);
-    } catch {
-      /* consume report */
-    }
+    // consume report
+    await ctx.server.waitForMessageOrNull('NotifyMonitoringReport', 15000);
 
     const setRes = await ctx.server.sendCommand('SetMonitoringBase', {
       monitoringBase: 'HardWiredOnly',
@@ -133,11 +130,8 @@ export const TC_N_41_CS: CsTestCase = {
       actual: `status = ${getRes['status']}`,
     });
 
-    try {
-      await ctx.server.waitForMessage('NotifyMonitoringReport', 15000);
-    } catch {
-      /* consume */
-    }
+    // consume
+    await ctx.server.waitForMessageOrNull('NotifyMonitoringReport', 15000);
 
     const setBase = await ctx.server.sendCommand('SetMonitoringBase', {
       monitoringBase: 'FactoryDefault',

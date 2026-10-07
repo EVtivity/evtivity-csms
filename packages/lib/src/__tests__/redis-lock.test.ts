@@ -37,6 +37,15 @@ describe('withLock', () => {
     expect(redis.isHeld()).toBe(false);
   });
 
+  it('returns the result when the release fails (the lock expires through its TTL)', async () => {
+    const redis = makeRedis();
+    vi.mocked(redis.eval).mockRejectedValueOnce(new Error('redis down'));
+
+    const res = await withLock(redis, 'k', () => Promise.resolve('value'));
+
+    expect(res).toEqual({ acquired: true, result: 'value' });
+  });
+
   it('try-once skips without running fn when the lock is held', async () => {
     const redis = makeRedis(true);
     const fn = vi.fn(() => Promise.resolve('value'));

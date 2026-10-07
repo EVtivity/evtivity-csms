@@ -15,8 +15,9 @@ async function main(): Promise<void> {
   let logger: pino.Logger;
   try {
     logger = pino({ transport: { target: 'pino-pretty' } });
-  } catch {
+  } catch (err) {
     logger = pino({ level: 'info' });
+    logger.warn({ err }, 'pino-pretty is not available, logging plain JSON');
   }
   logger.info({ version, module, concurrency }, 'Starting CS conformance test runner');
 

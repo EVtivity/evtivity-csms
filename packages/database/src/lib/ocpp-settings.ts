@@ -4,6 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('ocpp-settings');
 
 let cachedHeartbeat: number | undefined;
 let cachedHeartbeatAt = 0;
@@ -28,7 +31,11 @@ export async function getHeartbeatIntervalSeconds(): Promise<number> {
     cachedHeartbeat = row != null && typeof row.value === 'number' ? row.value : 300;
     cachedHeartbeatAt = now;
     return cachedHeartbeat;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.heartbeatInterval' },
+      'getHeartbeatIntervalSeconds failed, using the cached value or default',
+    );
     return cachedHeartbeat ?? 300;
   }
 }
@@ -48,7 +55,11 @@ export async function getOfflineCommandTtlHours(): Promise<number> {
     cachedOfflineTtl = row != null && typeof row.value === 'number' ? row.value : 24;
     cachedOfflineTtlAt = now;
     return cachedOfflineTtl;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.offlineCommandTtlHours' },
+      'getOfflineCommandTtlHours failed, using the cached value or default',
+    );
     return cachedOfflineTtl ?? 24;
   }
 }
@@ -73,7 +84,11 @@ export async function getMeterValueIntervalSeconds(): Promise<number> {
     cachedMeterValueInterval = row != null && typeof row.value === 'number' ? row.value : 60;
     cachedMeterValueIntervalAt = now;
     return cachedMeterValueInterval;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.meterValueInterval' },
+      'getMeterValueIntervalSeconds failed, using the cached value or default',
+    );
     return cachedMeterValueInterval ?? 60;
   }
 }
@@ -98,7 +113,11 @@ export async function getClockAlignedIntervalSeconds(): Promise<number> {
     cachedClockAlignedInterval = row != null && typeof row.value === 'number' ? row.value : 900;
     cachedClockAlignedIntervalAt = now;
     return cachedClockAlignedInterval;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.clockAlignedInterval' },
+      'getClockAlignedIntervalSeconds failed, using the cached value or default',
+    );
     return cachedClockAlignedInterval ?? 900;
   }
 }
@@ -136,7 +155,11 @@ export async function getSampledMeasurands(): Promise<string> {
       row != null && typeof row.value === 'string' ? row.value : DEFAULT_SAMPLED_MEASURANDS;
     cachedSampledMeasurandsAt = now;
     return cachedSampledMeasurands;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.sampledMeasurands' },
+      'getSampledMeasurands failed, using the cached value or default',
+    );
     return cachedSampledMeasurands ?? DEFAULT_SAMPLED_MEASURANDS;
   }
 }
@@ -157,7 +180,11 @@ export async function getAlignedMeasurands(): Promise<string> {
       row != null && typeof row.value === 'string' ? row.value : DEFAULT_ALIGNED_MEASURANDS;
     cachedAlignedMeasurandsAt = now;
     return cachedAlignedMeasurands;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.alignedMeasurands' },
+      'getAlignedMeasurands failed, using the cached value or default',
+    );
     return cachedAlignedMeasurands ?? DEFAULT_ALIGNED_MEASURANDS;
   }
 }
@@ -178,7 +205,11 @@ export async function getTxEndedMeasurands(): Promise<string> {
       row != null && typeof row.value === 'string' ? row.value : DEFAULT_TX_ENDED_MEASURANDS;
     cachedTxEndedMeasurandsAt = now;
     return cachedTxEndedMeasurands;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.txEndedMeasurands' },
+      'getTxEndedMeasurands failed, using the cached value or default',
+    );
     return cachedTxEndedMeasurands ?? DEFAULT_TX_ENDED_MEASURANDS;
   }
 }
@@ -209,7 +240,11 @@ export async function getCommandRetryMaxAttempts(): Promise<number> {
     cachedRetryMaxAttempts = row != null && typeof row.value === 'number' ? row.value : 3;
     cachedRetryMaxAttemptsAt = now;
     return cachedRetryMaxAttempts;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.commandRetryMaxAttempts' },
+      'getCommandRetryMaxAttempts failed, using the cached value or default',
+    );
     return cachedRetryMaxAttempts ?? 3;
   }
 }
@@ -229,7 +264,11 @@ export async function getCommandRetryBaseDelayMs(): Promise<number> {
     cachedRetryBaseDelayMs = row != null && typeof row.value === 'number' ? row.value : 1000;
     cachedRetryBaseDelayMsAt = now;
     return cachedRetryBaseDelayMs;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.commandRetryBaseDelayMs' },
+      'getCommandRetryBaseDelayMs failed, using the cached value or default',
+    );
     return cachedRetryBaseDelayMs ?? 1000;
   }
 }
@@ -249,7 +288,11 @@ export async function getCommandRetryMaxDelayMs(): Promise<number> {
     cachedRetryMaxDelayMs = row != null && typeof row.value === 'number' ? row.value : 30000;
     cachedRetryMaxDelayMsAt = now;
     return cachedRetryMaxDelayMs;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.commandRetryMaxDelayMs' },
+      'getCommandRetryMaxDelayMs failed, using the cached value or default',
+    );
     return cachedRetryMaxDelayMs ?? 30000;
   }
 }
@@ -277,7 +320,11 @@ export async function isIso15118Enabled(): Promise<boolean> {
     cachedIso15118Enabled = row != null && typeof row.value === 'boolean' ? row.value : true;
     cachedIso15118EnabledAt = now;
     return cachedIso15118Enabled;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'smartCharging.iso15118Enabled' },
+      'isIso15118Enabled failed, using the cached value or default',
+    );
     return cachedIso15118Enabled ?? true;
   }
 }
@@ -297,7 +344,11 @@ export async function getDefaultMaxPowerW(): Promise<number> {
     cachedDefaultMaxPowerW = row != null && typeof row.value === 'number' ? row.value : 22000;
     cachedDefaultMaxPowerWAt = now;
     return cachedDefaultMaxPowerW;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'smartCharging.defaultMaxPowerW' },
+      'getDefaultMaxPowerW failed, using the cached value or default',
+    );
     return cachedDefaultMaxPowerW ?? 22000;
   }
 }

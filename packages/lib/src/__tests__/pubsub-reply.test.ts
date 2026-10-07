@@ -46,6 +46,7 @@ describe('awaitPubSubReply', () => {
     const send = vi.fn(async () => {
       expect(h.subscribe).toHaveBeenCalledWith('replies', expect.any(Function));
       h.deliver('not json');
+      h.deliver('null');
       h.deliver(JSON.stringify({ commandId: 'other', value: 1 }));
       h.deliver(JSON.stringify({ commandId: 'cmd-1', value: 2 }));
     });

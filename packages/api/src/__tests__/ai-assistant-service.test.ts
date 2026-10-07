@@ -62,7 +62,11 @@ vi.mock('drizzle-orm', () => ({
 }));
 
 const decryptString = vi.hoisted(() => vi.fn((v: string) => `decrypted:${v}`));
-vi.mock('@evtivity/lib', () => ({ decryptString }));
+vi.mock('@evtivity/lib', async () => ({
+  decryptString,
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+  tryParseJson: (await import('@evtivity/lib/safe-json')).tryParseJson,
+}));
 
 const mockConfig = vi.hoisted(() => ({ SETTINGS_ENCRYPTION_KEY: 'enc-key' }));
 vi.mock('../lib/config.js', () => ({ config: mockConfig }));

@@ -233,13 +233,13 @@ export const TC_N_22_CS: CsTestCase = {
     ctx.server.acceptConnections();
     try {
       await ctx.server.waitForConnection(90_000);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Charging Station reconnects',
         status: 'failed',
         expected: 'connection restored',
-        actual: 'no reconnection within 90 s',
+        actual: err instanceof Error ? err.message : String(err),
       });
       return { status: 'failed', durationMs: 0, steps };
     }
@@ -366,13 +366,13 @@ export const TC_N_23_CS: CsTestCase = {
     ctx.server.acceptConnections();
     try {
       await ctx.server.waitForConnection(90_000);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'Charging Station reconnects',
         status: 'failed',
         expected: 'connection restored',
-        actual: 'no reconnection within 90 s',
+        actual: err instanceof Error ? err.message : String(err),
       });
       return { status: 'failed', durationMs: 0, steps };
     }

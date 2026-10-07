@@ -107,7 +107,7 @@ async function loadOemTrust(): Promise<{
 }> {
   if (trustCache != null && Date.now() - trustCache.at < TRUST_TTL_MS) return trustCache;
   const rows = await client`
-    SELECT certificate, certificate_type FROM pki_ca_certificates WHERE status = 'active'
+    SELECT id, certificate, certificate_type FROM pki_ca_certificates WHERE status = 'active'
   `;
   const roots: crypto.X509Certificate[] = [];
   const all: crypto.X509Certificate[] = [];
@@ -116,8 +116,11 @@ async function loadOemTrust(): Promise<{
       const cert = new crypto.X509Certificate(row.certificate as string);
       all.push(cert);
       if (row.certificate_type === 'OEMRootCertificate') roots.push(cert);
-    } catch {
-      // A certificate that does not parse cannot anchor anything.
+    } catch (err) {
+      logger.warn(
+        { err, caCertificateId: row.id, certificateType: row.certificate_type },
+        'Active CA certificate does not parse; leaving it out of the OEM trust store',
+      );
     }
   }
   trustCache = { roots, all, at: Date.now() };
@@ -132,6 +135,7 @@ function issuedBy(cert: crypto.X509Certificate, issuer: crypto.X509Certificate):
   try {
     return cert.checkIssued(issuer) && cert.verify(issuer.publicKey);
   } catch {
+    // fail-open: a signature that cannot be checked counts as not issued, so the chain is refused
     return false;
   }
 }

@@ -65,15 +65,12 @@ export const TC_C_21_CS: CsTestCase = {
     let stopAuthorizedFound = false;
     let offlineFound = false;
     for (let i = 0; i < 15; i++) {
-      try {
-        const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
+      const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (tx == null) break;
+      if (tx['offline'] === true) offlineFound = true;
+      if (tx['triggerReason'] === 'StopAuthorized') {
+        stopAuthorizedFound = true;
         if (tx['offline'] === true) offlineFound = true;
-        if (tx['triggerReason'] === 'StopAuthorized') {
-          stopAuthorizedFound = true;
-          if (tx['offline'] === true) offlineFound = true;
-          break;
-        }
-      } catch {
         break;
       }
     }
@@ -152,12 +149,10 @@ export const TC_C_22_CS: CsTestCase = {
 
     // Step 5: Station does NOT start a transaction for the invalid token
     let txStarted = false;
-    try {
-      const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (tx != null) {
       const trigger = tx['triggerReason'] as string | undefined;
       if (trigger === 'Authorized') txStarted = true;
-    } catch {
-      // Expected: no Authorized transaction
     }
     steps.push({
       step: 5,
@@ -226,12 +221,10 @@ export const TC_C_23_CS: CsTestCase = {
 
     // Step 5: Station does NOT start a transaction for the blocked token
     let txStarted = false;
-    try {
-      const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (tx != null) {
       const trigger = tx['triggerReason'] as string | undefined;
       if (trigger === 'Authorized') txStarted = true;
-    } catch {
-      // Expected: no Authorized transaction
     }
     steps.push({
       step: 5,
@@ -300,12 +293,10 @@ export const TC_C_24_CS: CsTestCase = {
 
     // Step 5: Station does NOT start a transaction for the expired token
     let txStarted = false;
-    try {
-      const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (tx != null) {
       const trigger = tx['triggerReason'] as string | undefined;
       if (trigger === 'Authorized') txStarted = true;
-    } catch {
-      // Expected: no Authorized transaction
     }
     steps.push({
       step: 5,
@@ -379,12 +370,10 @@ export const TC_C_25_CS: CsTestCase = {
 
     // Step 3: Station should NOT start a transaction (local list overrides cache)
     let txStarted = false;
-    try {
-      const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (tx != null) {
       const trigger = tx['triggerReason'] as string | undefined;
       if (trigger === 'Authorized') txStarted = true;
-    } catch {
-      // Expected: no Authorized transaction
     }
     steps.push({
       step: 3,

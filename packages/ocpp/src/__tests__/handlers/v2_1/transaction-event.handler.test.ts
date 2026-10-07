@@ -48,6 +48,13 @@ vi.mock('../../../handlers/ad-hoc-payment-limit.js', () => ({
   findAdHocTransactionLimit: findLimitMock,
 }));
 
+// The station's TxCtrlr.SupportedLimits (E16.FR.12): null means not reported.
+const supportedLimitsMock = vi.fn();
+vi.mock('../../../handlers/supported-limits.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../handlers/supported-limits.js')>()),
+  stationSupportedLimits: supportedLimitsMock,
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ type: 'eq', a, b })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
@@ -100,6 +107,7 @@ beforeEach(() => {
   whereResult = [];
   insertValuesFn.mockResolvedValue(undefined);
   findLimitMock.mockResolvedValue(null);
+  supportedLimitsMock.mockResolvedValue(null);
   costMock.mockResolvedValue(null);
   settledMock.mockResolvedValue(true);
   waitForSignalMock.mockResolvedValue(true);
@@ -549,6 +557,115 @@ describe('v2_1 TransactionEvent handler', () => {
 
       expect(response['transactionLimit']).toBeUndefined();
       expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+    });
+  });
+
+  describe('TxCtrlr.SupportedLimits (E16.FR.12)', () => {
+    const directPayment = {
+      eventType: 'Started',
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'RemoteStart',
+      seqNo: 0,
+      transactionInfo: { transactionId: 'tx-adhoc', chargingState: 'Charging' },
+      evse: { id: 2 },
+      idToken: { idToken: 'PSP-REF-1', type: 'DirectPayment' },
+    };
+    const prepaidStart = {
+      ...directPayment,
+      triggerReason: 'Authorized',
+      idToken: { idToken: 'PREPAID-1', type: 'ISO14443' },
+    };
+    const prepaidRow = [
+      {
+        id: 'dtk_pp',
+        driverId: 'drv_pp',
+        isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        prepaidBalanceCents: 1234,
+      },
+    ];
+
+    it('sends only the limits the station supports', async () => {
+      whereResult = [];
+      findLimitMock.mockResolvedValue({ maxEnergy: 20000, maxCost: 50, maxTime: 3600 });
+      supportedLimitsMock.mockResolvedValue(new Set(['maxCost', 'maxTime']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(directPayment);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(supportedLimitsMock).toHaveBeenCalledWith({}, 'sta_db_1', 2);
+      expect(response['transactionLimit']).toEqual({ maxCost: 50, maxTime: 3600 });
+    });
+
+    it('sends the prepaid maxCost to a station that supports it', async () => {
+      whereResult = prepaidRow;
+      supportedLimitsMock.mockResolvedValue(new Set(['maxCost']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(prepaidStart);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toEqual({ maxCost: 12.34 });
+    });
+
+    it('omits the prepaid maxCost for a station that does not support it', async () => {
+      whereResult = prepaidRow;
+      supportedLimitsMock.mockResolvedValue(new Set(['maxEnergy', 'maxTime']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(prepaidStart);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toBeUndefined();
+      // The token is still accepted: the CSMS caps and stops the session itself.
+      expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+    });
+
+    it('omits every limit for a station that reported an empty list', async () => {
+      whereResult = [];
+      findLimitMock.mockResolvedValue({ maxEnergy: 20000, maxCost: 50 });
+      supportedLimitsMock.mockResolvedValue(new Set());
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(directPayment);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toBeUndefined();
+    });
+
+    it('sends the whole limit when the station has not reported the variable', async () => {
+      whereResult = [];
+      findLimitMock.mockResolvedValue({ maxEnergy: 20000, maxCost: 50 });
+      supportedLimitsMock.mockResolvedValue(null);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(directPayment);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toEqual({ maxEnergy: 20000, maxCost: 50 });
+    });
+
+    it('sends the whole limit when the lookup fails', async () => {
+      whereResult = prepaidRow;
+      supportedLimitsMock.mockRejectedValue(new Error('db down'));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(prepaidStart);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toEqual({ maxCost: 12.34 });
+    });
+
+    it('does not look up the supported limits when no limit is sent', async () => {
+      whereResult = [];
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(directPayment);
+
+      await handleTransactionEvent(ctx);
+
+      expect(supportedLimitsMock).not.toHaveBeenCalled();
     });
   });
 

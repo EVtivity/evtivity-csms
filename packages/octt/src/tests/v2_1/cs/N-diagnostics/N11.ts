@@ -79,11 +79,7 @@ async function waitOrNull(
   action: string,
   timeoutMs: number,
 ): Promise<Record<string, unknown> | null> {
-  try {
-    return await server.waitForMessage(action, timeoutMs);
-  } catch {
-    return null;
-  }
+  return server.waitForMessageOrNull(action, timeoutMs);
 }
 
 /** Wait for the next NotifyPeriodicEventStream of a stream; returns it with its arrival time. */

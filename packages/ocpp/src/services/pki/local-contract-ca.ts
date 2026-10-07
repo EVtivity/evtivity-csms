@@ -19,6 +19,7 @@
 import 'reflect-metadata';
 import crypto, { webcrypto } from 'node:crypto';
 import * as x509 from '@peculiar/x509';
+import { tryParseJson } from '@evtivity/lib';
 import { normalizeSerialHex } from './ocsp.js';
 
 x509.cryptoProvider.set(webcrypto as unknown as Crypto);
@@ -247,12 +248,7 @@ const ROLES = [
 
 /** Parses a stored bundle; null when it is not a version 1 bundle. */
 export function parseLocalContractCa(json: string): LocalContractCa | null {
-  let value: unknown;
-  try {
-    value = JSON.parse(json);
-  } catch {
-    return null;
-  }
+  const value = tryParseJson(json);
   if (value == null || typeof value !== 'object') return null;
   const v = value as Record<string, unknown>;
   if (v['version'] !== 1 || typeof v['createdAt'] !== 'string') return null;

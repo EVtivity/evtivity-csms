@@ -27,6 +27,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { FilterPopover } from '@/components/FilterBar';
 import { reportStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
+import { useReportTypes } from '@/hooks/use-report-types';
 
 interface Report {
   id: string;
@@ -38,17 +39,6 @@ interface Report {
   createdAt: string;
   completedAt: string | null;
 }
-
-const REPORT_TYPES = [
-  'revenue',
-  'utilization',
-  'energy',
-  'stationHealth',
-  'sessions',
-  'sustainability',
-  'driverActivity',
-  'nevi',
-] as const;
 
 async function downloadReport(id: string, fileName: string): Promise<void> {
   const baseUrl = API_BASE_URL;
@@ -70,6 +60,7 @@ export function HistoryTab(): React.JSX.Element {
   const timezone = useUserTimezone();
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState('');
+  const { all: reportTypes } = useReportTypes();
 
   const extraParams = useMemo(
     () => (typeFilter ? { reportType: typeFilter } : undefined),
@@ -117,9 +108,9 @@ export function HistoryTab(): React.JSX.Element {
             }}
           >
             <option value="">{t('common.all')}</option>
-            {REPORT_TYPES.map((rt) => (
-              <option key={rt} value={rt}>
-                {t(`reports.types.${rt}`, rt)}
+            {reportTypes.map(({ type }) => (
+              <option key={type} value={type}>
+                {t(`reports.types.${type}`, type)}
               </option>
             ))}
           </Select>
@@ -134,9 +125,9 @@ export function HistoryTab(): React.JSX.Element {
               }}
             >
               <option value="">{t('common.all')}</option>
-              {REPORT_TYPES.map((rt) => (
-                <option key={rt} value={rt}>
-                  {t(`reports.types.${rt}`, rt)}
+              {reportTypes.map(({ type }) => (
+                <option key={type} value={type}>
+                  {t(`reports.types.${type}`, type)}
                 </option>
               ))}
             </Select>

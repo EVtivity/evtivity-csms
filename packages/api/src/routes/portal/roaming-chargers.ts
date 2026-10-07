@@ -121,8 +121,8 @@ export function portalRoamingChargerRoutes(app: FastifyInstance): void {
             .orderBy(sql`${ocpiExternalLocations.updatedAt} DESC`)
             .limit(limit);
         }
-      } catch {
-        // OCPI tables may not exist when roaming is disabled
+      } catch (err) {
+        request.log.warn({ err }, 'Roaming location search failed, returning no results');
         return [];
       }
 
@@ -185,8 +185,11 @@ export function portalRoamingChargerRoutes(app: FastifyInstance): void {
           .from(ocpiExternalLocations)
           .where(sql`${ocpiExternalLocations.id} = ${body.locationId}`)
           .limit(1);
-      } catch {
-        // OCPI tables may not exist when roaming is disabled
+      } catch (err) {
+        request.log.warn(
+          { err, locationId: body.locationId },
+          'Roaming location lookup failed, answering not found',
+        );
       }
 
       if (location == null) {

@@ -63,13 +63,13 @@ const makeGetSpecificDisplayTest = (
           ],
         });
         pushSendAckStep(steps, 2, 'Send NotifyDisplayMessagesRequest', resp2);
-      } catch {
+      } catch (err) {
         steps.push({
           step: 2,
           description: 'Send NotifyDisplayMessagesRequest',
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }

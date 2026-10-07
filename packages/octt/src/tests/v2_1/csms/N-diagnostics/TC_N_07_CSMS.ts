@@ -46,13 +46,13 @@ const makeNotifyEventTest = (
         expected: 'Response received',
         actual: resp1 != null ? 'Response received' : 'No response',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send NotifyEventRequest',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     return {

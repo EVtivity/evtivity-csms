@@ -188,6 +188,19 @@ describe('s3.service', () => {
       expect(config).toBeNull();
     });
 
+    it.each([
+      ['bucket', '', 'us-east-1'],
+      ['region', 'my-bucket', ''],
+    ])('returns null when the %s is an empty string', async (_field, bucket, region) => {
+      setupDbResults([
+        { key: 's3.bucket', value: bucket },
+        { key: 's3.region', value: region },
+      ]);
+      const config = await getS3Config();
+      expect(config).toBeNull();
+      expect(mockS3ClientCtor).not.toHaveBeenCalled();
+    });
+
     it('returns null when accessKeyIdEnc is missing', async () => {
       setupDbResults([
         { key: 's3.bucket', value: 'my-bucket' },

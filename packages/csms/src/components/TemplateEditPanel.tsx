@@ -240,7 +240,7 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
                     </Label>
                     {channel === 'email' ? (
                       <iframe
-                        title="HTML Preview"
+                        title={t('notifications.htmlPreview')}
                         srcDoc={previewMutation.data.bodyHtml}
                         className="w-full min-h-[250px] md:min-h-[400px] bg-white border rounded-md mt-1"
                         sandbox=""

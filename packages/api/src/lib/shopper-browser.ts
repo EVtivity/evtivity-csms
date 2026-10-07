@@ -35,12 +35,7 @@ export const shopperBrowserBody = z
 export type ShopperBrowserInput = z.infer<typeof shopperBrowserBody>;
 
 function originOf(url: string): string | null {
-  try {
-    return new URL(url).origin;
-  } catch {
-    // A malformed URL has no origin; the caller refuses it.
-    return null;
-  }
+  return URL.parse(url)?.origin ?? null;
 }
 
 /**
@@ -112,13 +107,8 @@ export function appShopperContext(
   input: AppShopperInput,
   apps: MobileAppConfig,
 ): AppBrowserContext | null {
-  let url: URL;
-  try {
-    url = new URL(input.returnUrl);
-  } catch {
-    // Not a URL: refused.
-    return null;
-  }
+  const url = URL.parse(input.returnUrl);
+  if (url == null) return null;
   const scheme = url.protocol.replace(/:$/, '').toLowerCase();
   const toApp = apps.urlSchemes.includes(scheme);
   const toAndroidSdk =

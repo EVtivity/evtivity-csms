@@ -4,6 +4,7 @@
 import { Worker } from 'bullmq';
 import {
   createLogger,
+  tryParseJson,
   createBullMQConnection,
   logBullMQErrors,
   RedisPubSubClient,
@@ -169,19 +170,19 @@ async function start(): Promise<void> {
   const cacheInvalidateSubscription = await pubsub.subscribe(
     'cache_invalidate',
     (payload: string) => {
-      try {
-        const msg = JSON.parse(payload) as { kind?: string };
-        if (msg.kind === 'notification_settings') {
-          clearNotificationSettingsCache();
-        }
-        if (msg.kind === 'station_message') {
-          // Station screens render here (station-messages and tariff boundary jobs).
-          clearStationMessageCache();
-          clearStationMessageSettingsCache();
-          clearSystemSettingsCache();
-        }
-      } catch {
-        // ignore malformed payloads
+      const msg = tryParseJson(payload) as { kind?: string } | null | undefined;
+      if (msg == null || typeof msg !== 'object') {
+        log.warn({ payload }, 'Malformed cache_invalidate message ignored');
+        return;
+      }
+      if (msg.kind === 'notification_settings') {
+        clearNotificationSettingsCache();
+      }
+      if (msg.kind === 'station_message') {
+        // Station screens render here (station-messages and tariff boundary jobs).
+        clearStationMessageCache();
+        clearStationMessageSettingsCache();
+        clearSystemSettingsCache();
       }
     },
   );

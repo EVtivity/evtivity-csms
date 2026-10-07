@@ -43,11 +43,7 @@ async function waitForSignCertificate(
   ctx: CsTestContext,
   timeoutMs = 15_000,
 ): Promise<Record<string, unknown> | null> {
-  try {
-    return await ctx.server.waitForMessage('SignCertificate', timeoutMs);
-  } catch {
-    return null;
-  }
+  return ctx.server.waitForMessageOrNull('SignCertificate', timeoutMs);
 }
 
 /**
@@ -190,12 +186,8 @@ export const TC_A_12_CS: CsTestCase = {
     await ctx.server.sendCommand('GetBaseReport', { requestId, reportBase: 'FullInventory' });
     const seccIds: Array<{ evseId: number | undefined; seccId: string }> = [];
     for (;;) {
-      let report: Record<string, unknown>;
-      try {
-        report = await ctx.server.waitForMessage('NotifyReport', 10_000);
-      } catch {
-        break;
-      }
+      const report = await ctx.server.waitForMessageOrNull('NotifyReport', 10_000);
+      if (report == null) break;
       for (const item of (report['reportData'] as Array<Record<string, unknown>> | undefined) ??
         []) {
         const component = item['component'] as Record<string, unknown>;

@@ -4,17 +4,20 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
+/**
+ * The SVG drawn in the center of station QR codes (`qr_code_icon`). Read from
+ * the public branding endpoint, so it works without settings permissions.
+ */
 export function useQrIcon(): { svgDataUri: string | null } {
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
+  const { data: branding } = useQuery({
+    queryKey: ['branding'],
+    queryFn: () => api.get<Record<string, string>>('/v1/portal/branding'),
   });
 
-  if (settings == null || typeof settings['qr_code_icon'] !== 'string') {
+  const svg = branding?.['qrCodeIcon'];
+  if (typeof svg !== 'string' || svg === '') {
     return { svgDataUri: null };
   }
 
-  const svg = settings['qr_code_icon'];
-  const encoded = btoa(svg);
-  return { svgDataUri: `data:image/svg+xml;base64,${encoded}` };
+  return { svgDataUri: `data:image/svg+xml;base64,${btoa(svg)}` };
 }

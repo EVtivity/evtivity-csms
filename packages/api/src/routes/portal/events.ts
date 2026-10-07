@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, tryParseJson } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { endSseClients, writeSseClient } from '../../lib/sse-broadcast.js';
 
@@ -39,12 +39,8 @@ async function ensureListener(): Promise<void> {
 
   const pubsub = getPubSub();
   subscription = await pubsub.subscribe(PORTAL_EVENTS_CHANNEL, (payload: string) => {
-    let parsed: { driverId?: string };
-    try {
-      parsed = JSON.parse(payload) as { driverId?: string };
-    } catch {
-      return;
-    }
+    const parsed = tryParseJson(payload) as { driverId?: unknown } | null | undefined;
+    if (parsed == null) return;
 
     const message = `data: ${payload}\n\n`;
     for (const client of clients) {
@@ -95,7 +91,8 @@ export function portalEventRoutes(app: FastifyInstance): void {
           return await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
         }
         driverId = payload['driverId'] as string;
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'Portal SSE token did not verify, refusing the stream');
         return await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       }
 

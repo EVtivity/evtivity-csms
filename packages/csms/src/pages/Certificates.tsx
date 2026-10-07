@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { AlertCircle } from 'lucide-react';
-import { api } from '@/lib/api';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { LoadingLogo } from '@/components/loading-logo';
 import { useTab } from '@/hooks/use-tab';
@@ -19,12 +18,11 @@ export function Certificates(): React.JSX.Element {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useTab('ca');
   const canReadAudit = useHasPermission('audit:read');
-  // Same query as the sidebar, which hides this page while Plug & Charge is off.
-  const { data: settings, isLoading } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
-  });
-  const pncEnabled = settings?.['pnc.enabled'] === true;
+  // Same flags as the sidebar, which hides this page while Plug & Charge is off.
+  const {
+    flags: { pncEnabled },
+    isLoading,
+  } = useFeatureFlags();
 
   const header = (
     <div className="mb-6">

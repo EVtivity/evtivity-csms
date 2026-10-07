@@ -112,7 +112,11 @@ export function ssoSettingsRoutes(app: FastifyInstance): void {
         try {
           const encrypted = encryptString(body.cert, getEncryptionKey());
           updates.push(upsert('sso.certEnc', encrypted));
-        } catch {
+        } catch (err) {
+          request.log.error(
+            { err, key: 'sso.certEnc' },
+            'Encrypting the SSO certificate failed, nothing saved',
+          );
           await reply.status(500).send({
             error: 'SETTINGS_ENCRYPTION_KEY not configured on server',
             code: 'ENCRYPTION_KEY_MISSING',

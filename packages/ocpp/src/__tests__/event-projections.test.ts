@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
+import { OCPP_NOTIFICATION_EVENT_TYPES } from '@evtivity/lib';
 
 // SQL mock: a function that handles tagged template calls and returns configurable results
 const sqlCalls: Array<{ strings: string[]; values: unknown[] }> = [];
@@ -145,6 +146,7 @@ const mockPaymentContext = { registry: {}, logger: {} };
 vi.mock('../lib/payments.js', () => ({
   paymentRegistry: {},
   paymentContext: () => mockPaymentContext,
+  activePaymentProvider: () => Promise.resolve({ id: 'stripe' }),
 }));
 
 function createMockEventBus() {
@@ -4153,27 +4155,19 @@ describe('Event projections', () => {
   });
 
   describe('Notification dispatch loop', () => {
-    it('registers subscribers for all notifiable events', async () => {
+    it('dispatches a notification for every event in the shared OCPP event list', async () => {
       await setup();
 
-      const notifiableEvents = [
-        'station.Connected',
-        'station.Disconnected',
-        'ocpp.Authorize',
-        'ocpp.BootNotification',
-        'ocpp.DataTransfer',
-        'ocpp.FirmwareStatusNotification',
-        'ocpp.Heartbeat',
-        'ocpp.MeterValues',
-        'ocpp.SecurityEventNotification',
-        'ocpp.StatusNotification',
-        'ocpp.TransactionEvent',
-      ];
-
-      for (const eventType of notifiableEvents) {
-        const handlers = eventBus.subscribers.get(eventType);
-        expect(handlers, `Missing subscriber for ${eventType}`).toBeDefined();
-        expect(handlers!.length).toBeGreaterThanOrEqual(1);
+      for (const eventType of OCPP_NOTIFICATION_EVENT_TYPES) {
+        mockDispatchOcpp.mockClear();
+        setupSqlResults();
+        await eventBus.emit(eventType, makeDomainEvent(eventType, 'CS-001', {}));
+        expect(
+          mockDispatchOcpp.mock.calls.filter(
+            (call) => (call[1] as DomainEvent).eventType === eventType,
+          ),
+          `${eventType} is not dispatched`,
+        ).toHaveLength(1);
       }
     });
   });

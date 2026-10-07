@@ -35,7 +35,7 @@ export {
   invalidateReservationSettingsCache,
 } from './lib/reservation-setting.js';
 export type { ReservationSettings } from './lib/reservation-setting.js';
-export { isSupportEnabled } from './lib/support-setting.js';
+export { isSupportEnabled, clearSupportCache } from './lib/support-setting.js';
 export { getPlatformFeePercent, clearPlatformFeeCache } from './lib/payment-settings.js';
 export { writeReservationAudit, reservationDiffChanged } from './lib/reservation-audit.js';
 export type {
@@ -66,11 +66,20 @@ export {
   storeRunningCost,
   storeFinalCost,
   snapshotSessionTariff,
+  openFirstTariffSegment,
   closeOpenSegment,
   openSegmentTariffId,
   switchTariffSegment,
 } from './lib/session-pricing.js';
 export type { SessionPricingRow, TariffPriceSnapshot } from './lib/session-pricing.js';
+export {
+  SESSION_REBILL_LEASE_SECONDS,
+  claimSessionRebill,
+  releaseSessionRebill,
+  priceRebill,
+  completeRebilledSession,
+} from './lib/session-rebill.js';
+export type { RebillPricing, SessionRebillOutcome } from './lib/session-rebill.js';
 export {
   loadStationPricing,
   resolveStationTariff,
@@ -112,6 +121,12 @@ export {
   availableEvseCountSql,
 } from './lib/driver-availability.js';
 export {
+  OFFLINE_SWEEP_REASON,
+  findStaleOnlineStations,
+  markStationOfflineIfStale,
+} from './lib/station-offline.js';
+export type { StaleOnlineStation, StationMarkedOffline } from './lib/station-offline.js';
+export {
   STATION_WATCH_CHANNEL,
   findDueStationWatch,
   alertStationWatchersIfAvailable,
@@ -130,9 +145,9 @@ export type {
   StationLevelState,
 } from './lib/station-status.js';
 export type { AuditActor, WriteAuditArgs } from './lib/audit.js';
-export { isFleetEnabled } from './lib/fleet-setting.js';
+export { isFleetEnabled, clearFleetCache } from './lib/fleet-setting.js';
 export { isPortalRegistrationEnabled } from './lib/portal-registration-setting.js';
-export { isGuestChargingEnabled } from './lib/guest-setting.js';
+export { isGuestChargingEnabled, clearGuestChargingCache } from './lib/guest-setting.js';
 export { getIdlingGracePeriodMinutes } from './lib/idling-setting.js';
 export { getStaleSessionTimeoutHours } from './lib/session-settings.js';
 export {
@@ -156,6 +171,7 @@ export type {
 export {
   SESSION_END_REQUEST_CHANNEL,
   CSMS_SESSION_END_REASONS,
+  SESSION_END_FAILED_REASON,
   recordSessionEndRequest,
 } from './lib/session-end-request.js';
 export type { CsmsSessionEndReason, SessionEndRequestMessage } from './lib/session-end-request.js';

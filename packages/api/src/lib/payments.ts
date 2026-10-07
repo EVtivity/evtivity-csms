@@ -4,11 +4,10 @@
 import { clearPlatformFeeCache } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import {
-  activeProvider,
   clearPaymentSettingsCache,
   createPaymentRegistry,
-  PaymentProviderNotConfiguredError,
   pubsubSimulatedSink,
+  resolveActiveProvider,
 } from '@evtivity/payments';
 import type { PaymentContext, PaymentLogger, PaymentProvider } from '@evtivity/payments';
 import { config } from './config.js';
@@ -57,19 +56,9 @@ export function isPaymentSettingKey(key: string): boolean {
 }
 
 /**
- * The provider for new payments, or null when payments are off. A provider
- * this process cannot use is logged and treated as off, so a charger page
- * never fails on a misconfigured setting; the payment calls themselves fail
- * loud.
+ * The provider for new payments in this process, or null when payments are off
+ * or the selected provider is not usable here (resolveActiveProvider).
  */
-export async function activePaymentProvider(
-  logger: PaymentLogger,
-): Promise<PaymentProvider | null> {
-  try {
-    return await activeProvider(paymentRegistry);
-  } catch (err) {
-    if (!(err instanceof PaymentProviderNotConfiguredError)) throw err;
-    logger.warn({ err, providerId: err.providerId }, 'Active payment provider not available');
-    return null;
-  }
+export function activePaymentProvider(logger: PaymentLogger): Promise<PaymentProvider | null> {
+  return resolveActiveProvider(paymentContext(logger));
 }

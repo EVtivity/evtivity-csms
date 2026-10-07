@@ -17,6 +17,17 @@ import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { hashToken } from '../lib/token-hash.js';
 
+// A missing, expired or forged token is routine: log it at debug. Anything
+// else (a database error while checking the account) is logged at warn.
+function logAuthFailure(request: FastifyRequest, err: unknown, msg: string): void {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === 'string' && /^(FST_JWT|FAST_JWT)_/.test(code)) {
+    request.log.debug({ err }, msg);
+  } else {
+    request.log.warn({ err }, msg);
+  }
+}
+
 export interface JwtPayload {
   userId: string;
   roleId: string;
@@ -117,8 +128,8 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
         return;
       }
       return;
-    } catch {
-      // Fall back to csms_token cookie (signed cookie)
+    } catch (err) {
+      logAuthFailure(request, err, 'Bearer token check failed, trying the csms_token cookie');
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
       const rawCsmsToken = request.cookies?.['csms_token'];
       if (rawCsmsToken != null && rawCsmsToken !== '') {
@@ -151,8 +162,8 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
             return;
           }
           return;
-        } catch {
-          // Invalid cookie token
+        } catch (err) {
+          logAuthFailure(request, err, 'csms_token cookie check failed, trying an API key');
         }
       }
       // Fallback 2: API key (opaque hex token in Authorization header)
@@ -283,7 +294,8 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
           return;
         }
       }
-    } catch {
+    } catch (err) {
+      logAuthFailure(request, err, 'Driver token check failed, refusing the request');
       await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
     }
   });

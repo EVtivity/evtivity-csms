@@ -4,7 +4,7 @@
 import { Worker, type Queue, type ConnectionOptions, type JobsOptions } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { PubSubClient } from '@evtivity/lib';
-import { createLogger, withLock } from '@evtivity/lib';
+import { createLogger, tryParseJson, withLock } from '@evtivity/lib';
 import {
   pushAllMessagesToAllStations,
   parseStationRefreshPayload,
@@ -58,12 +58,7 @@ function debounced(id: string, ms: number): JobsOptions {
 }
 
 function parseRepushPayload(raw: string): StationMessageRepushJob | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  const parsed = tryParseJson(raw);
   if (typeof parsed !== 'object' || parsed == null) return null;
   const value = parsed as Record<string, unknown>;
   for (const key of ['siteId', 'stationId', 'pricingGroupId'] as const) {

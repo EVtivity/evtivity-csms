@@ -177,9 +177,18 @@ function managementAnswer(call: RecordedCall): FakeAnswer {
   };
 }
 
-export function fakeAdyen(): FakeAdyen {
+export interface FakeAdyenOptions {
+  /**
+   * Answer a request whose Idempotency-Key was seen before with the first
+   * answer, as Adyen does for a repeated key (off by default).
+   */
+  idempotencyReplay?: boolean;
+}
+
+export function fakeAdyen(fakeOptions: FakeAdyenOptions = {}): FakeAdyen {
   const calls: RecordedCall[] = [];
   const queue: FakeAnswer[] = [];
+  const answered = new Map<string, FakeAnswer>();
   const fetchFn = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const url = new URL(input instanceof Request ? input.url : input);
     const call: RecordedCall = {
@@ -194,7 +203,13 @@ export function fakeAdyen(): FakeAdyen {
           : undefined,
     };
     calls.push(call);
-    const answer = queue.shift() ?? defaultAnswer(call);
+    const key = call.headers['idempotency-key'];
+    const replayed =
+      fakeOptions.idempotencyReplay === true && key != null ? answered.get(key) : undefined;
+    const answer = replayed ?? queue.shift() ?? defaultAnswer(call);
+    if (fakeOptions.idempotencyReplay === true && key != null && replayed == null) {
+      answered.set(key, answer);
+    }
     if (answer.networkError === true) return Promise.reject(new TypeError('fetch failed'));
     const status = answer.status ?? 200;
     const text =
@@ -243,11 +258,14 @@ export function adyenOptions(
   };
 }
 
-export function fakeAdyenProvider(overrides: Partial<AdyenProviderOptions> = {}): {
+export function fakeAdyenProvider(
+  overrides: Partial<AdyenProviderOptions> = {},
+  fakeOptions: FakeAdyenOptions = {},
+): {
   provider: AdyenPaymentProvider;
   adyen: FakeAdyen;
 } {
-  const adyen = fakeAdyen();
+  const adyen = fakeAdyen(fakeOptions);
   return { provider: new AdyenPaymentProvider(adyenOptions(adyen, overrides)), adyen };
 }
 

@@ -111,11 +111,7 @@ async function reportStep(
     actual: String(resp['status']),
   });
   let report: Record<string, unknown> | null = null;
-  try {
-    report = await ctx.server.waitForMessage('NotifyDisplayMessages', 10_000);
-  } catch {
-    report = null;
-  }
+  report = await ctx.server.waitForMessageOrNull('NotifyDisplayMessages', 10_000);
   const info = ((report?.['messageInfo'] ?? []) as Array<Record<string, unknown>>).find(
     (m) => m['id'] === id,
   );
@@ -174,9 +170,7 @@ export const TC_O_20_CS = create(
     // Reusable State Booted
     const reset = await ctx.server.sendCommand('Reset', { type: 'Immediate' });
     let booted = reset['status'] === 'Accepted';
-    try {
-      await ctx.server.waitForMessage('BootNotification', 15_000);
-    } catch {
+    if ((await ctx.server.waitForMessageOrNull('BootNotification', 15_000)) == null) {
       booted = false;
     }
     steps.push({
@@ -338,11 +332,7 @@ export const TC_O_39_CS = create(
     // Manual Action: set the Charging Station to state Faulted
     await ctx.station.injectFault(EVSE_ID, 'OtherError');
     let faulted: Record<string, unknown> | null = null;
-    try {
-      faulted = await ctx.server.waitForMessage('StatusNotification', 10_000);
-    } catch {
-      faulted = null;
-    }
+    faulted = await ctx.server.waitForMessageOrNull('StatusNotification', 10_000);
     steps.push({
       step: 3,
       description: 'The Charging Station reports the Faulted status',
@@ -388,11 +378,7 @@ export const TC_O_101_CS = create(
     // Manual Action: present the idToken (step 1-2)
     await ctx.station.authorize(EVSE_ID, TOKEN);
     let auth: Record<string, unknown> | null = null;
-    try {
-      auth = await ctx.server.waitForMessage('Authorize', 10_000);
-    } catch {
-      auth = null;
-    }
+    auth = await ctx.server.waitForMessageOrNull('Authorize', 10_000);
     const idToken = auth?.['idToken'] as Record<string, unknown> | undefined;
     steps.push({
       step: 1,

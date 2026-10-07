@@ -2,8 +2,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import crypto from 'node:crypto';
-import { awaitPubSubReply, OCPP_COMMAND_RESULTS_CHANNEL, publishOcppCommand } from '@evtivity/lib';
+import {
+  awaitPubSubReply,
+  createLogger,
+  OCPP_COMMAND_RESULTS_CHANNEL,
+  publishOcppCommand,
+} from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+
+const logger = createLogger('ocpp-command');
 
 const RESPONSE_TIMEOUT_MS = 35_000;
 
@@ -46,7 +53,11 @@ export async function sendOcppCommandAndWait(
         }),
     });
     return result ?? { commandId, error: 'No response within 35s' };
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, stationId: stationOcppId, action, commandId },
+      'OCPP command send failed, returning an error result',
+    );
     return { commandId, error: 'Internal error sending command' };
   }
 }

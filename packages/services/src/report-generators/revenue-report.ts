@@ -24,7 +24,7 @@ import {
 } from '../session-revenue.js';
 import { MoneyCell, moneyCell, csvRows, dateCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
-import type { ReportGeneratorResult } from '../report.service.js';
+import type { ReportGeneratorResult } from '../report-registry.js';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 

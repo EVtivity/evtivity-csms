@@ -3,7 +3,7 @@
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, tryParseJson } from '@evtivity/lib';
 import { db } from '@evtivity/database';
 import { chargingStations } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
@@ -43,12 +43,11 @@ async function ensureListener(): Promise<void> {
 
   const pubsub = getPubSub();
   subscription = await pubsub.subscribe(CSMS_EVENTS_CHANNEL, (payload: string) => {
-    let parsed: { eventType?: string; stationId?: string };
-    try {
-      parsed = JSON.parse(payload) as { eventType?: string; stationId?: string };
-    } catch {
-      return;
-    }
+    const parsed = tryParseJson(payload) as
+      | { eventType?: string; stationId?: string }
+      | null
+      | undefined;
+    if (parsed == null) return;
 
     if (parsed.eventType == null || !FORWARDED_EVENTS.has(parsed.eventType)) return;
 

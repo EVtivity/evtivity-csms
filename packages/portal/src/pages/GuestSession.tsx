@@ -167,7 +167,8 @@ export function GuestSession(): React.JSX.Element {
     setStopping(true);
     try {
       await api.post(`/v1/portal/guest/stop/${sessionToken}`, {});
-    } catch {
+    } catch (err) {
+      console.warn('Guest session stop request failed', err);
       // Stop request failed (network etc.). Drop the spinner so the user can
       // try again. If the OCPP RequestStopTransaction was actually dispatched
       // the polling effect below will still flip the status when it completes.

@@ -38,8 +38,7 @@ export const TC_041_CS: CsTestCase = {
     });
 
     // Step 3: Verify no transaction starts
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
+    if ((await ctx.server.waitForMessageOrNull('StartTransaction', 5000)) != null) {
       steps.push({
         step: 3,
         description: 'No StartTransaction in fault state',
@@ -47,7 +46,7 @@ export const TC_041_CS: CsTestCase = {
         expected: 'No StartTransaction',
         actual: 'StartTransaction received',
       });
-    } catch {
+    } else {
       steps.push({
         step: 3,
         description: 'No StartTransaction in fault state (correct)',

@@ -4,6 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('pnc-setting');
 
 let cachedValue: boolean | undefined;
 let cachedAt = 0;
@@ -25,7 +28,11 @@ export async function isPncEnabled(): Promise<boolean> {
     cachedValue = row != null && row.value === true;
     cachedAt = now;
     return cachedValue;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'pnc.enabled' },
+      'isPncEnabled failed, using the cached value or default',
+    );
     return cachedValue ?? false;
   }
 }
@@ -55,7 +62,11 @@ export async function getOcspAllowedPrivateHosts(): Promise<string[]> {
       : [];
     allowedHostsCachedAt = now;
     return cachedAllowedHosts;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'pnc.ocsp.allowedPrivateHosts' },
+      'getOcspAllowedPrivateHosts failed, using the cached value or default',
+    );
     return cachedAllowedHosts ?? [];
   }
 }

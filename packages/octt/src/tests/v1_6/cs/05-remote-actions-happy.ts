@@ -165,20 +165,13 @@ export const TC_011_1_CS: CsTestCase = {
     // Drain StatusNotification messages until we find StartTransaction.
     let startTxFound = false;
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        const msg = await ctx.server.waitForMessage('StartTransaction', 500);
-        if (msg != null) {
-          startTxFound = true;
-          break;
-        }
-      } catch {
-        // Try draining a StatusNotification that might be ahead of StartTransaction
-        try {
-          await ctx.server.waitForMessage('StatusNotification', 500);
-        } catch {
-          break;
-        }
+      const msg = await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+      if (msg != null) {
+        startTxFound = true;
+        break;
       }
+      // Try draining a StatusNotification that might be ahead of StartTransaction
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
     steps.push({
       step: 9,
@@ -192,13 +185,10 @@ export const TC_011_1_CS: CsTestCase = {
     // Find the Charging StatusNotification (may need to skip Preparing)
     let sn2Status: string | undefined;
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        const sn2 = await ctx.server.waitForMessage('StatusNotification', 5000);
-        sn2Status = sn2['status'] as string | undefined;
-        if (sn2Status === 'Charging') break;
-      } catch {
-        break;
-      }
+      const sn2 = await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
+      if (sn2 == null) break;
+      sn2Status = sn2['status'] as string | undefined;
+      if (sn2Status === 'Charging') break;
     }
     steps.push({
       step: 11,
@@ -322,32 +312,12 @@ export const TC_012_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     // Step 1: CS sends RemoteStopTransaction
     const remoteStopResp = await ctx.server.sendCommand('RemoteStopTransaction', {

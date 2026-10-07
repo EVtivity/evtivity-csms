@@ -44,8 +44,8 @@ export interface OcspCertId {
 export type OcspCertStatus = 'good' | 'revoked' | 'unknown';
 
 export class OcspError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = 'OcspError';
   }
 }
@@ -146,12 +146,8 @@ export function buildOcspRequest(data: OcspCertId): Buffer {
  * name resolves to is checked when postOcspRequest connects.
  */
 export function isOcspResponderAllowed(url: string, allowedPrivateHosts: string[]): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
+  const parsed = URL.parse(url);
+  if (parsed == null) return false;
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
   if (!isPrivateUrl(url)) return true;
   const host = parsed.hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
@@ -219,8 +215,8 @@ export async function postOcspRequest(
 export function parseOcspResponse(der: Buffer): OCSPResponse {
   try {
     return AsnConvert.parse(der, OCSPResponse);
-  } catch {
-    throw new OcspError('Responder did not return a DER OCSPResponse');
+  } catch (err) {
+    throw new OcspError('Responder did not return a DER OCSPResponse', { cause: err });
   }
 }
 
@@ -332,6 +328,7 @@ function verifySignature(
       Buffer.from(signature),
     );
   } catch {
+    // fail-open: a signature that cannot be checked counts as invalid, so the response is refused
     return false;
   }
 }
@@ -362,8 +359,8 @@ export function verifyOcspResponse(
   let basic: BasicOCSPResponse;
   try {
     basic = AsnConvert.parse(response.responseBytes.response.buffer, BasicOCSPResponse);
-  } catch {
-    throw new OcspError('OCSP response carries a malformed BasicOCSPResponse');
+  } catch (err) {
+    throw new OcspError('OCSP response carries a malformed BasicOCSPResponse', { cause: err });
   }
   const tbsRaw = basic.tbsResponseDataRaw;
   if (tbsRaw == null) throw new OcspError('OCSP response data could not be read');

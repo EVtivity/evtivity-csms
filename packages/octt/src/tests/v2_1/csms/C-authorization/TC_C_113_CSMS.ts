@@ -121,13 +121,13 @@ export const TC_C_113_CSMS: TestCase = {
         'NotifySettlementResponse received',
         `Response keys: ${Object.keys(settlementRes).join(', ')}`,
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 4,
         description: 'Send NotifySettlement with status Canceled',
         status: 'failed',
         expected: 'NotifySettlementResponse received',
-        actual: 'NotifySettlement call failed or not supported',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

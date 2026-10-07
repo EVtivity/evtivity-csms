@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { createInFlightTracker, createLogger } from '@evtivity/lib';
+import { createInFlightTracker, createLogger, tryParseJson } from '@evtivity/lib';
 import type { PubSubClient, Subscription } from '@evtivity/lib';
 import { drainListener, trackListenerWork } from '../lib/listener-drain.js';
 import { initiateRegistration } from './credentials.service.js';
@@ -23,10 +23,8 @@ function isRegisterNotification(payload: unknown): payload is RegisterNotificati
 }
 
 async function handleRegisterNotification(payload: string): Promise<void> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(payload);
-  } catch {
+  const parsed = tryParseJson(payload);
+  if (parsed === undefined) {
     logger.warn({ payload }, 'Invalid JSON on ocpi_register channel');
     return;
   }

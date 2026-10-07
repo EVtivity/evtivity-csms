@@ -17,6 +17,13 @@ export const SESSION_END_REQUEST_CHANNEL = 'session_end_requests';
  */
 export const CSMS_SESSION_END_REASONS = ['Superseded', 'GhostRecovered'] as const;
 
+/**
+ * The stopped reason of a session whose CSMS end failed too often: the OCPP
+ * sweep faulted it unbilled (`giveUpSessionEnd`). An operator can re-bill it
+ * (`session-rebill.ts`).
+ */
+export const SESSION_END_FAILED_REASON = 'EndRequestFailed';
+
 export type CsmsSessionEndReason = (typeof CSMS_SESSION_END_REASONS)[number];
 
 export interface SessionEndRequestMessage {

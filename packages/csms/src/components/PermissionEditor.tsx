@@ -3,11 +3,15 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import type { PermissionKind } from '@evtivity/lib/permissions';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 
-interface PermissionGroup {
-  label: string;
+/** A group of `GET /v1/permissions`. */
+export interface PermissionGroup {
+  resource: string;
+  kind: PermissionKind;
+  labelKey: string;
   permissions: string[];
 }
 
@@ -57,9 +61,8 @@ export function PermissionEditor({
     onChange([...next]);
   }
 
-  // Separate page-level and settings groups
-  const pageGroups = groups.filter((g) => !g.label.startsWith('Settings'));
-  const settingsGroups = groups.filter((g) => g.label.startsWith('Settings'));
+  const pageGroups = groups.filter((g) => g.kind === 'page');
+  const settingsGroups = groups.filter((g) => g.kind === 'settings');
 
   const gridClass =
     columns === 1 ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 md:grid-cols-2 gap-2';
@@ -75,7 +78,7 @@ export function PermissionEditor({
           <div className={gridClass}>
             {pageGroups.map((group) => (
               <PermissionGroupRow
-                key={group.label}
+                key={group.resource}
                 group={group}
                 valueSet={valueSet}
                 onToggle={handleToggle}
@@ -92,7 +95,7 @@ export function PermissionEditor({
           <div className={gridClass}>
             {settingsGroups.map((group) => (
               <PermissionGroupRow
-                key={group.label}
+                key={group.resource}
                 group={group}
                 valueSet={valueSet}
                 onToggle={handleToggle}
@@ -117,12 +120,13 @@ function PermissionGroupRow({
   onToggle: (perm: string, checked: boolean) => void;
   disabled: boolean;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const readPerm = group.permissions.find((p) => p.endsWith(':read'));
   const writePerm = group.permissions.find((p) => p.endsWith(':write'));
 
   return (
     <div className="flex items-center gap-4 rounded-md border border-border p-2">
-      <span className="text-sm font-medium min-w-28">{group.label}</span>
+      <span className="text-sm font-medium min-w-28">{t(group.labelKey, group.resource)}</span>
       <div className="flex items-center gap-4 ml-auto">
         {readPerm != null && (
           <div className="flex items-center gap-1.5">
@@ -137,7 +141,7 @@ function PermissionGroupRow({
               className="h-4 w-4 rounded border-input"
             />
             <Label htmlFor={`perm-${readPerm}`} className="text-xs">
-              Read
+              {t('users.permissionRead')}
             </Label>
           </div>
         )}
@@ -154,7 +158,7 @@ function PermissionGroupRow({
               className="h-4 w-4 rounded border-input"
             />
             <Label htmlFor={`perm-${writePerm}`} className="text-xs">
-              Write
+              {t('users.permissionWrite')}
             </Label>
           </div>
         )}

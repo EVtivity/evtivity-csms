@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi } from 'vitest';
-import type { OcppTestServer } from '../cs-server.js';
+import { MessageTimeoutError, type OcppTestServer } from '../cs-server.js';
 import {
   waitForChargingState,
   startAndWaitForCharging,
@@ -30,15 +30,24 @@ function fakeServer(
 ): OcppTestServer & { waits: number[]; commands: Array<[string, Record<string, unknown>]> } {
   const waits: number[] = [];
   const commands: Array<[string, Record<string, unknown>]> = [];
+  const waitForMessage = (action: string, timeoutMs: number): Promise<Record<string, unknown>> => {
+    waits.push(timeoutMs);
+    const idx = messages.findIndex((m) => m.action === action);
+    if (idx === -1) return Promise.reject(new MessageTimeoutError(action, timeoutMs));
+    const [m] = messages.splice(idx, 1);
+    return Promise.resolve(m?.payload ?? {});
+  };
   return {
     waits,
     commands,
-    waitForMessage(action: string, timeoutMs: number) {
-      waits.push(timeoutMs);
-      const idx = messages.findIndex((m) => m.action === action);
-      if (idx === -1) return Promise.reject(new Error(`Timed out waiting for ${action}`));
-      const [m] = messages.splice(idx, 1);
-      return Promise.resolve(m?.payload ?? {});
+    waitForMessage,
+    async waitForMessageOrNull(action: string, timeoutMs: number) {
+      try {
+        return await waitForMessage(action, timeoutMs);
+      } catch (err) {
+        if (err instanceof MessageTimeoutError) return null;
+        throw err;
+      }
     },
     sendCommand(action: string, payload: Record<string, unknown>) {
       commands.push([action, payload]);

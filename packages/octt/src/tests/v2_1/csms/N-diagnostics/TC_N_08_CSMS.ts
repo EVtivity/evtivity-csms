@@ -42,13 +42,13 @@ export const TC_N_24_CSMS: TestCase = {
         resp1,
         'Empty NotifyEventResponse',
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send periodic NotifyEventRequest',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     return {

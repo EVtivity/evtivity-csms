@@ -69,17 +69,14 @@ export const TC_C_47_CS: CsTestCase = {
     let endedFound = false;
     let lastActual = '';
     for (let i = 0; i < 10; i++) {
-      try {
-        const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        const txInfo = tx['transactionInfo'] as Record<string, unknown> | undefined;
-        const stoppedReason = txInfo?.['stoppedReason'] as string | undefined;
-        const eventType = tx['eventType'] as string | undefined;
-        lastActual = `stoppedReason=${String(stoppedReason)}, eventType=${String(eventType)}`;
-        if (stoppedReason === 'MasterPass' || eventType === 'Ended') {
-          endedFound = true;
-          break;
-        }
-      } catch {
+      const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (tx == null) break;
+      const txInfo = tx['transactionInfo'] as Record<string, unknown> | undefined;
+      const stoppedReason = txInfo?.['stoppedReason'] as string | undefined;
+      const eventType = tx['eventType'] as string | undefined;
+      lastActual = `stoppedReason=${String(stoppedReason)}, eventType=${String(eventType)}`;
+      if (stoppedReason === 'MasterPass' || eventType === 'Ended') {
+        endedFound = true;
         break;
       }
     }
@@ -142,15 +139,12 @@ export const TC_C_48_CS: CsTestCase = {
     // Step 3: Station sends TransactionEvent with stoppedReason MasterPass (skip meter events)
     let endedFound48 = false;
     for (let i = 0; i < 10; i++) {
-      try {
-        const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        const txInfo = tx['transactionInfo'] as Record<string, unknown> | undefined;
-        const stoppedReason = txInfo?.['stoppedReason'] as string | undefined;
-        if (stoppedReason === 'MasterPass') {
-          endedFound48 = true;
-          break;
-        }
-      } catch {
+      const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (tx == null) break;
+      const txInfo = tx['transactionInfo'] as Record<string, unknown> | undefined;
+      const stoppedReason = txInfo?.['stoppedReason'] as string | undefined;
+      if (stoppedReason === 'MasterPass') {
+        endedFound48 = true;
         break;
       }
     }
@@ -213,15 +207,12 @@ export const TC_C_49_CS: CsTestCase = {
     // Step 3: Station sends TransactionEvent with stoppedReason MasterPass (skip meter events)
     let endedFound49 = false;
     for (let i = 0; i < 10; i++) {
-      try {
-        const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        const txInfo = tx['transactionInfo'] as Record<string, unknown> | undefined;
-        const stoppedReason = txInfo?.['stoppedReason'] as string | undefined;
-        if (stoppedReason === 'MasterPass') {
-          endedFound49 = true;
-          break;
-        }
-      } catch {
+      const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (tx == null) break;
+      const txInfo = tx['transactionInfo'] as Record<string, unknown> | undefined;
+      const stoppedReason = txInfo?.['stoppedReason'] as string | undefined;
+      if (stoppedReason === 'MasterPass') {
+        endedFound49 = true;
         break;
       }
     }

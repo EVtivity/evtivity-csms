@@ -78,9 +78,12 @@ vi.mock('@evtivity/payments', async (importOriginal) => ({
     mockRecordTerminalSettlement(...args) as unknown,
 }));
 const mockPaymentContext = { registry: {}, logger: {} };
+// The settlement options of a first run that can still be retried.
+const SETTLE_OPTIONS = { rethrowConnectionErrors: true, resumeAdjustment: false };
 vi.mock('../lib/payments.js', () => ({
   paymentRegistry: {},
   paymentContext: () => mockPaymentContext,
+  activePaymentProvider: () => Promise.resolve({ id: 'stripe' }),
 }));
 
 /**
@@ -3321,7 +3324,11 @@ describe('Event projections - coverage expansion', () => {
       await emitEnded('tx-settle');
 
       expect(mockSettleSessionPayment).toHaveBeenCalledTimes(1);
-      expect(mockSettleSessionPayment).toHaveBeenCalledWith('session-capture', mockPaymentContext);
+      expect(mockSettleSessionPayment).toHaveBeenCalledWith(
+        'session-capture',
+        mockPaymentContext,
+        SETTLE_OPTIONS,
+      );
     });
 
     it('notifies the driver of the captured amount when the capture was recorded', async () => {
@@ -4153,6 +4160,7 @@ describe('Event projections - coverage expansion', () => {
       expect(mockSettleSessionPayment).toHaveBeenCalledWith(
         'session-connect-timeout',
         mockPaymentContext,
+        SETTLE_OPTIONS,
       );
     });
   });
@@ -4306,12 +4314,28 @@ describe('Event projections - coverage expansion', () => {
       expect(stopCommands()).toHaveLength(0);
     });
 
+    it('stamps the prepaid credit as the cost ceiling of the session (C17.FR.03)', async () => {
+      await setup();
+      setupSqlResults(...startedResults(5000));
+
+      await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp-ceil'));
+
+      const link = findSql(/SET token_id = .*cost_ceiling_cents/s);
+      expect(link?.values).toEqual(['dtk_pp', 5000, 'session-pp']);
+    });
+
     it('stops a session started by a prepaid token without credit', async () => {
       await setup();
       setupSqlResults(...startedResults(0));
 
       await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp-0'));
 
+      // No credit: no ceiling (the stamp keeps the stored value).
+      expect(findSql(/SET token_id = .*cost_ceiling_cents/s)?.values).toEqual([
+        'dtk_pp',
+        null,
+        'session-pp',
+      ]);
       expect(stopCommands()).toHaveLength(1);
       expect(sqlCalls.some((c) => c.strings.join('?').includes('driver_payment_methods'))).toBe(
         false,
@@ -4377,7 +4401,11 @@ describe('Event projections - coverage expansion', () => {
         }),
       );
 
-      expect(mockSettleSessionPayment).toHaveBeenCalledWith('session-pp-end', mockPaymentContext);
+      expect(mockSettleSessionPayment).toHaveBeenCalledWith(
+        'session-pp-end',
+        mockPaymentContext,
+        SETTLE_OPTIONS,
+      );
       expect(mockPubSub.publish).toHaveBeenCalledWith(
         'csms_events',
         JSON.stringify({ eventType: 'token.changed', tokenId: 'dtk_pp' }),

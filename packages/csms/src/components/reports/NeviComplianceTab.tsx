@@ -774,7 +774,7 @@ function ExcludedDowntimeSection(): React.JSX.Element {
             <Input
               id="nevi-downtime-filter-from"
               type="date"
-              aria-label="Start date"
+              aria-label={t('common.startDate')}
               value={fromFilter}
               onChange={(e) => {
                 setFromFilter(e.target.value);
@@ -790,7 +790,7 @@ function ExcludedDowntimeSection(): React.JSX.Element {
             <Input
               id="nevi-downtime-filter-to"
               type="date"
-              aria-label="End date"
+              aria-label={t('common.endDate')}
               value={toFilter}
               onChange={(e) => {
                 setToFilter(e.target.value);

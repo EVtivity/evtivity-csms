@@ -3649,7 +3649,8 @@ export function stationRoutes(app: FastifyInstance): void {
           throw new Error('No PEM certificate block found');
         }
         new X509Certificate(firstPemBlock + '-----END CERTIFICATE-----');
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'Certificate to install did not parse, refusing it');
         await reply.status(400).send({
           error: 'certificate is not a valid PEM-encoded certificate',
           code: 'VALIDATION_ERROR',
@@ -5154,8 +5155,11 @@ export function stationRoutes(app: FastifyInstance): void {
             evseId: template.evseId,
           },
         });
-      } catch {
-        // Non-critical: clear failure should not block set
+      } catch (err) {
+        request.log.warn(
+          { err, stationId: station.stationId },
+          'ClearChargingProfile before the push failed, sending SetChargingProfile anyway',
+        );
       }
 
       // Build SetChargingProfile payload
@@ -5416,8 +5420,11 @@ export function stationRoutes(app: FastifyInstance): void {
             ocppVersion,
           );
         }
-      } catch {
-        // Non-critical
+      } catch (err) {
+        request.log.warn(
+          { err, stationId: station.stationId },
+          'Configuration refresh after the push failed, keeping the push result',
+        );
       }
 
       if (!hasFailure) {

@@ -432,9 +432,7 @@ export const TC_I_106_CS = create(
     // Reusable State Booted with reset type Immediate
     const reset = await ctx.server.sendCommand('Reset', { type: 'Immediate' });
     let booted = reset['status'] === 'Accepted';
-    try {
-      await ctx.server.waitForMessage('BootNotification', 15_000);
-    } catch {
+    if ((await ctx.server.waitForMessageOrNull('BootNotification', 15_000)) == null) {
       booted = false;
     }
     steps.push({

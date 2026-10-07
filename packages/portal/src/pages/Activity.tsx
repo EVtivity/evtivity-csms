@@ -199,7 +199,7 @@ export function Activity(): React.JSX.Element {
         <button
           onClick={prevMonth}
           className="rounded-full p-1 text-muted-foreground transition-colors hover:text-foreground"
-          aria-label="Previous month"
+          aria-label={t('activity.previousMonth')}
         >
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -207,7 +207,7 @@ export function Activity(): React.JSX.Element {
         <button
           onClick={nextMonth}
           className="rounded-full p-1 text-muted-foreground transition-colors hover:text-foreground"
-          aria-label="Next month"
+          aria-label={t('activity.nextMonth')}
         >
           <ChevronRight className="h-5 w-5" />
         </button>
@@ -335,7 +335,9 @@ export function Activity(): React.JSX.Element {
                 className={`h-2 w-2 rounded-full ${statusDotColor(session.status)}`}
                 aria-hidden="true"
               />
-              <span className="sr-only">{session.status}</span>
+              <span className="sr-only">
+                {t(`sessionStatus.${session.status}`, { defaultValue: session.status })}
+              </span>
               <div className="flex-1 min-w-0">
                 <p className="truncate text-sm font-medium">
                   {session.siteName ?? session.stationName ?? t('activity.unknownStation')}

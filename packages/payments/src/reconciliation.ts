@@ -5,8 +5,15 @@ import { db, paymentReconciliationRuns } from '@evtivity/database';
 import type { PaymentContext } from './context.js';
 import { errorMessage } from './context.js';
 import { PaymentProviderNotConfiguredError } from './errors.js';
-import { recordsAwaitingConfirmation, recordsWithPayments } from './payment-records.js';
+import {
+  REBILL_RESUME_MAX_HOURS,
+  recordsAwaitingConfirmation,
+  recordsWithPayments,
+  rebillRequestedAt,
+  staleRebillCharges,
+} from './payment-records.js';
 import type { PaymentRecord } from './payment-records.js';
+import { resumeStaleAdjustments } from './session-payments.js';
 import { paymentCharges } from './top-ups.js';
 import type { PaymentCharge } from './top-ups.js';
 import type {
@@ -28,10 +35,13 @@ export interface ReconciliationDiscrepancy {
   /**
    * Set only for `pending_confirmation`: an async operation or refund the
    * provider has not confirmed for 24 hours (its webhook may be lost or
-   * misconfigured; check the provider's webhook log). Absent: the provider's
-   * state differs from the record.
+   * misconfigured; check the provider's webhook log). `rebill_pending`: an
+   * operator re-bill charge whose outcome is unknown for longer than
+   * REBILL_RESUME_MAX_HOURS (the re-bill no longer retries it; check the
+   * provider for a payment with the key `rebill_<sessionId>`). Absent: the
+   * provider's state differs from the record.
    */
-  kind?: 'pending_confirmation';
+  kind?: 'pending_confirmation' | 'rebill_pending';
 }
 
 export interface ReconciliationResult {
@@ -203,7 +213,9 @@ export async function reconcilePayments(
     if (batch.length < BATCH_SIZE) break;
   }
 
+  await resumeAdjustments(result, ctx);
   await addPendingConfirmations(result, ctx);
+  await addStaleRebillCharges(result, ctx);
 
   ctx.logger.info(
     {
@@ -279,6 +291,62 @@ async function addPendingConfirmations(
       );
     }
     result.discrepancies.push(...found);
+  }
+}
+
+const STALE_REBILL_LIMIT = 500;
+
+/**
+ * An operator re-bill charge whose provider call never answered (`pending`,
+ * no provider payment id) for REBILL_RESUME_MAX_HOURS is a `rebill_pending`
+ * discrepancy (warn, per record): the re-bill refuses to retry it once the
+ * provider may no longer replay its key, so an operator checks the provider
+ * for a payment with the key `rebill_<sessionId>`.
+ */
+async function addStaleRebillCharges(
+  result: ReconciliationResult,
+  ctx: PaymentContext,
+): Promise<void> {
+  const records = await staleRebillCharges(STALE_REBILL_LIMIT);
+  for (const record of records) {
+    const provider = record.provider ?? 'unknown';
+    const requestedAt = rebillRequestedAt(record)?.toISOString() ?? 'unknown';
+    const d: ReconciliationDiscrepancy = {
+      ...discrepancy(
+        record,
+        provider,
+        '',
+        'status',
+        `pending re-bill of session ${record.sessionId ?? ''} requested ${requestedAt}`,
+        `unknown: check the provider for a payment with the key rebill_${record.sessionId ?? ''}`,
+      ),
+      kind: 'rebill_pending',
+    };
+    ctx.logger.warn(
+      { paymentRecordId: record.id, sessionId: record.sessionId, provider, requestedAt },
+      `Session re-bill charge without an answer for ${String(REBILL_RESUME_MAX_HOURS)} hours; check the provider`,
+    );
+    result.discrepancies.push(d);
+  }
+}
+
+/**
+ * Re-drives adjustment claims without a provider reference older than an hour
+ * (`resumeStaleAdjustments`, same key). A claim that cannot be re-driven is
+ * an error of the run; one still open after 24 hours is also reported as
+ * `pending_confirmation` below. Fail-open: a failed lookup is one error.
+ */
+async function resumeAdjustments(result: ReconciliationResult, ctx: PaymentContext): Promise<void> {
+  try {
+    const resumed = await resumeStaleAdjustments(ctx);
+    for (const skipped of resumed.skipped) {
+      result.errors.push(
+        `Stale adjustment of payment record ${String(skipped.paymentRecordId)} not resumed: ${skipped.reason}`,
+      );
+    }
+  } catch (err) {
+    ctx.logger.warn({ err }, 'Stale adjustment lookup failed');
+    result.errors.push(`Stale adjustment lookup failed: ${errorMessage(err, 'Unknown error')}`);
   }
 }
 

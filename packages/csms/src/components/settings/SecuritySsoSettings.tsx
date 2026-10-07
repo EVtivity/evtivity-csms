@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Copy, Check } from 'lucide-react';
+import { tryParseJson } from '@evtivity/lib/safe-json';
 import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
@@ -108,10 +109,10 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
     };
     const rawMapping = s['sso.attributeMapping'];
     if (typeof rawMapping === 'string') {
-      try {
-        mapping = JSON.parse(rawMapping) as Record<string, string>;
-      } catch {
-        // keep default
+      // Invalid JSON keeps the default mapping.
+      const parsed = tryParseJson(rawMapping);
+      if (parsed != null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        mapping = parsed as Record<string, string>;
       }
     } else if (typeof rawMapping === 'object' && rawMapping !== null) {
       mapping = rawMapping as Record<string, string>;
@@ -253,7 +254,7 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
                     variant="outline"
                     size="icon"
                     onClick={handleCopyCallbackUrl}
-                    aria-label="Copy"
+                    aria-label={t('common.copy')}
                   >
                     {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </Button>

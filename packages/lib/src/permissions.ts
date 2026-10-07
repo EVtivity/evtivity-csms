@@ -7,90 +7,72 @@
  * Write implies read for the same resource.
  */
 
-// Page-level permissions
-export const PAGE_PERMISSIONS = [
-  'dashboard:read',
-  'dashboard:write',
-  'stations:read',
-  'stations:write',
-  'sites:read',
-  'sites:write',
-  'sessions:read',
-  'sessions:write',
-  'drivers:read',
-  'drivers:write',
-  'fleets:read',
-  'fleets:write',
-  'reservations:read',
-  'reservations:write',
-  'support:read',
-  'support:write',
-  'payments:read',
-  'payments:write',
-  'pricing:read',
-  'pricing:write',
-  'roaming:read',
-  'roaming:write',
-  'smartCharging:read',
-  'smartCharging:write',
-  'certificates:read',
-  'certificates:write',
-  'conformance:read',
-  'conformance:write',
-  'reports:read',
-  'reports:write',
-  'sustainability:read',
-  'sustainability:write',
-  'loadManagement:read',
-  'loadManagement:write',
-  'notifications:read',
-  'notifications:write',
-  'logs:read',
-  'logs:write',
-  'users:read',
-  'users:write',
-  'audit:read',
-  'audit:write',
-  'maintenance:read',
-  'maintenance:write',
-] as const;
+export type PermissionAction = 'read' | 'write';
 
-// Settings tab permissions
-export const SETTINGS_PERMISSIONS = [
-  'settings.system:read',
-  'settings.system:write',
-  'settings.notification:read',
-  'settings.notification:write',
-  'settings.payment:read',
-  'settings.payment:write',
-  'settings.integrations:read',
-  'settings.integrations:write',
-  'settings.security:read',
-  'settings.security:write',
-  'settings.apiKeys:read',
-  'settings.apiKeys:write',
-  'settings.firmware:read',
-  'settings.firmware:write',
-  'settings.stationConfig:read',
-  'settings.stationConfig:write',
-  'settings.smartCharging:read',
-  'settings.smartCharging:write',
-  'settings.ai:read',
-  'settings.ai:write',
-  'settings.conformance:read',
-  'settings.conformance:write',
-] as const;
+/** A page permission guards a CSMS page, a settings permission a Settings tab. */
+export type PermissionKind = 'page' | 'settings';
 
-/** All permissions in the system. */
-export const PERMISSIONS = [...PAGE_PERMISSIONS, ...SETTINGS_PERMISSIONS] as const;
+/** One resource of the catalog with its read and write permissions. */
+export interface PermissionGroup {
+  /** The resource part of the permissions, e.g. `stations` or `settings.payment`. */
+  resource: string;
+  kind: PermissionKind;
+  /** CSMS locale key of the group label. */
+  labelKey: string;
+  /** `<resource>:read` and `<resource>:write`. */
+  permissions: readonly [string, string];
+}
 
-export type Permission = (typeof PERMISSIONS)[number];
+/** What a caller registers: the permissions follow from the resource. */
+export interface PermissionGroupDefinition {
+  resource: string;
+  kind: PermissionKind;
+  labelKey: string;
+}
 
-/** Admin gets every permission. */
-export const ADMIN_DEFAULT_PERMISSIONS: Permission[] = [...PERMISSIONS];
+const BUILT_IN_GROUPS = [
+  { resource: 'dashboard', kind: 'page' },
+  { resource: 'stations', kind: 'page' },
+  { resource: 'sites', kind: 'page' },
+  { resource: 'sessions', kind: 'page' },
+  { resource: 'drivers', kind: 'page' },
+  { resource: 'fleets', kind: 'page' },
+  { resource: 'reservations', kind: 'page' },
+  { resource: 'support', kind: 'page' },
+  { resource: 'payments', kind: 'page' },
+  { resource: 'pricing', kind: 'page' },
+  { resource: 'roaming', kind: 'page' },
+  { resource: 'smartCharging', kind: 'page' },
+  { resource: 'certificates', kind: 'page' },
+  { resource: 'conformance', kind: 'page' },
+  { resource: 'reports', kind: 'page' },
+  { resource: 'sustainability', kind: 'page' },
+  { resource: 'loadManagement', kind: 'page' },
+  { resource: 'notifications', kind: 'page' },
+  { resource: 'logs', kind: 'page' },
+  { resource: 'users', kind: 'page' },
+  { resource: 'audit', kind: 'page' },
+  { resource: 'maintenance', kind: 'page' },
+  { resource: 'settings.system', kind: 'settings' },
+  { resource: 'settings.notification', kind: 'settings' },
+  { resource: 'settings.payment', kind: 'settings' },
+  { resource: 'settings.integrations', kind: 'settings' },
+  { resource: 'settings.security', kind: 'settings' },
+  { resource: 'settings.apiKeys', kind: 'settings' },
+  { resource: 'settings.firmware', kind: 'settings' },
+  { resource: 'settings.stationConfig', kind: 'settings' },
+  { resource: 'settings.smartCharging', kind: 'settings' },
+  { resource: 'settings.ai', kind: 'settings' },
+  { resource: 'settings.conformance', kind: 'settings' },
+] as const satisfies readonly { resource: string; kind: PermissionKind }[];
+
+type BuiltInResource = (typeof BUILT_IN_GROUPS)[number]['resource'];
+
+/** A built-in permission. Registered permissions are plain strings. */
+export type Permission = `${BuiltInResource}:${PermissionAction}`;
 
 /** Operator gets operational read/write but no settings, no users:write. */
-export const OPERATOR_DEFAULT_PERMISSIONS: Permission[] = [
+const OPERATOR_DEFAULTS: readonly Permission[] = [
   'dashboard:read',
   'dashboard:write',
   'stations:read',
@@ -132,7 +114,7 @@ export const OPERATOR_DEFAULT_PERMISSIONS: Permission[] = [
 ];
 
 /** Viewer gets read-only access to operational pages. No write, no settings. */
-export const VIEWER_DEFAULT_PERMISSIONS: Permission[] = [
+const VIEWER_DEFAULTS: readonly Permission[] = [
   'dashboard:read',
   'stations:read',
   'sites:read',
@@ -157,141 +139,67 @@ export const VIEWER_DEFAULT_PERMISSIONS: Permission[] = [
   'maintenance:read',
 ];
 
-/** Permission groups for the UI. */
-export const PERMISSION_GROUPS = [
-  {
-    label: 'Dashboard',
-    permissions: ['dashboard:read', 'dashboard:write'],
-  },
-  {
-    label: 'Stations',
-    permissions: ['stations:read', 'stations:write'],
-  },
-  {
-    label: 'Sites',
-    permissions: ['sites:read', 'sites:write'],
-  },
-  {
-    label: 'Sessions',
-    permissions: ['sessions:read', 'sessions:write'],
-  },
-  {
-    label: 'Drivers',
-    permissions: ['drivers:read', 'drivers:write'],
-  },
-  {
-    label: 'Fleets',
-    permissions: ['fleets:read', 'fleets:write'],
-  },
-  {
-    label: 'Reservations',
-    permissions: ['reservations:read', 'reservations:write'],
-  },
-  {
-    label: 'Support Cases',
-    permissions: ['support:read', 'support:write'],
-  },
-  {
-    label: 'Payments',
-    permissions: ['payments:read', 'payments:write'],
-  },
-  {
-    label: 'Pricing',
-    permissions: ['pricing:read', 'pricing:write'],
-  },
-  {
-    label: 'Roaming',
-    permissions: ['roaming:read', 'roaming:write'],
-  },
-  {
-    label: 'Smart Charging',
-    permissions: ['smartCharging:read', 'smartCharging:write'],
-  },
-  {
-    label: 'Certificates',
-    permissions: ['certificates:read', 'certificates:write'],
-  },
-  {
-    label: 'Conformance',
-    permissions: ['conformance:read', 'conformance:write'],
-  },
-  {
-    label: 'Reports',
-    permissions: ['reports:read', 'reports:write'],
-  },
-  {
-    label: 'Sustainability',
-    permissions: ['sustainability:read', 'sustainability:write'],
-  },
-  {
-    label: 'Load Management',
-    permissions: ['loadManagement:read', 'loadManagement:write'],
-  },
-  {
-    label: 'Notifications',
-    permissions: ['notifications:read', 'notifications:write'],
-  },
-  {
-    label: 'Logs',
-    permissions: ['logs:read', 'logs:write'],
-  },
-  {
-    label: 'Users',
-    permissions: ['users:read', 'users:write'],
-  },
-  {
-    label: 'Audit Log',
-    permissions: ['audit:read', 'audit:write'],
-  },
-  {
-    label: 'Maintenance',
-    permissions: ['maintenance:read', 'maintenance:write'],
-  },
-  {
-    label: 'Settings - System',
-    permissions: ['settings.system:read', 'settings.system:write'],
-  },
-  {
-    label: 'Settings - Notification',
-    permissions: ['settings.notification:read', 'settings.notification:write'],
-  },
-  {
-    label: 'Settings - Payment',
-    permissions: ['settings.payment:read', 'settings.payment:write'],
-  },
-  {
-    label: 'Settings - Integrations',
-    permissions: ['settings.integrations:read', 'settings.integrations:write'],
-  },
-  {
-    label: 'Settings - Security',
-    permissions: ['settings.security:read', 'settings.security:write'],
-  },
-  {
-    label: 'Settings - API Keys',
-    permissions: ['settings.apiKeys:read', 'settings.apiKeys:write'],
-  },
-  {
-    label: 'Settings - Firmware',
-    permissions: ['settings.firmware:read', 'settings.firmware:write'],
-  },
-  {
-    label: 'Settings - Station Config',
-    permissions: ['settings.stationConfig:read', 'settings.stationConfig:write'],
-  },
-  {
-    label: 'Settings - Smart Charging',
-    permissions: ['settings.smartCharging:read', 'settings.smartCharging:write'],
-  },
-  {
-    label: 'Settings - AI',
-    permissions: ['settings.ai:read', 'settings.ai:write'],
-  },
-  {
-    label: 'Settings - Conformance',
-    permissions: ['settings.conformance:read', 'settings.conformance:write'],
-  },
-] as const;
+const RESOURCE_PATTERN = /^(settings\.)?[a-z][a-zA-Z0-9]*$/;
+
+/** The permissions a role may be granted, grouped by resource for the permission editor. */
+export class PermissionCatalog {
+  private readonly groupList: PermissionGroup[] = [];
+  private readonly known = new Set<string>();
+
+  /** Adds a resource with its read and write permissions. Throws on a duplicate or bad name. */
+  register(definition: PermissionGroupDefinition): void {
+    const { resource, kind, labelKey } = definition;
+    if (!RESOURCE_PATTERN.test(resource)) {
+      throw new Error(`Invalid permission resource "${resource}"`);
+    }
+    // Settings permissions keep the `settings.` prefix: hasAnySettingsPermission relies on it.
+    if (resource.startsWith('settings.') !== (kind === 'settings')) {
+      throw new Error(`Permission resource "${resource}" does not match kind "${kind}"`);
+    }
+    if (this.groupList.some((g) => g.resource === resource)) {
+      throw new Error(`Permission resource "${resource}" is already registered`);
+    }
+    const permissions = [`${resource}:read`, `${resource}:write`] as const;
+    this.groupList.push({ resource, kind, labelKey, permissions });
+    for (const p of permissions) this.known.add(p);
+  }
+
+  /** True when the permission is in the catalog. */
+  isKnown(permission: string): boolean {
+    return this.known.has(permission);
+  }
+
+  /** Every permission, in group order. */
+  all(): string[] {
+    return this.groupList.flatMap((g) => [...g.permissions]);
+  }
+
+  /** The groups in registration order. */
+  groups(): PermissionGroup[] {
+    return this.groupList.map((g) => ({ ...g }));
+  }
+
+  /**
+   * The permissions a new user of the role starts with. Admin gets every permission, viewer
+   * the read-only set, and operator (and any other role) the operational set.
+   */
+  defaultsFor(role: string | undefined): string[] {
+    if (role === 'admin') return this.all();
+    return [...(role === 'viewer' ? VIEWER_DEFAULTS : OPERATOR_DEFAULTS)];
+  }
+}
+
+/** A catalog holding the built-in permissions. */
+export function createPermissionCatalog(): PermissionCatalog {
+  const catalog = new PermissionCatalog();
+  for (const { resource, kind } of BUILT_IN_GROUPS) {
+    catalog.register({ resource, kind, labelKey: `users.permissionGroups.${resource}` });
+  }
+  return catalog;
+}
+
+/** The process-wide permission catalog. */
+export const permissionCatalog = createPermissionCatalog();
 
 /**
  * Check if a user has a specific permission.

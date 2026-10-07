@@ -36,7 +36,8 @@ export function healthRoutes(app: FastifyInstance): void {
       let dbStatus = 'ok';
       try {
         await db.execute(sql`SELECT 1`);
-      } catch {
+      } catch (err) {
+        app.log.warn({ err }, 'Health check database query failed, reporting degraded');
         dbStatus = 'error';
       }
 
@@ -47,7 +48,8 @@ export function healthRoutes(app: FastifyInstance): void {
           const ok = await (pubsub.ping as () => Promise<boolean>)();
           if (!ok) redisStatus = 'error';
         }
-      } catch {
+      } catch (err) {
+        app.log.warn({ err }, 'Health check Redis ping failed, reporting degraded');
         redisStatus = 'error';
       }
 

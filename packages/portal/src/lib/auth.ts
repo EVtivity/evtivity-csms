@@ -152,8 +152,9 @@ export const useAuth = create<AuthState>((set, get) => ({
     api.post('/v1/portal/access-logs', { action: 'logout' }).catch(() => {});
     try {
       await api.post('/v1/portal/auth/logout', {});
-    } catch {
+    } catch (err) {
       // Clear state even if the server call fails
+      console.warn('Logout request failed, clearing the local session anyway', err);
     }
     // Prevent auto-login from firing after logout
     sessionStorage.setItem('noAutoLogin', 'true');

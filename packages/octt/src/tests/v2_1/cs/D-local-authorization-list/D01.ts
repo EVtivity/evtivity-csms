@@ -407,17 +407,9 @@ export const TC_D_07_CS: CsTestCase = {
     }
 
     // Wait for reboot (BootNotification)
-    try {
-      await ctx.server.waitForMessage('BootNotification', 15000);
-    } catch {
-      // May already be consumed
-    }
+    await ctx.server.waitForMessageOrNull('BootNotification', 15000);
     // Wait for StatusNotification after reboot
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 10000);
-    } catch {
-      // May already be consumed
-    }
+    await ctx.server.waitForMessageOrNull('StatusNotification', 10000);
 
     // Step 2: Send GetLocalListVersionRequest and validate version persisted
     const getRes = await ctx.server.sendCommand('GetLocalListVersion', {});

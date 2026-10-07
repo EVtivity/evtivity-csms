@@ -214,6 +214,7 @@ describe('CommandListener', () => {
     await createAndStart();
 
     subscribeHandler!('not-valid-json');
+    subscribeHandler!('null');
     await new Promise((r) => setTimeout(r, 10));
 
     expect(dispatcher.sendCommand).not.toHaveBeenCalled();

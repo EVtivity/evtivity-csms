@@ -17,6 +17,8 @@ const m = vi.hoisted(() => {
     },
     recordsWithPayments: vi.fn(),
     recordsAwaitingConfirmation: vi.fn(),
+    staleRebillCharges: vi.fn(),
+    resumeStaleAdjustments: vi.fn(),
   };
 });
 
@@ -25,9 +27,19 @@ vi.mock('@evtivity/database', () => ({
   paymentReconciliationRuns: { __table: 'payment_reconciliation_runs' },
 }));
 
+vi.mock('../session-payments.js', () => ({
+  resumeStaleAdjustments: m.resumeStaleAdjustments,
+}));
+
 vi.mock('../payment-records.js', () => ({
   recordsWithPayments: m.recordsWithPayments,
   recordsAwaitingConfirmation: m.recordsAwaitingConfirmation,
+  staleRebillCharges: m.staleRebillCharges,
+  REBILL_RESUME_MAX_HOURS: 23,
+  rebillRequestedAt: (record: { metadata: { rebill?: { requestedAt?: string } } | null }) =>
+    record.metadata?.rebill?.requestedAt != null
+      ? new Date(record.metadata.rebill.requestedAt)
+      : null,
 }));
 
 import { reconcilePayments, runPaymentReconciliation } from '../reconciliation.js';
@@ -84,6 +96,8 @@ beforeEach(() => {
   m.inserts.length = 0;
   m.recordsWithPayments.mockResolvedValue([]);
   m.recordsAwaitingConfirmation.mockResolvedValue([]);
+  m.staleRebillCharges.mockResolvedValue([]);
+  m.resumeStaleAdjustments.mockResolvedValue({ resumed: 0, skipped: [] });
   registry.getPaymentProvider.mockImplementation((id: string) =>
     Promise.resolve(id === 'stripe' ? stripe : simulated),
   );
@@ -465,6 +479,58 @@ describe('reconcilePayments: pending confirmations (async providers)', () => {
     m.recordsWithPayments.mockResolvedValueOnce([rec(1, { status: 'pre_authorized' })]);
     const result = await reconcilePayments(ctx);
     expect(result.discrepancies[0]).not.toHaveProperty('kind');
+  });
+});
+
+describe('reconcilePayments: re-bill charges without an answer', () => {
+  it('reports each pending re-bill charge older than the key retention, warn per record', async () => {
+    const requestedAt = new Date(Date.now() - 30 * 3_600_000).toISOString();
+    m.staleRebillCharges.mockResolvedValueOnce([
+      rec(5, {
+        status: 'pending',
+        providerPaymentId: null,
+        sessionId: 'ses_1',
+        metadata: { rebill: { requestedAt } },
+      }),
+    ]);
+    const result = await reconcilePayments(ctx);
+    expect(m.staleRebillCharges).toHaveBeenCalledWith(500);
+    expect(result.discrepancies).toEqual([
+      {
+        paymentRecordId: 5,
+        provider: 'stripe',
+        providerPaymentId: '',
+        field: 'status',
+        localValue: `pending re-bill of session ses_1 requested ${requestedAt}`,
+        providerValue: 'unknown: check the provider for a payment with the key rebill_ses_1',
+        kind: 'rebill_pending',
+      },
+    ]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentRecordId: 5, sessionId: 'ses_1' }),
+      'Session re-bill charge without an answer for 23 hours; check the provider',
+    );
+  });
+});
+
+describe('reconcilePayments: stale adjustment claims', () => {
+  it('re-drives stale claims and reports the ones it could not', async () => {
+    m.resumeStaleAdjustments.mockResolvedValue({
+      resumed: 1,
+      skipped: [{ paymentRecordId: 7, reason: 'no session final cost to adjust the hold to' }],
+    });
+    const result = await reconcilePayments(ctx);
+    expect(m.resumeStaleAdjustments).toHaveBeenCalledWith(ctx);
+    expect(result.errors).toEqual([
+      'Stale adjustment of payment record 7 not resumed: no session final cost to adjust the hold to',
+    ]);
+  });
+
+  it('keeps going when the stale claim lookup fails', async () => {
+    m.resumeStaleAdjustments.mockRejectedValue(new Error('db down'));
+    const result = await reconcilePayments(ctx);
+    expect(result.errors).toEqual(['Stale adjustment lookup failed: db down']);
+    expect(m.recordsAwaitingConfirmation).toHaveBeenCalled();
   });
 });
 

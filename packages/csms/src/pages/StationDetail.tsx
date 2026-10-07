@@ -38,6 +38,7 @@ import { StationPricingTab } from '@/components/station/StationPricingTab';
 import { StationReservationsTab } from '@/components/station/StationReservationsTab';
 import { StationSimulatorConflict } from '@/components/station/StationSimulatorConflict';
 import { api } from '@/lib/api';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { getErrorMessage } from '@/lib/error-message';
@@ -118,12 +119,9 @@ export function StationDetail(): React.JSX.Element {
     queryFn: () => api.get<{ data: Site[]; total: number }>('/v1/sites?limit=100'),
   });
 
-  const { data: settingsData } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
-  });
-  const guestChargingEnabled = settingsData?.['guest.enabled'] !== false;
-  const reservationEnabled = settingsData?.['reservation.enabled'] !== false;
+  const {
+    flags: { guestChargingEnabled, reservationEnabled },
+  } = useFeatureFlags();
   const sites = sitesResponse?.data;
 
   const { data: station, isLoading } = useQuery({

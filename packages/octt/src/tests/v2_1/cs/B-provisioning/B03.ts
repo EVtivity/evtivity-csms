@@ -69,13 +69,13 @@ export const TC_B_03_CS: CsTestCase = {
         expected: 'Second BootNotification received',
         actual: `bootCount = ${String(bootCount)}, received = ${retryBoot != null}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Station retries BootNotification',
         status: 'failed',
         expected: 'Second BootNotification received',
-        actual: 'Timed out waiting for retry',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -90,13 +90,13 @@ export const TC_B_03_CS: CsTestCase = {
         expected: 'connectorStatus = Available',
         actual: `connectorStatus = ${connectorStatus}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'StatusNotificationRequest: connectorStatus = Available',
         status: 'failed',
         expected: 'connectorStatus = Available',
-        actual: 'Timed out waiting for StatusNotification',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

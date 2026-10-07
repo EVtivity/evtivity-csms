@@ -14,13 +14,10 @@ async function collectConnectorStatuses(
   const statuses = new Map<number, string>();
   const deadline = Date.now() + timeoutMs;
   while (statuses.size < connectorIds.length && Date.now() < deadline) {
-    try {
-      const sn = await server.waitForMessage('StatusNotification', deadline - Date.now());
-      const connectorId = sn['connectorId'] as number;
-      if (connectorIds.includes(connectorId)) statuses.set(connectorId, sn['status'] as string);
-    } catch {
-      break;
-    }
+    const sn = await server.waitForMessageOrNull('StatusNotification', deadline - Date.now());
+    if (sn == null) break;
+    const connectorId = sn['connectorId'] as number;
+    if (connectorIds.includes(connectorId)) statuses.set(connectorId, sn['status'] as string);
   }
   return statuses;
 }
@@ -54,22 +51,10 @@ export const TC_032_1_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain setup messages
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     // Trigger power failure: stops tx (sends StopTransaction), then disconnects + reconnects
     await ctx.station.simulatePowerCycle('PowerLoss');
@@ -153,22 +138,10 @@ export const TC_032_2_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain setup messages
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     await drainMessages(ctx.server, 'StatusNotification', 300);
 

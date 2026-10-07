@@ -6,11 +6,13 @@ import { z } from 'zod';
 import type { EventBus, Logger, PubSubClient } from '@evtivity/lib';
 import {
   CSMS_SESSION_END_REASONS,
+  SESSION_END_FAILED_REASON,
   SESSION_END_REQUEST_CHANNEL,
   faultUnbilledSession,
 } from '@evtivity/database';
 import { cancelOpenSessionHold } from '@evtivity/payments';
 import { paymentContext } from '../lib/payments.js';
+import { notifySessionEndFailed } from './session-end-alert.js';
 import type { CsmsSessionEndReason } from '@evtivity/database';
 
 /**
@@ -38,9 +40,6 @@ export const SESSION_END_LEASE_SECONDS = 300;
  * cancelled.
  */
 export const SESSION_END_MAX_ATTEMPTS = 5;
-
-/** The stopped reason of a session whose CSMS end failed SESSION_END_MAX_ATTEMPTS times. */
-export const SESSION_END_FAILED_REASON = 'EndRequestFailed';
 
 /** How often each OCPP pod sweeps for end requests nobody has processed. */
 export const SESSION_END_SWEEP_INTERVAL_MS = 60_000;
@@ -183,8 +182,10 @@ export async function sweepSessionEndRequests(
 /**
  * Stops retrying a session end that failed SESSION_END_MAX_ATTEMPTS times:
  * faults the session unbilled (only while active, P5), closes its open tariff
- * segment, cancels its hold (fail-open, P9), and logs at error so the
- * operator can follow up. Returns whether this call faulted it.
+ * segment, cancels its hold (fail-open, P9), logs at error, and alerts the
+ * operators (session.EndRequestFailed, fail-open). Only the call whose fault
+ * update changed the session sends the alert, so a retry or a second pod
+ * never alerts twice (P7). Returns whether this call faulted it.
  */
 export async function giveUpSessionEnd(
   sql: postgres.Sql,
@@ -213,6 +214,7 @@ export async function giveUpSessionEnd(
     } catch (err: unknown) {
       logger.warn({ err, sessionId }, 'Failed to cancel the hold of a session whose end failed');
     }
+    await notifySessionEndFailed(sql, sessionId, logger);
     return true;
   } catch (err: unknown) {
     logger.error({ err, sessionId }, 'Failed to fault a session whose end failed');

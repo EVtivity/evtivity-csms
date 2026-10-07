@@ -14,7 +14,6 @@ export interface NavItem {
   to: string;
   labelKey: ParseKeys;
   icon: LucideIcon;
-  requiredPermission: string | null;
 }
 
 interface SidebarNavProps {

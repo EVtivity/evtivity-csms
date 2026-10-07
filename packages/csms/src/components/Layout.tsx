@@ -5,136 +5,18 @@ import { useEffect, useState } from 'react';
 import { Link, Outlet, useLocation } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import {
-  LayoutDashboard,
-  Building2,
-  Fuel,
-  Clock,
-  Users,
-  CreditCard,
-  UserCircle,
-  Truck,
-  Key,
-  Settings,
-  MessageSquare,
-  Bell,
-  ScrollText,
-  History,
-  CalendarClock,
-  FileBarChart,
-  Globe,
-  Shield,
-  Menu,
-  X,
-  ChevronsLeft,
-  ChevronsRight,
-} from 'lucide-react';
+import { Menu, X, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { AiAssistant } from '@/components/AiAssistant';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { UserDropdown } from '@/components/layout/UserDropdown';
-import { useAuth, useHasAnyPermission, hasPermissionCheck } from '@/lib/auth';
+import { useAuth } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { useEventStream } from '@/hooks/use-event-stream';
 import { api } from '@/lib/api';
-import { SETTINGS_PERMISSIONS } from '@evtivity/lib/permissions';
-
-const SETTINGS_NAV_PERMISSIONS = SETTINGS_PERMISSIONS.filter((p) => p.endsWith(':read'));
-
-const navItems = [
-  // Overview
-  {
-    to: '/',
-    labelKey: 'nav.dashboard' as const,
-    icon: LayoutDashboard,
-    requiredPermission: 'dashboard:read',
-  },
-  // Infrastructure
-  {
-    to: '/sites',
-    labelKey: 'nav.sites' as const,
-    icon: Building2,
-    requiredPermission: 'sites:read',
-  },
-  {
-    to: '/stations',
-    labelKey: 'nav.stations' as const,
-    icon: Fuel,
-    requiredPermission: 'stations:read',
-  },
-
-  // Operations
-  {
-    to: '/sessions',
-    labelKey: 'nav.sessions' as const,
-    icon: Clock,
-    requiredPermission: 'sessions:read',
-  },
-  {
-    to: '/reservations',
-    labelKey: 'nav.reservations' as const,
-    icon: CalendarClock,
-    requiredPermission: 'reservations:read',
-  },
-  // Customers
-  {
-    to: '/drivers',
-    labelKey: 'nav.drivers' as const,
-    icon: UserCircle,
-    requiredPermission: 'drivers:read',
-  },
-  {
-    to: '/fleets',
-    labelKey: 'nav.fleets' as const,
-    icon: Truck,
-    requiredPermission: 'fleets:read',
-  },
-  { to: '/tokens', labelKey: 'nav.tokens' as const, icon: Key, requiredPermission: 'drivers:read' },
-  // Financial
-  {
-    to: '/pricing',
-    labelKey: 'nav.pricing' as const,
-    icon: CreditCard,
-    requiredPermission: 'pricing:read',
-  },
-  {
-    to: '/reports',
-    labelKey: 'nav.reports' as const,
-    icon: FileBarChart,
-    requiredPermission: 'reports:read',
-  },
-  // Networking
-  {
-    to: '/roaming',
-    labelKey: 'nav.roaming' as const,
-    icon: Globe,
-    requiredPermission: 'roaming:read',
-  },
-  {
-    to: '/certificates',
-    labelKey: 'nav.certificates' as const,
-    icon: Shield,
-    requiredPermission: 'certificates:read',
-  },
-  // Administration
-  { to: '/users', labelKey: 'nav.users' as const, icon: Users, requiredPermission: 'users:read' },
-  {
-    to: '/support-cases',
-    labelKey: 'nav.supportCases' as const,
-    icon: MessageSquare,
-    requiredPermission: 'support:read',
-  },
-  {
-    to: '/notifications',
-    labelKey: 'nav.notifications' as const,
-    icon: Bell,
-    requiredPermission: 'notifications:read',
-  },
-  { to: '/logs', labelKey: 'nav.logs' as const, icon: ScrollText, requiredPermission: 'logs:read' },
-  { to: '/audit', labelKey: 'nav.audit' as const, icon: History, requiredPermission: 'audit:read' },
-  { to: '/settings', labelKey: 'nav.settings' as const, icon: Settings, requiredPermission: null },
-];
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { visibleNavEntries, type NavEntry } from '@/navigation/registry';
 
 function SidebarContent({
   onNavClick,
@@ -149,7 +31,7 @@ function SidebarContent({
   companyLogo: string | null;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
-  visibleNavItems: typeof navItems;
+  visibleNavItems: readonly NavEntry[];
 }): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -219,31 +101,24 @@ export function Layout(): React.JSX.Element {
     });
   };
 
-  const { data: settings } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
+  // Public endpoints: users without settings permissions see the branding and
+  // the feature toggles too. The features key sits under ['settings'] so saving
+  // a toggle refreshes the nav.
+  const { data: branding } = useQuery({
+    queryKey: ['branding'],
+    queryFn: () => api.get<Record<string, string>>('/v1/portal/branding'),
   });
-  const companyName =
-    settings != null &&
-    typeof settings['company.name'] === 'string' &&
-    settings['company.name'] !== ''
-      ? settings['company.name']
-      : 'EVtivity';
-  const companyLogo =
-    settings != null &&
-    typeof settings['company.logo'] === 'string' &&
-    settings['company.logo'] !== ''
-      ? settings['company.logo']
-      : null;
+  const { flags: featureFlags } = useFeatureFlags();
+  const brandingValue = (key: string): string | null => {
+    const value = branding?.[key];
+    return typeof value === 'string' && value !== '' ? value : null;
+  };
+  const companyName = brandingValue('name') ?? 'EVtivity';
+  const companyLogo = brandingValue('logo');
+  const favicon = brandingValue('favicon') ?? '';
 
   useEffect(() => {
     document.title = `${companyName} CSMS`;
-    const favicon =
-      settings != null &&
-      typeof settings['company.favicon'] === 'string' &&
-      settings['company.favicon'] !== ''
-        ? settings['company.favicon']
-        : '';
     let link = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
     if (favicon === '') {
       link?.remove();
@@ -255,29 +130,10 @@ export function Layout(): React.JSX.Element {
       }
       link.href = favicon;
     }
-  }, [companyName, settings]);
+  }, [companyName, favicon]);
 
   const permissions = useAuth((s) => s.permissions);
-  const hasAnySettings = useHasAnyPermission(SETTINGS_NAV_PERMISSIONS);
-  const roamingEnabled = settings != null && settings['roaming.enabled'] === true;
-  const pncEnabled = settings != null && settings['pnc.enabled'] === true;
-  const reservationEnabled = settings == null || settings['reservation.enabled'] !== false;
-  const supportEnabled = settings == null || settings['support.enabled'] !== false;
-  const fleetEnabled = settings == null || settings['fleet.enabled'] !== false;
-  const visibleNavItems = navItems.filter((item) => {
-    if (item.to === '/roaming' && !roamingEnabled) return false;
-    if (item.to === '/certificates' && !pncEnabled) return false;
-    if (item.to === '/reservations' && !reservationEnabled) return false;
-    if (item.to === '/support-cases' && !supportEnabled) return false;
-    if (item.to === '/fleets' && !fleetEnabled) return false;
-    // Settings nav: show only when user has any settings.* permission
-    if (item.to === '/settings') return hasAnySettings;
-    // Permission-based filtering for all other nav items
-    if (item.requiredPermission != null) {
-      return hasPermissionCheck(permissions, item.requiredPermission);
-    }
-    return true;
-  });
+  const visibleNavItems = visibleNavEntries(permissions, featureFlags);
 
   useEffect(() => {
     setMobileNavOpen(false);

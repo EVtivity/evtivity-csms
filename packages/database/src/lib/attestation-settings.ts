@@ -4,6 +4,9 @@
 import { like } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('attestation-settings');
 
 export interface AttestationConfig {
   enabled: boolean;
@@ -56,7 +59,11 @@ export async function getAttestationConfig(): Promise<AttestationConfig> {
     cache = parse(rows);
     cachedAt = now;
     return cache;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'mobile.attestation.*' },
+      'getAttestationConfig failed, using the cached value or default',
+    );
     return cache ?? FALLBACK;
   }
 }

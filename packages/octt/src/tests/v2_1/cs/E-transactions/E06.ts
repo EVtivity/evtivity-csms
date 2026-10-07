@@ -71,11 +71,7 @@ export const TC_E_16_CS: CsTestCase = {
     ctx.server.acceptConnections();
     // Drain status (a restored connection is not a reboot: no BootNotification)
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
 
     // Step 1: CS sends TransactionEvent (offline queue)
@@ -172,16 +168,11 @@ export const TC_E_17_CS: CsTestCase = {
     while (Date.now() < deadline3) {
       const remaining = deadline3 - Date.now();
       if (remaining <= 0) break;
-      try {
-        const msg = await ctx.server.waitForMessage('StatusNotification', remaining);
-        const s = (msg as Record<string, unknown> | null)?.['connectorStatus'] as
-          | string
-          | undefined;
-        if (s === 'Available') {
-          connStatus = s;
-          break;
-        }
-      } catch {
+      const msg = await ctx.server.waitForMessageOrNull('StatusNotification', remaining);
+      if (msg == null) break;
+      const s = (msg as Record<string, unknown> | null)?.['connectorStatus'] as string | undefined;
+      if (s === 'Available') {
+        connStatus = s;
         break;
       }
     }
@@ -216,11 +207,7 @@ export const TC_E_39_CS: CsTestCase = {
     ctx.station.setConfigValue('TxCtrlr.EVConnectionTimeOut', '3');
     await ctx.station.authorize(1, 'OCTT-TOKEN-001');
     // Drain Authorize message
-    try {
-      await ctx.server.waitForMessage('Authorize', 2000);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('Authorize', 2000);
     // Wait for timeout without plugging in
 
     // Steps 1 and 2 are expected only when the transaction started at the
@@ -262,15 +249,11 @@ export const TC_E_39_CS: CsTestCase = {
 
     // Step 5: TransactionEvent - should not start charging
     let chargingStarted = false;
-    try {
-      const txMsg5 = await ctx.server.waitForMessage('TransactionEvent', 5000);
-      const tx5Payload = txMsg5 as Record<string, unknown> | null;
-      const txInfo5 = tx5Payload?.['transactionInfo'] as Record<string, unknown> | undefined;
-      const chState5 = txInfo5?.['chargingState'] as string | undefined;
-      if (chState5 === 'Charging') chargingStarted = true;
-    } catch {
-      chargingStarted = false;
-    }
+    const txMsg5 = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    const tx5Payload = txMsg5 as Record<string, unknown> | null;
+    const txInfo5 = tx5Payload?.['transactionInfo'] as Record<string, unknown> | undefined;
+    const chState5 = txInfo5?.['chargingState'] as string | undefined;
+    if (chState5 === 'Charging') chargingStarted = true;
     steps.push({
       step: 5,
       description: 'TransactionEvent - should not start charging',
@@ -306,11 +289,7 @@ export const TC_E_07_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Manual Action: Present IdToken to stop charging session
@@ -355,11 +334,7 @@ export const TC_E_35_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Step 1: CSMS sends RequestStopTransaction
@@ -422,11 +397,7 @@ export const TC_E_37_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Manual Action: Disconnect on EV side
@@ -481,11 +452,7 @@ export const TC_E_08_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Step 1: State is StopAuthorized - stop charging locally
@@ -527,11 +494,7 @@ export const TC_E_22_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // EV suspends energy transfer
@@ -586,11 +549,7 @@ export const TC_E_14_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Manual Action: Disconnect EV and EVSE
@@ -640,11 +599,7 @@ export const TC_E_20_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Manual Action: Disconnect on EV side
@@ -699,11 +654,7 @@ export const TC_E_54_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Manual Action: Disconnect on EV side
@@ -758,11 +709,7 @@ export const TC_E_15_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Manual Action: Present IdToken to stop
@@ -812,11 +759,7 @@ export const TC_E_21_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Step 1: CSMS sends RequestStopTransaction
@@ -879,11 +822,7 @@ export const TC_E_19_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // EV departs the parking bay

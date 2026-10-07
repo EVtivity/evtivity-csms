@@ -7,7 +7,7 @@ import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
-import type { ReportGeneratorResult } from '../report.service.js';
+import type { ReportGeneratorResult } from '../report-registry.js';
 import { csvRows, dateCell, pdfRows, percentCell } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
 

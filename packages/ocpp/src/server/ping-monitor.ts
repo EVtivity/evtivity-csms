@@ -3,6 +3,7 @@
 
 import type { ConnectionManager } from './connection-manager.js';
 import type { Logger, PubSubClient } from '@evtivity/lib';
+import { MIN_HEARTBEAT_TIMEOUT_MS, heartbeatTimeoutFor } from '@evtivity/lib';
 import type postgres from 'postgres';
 
 export interface HealthSnapshot {
@@ -18,14 +19,6 @@ export interface HealthSnapshot {
 const MAX_LATENCY_HISTORY = 1000;
 const PING_INTERVAL_MS = 30_000;
 const PONG_WAIT_MS = 5_000;
-// Close a connection with no inbound message for this long. Three heartbeat
-// intervals, never less than 15 minutes (3x the default 300s interval).
-const MIN_HEARTBEAT_TIMEOUT_MS = 900_000;
-
-export function heartbeatTimeoutFor(heartbeatSeconds: number): number {
-  return Math.max(MIN_HEARTBEAT_TIMEOUT_MS, heartbeatSeconds * 3 * 1000);
-}
-
 export class PingMonitor {
   private readonly pingSentTimes = new Map<string, number>();
   private readonly recentLatencies: number[] = [];
@@ -130,7 +123,11 @@ export class PingMonitor {
 
       try {
         conn.ws.ping();
-      } catch {
+      } catch (err) {
+        this.logger.debug(
+          { err, stationId },
+          'Ping send failed; skipping this station until the next round',
+        );
         this.pingSentTimes.delete(stationId);
         this.totalPingsSent--;
       }

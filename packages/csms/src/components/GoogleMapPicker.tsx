@@ -52,9 +52,9 @@ export function GoogleMapPicker({
         // Settings > Integrations > Google Maps. Auto-centering on an
         // existing site marker (and forcing zoom 15) would override the
         // configured regional view the operator deliberately set.
-        const centerLat = Number(settings.defaultLat);
-        const centerLng = Number(settings.defaultLng);
-        const zoom = Number(settings.defaultZoom);
+        const centerLat = settings.defaultLat;
+        const centerLng = settings.defaultLng;
+        const zoom = settings.defaultZoom;
         const markerLat = latitude !== '' ? Number(latitude) : centerLat;
         const markerLng = longitude !== '' ? Number(longitude) : centerLng;
 

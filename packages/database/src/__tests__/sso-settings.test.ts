@@ -20,9 +20,16 @@ vi.mock('../schema/settings.js', () => ({
   settings: { key: 'key', value: 'value' },
 }));
 
-vi.mock('@evtivity/lib', () => ({
-  decryptString: vi.fn((val: string) => `decrypted:${val}`),
-}));
+const mockWarn = vi.fn();
+const mockDecrypt = vi.fn((val: string) => `decrypted:${val}`);
+vi.mock('@evtivity/lib', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/lib')>();
+  return {
+    tryParseJson: actual.tryParseJson,
+    decryptString: mockDecrypt,
+    createLogger: () => ({ warn: mockWarn }),
+  };
+});
 
 function makeChain(result: unknown[]) {
   const chain: Record<string, unknown> = {};
@@ -126,6 +133,45 @@ describe('getSsoConfig', () => {
     const { getSsoConfig } = await import('../lib/sso-settings.js');
     const result = await getSsoConfig();
     expect(result).toBeNull();
+    expect(mockWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'sso.*' }),
+      expect.stringContaining('getSsoConfig failed'),
+    );
+  });
+
+  it('keeps the default attribute mapping when the stored JSON is invalid', async () => {
+    mockSelect.mockReturnValue(
+      makeChain([
+        { key: 'sso.enabled', value: true },
+        { key: 'sso.attributeMapping', value: '{not json' },
+      ]),
+    );
+    const { getSsoConfig } = await import('../lib/sso-settings.js');
+    const result = await getSsoConfig();
+    expect(result?.attributeMapping).toEqual({
+      email: 'email',
+      firstName: 'firstName',
+      lastName: 'lastName',
+    });
+  });
+
+  it('logs and uses an empty certificate when decryption fails', async () => {
+    mockDecrypt.mockImplementationOnce(() => {
+      throw new Error('bad auth tag');
+    });
+    mockSelect.mockReturnValue(
+      makeChain([
+        { key: 'sso.enabled', value: true },
+        { key: 'sso.certEnc', value: 'ciphertext' },
+      ]),
+    );
+    const { getSsoConfig } = await import('../lib/sso-settings.js');
+    const result = await getSsoConfig();
+    expect(result?.cert).toBe('');
+    expect(mockWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'sso.certEnc' }),
+      expect.stringContaining('decryption failed'),
+    );
   });
 
   it('handles attributeMapping as object (not string)', async () => {

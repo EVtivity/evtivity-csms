@@ -132,7 +132,7 @@ describe('OCPP schema routes', () => {
   });
 
   it('GET /v1/ocpp/schemas/:action returns 404 when schema file not found', async () => {
-    mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
+    mockReadFile.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
     const response = await app.inject({
       method: 'GET',
@@ -142,6 +142,17 @@ describe('OCPP schema routes', () => {
     expect(response.statusCode).toBe(404);
     const body = JSON.parse(response.body);
     expect(body.code).toBe('SCHEMA_NOT_FOUND');
+  });
+
+  it('GET /v1/ocpp/schemas/:action fails when the schema file cannot be read', async () => {
+    mockReadFile.mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'EACCES' }));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/ocpp/schemas/GetBaseReport',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(500);
   });
 
   it('GET /v1/ocpp/schemas/:action returns 404 for unknown 1.6 action', async () => {
@@ -299,7 +310,7 @@ describe('OCPP command schema routes', () => {
   });
 
   it('GET /ocpp/commands/v21/:action/schema returns 404 when schema file missing', async () => {
-    mockReadFile.mockRejectedValueOnce(new Error('ENOENT'));
+    mockReadFile.mockRejectedValueOnce(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
     const response = await app.inject({
       method: 'GET',

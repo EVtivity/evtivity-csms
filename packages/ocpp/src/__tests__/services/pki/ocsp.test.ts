@@ -34,6 +34,7 @@ import {
   getOcspResultForStation,
   isOcspResponderAllowed,
   normalizeSerialHex,
+  OcspError,
   verifyOcspResponse,
 } from '../../../services/pki/ocsp.js';
 
@@ -207,6 +208,18 @@ describe('verifyOcspResponse', () => {
     expect(() => verifyOcspResponse(res, { ...data, serialNumber: '1234' }, [])).toThrow(
       /does not cover/,
     );
+  });
+
+  it('rejects a body that is not DER and keeps the parse error as the cause', () => {
+    let thrown: unknown;
+    try {
+      verifyOcspResponse(Buffer.from('not der'), requestDataFor(leaf), []);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(OcspError);
+    expect((thrown as OcspError).message).toMatch(/DER OCSPResponse/);
+    expect((thrown as OcspError).cause).toBeInstanceOf(Error);
   });
 });
 

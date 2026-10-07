@@ -725,7 +725,7 @@ async function buildCapitalCostsTab(sheet: ExcelJS.Worksheet): Promise<void> {
 
 export const NEVI_FILTERS_ERROR = 'Filters must include a valid quarter (1-4) and year';
 
-export function neviFiltersValid(filters: Record<string, unknown>): boolean {
+function neviFiltersValid(filters: Record<string, unknown>): boolean {
   const quarter = Number(filters['quarter']);
   const year = Number(filters['year']);
   return (
@@ -736,6 +736,10 @@ export function neviFiltersValid(filters: Record<string, unknown>): boolean {
     year >= 2000 &&
     year <= 9999
   );
+}
+
+export function neviFiltersError(filters: Record<string, unknown>): string | null {
+  return neviFiltersValid(filters) ? null : NEVI_FILTERS_ERROR;
 }
 
 export async function generateNeviReport(

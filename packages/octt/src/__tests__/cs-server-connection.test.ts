@@ -3,7 +3,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import WebSocket from 'ws';
-import { OcppTestServer } from '../cs-server.js';
+import { MessageTimeoutError, OcppTestServer } from '../cs-server.js';
 
 type Frame = unknown[];
 
@@ -182,6 +182,35 @@ describe('OcppTestServer (ws://)', () => {
     await expect(server.waitForMessage('Heartbeat', 20)).rejects.toThrow(
       'Timed out waiting for Heartbeat after 20ms',
     );
+  });
+
+  it('rejects a timed out wait with a MessageTimeoutError', async () => {
+    const err: unknown = await server.waitForMessage('Heartbeat', 20).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(MessageTimeoutError);
+    expect(err).toMatchObject({ action: 'Heartbeat', timeoutMs: 20 });
+  });
+
+  it('waitForMessageOrNull returns the payload, or null on a timeout', async () => {
+    const s = await station();
+    await server.waitForConnection(2000);
+    const waiting = server.waitForMessageOrNull('Heartbeat', 2000);
+    s.send([2, 'n1', 'Heartbeat', { n: 1 }]);
+    await expect(waiting).resolves.toEqual({ n: 1 });
+    await expect(server.waitForMessageOrNull('Heartbeat', 20)).resolves.toBeNull();
+  });
+
+  it('waitForMessageOrNull rethrows a failure that is not a timeout', async () => {
+    const waiting = server.waitForMessageOrNull('Heartbeat', 2000);
+    await server.stop();
+    await expect(waiting).rejects.toThrow('Server stopping');
+  });
+
+  it('ignores a frame that is not JSON', async () => {
+    const s = await station();
+    await server.waitForConnection(2000);
+    s.send('not json');
+    s.send([2, 'n2', 'Heartbeat', {}]);
+    await expect(server.waitForMessage('Heartbeat', 2000)).resolves.toEqual({});
   });
 
   it('answers a CALL with the message handler response', async () => {

@@ -122,7 +122,8 @@ export function formatRatePerKwh(rate: number, currency: string): string {
       minimumFractionDigits: 4,
       maximumFractionDigits: 4,
     }).format(rate);
-  } catch {
+  } catch (err) {
+    console.warn(`Format a ${currency} rate failed, using a plain number`, err);
     return `${currency.toUpperCase()} ${formatNumber(rate, 4)}`;
   }
 }
@@ -191,7 +192,8 @@ export function getDecimalSeparator(locale: string): string {
   try {
     const parts = new Intl.NumberFormat(locale).formatToParts(1.1);
     return parts.find((part) => part.type === 'decimal')?.value ?? '.';
-  } catch {
+  } catch (err) {
+    console.warn(`Read the decimal separator for locale ${locale} failed, using "."`, err);
     return '.';
   }
 }

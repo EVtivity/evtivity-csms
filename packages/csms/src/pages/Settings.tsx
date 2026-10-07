@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { SystemInfoDialog } from '@/components/SystemInfoDialog';
 import { api } from '@/lib/api';
 import { useQrIcon } from '@/hooks/use-qr-icon';
+import type { Permission } from '@evtivity/lib/permissions';
 import { useAuth, hasPermissionCheck } from '@/lib/auth';
 import { CompanySettings } from '@/components/settings/CompanySettings';
 import { MarketingSettings } from '@/components/settings/MarketingSettings';
@@ -31,7 +32,9 @@ import { SmartChargingTemplates } from '@/pages/SmartChargingTemplates';
 import { Conformance } from '@/pages/Conformance';
 
 /** Maps tab value -> required permission */
-const TAB_PERMISSIONS: Record<string, string> = {
+// Several tabs share settings.system. Typed as Permission so a tab cannot name a permission
+// the catalog does not hold.
+const TAB_PERMISSIONS: Record<string, Permission> = {
   company: 'settings.system:read',
   marketing: 'settings.system:read',
   content: 'settings.system:read',
@@ -60,7 +63,8 @@ function formatSettingValue(value: unknown): string {
   try {
     const serialized = JSON.stringify(value);
     return serialized.length > 60 ? `${serialized.slice(0, 60)}…` : serialized;
-  } catch {
+  } catch (err) {
+    console.warn('Serialize a setting value for display failed', err);
     return '[unserializable]';
   }
 }

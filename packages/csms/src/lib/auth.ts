@@ -217,8 +217,9 @@ export const useAuth = create<AuthState>((set, get) => ({
       // usable on the server until natural expiry. Mirrors the portal
       // logout pattern.
       await api.post('/v1/auth/logout', {});
-    } catch {
+    } catch (err) {
       // Clear state even if the server call fails.
+      console.warn('Logout request failed, clearing the local session anyway', err);
     }
     localStorage.removeItem('role');
     sessionStorage.setItem('noAutoLogin', 'true');

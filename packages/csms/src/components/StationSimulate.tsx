@@ -170,7 +170,8 @@ export function StationSimulate({
         `/v1/tokens?search=${encodeURIComponent(token)}&limit=10`,
       );
       return res.data.some((t) => t.idToken === token);
-    } catch {
+    } catch (err) {
+      console.warn('Token lookup failed, treating the token as unknown', err);
       return false;
     }
   }

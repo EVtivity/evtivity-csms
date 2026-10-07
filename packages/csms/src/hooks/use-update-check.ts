@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect, useRef } from 'react';
+import { tryParseJson } from '@evtivity/lib/safe-json';
 import { useTranslation } from 'react-i18next';
 import { useToast } from '@/components/ui/toast';
 import { useHasPermission } from '@/lib/auth';
@@ -18,15 +19,18 @@ interface DismissalRecord {
 }
 
 function readDismissal(): DismissalRecord | null {
+  let raw: string | null;
   try {
-    const raw = localStorage.getItem(DISMISS_KEY);
-    if (raw == null) return null;
-    const parsed = JSON.parse(raw) as DismissalRecord;
-    if (typeof parsed.version !== 'string' || typeof parsed.at !== 'number') return null;
-    return parsed;
-  } catch {
+    raw = localStorage.getItem(DISMISS_KEY);
+  } catch (err) {
+    console.warn('Read the update dismissal from localStorage failed', err);
     return null;
   }
+  const parsed = tryParseJson(raw);
+  if (parsed == null || typeof parsed !== 'object') return null;
+  const record = parsed as Partial<DismissalRecord>;
+  if (typeof record.version !== 'string' || typeof record.at !== 'number') return null;
+  return { version: record.version, at: record.at };
 }
 
 export function useUpdateCheck(): void {
@@ -78,8 +82,8 @@ export function useUpdateCheck(): void {
             );
           },
         });
-      } catch {
-        // Network failure; silently ignore.
+      } catch (err) {
+        console.warn('Check for a newer CSMS version failed', err);
       }
     })();
   }, [isAdmin, toast, t]);

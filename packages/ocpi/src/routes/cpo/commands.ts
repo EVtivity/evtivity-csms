@@ -45,12 +45,8 @@ const COMMAND_TIMEOUT = 30;
  */
 function isAcceptableResponseUrl(url: string, allowPrivateNetwork: boolean): boolean {
   if (!allowPrivateNetwork) return !isPrivateUrl(url);
-  try {
-    const { protocol } = new URL(url);
-    return protocol === 'http:' || protocol === 'https:';
-  } catch {
-    return false;
-  }
+  const parsed = URL.parse(url);
+  return parsed != null && (parsed.protocol === 'http:' || parsed.protocol === 'https:');
 }
 
 // Resolve a partner-supplied `location_id` to our internal site UUID, but

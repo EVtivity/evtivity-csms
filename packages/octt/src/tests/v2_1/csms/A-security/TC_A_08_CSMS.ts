@@ -66,13 +66,13 @@ export const TC_A_08_CSMS: TestCase = {
         'Send StatusNotification (Available) and CSMS responds accordingly',
         resp4,
       );
-    } catch {
+    } catch (err) {
       steps.push({
         step: 4,
         description: 'Send StatusNotification (Available) and CSMS responds accordingly',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error or rejection',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -95,13 +95,13 @@ export const TC_A_08_CSMS: TestCase = {
         ],
       });
       pushSendAckStep(steps, 5, 'Send NotifyEventRequest and CSMS responds accordingly', resp5);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'Send NotifyEventRequest and CSMS responds accordingly',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error or rejection',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

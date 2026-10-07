@@ -40,13 +40,13 @@ export const TC_N_25_CS: CsTestCase = {
         expected: 'status = Uploading, requestId matches',
         actual: `status = ${logStatus}, requestId = ${reqId}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'LogStatusNotification Uploading',
         status: 'failed',
         expected: 'status = Uploading',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -61,13 +61,13 @@ export const TC_N_25_CS: CsTestCase = {
         expected: 'status = Uploaded, requestId matches',
         actual: `status = ${logStatus}, requestId = ${reqId}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'LogStatusNotification Uploaded',
         status: 'failed',
         expected: 'status = Uploaded',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -117,13 +117,13 @@ export const TC_N_26_CS: CsTestCase = {
         expected: 'status = UploadFailure/BadMessage/PermissionDenied/NotSupportedOperation',
         actual: `status = ${s}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'LogStatusNotification failure',
         status: 'failed',
         expected: 'Failure status',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -180,13 +180,13 @@ export const TC_N_35_CS: CsTestCase = {
         expected: 'status = Uploading',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'LogStatusNotification Uploading',
         status: 'failed',
         expected: 'status = Uploading',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -199,13 +199,13 @@ export const TC_N_35_CS: CsTestCase = {
         expected: 'status = Uploaded',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'LogStatusNotification Uploaded',
         status: 'failed',
         expected: 'status = Uploaded',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -237,11 +237,7 @@ export const TC_N_36_CS: CsTestCase = {
       actual: `status = ${res1['status']}`,
     });
 
-    try {
-      await ctx.server.waitForMessage('LogStatusNotification', 60000);
-    } catch {
-      /* optional */
-    }
+    await ctx.server.waitForMessageOrNull('LogStatusNotification', 60000);
 
     const res2 = await ctx.server.sendCommand('GetLog', {
       logType: 'DiagnosticsLog',
@@ -295,13 +291,13 @@ export const TC_N_100_CS: CsTestCase = {
         expected: 'status = Uploading',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'LogStatusNotification Uploading',
         status: 'failed',
         expected: 'status = Uploading',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -314,13 +310,13 @@ export const TC_N_100_CS: CsTestCase = {
         expected: 'status = Uploaded',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'LogStatusNotification Uploaded',
         status: 'failed',
         expected: 'status = Uploaded',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -361,13 +357,13 @@ export const TC_N_101_CS: CsTestCase = {
         expected: 'status = UploadFailure',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'LogStatusNotification UploadFailure',
         status: 'failed',
         expected: 'status = UploadFailure',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -413,13 +409,13 @@ export const TC_N_102_CS: CsTestCase = {
         expected: 'status = Uploading',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'LogStatusNotification Uploading',
         status: 'failed',
         expected: 'status = Uploading',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -432,13 +428,13 @@ export const TC_N_102_CS: CsTestCase = {
         expected: 'status = Uploaded',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'LogStatusNotification Uploaded',
         status: 'failed',
         expected: 'status = Uploaded',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -484,13 +480,13 @@ export const TC_N_103_CS: CsTestCase = {
         expected: 'status = Uploading',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'LogStatusNotification Uploading',
         status: 'failed',
         expected: 'status = Uploading',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -503,13 +499,13 @@ export const TC_N_103_CS: CsTestCase = {
         expected: 'status = Uploaded',
         actual: `status = ${msg['status']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'LogStatusNotification Uploaded',
         status: 'failed',
         expected: 'status = Uploaded',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

@@ -148,7 +148,7 @@ export function BulkReservationSlotRow({
             type="button"
             variant="ghost"
             size="icon"
-            aria-label="Remove station"
+            aria-label={t('reservations.removeSlotStation')}
             onClick={onRemove}
             className="mt-5"
           >

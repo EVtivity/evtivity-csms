@@ -4,6 +4,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { tryParseJson } from '@evtivity/lib/safe-json';
 import { Search, Zap, Globe, MapPin, Plug } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -70,15 +71,20 @@ const LOCATION_KEY = 'evtivity-driver-location';
 const LOCATION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function getStoredLocation(): StoredLocation | null {
+  let raw: string | null;
   try {
-    const raw = localStorage.getItem(LOCATION_KEY);
-    if (raw == null) return null;
-    const loc = JSON.parse(raw) as StoredLocation;
-    if (Date.now() - loc.timestamp > LOCATION_MAX_AGE_MS) return null;
-    return loc;
-  } catch {
+    raw = localStorage.getItem(LOCATION_KEY);
+  } catch (err) {
+    console.warn('Read the stored location from localStorage failed', err);
     return null;
   }
+  const parsed = tryParseJson(raw);
+  if (parsed == null || typeof parsed !== 'object') return null;
+  const loc = parsed as StoredLocation;
+  if (typeof loc.timestamp !== 'number' || Date.now() - loc.timestamp > LOCATION_MAX_AGE_MS) {
+    return null;
+  }
+  return loc;
 }
 
 function storeLocation(lat: number, lng: number): void {

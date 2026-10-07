@@ -18,6 +18,7 @@ import {
   check,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
+import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib/load-allocation';
 import { createId } from '../lib/id.js';
 
 export const chargingStationStatusEnum = pgEnum('charging_station_status', [
@@ -224,10 +225,10 @@ export const stationLayoutPositions = pgTable(
   (table) => [index('idx_station_layout_site').on(table.siteId)],
 );
 
-export const loadAllocationStrategyEnum = pgEnum('load_allocation_strategy', [
-  'equal_share',
-  'priority_based',
-]);
+export const loadAllocationStrategyEnum = pgEnum(
+  'load_allocation_strategy',
+  LOAD_ALLOCATION_STRATEGIES,
+);
 
 export const sitePowerLimits = pgTable('site_power_limits', {
   id: serial('id').primaryKey(),

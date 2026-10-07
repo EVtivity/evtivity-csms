@@ -63,16 +63,13 @@ export const TC_E_04_CS: CsTestCase = {
     // Find TransactionEvent with chargingState Charging (skip other messages)
     let chState: string | undefined;
     for (let _i = 0; _i < 10; _i++) {
-      try {
-        const msg = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        const txInfo = (msg as Record<string, unknown>)['transactionInfo'] as
-          | Record<string, unknown>
-          | undefined;
-        chState = txInfo?.['chargingState'] as string | undefined;
-        if (chState === 'Charging') break;
-      } catch {
-        break;
-      }
+      const msg = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (msg == null) break;
+      const txInfo = (msg as Record<string, unknown>)['transactionInfo'] as
+        | Record<string, unknown>
+        | undefined;
+      chState = txInfo?.['chargingState'] as string | undefined;
+      if (chState === 'Charging') break;
     }
     steps.push({
       step: 2,
@@ -95,13 +92,10 @@ async function evConnectTimeoutStep(server: OcppTestServer): Promise<StepResult>
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    try {
-      const msg = await server.waitForMessage('TransactionEvent', remaining);
-      if (msg['triggerReason'] === 'EVConnectTimeout') {
-        txPayload = msg;
-        break;
-      }
-    } catch {
+    const msg = await server.waitForMessageOrNull('TransactionEvent', remaining);
+    if (msg == null) break;
+    if (msg['triggerReason'] === 'EVConnectTimeout') {
+      txPayload = msg;
       break;
     }
   }
@@ -141,11 +135,7 @@ export const TC_E_05_CS: CsTestCase = {
     ctx.station.setConfigValue('TxCtrlr.EVConnectionTimeOut', '3');
     await ctx.station.authorize(1, 'OCTT-TOKEN-001');
     // Drain Authorize message
-    try {
-      await ctx.server.waitForMessage('Authorize', 2000);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('Authorize', 2000);
     // Do NOT plug in - wait for timeout
 
     // Step 1 is executed only when the transaction started at the
@@ -172,32 +162,12 @@ export const TC_E_05_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT-TOKEN-001');
     // Drain charging setup messages (StatusNotification, Authorize, StartTransaction/TransactionEvent)
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 500);
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
 
     const txStartMsg = await ctx.server.waitForMessage('TransactionEvent', 10000);
     const txStartPayload = txStartMsg as Record<string, unknown> | null;
@@ -238,11 +208,7 @@ export const TC_E_38_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover messages
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Manual Action: EV stops accepting energy (not ready)
@@ -299,12 +265,7 @@ export const TC_E_52_CS: CsTestCase = {
 
     // Step 1: CS does NOT send AuthorizeRequest (5s negative check)
     let authReceived = false;
-    try {
-      const authMsg = await ctx.server.waitForMessage('Authorize', 5000);
-      if (authMsg) authReceived = true;
-    } catch {
-      authReceived = false;
-    }
+    if ((await ctx.server.waitForMessageOrNull('Authorize', 5000)) != null) authReceived = true;
     steps.push({
       step: 1,
       description: 'Charging Station does NOT send AuthorizeRequest',
@@ -328,15 +289,11 @@ export const TC_E_52_CS: CsTestCase = {
 
     // Step 3: CS does NOT start charging (5s negative check)
     let chargingStarted = false;
-    try {
-      const txMsg = await ctx.server.waitForMessage('TransactionEvent', 5000);
-      const txPayload = txMsg as Record<string, unknown> | null;
-      const txInfo = txPayload?.['transactionInfo'] as Record<string, unknown> | undefined;
-      const chState = txInfo?.['chargingState'] as string | undefined;
-      if (chState === 'Charging') chargingStarted = true;
-    } catch {
-      chargingStarted = false;
-    }
+    const txMsg = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    const txPayload = txMsg as Record<string, unknown> | null;
+    const txInfo = txPayload?.['transactionInfo'] as Record<string, unknown> | undefined;
+    const chState = txInfo?.['chargingState'] as string | undefined;
+    if (chState === 'Charging') chargingStarted = true;
     steps.push({
       step: 3,
       description: 'Charging Station does NOT start charging',

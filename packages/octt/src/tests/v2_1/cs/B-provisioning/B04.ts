@@ -68,13 +68,13 @@ export const TC_B_51_CS: CsTestCase = {
         expected: 'Station reconnected',
         actual: `isConnected = ${String(ctx.server.isConnected)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Station reconnected after offline threshold exceeded',
         status: 'failed',
         expected: 'Station reconnected',
-        actual: 'Timed out waiting for reconnection',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -90,13 +90,13 @@ export const TC_B_51_CS: CsTestCase = {
         expected: 'connectorStatus = Occupied',
         actual: `connectorStatus = ${connectorStatus}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 4,
         description: 'StatusNotification received for connectors',
         status: 'failed',
         expected: 'StatusNotification received',
-        actual: 'Timed out waiting for StatusNotification',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -147,13 +147,13 @@ export const TC_B_52_CS: CsTestCase = {
         expected: 'Station reconnected',
         actual: `isConnected = ${String(ctx.server.isConnected)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'Station reconnected before offline threshold exceeded',
         status: 'failed',
         expected: 'Station reconnected',
-        actual: 'Timed out waiting for reconnection',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -169,13 +169,13 @@ export const TC_B_52_CS: CsTestCase = {
         expected: 'connectorStatus = Occupied',
         actual: `connectorStatus = ${connectorStatus}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 4,
         description: 'StatusNotification received for configured connector',
         status: 'failed',
         expected: 'StatusNotification received',
-        actual: 'Timed out waiting for StatusNotification',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

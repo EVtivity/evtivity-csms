@@ -201,13 +201,13 @@ export const TC_B_100_CS: CsTestCase = {
         expected: 'NotifyReportRequest received',
         actual: 'NotifyReportRequest received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 5,
         description: 'NotifyReportRequest received',
         status: 'failed',
         expected: 'NotifyReportRequest received',
-        actual: 'Timed out',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

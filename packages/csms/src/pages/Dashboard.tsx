@@ -180,6 +180,7 @@ function ScrollSnapRow({
 }: {
   pages: { id: string; content: React.ReactNode }[];
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState(0);
 
@@ -213,7 +214,7 @@ function ScrollSnapRow({
           <button
             key={page.id}
             type="button"
-            aria-label={`Show ${page.id}`}
+            aria-label={t('dashboard.showPage', { page: index + 1, total: pages.length })}
             onClick={() => {
               goTo(index);
             }}

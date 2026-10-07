@@ -36,40 +36,20 @@ const makeReserveTest = (
       await ctx.station.injectFault(1, 'GroundFailure');
       // Drain StatusNotification from fault injection
       for (let _d = 0; _d < 5; _d++) {
-        try {
-          await ctx.server.waitForMessage('StatusNotification', 500);
-        } catch {
-          break;
-        }
+        if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
       }
     } else if (expectedStatus === 'Occupied') {
       await ctx.station.plugIn(1);
       await ctx.station.startCharging(1, 'OCTT_TAG_001');
       for (let _d = 0; _d < 10; _d++) {
-        try {
-          await ctx.server.waitForMessage('StatusNotification', 500);
-        } catch {
-          break;
-        }
+        if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
       }
-      try {
-        await ctx.server.waitForMessage('StartTransaction', 500);
-      } catch {
-        /* drain */
-      }
-      try {
-        await ctx.server.waitForMessage('Authorize', 500);
-      } catch {
-        /* drain */
-      }
+      await ctx.server.waitForMessageOrNull('StartTransaction', 500);
+      await ctx.server.waitForMessageOrNull('Authorize', 500);
     } else if (expectedStatus === 'Unavailable') {
       await ctx.server.sendCommand('ChangeAvailability', { connectorId: 1, type: 'Inoperative' });
       for (let _d = 0; _d < 5; _d++) {
-        try {
-          await ctx.server.waitForMessage('StatusNotification', 500);
-        } catch {
-          break;
-        }
+        if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
       }
     } else if (expectedStatus === 'Rejected') {
       // Prerequisite: station does NOT support Reservation feature
@@ -267,11 +247,8 @@ export const TC_051_CS: CsTestCase = {
       idTag: 'OCTT_TAG_001',
       reservationId: 1,
     });
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      /* consumed */
-    }
+    // consumed
+    await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
     const cancelResp = await ctx.server.sendCommand('CancelReservation', { reservationId: 1 });
     steps.push({
       step: 2,
@@ -310,11 +287,8 @@ export const TC_052_CS: CsTestCase = {
       idTag: 'OCTT_TAG_001',
       reservationId: 1,
     });
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      /* consumed */
-    }
+    // consumed
+    await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
     const cancelResp = await ctx.server.sendCommand('CancelReservation', { reservationId: 99999 });
     steps.push({
       step: 2,

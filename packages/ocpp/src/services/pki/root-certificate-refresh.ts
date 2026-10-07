@@ -4,7 +4,12 @@
 import { X509Certificate } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { db, pkiCaCertificates } from '@evtivity/database';
-import { createLogger, PNC_COMMANDS_CHANNEL, PNC_COMMAND_RESULTS_CHANNEL } from '@evtivity/lib';
+import {
+  createLogger,
+  PNC_COMMANDS_CHANNEL,
+  PNC_COMMAND_RESULTS_CHANNEL,
+  tryParseJson,
+} from '@evtivity/lib';
 import type { PncCommand, PncCommandResult, PubSubClient, Subscription } from '@evtivity/lib';
 import { getPkiProvider } from './provider-factory.js';
 import { HubjectProvider } from './hubject-provider.js';
@@ -28,6 +33,7 @@ function parseCertificate(pem: string): X509Certificate | null {
   try {
     return new X509Certificate(pem);
   } catch {
+    // fail-open: callers skip a certificate that does not parse
     return null;
   }
 }
@@ -104,13 +110,12 @@ export async function refreshRootCertificates(): Promise<RootRefreshResult> {
 
 async function handlePncCommand(pubsub: PubSubClient, raw: string): Promise<void> {
   // Parsed loosely: the payload comes from another process.
-  let command: { commandId?: unknown; action?: unknown };
-  try {
-    command = JSON.parse(raw) as { commandId?: unknown; action?: unknown };
-  } catch {
+  const parsed = tryParseJson(raw);
+  if (typeof parsed !== 'object' || parsed === null) {
     logger.warn('Bad pnc_commands payload');
     return;
   }
+  const command = parsed as { commandId?: unknown; action?: unknown };
   if (typeof command.commandId !== 'string' || command.commandId === '') {
     logger.warn({ action: command.action }, 'pnc_commands payload without a commandId');
     return;

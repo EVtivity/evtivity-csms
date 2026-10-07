@@ -75,8 +75,11 @@ export async function chargingProfileReconciliationHandler(log: Logger): Promise
               siteId: null,
             }),
           );
-        } catch {
-          // Best-effort SSE notification
+        } catch (err) {
+          log.warn(
+            { err, stationId: row.stationId },
+            'Profile mismatch event publish failed, the dashboard is not notified',
+          );
         }
       }
     }

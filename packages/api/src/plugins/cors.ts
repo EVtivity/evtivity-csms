@@ -7,19 +7,15 @@ import { config } from '../lib/config.js';
 
 /** Match private network and localhost origins (no hardcoded IP needed). */
 function isPrivateOrigin(origin: string): boolean {
-  try {
-    const url = new URL(origin);
-    const host = url.hostname;
-    return (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host.startsWith('192.168.') ||
-      host.startsWith('10.') ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
-    );
-  } catch {
-    return false;
-  }
+  const host = URL.parse(origin)?.hostname;
+  if (host == null) return false;
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host.startsWith('192.168.') ||
+    host.startsWith('10.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  );
 }
 
 export async function registerCors(app: FastifyInstance): Promise<void> {
@@ -47,8 +43,9 @@ export async function registerCors(app: FastifyInstance): Promise<void> {
       const host = request.headers.host;
       const xfHost = request.headers['x-forwarded-host'];
       if (typeof origin === 'string' && (typeof host === 'string' || typeof xfHost === 'string')) {
-        try {
-          const url = new URL(origin);
+        // A malformed Origin is left untouched for the cors plugin to reject.
+        const url = URL.parse(origin);
+        if (url != null) {
           // Compare against host AND x-forwarded-host since reverse proxies
           // and NAT port-forwarders sometimes rewrite the Host header (strip
           // or replace the port). Also accept when only the hostname matches
@@ -65,8 +62,6 @@ export async function registerCors(app: FastifyInstance): Promise<void> {
           if (matches) {
             delete request.headers.origin;
           }
-        } catch {
-          // Malformed Origin: leave untouched and let cors plugin reject it.
         }
       }
       done();

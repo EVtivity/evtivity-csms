@@ -4,6 +4,7 @@
 import { useState, useCallback } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
+import { tryParseJson } from '@evtivity/lib/safe-json';
 import { useTranslation, Trans } from 'react-i18next';
 import { Info } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
@@ -1238,11 +1239,10 @@ export function StationCommands({
   }, [schemaFormValues, resolvedFields, schemaData]);
 
   const syncJsonToForm = useCallback(() => {
-    try {
-      const parsed = JSON.parse(advancedPayload) as Record<string, unknown>;
-      setSchemaFormValues(parsed);
-    } catch {
-      // Keep current form values if JSON is invalid
+    // Keep the current form values when the JSON is invalid.
+    const parsed = tryParseJson(advancedPayload);
+    if (parsed != null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      setSchemaFormValues(parsed as Record<string, unknown>);
     }
   }, [advancedPayload]);
 
@@ -1359,9 +1359,8 @@ export function StationCommands({
     let parsed: Record<string, unknown>;
     const usingRawInput = rawMode || schemaError;
     if (usingRawInput) {
-      try {
-        parsed = JSON.parse(advancedPayload) as Record<string, unknown>;
-      } catch {
+      const value = tryParseJson(advancedPayload);
+      if (value == null || typeof value !== 'object' || Array.isArray(value)) {
         setAdvancedOpen(true);
         setAdvancedResult({
           status: 'error',
@@ -1371,6 +1370,7 @@ export function StationCommands({
         });
         return;
       }
+      parsed = value as Record<string, unknown>;
     } else {
       parsed = formValuesToPayload(schemaFormValues, resolvedFields);
     }

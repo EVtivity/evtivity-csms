@@ -3,6 +3,7 @@
 
 import { eq } from 'drizzle-orm';
 import {
+  createLogger,
   DEFAULT_CURRENCY,
   DEFAULT_PRICE_DISPLAY,
   DEFAULT_TAX_BASIS,
@@ -14,6 +15,8 @@ import {
 } from '@evtivity/lib';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+
+const logger = createLogger('system-settings');
 
 const DEFAULT_TIMEZONE = 'America/New_York';
 const TTL_MS = 60_000;
@@ -53,7 +56,11 @@ export async function getSystemTimezone(): Promise<string> {
     cachedTimezone = typeof row?.value === 'string' ? row.value : DEFAULT_TIMEZONE;
     cachedAt = now;
     return cachedTimezone;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'system.timezone' },
+      'getSystemTimezone failed, using the cached value or default',
+    );
     return cachedTimezone ?? DEFAULT_TIMEZONE;
   }
 }
@@ -79,7 +86,11 @@ export async function getCompanyCurrency(): Promise<string> {
     cachedCurrency = isSupportedCurrency(code) ? code : DEFAULT_CURRENCY;
     cachedCurrencyAt = now;
     return cachedCurrency;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'company.currency' },
+      'getCompanyCurrency failed, using the cached value or default',
+    );
     return cachedCurrency ?? DEFAULT_CURRENCY;
   }
 }
@@ -105,7 +116,11 @@ export async function getCompanyPriceDisplay(): Promise<PriceDisplay> {
     cachedPriceDisplay = isPriceDisplay(row?.value) ? row.value : DEFAULT_PRICE_DISPLAY;
     cachedPriceDisplayAt = now;
     return cachedPriceDisplay;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'company.priceDisplay' },
+      'getCompanyPriceDisplay failed, using the cached value or default',
+    );
     return cachedPriceDisplay ?? DEFAULT_PRICE_DISPLAY;
   }
 }
@@ -131,7 +146,11 @@ export async function getCompanyTaxBasis(): Promise<TaxBasis> {
     cachedTaxBasis = isTaxBasis(row?.value) ? row.value : DEFAULT_TAX_BASIS;
     cachedTaxBasisAt = now;
     return cachedTaxBasis;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'company.taxBasis' },
+      'getCompanyTaxBasis failed, using the cached value or default',
+    );
     return cachedTaxBasis ?? DEFAULT_TAX_BASIS;
   }
 }
@@ -157,7 +176,11 @@ export async function getCompanyCountry(): Promise<string | null> {
     cachedCountry = /^[A-Z]{2}$/.test(code) ? code : null;
     cachedCountryAt = now;
     return cachedCountry;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'company.country' },
+      'getCompanyCountry failed, using the cached value or default',
+    );
     return cachedCountry ?? null;
   }
 }

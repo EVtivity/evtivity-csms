@@ -80,6 +80,12 @@ describe('runProjectionWithRetry', () => {
     const err = await run(work);
     expect((err as { code?: string }).code).toBe('ECONNREFUSED');
     expect(work).toHaveBeenCalledTimes(3);
+    // Only the last run allowed is marked last.
+    expect(work.mock.calls.map((c) => (c[0] as { isLast: boolean }).isLast)).toEqual([
+      false,
+      false,
+      true,
+    ]);
   });
 
   it('never retries an error that is not a lost connection', async () => {
@@ -98,6 +104,7 @@ describe('runProjectionWithRetry', () => {
     const work = vi.fn().mockRejectedValue(connectionError('CONNECT_TIMEOUT'));
     await run(work, { ...OPTIONS, maxAttempts: 1 });
     expect(work).toHaveBeenCalledTimes(1);
+    expect((work.mock.calls[0]?.[0] as { isLast: boolean }).isLast).toBe(true);
   });
 
   it('once: a succeeded step is not run again, and a retry gets its result', async () => {

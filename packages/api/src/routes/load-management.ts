@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc } from 'drizzle-orm';
 import { db, siteLoadManagement, chargingStations, loadAllocationLog } from '@evtivity/database';
+import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -18,7 +19,7 @@ import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 
 const putBody = z.object({
-  strategy: z.enum(['equal_share', 'priority_based']).describe('Load distribution strategy'),
+  strategy: z.enum(LOAD_ALLOCATION_STRATEGIES).describe('Load distribution strategy'),
   isEnabled: z.boolean().describe('Whether load management is active for this site'),
 });
 
@@ -108,7 +109,7 @@ const loadManagementItem = z
   .object({
     config: z
       .object({
-        strategy: z.enum(['equal_share', 'priority_based']).describe('Load distribution strategy'),
+        strategy: z.enum(LOAD_ALLOCATION_STRATEGIES).describe('Load distribution strategy'),
         isEnabled: z.boolean().describe('Whether load management is active'),
       })
       .nullable()
@@ -124,7 +125,7 @@ const siteLoadManagementRecord = z
   .object({
     id: z.number().describe('Site load management config row ID'),
     siteId: z.string().describe('Site ID'),
-    strategy: z.enum(['equal_share', 'priority_based']).describe('Load distribution strategy'),
+    strategy: z.enum(LOAD_ALLOCATION_STRATEGIES).describe('Load distribution strategy'),
     isEnabled: z.boolean().describe('Whether load management is active for this site'),
     createdAt: z.string().describe('Created timestamp (ISO 8601)'),
     updatedAt: z.string().describe('Updated timestamp (ISO 8601)'),
@@ -146,7 +147,7 @@ const historyItem = z
     totalDrawKw: z.number().describe('Total measured power draw in kW'),
     availableKw: z.number().describe('Power capacity available for distribution in kW'),
     strategy: z
-      .enum(['equal_share', 'priority_based'])
+      .enum(LOAD_ALLOCATION_STRATEGIES)
       .describe('Strategy used for this allocation cycle'),
     createdAt: z.string().describe('Timestamp of the allocation cycle'),
   })

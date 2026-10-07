@@ -26,13 +26,13 @@ export const TC_R_108_CSMS: TestCase = {
         timestamp: new Date().toISOString(),
       });
       pushSendAckStep(steps, 1, 'Send NotifyDERAlarmRequest (alarm started)', resp1);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send NotifyDERAlarmRequest (alarm started)',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     await new Promise((r) => setTimeout(r, 5000));
@@ -44,13 +44,13 @@ export const TC_R_108_CSMS: TestCase = {
         timestamp: new Date().toISOString(),
       });
       pushSendAckStep(steps, 2, 'Send NotifyDERAlarmRequest (alarm ended)', resp2);
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'Send NotifyDERAlarmRequest (alarm ended)',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     return {

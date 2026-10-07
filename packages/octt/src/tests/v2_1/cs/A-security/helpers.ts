@@ -153,13 +153,15 @@ export async function csrSteps(
 ): Promise<{ steps: StepResult[]; csr: x509.Pkcs10CertificateRequest | null }> {
   let csr: x509.Pkcs10CertificateRequest | null = null;
   let signatureOk = false;
+  let csrError: string | null = null;
   try {
     if (csrPem != null && csrPem.includes('-----BEGIN CERTIFICATE REQUEST-----')) {
       csr = new x509.Pkcs10CertificateRequest(csrPem);
       signatureOk = await csr.verify();
     }
-  } catch {
+  } catch (err) {
     csr = null;
+    csrError = err instanceof Error ? err.message : String(err);
   }
   const steps = [
     step(
@@ -167,7 +169,9 @@ export async function csrSteps(
       'CSR is a PEM encoded PKCS#10 request (RFC 2986) with a valid signature',
       csr != null && signatureOk,
       'PEM CERTIFICATE REQUEST, signature valid',
-      csr == null ? 'not a PEM PKCS#10 request' : `signature valid: ${String(signatureOk)}`,
+      csr == null
+        ? `not a PEM PKCS#10 request${csrError != null ? `: ${csrError}` : ''}`
+        : `signature valid: ${String(signatureOk)}`,
     ),
   ];
   if (csr != null) {

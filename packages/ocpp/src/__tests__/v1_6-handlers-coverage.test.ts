@@ -329,6 +329,8 @@ describe('v1_6 Authorize handler - token lookup branches', () => {
 // --------------------------------------------------------------------------
 describe('v1_6 StartTransaction handler - session claim branches', () => {
   it('claims a pending session when stationDbId is present and session exists', async () => {
+    // No resend, then the UPDATE claims a waiting remote start
+    executeFn.mockResolvedValueOnce([]);
     executeFn.mockResolvedValueOnce([{ transaction_id: '42' }]);
 
     const { handleStartTransaction } = startTransactionHandlerModule;
@@ -346,8 +348,8 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
 
     expect(response.transactionId).toBe(42);
     expect(response.idTagInfo).toEqual({ status: 'Accepted' });
-    // Only one db.execute call (the UPDATE), no sequence call needed
-    expect(executeFn).toHaveBeenCalledTimes(1);
+    // The resend lookup and the UPDATE, no sequence call needed
+    expect(executeFn).toHaveBeenCalledTimes(2);
     expect(publishMock).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'ocpp.TransactionEvent',
@@ -364,7 +366,8 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
   });
 
   it('falls back to sequence when stationDbId is present but no pending session exists', async () => {
-    // First execute (UPDATE) returns empty array
+    // Resend lookup and UPDATE return empty arrays
+    executeFn.mockResolvedValueOnce([]);
     executeFn.mockResolvedValueOnce([]);
     // Second execute (sequence) returns nextval
     executeFn.mockResolvedValueOnce([{ nextval: '99' }]);
@@ -383,11 +386,12 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     const response = await handleStartTransaction(ctx);
 
     expect(response.transactionId).toBe(99);
-    expect(executeFn).toHaveBeenCalledTimes(2);
+    expect(executeFn).toHaveBeenCalledTimes(3);
   });
 
   it('falls back to sequence when claimed transaction_id is NaN', async () => {
-    // The UPDATE returns a row but with a non-numeric transaction_id
+    // No resend; the UPDATE returns a row but with a non-numeric transaction_id
+    executeFn.mockResolvedValueOnce([]);
     executeFn.mockResolvedValueOnce([{ transaction_id: 'not-a-number' }]);
     // Sequence fallback
     executeFn.mockResolvedValueOnce([{ nextval: '77' }]);
@@ -406,10 +410,11 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
     const response = await handleStartTransaction(ctx);
 
     expect(response.transactionId).toBe(77);
-    expect(executeFn).toHaveBeenCalledTimes(2);
+    expect(executeFn).toHaveBeenCalledTimes(3);
   });
 
   it('falls back to sequence when claimed transaction_id is a float', async () => {
+    executeFn.mockResolvedValueOnce([]);
     executeFn.mockResolvedValueOnce([{ transaction_id: '3.14' }]);
     executeFn.mockResolvedValueOnce([{ nextval: '55' }]);
 
@@ -470,7 +475,8 @@ describe('v1_6 StartTransaction handler - session claim branches', () => {
   });
 
   it('claims session with stationDbId but row is undefined (first element check)', async () => {
-    // Return array where first element is undefined
+    // Resend lookup and UPDATE return arrays whose first element is undefined
+    executeFn.mockResolvedValueOnce([undefined]);
     executeFn.mockResolvedValueOnce([undefined]);
     executeFn.mockResolvedValueOnce([{ nextval: '88' }]);
 

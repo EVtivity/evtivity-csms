@@ -90,15 +90,12 @@ export const TC_C_39_CS: CsTestCase = {
     let stopFound = false;
     let lastTx = '';
     for (let i = 0; i < 10; i++) {
-      try {
-        const tx2 = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        const trigger2 = tx2['triggerReason'] as string | undefined;
-        lastTx = String(trigger2);
-        if (trigger2 === 'StopAuthorized') {
-          stopFound = true;
-          break;
-        }
-      } catch {
+      const tx2 = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (tx2 == null) break;
+      const trigger2 = tx2['triggerReason'] as string | undefined;
+      lastTx = String(trigger2);
+      if (trigger2 === 'StopAuthorized') {
+        stopFound = true;
         break;
       }
     }
@@ -179,13 +176,10 @@ export const TC_C_40_CS: CsTestCase = {
     // Step 4: TransactionEventRequest with StopAuthorized (skip meter events)
     let stopAuth = false;
     for (let i = 0; i < 10; i++) {
-      try {
-        const tx2 = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        if (tx2['triggerReason'] === 'StopAuthorized') {
-          stopAuth = true;
-          break;
-        }
-      } catch {
+      const tx2 = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (tx2 == null) break;
+      if (tx2['triggerReason'] === 'StopAuthorized') {
+        stopAuth = true;
         break;
       }
     }
@@ -266,13 +260,10 @@ export const TC_C_41_CS: CsTestCase = {
     // Step 4: TransactionEventRequest with StopAuthorized (skip meter events)
     let stopAuth41 = false;
     for (let i = 0; i < 10; i++) {
-      try {
-        const tx2 = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        if (tx2['triggerReason'] === 'StopAuthorized') {
-          stopAuth41 = true;
-          break;
-        }
-      } catch {
+      const tx2 = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (tx2 == null) break;
+      if (tx2['triggerReason'] === 'StopAuthorized') {
+        stopAuth41 = true;
         break;
       }
     }
@@ -378,12 +369,10 @@ export const TC_C_42_CS: CsTestCase = {
 
     // Post: energy transfer should NOT be stopped
     let stoppedTx = false;
-    try {
-      const txEnd = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    const txEnd = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (txEnd != null) {
       const trigger = txEnd['triggerReason'] as string | undefined;
       if (trigger === 'StopAuthorized') stoppedTx = true;
-    } catch {
-      // Expected: no StopAuthorized
     }
 
     steps.push({
@@ -611,16 +600,14 @@ export const TC_C_45_CS: CsTestCase = {
 
     // Step 4: Station should NOT start charging with MasterPass token
     let chargingStarted = false;
-    try {
-      const tx = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    const tx = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (tx != null) {
       const txInfo = tx['transactionInfo'] as Record<string, unknown> | undefined;
       const chargingState = txInfo?.['chargingState'] as string | undefined;
       const trigger = tx['triggerReason'] as string | undefined;
       if (chargingState === 'Charging' && trigger === 'ChargingStateChanged') {
         chargingStarted = true;
       }
-    } catch {
-      // Expected: no charging started
     }
 
     steps.push({

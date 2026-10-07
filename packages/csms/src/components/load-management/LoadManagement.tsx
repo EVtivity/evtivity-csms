@@ -5,6 +5,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
+import type { LoadAllocationStrategy } from '@evtivity/lib/load-allocation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -93,7 +94,7 @@ interface StationStatus {
 }
 
 interface LoadManagementConfig {
-  strategy: 'equal_share' | 'priority_based';
+  strategy: LoadAllocationStrategy;
   isEnabled: boolean;
 }
 
@@ -121,7 +122,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [strategy, setStrategy] = useState<'equal_share' | 'priority_based'>('equal_share');
+  const [strategy, setStrategy] = useState<LoadAllocationStrategy>('equal_share');
   const [isEnabled, setIsEnabled] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
@@ -198,7 +199,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
                 id="strategy"
                 value={strategy}
                 onChange={(e) => {
-                  setStrategy(e.target.value as 'equal_share' | 'priority_based');
+                  setStrategy(e.target.value as LoadAllocationStrategy);
                 }}
                 className="h-9"
               >
@@ -359,7 +360,7 @@ function StationAllocationsTable({
                   <TableCell className="font-medium">{station.stationId}</TableCell>
                   <TableCell>
                     <Select
-                      aria-label={`Priority for ${station.stationId}`}
+                      aria-label={t('loadManagement.priorityFor', { stationId: station.stationId })}
                       value={station.loadPriority}
                       onChange={(e) => {
                         priorityMutation.mutate({

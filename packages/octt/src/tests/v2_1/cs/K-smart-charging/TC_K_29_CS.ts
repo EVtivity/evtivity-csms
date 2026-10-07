@@ -21,15 +21,16 @@ async function installProfile(
   server: OcppTestServer,
   evseId: number,
   profile: Record<string, unknown>,
-): Promise<boolean> {
+): Promise<{ installed: boolean; detail: string }> {
   try {
     const res = await server.sendCommand('SetChargingProfile', {
       evseId,
       chargingProfile: profile,
     });
-    return (res as Record<string, unknown>).status === 'Accepted';
-  } catch {
-    return false;
+    const status = String(res['status']);
+    return { installed: status === 'Accepted', detail: `status ${status}` };
+  } catch (err) {
+    return { installed: false, detail: err instanceof Error ? err.message : String(err) };
   }
 }
 
@@ -77,13 +78,17 @@ export const TC_K_29_CS: CsTestCase = {
     ctx.server.setMessageHandler(handler);
 
     // Precondition: install a ChargingStationMaxProfile on evseId 0
-    const installed = await installProfile(ctx.server, 0, stationMaxProfile);
+    const { installed, detail: installDetail } = await installProfile(
+      ctx.server,
+      0,
+      stationMaxProfile,
+    );
     steps.push({
       step: 1,
       description: 'Precondition: Install ChargingStationMaxProfile on evseId 0',
       status: installed ? 'passed' : 'failed',
       expected: 'Accepted',
-      actual: installed ? 'Accepted' : 'Failed to install',
+      actual: installed ? 'Accepted' : installDetail,
     });
 
     try {
@@ -122,13 +127,13 @@ export const TC_K_29_CS: CsTestCase = {
         expected: 'chargingProfilePurpose ChargingStationMaxProfile',
         actual: `purpose: ${String(purpose)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report received',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -150,13 +155,17 @@ export const TC_K_30_CS: CsTestCase = {
     ctx.server.setMessageHandler(handler);
 
     // Precondition: install a TxDefaultProfile on evseId 1
-    const installed = await installProfile(ctx.server, 1, txDefaultProfile);
+    const { installed, detail: installDetail } = await installProfile(
+      ctx.server,
+      1,
+      txDefaultProfile,
+    );
     steps.push({
       step: 1,
       description: 'Precondition: Install TxDefaultProfile on evseId 1',
       status: installed ? 'passed' : 'failed',
       expected: 'Accepted',
-      actual: installed ? 'Accepted' : 'Failed to install',
+      actual: installed ? 'Accepted' : installDetail,
     });
 
     try {
@@ -187,13 +196,13 @@ export const TC_K_30_CS: CsTestCase = {
         expected: 'Report received',
         actual: 'Report received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -215,13 +224,17 @@ export const TC_K_31_CS: CsTestCase = {
     ctx.server.setMessageHandler(handler);
 
     // Precondition: install a TxDefaultProfile
-    const installed = await installProfile(ctx.server, 1, txDefaultProfile);
+    const { installed, detail: installDetail } = await installProfile(
+      ctx.server,
+      1,
+      txDefaultProfile,
+    );
     steps.push({
       step: 1,
       description: 'Precondition: Install TxDefaultProfile',
       status: installed ? 'passed' : 'failed',
       expected: 'Accepted',
-      actual: installed ? 'Accepted' : 'Failed to install',
+      actual: installed ? 'Accepted' : installDetail,
     });
 
     try {
@@ -252,13 +265,13 @@ export const TC_K_31_CS: CsTestCase = {
         expected: 'Report',
         actual: 'Received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -280,13 +293,17 @@ export const TC_K_32_CS: CsTestCase = {
     ctx.server.setMessageHandler(handler);
 
     // Precondition: install profile with ID 1
-    const installed = await installProfile(ctx.server, 1, txDefaultProfile);
+    const { installed, detail: installDetail } = await installProfile(
+      ctx.server,
+      1,
+      txDefaultProfile,
+    );
     steps.push({
       step: 1,
       description: 'Precondition: Install profile with chargingProfileId 1',
       status: installed ? 'passed' : 'failed',
       expected: 'Accepted',
-      actual: installed ? 'Accepted' : 'Failed to install',
+      actual: installed ? 'Accepted' : installDetail,
     });
 
     try {
@@ -320,13 +337,13 @@ export const TC_K_32_CS: CsTestCase = {
         expected: 'Report',
         actual: 'Received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -348,13 +365,17 @@ export const TC_K_33_CS: CsTestCase = {
     ctx.server.setMessageHandler(handler);
 
     // Precondition: install profile with stackLevel 0
-    const installed = await installProfile(ctx.server, 1, txDefaultProfile);
+    const { installed, detail: installDetail } = await installProfile(
+      ctx.server,
+      1,
+      txDefaultProfile,
+    );
     steps.push({
       step: 1,
       description: 'Precondition: Install profile with stackLevel 0',
       status: installed ? 'passed' : 'failed',
       expected: 'Accepted',
-      actual: installed ? 'Accepted' : 'Failed to install',
+      actual: installed ? 'Accepted' : installDetail,
     });
 
     try {
@@ -389,13 +410,13 @@ export const TC_K_33_CS: CsTestCase = {
         expected: 'Report',
         actual: 'Received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -417,13 +438,17 @@ export const TC_K_34_CS: CsTestCase = {
     ctx.server.setMessageHandler(handler);
 
     // Precondition: install a TxDefaultProfile (CSO-sourced)
-    const installed = await installProfile(ctx.server, 1, txDefaultProfile);
+    const { installed, detail: installDetail } = await installProfile(
+      ctx.server,
+      1,
+      txDefaultProfile,
+    );
     steps.push({
       step: 1,
       description: 'Precondition: Install TxDefaultProfile (CSO source)',
       status: installed ? 'passed' : 'failed',
       expected: 'Accepted',
-      actual: installed ? 'Accepted' : 'Failed to install',
+      actual: installed ? 'Accepted' : installDetail,
     });
 
     // Query with CSO source - should find profiles
@@ -459,13 +484,13 @@ export const TC_K_34_CS: CsTestCase = {
         expected: 'Report',
         actual: 'Received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     // Query with EMS source - should return NoProfiles
@@ -511,13 +536,17 @@ export const TC_K_35_CS: CsTestCase = {
     ctx.server.setMessageHandler(handler);
 
     // Precondition: install TxDefaultProfile
-    const installed = await installProfile(ctx.server, 1, txDefaultProfile);
+    const { installed, detail: installDetail } = await installProfile(
+      ctx.server,
+      1,
+      txDefaultProfile,
+    );
     steps.push({
       step: 1,
       description: 'Precondition: Install TxDefaultProfile',
       status: installed ? 'passed' : 'failed',
       expected: 'Accepted',
-      actual: installed ? 'Accepted' : 'Failed to install',
+      actual: installed ? 'Accepted' : installDetail,
     });
 
     try {
@@ -552,13 +581,13 @@ export const TC_K_35_CS: CsTestCase = {
         expected: 'Report',
         actual: 'Received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -580,13 +609,17 @@ export const TC_K_36_CS: CsTestCase = {
     ctx.server.setMessageHandler(handler);
 
     // Precondition: install TxDefaultProfile with stackLevel 0
-    const installed = await installProfile(ctx.server, 1, txDefaultProfile);
+    const { installed, detail: installDetail } = await installProfile(
+      ctx.server,
+      1,
+      txDefaultProfile,
+    );
     steps.push({
       step: 1,
       description: 'Precondition: Install TxDefaultProfile stackLevel 0',
       status: installed ? 'passed' : 'failed',
       expected: 'Accepted',
-      actual: installed ? 'Accepted' : 'Failed to install',
+      actual: installed ? 'Accepted' : installDetail,
     });
 
     try {
@@ -621,13 +654,13 @@ export const TC_K_36_CS: CsTestCase = {
         expected: 'Report',
         actual: 'Received',
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'ReportChargingProfilesRequest',
         status: 'failed',
         expected: 'Report',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');

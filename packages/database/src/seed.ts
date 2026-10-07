@@ -96,8 +96,7 @@ import argon2 from 'argon2';
 import {
   encryptString,
   calculateCo2AvoidedKg,
-  ADMIN_DEFAULT_PERMISSIONS,
-  OPERATOR_DEFAULT_PERMISSIONS,
+  permissionCatalog,
   STATION_MESSAGE_DEFAULTS,
   STATION_MESSAGE_LANGUAGES,
   DEFAULT_STATION_MESSAGE_LANGUAGE,
@@ -108,6 +107,7 @@ import {
   splitGrossByTaxRate,
   taxTotals,
   chargedCostBreakdown,
+  LOAD_ALLOCATION_STRATEGIES,
 } from '@evtivity/lib';
 import type { SessionCostBreakdown } from '@evtivity/lib';
 
@@ -865,7 +865,7 @@ async function seed(): Promise<void> {
     const passwordHash = await argon2.hash(initialAdminPassword);
 
     const adminRoleId = await ensureRole('admin', 'Full system access', ['*']);
-    await ensureRole('operator', 'Operational access', OPERATOR_DEFAULT_PERMISSIONS);
+    await ensureRole('operator', 'Operational access', permissionCatalog.defaultsFor('operator'));
     console.log('  2 roles ensured.');
 
     // An existing admin keeps its password: a rerun must never reset it.
@@ -879,7 +879,7 @@ async function seed(): Promise<void> {
     });
     console.log(`  Admin user ensured (${initialAdminEmail}).`);
 
-    const permRows = ADMIN_DEFAULT_PERMISSIONS.map((perm) => ({
+    const permRows = permissionCatalog.defaultsFor('admin').map((perm) => ({
       userId: adminUserId,
       permission: perm,
     }));
@@ -1117,7 +1117,6 @@ async function seed(): Promise<void> {
   }
 
   // ------ Site Power Limits (first 8 sites) ------
-  const strategies: Array<'equal_share' | 'priority_based'> = ['equal_share', 'priority_based'];
   const powerLimitRows = createdSites.slice(0, 8).map((site, i) => {
     // Count stations assigned to this site
     const stationCount = stationRows.filter((s) => s.siteId === site.id).length;
@@ -1128,7 +1127,7 @@ async function seed(): Promise<void> {
       siteId: site.id,
       maxPowerKw: String(maxPowerKw),
       safetyMarginKw: String(randomInt(5, 15)),
-      strategy: strategies[i % 2] as 'equal_share' | 'priority_based',
+      strategy: LOAD_ALLOCATION_STRATEGIES[i % LOAD_ALLOCATION_STRATEGIES.length] ?? 'equal_share',
       isEnabled: i < 5,
     };
   });
@@ -1140,7 +1139,7 @@ async function seed(): Promise<void> {
   // ------ Site Load Management (hierarchical model, mirrors sitePowerLimits) ------
   const loadMgmtRows = createdSites.slice(0, 8).map((site, i) => ({
     siteId: site.id,
-    strategy: strategies[i % 2] as 'equal_share' | 'priority_based',
+    strategy: LOAD_ALLOCATION_STRATEGIES[i % LOAD_ALLOCATION_STRATEGIES.length] ?? 'equal_share',
     isEnabled: i < 5,
   }));
   await db.insert(siteLoadManagement).values(loadMgmtRows);
@@ -1463,8 +1462,7 @@ async function seed(): Promise<void> {
 
   const permRows: { userId: string; permission: string }[] = [];
   for (const u of createdUsers) {
-    const defaults =
-      u.roleId === adminRoleId ? ADMIN_DEFAULT_PERMISSIONS : OPERATOR_DEFAULT_PERMISSIONS;
+    const defaults = permissionCatalog.defaultsFor(u.roleId === adminRoleId ? 'admin' : 'operator');
     for (const perm of defaults) {
       permRows.push({ userId: u.id, permission: perm });
     }
@@ -2449,8 +2447,8 @@ async function seed(): Promise<void> {
   let caCertPem: string;
   try {
     caCertPem = readFileSync(resolve(testCertsDir, 'ca.pem'), 'utf-8');
-  } catch {
-    console.log('  Skipping SP3 cert seeding: test-certs/ca.pem not found.');
+  } catch (err) {
+    console.log(`  Skipping SP3 cert seeding: cannot read test-certs/ca.pem (${String(err)}).`);
     caCertPem = '';
   }
 
@@ -2472,7 +2470,10 @@ async function seed(): Promise<void> {
     let clientCertPem: string;
     try {
       clientCertPem = readFileSync(resolve(testCertsDir, 'client.pem'), 'utf-8');
-    } catch {
+    } catch (err) {
+      console.log(
+        `  Skipping SP3 station certificates: cannot read test-certs/client.pem (${String(err)}).`,
+      );
       clientCertPem = '';
     }
 
@@ -2609,6 +2610,46 @@ async function seed(): Promise<void> {
     })
     .onConflictDoNothing();
   console.log('  Portal test driver payment method created.');
+
+  // ------ Re-bill sessions (session detail Billing card) ------
+  // One session the CSMS gave up ending (an operator can bill it) and one left
+  // to manual billing after a declined re-bill, for the first demo driver
+  // (simulated saved card pm_sim_000001) on the first demo station.
+  const [rebillTariff] = await db
+    .select({
+      id: tariffs.id,
+      pricePerKwh: tariffs.pricePerKwh,
+      pricePerMinute: tariffs.pricePerMinute,
+      pricePerSession: tariffs.pricePerSession,
+      idleFeePricePerMinute: tariffs.idleFeePricePerMinute,
+      reservationFeePerMinute: tariffs.reservationFeePerMinute,
+      taxRate: tariffs.taxRate,
+    })
+    .from(tariffs)
+    .where(isNotNull(tariffs.pricePerKwh))
+    .orderBy(tariffs.name)
+    .limit(1);
+  const rebillStation = at(createdStations, 0);
+  const rebillEvse = createdEvses.find((e) => e.stationId === rebillStation.id);
+  if (rebillTariff != null && rebillEvse != null) {
+    const [rebillActor] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, initialAdminEmail));
+    const { seedRebillSessions } = await import('./seed-rebill-sessions.js');
+    const rebillSessionIds = await seedRebillSessions(client, {
+      stationId: rebillStation.id,
+      evseId: rebillEvse.id,
+      driverId: at(createdDrivers, 0).id,
+      customerId: `cus_sim_${padNum(1, 6)}`,
+      methodId: `pm_sim_${padNum(1, 6)}`,
+      currency: companyCurrency,
+      tariff: rebillTariff,
+      actorUserId: rebillActor?.id ?? null,
+      now: seedNow,
+    });
+    console.log(`  ${String(rebillSessionIds.length)} re-bill sessions created.`);
+  }
 
   // Portal driver support cases (the portal Support page should show data)
   const portalCaseRows = [

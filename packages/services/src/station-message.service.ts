@@ -39,6 +39,7 @@ import {
   type StationMessageState,
   type StationMessageContext,
   formatCurrencyAmount,
+  tryParseJson,
   publishOcppCommand,
   resolveTaxBasis,
 } from '@evtivity/lib';
@@ -850,12 +851,7 @@ function stringField(value: Record<string, unknown>, key: string): string | null
 
 /** Validates a station_message_refresh payload. Null when malformed. */
 export function parseStationRefreshPayload(raw: string): StationRefreshJob | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  const parsed = tryParseJson(raw);
   if (typeof parsed !== 'object' || parsed == null) return null;
   const value = parsed as Record<string, unknown>;
   const stationOcppId = stringField(value, 'stationOcppId');
@@ -867,12 +863,7 @@ export function parseStationRefreshPayload(raw: string): StationRefreshJob | nul
 
 /** Validates a station_message_transaction payload. Null when malformed. */
 export function parseStationTransactionPayload(raw: string): StationTransactionJob | null {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  const parsed = tryParseJson(raw);
   if (typeof parsed !== 'object' || parsed == null) return null;
   const value = parsed as Record<string, unknown>;
   const sessionId = stringField(value, 'sessionId');

@@ -76,8 +76,8 @@ export async function getPkiProvider(): Promise<PkiProvider> {
     if (clientSecretEnc !== '') {
       try {
         clientSecret = decryptString(clientSecretEnc, getEncryptionKey());
-      } catch {
-        logger.error('Failed to decrypt Hubject client secret');
+      } catch (err) {
+        logger.error({ err }, 'Failed to decrypt Hubject client secret');
       }
     }
 

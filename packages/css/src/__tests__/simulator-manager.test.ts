@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => {
   return {
     isTlsReachable: vi.fn<(url: string) => Promise<boolean>>(),
     readFileSync: vi.fn<(path: string, enc: string) => string>(),
+    logWarn: vi.fn(),
     config,
   };
 });
@@ -30,6 +31,9 @@ vi.mock('node:fs', async (importOriginal) => {
   return { ...actual, readFileSync: mocks.readFileSync };
 });
 vi.mock('../lib/config.js', () => ({ config: mocks.config }));
+vi.mock('../lib/logger.js', () => ({
+  logger: { warn: mocks.logWarn, debug: vi.fn(), info: vi.fn(), error: vi.fn() },
+}));
 
 const realFs = await vi.importActual<typeof import('node:fs')>('node:fs');
 
@@ -210,7 +214,7 @@ describe('SimulatorManager.handleCommand', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('swallows a failed result publish', async () => {
+  it('logs and swallows a failed result publish', async () => {
     const SimulatorManager = await loadManagerClass();
     const pubsub = makePubsub();
     pubsub.publish.mockRejectedValue(new Error('redis down'));
@@ -221,6 +225,10 @@ describe('SimulatorManager.handleCommand', () => {
       ),
     ).resolves.toBeUndefined();
     expect(pubsub.publish).toHaveBeenCalledTimes(1);
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ err: expect.any(Error), commandId: 'c1' }),
+      'Publish of the command result failed, the API times out',
+    );
   });
 
   describe('dispatch', () => {

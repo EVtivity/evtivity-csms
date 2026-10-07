@@ -59,6 +59,9 @@ vi.mock('@evtivity/database', () => ({
   clearMobileAppConfigCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
   clearWebhookSettingsCache: vi.fn(),
+  clearRoamingCache: vi.fn(),
+  clearSupportCache: vi.fn(),
+  clearFleetCache: vi.fn(),
   WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY: 'notifications.webhookAllowedPrivateHosts',
   db: {
     select: vi.fn(() => makeChain()),
@@ -298,6 +301,19 @@ describe('Settings routes - full coverage', () => {
       const res = await app.inject({ method: 'GET', url: '/portal/branding' });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ currency: 'USD', priceDisplay: 'net', taxBasis: 'net' });
+    });
+
+    it('returns the QR code icon as qrCodeIcon', async () => {
+      setupDbResults([
+        { key: 'company.name', value: 'Acme Charging' },
+        { key: 'qr_code_icon', value: '<svg/>' },
+      ]);
+      const res = await app.inject({ method: 'GET', url: '/portal/branding' });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.qrCodeIcon).toBe('<svg/>');
+      expect(body.name).toBe('Acme Charging');
+      expect(body).not.toHaveProperty('qr_code_icon');
     });
 
     it('converts non-string values to empty string', async () => {

@@ -68,9 +68,12 @@ vi.mock('@evtivity/payments', async (importOriginal) => ({
     mockRecordTerminalSettlement(...args) as unknown,
 }));
 const mockPaymentContext = { registry: {}, logger: {} };
+// The settlement options of a first run that can still be retried.
+const SETTLE_OPTIONS = { rethrowConnectionErrors: true, resumeAdjustment: false };
 vi.mock('../lib/payments.js', () => ({
   paymentRegistry: {},
   paymentContext: () => mockPaymentContext,
+  activePaymentProvider: () => Promise.resolve({ id: 'stripe' }),
 }));
 const mockIsAutoDisableOnCritical = vi.fn().mockResolvedValue(false);
 const mockWriteAudit = vi.fn().mockResolvedValue(undefined);
@@ -1245,7 +1248,7 @@ describe('Event projections - coverage round 2', () => {
     });
   });
 
-  // ---- ocpp.NotifyPeriodicEventStream / QRCodeScanned ----
+  // ---- ocpp.NotifyPeriodicEventStream ----
 
   describe('OCPP 2.1 stub persistence', () => {
     it('NotifyPeriodicEventStream inserts a row', async () => {
@@ -1561,34 +1564,32 @@ describe('Event projections - coverage round 2', () => {
       expect(cost.length).toBe(1);
     });
 
-    describe('prepaid credit on OCPP 1.6', () => {
-      const costSession = (ocppProtocol: string, prepaidBalanceCents: number | null) => ({
+    describe('prepaid credit (cost ceiling)', () => {
+      const costSession = (
+        ocppProtocol: string,
+        costCeilingCents: number | null,
+        currentCostCents = 0,
+      ) => ({
         id: 'ses_1',
         transaction_id: '1001',
         tariff_id: 'trf_1',
         driver_id: 'drv_1',
-        started_at: new Date(Date.now() - 3_600_000).toISOString(),
+        token_id: 'dtk_1',
         energy_delivered_wh: 950,
-        current_cost_cents: 0,
-        currency: 'USD',
-        tariff_price_per_kwh: '0.25',
-        tariff_price_per_minute: '0',
-        tariff_price_per_session: '0',
-        tariff_idle_fee_price_per_minute: '0',
-        tariff_tax_rate: '0',
+        current_cost_cents: currentCostCents,
+        cost_ceiling_cents: costCeilingCents,
         idle_started_at: null,
         idle_minutes: 0,
         ocpp_protocol: ocppProtocol,
-        prepaid_balance_cents: prepaidBalanceCents,
       });
-      // 950 Wh at 0.25/kWh costs 24 cents (the cost assembly is mocked to that).
+      // The cost assembly (mocked) bills 24 cents.
       beforeEach(() => {
         mockPriceSessionAt.mockResolvedValue(costBreakdown(24));
       });
       afterEach(() => {
         mockPriceSessionAt.mockResolvedValue(costBreakdown(1500));
       });
-      const results = (session: Record<string, unknown>, claim: unknown[]) => [
+      const base = [
         STA, // resolveStationUuid
         [{ id: 'ses_1' }], // resolveMeterValueSession
         [], // INSERT meter_values
@@ -1596,9 +1597,6 @@ describe('Event projections - coverage round 2', () => {
         [], // UPDATE meter_start
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle accrue
-        [session], // active sessions
-        claim, // claim the prepaid stop (only when the credit is used up)
-        [{ site_id: null }], // resolveSiteId
       ];
       const emitReading = () =>
         emit('ocpp.MeterValues', 'CS-1', {
@@ -1618,14 +1616,18 @@ describe('Event projections - coverage round 2', () => {
           (c) => c[0] === 'ocpp_commands' && (c[1] as string).includes('RequestStopTransaction'),
         );
 
-      it('records the stop and sends RequestStopTransaction when the cost reaches the credit', async () => {
+      it('stops an OCPP 1.6 transaction once the cost reaches the credit', async () => {
         await setup();
-        setupSqlResults(...results(costSession('ocpp1.6', 20), [{ id: 'ses_1' }]));
+        setupSqlResults(
+          ...base,
+          [costSession('ocpp1.6', 20)], // active sessions
+          [{ id: 'ses_1' }], // claim the stop
+          [{ site_id: null }], // resolveSiteId
+        );
 
         await emitReading();
 
         const claim = findSql(/stopped_reason IS NULL/);
-        expect(claim).toBeDefined();
         expect(claim?.values).toContain('PrepaidCreditExhausted');
         const stops = stopCommands();
         expect(stops).toHaveLength(1);
@@ -1640,7 +1642,7 @@ describe('Event projections - coverage round 2', () => {
 
       it('sends the stop only once (the session was already claimed)', async () => {
         await setup();
-        setupSqlResults(...results(costSession('ocpp1.6', 20), []));
+        setupSqlResults(...base, [costSession('ocpp1.6', 20)], [], [{ site_id: null }]);
 
         await emitReading();
 
@@ -1650,7 +1652,7 @@ describe('Event projections - coverage round 2', () => {
 
       it('keeps charging while the cost is below the credit', async () => {
         await setup();
-        setupSqlResults(...results(costSession('ocpp1.6', 5000), []));
+        setupSqlResults(...base, [costSession('ocpp1.6', 5000)], [{ site_id: null }]);
 
         await emitReading();
 
@@ -1658,14 +1660,45 @@ describe('Event projections - coverage round 2', () => {
         expect(stopCommands()).toHaveLength(0);
       });
 
-      it('leaves an OCPP 2.1 prepaid transaction to the station transactionLimit', async () => {
+      it('leaves an OCPP 2.1 transaction to the station limit at the reading that reaches the credit', async () => {
         await setup();
-        setupSqlResults(...results(costSession('ocpp2.1', 20), []));
+        setupSqlResults(...base, [costSession('ocpp2.1', 24, 20)], [{ site_id: null }]);
 
         await emitReading();
 
         expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
         expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('keeps an OCPP 2.1 transaction the station suspended at its cost limit open', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [costSession('ocpp2.1', 24, 24)], // the credit was reached at an earlier reading
+          [{ '?column?': 1 }], // the station reported CostLimitReached
+          [{ site_id: null }],
+        );
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('stops an OCPP 2.1 transaction still running past the credit without CostLimitReached', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [costSession('ocpp2.1', 24, 24)],
+          [], // no CostLimitReached (the station ignores or does not support maxCost)
+          [{ id: 'ses_1' }], // claim the stop
+          [{ site_id: null }],
+        );
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)?.values).toContain('PrepaidCreditExhausted');
+        expect(stopCommands()).toHaveLength(1);
       });
     });
 
@@ -1685,7 +1718,7 @@ describe('Event projections - coverage round 2', () => {
         idle_started_at: null,
         idle_minutes: 0,
         ocpp_protocol: ocppProtocol,
-        prepaid_balance_cents: null,
+        token_id: null,
       });
       // The cost assembly (mocked) bills the ceiling: 24 cents.
       beforeEach(() => {
@@ -2328,7 +2361,11 @@ describe('Event projections - coverage round 2', () => {
 
     it('settles the session through the payment service', async () => {
       await emitEndedSecondOnly([sessionRow()]);
-      expect(mockSettleSessionPayment).toHaveBeenCalledWith('ses_1', mockPaymentContext);
+      expect(mockSettleSessionPayment).toHaveBeenCalledWith(
+        'ses_1',
+        mockPaymentContext,
+        SETTLE_OPTIONS,
+      );
       // Nothing to settle (the default outcome): no notification.
       expect(mockDispatchDriver).not.toHaveBeenCalled();
     });

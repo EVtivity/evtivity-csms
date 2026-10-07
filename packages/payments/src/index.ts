@@ -146,7 +146,7 @@ export type {
   PaymentWebhookPublisher,
 } from './simulated-delivery.js';
 export type { PaymentContext, PaymentLogger } from './context.js';
-export { activeProvider, pinnedProvider } from './pinning.js';
+export { activeProvider, pinnedProvider, resolveActiveProvider } from './pinning.js';
 export { describePaymentProviders } from './provider-catalog.js';
 export type { ProviderCatalogCapabilities, ProviderCatalogEntry } from './provider-catalog.js';
 export {
@@ -193,8 +193,21 @@ export type {
 } from './session-payments.js';
 export { classifySessionPayment } from './payment-mode.js';
 export type { SessionPaymentFacts, SessionPaymentMode } from './payment-mode.js';
-export { recordTerminalSettlement } from './payment-records.js';
-export type { PrepaidSettlement } from './payment-records.js';
+export {
+  isRebillRecord,
+  isStaleRebillCharge,
+  REBILL_RESUME_MAX_HOURS,
+  recordTerminalSettlement,
+  settlePrepaidSession,
+} from './payment-records.js';
+export type {
+  PrepaidSettlement,
+  PrepaidSettlementOptions,
+  RebillChargeRequest,
+  RebillRecordClaim,
+} from './payment-records.js';
+export { chargeSessionRebill, REBILL_PAYOUT_NOT_READY_CODE } from './session-rebill.js';
+export type { SessionRebillChargeInput, SessionRebillChargeOutcome } from './session-rebill.js';
 export { refundPaymentRecord } from './refunds.js';
 export type { ChargeRefund, RefundOutcome, RefundRequest, RefundTarget } from './refunds.js';
 export { applyPaymentEvent, ingestPaymentWebhook } from './webhooks.js';

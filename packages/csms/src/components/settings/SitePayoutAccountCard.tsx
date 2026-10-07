@@ -169,9 +169,10 @@ export function SitePayoutAccountCard({
         await copyText(invite.url);
         setManualLink(null);
         toast({ title: t('payments.payoutAccountLinkCopied'), variant: 'success' });
-      } catch {
+      } catch (err) {
         // No clipboard access (non-secure origin, or the browser refused a
         // write after the request): show the link to copy by hand.
+        console.warn('Copy payout invite link failed, showing it to copy by hand', err);
         setManualLink(invite.url);
       }
     },

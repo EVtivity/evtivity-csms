@@ -9,7 +9,7 @@ import type {
   Subscription,
   ConnectionRegistry,
 } from '@evtivity/lib';
-import { OCPP_COMMANDS_CHANNEL, OCPP_COMMAND_RESULTS_CHANNEL } from '@evtivity/lib';
+import { OCPP_COMMANDS_CHANNEL, OCPP_COMMAND_RESULTS_CHANNEL, tryParseJson } from '@evtivity/lib';
 import type { CommandDispatcher } from './command-dispatcher.js';
 import { RetryPolicy } from './retry-policy.js';
 import {
@@ -86,13 +86,12 @@ export class CommandListener {
   }
 
   private async handleNotification(raw: string): Promise<void> {
-    let command: CommandPayload;
-    try {
-      command = JSON.parse(raw) as CommandPayload;
-    } catch {
+    const parsed = tryParseJson(raw);
+    if (typeof parsed !== 'object' || parsed === null) {
       this.logger.error({ raw }, 'Invalid command payload from event source');
       return;
     }
+    const command = parsed as CommandPayload;
 
     if (
       typeof command.stationId !== 'string' ||

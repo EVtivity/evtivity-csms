@@ -35,13 +35,13 @@ export const TC_N_30_CS: CsTestCase = {
         expected: 'data not empty',
         actual: `data length = ${(msg['data'] as string)?.length}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'NotifyCustomerInformation',
         status: 'failed',
         expected: 'data not empty',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -138,13 +138,13 @@ export const TC_N_62_CS: CsTestCase = {
         expected: 'data not empty',
         actual: `data length = ${(msg['data'] as string)?.length}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'NotifyCustomerInformation',
         status: 'failed',
         expected: 'data not empty',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -170,13 +170,13 @@ export const TC_N_62_CS: CsTestCase = {
         expected: 'data empty',
         actual: `data = ${msg['data']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 4,
         description: 'NotifyCustomerInformation empty',
         status: 'failed',
         expected: 'data empty',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 
@@ -237,13 +237,13 @@ export const TC_N_63_CS: CsTestCase = {
         expected: 'data empty',
         actual: `data = ${msg['data']}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 3,
         description: 'NotifyCustomerInformation',
         status: 'failed',
         expected: 'data empty',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');

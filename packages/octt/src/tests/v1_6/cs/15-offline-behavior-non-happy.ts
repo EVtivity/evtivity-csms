@@ -38,22 +38,10 @@ export const TC_036_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain setup messages
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     // Wait for MeterValues (the meter loop is running)
     const mv = await ctx.server.waitForMessage('MeterValues', 10_000);
@@ -187,13 +175,10 @@ export const TC_037_2_CS: CsTestCase = {
     // Wait for the SuspendedEVSE StatusNotification (may follow Charging from reconnect)
     let foundSuspended = false;
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        const sn = await ctx.server.waitForMessage('StatusNotification', 5000);
-        if ((sn['status'] as string) === 'SuspendedEVSE') {
-          foundSuspended = true;
-          break;
-        }
-      } catch {
+      const sn = await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
+      if (sn == null) break;
+      if ((sn['status'] as string) === 'SuspendedEVSE') {
+        foundSuspended = true;
         break;
       }
     }
@@ -299,22 +284,10 @@ export const TC_038_CS: CsTestCase = {
     await ctx.station.startCharging(1, 'OCTT_TAG_001');
     // Drain setup messages
     for (let _d = 0; _d < 10; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
-    try {
-      await ctx.server.waitForMessage('Authorize', 500);
-    } catch {
-      /* drain */
-    }
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5000);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('Authorize', 500);
+    await ctx.server.waitForMessageOrNull('StartTransaction', 5000);
 
     // Go offline
     ctx.server.disconnectStation(true);
@@ -323,8 +296,8 @@ export const TC_038_CS: CsTestCase = {
     // Stop transaction while offline
     try {
       await ctx.station.stopCharging(1, 'Local');
-    } catch {
-      // Expected to fail since offline
+    } catch (err) {
+      ctx.logger.debug({ err }, 'stopCharging failed while the station is offline, as expected');
     }
 
     // Come back online
@@ -384,8 +357,8 @@ export const TC_039_CS: CsTestCase = {
     await new Promise((r) => setTimeout(r, 200));
     try {
       await ctx.station.stopCharging(1, 'Local');
-    } catch {
-      // Expected
+    } catch (err) {
+      ctx.logger.debug({ err }, 'stopCharging failed while the station is offline, as expected');
     }
 
     // Come back online

@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { createLogger } from './logger.js';
 import { decryptString } from './encryption.js';
 import { DEFAULT_CURRENCY } from './currency.js';
+import { isRequiredDriverEventType } from './notification-events.js';
 import { formatDateTime } from './timezone.js';
 import { formatLocalizedVariables } from './notification-values.js';
 import { isPrivateUrl } from './url-validation.js';
@@ -308,8 +309,8 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
     if (rawPassword != null && rawPassword !== '' && encryptionKey != null) {
       try {
         password = decryptString(rawPassword, encryptionKey);
-      } catch {
-        logger.warn('Failed to decrypt SMTP password');
+      } catch (err) {
+        logger.warn({ err, key: 'smtp.passwordEnc' }, 'Failed to decrypt SMTP password');
         smtpCredentialError = 'decrypt_failed';
       }
     }
@@ -333,8 +334,8 @@ export async function getNotificationSettings(sql: postgres.Sql): Promise<Notifi
     if (rawToken != null && rawToken !== '' && encryptionKey != null) {
       try {
         authToken = decryptString(rawToken, encryptionKey);
-      } catch {
-        logger.warn('Failed to decrypt Twilio auth token');
+      } catch (err) {
+        logger.warn({ err, key: 'twilio.authTokenEnc' }, 'Failed to decrypt Twilio auth token');
         twilioCredentialError = 'decrypt_failed';
       }
     }
@@ -377,7 +378,11 @@ export async function loadTemplateFile(filePath: string): Promise<string | null>
     const content = await readFile(filePath, 'utf-8');
     fileContentCache.set(filePath, { content, cachedAt: now });
     return content;
-  } catch {
+  } catch (err) {
+    // A missing file is the normal case: not every event has a template in every language.
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      logger.warn({ err, filePath }, 'Template file read failed, treating it as missing');
+    }
     return null;
   }
 }
@@ -647,14 +652,12 @@ export async function sendSms(config: TwilioConfig, to: string, body: string): P
 
 function isAllowedHost(url: string, allowedPrivateHosts: readonly string[]): boolean {
   if (allowedPrivateHosts.length === 0) return false;
-  try {
-    const { protocol, hostname } = new URL(url);
-    if (protocol !== 'http:' && protocol !== 'https:') return false;
-    const host = hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
-    return allowedPrivateHosts.some((h) => h.toLowerCase() === host);
-  } catch {
-    return false;
-  }
+  const parsed = URL.parse(url);
+  if (parsed == null) return false;
+  const { protocol, hostname } = parsed;
+  if (protocol !== 'http:' && protocol !== 'https:') return false;
+  const host = hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  return allowedPrivateHosts.some((h) => h.toLowerCase() === host);
 }
 
 export type WebhookResult =
@@ -730,6 +733,26 @@ export function logNotification(
   logger.info({ channel, recipient, subject }, body);
 }
 
+// --- Driver event on/off switch ---
+
+// Operators turn a driver event type off on the Driver Events tab
+// (driver_event_settings). No row means on. Some driver events (guest receipts,
+// password resets, MFA codes) go through dispatchSystemNotification, so both
+// dispatchers check it. System events are always on and have no row here.
+// Required driver event types are always on, whatever is stored.
+export async function isDriverEventDisabled(
+  sql: postgres.Sql,
+  eventType: string,
+): Promise<boolean> {
+  if (isRequiredDriverEventType(eventType)) return false;
+  const rows = await sql`
+    SELECT is_enabled FROM driver_event_settings
+    WHERE event_type = ${eventType}
+    LIMIT 1
+  `;
+  return rows[0] != null && rows[0].is_enabled === false;
+}
+
 // --- Driver notification dispatch ---
 
 export async function dispatchDriverNotification(
@@ -741,14 +764,7 @@ export async function dispatchDriverNotification(
   pubsub?: PubSubClient,
 ): Promise<void> {
   try {
-    // Check if this driver event type is enabled globally
-    const settingRows = await sql`
-      SELECT is_enabled FROM driver_event_settings
-      WHERE event_type = ${eventType}
-      LIMIT 1
-    `;
-    const setting = settingRows[0];
-    if (setting != null && !(setting.is_enabled as boolean)) {
+    if (await isDriverEventDisabled(sql, eventType)) {
       logger.debug({ eventType }, 'Driver event type disabled, skipping');
       return;
     }
@@ -795,7 +811,9 @@ export async function dispatchDriverNotification(
       language,
     );
 
-    const prefs = prefRows[0];
+    // A required event type (password reset, MFA code, verification, portal invite)
+    // reaches the driver on every channel they have, whatever their preferences say.
+    const prefs = isRequiredDriverEventType(eventType) ? undefined : prefRows[0];
     const emailEnabled = prefs != null ? (prefs.email_enabled as boolean) : true;
     const smsEnabled = prefs != null ? (prefs.sms_enabled as boolean) : true;
     const pushEnabled = prefs != null ? (prefs.push_enabled as boolean) : true;
@@ -985,8 +1003,11 @@ export async function dispatchDriverNotification(
           'portal_events',
           JSON.stringify({ type: 'notification.created', driverId }),
         );
-      } catch {
-        // Non-critical: bell icon will update on next poll
+      } catch (err) {
+        logger.warn(
+          { err, eventType, driverId },
+          'Portal notification event publish failed, the bell icon updates on the next poll',
+        );
       }
     }
   } catch (err) {
@@ -1036,15 +1057,10 @@ export async function dispatchSystemNotification(
   templatesDir?: string | string[],
 ): Promise<void> {
   try {
-    // Check if this system event type is enabled
-    const settingRows = await sql`
-      SELECT is_enabled FROM system_event_settings
-      WHERE event_type = ${eventType}
-      LIMIT 1
-    `;
-    const setting = settingRows[0];
-    if (setting != null && !(setting.is_enabled as boolean)) {
-      logger.debug({ eventType }, 'System event type disabled, skipping');
+    // System events are always on. A driver event sent through this dispatcher
+    // still honors the Driver Events switch.
+    if (await isDriverEventDisabled(sql, eventType)) {
+      logger.debug({ eventType }, 'Driver event type disabled, skipping');
       return;
     }
 
@@ -1140,9 +1156,10 @@ export async function dispatchSystemNotification(
       });
     }
 
-    // Check operator SMS preferences (opt-out)
+    // Check operator SMS preferences (opt-out). A required event type (an MFA
+    // code) is sent whatever the preference says.
     let smsEnabled = true;
-    if (recipient.userId != null) {
+    if (recipient.userId != null && !isRequiredDriverEventType(eventType)) {
       const prefRows = await sql`
         SELECT sms_enabled FROM user_notification_preferences
         WHERE user_id = ${recipient.userId}

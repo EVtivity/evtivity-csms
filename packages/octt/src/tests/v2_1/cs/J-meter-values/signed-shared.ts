@@ -31,6 +31,7 @@ function isValidPublicKey(publicKey: string): boolean {
     createPublicKey({ key: der, format: 'der', type: 'spki' });
     return true;
   } catch {
+    // fail-open: a key that does not parse is not a valid public key
     return false;
   }
 }

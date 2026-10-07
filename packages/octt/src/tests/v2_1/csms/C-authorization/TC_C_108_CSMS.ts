@@ -92,13 +92,13 @@ export const TC_C_108_CSMS: TestCase = {
         expected: 'status = Rejected',
         actual: `status = ${String(vatStatus4)}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'VatNumberValidation not supported by CSMS',
         status: 'failed',
         expected: 'VatNumberValidation supported',
-        actual: 'VatNumberValidation call failed or not supported',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
 

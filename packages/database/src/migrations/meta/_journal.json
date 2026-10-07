@@ -1079,6 +1079,34 @@
       "when": 1791000012066,
       "tag": "0153_payment_provider_drop_stripe_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 154,
+      "version": "7",
+      "when": 1791000012074,
+      "tag": "0154_cron_station_offline_sweep",
+      "breakpoints": true
+    },
+    {
+      "idx": 155,
+      "version": "7",
+      "when": 1791000012082,
+      "tag": "0155_session_rebill",
+      "breakpoints": true
+    },
+    {
+      "idx": 156,
+      "version": "7",
+      "when": 1791000012090,
+      "tag": "0156_notification_switches",
+      "breakpoints": true
+    },
+    {
+      "idx": 157,
+      "version": "7",
+      "when": 1791000012098,
+      "tag": "0157_prepaid_session_cost_ceiling",
+      "breakpoints": true
     }
   ]
 }

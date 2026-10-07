@@ -105,7 +105,11 @@ export async function verifyDeviceAttestation(request: FastifyRequest): Promise<
         cfg.android.serviceAccountEnc,
         config.SETTINGS_ENCRYPTION_KEY,
       );
-    } catch {
+    } catch (err) {
+      request.log.error(
+        { err, key: 'mobile.attestation.android.serviceAccountEnc' },
+        'Decrypting the Play Integrity service account failed, refusing the request',
+      );
       return false;
     }
     const result = await verifyPlayIntegrity(attestation, challenge, {

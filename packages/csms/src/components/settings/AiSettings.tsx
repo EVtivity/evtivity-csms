@@ -101,6 +101,7 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
     mutationFn: (enabled: boolean) => api.put('/v1/settings/chatbotAi.enabled', { value: enabled }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['security-public'] });
     },
   });
 
@@ -127,6 +128,7 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
       ]),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['security-public'] });
     },
   });
 
@@ -134,6 +136,7 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
     mutationFn: (enabled: boolean) => api.put('/v1/settings/supportAi.enabled', { value: enabled }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['security-public'] });
     },
   });
 
@@ -162,6 +165,7 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
       ]),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['settings'] });
+      void queryClient.invalidateQueries({ queryKey: ['security-public'] });
     },
   });
 

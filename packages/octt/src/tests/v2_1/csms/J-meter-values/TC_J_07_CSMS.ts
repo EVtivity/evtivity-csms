@@ -201,13 +201,13 @@ export const TC_J_09_CSMS: TestCase = {
           expected: 'TransactionEventResponse received',
           actual: res != null ? `Response keys: ${Object.keys(res).join(', ')}` : 'No response',
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: i + 1,
           description: `TransactionEvent Updated MeterValuePeriodic #${String(i + 1)}`,
           status: 'failed',
           expected: 'TransactionEventResponse received',
-          actual: 'Error or rejection',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }

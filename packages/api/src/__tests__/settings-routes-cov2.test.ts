@@ -17,6 +17,17 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     isReservationEnabled: vi.fn(),
     isSupportEnabled: vi.fn(),
     isRoamingEnabled: vi.fn(),
+    isPncEnabled: vi.fn(),
+    isFleetEnabled: vi.fn(),
+    isGuestChargingEnabled: vi.fn(),
+    isChatbotAiEnabled: vi.fn(),
+    clearRoamingCache: vi.fn(),
+    clearSupportCache: vi.fn(),
+    clearFleetCache: vi.fn(),
+    clearGuestChargingCache: vi.fn(),
+    clearPncSettingsCache: vi.fn(),
+    clearChatbotAiSettingsCache: vi.fn(),
+    clearSupportAiSettingsCache: vi.fn(),
     getReservationSettings: vi.fn(),
     clearS3ConfigCache: vi.fn(),
   },
@@ -57,6 +68,17 @@ vi.mock('@evtivity/database', () => ({
   isReservationEnabled: mocks.isReservationEnabled,
   isSupportEnabled: mocks.isSupportEnabled,
   isRoamingEnabled: mocks.isRoamingEnabled,
+  isPncEnabled: mocks.isPncEnabled,
+  isFleetEnabled: mocks.isFleetEnabled,
+  isGuestChargingEnabled: mocks.isGuestChargingEnabled,
+  isChatbotAiEnabled: mocks.isChatbotAiEnabled,
+  clearRoamingCache: mocks.clearRoamingCache,
+  clearSupportCache: mocks.clearSupportCache,
+  clearFleetCache: mocks.clearFleetCache,
+  clearGuestChargingCache: mocks.clearGuestChargingCache,
+  clearPncSettingsCache: mocks.clearPncSettingsCache,
+  clearChatbotAiSettingsCache: mocks.clearChatbotAiSettingsCache,
+  clearSupportAiSettingsCache: mocks.clearSupportAiSettingsCache,
   clearSystemSettingsCache: vi.fn(),
   clearMobileAppConfigCache: vi.fn(),
   clearStationMessageSettingsCache: vi.fn(),
@@ -179,6 +201,10 @@ describe('settings routes (cov2)', () => {
     mocks.isReservationEnabled.mockResolvedValue(true);
     mocks.isSupportEnabled.mockResolvedValue(false);
     mocks.isRoamingEnabled.mockResolvedValue(true);
+    mocks.isPncEnabled.mockResolvedValue(false);
+    mocks.isFleetEnabled.mockResolvedValue(true);
+    mocks.isGuestChargingEnabled.mockResolvedValue(false);
+    mocks.isChatbotAiEnabled.mockResolvedValue(true);
     mocks.getReservationSettings.mockResolvedValue({
       cancellationFeeCents: 250,
       cancellationWindowMinutes: 15,
@@ -190,6 +216,10 @@ describe('settings routes (cov2)', () => {
       reservationEnabled: true,
       supportEnabled: false,
       roamingEnabled: true,
+      pncEnabled: false,
+      fleetEnabled: true,
+      guestChargingEnabled: false,
+      chatbotAiEnabled: true,
       reservationCancellationFeeCents: 250,
       reservationCancellationWindowMinutes: 15,
       reservationMaxHours: 4,
@@ -228,6 +258,37 @@ describe('settings routes (cov2)', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json()).toEqual(SERVER_MANAGED);
     expect(rec.deletes).toBe(0);
+  });
+
+  it.each([
+    ['roaming.enabled', 'clearRoamingCache'],
+    ['support.enabled', 'clearSupportCache'],
+    ['fleet.enabled', 'clearFleetCache'],
+    ['guest.enabled', 'clearGuestChargingCache'],
+    ['pnc.enabled', 'clearPncSettingsCache'],
+    ['chatbotAi.enabled', 'clearChatbotAiSettingsCache'],
+    ['supportAi.enabled', 'clearSupportAiSettingsCache'],
+  ] as const)('PUT %s clears its cached reader', async (key, clear) => {
+    setupDbResults([], [{ key, value: false }]);
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/settings/${key}`,
+      headers: auth,
+      payload: { value: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks[clear]).toHaveBeenCalledTimes(1);
+    for (const other of [
+      'clearRoamingCache',
+      'clearSupportCache',
+      'clearFleetCache',
+      'clearGuestChargingCache',
+      'clearPncSettingsCache',
+      'clearChatbotAiSettingsCache',
+      'clearSupportAiSettingsCache',
+    ] as const) {
+      if (other !== clear) expect(mocks[other]).not.toHaveBeenCalled();
+    }
   });
 
   describe('webhook allowed private hosts', () => {

@@ -27,7 +27,7 @@ import {
   errorWith,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { isPrivateUrl, encryptString } from '@evtivity/lib';
+import { isPrivateUrl, encryptString, OCPI_PULL_MODULES } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { config as apiConfig } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
@@ -170,8 +170,8 @@ const updatePartnerBody = z.object({
 const syncParams = z.object({
   id: ID_PARAMS.ocpiPartnerId.describe('OCPI partner ID'),
   module: z
-    .enum(['locations', 'tariffs', 'cdrs', 'tokens', 'sessions'])
-    .describe('OCPI module name to sync'),
+    .enum(OCPI_PULL_MODULES)
+    .describe('OCPI module to pull from the partner (locations, tariffs, or cdrs)'),
 });
 
 const syncLogQuery = paginationQuery.extend({
@@ -595,7 +595,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         tags: ['OCPI'],
         summary: 'Trigger manual OCPI module sync',
         description:
-          'Publishes an ocpi_sync event so the OCPI server pulls the requested module (locations, tariffs, cdrs, tokens) from the partner sender endpoint. Results are upserted into the corresponding ocpi_external_* tables. Returns immediately; track sync progress via the sync log endpoint.',
+          'Publishes an ocpi_sync event so the OCPI server pulls the requested module (locations, tariffs, or cdrs) from the partner sender endpoint. Locations and tariffs are upserted into ocpi_external_locations and ocpi_external_tariffs; CDRs not stored yet are inserted into ocpi_cdrs. Any other module returns 400 VALIDATION_ERROR. Returns immediately; track sync progress via the sync log endpoint.',
         operationId: 'syncOcpiPartnerModule',
         security: [{ bearerAuth: [] }],
         params: zodSchema(syncParams),

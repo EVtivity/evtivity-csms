@@ -97,6 +97,10 @@ vi.mock('@evtivity/services/report.service', () => ({
       ? 'Filters must include a valid quarter (1-4) and year'
       : null,
   ),
+  listReportTypes: vi.fn(() => [
+    { type: 'nevi', formats: ['xlsx'], generateFromUi: false },
+    { type: 'revenue', formats: ['csv', 'pdf', 'xlsx'], generateFromUi: true },
+  ]),
   REPORT_TYPES: [
     'nevi',
     'revenue',
@@ -114,13 +118,18 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: mockPublish }),
 }));
 
+// Echoes the permission a route requires in a header, so a test can check it.
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
-    () =>
+    (permission: string) =>
     async (
       request: { jwtVerify: () => Promise<void> },
-      reply: { status: (n: number) => { send: (body: unknown) => Promise<void> } },
+      reply: {
+        header: (name: string, value: string) => void;
+        status: (n: number) => { send: (body: unknown) => Promise<void> };
+      },
     ) => {
+      reply.header('x-required-permission', permission);
       try {
         await request.jwtVerify();
       } catch {
@@ -201,6 +210,25 @@ describe('Report routes', () => {
     const body = JSON.parse(response.body);
     expect(body.data).toHaveLength(1);
     expect(body.total).toBe(1);
+  });
+
+  it('GET /v1/reports/types returns 401 without auth', async () => {
+    const response = await app.inject({ method: 'GET', url: '/reports/types' });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('GET /v1/reports/types lists the report types with formats and generateFromUi', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/reports/types',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-required-permission']).toBe('reports:read');
+    expect(JSON.parse(response.body)).toEqual([
+      { type: 'nevi', formats: ['xlsx'], generateFromUi: false },
+      { type: 'revenue', formats: ['csv', 'pdf', 'xlsx'], generateFromUi: true },
+    ]);
   });
 
   it('GET /v1/reports/:id returns 404 when report not found', async () => {

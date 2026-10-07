@@ -11,7 +11,7 @@ import {
   writeAudit,
   settingAuditLog,
 } from '@evtivity/database';
-import { encryptString } from '@evtivity/lib';
+import { createLogger, encryptString } from '@evtivity/lib';
 import { decryptForRead } from '../lib/settings-crypto.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { successResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
@@ -21,12 +21,14 @@ import { getAuditActor } from '../lib/audit-actor.js';
 import { config as apiConfig } from '../lib/config.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
+const logger = createLogger('security-settings');
+
 async function invalidateSecuritySettings(): Promise<void> {
   clearSecuritySettingsCache();
   try {
     await getPubSub().publish('cache_invalidate', JSON.stringify({ kind: 'security_settings' }));
-  } catch {
-    // Non-critical: peers refresh from the 60s TTL anyway.
+  } catch (err) {
+    logger.warn({ err }, 'Security settings invalidation publish failed, peers refresh within 60s');
   }
 }
 
@@ -170,7 +172,11 @@ export function securitySettingsRoutes(app: FastifyInstance): void {
         try {
           const encrypted = encryptString(body.secretKey, getEncryptionKey());
           written.push({ key: 'security.recaptcha.secretKeyEnc', value: encrypted });
-        } catch {
+        } catch (err) {
+          request.log.error(
+            { err, key: 'security.recaptcha.secretKeyEnc' },
+            'Encrypting the reCAPTCHA secret failed, nothing saved',
+          );
           await reply.status(500).send({
             error: 'SETTINGS_ENCRYPTION_KEY not configured on server',
             code: 'ENCRYPTION_KEY_MISSING',

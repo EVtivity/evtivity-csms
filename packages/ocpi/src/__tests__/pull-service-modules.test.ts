@@ -68,6 +68,13 @@ vi.mock('../lib/outbound-token.js', () => ({ getOutboundToken: getOutboundTokenM
 const { pullTariffs, pullCdrs, pullLocations, OcpiPullListener } =
   await import('../services/pull.service.js');
 
+// The pullable entries of OCPI_MODULES (modules.test.ts checks the registry wiring).
+const PULL_MODULES = [
+  { identifier: 'locations', pull: pullLocations },
+  { identifier: 'tariffs', pull: pullTariffs },
+  { identifier: 'cdrs', pull: pullCdrs },
+] as const;
+
 type PageHandler = (p: unknown[]) => Promise<void>;
 function servePages(...pages: unknown[][]): void {
   getPaginatedEachMock.mockImplementation(async (_url: string, onPage: PageHandler) => {
@@ -354,7 +361,7 @@ describe('OcpiPullListener', () => {
 
   it('subscribes to ocpi_sync and runs the requested module pull', async () => {
     const { pubsub, deliver, unsubscribe } = makePubsub();
-    const listener = new OcpiPullListener(pubsub);
+    const listener = new OcpiPullListener(pubsub, PULL_MODULES);
     await listener.start();
     expect(pubsub.subscribe).toHaveBeenCalledWith('ocpi_sync', expect.any(Function));
 
@@ -371,7 +378,7 @@ describe('OcpiPullListener', () => {
 
   it('routes locations and cdrs notifications to their pulls', async () => {
     const { pubsub, deliver } = makePubsub();
-    const listener = new OcpiPullListener(pubsub);
+    const listener = new OcpiPullListener(pubsub, PULL_MODULES);
     await listener.start();
 
     selectResults = [[], [PARTNER]];
@@ -392,7 +399,7 @@ describe('OcpiPullListener', () => {
 
   it('ignores an unparsable payload and an unknown module without writing anything', async () => {
     const { pubsub, deliver } = makePubsub();
-    const listener = new OcpiPullListener(pubsub);
+    const listener = new OcpiPullListener(pubsub, PULL_MODULES);
     await listener.start();
 
     deliver('{not json');
@@ -405,7 +412,7 @@ describe('OcpiPullListener', () => {
 
   it('stop() without start() is a no-op', async () => {
     const { pubsub, unsubscribe } = makePubsub();
-    const listener = new OcpiPullListener(pubsub);
+    const listener = new OcpiPullListener(pubsub, PULL_MODULES);
     await listener.stop();
     expect(unsubscribe).not.toHaveBeenCalled();
   });

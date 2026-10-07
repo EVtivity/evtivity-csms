@@ -1,60 +1,28 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import {
+  OCPP_NOTIFICATION_EVENT_TYPES,
+  ocppNotificationEventsFor,
+} from '@evtivity/lib/notification-events';
+
 export interface TemplateVariable {
   name: string;
   description: string;
 }
 
-// Common OCPP events (both 1.6 and 2.1)
-export const OCPP_COMMON_EVENTS = [
-  'station.Connected',
-  'station.Disconnected',
-  'ocpp.Authorize',
-  'ocpp.BootNotification',
-  'ocpp.DataTransfer',
-  'ocpp.FirmwareStatusNotification',
-  'ocpp.Heartbeat',
-  'ocpp.MeterValues',
-  'ocpp.StatusNotification',
-  'ocpp.TransactionEvent',
-] as const;
+// OCPP events, from the shared list the OCPP server subscribes and the API lists.
+// Common to OCPP 1.6 and 2.1:
+export const OCPP_COMMON_EVENTS = ocppNotificationEventsFor('common');
 
-// OCPP 2.1 only events
-export const OCPP_21_EVENTS = [
-  'ocpp.BatterySwap',
-  'ocpp.ClearedChargingLimit',
-  'ocpp.Get15118EVCertificate',
-  'ocpp.GetCertificateChainStatus',
-  'ocpp.GetCertificateStatus',
-  'ocpp.LogStatusNotification',
-  'ocpp.MessageLog',
-  'ocpp.NotifyAllowedEnergyTransfer',
-  'ocpp.NotifyChargingLimit',
-  'ocpp.NotifyCustomerInformation',
-  'ocpp.NotifyDERAlarm',
-  'ocpp.NotifyDERStartStop',
-  'ocpp.NotifyDisplayMessages',
-  'ocpp.NotifyEVChargingNeeds',
-  'ocpp.NotifyEVChargingSchedule',
-  'ocpp.NotifyEvent',
-  'ocpp.NotifyMonitoringReport',
-  'ocpp.NotifyPeriodicEventStream',
-  'ocpp.NotifyPriorityCharging',
-  'ocpp.NotifyReport',
-  'ocpp.NotifySettlement',
-  'ocpp.PublishFirmwareStatusNotification',
-  'ocpp.PullDynamicScheduleUpdate',
-  'ocpp.ReportChargingProfiles',
-  'ocpp.ReportDERControl',
-  'ocpp.ReservationStatusUpdate',
-  'ocpp.SecurityEventNotification',
-  'ocpp.SignCertificate',
-  'ocpp.VatNumberValidation',
-] as const;
+// OCPP 1.6 only:
+export const OCPP_16_EVENTS = ocppNotificationEventsFor('1.6');
+
+// OCPP 2.1 only:
+export const OCPP_21_EVENTS = ocppNotificationEventsFor('2.1');
 
 // All OCPP event types
-export const OCPP_EVENT_TYPES = [...OCPP_COMMON_EVENTS, ...OCPP_21_EVENTS] as const;
+export const OCPP_EVENT_TYPES = OCPP_NOTIFICATION_EVENT_TYPES;
 
 // Driver-facing events: notifications sent to drivers
 export const DRIVER_SESSION_EVENTS = [
@@ -102,7 +70,12 @@ export const DRIVER_SUPPORT_EVENTS = [
   'supportCase.Resolved',
 ] as const;
 
-export const DRIVER_TOKEN_EVENTS = ['token.Added', 'token.Removed', 'token.Deactivated'] as const;
+export const DRIVER_TOKEN_EVENTS = [
+  'token.Added',
+  'token.Removed',
+  'token.Deactivated',
+  'token.Reactivated',
+] as const;
 
 export const DRIVER_MFA_EVENTS = ['mfa.VerificationCode'] as const;
 
@@ -140,12 +113,16 @@ export const OPERATOR_SUPPORT_EVENTS = [
   'supportCase.DriverReply',
 ] as const;
 
+// Session alerts: sent to operators who manage the session's site
+export const OPERATOR_SESSION_EVENTS = ['session.EndRequestFailed'] as const;
+
 // Site host events: notifications sent to a site's contact
 export const SITE_HOST_EVENTS = ['site.PayoutOnboarding'] as const;
 
 export const OPERATOR_EVENT_TYPES = [
   ...OPERATOR_ACCOUNT_EVENTS,
   ...OPERATOR_SUPPORT_EVENTS,
+  ...OPERATOR_SESSION_EVENTS,
   ...SITE_HOST_EVENTS,
 ] as const;
 
@@ -198,6 +175,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'stationId', description: 'Station identifier' },
     { name: 'occurredAt', description: 'Timestamp' },
     { name: 'status', description: 'Firmware update status' },
+  ],
+  'ocpp.DiagnosticsStatus': [
+    { name: 'stationId', description: 'Station identifier' },
+    { name: 'occurredAt', description: 'Timestamp' },
+    { name: 'status', description: 'Diagnostics upload status' },
   ],
   'ocpp.Get15118EVCertificate': [
     { name: 'stationId', description: 'Station identifier' },
@@ -686,6 +668,22 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'idToken', description: 'Token identifier (e.g. RFID UID)' },
     { name: 'tokenType', description: 'OCPP token type (e.g. ISO14443)' },
     { name: 'reactivatedBy', description: 'Who reactivated (driver, operator, system)' },
+  ],
+  'session.EndRequestFailed': [
+    { name: 'firstName', description: 'Operator first name' },
+    { name: 'lastName', description: 'Operator last name' },
+    { name: 'email', description: 'Operator email address' },
+    { name: 'sessionId', description: 'Session ID (search for it on the Sessions page)' },
+    { name: 'stationId', description: 'Station identifier' },
+    { name: 'siteName', description: 'Site name (empty when the station has no site)' },
+    { name: 'transactionId', description: 'Transaction ID' },
+    {
+      name: 'endRequestReason',
+      description: 'Why the CSMS ended the session (Superseded, GhostRecovered)',
+    },
+    { name: 'attempts', description: 'Number of failed end attempts' },
+    { name: 'startedAt', description: 'Session start time' },
+    { name: 'endedAt', description: 'Time the session was faulted' },
   ],
   'site.PayoutOnboarding': [
     { name: 'siteName', description: 'Site name' },

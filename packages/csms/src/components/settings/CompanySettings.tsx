@@ -348,7 +348,7 @@ export function CompanySettings({
               {settings != null && typeof settings['company.logo'] === 'string' ? (
                 <img
                   src={settings['company.logo']}
-                  alt="Company logo"
+                  alt={t('settings.companyLogo')}
                   className="h-16 w-16 rounded border object-contain"
                 />
               ) : (
@@ -399,7 +399,11 @@ export function CompanySettings({
                   <p className="text-xs font-medium text-muted-foreground">
                     {t('settings.preview')}
                   </p>
-                  <img src={svgDataUri} alt="QR icon" className="h-16 w-16 rounded border p-2" />
+                  <img
+                    src={svgDataUri}
+                    alt={t('settings.qrCodeIcon')}
+                    className="h-16 w-16 rounded border p-2"
+                  />
                 </div>
                 <div className="flex flex-col items-center gap-1">
                   <p className="text-xs font-medium text-muted-foreground">QR</p>
@@ -466,7 +470,7 @@ export function CompanySettings({
               settings['company.favicon'] !== '' ? (
                 <img
                   src={settings['company.favicon']}
-                  alt="Favicon"
+                  alt={t('settings.favicon')}
                   className="h-8 w-8 rounded border object-contain"
                 />
               ) : (
@@ -519,7 +523,7 @@ export function CompanySettings({
               settings['company.ogImage'] !== '' ? (
                 <img
                   src={settings['company.ogImage']}
-                  alt="OG image"
+                  alt={t('settings.ogImage')}
                   className="h-16 w-28 rounded border object-cover"
                 />
               ) : (
@@ -594,7 +598,7 @@ export function CompanySettings({
           <div className="flex items-center gap-3">
             <input
               type="color"
-              aria-label="Theme color picker"
+              aria-label={t('settings.themeColorPicker')}
               value={companyThemeColor}
               onChange={(e) => {
                 setCompanyThemeColor(e.target.value);

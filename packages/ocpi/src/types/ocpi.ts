@@ -16,12 +16,12 @@ export interface OcpiVersionDetail {
 }
 
 export interface OcpiEndpoint {
-  identifier: OcpiModule;
+  identifier: OcpiModuleId;
   role: OcpiInterfaceRole;
   url: string;
 }
 
-export type OcpiModule =
+export type OcpiModuleId =
   | 'credentials'
   | 'locations'
   | 'sessions'

@@ -70,7 +70,8 @@ async function attemptRefresh(): Promise<boolean> {
       credentials: 'include',
     });
     return res.ok;
-  } catch {
+  } catch (err) {
+    console.warn('Refresh the session failed', err);
     return false;
   }
 }

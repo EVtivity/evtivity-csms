@@ -9,6 +9,7 @@ import {
   OCPP_COMMAND_RESULTS_CHANNEL,
   publishOcppCommand,
   safeFetch,
+  tryParseJson,
 } from '@evtivity/lib';
 import type { SafeFetchResponse } from '@evtivity/lib';
 import { eq } from 'drizzle-orm';
@@ -145,13 +146,12 @@ export class OcpiCommandCallbackService {
   }
 
   private async handleResult(raw: string): Promise<void> {
-    let result: CommandResult;
-    try {
-      result = JSON.parse(raw) as CommandResult;
-    } catch {
+    const parsed = tryParseJson(raw);
+    if (parsed === undefined) {
       logger.error({ raw }, 'Invalid command result payload');
       return;
     }
+    const result = parsed as CommandResult;
 
     const { commandId } = result;
     const pending = this.pending.get(commandId);

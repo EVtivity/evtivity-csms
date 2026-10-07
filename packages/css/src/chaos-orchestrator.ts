@@ -6,6 +6,7 @@ import type postgres from 'postgres';
 import { OCTT_TEST_DRIVER_EMAIL } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
 import { ChaosJourneys } from './chaos-journey.js';
+import { logger } from './lib/logger.js';
 
 interface DriverToken {
   idToken: string;
@@ -639,8 +640,11 @@ export class ChaosOrchestrator {
           'css_commands',
           JSON.stringify({ commandId: randomUUID(), stationId, action: 'comeOnline', params: {} }),
         );
-      } catch {
-        // Ignore errors
+      } catch (err) {
+        logger.warn(
+          { err, stationId, action: 'comeOnline' },
+          'Publish of the chaos command failed',
+        );
       }
       return;
     }
@@ -657,8 +661,8 @@ export class ChaosOrchestrator {
           'css_commands',
           JSON.stringify({ commandId: randomUUID(), stationId, action: 'goOffline', params: {} }),
         );
-      } catch {
-        // Ignore errors
+      } catch (err) {
+        logger.warn({ err, stationId, action: 'goOffline' }, 'Publish of the chaos command failed');
       }
       return;
     }
@@ -706,8 +710,8 @@ export class ChaosOrchestrator {
       stationStatus = row.status as CssStationStatus;
       connectorStatus = row.evse_status ?? 'Available';
       hasActiveTx = row.has_tx || hasActiveTx;
-    } catch {
-      // Best-effort: if DB unavailable, fall through with default 'available'.
+    } catch (err) {
+      logger.warn({ err, stationId }, 'Load station state failed, using the default state');
     }
 
     // Treat charging-or-active-transaction as the same effective state.

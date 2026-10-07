@@ -105,11 +105,7 @@ async function waitFor(
   action: string,
   timeoutMs: number,
 ): Promise<Record<string, unknown> | null> {
-  try {
-    return await server.waitForMessage(action, timeoutMs);
-  } catch {
-    return null;
-  }
+  return server.waitForMessageOrNull(action, timeoutMs);
 }
 
 // Configuration State "CpoName is <The configured Vendor Name>".

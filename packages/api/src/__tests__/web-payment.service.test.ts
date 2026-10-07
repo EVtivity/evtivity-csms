@@ -301,6 +301,10 @@ describe('validateQrCodeUrl', () => {
       valid: false,
       reason: 'malformed_url',
     });
+    expect(await validateQrCodeUrl(url(`/qr/CS-%E0%A4%A/1/${totp}/v1`), NOW)).toEqual({
+      valid: false,
+      reason: 'malformed_url',
+    });
     expect(await validateQrCodeUrl(url(`/qr/CS-1/abc/${totp}/v1`), NOW)).toEqual({
       valid: false,
       reason: 'missing_parameter',

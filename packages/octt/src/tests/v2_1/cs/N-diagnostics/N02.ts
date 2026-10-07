@@ -27,11 +27,8 @@ export const TC_N_01_CS: CsTestCase = {
       actual: `status = ${res1['status']}`,
     });
 
-    try {
-      await ctx.server.waitForMessage('NotifyMonitoringReport', 15000);
-    } catch {
-      /* may timeout if no monitors */
-    }
+    // may timeout if no monitors
+    await ctx.server.waitForMessageOrNull('NotifyMonitoringReport', 15000);
 
     const res2 = await ctx.server.sendCommand('GetMonitoringReport', {
       requestId: 2,
@@ -45,11 +42,8 @@ export const TC_N_01_CS: CsTestCase = {
       actual: `status = ${res2['status']}`,
     });
 
-    try {
-      await ctx.server.waitForMessage('NotifyMonitoringReport', 15000);
-    } catch {
-      /* may timeout */
-    }
+    // may timeout
+    await ctx.server.waitForMessageOrNull('NotifyMonitoringReport', 15000);
 
     const res3 = await ctx.server.sendCommand('GetMonitoringReport', {
       requestId: 3,

@@ -30,11 +30,7 @@ function extractToken(request: FastifyRequest): string | null {
   const match = authHeader.match(/^Token\s+(.+)$/i);
   if (match == null || match[1] == null) return null;
 
-  try {
-    return Buffer.from(match[1], 'base64').toString('utf-8');
-  } catch {
-    return null;
-  }
+  return Buffer.from(match[1], 'base64').toString('utf-8');
 }
 
 async function verifyToken(

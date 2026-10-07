@@ -38,13 +38,13 @@ export const TC_Q_107_CSMS: TestCase = {
         expected: 'status = Accepted, Processing, or NoChargingProfile',
         actual: `status = ${status}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 1,
         description: 'Send NotifyEVChargingNeedsRequest',
         status: 'failed',
         expected: 'Response received',
-        actual: 'Error',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     let setProfileReceived = false;

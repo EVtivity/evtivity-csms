@@ -44,7 +44,7 @@ describe('ToastProvider', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(screen.getByRole('button', { name: 'common.dismiss' }));
 
     expect(screen.queryByText('Station added to favorites.')).toBeNull();
   });

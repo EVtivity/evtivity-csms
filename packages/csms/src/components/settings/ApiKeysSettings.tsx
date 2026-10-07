@@ -416,7 +416,12 @@ print(data)`;
               </Alert>
               <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                 <Input value={createdToken} readOnly className="flex-1" />
-                <Button variant="outline" size="icon" aria-label="Copy" onClick={handleCopy}>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  aria-label={t('common.copy')}
+                  onClick={handleCopy}
+                >
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
@@ -535,7 +540,7 @@ print(data)`;
                 variant="ghost"
                 size="icon"
                 className="h-8 w-8 mr-1"
-                aria-label="Copy code"
+                aria-label={t('settings.copyCode')}
                 onClick={handleCopyCode}
               >
                 {codeCopied ? (

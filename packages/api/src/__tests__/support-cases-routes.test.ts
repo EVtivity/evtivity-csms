@@ -430,6 +430,28 @@ describe('support case routes', () => {
     });
   });
 
+  // ------------------------------------------------------ attachment storage
+  describe('GET /support-cases/attachment-storage', () => {
+    it('answers configured when an S3 configuration resolves', async () => {
+      const res = await inject('GET', '/support-cases/attachment-storage');
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ configured: true });
+    });
+
+    it('answers not configured without an S3 configuration', async () => {
+      mocks.getS3Config.mockResolvedValue(null);
+      const res = await inject('GET', '/support-cases/attachment-storage');
+      expect(res.json()).toEqual({ configured: false });
+    });
+
+    it('answers not configured when the configuration cannot be read', async () => {
+      mocks.getS3Config.mockRejectedValue(new Error('SETTINGS_ENCRYPTION_KEY is required'));
+      const res = await inject('GET', '/support-cases/attachment-storage');
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ configured: false });
+    });
+  });
+
   // ---------------------------------------------------------------- detail
   describe('GET /support-cases/:id', () => {
     it('returns 404 when the case does not exist', async () => {

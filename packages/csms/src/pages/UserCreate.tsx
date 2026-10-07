@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { permissionCatalog } from '@evtivity/lib/permissions';
 import { PermissionEditor } from '@/components/PermissionEditor';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
@@ -60,36 +61,13 @@ export function UserCreate(): React.JSX.Element {
   });
   const sitesList = sitesData?.data ?? [];
 
-  // Fetch role defaults for permission pre-population
-  const { data: roleDefaults } = useQuery({
-    queryKey: ['role-defaults'],
-    queryFn: async () => {
-      const groups = await api.get<{ label: string; permissions: string[] }[]>('/v1/permissions');
-      const allPerms = groups.flatMap((g) => g.permissions);
-      // Admin gets all, operator gets operational subset
-      // We replicate the backend logic here
-      const adminPerms = [...allPerms];
-      const operatorPerms = allPerms.filter(
-        (p) => !p.startsWith('settings.') && p !== 'users:write',
-      );
-      const viewerPerms = allPerms.filter((p) => p.endsWith(':read') && !p.startsWith('settings.'));
-      return { admin: adminPerms, operator: operatorPerms, viewer: viewerPerms };
-    },
-  });
-
-  // When role changes, reset permissions to that role's defaults
+  // When role changes, reset permissions to the defaults the server gives that role
   useEffect(() => {
-    if (roleId === '' || roles == null || roleDefaults == null) return;
+    if (roleId === '' || roles == null) return;
     const selectedRole = roles.find((r) => r.id === roleId);
     if (selectedRole == null) return;
-    const defaults =
-      selectedRole.name === 'admin'
-        ? roleDefaults.admin
-        : selectedRole.name === 'viewer'
-          ? roleDefaults.viewer
-          : roleDefaults.operator;
-    setSelectedPermissions(defaults);
-  }, [roleId, roles, roleDefaults]);
+    setSelectedPermissions(permissionCatalog.defaultsFor(selectedRole.name));
+  }, [roleId, roles]);
 
   const createMutation = useMutation({
     mutationFn: async (body: {

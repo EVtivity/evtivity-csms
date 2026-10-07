@@ -4,6 +4,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tryParseJson } from '@evtivity/lib';
+import { isMissingFileError } from '../lib/fs-errors.js';
 import type { FastifyInstance } from 'fastify';
 import {
   ActionRegistry,
@@ -77,14 +79,17 @@ const schemaCache = new Map<string, RawSchema>();
 async function loadSchema(filePath: string): Promise<RawSchema | null> {
   const cached = schemaCache.get(filePath);
   if (cached != null) return cached;
+  let content: string;
   try {
-    const content = await readFile(filePath, 'utf-8');
-    const parsed = JSON.parse(content) as RawSchema;
-    schemaCache.set(filePath, parsed);
-    return parsed;
-  } catch {
-    return null;
+    content = await readFile(filePath, 'utf-8');
+  } catch (err) {
+    if (isMissingFileError(err)) return null;
+    throw new Error(`Reading the OCPP schema ${filePath} failed`, { cause: err });
   }
+  const parsed = tryParseJson(content) as RawSchema | undefined;
+  if (parsed == null) throw new Error(`The OCPP schema ${filePath} is not valid JSON`);
+  schemaCache.set(filePath, parsed);
+  return parsed;
 }
 
 function resolveRef(ref: string): string {
@@ -324,7 +329,10 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
       let content: string;
       try {
         content = await readFile(filePath, 'utf-8');
-      } catch {
+      } catch (err) {
+        if (!isMissingFileError(err)) {
+          throw new Error(`Reading the OCPP schema ${filePath} failed`, { cause: err });
+        }
         return reply.status(404).send({
           error: 'Schema not found',
           code: 'SCHEMA_NOT_FOUND',

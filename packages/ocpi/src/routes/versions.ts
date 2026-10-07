@@ -5,6 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { ocpiSuccess } from '../lib/ocpi-response.js';
 import { config } from '../lib/config.js';
 import { ocpiAuthenticateRegistration } from '../middleware/ocpi-auth.js';
+import { OCPI_MODULES } from '../modules.js';
 import type {
   OcpiVersion,
   OcpiVersionInfo,
@@ -26,25 +27,21 @@ function buildVersionList(): OcpiVersionInfo[] {
   }));
 }
 
-function buildModuleEndpoints(version: OcpiVersion): OcpiEndpoint[] {
+export function buildModuleEndpoints(version: OcpiVersion): OcpiEndpoint[] {
   const baseUrl = getBaseUrl();
   const prefix = `${baseUrl}/ocpi/${version}`;
 
   return [
+    // The credentials handshake is not a registry module.
     { identifier: 'credentials', role: 'SENDER', url: `${prefix}/credentials` },
     { identifier: 'credentials', role: 'RECEIVER', url: `${prefix}/credentials` },
-    { identifier: 'locations', role: 'SENDER', url: `${prefix}/cpo/locations` },
-    { identifier: 'locations', role: 'RECEIVER', url: `${prefix}/emsp/locations` },
-    { identifier: 'sessions', role: 'SENDER', url: `${prefix}/cpo/sessions` },
-    { identifier: 'sessions', role: 'RECEIVER', url: `${prefix}/emsp/sessions` },
-    { identifier: 'cdrs', role: 'SENDER', url: `${prefix}/cpo/cdrs` },
-    { identifier: 'cdrs', role: 'RECEIVER', url: `${prefix}/emsp/cdrs` },
-    { identifier: 'tariffs', role: 'SENDER', url: `${prefix}/cpo/tariffs` },
-    { identifier: 'tariffs', role: 'RECEIVER', url: `${prefix}/emsp/tariffs` },
-    { identifier: 'tokens', role: 'SENDER', url: `${prefix}/emsp/tokens` },
-    { identifier: 'tokens', role: 'RECEIVER', url: `${prefix}/cpo/tokens` },
-    { identifier: 'commands', role: 'RECEIVER', url: `${prefix}/cpo/commands` },
-    { identifier: 'hubclientinfo', role: 'RECEIVER', url: `${prefix}/hubclientinfo` },
+    ...OCPI_MODULES.flatMap((m) =>
+      m.endpoints.map((e) => ({
+        identifier: m.identifier,
+        role: e.role,
+        url: `${prefix}/${e.path}`,
+      })),
+    ),
   ];
 }
 

@@ -251,12 +251,9 @@ export async function validateQrCodeUrl(
   url: string,
   nowMs: number = Date.now(),
 ): Promise<QrValidationResult> {
-  let pathname: string;
-  try {
-    pathname = new URL(url).pathname;
-  } catch {
-    return { valid: false, reason: 'malformed_url' };
-  }
+  const parsedUrl = URL.parse(url);
+  if (parsedUrl == null) return { valid: false, reason: 'malformed_url' };
+  const pathname = parsedUrl.pathname;
 
   // The template ends in qr/{chargingstationid}/{evse}/{totp}/{version}; an
   // omitted parameter leaves an empty or missing path segment.
@@ -268,8 +265,9 @@ export async function validateQrCodeUrl(
   let decoded: string[];
   try {
     decoded = segments.slice(1).map((s) => decodeURIComponent(s));
-  } catch {
-    return { valid: false, reason: 'malformed_url' };
+  } catch (err) {
+    if (err instanceof URIError) return { valid: false, reason: 'malformed_url' };
+    throw err;
   }
   const [chargingStationId = '', evse = '', totp = '', version = ''] = decoded;
   if (chargingStationId === '' || evse === '' || totp === '' || version === '') {

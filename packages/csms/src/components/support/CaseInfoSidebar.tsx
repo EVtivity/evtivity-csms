@@ -105,7 +105,8 @@ export function CaseInfoSidebar({
           `/v1/support-cases/${caseDetail.id}/messages/${String(att.messageId)}/attachments/${String(att.id)}/download-url`,
         );
         return res.downloadUrl;
-      } catch {
+      } catch (err) {
+        console.warn('Load support case attachment download URL failed', err);
         return null;
       }
     },

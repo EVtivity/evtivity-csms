@@ -4,6 +4,9 @@
 import { like } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('security-settings');
 
 export interface RecaptchaConfig {
   enabled: boolean;
@@ -72,7 +75,11 @@ async function loadSecuritySettings(): Promise<ParsedSecurity | undefined> {
     cache = parseSecuritySettings(rows);
     cachedAt = now;
     return cache;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'security.*' },
+      'loadSecuritySettings failed, using the cached value or default',
+    );
     return cache;
   }
 }

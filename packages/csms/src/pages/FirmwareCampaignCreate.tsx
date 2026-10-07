@@ -66,12 +66,8 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
     if (!name.trim()) errors.name = t('validation.required');
     if (!firmwareUrl.trim()) {
       errors.firmwareUrl = t('validation.required');
-    } else {
-      try {
-        new URL(firmwareUrl);
-      } catch {
-        errors.firmwareUrl = t('validation.invalidUrl');
-      }
+    } else if (!URL.canParse(firmwareUrl)) {
+      errors.firmwareUrl = t('validation.invalidUrl');
     }
     return errors;
   }

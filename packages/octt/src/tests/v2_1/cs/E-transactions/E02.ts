@@ -47,16 +47,13 @@ export const TC_E_03_CS: CsTestCase = {
     // Find TransactionEvent with chargingState Charging (skip other messages)
     let chState: string | undefined;
     for (let _i = 0; _i < 10; _i++) {
-      try {
-        const msg = await ctx.server.waitForMessage('TransactionEvent', 5000);
-        const txInfo = (msg as Record<string, unknown>)['transactionInfo'] as
-          | Record<string, unknown>
-          | undefined;
-        chState = txInfo?.['chargingState'] as string | undefined;
-        if (chState === 'Charging') break;
-      } catch {
-        break;
-      }
+      const msg = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+      if (msg == null) break;
+      const txInfo = (msg as Record<string, unknown>)['transactionInfo'] as
+        | Record<string, unknown>
+        | undefined;
+      chState = txInfo?.['chargingState'] as string | undefined;
+      if (chState === 'Charging') break;
     }
     steps.push({
       step: 2,

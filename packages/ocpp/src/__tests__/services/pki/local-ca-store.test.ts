@@ -12,7 +12,8 @@ vi.mock('@evtivity/database', () => ({
   },
 }));
 vi.mock('../../../lib/config.js', () => ({ config: { SETTINGS_ENCRYPTION_KEY: 'test-key' } }));
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async () => ({
+  ...(await vi.importActual<typeof import('@evtivity/lib/safe-json')>('@evtivity/lib/safe-json')),
   createLogger: () => ({ error: vi.fn(), warn: vi.fn(), info: vi.fn() }),
   decryptString: (value: string, key: string) => {
     if (key !== 'test-key' || !value.startsWith('enc:')) throw new Error('bad ciphertext');

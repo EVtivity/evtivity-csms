@@ -74,8 +74,9 @@ export function LocationMap({
           position,
           title: name,
         });
-      } catch {
+      } catch (err) {
         // Google Maps failed to load, fallback is handled by hiding the map
+        console.warn('Load the station location map failed', err);
       }
     })();
   }, [config, lat, lng, name]);

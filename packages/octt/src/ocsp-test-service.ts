@@ -341,6 +341,7 @@ export function answerOcspRequest(
   try {
     request = AsnConvert.parse(requestDer, OCSPRequest);
   } catch {
+    // fail-open: a request that does not parse gets the malformedRequest answer
     return { response: ocspError(OCSPResponseStatus.malformedRequest), received: null };
   }
   const single = request.tbsRequest.requestList[0];
@@ -481,6 +482,7 @@ export function readRelayedOcspStatus(
     if (single.certStatus.good !== undefined) return 'good';
     return 'unknown';
   } catch {
+    // fail-open: a relayed response that does not parse is reported as invalid
     return 'invalid';
   }
 }

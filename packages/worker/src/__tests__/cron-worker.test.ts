@@ -3,6 +3,8 @@
 
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import type { Job } from 'bullmq';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
 vi.mock('@evtivity/lib', () => ({
@@ -82,9 +84,12 @@ const handlerMocks = {
   logRetentionPruneHandler: vi.fn().mockResolvedValue(undefined),
   mfaChallengePruneHandler: vi.fn().mockResolvedValue(undefined),
   refreshTokenPruneHandler: vi.fn().mockResolvedValue(undefined),
+  stationWatchPruneHandler: vi.fn().mockResolvedValue(undefined),
   maintenanceSchedulerHandler: vi.fn().mockResolvedValue(undefined),
+  ocpiLocationSyncHandler: vi.fn().mockResolvedValue(undefined),
   payoutAccountSyncHandler: vi.fn().mockResolvedValue(undefined),
   processVersionWatchHandler: vi.fn().mockResolvedValue(undefined),
+  stationOfflineSweepHandler: vi.fn().mockResolvedValue(undefined),
 };
 
 vi.mock('../handlers/report-scheduler.js', () => ({
@@ -144,8 +149,14 @@ vi.mock('../handlers/mfa-challenge-prune.js', () => ({
 vi.mock('../handlers/refresh-token-prune.js', () => ({
   refreshTokenPruneHandler: (...a: unknown[]) => handlerMocks.refreshTokenPruneHandler(...a),
 }));
+vi.mock('../handlers/station-watch-prune.js', () => ({
+  stationWatchPruneHandler: (...a: unknown[]) => handlerMocks.stationWatchPruneHandler(...a),
+}));
 vi.mock('../handlers/maintenance-scheduler.js', () => ({
   maintenanceSchedulerHandler: (...a: unknown[]) => handlerMocks.maintenanceSchedulerHandler(...a),
+}));
+vi.mock('../handlers/ocpi-location-sync.js', () => ({
+  ocpiLocationSyncHandler: (...a: unknown[]) => handlerMocks.ocpiLocationSyncHandler(...a),
 }));
 vi.mock('../handlers/payout-account-sync.js', () => ({
   payoutAccountSyncHandler: (...a: unknown[]) => handlerMocks.payoutAccountSyncHandler(...a),
@@ -153,6 +164,36 @@ vi.mock('../handlers/payout-account-sync.js', () => ({
 vi.mock('../handlers/process-version-watch.js', () => ({
   processVersionWatchHandler: (...a: unknown[]) => handlerMocks.processVersionWatchHandler(...a),
 }));
+vi.mock('../handlers/station-offline-sweep.js', () => ({
+  stationOfflineSweepHandler: (...a: unknown[]) => handlerMocks.stationOfflineSweepHandler(...a),
+}));
+
+const migrationsDir = join(import.meta.dirname, '..', '..', '..', 'database', 'src', 'migrations');
+
+// Every cron job name a migration inserts into `cronjobs` (VALUES rows and
+// INSERT ... SELECT 'name' forms), minus any a later migration deletes.
+function seededCronJobNames(): string[] {
+  const names = new Set<string>();
+  const files = readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  for (const file of files) {
+    const sql = readFileSync(join(migrationsDir, file), 'utf8');
+    for (const stmt of sql.matchAll(/INSERT INTO "?cronjobs"?\s*\([^)]*\)\s*([\s\S]*?);/gi)) {
+      const body = stmt[1] ?? '';
+      if (/^VALUES/i.test(body)) {
+        for (const row of body.matchAll(/\(\s*'([^']+)'/g)) names.add(row[1] as string);
+      } else {
+        const selected = /^SELECT\s+'([^']+)'/i.exec(body);
+        if (selected?.[1] !== undefined) names.add(selected[1]);
+      }
+    }
+    for (const del of sql.matchAll(/DELETE FROM "?cronjobs"?\s+WHERE\s+name\s*=\s*'([^']+)'/gi)) {
+      names.delete(del[1] as string);
+    }
+  }
+  return [...names].sort();
+}
 
 function makeJob(name: string, data: unknown = {}): Job {
   return { name, data } as unknown as Job;
@@ -262,12 +303,37 @@ describe('cron-worker processor dispatch', () => {
       ['audit-retention-prune', 'auditRetentionPruneHandler'],
       ['payout-account-sync', 'payoutAccountSyncHandler'],
       ['process-version-watch', 'processVersionWatchHandler'],
+      ['station-offline-sweep', 'stationOfflineSweepHandler'],
     ];
 
     for (const [jobName, handlerKey] of routes) {
       await capturedProcessor?.(makeJob(jobName));
       expect(handlerMocks[handlerKey]).toHaveBeenCalledWith(mockLog);
     }
+  });
+
+  it('has a handler for every cron job the migrations seed', async () => {
+    const seeded = seededCronJobNames();
+    // Non-vacuous: the migrations seed 22 cron jobs as of migration 0124.
+    expect(seeded.length).toBeGreaterThanOrEqual(22);
+
+    const { createCronWorker } = cronWorkerModule;
+    createCronWorker({});
+
+    const missing: string[] = [];
+    for (const name of seeded) {
+      try {
+        await capturedProcessor?.(makeJob(name));
+      } catch (err) {
+        if (err instanceof Error && err.message.startsWith('No handler registered')) {
+          missing.push(name);
+        } else {
+          throw err;
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+    expect(mockLogJobStarted).toHaveBeenCalledTimes(seeded.length);
   });
 
   it('throws for an unknown job name and never starts a job log', async () => {

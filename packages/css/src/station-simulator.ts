@@ -16,6 +16,7 @@ import {
 import { validateStationPassword } from '@evtivity/lib/station-password';
 import { OcppClient } from './ocpp-client.js';
 import { config as cssConfig } from './lib/config.js';
+import { logger } from './lib/logger.js';
 import { MeterValueGenerator } from './meter-value-generator.js';
 import { OcmfMeterSigner } from './signed-meter-values.js';
 import { computeCompositeSchedule } from './composite-schedule.js';
@@ -1141,8 +1142,11 @@ export class StationSimulator {
     if (currentStatus !== status || isPostStopRePlug) {
       try {
         await this.sendStatusNotification(evseId, connectorId, status);
-      } catch {
-        // Offline - status will be reported on reconnect
+      } catch (err) {
+        logger.debug(
+          { err, stationId: this.config.stationId, evseId, connectorId, status },
+          'StatusNotification not delivered, the status is reported on reconnect',
+        );
       }
     }
     await this.updateEvseStatus(evseId, status);
@@ -1184,8 +1188,11 @@ export class StationSimulator {
           ctx.authorizedTokenType ?? 'ISO14443',
           ctx.remoteStartId ?? undefined,
         );
-      } catch {
-        // May fail if transaction already active
+      } catch (err) {
+        logger.warn(
+          { err, stationId: this.config.stationId, evseId },
+          'Auto-start of the transaction failed',
+        );
       }
     } else {
       ctx.state = 'Preparing';
@@ -1338,15 +1345,21 @@ export class StationSimulator {
     if (this.is16 && ctx.state === 'Preparing') {
       try {
         await this.beginTransaction(evseId, idToken, tokenType);
-      } catch {
-        // May fail if transaction already active
+      } catch (err) {
+        logger.warn(
+          { err, stationId: this.config.stationId, evseId },
+          'Auto-start of the transaction failed',
+        );
       }
     } else if (!this.is16 && ctx.cablePlugged && ctx.transactionId == null) {
       // 2.1: auto-start when cable is connected and no active transaction
       try {
         await this.beginTransaction(evseId, idToken, tokenType);
-      } catch {
-        // May fail if transaction already active
+      } catch (err) {
+        logger.warn(
+          { err, stationId: this.config.stationId, evseId },
+          'Auto-start of the transaction failed',
+        );
       }
     } else if (ctx.state !== 'Charging') {
       // Transition to Preparing on auth (station indicates user is identified)
@@ -1491,8 +1504,11 @@ export class StationSimulator {
     this.evseConnectorStatus.set(evseId, chargingStatus);
     try {
       await this.sendStatusNotification(evseId, connectorId, chargingStatus);
-    } catch {
-      // Offline - status reported on reconnect
+    } catch (err) {
+      logger.debug(
+        { err, stationId: this.config.stationId, evseId, connectorId, status: chargingStatus },
+        'StatusNotification not delivered, the status is reported on reconnect',
+      );
     }
     await this.updateEvseStatus(evseId, chargingStatus).catch(() => {});
 
@@ -1805,8 +1821,11 @@ export class StationSimulator {
       this.evseChargingState.set(evseId, 'Idle');
       try {
         await this.sendStatusNotification(evseId, connectorId, 'Unavailable');
-      } catch {
-        // Offline - status will be reported on reconnect
+      } catch (err) {
+        logger.debug(
+          { err, stationId: this.config.stationId, evseId, connectorId, status: 'Unavailable' },
+          'StatusNotification not delivered, the status is reported on reconnect',
+        );
       }
       await this.updateEvseStatus(evseId, 'Unavailable').catch(() => {});
     } else if (this.is16) {
@@ -1815,8 +1834,11 @@ export class StationSimulator {
       this.evseConnectorStatus.set(evseId, 'Finishing');
       try {
         await this.sendStatusNotification(evseId, connectorId, 'Finishing');
-      } catch {
-        // Offline - status will be reported on reconnect
+      } catch (err) {
+        logger.debug(
+          { err, stationId: this.config.stationId, evseId, connectorId, status: 'Finishing' },
+          'StatusNotification not delivered, the status is reported on reconnect',
+        );
       }
       await this.updateEvseStatus(evseId, 'Finishing').catch(() => {});
     } else {
@@ -1896,8 +1918,17 @@ export class StationSimulator {
         this.evseConnectorStatus.set(evseId, disconnectedStatus);
         try {
           await this.sendStatusNotification(evseId, connectorId, disconnectedStatus);
-        } catch {
-          // Offline
+        } catch (err) {
+          logger.debug(
+            {
+              err,
+              stationId: this.config.stationId,
+              evseId,
+              connectorId,
+              status: disconnectedStatus,
+            },
+            'StatusNotification not delivered, the status is reported on reconnect',
+          );
         }
         await this.updateEvseStatus(evseId, disconnectedStatus).catch(() => {});
 
@@ -1915,8 +1946,11 @@ export class StationSimulator {
         this.evseConnectorStatus.set(evseId, suspendStatus);
         try {
           await this.sendStatusNotification(evseId, connectorId, suspendStatus);
-        } catch {
-          // Offline - status will be reported on reconnect
+        } catch (err) {
+          logger.debug(
+            { err, stationId: this.config.stationId, evseId, connectorId, status: suspendStatus },
+            'StatusNotification not delivered, the status is reported on reconnect',
+          );
         }
         await this.updateEvseStatus(evseId, suspendStatus).catch(() => {});
       }
@@ -2077,7 +2111,11 @@ export class StationSimulator {
     }
     try {
       await this.sendBootNotification('RemoteReset');
-    } catch {
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId },
+        'BootNotification for the remote reset failed, reboot stopped',
+      );
       return;
     }
     if (this.bootStatus !== 'Accepted') return;
@@ -2097,8 +2135,17 @@ export class StationSimulator {
       this.evseConnectorStatus.set(evse.evseId, 'Available');
       try {
         await this.sendStatusNotification(evse.evseId, evse.connectorId, 'Available');
-      } catch {
-        // Connection dropped mid-flight; SimulatorManager will retry on reconnect.
+      } catch (err) {
+        logger.debug(
+          {
+            err,
+            stationId: this.config.stationId,
+            evseId: evse.evseId,
+            connectorId: evse.connectorId,
+            status: 'Available',
+          },
+          'StatusNotification not delivered, the status is reported on reconnect',
+        );
       }
       await this.updateEvseStatus(evse.evseId, 'Available').catch(() => {});
     }
@@ -2189,8 +2236,11 @@ export class StationSimulator {
               try {
                 await this.sendBootNotification(reason);
                 if (this.bootStatus === 'Accepted') await this.reportConnectorsAfterAccept();
-              } catch {
-                // Retry failed
+              } catch (err) {
+                logger.warn(
+                  { err, stationId: this.config.stationId, reason },
+                  'BootNotification retry failed',
+                );
               }
             })();
           }
@@ -2345,8 +2395,11 @@ export class StationSimulator {
     this.evseConnectorStatus.set(evseId, applied);
     try {
       await this.sendStatusNotification(evseId, connectorId, applied);
-    } catch {
-      // Offline - status will be reported on reconnect
+    } catch (err) {
+      logger.debug(
+        { err, stationId: this.config.stationId, evseId, connectorId, status: applied },
+        'StatusNotification not delivered, the status is reported on reconnect',
+      );
     }
     await this.updateEvseStatus(evseId, applied).catch(() => {});
     return applied;
@@ -3166,8 +3219,8 @@ export class StationSimulator {
         generatedAt: new Date().toISOString(),
         reportData,
       });
-    } catch {
-      // Ignore
+    } catch (err) {
+      logger.warn({ err, stationId: this.config.stationId, requestId }, 'NotifyReport failed');
     }
   }
 
@@ -6537,20 +6590,19 @@ export class StationSimulator {
     retries: number,
     retryIntervalSec: number,
   ): Promise<Buffer | null> {
-    let url: URL;
-    try {
-      url = new URL(location);
-    } catch {
-      return null;
-    }
+    const url = URL.parse(location);
+    if (url == null) return null;
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
     for (let attempt = 0; attempt <= retries; attempt++) {
       if (attempt > 0) await new Promise((r) => setTimeout(r, retryIntervalSec * 1000));
       try {
         const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
         if (response.ok) return Buffer.from(await response.arrayBuffer());
-      } catch {
-        // Retry below
+      } catch (err) {
+        logger.warn(
+          { err, stationId: this.config.stationId, location, attempt },
+          'Firmware download failed',
+        );
       }
     }
     return null;
@@ -6948,8 +7000,11 @@ export class StationSimulator {
           break;
         }
       }
-    } catch {
-      // Ignore errors from triggered messages
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId, requestedMessage },
+        'Triggered message failed',
+      );
     }
   }
 
@@ -6979,8 +7034,17 @@ export class StationSimulator {
     for (const evse of this.config.evses) {
       try {
         await this.sendStatusNotification(evse.evseId, evse.connectorId, 'Unavailable');
-      } catch {
-        // May fail if connection is closing
+      } catch (err) {
+        logger.debug(
+          {
+            err,
+            stationId: this.config.stationId,
+            evseId: evse.evseId,
+            connectorId: evse.connectorId,
+            status: 'Unavailable',
+          },
+          'StatusNotification not delivered, the status is reported on reconnect',
+        );
       }
     }
 
@@ -7025,8 +7089,8 @@ export class StationSimulator {
         ctx.transactionId = null;
         await this.sendStatusNotification(evse.evseId, evse.connectorId, 'Available');
       }
-    } catch {
-      // Ignore errors during reset
+    } catch (err) {
+      logger.warn({ err, stationId: this.config.stationId, resetType }, 'Boot after reset failed');
     }
   }
 
@@ -7285,8 +7349,11 @@ export class StationSimulator {
           this.evseConnectorStatus.set(evseId, 'Available');
           const connectorId = this.getConnectorId(evseId);
           await this.sendStatusNotification(evseId, connectorId, 'Available');
-        } catch {
-          // Best effort
+        } catch (err) {
+          logger.warn(
+            { err, stationId: this.config.stationId, evseId, transactionId },
+            'Ending the transaction after the EV connect timeout failed',
+          );
         }
       })();
     }, timeoutSec * 1000);
@@ -7405,8 +7472,11 @@ export class StationSimulator {
 
       if (!(await send('Installed'))) return;
       this.firmwareUpdateStatus = 'Idle';
-    } catch {
-      // Connection lost during firmware update
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId, location, requestId },
+        'Firmware update stopped, status set to Idle',
+      );
       this.firmwareUpdateStatus = 'Idle';
     }
   }
@@ -7421,8 +7491,11 @@ export class StationSimulator {
       this.logUploadStatus = 'UploadFailure';
       try {
         await this.sendLogStatusNotification('UploadFailure', requestId);
-      } catch {
-        // ignore
+      } catch (err) {
+        logger.warn(
+          { err, stationId: this.config.stationId, requestId },
+          'LogStatusNotification UploadFailure failed',
+        );
       }
       this.logUploadStatus = 'Idle';
       this.activeLogUploadRequestId = null;
@@ -7438,7 +7511,11 @@ export class StationSimulator {
       try {
         this.logUploadStatus = statuses[i] as string;
         await this.sendLogStatusNotification(statuses[i] as string, requestId);
-      } catch {
+      } catch (err) {
+        logger.warn(
+          { err, stationId: this.config.stationId, requestId },
+          'LogStatusNotification failed, log upload stopped',
+        );
         return;
       }
     }
@@ -7658,7 +7735,11 @@ export class StationSimulator {
         constantStreamData: { id: stream.id, variableMonitoringId: monitorId, params },
       });
       accepted = resp['status'] === 'Accepted';
-    } catch {
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId, monitorId },
+        'OpenPeriodicEventStream failed, stream not opened',
+      );
       accepted = false;
     }
     if (this.periodicStreams.get(monitorId) !== stream) return; // cleared or replaced meanwhile
@@ -7768,8 +7849,11 @@ export class StationSimulator {
     this.periodicStreams.delete(stream.monitorId);
     try {
       await this.client.sendCall('ClosePeriodicEventStream', { id: stream.id });
-    } catch {
-      // Connection lost: the CSMS drops the streams of a disconnected station.
+    } catch (err) {
+      logger.debug(
+        { err, stationId: this.config.stationId, streamId: stream.id },
+        'ClosePeriodicEventStream failed, the CSMS drops the streams of a disconnected station',
+      );
     }
   }
 
@@ -7926,8 +8010,11 @@ export class StationSimulator {
       await delay();
       if (this.isDestroyed()) return;
       await this.sendDiagnosticsStatusNotification('Uploaded');
-    } catch {
-      // Connection lost during upload
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId, location },
+        'Diagnostics upload stopped',
+      );
     }
   }
 
@@ -8438,8 +8525,11 @@ export class StationSimulator {
       if (ctx?.transactionId != null) {
         try {
           await this.stopCharging(evse.evseId, reason);
-        } catch {
-          // May fail if already stopped or offline
+        } catch (err) {
+          logger.warn(
+            { err, stationId: this.config.stationId, evseId: evse.evseId, reason },
+            'Stopping the transaction before the power cycle failed',
+          );
         }
       }
     }
@@ -9526,7 +9616,11 @@ export class StationSimulator {
         meterStartWh: row.meter_start_wh as number,
         idToken: (row.id_token as string | null) ?? '',
       };
-    } catch {
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId, evseId },
+        'Load active transaction failed, none assumed',
+      );
       return null;
     }
   }
@@ -9548,7 +9642,11 @@ export class StationSimulator {
       const row = rows[0];
       if (row == null) return null;
       return row.evse_id as number;
-    } catch {
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId, transactionId },
+        'Load EVSE of the transaction failed, none assumed',
+      );
       return null;
     }
   }
@@ -9565,7 +9663,11 @@ export class StationSimulator {
         LIMIT 1
       `;
       return rows.length > 0;
-    } catch {
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId },
+        'Check for an active transaction failed, none assumed',
+      );
       return false;
     }
   }
@@ -9625,8 +9727,11 @@ export class StationSimulator {
             seq_no = ${updates.seqNo}
         WHERE css_station_id = ${this.config.id} AND transaction_id = ${txId} AND status = 'active'
       `;
-    } catch {
-      // Ignore update failures
+    } catch (err) {
+      logger.warn(
+        { err, stationId: this.config.stationId, transactionId: txId },
+        'Update of the stored transaction state failed',
+      );
     }
   }
 

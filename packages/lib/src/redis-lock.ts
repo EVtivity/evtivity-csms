@@ -3,6 +3,9 @@
 
 import { randomUUID } from 'node:crypto';
 import type { Redis } from 'ioredis';
+import { createLogger } from './logger.js';
+
+const logger = createLogger('redis-lock');
 
 // Owner-checked so an expired-and-stolen lock is never released or renewed by a
 // previous holder.
@@ -76,8 +79,8 @@ export async function withLock<T>(
     clearInterval(renew);
     try {
       await redis.eval(RELEASE_IF_OWNER_LUA, 1, lockKey, token);
-    } catch {
-      // lock expires via TTL if the release is lost
+    } catch (err) {
+      logger.warn({ err, lockKey }, 'Lock release failed, the lock expires through its TTL');
     }
   }
 }

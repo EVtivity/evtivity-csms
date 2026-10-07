@@ -1,9 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { createLogger, tryParseJson } from '@evtivity/lib';
 import type { NormalizedPaymentEvent, SavedMethodDetails } from '../../types.js';
 import { fromAdyenAmount } from './amounts.js';
 import type { AdyenNotificationItem } from './hmac.js';
+
+const logger = createLogger('adyen-webhooks');
 
 export interface AdyenNotification {
   /** 'true' or 'false' as a string. */
@@ -18,13 +21,8 @@ export interface AdyenNotification {
  * Returns null for a body that is not one.
  */
 export function parseAdyenNotification(rawBody: string): AdyenNotification | null {
-  let body: unknown;
-  try {
-    body = JSON.parse(rawBody);
-  } catch {
-    // Not JSON: the caller rejects it as an unverifiable webhook.
-    return null;
-  }
+  // Not JSON: the caller rejects it as an unverifiable webhook.
+  const body = tryParseJson(rawBody);
   if (body == null || typeof body !== 'object') return null;
   const { live, notificationItems } = body as { live?: unknown; notificationItems?: unknown };
   if (!Array.isArray(notificationItems) || notificationItems.length === 0) return null;
@@ -42,8 +40,12 @@ function amountCents(item: AdyenNotificationItem): number | null {
   if (typeof value !== 'number' || typeof currency !== 'string') return null;
   try {
     return fromAdyenAmount({ value, currency });
-  } catch {
+  } catch (err) {
     // A currency the provider never sends (IDR): the event carries no usable amount.
+    logger.warn(
+      { err, pspReference: item.pspReference, eventCode: item.eventCode, currency },
+      'Adyen webhook amount is not convertible, the event carries no amount',
+    );
     return null;
   }
 }

@@ -69,7 +69,11 @@ vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: vi.fn(() => Promise.resolve('USD')),
 }));
 vi.mock('drizzle-orm', () => ({ eq: vi.fn(), like: vi.fn() }));
-vi.mock('@evtivity/lib', () => ({ decryptString: vi.fn((v: string) => `decrypted:${v}`) }));
+vi.mock('@evtivity/lib', async () => ({
+  decryptString: vi.fn((v: string) => `decrypted:${v}`),
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+  tryParseJson: (await import('@evtivity/lib/safe-json')).tryParseJson,
+}));
 vi.mock('../lib/config.js', () => ({ config: { SETTINGS_ENCRYPTION_KEY: 'enc-key' } }));
 const createAiProvider = vi.hoisted(() => vi.fn());
 vi.mock('../services/ai/provider-factory.js', () => ({ createAiProvider }));

@@ -4,7 +4,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, desc, sql, isNotNull, inArray } from 'drizzle-orm';
-import { db } from '@evtivity/database';
+import { db, SESSION_END_FAILED_REASON } from '@evtivity/database';
 import {
   chargingSessions,
   chargingStations,
@@ -19,7 +19,9 @@ import {
   meterValues,
   guestSessions,
   sessionStatusEnum,
+  SESSION_REBILL_STATUSES,
 } from '@evtivity/database';
+import { PaymentProviderUnavailableError } from '@evtivity/payments';
 import { zodSchema } from '../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -31,6 +33,19 @@ import { getUserSiteIds } from '../lib/site-access.js';
 import { pendingOperationSchema, providerRefundsSchema } from '../lib/payment-provider-schemas.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
+import { getAuditActor } from '../lib/audit-actor.js';
+import {
+  getSessionRebillState,
+  rebillSession,
+  SessionRebillRefusedError,
+} from '../services/session-rebill.service.js';
+
+const rebillStatusField = z
+  .enum(SESSION_REBILL_STATUSES)
+  .nullable()
+  .describe(
+    'Operator re-bill of a session the CSMS gave up ending: in_progress, billed, or manual (to be billed outside the platform); null when never re-billed',
+  );
 
 const sessionListItem = z
   .object({
@@ -79,6 +94,7 @@ const sessionListItem = z
       .describe('Final cost in cents (completed sessions)'),
     currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
     freeVend: z.boolean().describe('True when site free vend mode bypassed payment'),
+    rebillStatus: rebillStatusField,
     isGuestSession: z
       .boolean()
       .describe('True when this is a guest (non-registered driver) session'),
@@ -188,6 +204,33 @@ const sessionDetail = z
       .nullable()
       .describe('Reservation ID linked to the session, null if no reservation'),
     freeVend: z.boolean().describe('True when site free vend mode bypassed payment'),
+    rebillStatus: rebillStatusField,
+    rebillClaimedAt: z.coerce
+      .date()
+      .nullable()
+      .describe(
+        'When the running re-bill claimed the session (rebillStatus in_progress); a claim older than 5 minutes belongs to a request that died and may be taken over',
+      ),
+    rebillable: z
+      .boolean()
+      .describe(
+        'True when POST /v1/sessions/:id/rebill can bill the session now (same checks as the re-bill)',
+      ),
+    rebillBlockedReason: z
+      .enum([
+        'status',
+        'already_rebilled',
+        'roaming',
+        'free_vend',
+        'no_tariff',
+        'paid',
+        'in_progress',
+        'payment_pending',
+      ])
+      .nullable()
+      .describe(
+        'Why the session cannot be re-billed now: a SESSION_REBILL_NOT_ELIGIBLE reason, in_progress (another request bills it), or payment_pending (an open payment, or a re-bill charge without a provider answer for 23 hours to check at the provider); null when rebillable',
+      ),
     token: z
       .object({
         id: z.string().describe('Driver token ID (nanoid prefixed dtk_)'),
@@ -287,12 +330,61 @@ const sessionListQuery = paginationQuery.extend({
   siteId: ID_PARAMS.siteId.optional().describe('Filter by site ID'),
   stationId: ID_PARAMS.stationId.optional().describe('Filter by station ID'),
   status: z
-    // 'idling' is a virtual filter value (status='active' AND idle_started_at IS NOT NULL)
-    // not present in the DB enum; the handler maps it.
-    .enum([...sessionStatusEnum.enumValues, 'idling'] as const)
+    // 'idling' (status='active' AND idle_started_at IS NOT NULL) and
+    // 'manual_billing' (rebill_status='manual') are virtual filter values not
+    // present in the DB enum; the handler maps them.
+    .enum([...sessionStatusEnum.enumValues, 'idling', 'manual_billing'] as const)
     .optional()
-    .describe('Filter by session status (or "idling" for active+idle)'),
+    .describe(
+      'Filter by session status, "idling" for active and idle, or "manual_billing" for re-billed sessions left to manual billing',
+    ),
 });
+
+const rebillResponse = z
+  .object({
+    sessionId: z.string().describe('Session identifier'),
+    rebillStatus: z
+      .enum(['billed', 'manual'])
+      .describe(
+        'billed: charged, debited, or nothing to charge; manual: bill outside the platform',
+      ),
+    result: z
+      .enum(['charged', 'prepaid', 'no_charge', 'manual'])
+      .describe(
+        'charged: the default saved card was charged; prepaid: the token balance was debited; no_charge: the cost is 0; manual: left to manual billing',
+      ),
+    manualReason: z
+      .enum([
+        'no_payment_method',
+        'payment_failed',
+        'guest',
+        'no_driver',
+        'prepaid_not_debited',
+        'prepaid_record_exists',
+      ])
+      .nullable()
+      .describe('Why the session is left to manual billing, null when it was billed'),
+    finalCostCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Recomputed final cost in cents, tax included, now stored on the session'),
+    currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
+    endedAt: z.coerce
+      .date()
+      .describe('Billed end of the session: its last meter value, at most the time it was faulted'),
+    paymentRecordId: z
+      .number()
+      .int()
+      .nullable()
+      .describe('Payment record of the charge or prepaid debit, null when none was written'),
+    failureReason: z
+      .string()
+      .max(500)
+      .nullable()
+      .describe('Provider reason of a declined charge, null otherwise'),
+  })
+  .passthrough();
 
 const sessionParams = z.object({
   id: ID_PARAMS.sessionId.describe('Session ID'),
@@ -360,6 +452,8 @@ export function sessionRoutes(app: FastifyInstance): void {
         if (status === 'idling') {
           conditions.push(eq(chargingSessions.status, 'active'));
           conditions.push(isNotNull(chargingSessions.idleStartedAt));
+        } else if (status === 'manual_billing') {
+          conditions.push(eq(chargingSessions.rebillStatus, 'manual'));
         } else {
           conditions.push(eq(chargingSessions.status, status));
         }
@@ -391,6 +485,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           finalCostCents: chargingSessions.finalCostCents,
           currency: sessionCurrencySql(),
           freeVend: chargingSessions.freeVend,
+          rebillStatus: chargingSessions.rebillStatus,
           guestSessionToken: guestSessions.sessionToken,
           createdAt: chargingSessions.createdAt,
           _total: sql<number>`count(*) OVER()`.as('_total'),
@@ -462,6 +557,8 @@ export function sessionRoutes(app: FastifyInstance): void {
           stoppedReason: chargingSessions.stoppedReason,
           reservationId: chargingSessions.reservationId,
           freeVend: chargingSessions.freeVend,
+          rebillStatus: chargingSessions.rebillStatus,
+          rebillClaimedAt: chargingSessions.rebillClaimedAt,
           tokenId: driverTokens.id,
           tokenIdToken: driverTokens.idToken,
           tokenType: driverTokens.tokenType,
@@ -511,6 +608,11 @@ export function sessionRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // The re-bill checks run only for a session the CSMS gave up ending;
+      // any other session fails the first one (status).
+      const rebill =
+        row.stoppedReason === SESSION_END_FAILED_REASON ? await getSessionRebillState(id) : null;
+
       const {
         paymentId,
         paymentStatus,
@@ -542,6 +644,8 @@ export function sessionRoutes(app: FastifyInstance): void {
 
       return {
         ...session,
+        rebillable: rebill?.rebillable ?? false,
+        rebillBlockedReason: rebill != null ? rebill.blockedReason : 'status',
         token:
           tokenId != null
             ? { id: tokenId, idToken: tokenIdToken ?? '', tokenType: tokenType ?? '' }
@@ -724,6 +828,64 @@ export function sessionRoutes(app: FastifyInstance): void {
       return { data, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
         (typeof data)[number]
       >;
+    },
+  );
+
+  app.post(
+    '/sessions/:id/rebill',
+    {
+      onRequest: [authorize('sessions:write', 'payments:write')],
+      schema: {
+        tags: ['Sessions'],
+        summary: 'Bill a session the CSMS could not end',
+        description:
+          'Bills a session the CSMS gave up ending (status faulted, stopped reason EndRequestFailed: its cost was zeroed and its hold cancelled). The cost is recomputed from the stored meter values and tariff segments with the same calculator as a normal session end, at the last meter value, at most the guest cost ceiling. A driver session is charged off session on the default saved card through the provider it is saved with (idempotency key rebill_<sessionId>), a prepaid token balance is debited, and a cost of 0 charges nothing. The session becomes completed with the cost, rebillStatus billed, and the driver gets a receipt. A session that cannot be charged (no saved card, a guest, a declined card, a card that needs the cardholder authentication) becomes completed with the cost and rebillStatus manual, for billing outside the platform. Requires sessions:write and payments:write. Returns 409 SESSION_REBILL_NOT_ELIGIBLE with details.reason (status, already_rebilled, roaming, free_vend, no_tariff, paid), 409 SESSION_REBILL_PAYMENT_PENDING while the session has an open hold or an unconfirmed provider operation, 409 SESSION_REBILL_IN_PROGRESS while another request bills it, 400 PAYMENT_PROVIDER_NOT_CONFIGURED when the provider of the saved card is not configured, and 400 PAYMENT_PROVIDER_CONNECTION_FAILED when the provider could not be reached (retry after a few minutes: the same key returns the first answer).',
+        operationId: 'rebillSession',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(sessionParams),
+        response: {
+          200: itemResponse(rebillResponse),
+          400: errorWith('Payment provider not configured or unreachable', [
+            ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
+            ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
+          ]),
+          404: errorWith('Session not found', [ERROR_CODES.SESSION_NOT_FOUND]),
+          409: errorWith('Session cannot be billed now', [
+            ERROR_CODES.SESSION_REBILL_NOT_ELIGIBLE,
+            ERROR_CODES.SESSION_REBILL_PAYMENT_PENDING,
+            ERROR_CODES.SESSION_REBILL_IN_PROGRESS,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof sessionParams>;
+      const { userId } = request.user as JwtPayload;
+      try {
+        return await rebillSession(id, {
+          actor: getAuditActor(request),
+          log: request.log,
+          siteIds: await getUserSiteIds(userId),
+        });
+      } catch (err: unknown) {
+        if (err instanceof SessionRebillRefusedError) {
+          await reply.status(409).send({
+            error: err.message,
+            code: 'SESSION_REBILL_NOT_ELIGIBLE',
+            details: { reason: err.reason },
+          });
+          return;
+        }
+        if (err instanceof PaymentProviderUnavailableError) {
+          request.log.warn({ err, sessionId: id }, 'Session re-bill: payment provider unreachable');
+          await reply.status(400).send({
+            error: 'The payment provider could not be reached. Try again in a few minutes.',
+            code: 'PAYMENT_PROVIDER_CONNECTION_FAILED',
+          });
+          return;
+        }
+        throw err;
+      }
     },
   );
 }

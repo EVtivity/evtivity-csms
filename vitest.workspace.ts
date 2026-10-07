@@ -42,6 +42,13 @@ export default defineConfig({
     },
     projects: [
       {
+        test: {
+          name: 'eslint-rules',
+          root: 'eslint-rules',
+          include: ['*.test.js'],
+        },
+      },
+      {
         resolve: { alias: workspaceAliases },
         test: {
           name: '@evtivity/database',

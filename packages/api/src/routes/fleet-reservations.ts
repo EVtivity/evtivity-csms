@@ -414,8 +414,11 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
                 evseId: validated.evseId ?? 0,
                 chargingProfile: body.chargingProfile,
               });
-            } catch {
-              // Best effort: non-fatal
+            } catch (err) {
+              request.log.warn(
+                { err, stationId: validated.stationOcppId },
+                'SetChargingProfile for the fleet reservation failed, keeping the reservation',
+              );
             }
           }
 
@@ -669,8 +672,11 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
             await sendOcppCommandAndWait(reservation.stationOcppId, 'CancelReservation', {
               reservationId: reservation.reservationId,
             });
-          } catch {
-            // Best effort
+          } catch (err) {
+            request.log.warn(
+              { err, stationId: reservation.stationOcppId, reservationId: reservation.id },
+              'CancelReservation to the station failed, cancelling the reservation anyway',
+            );
           }
 
           await applyReservationCancellation({

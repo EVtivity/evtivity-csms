@@ -4,6 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('webhook-settings');
 
 export const WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY = 'notifications.webhookAllowedPrivateHosts';
 
@@ -31,7 +34,11 @@ export async function getWebhookAllowedPrivateHosts(): Promise<string[]> {
       : [];
     cachedAt = now;
     return cachedHosts;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY },
+      'getWebhookAllowedPrivateHosts failed, using the cached value or default',
+    );
     return cachedHosts ?? [];
   }
 }

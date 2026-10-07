@@ -4,10 +4,9 @@
 import { useState, useEffect } from 'react';
 import { Outlet, useLocation, useNavigate, useOutletContext } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useQuery } from '@tanstack/react-query';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
-import { api } from '@/lib/api';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 
 const TABS = [
   { value: 'partners', path: '/roaming/partners', labelKey: 'nav.roamingPartners' as const },
@@ -38,14 +37,15 @@ export function RoamingLayout(): React.JSX.Element {
   const navigate = useNavigate();
   const [tabAction, setTabAction] = useState<React.ReactNode>(null);
 
-  // Same query as the navigation (Layout), which hides Roaming while it is off.
-  const { data: settings, isLoading: settingsLoading } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => api.get<Record<string, unknown>>('/v1/settings'),
-  });
-  // Off only when the settings say so; a user who cannot read settings sees the
-  // pages, which answer for themselves.
-  const roamingDisabled = settings != null && settings['roaming.enabled'] !== true;
+  // Same flags as the navigation (Layout), which hides Roaming while it is off.
+  // Off only when the features endpoint says so; if it fails, the pages show and
+  // answer for themselves.
+  const {
+    flags: { roamingEnabled },
+    isLoading: settingsLoading,
+    isLoaded,
+  } = useFeatureFlags();
+  const roamingDisabled = isLoaded && !roamingEnabled;
 
   const activeTab = TABS.find((tab) => location.pathname.startsWith(tab.path))?.value ?? 'partners';
 

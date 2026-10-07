@@ -5,6 +5,9 @@ import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { chargingStations } from '../schema/assets.js';
 import { sites } from '../schema/assets.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('free-vend-setting');
 
 interface CacheEntry {
   value: boolean;
@@ -38,7 +41,11 @@ export async function isSiteFreeVendEnabledByStation(stationOcppId: string): Pro
     const value = row?.freeVendEnabled === true;
     cache.set(stationOcppId, { value, expiresAt: now + TTL_MS });
     return value;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, stationId: stationOcppId },
+      'isSiteFreeVendEnabledByStation failed, using the cached value or default',
+    );
     return cached?.value ?? false;
   }
 }

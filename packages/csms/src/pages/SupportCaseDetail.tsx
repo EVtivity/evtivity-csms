@@ -147,8 +147,8 @@ export function SupportCaseDetail(): React.JSX.Element {
   });
 
   const { data: s3Status } = useQuery({
-    queryKey: ['s3-status'],
-    queryFn: () => api.get<{ configured: boolean }>('/v1/settings/s3/status'),
+    queryKey: ['s3-status', 'support'],
+    queryFn: () => api.get<{ configured: boolean }>('/v1/support-cases/attachment-storage'),
   });
 
   // Fetch payment for each linked session

@@ -20,7 +20,9 @@
     "deactivate": "Deactivate",
     "remove": "Remove",
     "inclTax": "incl. tax",
-    "amountInclTax": "{{amount}} incl. tax"
+    "amountInclTax": "{{amount}} incl. tax",
+    "close": "Close",
+    "toggleSuggestions": "Toggle suggestions"
   },
   "nav": {
     "home": "Home",
@@ -145,7 +147,7 @@
     "charging": "Charging",
     "idle": "Idle",
     "limitReached": {
-      "cost": "Charging paused: the session reached its cost limit (the amount held on your card).",
+      "cost": "Charging paused: the session reached its cost limit.",
       "energy": "Charging paused: the session reached its energy limit.",
       "time": "Charging paused: the session reached its time limit."
     },
@@ -246,7 +248,8 @@
     "priceDisplayDefault": "Operator default ({{value}})",
     "priceDisplayGross": "Including tax (gross)",
     "priceDisplayNet": "Excluding tax (net)",
-    "priceDisplayHelper": "Including tax shows prices with tax added. Excluding tax shows prices before tax. You are charged the same amount either way, and until you choose, the operator default applies."
+    "priceDisplayHelper": "Including tax shows prices with tax added. Excluding tax shows prices before tax. You are charged the same amount either way, and until you choose, the operator default applies.",
+    "mfaQrCode": "Authenticator app QR code"
   },
   "charger": {
     "loadingInfo": "Loading charger info...",
@@ -593,6 +596,7 @@
     "MFA_TOTP_NO_RESEND": "Cannot resend TOTP codes",
     "MISSING_PAYMENT_INTENT": "Payment intent missing",
     "MISSING_VERSION_URL": "Partner version URL is required for registration",
+    "NOTIFICATION_EVENT_REQUIRED": "This notification is required for account access and cannot be turned off",
     "NOT_BLOCKED": "Station is not blocked",
     "NOT_CHARGING": "Session is not currently charging",
     "NOT_DRAFT": "Only draft campaigns can be updated",
@@ -683,6 +687,9 @@
     "SESSION_CREATE_FAILED": "Failed to create session",
     "SESSION_NOT_FOUND": "Session not found",
     "SESSION_NOT_LINKED": "Session not linked to this case",
+    "SESSION_REBILL_IN_PROGRESS": "The session is being billed. Try again in a few minutes.",
+    "SESSION_REBILL_NOT_ELIGIBLE": "This session cannot be billed",
+    "SESSION_REBILL_PAYMENT_PENDING": "The session has a payment the provider has not settled yet. Try again later.",
     "SETTING_NOT_FOUND": "Setting not found",
     "SITE_HAS_STATIONS": "Cannot delete site with stations. Remove or reassign stations first.",
     "SITE_NOT_FOUND": "Site not found",
@@ -764,7 +771,9 @@
     "co2Avoided": "CO₂ Avoided",
     "co2AvoidedMessage": "You avoided {{amount}} kg CO₂ this month",
     "miles": "Miles",
-    "km": "km"
+    "km": "km",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month"
   },
   "statement": {
     "title": "Monthly Statement",
@@ -982,5 +991,12 @@
         "home": "Go to home"
       }
     }
+  },
+  "sessionStatus": {
+    "active": "Active",
+    "completed": "Completed",
+    "invalid": "Invalid",
+    "faulted": "Faulted",
+    "failed": "Failed"
   }
 }

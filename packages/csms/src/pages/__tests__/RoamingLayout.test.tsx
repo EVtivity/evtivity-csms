@@ -55,22 +55,22 @@ afterEach(() => {
 
 describe('RoamingLayout', () => {
   it('shows the roaming-off state and no roaming page when roaming is disabled', async () => {
-    getMock.mockResolvedValue({ 'roaming.enabled': false });
+    getMock.mockResolvedValue({ roamingEnabled: false });
     renderRoaming();
     expect(await screen.findByText('roaming.disabled.title')).toBeTruthy();
     expect(screen.queryByText('partners page')).toBeNull();
     expect(getMock).toHaveBeenCalledTimes(1);
-    expect(getMock).toHaveBeenCalledWith('/v1/settings');
+    expect(getMock).toHaveBeenCalledWith('/v1/portal/features');
   });
 
   it('renders the roaming pages when roaming is enabled', async () => {
-    getMock.mockResolvedValue({ 'roaming.enabled': true });
+    getMock.mockResolvedValue({ roamingEnabled: true });
     renderRoaming();
     expect(await screen.findByText('partners page')).toBeTruthy();
     expect(screen.queryByText('roaming.disabled.title')).toBeNull();
   });
 
-  it('renders the roaming pages when the settings cannot be read', async () => {
+  it('renders the roaming pages when the feature flags cannot be read', async () => {
     getMock.mockRejectedValue(new Error('forbidden'));
     renderRoaming();
     expect(await screen.findByText('partners page')).toBeTruthy();

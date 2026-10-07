@@ -46,7 +46,7 @@ export function DateRangeControl({
   return (
     <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
       <Select
-        aria-label="Date range"
+        aria-label={t('common.dateRange')}
         value={isCustom ? '' : String(days)}
         onChange={(e) => {
           if (e.target.value) {
@@ -65,7 +65,7 @@ export function DateRangeControl({
       <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
         <input
           type="date"
-          aria-label="Start date"
+          aria-label={t('common.startDate')}
           value={displayFrom}
           min={minDate}
           // max stops the user from picking a start that comes after the
@@ -84,7 +84,7 @@ export function DateRangeControl({
         <span className="text-xs text-muted-foreground">{t('dashboard.to')}</span>
         <input
           type="date"
-          aria-label="End date"
+          aria-label={t('common.endDate')}
           value={displayTo}
           min={displayFrom}
           max={maxDate}

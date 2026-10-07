@@ -18,6 +18,7 @@ const {
   storeRunningCost,
   storeFinalCost,
   snapshotSessionTariff,
+  openFirstTariffSegment,
   closeOpenSegment,
   openSegmentTariffId,
   switchTariffSegment,
@@ -432,7 +433,9 @@ describe('segment writes', () => {
 
   it('snapshots the tariff and basis on the session and opens the first segment', async () => {
     const { sql, calls } = makeSql();
-    await snapshotSessionTariff(sql, 'ses_1', tariff, 'gross', '2026-06-04T00:00:00Z');
+    await snapshotSessionTariff(sql, 'ses_1', tariff, 'gross');
+    await openFirstTariffSegment(sql, 'ses_1', tariff, '2026-06-04T00:00:00Z');
+    expect(calls).toHaveLength(2);
     expect(calls[0]?.text).toContain('tariff_reservation_fee_per_minute = ?');
     expect(calls[0]?.values).toEqual([
       'trf_2',

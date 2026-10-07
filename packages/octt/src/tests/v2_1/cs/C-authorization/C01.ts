@@ -49,11 +49,8 @@ export const TC_C_02_CS: CsTestCase = {
 
     // Step 2: Station SHALL NOT send TransactionEventRequest after Invalid response
     let txReceived = false;
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
+    if ((await ctx.server.waitForMessageOrNull('TransactionEvent', 5000)) != null) {
       txReceived = true;
-    } catch {
-      // Expected: no TransactionEventRequest
     }
     steps.push({
       step: 2,
@@ -114,11 +111,8 @@ export const TC_C_05_CS: CsTestCase = {
 
     // Station SHALL NOT send TransactionEventRequest
     let txReceived = false;
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
+    if ((await ctx.server.waitForMessageOrNull('TransactionEvent', 5000)) != null) {
       txReceived = true;
-    } catch {
-      // Expected
     }
     steps.push({
       step: 2,
@@ -166,11 +160,7 @@ export const TC_C_04_CS: CsTestCase = {
     await ctx.station.plugIn(1);
     await ctx.station.startCharging(1, 'OCTT-TOKEN-001');
     // Drain TransactionEvent Started
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
 
     // Manual Action: Present different idToken
     await ctx.station.authorize(1, 'DIFFERENT-TOKEN-002');
@@ -188,11 +178,9 @@ export const TC_C_04_CS: CsTestCase = {
 
     // Step 2: Station SHALL NOT send TransactionEventRequest(Ended)
     let endedReceived = false;
-    try {
-      const txPayload = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    const txPayload = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (txPayload != null) {
       if ((txPayload['eventType'] as string) === 'Ended') endedReceived = true;
-    } catch {
-      // Expected: no Ended event
     }
     steps.push({
       step: 2,
@@ -249,11 +237,8 @@ export const TC_C_06_CS: CsTestCase = {
     });
 
     let txReceived = false;
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
+    if ((await ctx.server.waitForMessageOrNull('TransactionEvent', 5000)) != null) {
       txReceived = true;
-    } catch {
-      /* Expected */
     }
     steps.push({
       step: 2,
@@ -308,11 +293,8 @@ export const TC_C_07_CS: CsTestCase = {
     });
 
     let txReceived = false;
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
+    if ((await ctx.server.waitForMessageOrNull('TransactionEvent', 5000)) != null) {
       txReceived = true;
-    } catch {
-      /* Expected */
     }
     steps.push({
       step: 2,
@@ -367,11 +349,8 @@ export const TC_C_56_CS: CsTestCase = {
     });
 
     let txReceived = false;
-    try {
-      await ctx.server.waitForMessage('TransactionEvent', 5000);
+    if ((await ctx.server.waitForMessageOrNull('TransactionEvent', 5000)) != null) {
       txReceived = true;
-    } catch {
-      /* Expected */
     }
     steps.push({
       step: 2,

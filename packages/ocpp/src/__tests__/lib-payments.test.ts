@@ -5,6 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { CreatePaymentRegistryOptions, SimulatedWebhookDelivery } from '@evtivity/payments';
 
 const registryOptions = vi.hoisted(() => ({ value: null as CreatePaymentRegistryOptions | null }));
+const mockResolveActiveProvider = vi.hoisted(() => vi.fn());
 vi.mock('@evtivity/payments', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@evtivity/payments')>();
   return {
@@ -13,12 +14,14 @@ vi.mock('@evtivity/payments', async (importOriginal) => {
       registryOptions.value = options;
       return {};
     }),
+    resolveActiveProvider: mockResolveActiveProvider,
   };
 });
 vi.stubEnv('OCPP_PORT', '8080');
 vi.stubEnv('SETTINGS_ENCRYPTION_KEY', 'k');
 
-const { setPaymentPubSub } = await import('../lib/payments.js');
+const { activePaymentProvider, paymentRegistry, setPaymentPubSub } =
+  await import('../lib/payments.js');
 
 const delivery: SimulatedWebhookDelivery = {
   rawBody: '{"events":[]}',
@@ -46,5 +49,15 @@ describe('OCPP payment registry: simulated events', () => {
 
     setPaymentPubSub(null);
     await expect(sink.deliver(delivery)).rejects.toThrow('not connected');
+  });
+});
+
+describe('activePaymentProvider', () => {
+  it('resolves through the shared resolver with this process registry and the caller logger', async () => {
+    const logger = { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() };
+    const provider = { id: 'stripe' };
+    mockResolveActiveProvider.mockResolvedValueOnce(provider);
+    await expect(activePaymentProvider(logger)).resolves.toBe(provider);
+    expect(mockResolveActiveProvider).toHaveBeenCalledWith({ registry: paymentRegistry, logger });
   });
 });

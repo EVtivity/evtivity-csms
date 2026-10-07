@@ -17,6 +17,9 @@
     "./currency": {
       "import": "./src/currency.ts"
     },
+    "./load-allocation": {
+      "import": "./src/load-allocation.ts"
+    },
     "./number": {
       "import": "./src/number.ts"
     },
@@ -35,11 +38,17 @@
     "./languages": {
       "import": "./src/languages.ts"
     },
+    "./notification-events": {
+      "import": "./src/notification-events.ts"
+    },
     "./report-labels": {
       "import": "./src/report-labels.ts"
     },
     "./pubsub-instance": {
       "import": "./src/pubsub-instance.ts"
+    },
+    "./safe-json": {
+      "import": "./src/safe-json.ts"
     }
   },
   "scripts": {

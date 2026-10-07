@@ -4,6 +4,9 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('registration-settings');
 
 type RegistrationPolicy = 'open' | 'approval-required';
 
@@ -27,7 +30,11 @@ export async function getRegistrationPolicy(): Promise<RegistrationPolicy> {
     cachedPolicy = row != null && row.value === 'open' ? 'open' : 'approval-required';
     cachedPolicyAt = now;
     return cachedPolicy;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, key: 'ocpp.registrationPolicy' },
+      'getRegistrationPolicy failed, using the cached value or default',
+    );
     return cachedPolicy ?? 'approval-required';
   }
 }

@@ -31,6 +31,9 @@
     "./report-generators/*": {
       "import": "./src/report-generators/*.ts"
     },
+    "./report-registry": {
+      "import": "./src/report-registry.ts"
+    },
     "./report.service": {
       "import": "./src/report.service.ts"
     },

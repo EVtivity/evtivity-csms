@@ -67,8 +67,11 @@ export async function configDriftDetectionHandler(log: Logger): Promise<void> {
                 siteId: null,
               }),
             );
-          } catch {
-            // Best-effort SSE notification
+          } catch (err) {
+            log.warn(
+              { err, stationId: station.id },
+              'Config drift event publish failed, the dashboard is not notified',
+            );
           }
           break;
         }

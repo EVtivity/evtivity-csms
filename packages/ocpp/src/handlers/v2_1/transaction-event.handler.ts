@@ -9,6 +9,8 @@ import type { TransactionEventResponse } from '../../generated/v2_1/types/messag
 import { logAuthorizeAttempt } from '../authorize-log.js';
 import { prepaidCacheExpiry, prepaidCredit, prepaidMaxCost } from '../prepaid.js';
 import { findAdHocTransactionLimit } from '../ad-hoc-payment-limit.js';
+import { limitToSupported, stationSupportedLimits } from '../supported-limits.js';
+import type { TransactionLimitType } from '../../generated/v2_1/types/common/TransactionLimitType.js';
 import { energyRegisterWh } from '../../server/meter-units.js';
 import {
   projectionQueueFor,
@@ -197,12 +199,13 @@ export async function handleTransactionEvent(
     // limit (C17.FR.03), sent once: stations send the idToken only in the event
     // after authorization. The cacheExpiryDateTime repeats the Authorize one.
     let prepaidExpiry: string | undefined;
+    let transactionLimit: TransactionLimitType | null = null;
     const credit =
       status === 'Accepted' ? prepaidCredit(matchedPrepaidBalanceCents) : 'not_prepaid';
     if (credit === 'credit' && matchedPrepaidBalanceCents != null) {
       prepaidExpiry = prepaidCacheExpiry(ctx.stationId, idToken);
       if (request.eventType !== 'Ended') {
-        response.transactionLimit = { maxCost: prepaidMaxCost(matchedPrepaidBalanceCents) };
+        transactionLimit = { maxCost: prepaidMaxCost(matchedPrepaidBalanceCents) };
       }
     } else if (credit === 'no_credit') {
       prepaidExpiry = new Date().toISOString();
@@ -217,14 +220,18 @@ export async function handleTransactionEvent(
     // transaction starts (C24.FR.02, C25.FR.24).
     if (request.eventType === 'Started' && matchedTokenId == null && status === 'Accepted') {
       try {
-        const limit = await findAdHocTransactionLimit(ctx.stationId, idToken);
-        if (limit != null) response.transactionLimit = limit;
+        transactionLimit = await findAdHocTransactionLimit(ctx.stationId, idToken);
       } catch (err) {
         ctx.logger.error(
           { err, stationId: ctx.stationId, transactionId: request.transactionInfo.transactionId },
           'Ad hoc payment limit lookup failed; responding without transactionLimit',
         );
       }
+    }
+
+    if (transactionLimit != null) {
+      const sent = await supportedTransactionLimit(ctx, request, transactionLimit);
+      if (sent != null) response.transactionLimit = sent;
     }
 
     response.idTokenInfo = {
@@ -259,6 +266,51 @@ export async function handleTransactionEvent(
   }
 
   return response as unknown as Record<string, unknown>;
+}
+
+/**
+ * The part of `limit` the station supports (E16.FR.12: the CSMS SHALL NOT
+ * send a limit the station does not report in TxCtrlr.SupportedLimits), or
+ * null when it supports none of it. A station that has not reported the
+ * variable gets the whole limit: the CSMS reads the device model only when it
+ * asks for it, so no row means not known, and the prepaid and ad hoc payment
+ * flows require the limit (C17.FR.03, C24.FR.02, C25.FR.24). A station that
+ * does not support a limit it got may report it (E16.FR.20), and the CSMS
+ * stops a transaction past its cost ceiling itself. A failed lookup also
+ * sends the whole limit (logged at warn).
+ */
+async function supportedTransactionLimit(
+  ctx: HandlerContext,
+  request: TransactionEventRequest,
+  limit: TransactionLimitType,
+): Promise<TransactionLimitType | null> {
+  if (ctx.stationDbId == null) return limit;
+  try {
+    const supported = await stationSupportedLimits(
+      client,
+      ctx.stationDbId,
+      request.evse?.id ?? null,
+    );
+    const sent = limitToSupported(limit, supported);
+    if (sent == null || Object.keys(sent).length < Object.keys(limit).length) {
+      ctx.logger.info(
+        {
+          stationId: ctx.stationId,
+          transactionId: request.transactionInfo.transactionId,
+          limit,
+          sent,
+        },
+        'Transaction limit reduced to the limits the station supports (TxCtrlr.SupportedLimits)',
+      );
+    }
+    return sent;
+  } catch (err) {
+    ctx.logger.warn(
+      { err, stationId: ctx.stationId, transactionId: request.transactionInfo.transactionId },
+      'TxCtrlr.SupportedLimits lookup failed; sending the transaction limit unchanged',
+    );
+    return limit;
+  }
 }
 
 /** Bound on waiting for the projections a TransactionEvent response depends on. */

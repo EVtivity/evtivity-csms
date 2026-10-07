@@ -9,9 +9,11 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Label } from '@/components/ui/label';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { Toggle } from '@/components/ui/toggle';
 import { LanguageSelect } from '@/components/ui/language-select';
 import { TemplateEditPanel, type TemplateEditPanelHandle } from '@/components/TemplateEditPanel';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { TEMPLATE_VARIABLES, COMMON_VARIABLES } from '@/lib/template-variables';
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -25,6 +27,18 @@ export interface EventSection {
   events: readonly string[];
 }
 
+/** One on/off switch per event type (all channels), saved as soon as it changes. */
+export interface EventSwitch {
+  /** Stored state per event type. No entry means on. */
+  enabledMap: Map<string, boolean>;
+  /** Event types that are always on: shown on and locked, with a tooltip. */
+  isRequired: (eventType: string) => boolean;
+  requiredTooltip: string;
+  switchTooltip: string;
+  canEdit: boolean;
+  onChange: (eventType: string, enabled: boolean) => Promise<void>;
+}
+
 interface EventSettingsLayoutProps {
   sidebarTitle: string;
   emptyMessage: string;
@@ -35,6 +49,7 @@ interface EventSettingsLayoutProps {
   toggleQueryKey?: string[];
   enabledMap?: Map<string, boolean>;
   defaultEnabled?: boolean;
+  eventSwitch?: EventSwitch;
   renderSettingsExtra?: (props: {
     selectedEvent: string;
     channel: string;
@@ -58,6 +73,7 @@ export function EventSettingsLayout({
   toggleQueryKey,
   enabledMap,
   defaultEnabled,
+  eventSwitch,
   renderSettingsExtra,
   onSave,
 }: EventSettingsLayoutProps): React.JSX.Element {
@@ -90,6 +106,28 @@ export function EventSettingsLayout({
   }, []);
 
   const hasToggle = toggleEndpoint != null && toggleQueryKey != null && enabledMap != null;
+  const [switchSaving, setSwitchSaving] = useState(false);
+
+  function isEventOn(et: string): boolean {
+    if (eventSwitch == null) return true;
+    return eventSwitch.isRequired(et) || (eventSwitch.enabledMap.get(et) ?? true);
+  }
+
+  async function changeEventSwitch(et: string, enabled: boolean): Promise<void> {
+    if (eventSwitch == null) return;
+    setSwitchSaving(true);
+    try {
+      await eventSwitch.onChange(et, enabled);
+      setStatusMessage({
+        success: enabled ? t('notifications.eventTurnedOn') : t('notifications.eventTurnedOff'),
+        error: '',
+      });
+    } catch (err) {
+      setStatusMessage({ success: '', error: getErrorMessage(err, t) });
+    } finally {
+      setSwitchSaving(false);
+    }
+  }
 
   const selectionComplete = selectedEvent !== '';
   const variables = [...COMMON_VARIABLES, ...(TEMPLATE_VARIABLES[selectedEvent] ?? [])];
@@ -143,6 +181,12 @@ export function EventSettingsLayout({
                         {hasToggle && (
                           <span
                             className={`h-2 w-2 shrink-0 rounded-full ${anyEnabled ? 'bg-success' : 'bg-muted-foreground/30'}`}
+                          />
+                        )}
+                        {eventSwitch != null && (
+                          <span
+                            data-testid={`event-switch-dot-${et}`}
+                            className={`h-2 w-2 shrink-0 rounded-full ${isEventOn(et) ? 'bg-success' : 'bg-muted-foreground/30'}`}
                           />
                         )}
                       </div>
@@ -212,6 +256,38 @@ export function EventSettingsLayout({
                 <Card>
                   <CardContent className="p-6 space-y-4">
                     <div className="grid gap-4 sm:grid-cols-3">
+                      {eventSwitch != null &&
+                        (() => {
+                          const required = eventSwitch.isRequired(selectedEvent);
+                          const on = isEventOn(selectedEvent);
+                          return (
+                            <div className="space-y-2">
+                              <Label
+                                htmlFor="event-switch"
+                                className="inline-flex items-center gap-1 leading-6"
+                              >
+                                {on ? t('common.active') : t('common.inactive')}
+                                <InfoTooltip
+                                  content={
+                                    required
+                                      ? eventSwitch.requiredTooltip
+                                      : eventSwitch.switchTooltip
+                                  }
+                                />
+                              </Label>
+                              <div className="flex h-10 items-center">
+                                <Toggle
+                                  id="event-switch"
+                                  checked={on}
+                                  disabled={required || !eventSwitch.canEdit || switchSaving}
+                                  onCheckedChange={(next) => {
+                                    void changeEventSwitch(selectedEvent, next);
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })()}
                       <div className="space-y-2">
                         <Label className="inline-flex items-center gap-1 leading-6">
                           {t('notifications.channel')}

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
+import { tryParseJson } from '@evtivity/lib';
 import type { AiProvider, ChatMessage, ChatOptions } from './types.js';
 import type { ExtendedToolDefinition } from './tools.js';
 import { buildToolRequest } from './tools.js';
@@ -70,12 +71,10 @@ export async function executeToolLoop(
             ...(toolRequest.body != null ? { payload: toolRequest.body } : {}),
           });
 
-          let resultBody: unknown;
-          try {
-            resultBody = JSON.parse(injectResult.body);
-          } catch {
-            resultBody = { error: 'Failed to parse response', statusCode: injectResult.statusCode };
-          }
+          const resultBody = tryParseJson(injectResult.body) ?? {
+            error: 'Failed to parse response',
+            statusCode: injectResult.statusCode,
+          };
 
           return {
             counted: true,

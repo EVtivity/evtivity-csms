@@ -9,7 +9,10 @@ import {
   configTemplatePushStations,
   chargingStations,
 } from '@evtivity/database';
+import { createLogger } from '@evtivity/lib';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
+
+const logger = createLogger('config-push');
 
 const CONCURRENCY_LIMIT = 10;
 
@@ -89,8 +92,11 @@ export async function processConfigPush(
                     {},
                     ocppVersion,
                   );
-                } catch {
-                  // Non-critical: refresh failure should not mark push as failed
+                } catch (err) {
+                  logger.warn(
+                    { err, pushId, stationId: station.stationId },
+                    'GetConfiguration refresh after the config push failed, keeping the push result',
+                  );
                 }
               }
             } else {
@@ -175,13 +181,20 @@ export async function processConfigPush(
                       },
                       ocppVersion,
                     );
-                  } catch {
-                    // Non-critical: refresh failure should not mark push as failed
+                  } catch (err) {
+                    logger.warn(
+                      { err, pushId, stationId: station.stationId },
+                      'GetBaseReport refresh after the config push failed, keeping the push result',
+                    );
                   }
                 }
               }
             }
-          } catch {
+          } catch (err) {
+            logger.warn(
+              { err, pushId, stationId: station.stationId },
+              'Config push to the station failed, marking the station failed',
+            );
             await db
               .update(configTemplatePushStations)
               .set({
@@ -205,13 +218,15 @@ export async function processConfigPush(
       .update(configTemplatePushes)
       .set({ status: 'completed', updatedAt: new Date() })
       .where(eq(configTemplatePushes.id, pushId));
-  } catch {
-    // If something goes wrong at the batch level, still try to mark as completed
+  } catch (err) {
+    logger.error({ err, pushId }, 'Config push failed, marking the push completed');
     await db
       .update(configTemplatePushes)
       .set({ status: 'completed', updatedAt: new Date() })
       .where(eq(configTemplatePushes.id, pushId))
-      .catch(() => {});
+      .catch((markErr: unknown) => {
+        logger.warn({ err: markErr, pushId }, 'Marking the config push completed failed');
+      });
   }
 }
 

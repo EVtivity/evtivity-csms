@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { useAuth } from '@/lib/auth';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, getApiErrorCode } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 
 export function VerifyEmail(): React.JSX.Element {
   const { t } = useTranslation();
@@ -19,6 +20,7 @@ export function VerifyEmail(): React.JSX.Element {
   const driver = useAuth((s) => s.driver);
 
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [verifyError, setVerifyError] = useState('');
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendLoading, setResendLoading] = useState(false);
   const [resendSuccess, setResendSuccess] = useState(false);
@@ -33,10 +35,16 @@ export function VerifyEmail(): React.JSX.Element {
       setTimeout(() => {
         void navigate('/', { replace: true });
       }, 2000);
-    } catch {
+    } catch (err) {
+      // errors.INVALID_TOKEN names a reset link, so an invalid verification link keeps its own text.
+      setVerifyError(
+        getApiErrorCode(err) === 'INVALID_TOKEN'
+          ? t('auth.verifyEmailFailed')
+          : getErrorMessage(err, t, 'auth.verifyEmailFailed'),
+      );
       setStatus('error');
     }
-  }, [token, navigate]);
+  }, [token, navigate, t]);
 
   useEffect(() => {
     void verifyToken();
@@ -103,7 +111,7 @@ export function VerifyEmail(): React.JSX.Element {
             {status === 'error' && (
               <>
                 <AlertCircle className="h-8 w-8 text-destructive" />
-                <p className="text-sm text-destructive">{t('auth.verifyEmailFailed')}</p>
+                <p className="text-sm text-destructive">{verifyError}</p>
               </>
             )}
           </CardContent>

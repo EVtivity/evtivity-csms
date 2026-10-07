@@ -4,7 +4,11 @@
 import WebSocket from 'ws';
 import { randomUUID } from 'node:crypto';
 import { checkServerIdentity, type PeerCertificate } from 'node:tls';
-import { SIMULATOR_CONNECTION_HEADER, SIMULATOR_CONNECTION_HEADER_VALUE } from '@evtivity/lib';
+import {
+  SIMULATOR_CONNECTION_HEADER,
+  SIMULATOR_CONNECTION_HEADER_VALUE,
+  tryParseJson,
+} from '@evtivity/lib';
 
 // Errors a TLS client raises when it does not accept the server certificate.
 const SERVER_CERTIFICATE_ERRORS = new Set([
@@ -526,10 +530,8 @@ export class OcppClient {
   }
 
   private handleMessage(raw: string): void {
-    let parsed: unknown[];
-    try {
-      parsed = JSON.parse(raw) as unknown[];
-    } catch {
+    const parsed = tryParseJson(raw);
+    if (parsed === undefined) {
       console.error(`[${this._stationId}] Invalid JSON: ${raw}`);
       return;
     }

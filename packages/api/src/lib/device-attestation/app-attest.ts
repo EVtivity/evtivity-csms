@@ -5,6 +5,9 @@ import { X509Certificate, createHash, createPublicKey, verify as cryptoVerify } 
 import { decode as cborDecode } from 'cbor-x';
 import { AsnConvert } from '@peculiar/asn1-schema';
 import { Certificate } from '@peculiar/asn1-x509';
+import { createLogger } from '@evtivity/lib';
+
+const logger = createLogger('device-attestation');
 
 // Apple App Attest Root CA. Published at
 // https://www.apple.com/certificateauthority/Apple_App_Attestation_Root_CA.pem
@@ -84,7 +87,11 @@ function nonceExtension(cert: X509Certificate): Buffer | null {
       }
     }
     return null;
-  } catch {
+  } catch (err) {
+    logger.debug(
+      { err },
+      'App Attest certificate nonce extension did not parse, treating it as missing',
+    );
     return null;
   }
 }
@@ -138,7 +145,8 @@ export function verifyRegistration(
       publicKeyPem: leaf.publicKey.export({ type: 'spki', format: 'pem' }),
       signCount: 0,
     };
-  } catch {
+  } catch (err) {
+    logger.warn({ err, keyId }, 'App Attest registration did not parse or verify, refusing it');
     return { ok: false };
   }
 }
@@ -169,7 +177,8 @@ export function verifyAssertion(
     if (signCount <= storedSignCount) return { ok: false };
 
     return { ok: true, newSignCount: signCount };
-  } catch {
+  } catch (err) {
+    logger.debug({ err }, 'App Attest assertion did not parse or verify, refusing it');
     return { ok: false };
   }
 }

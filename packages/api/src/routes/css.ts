@@ -55,7 +55,7 @@ import { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from '../lib/css-confi
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import type { JwtPayload } from '../plugins/auth.js';
-import { generateStationPassword } from '@evtivity/lib';
+import { generateStationPassword, tryParseJson } from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
 import {
   initialStationPassword,
@@ -980,12 +980,8 @@ async function waitForCssCommandResult(
   let subscription: import('@evtivity/lib').Subscription | null = null;
   try {
     subscription = await pubsub.subscribe(CSS_RESULTS_CHANNEL, (raw: string) => {
-      let parsed: CssCommandResultMessage;
-      try {
-        parsed = JSON.parse(raw) as CssCommandResultMessage;
-      } catch {
-        return;
-      }
+      const parsed = tryParseJson(raw) as CssCommandResultMessage | null | undefined;
+      if (parsed == null) return;
       if (parsed.commandId !== commandId) return;
       clearTimeout(timeout);
       resolveResult({

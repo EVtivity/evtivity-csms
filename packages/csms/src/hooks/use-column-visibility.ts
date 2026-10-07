@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useCallback, useEffect, useState } from 'react';
+import { tryParseJson } from '@evtivity/lib/safe-json';
 import {
   applyAlwaysVisible,
   buildDefaultVisibility,
@@ -22,25 +23,24 @@ function readInitial(tableKey: string, columns: ColumnMeta[]): ColumnVisibility 
 
   const isMobile = !window.matchMedia('(min-width: 768px)').matches;
 
+  let raw: string | null;
   try {
-    const raw = window.localStorage.getItem(storageKey(tableKey));
-    if (raw == null) {
-      return buildDefaultVisibility(columns, isMobile);
-    }
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return buildDefaultVisibility(columns, isMobile);
-    }
-    const stored: ColumnVisibility = {};
-    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof v === 'boolean') {
-        stored[k] = v;
-      }
-    }
-    return applyAlwaysVisible(columns, stored);
-  } catch {
+    raw = window.localStorage.getItem(storageKey(tableKey));
+  } catch (err) {
+    console.warn('Read column visibility from localStorage failed, using the defaults', err);
     return buildDefaultVisibility(columns, isMobile);
   }
+  const parsed = tryParseJson(raw);
+  if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return buildDefaultVisibility(columns, isMobile);
+  }
+  const stored: ColumnVisibility = {};
+  for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+    if (typeof v === 'boolean') {
+      stored[k] = v;
+    }
+  }
+  return applyAlwaysVisible(columns, stored);
 }
 
 export function useColumnVisibility(
@@ -59,8 +59,9 @@ export function useColumnVisibility(
         if (typeof window !== 'undefined') {
           window.localStorage.setItem(storageKey(tableKey), JSON.stringify(normalized));
         }
-      } catch {
-        // localStorage may be unavailable (private mode, quota exceeded). Ignore.
+      } catch (err) {
+        // localStorage may be unavailable (private mode, quota exceeded).
+        console.warn('Save column visibility to localStorage failed', err);
       }
     },
     [columns, tableKey],

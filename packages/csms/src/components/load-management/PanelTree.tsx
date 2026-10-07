@@ -646,6 +646,7 @@ function UnmanagedLoadItem({
   load: UnmanagedLoad;
   onRefresh: () => void;
 }): React.JSX.Element {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
 
   const deleteMutation = useMutation({
@@ -664,7 +665,7 @@ function UnmanagedLoadItem({
         variant="ghost"
         size="icon"
         className="h-5 w-5"
-        aria-label="Remove"
+        aria-label={t('loadManagement.deleteLoad', { name: load.name })}
         onClick={() => {
           deleteMutation.mutate();
         }}

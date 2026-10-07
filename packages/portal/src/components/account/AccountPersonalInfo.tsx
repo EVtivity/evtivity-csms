@@ -9,6 +9,7 @@ import { Select } from '@/components/ui/select';
 import { LANGUAGES } from '@/components/ui/language-select';
 import { useAuth } from '@/lib/auth';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { TIMEZONE_OPTIONS } from '@/lib/timezone';
 import { useCompanyPriceDisplay } from '@/hooks/use-price-display';
 import { isPriceDisplay, type PriceDisplay } from '@evtivity/lib/price-display';
@@ -73,8 +74,8 @@ export function AccountPersonalInfo(): React.JSX.Element {
       }
       hydrate();
       setProfileMsg(t('profile.profileUpdated'));
-    } catch {
-      setProfileMsg(t('profile.profileUpdateFailed'));
+    } catch (err) {
+      setProfileMsg(getErrorMessage(err, t, 'profile.profileUpdateFailed'));
     } finally {
       setProfileLoading(false);
     }

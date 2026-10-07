@@ -257,7 +257,8 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
           `/v1/stations/${stationId}/images/${String(file.id)}/download-url`,
         );
         return downloadUrl;
-      } catch {
+      } catch (err) {
+        console.warn('Load station image download URL failed', err);
         return null;
       }
     },
@@ -457,7 +458,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
                         handleRemoveTag(tag);
                       }}
                       className="ml-0.5 hover:text-destructive"
-                      aria-label={`Remove ${tag}`}
+                      aria-label={t('stations.removeTag', { tag })}
                     >
                       <X className="h-3 w-3" />
                     </button>

@@ -12,6 +12,7 @@ import { getSentryConfig } from '@evtivity/database';
 import { buildOcpiApp } from './app.js';
 import { OcpiPushListener } from './services/push.service.js';
 import { OcpiPullListener } from './services/pull.service.js';
+import { OCPI_MODULES } from './modules.js';
 import { OcpiRegisterListener } from './services/register-listener.service.js';
 import { initCommandCallbackService } from './services/command-callback.service.js';
 import { startOcpiCdrJobs } from './services/cdr-jobs.js';
@@ -64,7 +65,7 @@ async function start(): Promise<void> {
   await pushListener.start();
 
   // Start pull listener for sync requests
-  const pullListener = new OcpiPullListener(pubsub, lockRedis);
+  const pullListener = new OcpiPullListener(pubsub, OCPI_MODULES, lockRedis);
   await pullListener.start();
 
   // Start outbound-registration listener so the operator-triggered

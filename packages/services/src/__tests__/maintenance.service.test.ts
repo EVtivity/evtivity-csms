@@ -176,6 +176,7 @@ vi.mock('@evtivity/lib', () => ({
   AppError: h.MockAppError,
   dispatchDriverNotification: h.dispatchDriverNotification,
   renderMaintenanceMessage: h.renderMaintenanceMessage,
+  createLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({

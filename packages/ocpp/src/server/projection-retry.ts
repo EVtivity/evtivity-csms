@@ -11,11 +11,20 @@ export interface ProjectionAttempt {
   /** 1 for the first run, 2 for the first retry. */
   readonly number: number;
   /**
+   * True on the last run the options allow (always with retries disabled). A
+   * fail-open step that rethrows a connection error so the retry sees it
+   * warns and continues instead on the last run, so the steps after it still
+   * run.
+   */
+  readonly isLast: boolean;
+  /**
    * Runs a step that is not idempotent (an INSERT of a log row) once per event:
    * after it succeeded, a retry gets its first result without running it. The
-   * step must be one statement, or idempotent up to its last statement. When it
-   * fails because the connection was lost while it ran, it may have committed,
-   * so the projection is not retried.
+   * step must be one statement, or idempotent up to its last statement. When
+   * any statement of the step fails because the connection was lost while it
+   * ran (`interrupted`), reads included, the step may have committed, so the
+   * projection is not retried. A `once` step therefore holds the effect only:
+   * reads and idempotent statements go before it, outside the step.
    */
   once<T>(key: string, step: () => Promise<T>): Promise<T>;
   /**
@@ -96,6 +105,7 @@ export async function runProjectionWithRetry(
   for (let number = 1; ; number++) {
     const attempt: ProjectionAttempt = {
       number,
+      isLast: number >= options.maxAttempts,
       once: (key, step) => remember(key, step, true),
       memo: (key, step) => remember(key, step, false),
     };

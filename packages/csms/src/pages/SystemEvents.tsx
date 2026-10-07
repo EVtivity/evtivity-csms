@@ -6,6 +6,7 @@ import { EventSettingsLayout } from '@/components/EventSettingsLayout';
 import {
   OPERATOR_ACCOUNT_EVENTS,
   OPERATOR_SUPPORT_EVENTS,
+  OPERATOR_SESSION_EVENTS,
   SITE_HOST_EVENTS,
 } from '@/lib/template-variables';
 
@@ -21,6 +22,7 @@ export function SystemEvents(): React.JSX.Element {
       sections={[
         { title: t('notifications.operatorEvents'), events: OPERATOR_ACCOUNT_EVENTS },
         { title: t('notifications.supportEvents'), events: OPERATOR_SUPPORT_EVENTS },
+        { title: t('notifications.sessionAlertEvents'), events: OPERATOR_SESSION_EVENTS },
         { title: t('notifications.siteHostEvents'), events: SITE_HOST_EVENTS },
       ]}
       channels={CHANNELS}

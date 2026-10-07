@@ -104,6 +104,7 @@ export function isValidTimezone(tz: string): boolean {
     Intl.DateTimeFormat(undefined, { timeZone: tz });
     return true;
   } catch {
+    // fail-open: Intl throws for an unknown zone, which is what this check detects
     return false;
   }
 }

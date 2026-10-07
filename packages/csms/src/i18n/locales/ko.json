@@ -91,7 +91,10 @@
     "filterByReportType": "보고서 유형별 필터",
     "filterByStation": "충전소별 필터",
     "filterByModule": "모듈별 필터",
-    "na": "n/a"
+    "na": "n/a",
+    "startDate": "시작일",
+    "endDate": "종료일",
+    "dateRange": "날짜 범위"
   },
   "status": {
     "online": "온라인",
@@ -439,7 +442,8 @@
     "netRevenue": "총 매출 (세금 제외)",
     "todayNetRevenue": "오늘 매출 (세금 제외)",
     "taxCollected": "총 징수 세액",
-    "todayTaxCollected": "오늘 징수 세액"
+    "todayTaxCollected": "오늘 징수 세액",
+    "showPage": "{{total}}페이지 중 {{page}}페이지 표시"
   },
   "sites": {
     "title": "사이트",
@@ -890,7 +894,8 @@
     "enabledSuccess": "충전소가 활성화되었습니다",
     "disabledSuccess": "충전소가 비활성화되었습니다",
     "maxPowerUnknown": "최대 출력 알 수 없음",
-    "maxPowerUnknownHint": "최대 출력이 설정될 때까지 부하 관리가 이 커넥터를 제한할 수 없습니다. EVSE를 편집하여 설정하세요. OCPP 2.1 충전소는 구성 보고서에서 자동으로 채웁니다."
+    "maxPowerUnknownHint": "최대 출력이 설정될 때까지 부하 관리가 이 커넥터를 제한할 수 없습니다. EVSE를 편집하여 설정하세요. OCPP 2.1 충전소는 구성 보고서에서 자동으로 채웁니다.",
+    "removeTag": "{{tag}} 태그 제거"
   },
   "eventAlertRules": {
     "title": "이벤트 알림 규칙",
@@ -993,7 +998,42 @@
       "failed": "실패"
     },
     "refundPending": "환불이 요청되었습니다. 결제 제공업체가 곧 확인합니다.",
-    "refundAfterConfirmation": "제공업체가 매입을 확인한 후에 환불할 수 있습니다."
+    "refundAfterConfirmation": "제공업체가 매입을 확인한 후에 환불할 수 있습니다.",
+    "manualBilling": "수동 청구",
+    "rebill": {
+      "cardTitle": "청구",
+      "unbilledBadge": "청구되지 않음",
+      "unbilledHelp": "CSMS가 이 세션을 종료하지 못해 청구되지 않았습니다. 청구하면 미터 값으로 요금을 계산하고 드라이버의 저장된 카드 또는 선불 잔액에서 결제합니다. 결제할 수 없는 세션은 수동 청구로 표시됩니다.",
+      "billedBadge": "운영자가 청구함",
+      "billedHelp": "CSMS가 이 세션을 종료하지 못한 후 운영자가 청구했습니다.",
+      "manualHelp": "CSMS가 이 세션을 종료하지 못했고 자동으로 결제할 수 없었습니다. 플랫폼 외부에서 {{cost}}을(를) 징수하세요.",
+      "button": "세션 청구",
+      "confirmTitle": "이 세션을 청구하시겠습니까?",
+      "confirmDescription": "미터 값으로 요금을 다시 계산하여 드라이버의 기본 저장 카드 또는 선불 잔액에서 결제합니다. 세션을 결제할 수 없으면 수동 청구로 표시됩니다.",
+      "inProgress": "세션 청구가 진행 중입니다.",
+      "paymentPending": "세션에 결제 제공업체가 아직 정산하지 않은 결제가 있습니다.",
+      "charged": "세션 청구됨: 카드로 결제되었습니다",
+      "prepaid": "세션 청구됨: 선불 잔액에서 차감되었습니다",
+      "noCharge": "세션 청구됨: 결제할 금액이 없습니다",
+      "manual": "세션을 결제할 수 없어 수동 청구로 표시되었습니다",
+      "failed": "청구 실패",
+      "manualReason": {
+        "no_payment_method": "드라이버에게 저장된 카드가 없습니다.",
+        "payment_failed": "카드가 거절되었거나 카드 소유자 인증이 필요합니다.",
+        "guest": "게스트 세션에는 저장된 카드가 없습니다.",
+        "no_driver": "세션에 드라이버가 없습니다.",
+        "prepaid_not_debited": "선불 잔액에서 차감할 수 없었습니다.",
+        "prepaid_record_exists": "세션에 이미 결제 기록이 있어 선불 잔액에서 차감하지 않았습니다."
+      },
+      "notEligible": {
+        "status": "여기서는 CSMS가 종료하지 못한 세션만 청구할 수 있습니다.",
+        "already_rebilled": "세션이 이미 청구되었습니다.",
+        "roaming": "로밍 세션은 로밍 파트너가 청구합니다.",
+        "free_vend": "무료 충전 세션은 청구되지 않습니다.",
+        "no_tariff": "세션에 요금을 계산할 요금제가 없습니다.",
+        "paid": "세션이 이미 결제되었습니다."
+      }
+    }
   },
   "drivers": {
     "title": "드라이버",
@@ -1209,7 +1249,46 @@
     "pagePermissions": "페이지",
     "settingsPermissions": "설정",
     "noPermissions": "할당된 권한이 없습니다.",
-    "writeImpliesRead": "쓰기 권한에는 읽기 접근이 포함됩니다."
+    "writeImpliesRead": "쓰기 권한에는 읽기 접근이 포함됩니다.",
+    "permissionRead": "읽기",
+    "permissionWrite": "쓰기",
+    "permissionGroups": {
+      "dashboard": "대시보드",
+      "stations": "충전소",
+      "sites": "사이트",
+      "sessions": "세션",
+      "drivers": "드라이버",
+      "fleets": "차량대",
+      "reservations": "예약",
+      "support": "문의",
+      "payments": "결제",
+      "pricing": "요금제",
+      "roaming": "로밍",
+      "smartCharging": "스마트 충전",
+      "certificates": "인증서",
+      "conformance": "적합성",
+      "reports": "보고서",
+      "sustainability": "지속가능성",
+      "loadManagement": "부하 관리",
+      "notifications": "알림",
+      "logs": "로그",
+      "users": "사용자",
+      "audit": "감사 로그",
+      "maintenance": "유지보수",
+      "settings": {
+        "system": "시스템",
+        "notification": "알림",
+        "payment": "결제",
+        "integrations": "통합 및 기능",
+        "security": "보안",
+        "apiKeys": "API 키",
+        "firmware": "펌웨어 캠페인",
+        "stationConfig": "충전소 구성",
+        "smartCharging": "스마트 충전",
+        "ai": "AI",
+        "conformance": "적합성"
+      }
+    }
   },
   "profile": {
     "title": "프로필",
@@ -1279,7 +1358,8 @@
     "supportAiTone": "응답 톤",
     "supportAiSystemPrompt": "시스템 프롬프트",
     "supportAiRemoveConfig": "구성 제거",
-    "supportAiRemoveConfirm": "개인 지원 AI 구성을 제거하시겠습니까? 시스템 기본값이 대신 사용됩니다."
+    "supportAiRemoveConfirm": "개인 지원 AI 구성을 제거하시겠습니까? 시스템 기본값이 대신 사용됩니다.",
+    "mfaQrCode": "인증 앱 QR 코드"
   },
   "fleets": {
     "title": "차량대",
@@ -2180,7 +2260,10 @@
     "secretStoredHint": "저장된 값이 있습니다. 값을 보려면 Settings - System 읽기 권한이 필요합니다. 유지하려면 필드를 비워 두고, 바꾸려면 새 값을 입력하세요.",
     "secretRemove": "저장된 값 삭제",
     "secretRemovePending": "저장하면 저장된 값이 삭제됩니다.",
-    "secretRemoveUndo": "유지"
+    "secretRemoveUndo": "유지",
+    "copyCode": "코드 복사",
+    "themeColorPicker": "테마 색상 선택기",
+    "emailLayoutPreviewFrame": "이메일 레이아웃 미리보기"
   },
   "pnc": {
     "certificates": "인증서",
@@ -2249,8 +2332,16 @@
     "invoiceEvents": "청구서 이벤트",
     "sessionEvents": "세션",
     "supportEvents": "문의",
+    "sessionAlertEvents": "세션 알림",
     "siteHostEvents": "사이트 호스트",
     "mfaEvents": "다중 인증",
+    "tokenEvents": "토큰",
+    "maintenanceEvents": "유지보수",
+    "watchEvents": "충전소 알림",
+    "requiredEventTooltip": "항상 켜져 있습니다. 드라이버가 계정에 접근하려면 이 알림이 필요합니다.",
+    "eventSwitchTooltip": "끄면 어떤 드라이버도 이 알림을 받지 않습니다. 켜면 각 드라이버의 알림 설정이 적용됩니다.",
+    "eventTurnedOn": "알림을 켰습니다.",
+    "eventTurnedOff": "알림을 껐습니다.",
     "channelTooltipDriver": "이메일 및 SMS 전송 여부는 각 드라이버의 포털 계정 알림 설정에 따라 달라집니다.",
     "channelTooltipSystem": "이메일 및 SMS 전송 여부는 각 운영자의 알림 설정에 따라 달라집니다.",
     "driverEventSettingsSaved": "이벤트 설정이 저장되었습니다.",
@@ -2282,6 +2373,7 @@
     "ocppEventSettingsSaved": "설정이 저장되었습니다.",
     "ocppEvents": "OCPP 이벤트",
     "ocppCommonEvents": "공통 (1.6 및 2.1)",
+    "ocpp16Events": "OCPP 1.6 전용",
     "ocpp21Events": "OCPP 2.1 전용",
     "driverEvents": "드라이버 이벤트",
     "systemEvents": "시스템 이벤트",
@@ -2306,6 +2398,7 @@
       "driver.Welcome": "환영",
       "driver.ForgotPassword": "비밀번호 찾기",
       "driver.PortalInvite": "드라이버 포털 초대",
+      "session.EndRequestFailed": "세션 종료 실패",
       "site.PayoutOnboarding": "사이트 정산 설정",
       "driver.PasswordChanged": "비밀번호 변경됨",
       "driver.MfaDisabled": "2단계 인증 비활성화됨",
@@ -2322,7 +2415,8 @@
       "mfa.VerificationCode": "MFA 인증 코드",
       "session.IdlingStarted": "세션 유휴 시작"
     },
-    "templatePreviewInvalid": "템플릿에 오류가 있습니다:"
+    "templatePreviewInvalid": "템플릿에 오류가 있습니다:",
+    "htmlPreview": "HTML 미리보기"
   },
   "reservations": {
     "title": "예약",
@@ -2431,7 +2525,8 @@
     "actor": "행위자",
     "changes": "변경 사항",
     "token": "토큰",
-    "evse": "EVSE"
+    "evse": "EVSE",
+    "removeSlotStation": "충전소 제거"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "계정이 비활성화되었습니다",
@@ -2539,6 +2634,7 @@
     "MFA_TOTP_NO_RESEND": "TOTP 코드는 재전송할 수 없습니다",
     "MISSING_PAYMENT_INTENT": "결제 인텐트가 누락되었습니다",
     "MISSING_VERSION_URL": "등록을 위해 파트너 버전 URL이 필요합니다",
+    "NOTIFICATION_EVENT_REQUIRED": "계정 접근에 필요한 알림이므로 끌 수 없습니다",
     "NOT_BLOCKED": "충전소가 차단되어 있지 않습니다",
     "NOT_CHARGING": "세션이 현재 충전 중이 아닙니다",
     "NOT_DRAFT": "초안 캠페인만 업데이트할 수 있습니다",
@@ -2629,6 +2725,9 @@
     "SESSION_CREATE_FAILED": "세션 생성에 실패했습니다",
     "SESSION_NOT_FOUND": "세션을 찾을 수 없습니다",
     "SESSION_NOT_LINKED": "세션이 이 문의에 연결되어 있지 않습니다",
+    "SESSION_REBILL_IN_PROGRESS": "세션 청구가 진행 중입니다. 몇 분 후에 다시 시도하세요.",
+    "SESSION_REBILL_NOT_ELIGIBLE": "이 세션은 청구할 수 없습니다",
+    "SESSION_REBILL_PAYMENT_PENDING": "세션에 결제 제공업체가 아직 정산하지 않은 결제가 있습니다. 나중에 다시 시도하세요.",
     "SETTING_NOT_FOUND": "설정을 찾을 수 없습니다",
     "SITE_HAS_STATIONS": "충전소가 있는 사이트는 삭제할 수 없습니다. 먼저 충전소를 제거하거나 재할당하세요.",
     "SITE_NOT_FOUND": "사이트를 찾을 수 없습니다",
@@ -3230,7 +3329,9 @@
     "perPhaseUtilization": "위상별 이용률",
     "oversubscriptionRatio": "초과 구독 비율",
     "oversubscribed": "초과 구독됨",
-    "oversubscriptionWarning": "비율이 1.0 이상이면 배전반 정격보다 더 많은 충전소 용량을 설치할 수 있습니다. 부하 관리가 차단기 제한을 동적으로 적용합니다."
+    "oversubscriptionWarning": "비율이 1.0 이상이면 배전반 정격보다 더 많은 충전소 용량을 설치할 수 있습니다. 부하 관리가 차단기 제한을 동적으로 적용합니다.",
+    "priorityFor": "{{stationId}} 우선순위",
+    "deleteLoad": "{{name}} 부하 삭제"
   },
   "chatbotAi": {
     "title": "챗봇 AI",
@@ -3650,5 +3751,23 @@
         "backToDriver": "드라이버로 돌아가기"
       }
     }
+  },
+  "editor": {
+    "bold": "굵게",
+    "italic": "기울임꼴",
+    "strikethrough": "취소선",
+    "heading1": "제목 1",
+    "heading2": "제목 2",
+    "heading3": "제목 3",
+    "bulletList": "글머리 기호 목록",
+    "orderedList": "번호 매기기 목록",
+    "alignLeft": "왼쪽 정렬",
+    "alignCenter": "가운데 정렬",
+    "alignRight": "오른쪽 정렬",
+    "insertLink": "링크 삽입",
+    "textColor": "텍스트 색상",
+    "undo": "실행 취소",
+    "redo": "다시 실행",
+    "htmlSource": "HTML 소스"
   }
 }

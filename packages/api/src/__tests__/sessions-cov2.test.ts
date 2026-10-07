@@ -101,6 +101,7 @@ vi.mock('@evtivity/database', () => ({
   sessionStatusEnum: {
     enumValues: ['active', 'completed', 'invalid', 'faulted', 'failed'] as const,
   },
+  SESSION_REBILL_STATUSES: ['in_progress', 'billed', 'manual'] as const,
 }));
 
 vi.mock('drizzle-orm', () => drizzle);

@@ -47,8 +47,11 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
         freeVendMatchedTokenId = row.id;
         freeVendMatchedDriverId = row.driverId ?? null;
       }
-    } catch {
-      // Lookup failure is non-fatal: free-vend still accepts.
+    } catch (err) {
+      ctx.logger.warn(
+        { err, stationId: ctx.stationId, idTag },
+        'Free-vend matched-token lookup failed; accepting without match (1.6)',
+      );
     }
     void logAuthorizeAttempt(
       {
@@ -203,8 +206,11 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
             .from(ocpiExternalTokens)
             .where(eq(ocpiExternalTokens.uid, idTag))
             .limit(1);
-        } catch {
-          // OCPI tables may not exist in test/dev environments
+        } catch (err) {
+          ctx.logger.debug(
+            { err, idTag },
+            'OCPI external-token lookup failed; OCPI tables may not exist (1.6)',
+          );
         }
       }
 

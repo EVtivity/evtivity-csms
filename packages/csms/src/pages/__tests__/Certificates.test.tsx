@@ -54,17 +54,17 @@ afterEach(() => {
 
 describe('Certificates', () => {
   it('shows the disabled notice and loads no certificates while Plug & Charge is off', async () => {
-    getMock.mockResolvedValue({ 'pnc.enabled': false });
+    getMock.mockResolvedValue({ pncEnabled: false });
     renderPage();
 
     expect(await screen.findByText('errors.PNC_DISABLED')).toBeDefined();
     expect(screen.queryByText('ca-certificates-tab')).toBeNull();
     expect(getMock).toHaveBeenCalledTimes(1);
-    expect(getMock).toHaveBeenCalledWith('/v1/settings');
+    expect(getMock).toHaveBeenCalledWith('/v1/portal/features');
   });
 
   it('shows the certificate tabs when Plug & Charge is on', async () => {
-    getMock.mockResolvedValue({ 'pnc.enabled': true });
+    getMock.mockResolvedValue({ pncEnabled: true });
     renderPage();
 
     expect(await screen.findByText('ca-certificates-tab')).toBeDefined();

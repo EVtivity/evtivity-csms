@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { Subscription } from '@evtivity/lib';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, tryParseJson } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { endSseClients, writeSseClient } from '../lib/sse-broadcast.js';
@@ -40,15 +40,9 @@ async function ensureListener(): Promise<void> {
 
   const pubsub = getPubSub();
   subscription = await pubsub.subscribe(EVENTS_CHANNEL, (payload: string) => {
-    let eventSiteId: string | undefined;
-    try {
-      const parsed = JSON.parse(payload) as Record<string, unknown>;
-      if (typeof parsed.siteId === 'string') {
-        eventSiteId = parsed.siteId;
-      }
-    } catch {
-      // If JSON parse fails, send to all clients (safe fallback)
-    }
+    // An event that does not parse goes to every client.
+    const parsed = tryParseJson(payload) as { siteId?: unknown } | null | undefined;
+    const eventSiteId = typeof parsed?.siteId === 'string' ? parsed.siteId : undefined;
 
     const message = `data: ${payload}\n\n`;
     for (const client of clients) {
@@ -116,7 +110,8 @@ export function eventStreamRoutes(app: FastifyInstance): void {
       try {
         const decoded = app.jwt.verify(token);
         userId = (decoded as { userId: string }).userId;
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'SSE token did not verify, refusing the stream');
         return reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
       }
 

@@ -27,7 +27,12 @@ import {
   notificationUnitPrice,
   wrapEmailHtml,
 } from '@evtivity/lib';
+import { isMissingFileError } from '../lib/fs-errors.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import {
+  isRequiredDriverEventType,
+  OCPP_NOTIFICATION_EVENT_TYPES,
+} from '@evtivity/lib/notification-events';
 
 const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
 async function invalidateOcppEventSettingsCache(log: FastifyBaseLogger): Promise<void> {
@@ -104,7 +109,9 @@ const eventToggleSettingItem = z
       .describe(
         'Event type identifier (driver event for driver settings, system event for system settings)',
       ),
-    isEnabled: z.boolean().describe('Whether notifications are enabled for this event type'),
+    isEnabled: z
+      .boolean()
+      .describe('Whether the event type is sent (always true for system events)'),
     createdAt: z.coerce.date().describe('Timestamp when the setting was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the setting was last updated'),
   })
@@ -222,69 +229,63 @@ const ocppEventTemplateResponse = z
   })
   .passthrough();
 
-const OCPP_EVENT_TYPES = [
-  'station.Connected',
-  'station.Disconnected',
-  'ocpp.Authorize',
-  'ocpp.BatterySwap',
-  'ocpp.BootNotification',
-  'ocpp.ClearedChargingLimit',
-  'ocpp.DataTransfer',
-  'ocpp.FirmwareStatusNotification',
-  'ocpp.Get15118EVCertificate',
-  'ocpp.GetCertificateChainStatus',
-  'ocpp.GetCertificateStatus',
-  'ocpp.Heartbeat',
-  'ocpp.LogStatusNotification',
-  'ocpp.MeterValues',
-  'ocpp.MessageLog',
-  'ocpp.NotifyAllowedEnergyTransfer',
-  'ocpp.NotifyChargingLimit',
-  'ocpp.NotifyCustomerInformation',
-  'ocpp.NotifyDERAlarm',
-  'ocpp.NotifyDERStartStop',
-  'ocpp.NotifyDisplayMessages',
-  'ocpp.NotifyEVChargingNeeds',
-  'ocpp.NotifyEVChargingSchedule',
-  'ocpp.NotifyEvent',
-  'ocpp.NotifyMonitoringReport',
-  'ocpp.NotifyPeriodicEventStream',
-  'ocpp.NotifyPriorityCharging',
-  'ocpp.NotifyReport',
-  'ocpp.NotifySettlement',
-  'ocpp.PublishFirmwareStatusNotification',
-  'ocpp.PullDynamicScheduleUpdate',
-  'ocpp.ReportChargingProfiles',
-  'ocpp.ReportDERControl',
-  'ocpp.ReservationStatusUpdate',
-  'ocpp.SecurityEventNotification',
-  'ocpp.SignCertificate',
-  'ocpp.StatusNotification',
-  'ocpp.TransactionEvent',
-  'ocpp.VatNumberValidation',
-];
-
-const DRIVER_EVENT_TYPES = [
+// Notifications sent to drivers. Matches the groups on the CSMS Driver Events tab
+// (packages/csms/src/lib/template-variables.ts).
+export const DRIVER_EVENT_TYPES = [
   'session.Started',
   'session.Updated',
   'session.Completed',
   'session.Faulted',
   'session.PaymentReceived',
   'session.IdlingStarted',
-];
-
-const SYSTEM_EVENT_TYPES = [
+  'session.Receipt',
   'driver.Welcome',
   'driver.ForgotPassword',
   'driver.PasswordChanged',
   'driver.AccountVerification',
+  'driver.MfaDisabled',
   'driver.PortalInvite',
   'payment.Complete',
-  'session.Receipt',
+  'payment.Refunded',
+  'payment.FeeRefunded',
+  'payment.PreAuthFailed',
+  'payment.CaptureFailed',
+  'payment.MissingPaymentMethod',
+  'reservation.Created',
+  'reservation.Cancelled',
+  'reservation.CancelledForMaintenance',
+  'reservation.Expiring',
+  'reservation.Expired',
+  'reservation.StationFaulted',
+  'invoice.Sent',
+  'supportCase.Created',
+  'supportCase.OperatorReply',
+  'supportCase.Resolved',
+  'mfa.VerificationCode',
+  'token.Added',
+  'token.Removed',
+  'token.Deactivated',
+  'token.Reactivated',
+  'maintenance.SessionStopped',
+  'watch.StationAvailable',
+];
+
+// Notifications sent to operators and site hosts. Matches the CSMS System Events tab.
+export const SYSTEM_EVENT_TYPES = [
+  'operator.UserCreated',
+  'operator.ForgotPassword',
+  'operator.PasswordChanged',
+  'supportCase.NewCaseFromDriver',
+  'supportCase.DriverReply',
+  'session.EndRequestFailed',
   'site.PayoutOnboarding',
 ];
 
-const ALL_EVENT_TYPES = [...OCPP_EVENT_TYPES, ...DRIVER_EVENT_TYPES, ...SYSTEM_EVENT_TYPES];
+const ALL_EVENT_TYPES = [
+  ...OCPP_NOTIFICATION_EVENT_TYPES,
+  ...DRIVER_EVENT_TYPES,
+  ...SYSTEM_EVENT_TYPES,
+];
 
 const TEMPLATE_LANGUAGES = new Set(['en', 'de', 'es', 'ko', 'zh', 'zh-TW']);
 const TEMPLATE_CHANNELS = new Set(['email', 'sms', 'webhook', 'log']);
@@ -311,12 +312,17 @@ function safeTemplatePath(
   return filePath;
 }
 
-const eventToggleSettingBody = z.object({
-  eventType: z
-    .string()
-    .max(255)
-    .describe('Event type identifier (driver or system event, depending on endpoint)'),
-  isEnabled: z.boolean().describe('Whether notifications are enabled for this event type'),
+const driverEventSettingBody = z.object({
+  eventType: z.string().max(255).describe('Driver event type identifier'),
+  isEnabled: z
+    .boolean()
+    .describe(
+      'Whether the driver event type is sent. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, mfa.VerificationCode) cannot be turned off.',
+    ),
+});
+
+const systemEventSettingBody = z.object({
+  eventType: z.string().max(255).describe('System event type identifier'),
 });
 
 const ocppEventSettingsBody = z.object({
@@ -353,12 +359,8 @@ function isValidPhone(value: string): boolean {
   return PHONE_RE.test(value);
 }
 function isValidWebhookUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === 'http:' || url.protocol === 'https:';
-  } catch {
-    return false;
-  }
+  const url = URL.parse(value);
+  return url != null && (url.protocol === 'http:' || url.protocol === 'https:');
 }
 
 const notificationChannelValues = ['email', 'sms', 'webhook', 'push', 'log'] as const;
@@ -420,6 +422,7 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   'ocpp.TransactionEvent': ['stationId', 'occurredAt', 'transactionId', 'evseId'],
   'ocpp.MeterValues': ['stationId', 'occurredAt', 'evseId'],
   'ocpp.FirmwareStatusNotification': ['stationId', 'occurredAt', 'status'],
+  'ocpp.PublishFirmwareStatusNotification': ['stationId', 'occurredAt', 'status'],
   'ocpp.SecurityEventNotification': ['stationId', 'occurredAt', 'type'],
   'session.Started': [
     'firstName',
@@ -470,6 +473,19 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   'driver.ForgotPassword': ['firstName', 'lastName', 'email'],
   'driver.PortalInvite': ['firstName', 'lastName', 'email', 'activateUrl', 'expiresInDays'],
   'site.PayoutOnboarding': ['siteName', 'contactName', 'email', 'onboardingUrl', 'expiresInDays'],
+  'session.EndRequestFailed': [
+    'firstName',
+    'lastName',
+    'email',
+    'sessionId',
+    'stationId',
+    'siteName',
+    'transactionId',
+    'endRequestReason',
+    'attempts',
+    'startedAt',
+    'endedAt',
+  ],
   'driver.PasswordChanged': ['firstName', 'lastName'],
   'driver.AccountVerification': ['firstName', 'lastName', 'email'],
   'payment.Complete': [
@@ -593,8 +609,13 @@ export function notificationRoutes(app: FastifyInstance): void {
         try {
           const content = await readFile(filePath, 'utf-8');
           return { template: content };
-        } catch {
-          // try the English fallback / next candidate
+        } catch (err) {
+          if (!isMissingFileError(err)) {
+            request.log.warn(
+              { err, filePath },
+              'Reading the default template failed, trying the next one',
+            );
+          }
         }
       }
       await reply
@@ -861,9 +882,13 @@ export function notificationRoutes(app: FastifyInstance): void {
         if (rawPassword != null && rawPassword !== '' && encryptionKey != null) {
           try {
             password = decryptString(rawPassword, encryptionKey);
-          } catch {
+          } catch (err) {
             // Leave password empty so SMTP returns a clear auth failure instead
             // of silently leaking ciphertext as the credential.
+            request.log.error(
+              { err, key: 'smtp.passwordEnc' },
+              'Decrypting the SMTP password failed, testing without it',
+            );
           }
         }
 
@@ -909,9 +934,13 @@ export function notificationRoutes(app: FastifyInstance): void {
       if (rawToken != null && rawToken !== '' && encryptionKey != null) {
         try {
           authToken = decryptString(rawToken, encryptionKey);
-        } catch {
+        } catch (err) {
           // Leave authToken empty so Twilio returns a clear auth failure
           // instead of silently leaking ciphertext as the credential.
+          request.log.error(
+            { err, key: 'twilio.authTokenEnc' },
+            'Decrypting the Twilio auth token failed, testing without it',
+          );
         }
       }
 
@@ -976,15 +1005,27 @@ export function notificationRoutes(app: FastifyInstance): void {
       onRequest: [authorize('notifications:write')],
       schema: {
         tags: ['Notifications'],
-        summary: 'Create or update a driver event setting',
+        summary: 'Turn a driver event type on or off',
+        description:
+          "Operators turn each driver notification type on or off. Drivers' own notification preferences apply on top when it is on. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, mfa.VerificationCode) are always on: turning one off returns 400 NOTIFICATION_EVENT_REQUIRED.",
         operationId: 'updateDriverEventSettings',
         security: [{ bearerAuth: [] }],
-        body: zodSchema(eventToggleSettingBody),
-        response: { 200: itemResponse(eventToggleSettingItem) },
+        body: zodSchema(driverEventSettingBody),
+        response: {
+          200: itemResponse(eventToggleSettingItem),
+          400: errorWith('The event type is always on', [ERROR_CODES.NOTIFICATION_EVENT_REQUIRED]),
+        },
       },
     },
-    async (request) => {
-      const body = request.body as z.infer<typeof eventToggleSettingBody>;
+    async (request, reply) => {
+      const body = request.body as z.infer<typeof driverEventSettingBody>;
+      if (!body.isEnabled && isRequiredDriverEventType(body.eventType)) {
+        await reply.status(400).send({
+          error: 'This notification is required for account access and cannot be turned off',
+          code: 'NOTIFICATION_EVENT_REQUIRED',
+        });
+        return;
+      }
       const [saved] = await db
         .insert(driverEventSettings)
         .values({
@@ -1029,27 +1070,23 @@ export function notificationRoutes(app: FastifyInstance): void {
       onRequest: [authorize('notifications:write')],
       schema: {
         tags: ['Notifications'],
-        summary: 'Create or update a system event setting',
+        summary: 'Record a system event setting',
+        description:
+          'System notifications are always on. This records the event type; it has no on/off switch.',
         operationId: 'updateSystemEventSettings',
         security: [{ bearerAuth: [] }],
-        body: zodSchema(eventToggleSettingBody),
+        body: zodSchema(systemEventSettingBody),
         response: { 200: itemResponse(eventToggleSettingItem) },
       },
     },
     async (request) => {
-      const body = request.body as z.infer<typeof eventToggleSettingBody>;
+      const body = request.body as z.infer<typeof systemEventSettingBody>;
       const [saved] = await db
         .insert(systemEventSettings)
-        .values({
-          eventType: body.eventType,
-          isEnabled: body.isEnabled,
-        })
+        .values({ eventType: body.eventType })
         .onConflictDoUpdate({
           target: [systemEventSettings.eventType],
-          set: {
-            isEnabled: body.isEnabled,
-            updatedAt: new Date(),
-          },
+          set: { updatedAt: new Date() },
         })
         .returning();
       return saved;
@@ -1129,8 +1166,13 @@ export function notificationRoutes(app: FastifyInstance): void {
             bodyHtml: content,
             isCustomized: false,
           };
-        } catch {
-          // try next candidate
+        } catch (err) {
+          if (!isMissingFileError(err)) {
+            request.log.warn(
+              { err, filePath },
+              'Reading the default template failed, trying the next one',
+            );
+          }
         }
       }
       const defaultBody = generateDefaultTemplate(eventType, channel);
@@ -1333,6 +1375,9 @@ export function notificationRoutes(app: FastifyInstance): void {
         companyZip: companyMap.get('company.zip') ?? '',
         companyCountry: companyMap.get('company.country') ?? '',
         siteName: 'Downtown Charging Hub',
+        sessionId: 'ses_8f3k2m9x4q',
+        endRequestReason: 'GhostRecovered',
+        attempts: 5,
         stationId: 'STATION-001',
         transactionId: 'TXN-12345',
         occurredAt: new Date().toISOString(),

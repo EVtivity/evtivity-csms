@@ -49,7 +49,7 @@ describe('NotificationDrawer', () => {
   it('calls onClose when close button is clicked', () => {
     const onClose = vi.fn();
     render(<NotificationDrawer open={true} onClose={onClose} />, { wrapper: createWrapper() });
-    const closeButton = screen.getByLabelText('Close');
+    const closeButton = screen.getByLabelText('common.close');
     closeButton.click();
     expect(onClose).toHaveBeenCalledOnce();
   });

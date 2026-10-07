@@ -77,11 +77,7 @@ export const TC_F_06_CS: CsTestCase = {
 
     // Before: EVConnectedPreSession (cable plugged in, no transaction)
     await ctx.station.plugIn(evseId);
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
 
     // Step 1-2: Send UnlockConnectorRequest
     const unlockRes = await ctx.server.sendCommand('UnlockConnector', {

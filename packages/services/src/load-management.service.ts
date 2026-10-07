@@ -16,10 +16,12 @@ import {
   loadAllocationLog,
   evChargingNeeds,
 } from '@evtivity/database';
-import type { ServiceLogger } from '@evtivity/lib';
+import type { LoadAllocationStrategy, ServiceLogger } from '@evtivity/lib';
 import type { OcppCommand, PubSubClient } from '@evtivity/lib';
-import { publishOcppCommand } from '@evtivity/lib';
+import { createLogger, publishOcppCommand } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+
+const logger = createLogger('load-management');
 
 export interface PhaseLoad {
   L1: number;
@@ -642,7 +644,7 @@ export function computePriorityAllocation(
  */
 export function computeHierarchicalAllocation(
   roots: HierarchyNode[],
-  strategy: 'equal_share' | 'priority_based',
+  strategy: LoadAllocationStrategy,
 ): AllocationResult[] {
   // Mutable map: stationDbId -> allocatedKw
   const allocationMap = new Map<string, AllocationResult>();
@@ -835,8 +837,11 @@ async function broadcastLoadUpdate(pubsub: PubSubClient, siteId: string): Promis
       sessionId: null,
     });
     await pubsub.publish('csms_events', event);
-  } catch {
-    // Non-critical, SSE update is best-effort
+  } catch (err) {
+    logger.warn(
+      { err, siteId },
+      'Load update event publish failed, the dashboard refreshes on its next poll',
+    );
   }
 }
 

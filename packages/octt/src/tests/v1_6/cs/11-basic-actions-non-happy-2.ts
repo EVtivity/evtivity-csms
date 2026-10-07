@@ -106,11 +106,8 @@ export const TC_024_CS: CsTestCase = {
     // Steps 5-6: Authorize, only when AuthorizeRemoteTxRequests is true.
     if (entry?.['value'] === 'true') {
       let authorized = false;
-      try {
-        await ctx.server.waitForMessage('Authorize', 10_000);
+      if ((await ctx.server.waitForMessageOrNull('Authorize', 10_000)) != null) {
         authorized = true;
-      } catch {
-        // reported below
       }
       steps.push({
         step: 5,
@@ -148,11 +145,9 @@ export const TC_024_CS: CsTestCase = {
 
     // Expected result: the Charging Station does NOT start a transaction.
     let started = false;
-    try {
-      await ctx.server.waitForMessage('StartTransaction', 5_000);
+    // no transaction, as expected
+    if ((await ctx.server.waitForMessageOrNull('StartTransaction', 5_000)) != null) {
       started = true;
-    } catch {
-      // no transaction, as expected
     }
     steps.push({
       step: 10,

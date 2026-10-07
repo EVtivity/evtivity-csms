@@ -131,14 +131,14 @@ export const TC_A_19_CS: CsTestCase = {
       steps.push(
         step(10, 'Reusable State Booted: BootNotificationRequest', true, 'received', 'received'),
       );
-    } catch {
+    } catch (err) {
       steps.push(
         step(
           10,
           'Reusable State Booted: BootNotificationRequest',
           false,
           'received',
-          'not received',
+          err instanceof Error ? err.message : String(err),
         ),
       );
       return result(steps);

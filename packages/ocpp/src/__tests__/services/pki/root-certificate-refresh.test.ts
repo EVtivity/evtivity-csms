@@ -197,6 +197,7 @@ describe('subscribePncCommands', () => {
     const h = await setup();
 
     await h.deliver('not json');
+    await h.deliver('null');
     await h.deliver(JSON.stringify({ action: 'refreshRootCertificates' }));
 
     expect(h.publish).not.toHaveBeenCalled();

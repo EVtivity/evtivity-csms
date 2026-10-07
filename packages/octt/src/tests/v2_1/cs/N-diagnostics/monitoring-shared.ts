@@ -135,12 +135,8 @@ export async function waitForEvent(
 ): Promise<FoundEvent | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    let request: Record<string, unknown>;
-    try {
-      request = await server.waitForMessage('NotifyEvent', deadline - Date.now());
-    } catch {
-      return null;
-    }
+    const request = await server.waitForMessageOrNull('NotifyEvent', deadline - Date.now());
+    if (request == null) return null;
     const events = (request['eventData'] ?? []) as Array<Record<string, unknown>>;
     const event = events.find(match);
     if (event != null) return { request, event };

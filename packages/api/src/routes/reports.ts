@@ -12,8 +12,6 @@ import {
   reportFrequencyEnum,
 } from '@evtivity/database';
 
-const REPORT_FORMATS = ['csv', 'pdf', 'xlsx'] as const;
-
 // The worker generates the report; the API only announces it.
 async function announceReport(reportId: string): Promise<void> {
   await getPubSub().publish(REPORT_GENERATE_CHANNEL, JSON.stringify({ reportId }));
@@ -26,6 +24,7 @@ function assertReportFilters(reportType: string, filters: Record<string, unknown
 }
 import { zodSchema } from '../lib/zod-schema.js';
 import {
+  arrayResponse,
   successResponse,
   paginatedResponse,
   itemResponse,
@@ -37,14 +36,28 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import {
   queueReport,
   computeNextRunAtInTz,
+  listReportTypes,
   reportFiltersError,
   REPORT_GENERATE_CHANNEL,
   REPORT_TYPES,
 } from '@evtivity/services/report.service';
+import { REPORT_FORMATS } from '@evtivity/services/report-registry';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { ValidationError } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+
+const reportTypeItem = z
+  .object({
+    type: z.string().describe('Report type identifier'),
+    formats: z
+      .array(z.enum(REPORT_FORMATS))
+      .describe('File formats the report is written in; another requested format gets the first'),
+    generateFromUi: z
+      .boolean()
+      .describe('Whether the dashboard Generate and Schedules tabs offer this type'),
+  })
+  .passthrough();
 
 const reportItem = z
   .object({
@@ -196,6 +209,21 @@ export function reportRoutes(app: FastifyInstance): void {
         total: countResult[0]?.count ?? 0,
       } satisfies PaginatedResponse<(typeof dataResult)[number]>;
     },
+  );
+
+  app.get(
+    '/reports/types',
+    {
+      onRequest: [authorize('reports:read')],
+      schema: {
+        tags: ['Reports'],
+        summary: 'List report types',
+        operationId: 'listReportTypes',
+        security: [{ bearerAuth: [] }],
+        response: { 200: arrayResponse(reportTypeItem) },
+      },
+    },
+    () => listReportTypes(),
   );
 
   // Get single report metadata

@@ -2,29 +2,37 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { eq, like } from 'drizzle-orm';
 import { db, chatbotAiConfigs, settings, users, getCompanyCurrency } from '@evtivity/database';
-import { decryptString } from '@evtivity/lib';
+import { createLogger, decryptString, tryParseJson } from '@evtivity/lib';
 import type { ChatMessage, ChatOptions } from './types.js';
 import { TOOL_CATEGORIES, getToolsForCategories, type ExtendedToolDefinition } from './tools.js';
 import { createAiProvider } from './provider-factory.js';
 import { executeToolLoop } from './tool-executor.js';
 import { config as apiConfig } from '../../lib/config.js';
 
-// Load docs index for AI assistant doc references
-let docsIndex = '';
-try {
+const logger = createLogger('ai-assistant');
+
+// Without a docs index the assistant uses the URLs in its prompt.
+function loadDocsIndex(): string {
   const indexPath = process.env['DOCS_INDEX_PATH'] ?? resolve('docs-index.json');
-  const raw = readFileSync(indexPath, 'utf8');
-  const pages = JSON.parse(raw) as Array<{ path: string; title: string; description: string }>;
-  docsIndex =
+  if (!existsSync(indexPath)) return '';
+  const pages = tryParseJson(readFileSync(indexPath, 'utf8'));
+  if (!Array.isArray(pages)) {
+    logger.warn({ indexPath }, 'Docs index is not a JSON array, using the prompt URLs');
+    return '';
+  }
+  return (
     '\n\nDocumentation index (use these exact full URLs when linking):\n' +
-    pages.map((p) => `- ${p.title}: DOCS_BASE${p.path}`).join('\n');
-} catch {
-  // No docs index available, AI will use hardcoded URLs from the prompt
+    (pages as Array<{ path: string; title: string }>)
+      .map((p) => `- ${p.title}: DOCS_BASE${p.path}`)
+      .join('\n')
+  );
 }
+
+const docsIndex = loadDocsIndex();
 
 const MAX_PROVIDER_TOOLS = 128;
 

@@ -91,7 +91,10 @@
     "filterByReportType": "Filtrar por tipo de informe",
     "filterByStation": "Filtrar por estación",
     "filterByModule": "Filtrar por módulo",
-    "na": "n/a"
+    "na": "n/a",
+    "startDate": "Fecha de inicio",
+    "endDate": "Fecha de fin",
+    "dateRange": "Rango de fechas"
   },
   "status": {
     "online": "En línea",
@@ -439,7 +442,8 @@
     "netRevenue": "Ingresos totales (sin impuestos)",
     "todayNetRevenue": "Ingresos de hoy (sin impuestos)",
     "taxCollected": "Impuestos recaudados totales",
-    "todayTaxCollected": "Impuestos recaudados hoy"
+    "todayTaxCollected": "Impuestos recaudados hoy",
+    "showPage": "Mostrar página {{page}} de {{total}}"
   },
   "sites": {
     "title": "Sitios",
@@ -890,7 +894,8 @@
     "enabledSuccess": "Estación activada",
     "disabledSuccess": "Estación desactivada",
     "maxPowerUnknown": "Potencia máxima desconocida",
-    "maxPowerUnknownHint": "La gestión de carga no puede limitar este conector hasta que se defina su potencia máxima. Edite el EVSE para definirla. Las estaciones OCPP 2.1 la completan desde su informe de configuración."
+    "maxPowerUnknownHint": "La gestión de carga no puede limitar este conector hasta que se defina su potencia máxima. Edite el EVSE para definirla. Las estaciones OCPP 2.1 la completan desde su informe de configuración.",
+    "removeTag": "Quitar etiqueta {{tag}}"
   },
   "eventAlertRules": {
     "title": "Reglas de Alerta de Eventos",
@@ -993,7 +998,42 @@
       "failed": "Fallido"
     },
     "refundPending": "Reembolso solicitado. El proveedor de pago lo confirmará en breve.",
-    "refundAfterConfirmation": "Los reembolsos son posibles cuando el proveedor confirme el cobro."
+    "refundAfterConfirmation": "Los reembolsos son posibles cuando el proveedor confirme el cobro.",
+    "manualBilling": "Facturación manual",
+    "rebill": {
+      "cardTitle": "Facturación",
+      "unbilledBadge": "Sin facturar",
+      "unbilledHelp": "El CSMS no pudo finalizar esta sesión, por lo que no se facturó. Factúrela para calcular su precio a partir de sus valores de medición y cobrar la tarjeta guardada o el saldo prepago del conductor. Una sesión que no se puede cobrar se marca para facturación manual.",
+      "billedBadge": "Facturada por un operador",
+      "billedHelp": "Un operador facturó esta sesión después de que el CSMS no pudiera finalizarla.",
+      "manualHelp": "El CSMS no pudo finalizar esta sesión y no se pudo cobrar automáticamente. Cobre {{cost}} fuera de la plataforma.",
+      "button": "Facturar sesión",
+      "confirmTitle": "¿Facturar esta sesión?",
+      "confirmDescription": "El costo se recalcula a partir de los valores de medición y se cobra a la tarjeta guardada predeterminada o al saldo prepago del conductor. Si la sesión no se puede cobrar, se marca para facturación manual.",
+      "inProgress": "La sesión se está facturando.",
+      "paymentPending": "La sesión tiene un pago que el proveedor de pago aún no ha liquidado.",
+      "charged": "Sesión facturada: se cobró la tarjeta",
+      "prepaid": "Sesión facturada: se debitó el saldo prepago",
+      "noCharge": "Sesión facturada: no hay nada que cobrar",
+      "manual": "La sesión no se pudo cobrar y está marcada para facturación manual",
+      "failed": "La facturación falló",
+      "manualReason": {
+        "no_payment_method": "El conductor no tiene una tarjeta guardada.",
+        "payment_failed": "La tarjeta fue rechazada o requiere que el titular se autentique.",
+        "guest": "Las sesiones de invitado no tienen una tarjeta guardada.",
+        "no_driver": "La sesión no tiene conductor.",
+        "prepaid_not_debited": "No se pudo debitar el saldo prepago.",
+        "prepaid_record_exists": "La sesión ya tiene un registro de pago, por lo que no se debitó el saldo prepago."
+      },
+      "notEligible": {
+        "status": "Aquí solo se puede facturar una sesión que el CSMS no pudo finalizar.",
+        "already_rebilled": "La sesión ya se facturó.",
+        "roaming": "Las sesiones de roaming las factura el socio de roaming.",
+        "free_vend": "Las sesiones de carga libre no se facturan.",
+        "no_tariff": "La sesión no tiene una tarifa para calcular su precio.",
+        "paid": "La sesión ya se pagó."
+      }
+    }
   },
   "drivers": {
     "title": "Conductores",
@@ -1209,7 +1249,46 @@
     "pagePermissions": "Páginas",
     "settingsPermissions": "Configuración",
     "noPermissions": "No hay permisos asignados.",
-    "writeImpliesRead": "El permiso de escritura incluye acceso de lectura."
+    "writeImpliesRead": "El permiso de escritura incluye acceso de lectura.",
+    "permissionRead": "Lectura",
+    "permissionWrite": "Escritura",
+    "permissionGroups": {
+      "dashboard": "Panel",
+      "stations": "Estaciones",
+      "sites": "Sitios",
+      "sessions": "Sesiones",
+      "drivers": "Conductores",
+      "fleets": "Flotas",
+      "reservations": "Reservas",
+      "support": "Casos de Soporte",
+      "payments": "Pagos",
+      "pricing": "Precios",
+      "roaming": "Roaming",
+      "smartCharging": "Carga Inteligente",
+      "certificates": "Certificados",
+      "conformance": "Conformidad",
+      "reports": "Informes",
+      "sustainability": "Sostenibilidad",
+      "loadManagement": "Gestión de carga",
+      "notifications": "Notificaciones",
+      "logs": "Registros",
+      "users": "Usuarios",
+      "audit": "Registro de auditoría",
+      "maintenance": "Mantenimiento",
+      "settings": {
+        "system": "Sistema",
+        "notification": "Notificación",
+        "payment": "Pago",
+        "integrations": "Integraciones y Funciones",
+        "security": "Seguridad",
+        "apiKeys": "Claves API",
+        "firmware": "Campaña de firmware",
+        "stationConfig": "Configuraciones de Estación",
+        "smartCharging": "Carga Inteligente",
+        "ai": "IA",
+        "conformance": "Conformidad"
+      }
+    }
   },
   "profile": {
     "title": "Perfil",
@@ -1279,7 +1358,8 @@
     "supportAiTone": "Tono de respuesta",
     "supportAiSystemPrompt": "Instrucciones del sistema",
     "supportAiRemoveConfig": "Eliminar configuración",
-    "supportAiRemoveConfirm": "¿Eliminar su configuración personal de IA de soporte? Se usará la configuración predeterminada del sistema."
+    "supportAiRemoveConfirm": "¿Eliminar su configuración personal de IA de soporte? Se usará la configuración predeterminada del sistema.",
+    "mfaQrCode": "Código QR de la aplicación de autenticación"
   },
   "fleets": {
     "title": "Flotas",
@@ -2180,7 +2260,10 @@
     "secretStoredHint": "Hay un valor guardado. Para verlo se necesita el permiso de lectura de «Settings - System». Deje el campo vacío para conservarlo o introduzca un valor nuevo para reemplazarlo.",
     "secretRemove": "Eliminar valor guardado",
     "secretRemovePending": "El valor guardado se elimina al guardar.",
-    "secretRemoveUndo": "Conservar"
+    "secretRemoveUndo": "Conservar",
+    "copyCode": "Copiar código",
+    "themeColorPicker": "Selector de color del tema",
+    "emailLayoutPreviewFrame": "Vista previa del diseño de correo electrónico"
   },
   "pnc": {
     "certificates": "Certificados",
@@ -2275,6 +2358,7 @@
     "ocppEventSettingsSaved": "Configuración guardada.",
     "ocppEvents": "Eventos OCPP",
     "ocppCommonEvents": "Comunes (1.6 y 2.1)",
+    "ocpp16Events": "Solo OCPP 1.6",
     "ocpp21Events": "Solo OCPP 2.1",
     "driverEvents": "Eventos de Conductor",
     "systemEvents": "Eventos del Sistema",
@@ -2285,8 +2369,16 @@
     "invoiceEvents": "Eventos de Factura",
     "sessionEvents": "Sesiones",
     "supportEvents": "Casos de Soporte",
+    "sessionAlertEvents": "Alertas de sesión",
     "siteHostEvents": "Anfitriones de sitios",
     "mfaEvents": "Autenticación Multifactor",
+    "tokenEvents": "Tokens",
+    "maintenanceEvents": "Mantenimiento",
+    "watchEvents": "Seguimiento de Estaciones",
+    "requiredEventTooltip": "Siempre activa. Los conductores necesitan esta notificación para acceder a su cuenta.",
+    "eventSwitchTooltip": "Si está desactivada, ningún conductor recibe esta notificación. Si está activada, se aplican las preferencias de notificación de cada conductor.",
+    "eventTurnedOn": "Notificación activada.",
+    "eventTurnedOff": "Notificación desactivada.",
     "channelTooltipDriver": "La entrega por correo y SMS depende de las preferencias de notificación de cada conductor en su cuenta del portal.",
     "channelTooltipSystem": "La entrega por correo y SMS depende de las preferencias de notificación de cada operador.",
     "recipientLabel": "Destinatario",
@@ -2306,6 +2398,7 @@
       "driver.Welcome": "Bienvenida",
       "driver.ForgotPassword": "Contraseña Olvidada",
       "driver.PortalInvite": "Invitación al portal de conductores",
+      "session.EndRequestFailed": "No se pudo finalizar la sesión",
       "site.PayoutOnboarding": "Configuración de pagos del sitio",
       "driver.PasswordChanged": "Contraseña Cambiada",
       "driver.MfaDisabled": "Autenticación de dos factores desactivada",
@@ -2322,7 +2415,8 @@
       "mfa.VerificationCode": "Código de Verificación MFA",
       "session.IdlingStarted": "Sesión en inactividad"
     },
-    "templatePreviewInvalid": "La plantilla tiene un error:"
+    "templatePreviewInvalid": "La plantilla tiene un error:",
+    "htmlPreview": "Vista previa HTML"
   },
   "reservations": {
     "title": "Reservas",
@@ -2431,7 +2525,8 @@
     "actor": "Actor",
     "changes": "Cambios",
     "token": "Token",
-    "evse": "EVSE"
+    "evse": "EVSE",
+    "removeSlotStation": "Quitar estación"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "Cuenta desactivada",
@@ -2539,6 +2634,7 @@
     "MFA_TOTP_NO_RESEND": "No se pueden reenviar códigos TOTP",
     "MISSING_PAYMENT_INTENT": "Falta la intención de pago",
     "MISSING_VERSION_URL": "Se requiere la URL de versión del socio para el registro",
+    "NOTIFICATION_EVENT_REQUIRED": "Esta notificación es necesaria para acceder a la cuenta y no se puede desactivar",
     "NOT_BLOCKED": "La estación no está bloqueada",
     "NOT_CHARGING": "La sesión no está cargando actualmente",
     "NOT_DRAFT": "Solo se pueden actualizar las campañas en borrador",
@@ -2629,6 +2725,9 @@
     "SESSION_CREATE_FAILED": "Error al crear la sesión",
     "SESSION_NOT_FOUND": "Sesión no encontrada",
     "SESSION_NOT_LINKED": "La sesión no está vinculada a este caso",
+    "SESSION_REBILL_IN_PROGRESS": "La sesión se está facturando. Inténtelo de nuevo en unos minutos.",
+    "SESSION_REBILL_NOT_ELIGIBLE": "Esta sesión no se puede facturar",
+    "SESSION_REBILL_PAYMENT_PENDING": "La sesión tiene un pago que el proveedor de pago aún no ha liquidado. Inténtelo de nuevo más tarde.",
     "SETTING_NOT_FOUND": "Configuración no encontrada",
     "SITE_HAS_STATIONS": "No se puede eliminar el sitio con estaciones. Elimine o reasigne las estaciones primero.",
     "SITE_NOT_FOUND": "Sitio no encontrado",
@@ -3230,7 +3329,9 @@
     "perPhaseUtilization": "Utilización por fase",
     "oversubscriptionRatio": "Ratio de sobresuscripcion",
     "oversubscribed": "Sobresuscrito",
-    "oversubscriptionWarning": "Un ratio superior a 1.0 permite instalar más capacidad de estación que la clasificación del panel. La gestión de carga aplica el límite del interruptor dinámicamente."
+    "oversubscriptionWarning": "Un ratio superior a 1.0 permite instalar más capacidad de estación que la clasificación del panel. La gestión de carga aplica el límite del interruptor dinámicamente.",
+    "priorityFor": "Prioridad de {{stationId}}",
+    "deleteLoad": "Eliminar carga {{name}}"
   },
   "chatbotAi": {
     "title": "Chatbot IA",
@@ -3650,5 +3751,23 @@
         "backToDriver": "Volver al conductor"
       }
     }
+  },
+  "editor": {
+    "bold": "Negrita",
+    "italic": "Cursiva",
+    "strikethrough": "Tachado",
+    "heading1": "Encabezado 1",
+    "heading2": "Encabezado 2",
+    "heading3": "Encabezado 3",
+    "bulletList": "Lista con viñetas",
+    "orderedList": "Lista numerada",
+    "alignLeft": "Alinear a la izquierda",
+    "alignCenter": "Centrar",
+    "alignRight": "Alinear a la derecha",
+    "insertLink": "Insertar enlace",
+    "textColor": "Color del texto",
+    "undo": "Deshacer",
+    "redo": "Rehacer",
+    "htmlSource": "Código fuente HTML"
   }
 }

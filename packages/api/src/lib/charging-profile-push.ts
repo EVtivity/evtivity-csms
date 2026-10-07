@@ -8,7 +8,10 @@ import {
   chargingProfilePushStations,
   chargingProfiles,
 } from '@evtivity/database';
+import { createLogger } from '@evtivity/lib';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
+
+const logger = createLogger('charging-profile-push');
 
 const CONCURRENCY_LIMIT = 10;
 
@@ -50,8 +53,11 @@ export async function processChargingProfilePush(
                   evseId: template.evseId,
                 },
               });
-            } catch {
-              // Non-critical: clear failure should not block set
+            } catch (err) {
+              logger.warn(
+                { err, pushId, stationId: station.stationId },
+                'ClearChargingProfile before the push failed, sending SetChargingProfile anyway',
+              );
             }
 
             // Build SetChargingProfile payload
@@ -157,7 +163,11 @@ export async function processChargingProfilePush(
                   );
               }
             }
-          } catch {
+          } catch (err) {
+            logger.warn(
+              { err, pushId, stationId: station.stationId },
+              'Charging profile push to the station failed, marking the station failed',
+            );
             await db
               .update(chargingProfilePushStations)
               .set({
@@ -181,13 +191,15 @@ export async function processChargingProfilePush(
       .update(chargingProfilePushes)
       .set({ status: 'completed', updatedAt: new Date() })
       .where(eq(chargingProfilePushes.id, pushId));
-  } catch {
-    // If something goes wrong at the batch level, still try to mark as completed
+  } catch (err) {
+    logger.error({ err, pushId }, 'Charging profile push failed, marking the push completed');
     await db
       .update(chargingProfilePushes)
       .set({ status: 'completed', updatedAt: new Date() })
       .where(eq(chargingProfilePushes.id, pushId))
-      .catch(() => {});
+      .catch((markErr: unknown) => {
+        logger.warn({ err: markErr, pushId }, 'Marking the charging profile push completed failed');
+      });
   }
 }
 
@@ -315,7 +327,11 @@ export async function processChargingProfileClear(
                   ),
                 );
             }
-          } catch {
+          } catch (err) {
+            logger.warn(
+              { err, pushId, stationId: station.stationId },
+              'Charging profile clear on the station failed, marking the station failed',
+            );
             await db
               .update(chargingProfilePushStations)
               .set({ status: 'failed', errorInfo: 'Internal error', updatedAt: new Date() })
@@ -334,11 +350,17 @@ export async function processChargingProfileClear(
       .update(chargingProfilePushes)
       .set({ status: 'completed', updatedAt: new Date() })
       .where(eq(chargingProfilePushes.id, pushId));
-  } catch {
+  } catch (err) {
+    logger.error({ err, pushId }, 'Charging profile clear failed, marking the push completed');
     await db
       .update(chargingProfilePushes)
       .set({ status: 'completed', updatedAt: new Date() })
       .where(eq(chargingProfilePushes.id, pushId))
-      .catch(() => {});
+      .catch((markErr: unknown) => {
+        logger.warn(
+          { err: markErr, pushId },
+          'Marking the charging profile clear completed failed',
+        );
+      });
   }
 }

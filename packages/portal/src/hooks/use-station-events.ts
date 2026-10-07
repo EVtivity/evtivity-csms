@@ -3,6 +3,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { tryParseJson } from '@evtivity/lib/safe-json';
 import { API_BASE_URL } from '../lib/config';
 
 const BASE_URL = API_BASE_URL;
@@ -24,12 +25,12 @@ export function useStationEvents(stationId: string | undefined): void {
     eventSourceRef.current = es;
 
     es.onmessage = (messageEvent: MessageEvent<string>) => {
-      let parsed: { eventType?: string };
-      try {
-        parsed = JSON.parse(messageEvent.data) as { eventType?: string };
-      } catch {
+      const value = tryParseJson(messageEvent.data);
+      if (value == null || typeof value !== 'object') {
+        console.warn('Ignored a station event that is not a JSON object', messageEvent.data);
         return;
       }
+      const parsed = value as { eventType?: string };
 
       if (parsed.eventType === 'station.status') {
         void queryClient.invalidateQueries({ queryKey: ['station-detail', stationId] });

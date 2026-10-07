@@ -149,11 +149,13 @@ vi.mock('@evtivity/lib', () => ({
   verifyTotpCode: vi.fn().mockReturnValue(true),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 1, code: '123456' }),
   verifyMfaChallenge: vi.fn().mockResolvedValue(true),
-  ADMIN_DEFAULT_PERMISSIONS: ['stations:read', 'stations:write'],
-  OPERATOR_DEFAULT_PERMISSIONS: ['stations:read'],
-  VIEWER_DEFAULT_PERMISSIONS: ['stations:read'],
+  permissionCatalog: {
+    defaultsFor: (role: string | undefined): string[] =>
+      role === 'admin' ? ['stations:read', 'stations:write'] : ['stations:read'],
+    isKnown: (p: string): boolean => ['stations:read', 'stations:write'].includes(p),
+    groups: () => [],
+  },
   hasPermission: vi.fn().mockReturnValue(true),
-  PERMISSIONS: ['stations:read', 'stations:write'],
   isSubsetOf: vi.fn().mockReturnValue(true),
 }));
 
@@ -958,5 +960,26 @@ describe('User routes', () => {
     expect(body.user.email).toBe('admin@example.com');
     expect(body).toHaveProperty('role');
     expect(body.role.name).toBe('admin');
+  });
+});
+
+describe('PUT /v1/users/:id/permissions response schema', () => {
+  it('documents SELF_EDIT_FORBIDDEN on 403, which the route sends for the own user', async () => {
+    const app = Fastify();
+    let forbidden: unknown;
+    app.addHook('onRoute', (route) => {
+      const methods = Array.isArray(route.method) ? route.method : [route.method];
+      if (route.url === '/users/:id/permissions' && methods.includes('PUT')) {
+        forbidden = (route.schema?.response as Record<number, unknown> | undefined)?.[403];
+      }
+    });
+    await app.register(cookie, { secret: 'test-cookie-secret-12345' });
+    await registerAuth(app);
+    userRoutes(app);
+    await app.ready();
+    const serialized = JSON.stringify(forbidden);
+    expect(serialized).toContain('"SELF_EDIT_FORBIDDEN"');
+    expect(serialized).toContain('"FORBIDDEN"');
+    await app.close();
   });
 });

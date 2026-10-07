@@ -487,7 +487,7 @@ export function SiteDetailsTab({
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">
               <Select
-                aria-label="Carbon region"
+                aria-label={t('sites.carbonRegion')}
                 value={site.carbonRegionCode ?? ''}
                 onChange={(e) => {
                   const val = e.target.value;

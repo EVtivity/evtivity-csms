@@ -165,13 +165,13 @@ export const TC_Q_110_CSMS: TestCase = {
           expected: 'status = Rejected',
           actual: `status = ${status1}`,
         });
-      } catch {
+      } catch (err) {
         steps.push({
           step: 2,
           description: 'Pull with unknown profileId',
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
       try {
@@ -188,13 +188,13 @@ export const TC_Q_110_CSMS: TestCase = {
           'status = Accepted (not enforced)',
           `status = ${status2}`,
         );
-      } catch {
+      } catch (err) {
         steps.push({
           step: 3,
           description: 'Pull with valid profileId',
           status: 'failed',
           expected: 'Response received',
-          actual: 'Error',
+          actual: err instanceof Error ? err.message : String(err),
         });
       }
     }

@@ -200,11 +200,7 @@ export const TC_G_14_CS: CsTestCase = {
     await waitForChargingState(ctx.server, 'Charging', 10_000);
     // Drain leftover StatusNotifications from start sequence
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 200);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
     // Send Inoperative for whole station during active transaction

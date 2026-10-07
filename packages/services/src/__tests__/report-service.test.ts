@@ -148,7 +148,42 @@ import {
   REPORT_PENDING_RETRY_MS,
   REPORT_TIMED_OUT_ERROR,
   REPORT_TYPES,
+  listReportTypes,
+  reportGenerators,
 } from '../report.service.js';
+
+describe('built-in report generators', () => {
+  it('registers one generator per report type', () => {
+    expect(
+      reportGenerators
+        .list()
+        .map((d) => d.type)
+        .sort(),
+    ).toEqual([...REPORT_TYPES].sort());
+  });
+
+  it('lists every type with its formats and whether the Generate tab offers it', () => {
+    const all = ['csv', 'pdf', 'xlsx'];
+    expect(listReportTypes()).toEqual([
+      { type: 'revenue', formats: all, generateFromUi: true },
+      { type: 'utilization', formats: all, generateFromUi: true },
+      { type: 'energy', formats: all, generateFromUi: true },
+      { type: 'stationHealth', formats: all, generateFromUi: true },
+      { type: 'sessions', formats: all, generateFromUi: true },
+      { type: 'sustainability', formats: all, generateFromUi: true },
+      { type: 'driverActivity', formats: all, generateFromUi: true },
+      { type: 'nevi', formats: ['xlsx'], generateFromUi: false },
+    ]);
+  });
+
+  it('gives only NEVI a filter rule', () => {
+    const withRule = reportGenerators
+      .list()
+      .filter((d) => d.validateFilters != null)
+      .map((d) => d.type);
+    expect(withRule).toEqual(['nevi']);
+  });
+});
 
 describe('reportFiltersError', () => {
   it('refuses a NEVI report without a valid quarter and year', () => {
@@ -168,6 +203,10 @@ describe('reportFiltersError', () => {
     expect(reportFiltersError('nevi', { quarter: 1, year: 2026 })).toBeNull();
     expect(reportFiltersError('nevi', { quarter: 4, year: 2000 })).toBeNull();
     expect(reportFiltersError('nevi', { quarter: '3', year: '2026' })).toBeNull();
+  });
+
+  it('has no filter rule for an unknown report type', () => {
+    expect(reportFiltersError('bogus', {})).toBeNull();
   });
 
   it('has no required filters for the other report types', () => {
@@ -234,6 +273,8 @@ describe('queueReport', () => {
     expect(chain.values).toHaveBeenCalledWith(expect.objectContaining({ format: 'xlsx' }));
     expect(reportFileFormat('nevi', 'pdf')).toBe('xlsx');
     expect(reportFileFormat('sessions', 'pdf')).toBe('pdf');
+    expect(reportFileFormat('nevi', 'xlsx')).toBe('xlsx');
+    expect(reportFileFormat('bogus', 'csv')).toBe('csv');
   });
 
   it('returns an empty string and dispatches nothing when insert returns no row', async () => {

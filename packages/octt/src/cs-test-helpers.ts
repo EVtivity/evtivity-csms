@@ -19,14 +19,11 @@ export async function waitForChargingState(
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    try {
-      const msg = await server.waitForMessage('TransactionEvent', remaining);
-      const txInfo = msg['transactionInfo'] as Record<string, unknown> | undefined;
-      const chState = txInfo?.['chargingState'] as string | undefined;
-      if (chState === targetState) return msg;
-    } catch {
-      break;
-    }
+    const msg = await server.waitForMessageOrNull('TransactionEvent', remaining);
+    if (msg == null) break;
+    const txInfo = msg['transactionInfo'] as Record<string, unknown> | undefined;
+    const chState = txInfo?.['chargingState'] as string | undefined;
+    if (chState === targetState) return msg;
   }
   return null;
 }
@@ -65,13 +62,10 @@ export async function waitForTransactionEventType(
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    try {
-      const msg = await server.waitForMessage('TransactionEvent', remaining);
-      const evtType = msg['eventType'] as string | undefined;
-      if (evtType === targetEventType) return msg;
-    } catch {
-      break;
-    }
+    const msg = await server.waitForMessageOrNull('TransactionEvent', remaining);
+    if (msg == null) break;
+    const evtType = msg['eventType'] as string | undefined;
+    if (evtType === targetEventType) return msg;
   }
   return null;
 }
@@ -89,13 +83,10 @@ export async function waitForTriggerReason(
   while (Date.now() < deadline) {
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    try {
-      const msg = await server.waitForMessage('TransactionEvent', remaining);
-      const trigger = msg['triggerReason'] as string | undefined;
-      if (trigger === targetTrigger) return msg;
-    } catch {
-      break;
-    }
+    const msg = await server.waitForMessageOrNull('TransactionEvent', remaining);
+    if (msg == null) break;
+    const trigger = msg['triggerReason'] as string | undefined;
+    if (trigger === targetTrigger) return msg;
   }
   return null;
 }
@@ -110,12 +101,9 @@ export async function drainMessages(
 ): Promise<Record<string, unknown>[]> {
   const messages: Record<string, unknown>[] = [];
   for (let i = 0; i < 20; i++) {
-    try {
-      const msg = await server.waitForMessage(action, timeoutMs);
-      messages.push(msg);
-    } catch {
-      break;
-    }
+    const msg = await server.waitForMessageOrNull(action, timeoutMs);
+    if (msg == null) break;
+    messages.push(msg);
   }
   return messages;
 }
@@ -132,12 +120,9 @@ export async function waitForMatchingMessage(
 ): Promise<Record<string, unknown> | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    try {
-      const msg = await server.waitForMessage(action, Math.max(1, deadline - Date.now()));
-      if (matches(msg)) return msg;
-    } catch {
-      break;
-    }
+    const msg = await server.waitForMessageOrNull(action, Math.max(1, deadline - Date.now()));
+    if (msg == null) break;
+    if (matches(msg)) return msg;
   }
   return null;
 }
@@ -237,11 +222,9 @@ export async function collectMessages(
   while (Date.now() < deadline) {
     const wait = Math.min(quietMs, deadline - Date.now());
     if (wait <= 0) break;
-    try {
-      messages.push(await server.waitForMessage(action, wait));
-    } catch {
-      break;
-    }
+    const msg = await server.waitForMessageOrNull(action, wait);
+    if (msg == null) break;
+    messages.push(msg);
   }
   return messages;
 }

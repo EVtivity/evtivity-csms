@@ -168,14 +168,30 @@ vi.mock('@evtivity/lib', () => ({
   verifyRecaptcha: vi.fn().mockResolvedValue({ success: true }),
   redactSensitiveNotificationContent: vi.fn((s: string) => `redacted(${s})`),
   recordNotificationAttempt: vi.fn().mockResolvedValue(undefined),
-  ADMIN_DEFAULT_PERMISSIONS: ['users:read', 'users:write', 'stations:read'],
-  OPERATOR_DEFAULT_PERMISSIONS: ['stations:read', 'stations:write'],
-  VIEWER_DEFAULT_PERMISSIONS: ['stations:read'],
-  PERMISSIONS: ['users:read', 'users:write', 'stations:read', 'stations:write'],
-  PERMISSION_GROUPS: [
-    { label: 'Users', permissions: ['users:read', 'users:write'] },
-    { label: 'Stations', permissions: ['stations:read', 'stations:write'] },
-  ],
+  permissionCatalog: {
+    defaultsFor: (role: string | undefined): string[] =>
+      role === 'admin'
+        ? ['users:read', 'users:write', 'stations:read']
+        : role === 'viewer'
+          ? ['stations:read']
+          : ['stations:read', 'stations:write'],
+    isKnown: (p: string): boolean =>
+      ['users:read', 'users:write', 'stations:read', 'stations:write'].includes(p),
+    groups: () => [
+      {
+        resource: 'users',
+        kind: 'page',
+        labelKey: 'users.permissionGroups.users',
+        permissions: ['users:read', 'users:write'],
+      },
+      {
+        resource: 'settings.system',
+        kind: 'settings',
+        labelKey: 'users.permissionGroups.settings.system',
+        permissions: ['settings.system:read', 'settings.system:write'],
+      },
+    ],
+  },
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
@@ -2685,8 +2701,18 @@ describe('User routes (extended coverage)', () => {
       const res = await app.inject({ method: 'GET', url: '/permissions', headers: auth });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual([
-        { label: 'Users', permissions: ['users:read', 'users:write'] },
-        { label: 'Stations', permissions: ['stations:read', 'stations:write'] },
+        {
+          resource: 'users',
+          kind: 'page',
+          labelKey: 'users.permissionGroups.users',
+          permissions: ['users:read', 'users:write'],
+        },
+        {
+          resource: 'settings.system',
+          kind: 'settings',
+          labelKey: 'users.permissionGroups.settings.system',
+          permissions: ['settings.system:read', 'settings.system:write'],
+        },
       ]);
     });
 

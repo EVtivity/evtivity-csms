@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 // Post-migrate hook: ensures every user with the 'admin' role has every
-// permission in ADMIN_DEFAULT_PERMISSIONS. Wired into `npm run db:migrate`
+// permission in the permission catalog. Wired into `npm run db:migrate`
 // (packages/database/package.json) after drizzle-kit migrate + the
 // verify-migrations script. ON CONFLICT DO NOTHING -- never revokes.
 //
@@ -11,17 +11,18 @@
 // When that step was skipped, existing admins silently lacked the permission
 // and every UI surface gated by it returned 403 until a manual SQL backfill.
 // This script makes the contract automatic for admin users: any permission
-// newly added to ADMIN_DEFAULT_PERMISSIONS propagates to every existing admin
+// newly added to the catalog (admin defaults = all) propagates to every existing admin
 // on the next `db:migrate`. Non-admin roles still need explicit backfill
 // migrations because their default set is a curated subset, not "all".
 
 import postgres from 'postgres';
-import { ADMIN_DEFAULT_PERMISSIONS, connectionName } from '@evtivity/lib';
+import { connectionName, permissionCatalog } from '@evtivity/lib';
 
 const DATABASE_URL =
   process.env['DATABASE_URL'] ?? 'postgres://evtivity:evtivity@localhost:5433/evtivity';
 
 const sql = postgres(DATABASE_URL, { max: 1, connection: { application_name: connectionName() } });
+const adminPermissions = permissionCatalog.defaultsFor('admin');
 
 try {
   const admins = await sql<{ id: string }[]>`
@@ -37,7 +38,7 @@ try {
 
   const rows: Array<{ user_id: string; permission: string }> = [];
   for (const admin of admins) {
-    for (const permission of ADMIN_DEFAULT_PERMISSIONS) {
+    for (const permission of adminPermissions) {
       rows.push({ user_id: admin.id, permission });
     }
   }
@@ -47,7 +48,7 @@ try {
     ON CONFLICT DO NOTHING
   `;
   console.log(
-    `sync-admin-permissions: ${String(admins.length)} admin(s), ${String(ADMIN_DEFAULT_PERMISSIONS.length)} perms each, ${String(result.count)} new row(s) inserted`,
+    `sync-admin-permissions: ${String(admins.length)} admin(s), ${String(adminPermissions.length)} perms each, ${String(result.count)} new row(s) inserted`,
   );
 } finally {
   await sql.end();

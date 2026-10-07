@@ -8,7 +8,7 @@
 
 import argon2 from 'argon2';
 import postgres from 'postgres';
-import { ADMIN_DEFAULT_PERMISSIONS, connectionName } from '@evtivity/lib';
+import { connectionName, permissionCatalog } from '@evtivity/lib';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 const INITIAL_ADMIN_EMAIL = process.env['INITIAL_ADMIN_EMAIL'];
@@ -19,12 +19,12 @@ if (!DATABASE_URL) throw new Error('DATABASE_URL is required');
 if (!INITIAL_ADMIN_EMAIL) throw new Error('INITIAL_ADMIN_EMAIL is required');
 if (!INITIAL_ADMIN_PASSWORD) throw new Error('INITIAL_ADMIN_PASSWORD is required');
 
-// Source of truth lives in @evtivity/lib so adding a new permission to
-// PERMISSIONS automatically flows here. Previously this file kept its own
-// hardcoded list and silently drifted -- new permissions added to the lib
-// (audit:read, audit:write) never reached freshly seeded admins, leaving
-// every "History" tab broken with 403 until manual backfill.
-const ADMIN_PERMISSIONS = ADMIN_DEFAULT_PERMISSIONS;
+// Source of truth is the permission catalog in @evtivity/lib, so a permission
+// added to it flows here. Previously this file kept its own hardcoded list and
+// silently drifted -- new permissions added to the lib (audit:read,
+// audit:write) never reached freshly seeded admins, leaving every "History"
+// tab broken with 403 until manual backfill.
+const ADMIN_PERMISSIONS = permissionCatalog.defaultsFor('admin');
 
 const ID_CHARS = '0123456789abcdefghijklmnopqrstuvwxyz';
 function rid(prefix: string): string {
@@ -83,7 +83,7 @@ try {
   }
 
   // Always re-assert the full permission set. Without this, permissions added
-  // to ADMIN_DEFAULT_PERMISSIONS after the admin was first created would never
+  // to the permission catalog after the admin was first created would never
   // reach existing installs -- the upgrade would create no new admin row, the
   // ON CONFLICT path would skip perm insertion, and the new feature's RBAC
   // gate would 403 until a manual SQL backfill. ON CONFLICT DO NOTHING on

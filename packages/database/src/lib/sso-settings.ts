@@ -4,7 +4,9 @@
 import { like } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
-import { decryptString } from '@evtivity/lib';
+import { createLogger, decryptString, tryParseJson } from '@evtivity/lib';
+
+const logger = createLogger('sso-settings');
 
 export interface SsoConfig {
   enabled: boolean;
@@ -47,7 +49,11 @@ function parseSsoSettings(rows: { key: string; value: unknown }[]): SsoConfig | 
   if (certEnc !== '') {
     try {
       cert = decryptString(certEnc, getEncryptionKey());
-    } catch {
+    } catch (err) {
+      logger.warn(
+        { err, key: 'sso.certEnc' },
+        'SSO certificate decryption failed, SSO has no certificate',
+      );
       cert = '';
     }
   }
@@ -59,10 +65,9 @@ function parseSsoSettings(rows: { key: string; value: unknown }[]): SsoConfig | 
   };
   const rawMapping = map.get('sso.attributeMapping');
   if (typeof rawMapping === 'string') {
-    try {
-      attributeMapping = JSON.parse(rawMapping) as Record<string, string>;
-    } catch {
-      // keep default
+    const parsed = tryParseJson(rawMapping);
+    if (parsed !== undefined) {
+      attributeMapping = parsed as Record<string, string>;
     }
   } else if (typeof rawMapping === 'object' && rawMapping !== null) {
     attributeMapping = rawMapping as Record<string, string>;
@@ -114,7 +119,8 @@ export async function getSsoConfig(): Promise<SsoConfig | null> {
     ssoCache = parseSsoSettings(rows);
     ssoCachedAt = now;
     return ssoCache;
-  } catch {
+  } catch (err) {
+    logger.warn({ err, key: 'sso.*' }, 'getSsoConfig failed, using the cached value or default');
     return ssoCache ?? null;
   }
 }

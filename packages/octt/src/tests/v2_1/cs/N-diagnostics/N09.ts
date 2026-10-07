@@ -37,13 +37,13 @@ export const TC_N_27_CS: CsTestCase = {
         expected: 'data not empty',
         actual: `data = ${data?.substring(0, 50)}...`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'NotifyCustomerInformation',
         status: 'failed',
         expected: 'data not empty',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');
@@ -85,13 +85,13 @@ export const TC_N_28_CS: CsTestCase = {
         expected: 'tbc != true',
         actual: `tbc = ${tbc}`,
       });
-    } catch {
+    } catch (err) {
       steps.push({
         step: 2,
         description: 'NotifyCustomerInformation',
         status: 'failed',
         expected: 'tbc != true',
-        actual: 'Timeout',
+        actual: err instanceof Error ? err.message : String(err),
       });
     }
     const allPassed = steps.every((s) => s.status === 'passed');

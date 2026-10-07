@@ -180,7 +180,7 @@ export function ProfileMfa(): React.JSX.Element {
                 <p className="text-sm text-muted-foreground">{t('profile.mfaScanQr')}</p>
                 <img
                   src={mfaSetupData.qrDataUri}
-                  alt="QR Code"
+                  alt={t('profile.mfaQrCode')}
                   className="rounded border p-2"
                   width={200}
                   height={200}

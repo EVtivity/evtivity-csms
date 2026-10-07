@@ -7,6 +7,7 @@ import { RedisPubSubClient, connectionName, createInFlightTracker } from '@evtiv
 import { SimulatorManager } from './simulator-manager.js';
 import { ChaosOrchestrator } from './chaos-orchestrator.js';
 import { config } from './lib/config.js';
+import { logger } from './lib/logger.js';
 import { createCssShutdown } from './lib/shutdown.js';
 
 const databaseUrl = config.DATABASE_URL;
@@ -31,13 +32,16 @@ async function waitForSchema(): Promise<void> {
     try {
       await sql`SELECT 1 FROM css_stations LIMIT 0`;
       return;
-    } catch {
+    } catch (err) {
       if (attempt === MAX_ATTEMPTS) {
-        throw new Error(`Database schema not ready after ${String(MAX_ATTEMPTS)} attempts`);
+        throw new Error(`Database schema not ready after ${String(MAX_ATTEMPTS)} attempts`, {
+          cause: err,
+        });
       }
       const delay = Math.min(BASE_DELAY_MS * attempt, 30000);
-      console.log(
-        `[init] Schema not ready (attempt ${String(attempt)}/${String(MAX_ATTEMPTS)}), retrying in ${String(delay)}ms...`,
+      logger.warn(
+        { err, attempt, maxAttempts: MAX_ATTEMPTS, delayMs: delay },
+        'Database schema not ready, retrying',
       );
       await new Promise((r) => setTimeout(r, delay));
     }

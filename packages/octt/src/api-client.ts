@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { Logger } from 'pino';
+import { tryParseJson } from '@evtivity/lib';
 import type { CallApiFn, TriggerCommandFn } from './types.js';
 
 export interface OcttApiClient {
@@ -52,12 +53,8 @@ export async function createApiClient(
         ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
       });
       const text = await res.text();
-      let parsed: Record<string, unknown> = {};
-      try {
-        parsed = text === '' ? {} : (JSON.parse(text) as Record<string, unknown>);
-      } catch {
-        parsed = { raw: text };
-      }
+      const json = text === '' ? {} : tryParseJson(text);
+      const parsed = json === undefined ? { raw: text } : (json as Record<string, unknown>);
       return { status: res.status, body: parsed };
     },
     async triggerCommand(version, action, body) {

@@ -2,9 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq } from 'drizzle-orm';
+import { createLogger } from '@evtivity/lib';
 import type { ElectricityRatePeriod, ElectricityRatePeriodRestrictions } from '@evtivity/lib';
 import { db } from '../config.js';
 import { siteElectricityRatePeriods } from '../schema/assets.js';
+
+const logger = createLogger('electricity-rate');
 
 interface CacheEntry {
   periods: ElectricityRatePeriod[];
@@ -45,7 +48,11 @@ export async function getElectricityRatePeriodsForSite(
     }));
     cache.set(siteId, { periods, expiresAt: now + TTL_MS });
     return periods;
-  } catch {
+  } catch (err) {
+    logger.warn(
+      { err, siteId },
+      'getElectricityRatePeriodsForSite failed, using the cached value or no periods',
+    );
     return cached?.periods ?? [];
   }
 }

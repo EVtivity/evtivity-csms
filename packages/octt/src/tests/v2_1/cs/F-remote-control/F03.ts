@@ -40,12 +40,11 @@ export const TC_F_08_CS: CsTestCase = {
 
     // Capture the transactionId from the started transaction
     let transactionId: string | undefined;
-    try {
-      const txStarted = await ctx.server.waitForMessage('TransactionEvent', 5000);
+    // already consumed above
+    const txStarted = await ctx.server.waitForMessageOrNull('TransactionEvent', 5000);
+    if (txStarted != null) {
       const txInfo = txStarted['transactionInfo'] as Record<string, unknown> | undefined;
       transactionId = txInfo?.['transactionId'] as string | undefined;
-    } catch {
-      /* already consumed above */
     }
     if (transactionId == null) {
       transactionId = `OCTT-TX-${String(Date.now())}`;

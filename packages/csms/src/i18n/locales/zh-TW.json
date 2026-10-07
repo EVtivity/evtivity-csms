@@ -91,7 +91,10 @@
     "filterByReportType": "按報告類型篩選",
     "filterByStation": "按充電站篩選",
     "filterByModule": "按模組篩選",
-    "na": "n/a"
+    "na": "n/a",
+    "startDate": "開始日期",
+    "endDate": "結束日期",
+    "dateRange": "日期範圍"
   },
   "status": {
     "online": "線上",
@@ -439,7 +442,8 @@
     "netRevenue": "總收入（未稅）",
     "todayNetRevenue": "今日收入（未稅）",
     "taxCollected": "已收稅額合計",
-    "todayTaxCollected": "今日已收稅額"
+    "todayTaxCollected": "今日已收稅額",
+    "showPage": "顯示第 {{page}} 頁，共 {{total}} 頁"
   },
   "sites": {
     "title": "站點",
@@ -890,7 +894,8 @@
     "enabledSuccess": "充電站已啟用",
     "disabledSuccess": "充電站已停用",
     "maxPowerUnknown": "最大功率未知",
-    "maxPowerUnknownHint": "在設定最大功率之前，負載管理無法限制此連接器。請編輯 EVSE 進行設定。OCPP 2.1 充電站會根據其組態報告自動填寫。"
+    "maxPowerUnknownHint": "在設定最大功率之前，負載管理無法限制此連接器。請編輯 EVSE 進行設定。OCPP 2.1 充電站會根據其組態報告自動填寫。",
+    "removeTag": "移除標籤 {{tag}}"
   },
   "eventAlertRules": {
     "title": "事件警示規則",
@@ -993,7 +998,42 @@
       "failed": "失敗"
     },
     "refundPending": "已申請退款。支付服務商將很快確認。",
-    "refundAfterConfirmation": "服務商確認請款後才能退款。"
+    "refundAfterConfirmation": "服務商確認請款後才能退款。",
+    "manualBilling": "人工計費",
+    "rebill": {
+      "cardTitle": "計費",
+      "unbilledBadge": "未計費",
+      "unbilledHelp": "CSMS 無法結束此充電工作階段，因此未計費。計費會依其計量值計算價格，並從駕駛員儲存的信用卡或預付餘額扣款。無法扣款的工作階段會標記為人工計費。",
+      "billedBadge": "已由營運人員計費",
+      "billedHelp": "CSMS 無法結束此工作階段後，營運人員為其計費。",
+      "manualHelp": "CSMS 無法結束此工作階段，且無法自動扣款。請在平台外收取 {{cost}}。",
+      "button": "為工作階段計費",
+      "confirmTitle": "為此工作階段計費？",
+      "confirmDescription": "將依計量值重新計算費用，並從駕駛員的預設儲存信用卡或預付餘額扣款。若無法扣款，工作階段會標記為人工計費。",
+      "inProgress": "此工作階段正在計費。",
+      "paymentPending": "此工作階段有一筆支付服務商尚未結算的付款。",
+      "charged": "工作階段已計費：已從信用卡扣款",
+      "prepaid": "工作階段已計費：已從預付餘額扣除",
+      "noCharge": "工作階段已計費：無需扣款",
+      "manual": "工作階段無法扣款，已標記為人工計費",
+      "failed": "計費失敗",
+      "manualReason": {
+        "no_payment_method": "駕駛員沒有儲存的信用卡。",
+        "payment_failed": "信用卡遭拒，或需要持卡人驗證。",
+        "guest": "訪客工作階段沒有儲存的信用卡。",
+        "no_driver": "此工作階段沒有駕駛員。",
+        "prepaid_not_debited": "無法從預付餘額扣除。",
+        "prepaid_record_exists": "此工作階段已有付款記錄，因此未從預付餘額扣除。"
+      },
+      "notEligible": {
+        "status": "此處只能為 CSMS 無法結束的工作階段計費。",
+        "already_rebilled": "此工作階段已計費。",
+        "roaming": "漫遊工作階段由漫遊合作夥伴計費。",
+        "free_vend": "免費充電工作階段不計費。",
+        "no_tariff": "此工作階段沒有可計價的費率。",
+        "paid": "此工作階段已付款。"
+      }
+    }
   },
   "drivers": {
     "title": "駕駛員",
@@ -1209,7 +1249,46 @@
     "pagePermissions": "頁面",
     "settingsPermissions": "設定",
     "noPermissions": "未指派權限。",
-    "writeImpliesRead": "寫入權限包含讀取權限。"
+    "writeImpliesRead": "寫入權限包含讀取權限。",
+    "permissionRead": "讀取",
+    "permissionWrite": "寫入",
+    "permissionGroups": {
+      "dashboard": "儀表板",
+      "stations": "充電站",
+      "sites": "站點",
+      "sessions": "充電工作階段",
+      "drivers": "駕駛員",
+      "fleets": "車隊",
+      "reservations": "預約",
+      "support": "客服案件",
+      "payments": "支付",
+      "pricing": "計費",
+      "roaming": "漫遊",
+      "smartCharging": "智慧充電",
+      "certificates": "憑證",
+      "conformance": "合規測試",
+      "reports": "報告",
+      "sustainability": "永續發展",
+      "loadManagement": "負載管理",
+      "notifications": "通知",
+      "logs": "日誌",
+      "users": "使用者",
+      "audit": "稽核日誌",
+      "maintenance": "維護",
+      "settings": {
+        "system": "系統",
+        "notification": "通知",
+        "payment": "支付",
+        "integrations": "整合與功能",
+        "security": "安全",
+        "apiKeys": "API 金鑰",
+        "firmware": "固件活動",
+        "stationConfig": "充電站設定",
+        "smartCharging": "智慧充電",
+        "ai": "AI",
+        "conformance": "合規測試"
+      }
+    }
   },
   "profile": {
     "title": "個人資料",
@@ -1279,7 +1358,8 @@
     "supportAiTone": "回覆語氣",
     "supportAiSystemPrompt": "系統提示詞",
     "supportAiRemoveConfig": "移除設定",
-    "supportAiRemoveConfirm": "移除您的個人支援 AI 設定？系統將使用預設設定。"
+    "supportAiRemoveConfirm": "移除您的個人支援 AI 設定？系統將使用預設設定。",
+    "mfaQrCode": "驗證器應用程式 QR Code"
   },
   "fleets": {
     "title": "車隊",
@@ -2180,7 +2260,10 @@
     "secretStoredHint": "已儲存一個值。檢視該值需要「Settings - System」讀取權限。將欄位留空可保留該值，輸入新值可取代它。",
     "secretRemove": "移除已儲存的值",
     "secretRemovePending": "儲存時將移除已儲存的值。",
-    "secretRemoveUndo": "保留"
+    "secretRemoveUndo": "保留",
+    "copyCode": "複製程式碼",
+    "themeColorPicker": "主題顏色選擇器",
+    "emailLayoutPreviewFrame": "電子郵件版面預覽"
   },
   "pnc": {
     "certificates": "憑證",
@@ -2249,8 +2332,16 @@
     "invoiceEvents": "發票事件",
     "sessionEvents": "充電工作階段",
     "supportEvents": "客服案件",
+    "sessionAlertEvents": "工作階段警示",
     "siteHostEvents": "站點業主",
     "mfaEvents": "多重要素驗證",
+    "tokenEvents": "權杖",
+    "maintenanceEvents": "維護",
+    "watchEvents": "充電站關注",
+    "requiredEventTooltip": "始終開啟。駕駛員需要此通知才能存取其帳戶。",
+    "eventSwitchTooltip": "關閉後，任何駕駛員都不會收到此通知。開啟後，依每位駕駛員的通知偏好傳送。",
+    "eventTurnedOn": "通知已開啟。",
+    "eventTurnedOff": "通知已關閉。",
     "channelTooltipDriver": "電子郵件和簡訊的傳送取決於每位駕駛員在入口網站帳戶中的通知偏好設定。",
     "channelTooltipSystem": "電子郵件和簡訊的傳送取決於每位營運商的通知偏好設定。",
     "driverEventSettingsSaved": "事件設定已儲存。",
@@ -2282,6 +2373,7 @@
     "ocppEventSettingsSaved": "設定已儲存。",
     "ocppEvents": "OCPP 事件",
     "ocppCommonEvents": "通用 (1.6 和 2.1)",
+    "ocpp16Events": "僅 OCPP 1.6",
     "ocpp21Events": "僅 OCPP 2.1",
     "driverEvents": "駕駛員事件",
     "systemEvents": "系統事件",
@@ -2306,6 +2398,7 @@
       "driver.Welcome": "歡迎",
       "driver.ForgotPassword": "忘記密碼",
       "driver.PortalInvite": "駕駛員入口網站邀請",
+      "session.EndRequestFailed": "工作階段結束失敗",
       "site.PayoutOnboarding": "站點收款設定",
       "driver.PasswordChanged": "密碼已更改",
       "driver.MfaDisabled": "已停用雙重驗證",
@@ -2322,7 +2415,8 @@
       "mfa.VerificationCode": "MFA 驗證碼",
       "session.IdlingStarted": "充電工作階段閒置開始"
     },
-    "templatePreviewInvalid": "範本有錯誤："
+    "templatePreviewInvalid": "範本有錯誤：",
+    "htmlPreview": "HTML 預覽"
   },
   "reservations": {
     "title": "預約",
@@ -2431,7 +2525,8 @@
     "actor": "操作者",
     "changes": "變更",
     "token": "權杖",
-    "evse": "EVSE"
+    "evse": "EVSE",
+    "removeSlotStation": "移除充電站"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "帳號已停用",
@@ -2539,6 +2634,7 @@
     "MFA_TOTP_NO_RESEND": "無法重新傳送 TOTP 驗證碼",
     "MISSING_PAYMENT_INTENT": "缺少 payment intent",
     "MISSING_VERSION_URL": "註冊時必須提供合作夥伴 version URL",
+    "NOTIFICATION_EVENT_REQUIRED": "此通知是存取帳戶所必需的，無法關閉",
     "NOT_BLOCKED": "充電站未被封鎖",
     "NOT_CHARGING": "工作階段目前並未充電中",
     "NOT_DRAFT": "僅能更新草稿狀態的行銷活動",
@@ -2629,6 +2725,9 @@
     "SESSION_CREATE_FAILED": "建立工作階段失敗",
     "SESSION_NOT_FOUND": "找不到工作階段",
     "SESSION_NOT_LINKED": "工作階段未關聯至此案件",
+    "SESSION_REBILL_IN_PROGRESS": "此工作階段正在計費。請幾分鐘後再試。",
+    "SESSION_REBILL_NOT_ELIGIBLE": "無法對此工作階段計費",
+    "SESSION_REBILL_PAYMENT_PENDING": "此工作階段有一筆支付服務商尚未結算的付款。請稍後再試。",
     "SETTING_NOT_FOUND": "找不到設定",
     "SITE_HAS_STATIONS": "無法刪除仍有充電站的站點。請先移除或重新指派充電站。",
     "SITE_NOT_FOUND": "找不到站點",
@@ -3230,7 +3329,9 @@
     "perPhaseUtilization": "每相利用率",
     "oversubscriptionRatio": "超額認購比率",
     "oversubscribed": "超額認購",
-    "oversubscriptionWarning": "比率高於1.0允許安裝超過配電盤額定值的充電站容量。負荷管理將動態執行斷路器限制。"
+    "oversubscriptionWarning": "比率高於1.0允許安裝超過配電盤額定值的充電站容量。負荷管理將動態執行斷路器限制。",
+    "priorityFor": "{{stationId}} 的優先順序",
+    "deleteLoad": "刪除負載 {{name}}"
   },
   "chatbotAi": {
     "title": "聊天機器人 AI",
@@ -3650,5 +3751,23 @@
         "backToDriver": "返回駕駛員"
       }
     }
+  },
+  "editor": {
+    "bold": "粗體",
+    "italic": "斜體",
+    "strikethrough": "刪除線",
+    "heading1": "標題 1",
+    "heading2": "標題 2",
+    "heading3": "標題 3",
+    "bulletList": "項目符號清單",
+    "orderedList": "編號清單",
+    "alignLeft": "靠左對齊",
+    "alignCenter": "置中對齊",
+    "alignRight": "靠右對齊",
+    "insertLink": "插入連結",
+    "textColor": "文字顏色",
+    "undo": "復原",
+    "redo": "重做",
+    "htmlSource": "HTML 原始碼"
   }
 }

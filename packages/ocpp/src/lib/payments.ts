@@ -6,8 +6,14 @@ import {
   createPaymentRegistry,
   deferredSimulatedSink,
   pubsubSimulatedSink,
+  resolveActiveProvider,
 } from '@evtivity/payments';
-import type { PaymentContext, PaymentLogger, PaymentWebhookPublisher } from '@evtivity/payments';
+import type {
+  PaymentContext,
+  PaymentLogger,
+  PaymentProvider,
+  PaymentWebhookPublisher,
+} from '@evtivity/payments';
 import { config } from './config.js';
 
 /**
@@ -30,6 +36,14 @@ export const paymentRegistry = createPaymentRegistry({
 
 export function paymentContext(logger: PaymentLogger): PaymentContext {
   return { registry: paymentRegistry, logger };
+}
+
+/**
+ * The provider for new payments in this process, or null when payments are off
+ * or the selected provider is not usable here (resolveActiveProvider).
+ */
+export function activePaymentProvider(logger: PaymentLogger): Promise<PaymentProvider | null> {
+  return resolveActiveProvider(paymentContext(logger));
 }
 
 /** Connects the simulated provider's events to pub/sub at startup; null at shutdown. */

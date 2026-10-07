@@ -117,8 +117,10 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
 }));
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async () => ({
   dispatchDriverNotification: vi.fn(),
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
+  tryParseJson: (await import('@evtivity/lib/safe-json')).tryParseJson,
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({

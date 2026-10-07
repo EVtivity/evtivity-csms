@@ -108,22 +108,14 @@ export const TC_004_1_CS: CsTestCase = {
     await ctx.station.authorize(1, 'OCTT_TAG_001');
 
     // Drain Authorize message
-    try {
-      await ctx.server.waitForMessage('Authorize', 5000);
-    } catch {
-      /* may already be consumed */
-    }
+    await ctx.server.waitForMessageOrNull('Authorize', 5000);
 
     // Manual Action: Plug in cable
     await ctx.station.plugIn(1);
 
     // Step 3: StartTransaction
     // Drain StatusNotification Preparing from plugIn before looking for StartTransaction
-    try {
-      await ctx.server.waitForMessage('StatusNotification', 5000);
-    } catch {
-      /* drain */
-    }
+    await ctx.server.waitForMessageOrNull('StatusNotification', 5000);
 
     const startTx = await ctx.server.waitForMessage('StartTransaction', 10_000);
     const startIdTag = startTx['idTag'] as string | undefined;
@@ -185,18 +177,10 @@ export const TC_004_2_CS: CsTestCase = {
 
     // Drain Authorize and Preparing StatusNotification
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('Authorize', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('Authorize', 500)) == null) break;
     }
     for (let _d = 0; _d < 5; _d++) {
-      try {
-        await ctx.server.waitForMessage('StatusNotification', 500);
-      } catch {
-        break;
-      }
+      if ((await ctx.server.waitForMessageOrNull('StatusNotification', 500)) == null) break;
     }
 
     // Step 2: Wait for StatusNotification Available after connectionTimeOut (3s)

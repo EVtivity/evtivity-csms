@@ -65,13 +65,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize, invalidatePermissionCache } from '../middleware/rbac.js';
 import { invalidateUserActiveCache } from '../plugins/auth.js';
 import { invalidateSiteAccessCache } from '../lib/site-access.js';
-import {
-  PERMISSIONS,
-  PERMISSION_GROUPS,
-  ADMIN_DEFAULT_PERMISSIONS,
-  OPERATOR_DEFAULT_PERMISSIONS,
-  VIEWER_DEFAULT_PERMISSIONS,
-} from '@evtivity/lib';
+import { permissionCatalog } from '@evtivity/lib';
 import { validatePasswordComplexity } from '../lib/password-validation.js';
 import { config as apiConfig } from '../lib/config.js';
 import {
@@ -687,8 +681,12 @@ export function userRoutes(app: FastifyInstance): void {
               metadata,
             });
           }
-        } catch {
-          // Silently fail email sending to not leak user existence
+        } catch (err) {
+          // The response stays the same so it does not reveal whether the user exists.
+          request.log.warn(
+            { err },
+            'Password reset email dispatch failed, answering success anyway',
+          );
         }
       }
 
@@ -1265,12 +1263,7 @@ export function userRoutes(app: FastifyInstance): void {
         .from(roles)
         .where(eq(roles.id, body.roleId));
 
-      const roleDefaults =
-        createdRole?.name === 'admin'
-          ? ADMIN_DEFAULT_PERMISSIONS
-          : createdRole?.name === 'viewer'
-            ? VIEWER_DEFAULT_PERMISSIONS
-            : OPERATOR_DEFAULT_PERMISSIONS;
+      const roleDefaults = permissionCatalog.defaultsFor(createdRole?.name);
 
       if (roleDefaults.length > 0) {
         await db
@@ -1504,12 +1497,7 @@ export function userRoutes(app: FastifyInstance): void {
           .from(roles)
           .where(eq(roles.id, body.roleId));
 
-        const defaults =
-          newRole?.name === 'admin'
-            ? ADMIN_DEFAULT_PERMISSIONS
-            : newRole?.name === 'viewer'
-              ? VIEWER_DEFAULT_PERMISSIONS
-              : OPERATOR_DEFAULT_PERMISSIONS;
+        const defaults = permissionCatalog.defaultsFor(newRole?.name);
 
         await db.delete(userPermissions).where(eq(userPermissions.userId, id));
         if (defaults.length > 0) {
@@ -1920,7 +1908,8 @@ export function userRoutes(app: FastifyInstance): void {
       let payload: { userId: string; roleId: string; mfaPending?: boolean };
       try {
         payload = app.jwt.verify(mfaToken);
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'MFA token did not verify, refusing it');
         await reply
           .status(401)
           .send({ error: 'Invalid or expired MFA token', code: 'MFA_TOKEN_EXPIRED' });
@@ -2062,7 +2051,8 @@ export function userRoutes(app: FastifyInstance): void {
       let payload: { userId: string; roleId: string; mfaPending?: boolean };
       try {
         payload = app.jwt.verify(mfaToken);
-      } catch {
+      } catch (err) {
+        request.log.debug({ err }, 'MFA token did not verify, refusing it');
         await reply
           .status(401)
           .send({ error: 'Invalid or expired MFA token', code: 'MFA_TOKEN_EXPIRED' });
@@ -2940,8 +2930,16 @@ export function userRoutes(app: FastifyInstance): void {
 
   const permissionGroupItem = z
     .object({
-      label: z.string().describe('Display label for the permission group'),
-      permissions: z.array(z.string()).describe('Permission strings that belong to this group'),
+      resource: z
+        .string()
+        .describe('Resource of the group, the part before the colon, e.g. stations'),
+      kind: z
+        .enum(['page', 'settings'])
+        .describe('page for a CSMS page, settings for a Settings tab'),
+      labelKey: z.string().describe('CSMS locale key of the group label'),
+      permissions: z
+        .array(z.string())
+        .describe('The read and write permission strings of the resource'),
     })
     .passthrough();
 
@@ -2965,7 +2963,7 @@ export function userRoutes(app: FastifyInstance): void {
       },
     },
     () => {
-      return [...PERMISSION_GROUPS];
+      return permissionCatalog.groups();
     },
   );
 
@@ -3042,7 +3040,7 @@ export function userRoutes(app: FastifyInstance): void {
         response: {
           200: arrayResponse(z.string()),
           400: errorWith('Invalid permissions', [ERROR_CODES.INVALID_PERMISSIONS]),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
+          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN, ERROR_CODES.SELF_EDIT_FORBIDDEN]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
       },
@@ -3068,8 +3066,7 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       // Validate all permissions are in the catalog
-      const catalogSet = new Set<string>(PERMISSIONS);
-      const invalid = permissions.filter((p) => !catalogSet.has(p));
+      const invalid = permissions.filter((p) => !permissionCatalog.isKnown(p));
       if (invalid.length > 0) {
         await reply.status(400).send({
           error: `Invalid permissions: ${invalid.join(', ')}`,

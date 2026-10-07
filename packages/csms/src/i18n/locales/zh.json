@@ -91,7 +91,10 @@
     "filterByReportType": "按报告类型筛选",
     "filterByStation": "按充电站筛选",
     "filterByModule": "按模块筛选",
-    "na": "n/a"
+    "na": "n/a",
+    "startDate": "开始日期",
+    "endDate": "结束日期",
+    "dateRange": "日期范围"
   },
   "status": {
     "online": "在线",
@@ -439,7 +442,8 @@
     "netRevenue": "总收入（不含税）",
     "todayNetRevenue": "今日收入（不含税）",
     "taxCollected": "已收税额合计",
-    "todayTaxCollected": "今日已收税额"
+    "todayTaxCollected": "今日已收税额",
+    "showPage": "显示第 {{page}} 页，共 {{total}} 页"
   },
   "sites": {
     "title": "站点",
@@ -890,7 +894,8 @@
     "enabledSuccess": "充电站已启用",
     "disabledSuccess": "充电站已停用",
     "maxPowerUnknown": "最大功率未知",
-    "maxPowerUnknownHint": "在设置最大功率之前，负载管理无法限制此连接器。请编辑 EVSE 进行设置。OCPP 2.1 充电站会根据其配置报告自动填写。"
+    "maxPowerUnknownHint": "在设置最大功率之前，负载管理无法限制此连接器。请编辑 EVSE 进行设置。OCPP 2.1 充电站会根据其配置报告自动填写。",
+    "removeTag": "移除标签 {{tag}}"
   },
   "eventAlertRules": {
     "title": "事件告警规则",
@@ -993,7 +998,42 @@
       "failed": "失败"
     },
     "refundPending": "已申请退款。支付服务商将很快确认。",
-    "refundAfterConfirmation": "服务商确认扣款后才能退款。"
+    "refundAfterConfirmation": "服务商确认扣款后才能退款。",
+    "manualBilling": "人工计费",
+    "rebill": {
+      "cardTitle": "计费",
+      "unbilledBadge": "未计费",
+      "unbilledHelp": "CSMS 无法结束此会话，因此未计费。计费将根据其计量值计算价格，并从驾驶员保存的银行卡或预付余额中扣款。无法扣款的会话将标记为人工计费。",
+      "billedBadge": "已由运营人员计费",
+      "billedHelp": "CSMS 无法结束此会话后，运营人员对其进行了计费。",
+      "manualHelp": "CSMS 无法结束此会话，且无法自动扣款。请在平台外收取 {{cost}}。",
+      "button": "为会话计费",
+      "confirmTitle": "为此会话计费？",
+      "confirmDescription": "将根据计量值重新计算费用，并从驾驶员的默认保存银行卡或预付余额中扣款。如果无法扣款，会话将标记为人工计费。",
+      "inProgress": "该会话正在计费。",
+      "paymentPending": "该会话有一笔支付服务商尚未结算的付款。",
+      "charged": "会话已计费：已从银行卡扣款",
+      "prepaid": "会话已计费：已从预付余额扣除",
+      "noCharge": "会话已计费：无需扣款",
+      "manual": "会话无法扣款，已标记为人工计费",
+      "failed": "计费失败",
+      "manualReason": {
+        "no_payment_method": "驾驶员没有保存的银行卡。",
+        "payment_failed": "银行卡被拒绝，或需要持卡人验证。",
+        "guest": "访客会话没有保存的银行卡。",
+        "no_driver": "该会话没有驾驶员。",
+        "prepaid_not_debited": "无法从预付余额中扣除。",
+        "prepaid_record_exists": "该会话已有付款记录，因此未从预付余额中扣除。"
+      },
+      "notEligible": {
+        "status": "此处只能为 CSMS 无法结束的会话计费。",
+        "already_rebilled": "该会话已计费。",
+        "roaming": "漫游会话由漫游合作方计费。",
+        "free_vend": "免费充电会话不计费。",
+        "no_tariff": "该会话没有用于计价的资费。",
+        "paid": "该会话已付款。"
+      }
+    }
   },
   "drivers": {
     "title": "驾驶员",
@@ -1209,7 +1249,46 @@
     "pagePermissions": "页面",
     "settingsPermissions": "设置",
     "noPermissions": "未分配权限。",
-    "writeImpliesRead": "写入权限包含读取权限。"
+    "writeImpliesRead": "写入权限包含读取权限。",
+    "permissionRead": "读取",
+    "permissionWrite": "写入",
+    "permissionGroups": {
+      "dashboard": "仪表盘",
+      "stations": "充电站",
+      "sites": "站点",
+      "sessions": "会话",
+      "drivers": "驾驶员",
+      "fleets": "车队",
+      "reservations": "预约",
+      "support": "工单管理",
+      "payments": "支付",
+      "pricing": "定价",
+      "roaming": "漫游",
+      "smartCharging": "智能充电",
+      "certificates": "证书",
+      "conformance": "合规测试",
+      "reports": "报告",
+      "sustainability": "可持续性",
+      "loadManagement": "负载管理",
+      "notifications": "通知",
+      "logs": "日志",
+      "users": "用户",
+      "audit": "审计日志",
+      "maintenance": "维护",
+      "settings": {
+        "system": "系统",
+        "notification": "通知",
+        "payment": "支付",
+        "integrations": "集成与功能",
+        "security": "安全",
+        "apiKeys": "API 密钥",
+        "firmware": "固件活动",
+        "stationConfig": "充电站配置",
+        "smartCharging": "智能充电",
+        "ai": "AI",
+        "conformance": "合规测试"
+      }
+    }
   },
   "profile": {
     "title": "个人资料",
@@ -1279,7 +1358,8 @@
     "supportAiTone": "回复语气",
     "supportAiSystemPrompt": "系统提示词",
     "supportAiRemoveConfig": "移除配置",
-    "supportAiRemoveConfirm": "移除您的个人支持 AI 配置？系统将使用默认配置。"
+    "supportAiRemoveConfirm": "移除您的个人支持 AI 配置？系统将使用默认配置。",
+    "mfaQrCode": "身份验证器应用二维码"
   },
   "fleets": {
     "title": "车队",
@@ -2180,7 +2260,10 @@
     "secretStoredHint": "已存储一个值。查看该值需要“Settings - System”读取权限。将字段留空可保留该值，输入新值可替换它。",
     "secretRemove": "删除已存储的值",
     "secretRemovePending": "保存时将删除已存储的值。",
-    "secretRemoveUndo": "保留"
+    "secretRemoveUndo": "保留",
+    "copyCode": "复制代码",
+    "themeColorPicker": "主题颜色选择器",
+    "emailLayoutPreviewFrame": "电子邮件布局预览"
   },
   "pnc": {
     "certificates": "证书",
@@ -2275,6 +2358,7 @@
     "ocppEventSettingsSaved": "设置已保存。",
     "ocppEvents": "OCPP 事件",
     "ocppCommonEvents": "通用 (1.6 和 2.1)",
+    "ocpp16Events": "仅 OCPP 1.6",
     "ocpp21Events": "仅 OCPP 2.1",
     "driverEvents": "驾驶员事件",
     "systemEvents": "系统事件",
@@ -2285,8 +2369,16 @@
     "invoiceEvents": "发票事件",
     "sessionEvents": "会话",
     "supportEvents": "工单",
+    "sessionAlertEvents": "会话警报",
     "siteHostEvents": "站点业主",
     "mfaEvents": "多因素认证",
+    "tokenEvents": "令牌",
+    "maintenanceEvents": "维护",
+    "watchEvents": "充电站关注",
+    "requiredEventTooltip": "始终开启。驾驶员需要此通知才能访问其账户。",
+    "eventSwitchTooltip": "关闭后，任何驾驶员都不会收到此通知。开启后，按每位驾驶员的通知偏好发送。",
+    "eventTurnedOn": "通知已开启。",
+    "eventTurnedOff": "通知已关闭。",
     "channelTooltipDriver": "邮件和短信的发送取决于每位驾驶员在其门户账户中的通知偏好设置。",
     "channelTooltipSystem": "邮件和短信的发送取决于每位运营商的通知偏好设置。",
     "recipientLabel": "接收者",
@@ -2306,6 +2398,7 @@
       "driver.Welcome": "欢迎",
       "driver.ForgotPassword": "忘记密码",
       "driver.PortalInvite": "驾驶员门户邀请",
+      "session.EndRequestFailed": "会话结束失败",
       "site.PayoutOnboarding": "站点收款设置",
       "driver.PasswordChanged": "密码已更改",
       "driver.MfaDisabled": "已禁用双重验证",
@@ -2322,7 +2415,8 @@
       "mfa.VerificationCode": "MFA 验证码",
       "session.IdlingStarted": "充电会话闲置开始"
     },
-    "templatePreviewInvalid": "模板存在错误："
+    "templatePreviewInvalid": "模板存在错误：",
+    "htmlPreview": "HTML 预览"
   },
   "reservations": {
     "title": "预约",
@@ -2431,7 +2525,8 @@
     "actor": "操作者",
     "changes": "变更",
     "token": "令牌",
-    "evse": "EVSE"
+    "evse": "EVSE",
+    "removeSlotStation": "移除充电站"
   },
   "errors": {
     "ACCOUNT_DEACTIVATED": "账户已停用",
@@ -2539,6 +2634,7 @@
     "MFA_TOTP_NO_RESEND": "无法重新发送 TOTP 代码",
     "MISSING_PAYMENT_INTENT": "缺少支付意图",
     "MISSING_VERSION_URL": "注册时需要合作伙伴版本 URL",
+    "NOTIFICATION_EVENT_REQUIRED": "此通知是访问账户所必需的，无法关闭",
     "NOT_BLOCKED": "充电站未被阻止",
     "NOT_CHARGING": "会话当前未在充电",
     "NOT_DRAFT": "只有草稿活动才能更新",
@@ -2629,6 +2725,9 @@
     "SESSION_CREATE_FAILED": "创建会话失败",
     "SESSION_NOT_FOUND": "未找到会话",
     "SESSION_NOT_LINKED": "会话未关联到该工单",
+    "SESSION_REBILL_IN_PROGRESS": "该会话正在计费。请几分钟后重试。",
+    "SESSION_REBILL_NOT_ELIGIBLE": "无法对此会话计费",
+    "SESSION_REBILL_PAYMENT_PENDING": "该会话有一笔支付服务商尚未结算的付款。请稍后重试。",
     "SETTING_NOT_FOUND": "未找到设置",
     "SITE_HAS_STATIONS": "无法删除存在充电站的站点。请先移除或重新分配充电站。",
     "SITE_NOT_FOUND": "未找到站点",
@@ -3230,7 +3329,9 @@
     "perPhaseUtilization": "每相利用率",
     "oversubscriptionRatio": "超额认购比率",
     "oversubscribed": "超额认购",
-    "oversubscriptionWarning": "比率高于1.0允许安装超过配电盘额定值的充电站容量。负荷管理将动态执行断路器限制。"
+    "oversubscriptionWarning": "比率高于1.0允许安装超过配电盘额定值的充电站容量。负荷管理将动态执行断路器限制。",
+    "priorityFor": "{{stationId}} 的优先级",
+    "deleteLoad": "删除负载 {{name}}"
   },
   "chatbotAi": {
     "title": "聊天机器人 AI",
@@ -3650,5 +3751,23 @@
         "backToDriver": "返回驾驶员"
       }
     }
+  },
+  "editor": {
+    "bold": "粗体",
+    "italic": "斜体",
+    "strikethrough": "删除线",
+    "heading1": "标题 1",
+    "heading2": "标题 2",
+    "heading3": "标题 3",
+    "bulletList": "项目符号列表",
+    "orderedList": "编号列表",
+    "alignLeft": "左对齐",
+    "alignCenter": "居中对齐",
+    "alignRight": "右对齐",
+    "insertLink": "插入链接",
+    "textColor": "文字颜色",
+    "undo": "撤销",
+    "redo": "重做",
+    "htmlSource": "HTML 源代码"
   }
 }

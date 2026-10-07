@@ -13,12 +13,8 @@ import { Button } from '@/components/ui/button';
 // station id (and optional connector) out of whatever the camera decoded,
 // whether it is a full URL or a bare path, and ignore anything else.
 function parseChargeTarget(raw: string): { stationId: string; evseId?: string } | null {
-  let path = raw.trim();
-  try {
-    path = new URL(path).pathname;
-  } catch {
-    // Not a full URL; treat the decoded text as a path.
-  }
+  // Not a full URL: treat the decoded text as a path.
+  const path = URL.parse(raw.trim())?.pathname ?? raw.trim();
   const segments = path.split('?')[0]?.split('/').filter(Boolean) ?? [];
   const chargeIndex = segments.indexOf('charge');
   const base = chargeIndex === -1 ? 0 : chargeIndex + 1;
@@ -96,7 +92,8 @@ export function ScanQr(): React.JSX.Element {
       }
       const query = target.evseId != null ? `?evse=${target.evseId}` : '';
       void navigate(`/start/${target.stationId}${query}`);
-    } catch {
+    } catch (err) {
+      console.warn('Read a QR code from the photo failed', err);
       setPhotoError(true);
     }
   }

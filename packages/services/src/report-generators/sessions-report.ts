@@ -20,7 +20,7 @@ import { storedCostBreakdown } from '@evtivity/lib';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { csvRows, moneyCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
-import type { ReportGeneratorResult } from '../report.service.js';
+import type { ReportGeneratorResult } from '../report-registry.js';
 
 interface Filters {
   dateFrom?: string | undefined;
