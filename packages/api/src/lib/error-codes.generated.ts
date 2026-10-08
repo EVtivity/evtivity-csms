@@ -66,7 +66,13 @@ export const ERROR_CODES = {
   EVSE_IN_USE: 'EVSE_IN_USE',
   EVSE_NOT_FOUND: 'EVSE_NOT_FOUND',
   FAVORITE_NOT_FOUND: 'FAVORITE_NOT_FOUND',
+  FLEET_BILLING_CONTACT_REQUIRED: 'FLEET_BILLING_CONTACT_REQUIRED',
+  FLEET_BILLING_OLD_PODS_CONNECTED: 'FLEET_BILLING_OLD_PODS_CONNECTED',
+  FLEET_CREDIT_LIMIT_REACHED: 'FLEET_CREDIT_LIMIT_REACHED',
   FLEET_DISABLED: 'FLEET_DISABLED',
+  FLEET_HAS_OPEN_BILLING: 'FLEET_HAS_OPEN_BILLING',
+  FLEET_INVOICE_NOTHING_TO_BILL: 'FLEET_INVOICE_NOTHING_TO_BILL',
+  FLEET_INVOICE_PERIOD_EXISTS: 'FLEET_INVOICE_PERIOD_EXISTS',
   FLEET_NOT_FOUND: 'FLEET_NOT_FOUND',
   FLEET_RESERVATION_ALREADY_CANCELLED: 'FLEET_RESERVATION_ALREADY_CANCELLED',
   FLEET_RESERVATION_CREATE_FAILED: 'FLEET_RESERVATION_CREATE_FAILED',
@@ -92,10 +98,15 @@ export const ERROR_CODES = {
   INVALID_RESTRICTIONS: 'INVALID_RESTRICTIONS',
   INVALID_SITE_IDS: 'INVALID_SITE_IDS',
   INVALID_TOKEN: 'INVALID_TOKEN',
+  INVOICE_ALREADY_CREDITED: 'INVOICE_ALREADY_CREDITED',
+  INVOICE_ALREADY_PAID: 'INVOICE_ALREADY_PAID',
   INVOICE_CREATION_FAILED: 'INVOICE_CREATION_FAILED',
+  INVOICE_IS_CREDIT_NOTE: 'INVOICE_IS_CREDIT_NOTE',
   INVOICE_NO_DRIVER: 'INVOICE_NO_DRIVER',
   INVOICE_NO_SESSIONS: 'INVOICE_NO_SESSIONS',
   INVOICE_NOT_FOUND: 'INVOICE_NOT_FOUND',
+  INVOICE_NOT_ISSUED: 'INVOICE_NOT_ISSUED',
+  INVOICE_NOT_VOIDABLE: 'INVOICE_NOT_VOIDABLE',
   LOAD_NOT_FOUND: 'LOAD_NOT_FOUND',
   LOCAL_CA_EXISTS: 'LOCAL_CA_EXISTS',
   LOCAL_CA_NOT_CONFIGURED: 'LOCAL_CA_NOT_CONFIGURED',
@@ -328,7 +339,13 @@ export type ErrorCode =
   | 'EVSE_IN_USE'
   | 'EVSE_NOT_FOUND'
   | 'FAVORITE_NOT_FOUND'
+  | 'FLEET_BILLING_CONTACT_REQUIRED'
+  | 'FLEET_BILLING_OLD_PODS_CONNECTED'
+  | 'FLEET_CREDIT_LIMIT_REACHED'
   | 'FLEET_DISABLED'
+  | 'FLEET_HAS_OPEN_BILLING'
+  | 'FLEET_INVOICE_NOTHING_TO_BILL'
+  | 'FLEET_INVOICE_PERIOD_EXISTS'
   | 'FLEET_NOT_FOUND'
   | 'FLEET_RESERVATION_ALREADY_CANCELLED'
   | 'FLEET_RESERVATION_CREATE_FAILED'
@@ -354,10 +371,15 @@ export type ErrorCode =
   | 'INVALID_RESTRICTIONS'
   | 'INVALID_SITE_IDS'
   | 'INVALID_TOKEN'
+  | 'INVOICE_ALREADY_CREDITED'
+  | 'INVOICE_ALREADY_PAID'
   | 'INVOICE_CREATION_FAILED'
+  | 'INVOICE_IS_CREDIT_NOTE'
   | 'INVOICE_NO_DRIVER'
   | 'INVOICE_NO_SESSIONS'
   | 'INVOICE_NOT_FOUND'
+  | 'INVOICE_NOT_ISSUED'
+  | 'INVOICE_NOT_VOIDABLE'
   | 'LOAD_NOT_FOUND'
   | 'LOCAL_CA_EXISTS'
   | 'LOCAL_CA_NOT_CONFIGURED'
@@ -598,7 +620,19 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   EVSE_IN_USE: 'Another session is already active on this connector',
   EVSE_NOT_FOUND: 'EVSE not found',
   FAVORITE_NOT_FOUND: 'Favorite not found',
+  FLEET_BILLING_CONTACT_REQUIRED:
+    'The fleet needs at least one billing contact for automatic invoicing and invoice emails.',
+  FLEET_BILLING_OLD_PODS_CONNECTED:
+    'A process older than v0.1.41 is still connected. Finish the upgrade, then turn on account billing.',
+  FLEET_CREDIT_LIMIT_REACHED:
+    'The credit limit of the fleet your sessions are billed to is reached. Contact your fleet manager.',
   FLEET_DISABLED: 'Fleet is disabled',
+  FLEET_HAS_OPEN_BILLING:
+    'The fleet has sessions billed to its account and cannot be deleted. Turn off account billing instead.',
+  FLEET_INVOICE_NOTHING_TO_BILL:
+    'The fleet has no unbilled sessions with a cost to invoice for this period.',
+  FLEET_INVOICE_PERIOD_EXISTS:
+    'The fleet already has an invoice for this period. Credit it to bill the period again.',
   FLEET_NOT_FOUND: 'Fleet not found',
   FLEET_RESERVATION_ALREADY_CANCELLED: 'Fleet reservation is already cancelled',
   FLEET_RESERVATION_CREATE_FAILED: 'Failed to create fleet reservation',
@@ -624,10 +658,16 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   INVALID_RESTRICTIONS: 'Invalid tariff restrictions',
   INVALID_SITE_IDS: 'One or more siteIds do not exist',
   INVALID_TOKEN: 'Invalid or expired reset link',
+  INVOICE_ALREADY_CREDITED: 'The invoice is already credited by a credit note',
+  INVOICE_ALREADY_PAID: 'The invoice is already paid',
   INVOICE_CREATION_FAILED: 'Failed to create invoice',
+  INVOICE_IS_CREDIT_NOTE: 'A credit note cannot be marked paid or credited',
   INVOICE_NO_DRIVER: 'This invoice has no driver to send to',
   INVOICE_NO_SESSIONS: 'No uninvoiced sessions found for this driver in the selected date range',
   INVOICE_NOT_FOUND: 'Invoice not found',
+  INVOICE_NOT_ISSUED: 'The invoice must be issued for this action',
+  INVOICE_NOT_VOIDABLE:
+    'Only a draft invoice can be voided. Correct an issued invoice with a credit note',
   LOAD_NOT_FOUND: 'Load not found',
   LOCAL_CA_EXISTS: 'A local contract CA already exists',
   LOCAL_CA_NOT_CONFIGURED: 'Create the local contract CA first',

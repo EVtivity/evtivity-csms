@@ -18,6 +18,7 @@ import {
   type RebillStatus,
 } from '@/components/session/SessionRebillCard';
 import { Badge } from '@/components/ui/badge';
+import { accountBillingState, isBilledOnAccount } from '@/lib/account-billing';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { formatCents, formatDuration } from '@/lib/formatting';
@@ -57,6 +58,9 @@ interface SessionDetailData {
   stoppedReason: string | null;
   reservationId: string | null;
   freeVend: boolean | null;
+  billingMode?: 'card' | 'account' | null;
+  billingFleetName?: string | null;
+  invoiceStatus?: string | null;
   rebillStatus?: RebillStatus | null;
   rebillClaimedAt?: string | null;
   rebillable: boolean;
@@ -153,6 +157,13 @@ export function SessionDetail(): React.JSX.Element {
         </Badge>
         {session.rebillStatus === 'manual' && (
           <Badge variant="warning">{t('sessions.manualBilling')}</Badge>
+        )}
+        {isBilledOnAccount(session) && (
+          <Badge variant="info" data-testid="session-billing-badge">
+            {t('sessions.billedTo', { fleet: session.billingFleetName ?? '' })}
+            {' · '}
+            {t(`sessions.billingState.${accountBillingState(session.invoiceStatus)}`)}
+          </Badge>
         )}
         {tokenMismatch != null && (
           <Badge variant="warning" title={t('sessions.reservationTokenMismatchTooltip')}>

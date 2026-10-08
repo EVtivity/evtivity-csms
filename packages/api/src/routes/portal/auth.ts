@@ -11,6 +11,7 @@ import {
   isPortalRegistrationEnabled,
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
+  resolveAccountBilling,
 } from '@evtivity/database';
 import { drivers, userTokens } from '@evtivity/database';
 import {
@@ -39,6 +40,7 @@ import {
   revokeAllDriverRefreshTokens,
 } from '../../services/refresh-token.service.js';
 import { config as apiConfig } from '../../lib/config.js';
+import { driverBillingSchema, toDriverBilling } from '../../lib/portal-billing.js';
 import { activateDriverPortal } from '../../services/driver-portal-access.service.js';
 import {
   issueDriverSession,
@@ -76,6 +78,15 @@ const portalDriverItem = z
     isActive: z.boolean(),
     emailVerified: z.boolean(),
     createdAt: z.coerce.date(),
+  })
+  .passthrough();
+
+// GET /portal/auth/me also tells the portal and the app how the driver pays.
+const portalDriverMe = portalDriverItem
+  .extend({
+    billing: driverBillingSchema.describe(
+      'How the driver pays a session they start: account (billed to a fleet, no payment method needed) or card. A free vend site bills nothing either way',
+    ),
   })
   .passthrough();
 
@@ -589,7 +600,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         operationId: 'portalGetMe',
         security: [{ bearerAuth: [] }],
         response: {
-          200: itemResponse(portalDriverItem),
+          200: itemResponse(portalDriverMe),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
         },
       },
@@ -604,7 +615,10 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
-      return driver;
+      return {
+        ...driver,
+        billing: toDriverBilling(await resolveAccountBilling(client, driverId)),
+      };
     },
   );
 

@@ -105,7 +105,7 @@ function route(text: string): unknown[] {
       },
     ];
   }
-  if (text.includes('SELECT driver_id, energy_delivered_wh, final_cost_cents')) {
+  if (text.includes('SELECT cs.driver_id, cs.energy_delivered_wh, cs.final_cost_cents')) {
     return [
       {
         driver_id: 'drv-1',
@@ -225,6 +225,8 @@ vi.mock('@evtivity/database', async () => ({
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
   writeReservationAudit: (...args: unknown[]) => mockWriteReservationAudit(...args) as unknown,
+  // Driver sessions pay by card (no fleet account billing) unless a test says so.
+  stampSessionBilling: vi.fn().mockResolvedValue({ mode: 'card', fleetId: null, fleetName: null }),
 }));
 
 const mockDispatchDriver = vi.fn().mockResolvedValue(undefined);
@@ -673,6 +675,38 @@ describe('TransactionEvent Updated run again after a lost connection', () => {
       expect(claimAt).toBeLessThan(endAt);
     });
   });
+
+  describe('CostLimitReached on an account session (plan S8)', () => {
+    beforeEach(() => {
+      // Neither claim matches a row: only the claim attempts are counted.
+      db.prepaidClaim = 'claimed';
+    });
+
+    it('tries the prepaid and the account claim when the ceiling was not raised', async () => {
+      await projectWithRetry(transactionEvent('Updated', { triggerReason: 'CostLimitReached' }));
+      expect(countCalls('SET stopped_reason =')).toBe(2);
+    });
+
+    it('skips the account claim when the handler raised the ceiling at the report', async () => {
+      await projectWithRetry(
+        transactionEvent('Updated', {
+          triggerReason: 'CostLimitReached',
+          accountCeilingRaised: true,
+        }),
+      );
+      expect(countCalls('SET stopped_reason =')).toBe(1);
+    });
+
+    it('claims an Ended transaction at the limit (E16.FR.06) whatever the payload says', async () => {
+      await projectWithRetry(
+        transactionEvent('Ended', {
+          triggerReason: 'CostLimitReached',
+          accountCeilingRaised: true,
+        }),
+      );
+      expect(countCalls('SET stopped_reason =')).toBe(2);
+    });
+  });
 });
 
 describe('TransactionEvent Ended run again after a lost connection', () => {
@@ -872,7 +906,7 @@ describe('Settlement run again after a lost connection', () => {
       capturedCents: 1500,
     });
     failOn = {
-      match: 'SELECT driver_id, energy_delivered_wh, final_cost_cents',
+      match: 'SELECT cs.driver_id, cs.energy_delivered_wh, cs.final_cost_cents',
       code: 'CONNECT_TIMEOUT',
       left: 3,
     };

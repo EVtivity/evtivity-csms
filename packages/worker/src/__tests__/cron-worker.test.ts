@@ -90,6 +90,7 @@ const handlerMocks = {
   payoutAccountSyncHandler: vi.fn().mockResolvedValue(undefined),
   processVersionWatchHandler: vi.fn().mockResolvedValue(undefined),
   stationOfflineSweepHandler: vi.fn().mockResolvedValue(undefined),
+  fleetInvoiceRunHandler: vi.fn().mockResolvedValue(undefined),
 };
 
 vi.mock('../handlers/report-scheduler.js', () => ({
@@ -166,6 +167,9 @@ vi.mock('../handlers/process-version-watch.js', () => ({
 }));
 vi.mock('../handlers/station-offline-sweep.js', () => ({
   stationOfflineSweepHandler: (...a: unknown[]) => handlerMocks.stationOfflineSweepHandler(...a),
+}));
+vi.mock('../handlers/fleet-invoice-run.js', () => ({
+  fleetInvoiceRunHandler: (...a: unknown[]) => handlerMocks.fleetInvoiceRunHandler(...a),
 }));
 
 const migrationsDir = join(import.meta.dirname, '..', '..', '..', 'database', 'src', 'migrations');
@@ -304,6 +308,7 @@ describe('cron-worker processor dispatch', () => {
       ['payout-account-sync', 'payoutAccountSyncHandler'],
       ['process-version-watch', 'processVersionWatchHandler'],
       ['station-offline-sweep', 'stationOfflineSweepHandler'],
+      ['fleet-invoice-run', 'fleetInvoiceRunHandler'],
     ];
 
     for (const [jobName, handlerKey] of routes) {

@@ -67,6 +67,7 @@ interface RevenueByDay {
   netRevenueCents: number;
   taxCents: number;
   electricityCostCents: number;
+  billedOnAccountCents: number;
   sessionCount: number;
 }
 
@@ -76,6 +77,7 @@ interface RevenueBySite {
   netRevenueCents: number;
   taxCents: number;
   electricityCostCents: number;
+  billedOnAccountCents: number;
   sessionCount: number;
   energyKwh: number;
 }
@@ -144,6 +146,7 @@ async function queryRevenueByDay(
       netRevenueCents: r.netCents,
       taxCents: r.taxCents,
       electricityCostCents: costByDay.get(date) ?? 0,
+      billedOnAccountCents: r.billedOnAccountCents,
       sessionCount: r.sessionCount,
     };
   });
@@ -189,6 +192,7 @@ async function queryRevenueBySite(
       netRevenueCents: 0,
       taxCents: 0,
       electricityCostCents: row.electricityCostCents,
+      billedOnAccountCents: 0,
       sessionCount: 0,
       energyKwh: row.energyKwh,
     });
@@ -207,6 +211,7 @@ async function queryRevenueBySite(
         netRevenueCents: 0,
         taxCents: 0,
         electricityCostCents: 0,
+        billedOnAccountCents: 0,
         sessionCount: 0,
         energyKwh: 0,
       });
@@ -221,12 +226,14 @@ async function queryRevenueBySite(
         netRevenueCents: 0,
         taxCents: 0,
         electricityCostCents: 0,
+        billedOnAccountCents: 0,
         sessionCount: 0,
         energyKwh: 0,
       } satisfies RevenueBySite);
     site.revenueCents = r.grossCents;
     site.netRevenueCents = r.netCents;
     site.taxCents = r.taxCents;
+    site.billedOnAccountCents = r.billedOnAccountCents;
     site.sessionCount = r.sessionCount;
     bySite.set(siteId, site);
   }
@@ -283,9 +290,11 @@ export async function generateRevenueReport(
   const totalNetRevenueCents = bySite.reduce((sum, r) => sum + r.netRevenueCents, 0);
   const totalTaxCents = bySite.reduce((sum, r) => sum + r.taxCents, 0);
   const totalElectricityCents = bySite.reduce((sum, r) => sum + r.electricityCostCents, 0);
+  const totalBilledOnAccountCents = bySite.reduce((sum, r) => sum + r.billedOnAccountCents, 0);
 
   // Revenue is billed sessions and reservation fees minus refunds
-  // (session-revenue.ts). Profit is revenue excluding tax minus electricity
+  // (session-revenue.ts); unpaid account sessions are a column of their own
+  // (billed on account), not revenue. Profit is revenue excluding tax minus electricity
   // cost: the tax collected is owed to the tax authority, not earned.
   const moneyColumns = [
     rl.moneyHeader(l.columns.revenue, currency, common.inclTax),
@@ -293,18 +302,21 @@ export async function generateRevenueReport(
     rl.moneyHeader(l.columns.revenue, currency, common.exclTax),
     rl.moneyHeader(l.columns.electricityCost, currency),
     rl.moneyHeader(l.columns.profit, currency),
+    rl.moneyHeader(l.columns.billedOnAccount, currency, common.inclTax),
   ];
   const moneyCells = (r: {
     revenueCents: number;
     taxCents: number;
     netRevenueCents: number;
     electricityCostCents: number;
+    billedOnAccountCents: number;
   }): MoneyCell[] => [
     money(r.revenueCents),
     money(r.taxCents),
     money(r.netRevenueCents),
     money(r.electricityCostCents),
     money(r.netRevenueCents - r.electricityCostCents),
+    money(r.billedOnAccountCents),
   ];
   const dayHeaders = [columns.date, ...moneyColumns, columns.sessions];
   const dayRows = byDay.map((r) => [dateCell(r.date), ...moneyCells(r), r.sessionCount]);
@@ -353,6 +365,7 @@ export async function generateRevenueReport(
     rl.summary(l.summary.totalProfit),
     fmt(totalNetRevenueCents - totalElectricityCents),
   );
+  pdf.addSummaryRow(rl.summary(l.summary.totalBilledOnAccount), fmt(totalBilledOnAccountCents));
   pdf.addSummaryRow(rl.summary(l.summary.totalSessions), rl.number(totalSessions));
 
   pdf.addTable(dayHeaders, pdfRows(dayRows, rl));

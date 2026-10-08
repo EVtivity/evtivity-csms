@@ -18,6 +18,8 @@ describe('sessionReceiptVariables', () => {
       startedAt: '2026-06-04T00:00:00Z',
       endedAt: '2026-06-04T01:30:00Z',
       notCharged: false,
+      billingMode: 'card',
+      billedTo: null,
     });
     expect(variables).toMatchObject({
       siteName: 'Main',
@@ -31,6 +33,8 @@ describe('sessionReceiptVariables', () => {
       startedAt: '2026-06-04T00:00:00Z',
       endedAt: '2026-06-04T01:30:00Z',
       notCharged: false,
+      billingMode: 'card',
+      billedTo: '',
     });
     expect(variables['costFormatted']).toBeInstanceOf(MoneyValue);
   });
@@ -47,10 +51,38 @@ describe('sessionReceiptVariables', () => {
       startedAt: new Date('2026-06-04T00:00:00Z'),
       endedAt: new Date('2026-06-04T00:00:00Z'),
       notCharged: true,
+      billingMode: null,
+      billedTo: null,
     });
+    expect(variables['billingMode']).toBe('');
+    expect(variables['billedTo']).toBe('');
     expect(variables['siteName']).toBe('');
     expect(variables['costIncludesTax']).toBe(false);
     expect(variables['durationMinutes']).toBe(0);
     expect((variables['costFormatted'] as MoneyValue).cents).toBe(0);
+  });
+
+  it('names the fleet of an account session and only of one', () => {
+    const base = {
+      siteName: 'Main',
+      stationId: 'CS-1',
+      transactionId: 'tx-1',
+      energyDeliveredWh: 1000,
+      finalCostCents: 500,
+      currency: 'EUR',
+      tariffTaxRate: null,
+      startedAt: '2026-06-04T00:00:00Z',
+      endedAt: '2026-06-04T00:30:00Z',
+      notCharged: false,
+    };
+    const account = sessionReceiptVariables({
+      ...base,
+      billingMode: 'account',
+      billedTo: 'Acme Logistics',
+    });
+    expect(account['billingMode']).toBe('account');
+    expect(account['billedTo']).toBe('Acme Logistics');
+    const card = sessionReceiptVariables({ ...base, billingMode: 'card', billedTo: 'Acme' });
+    expect(card['billedTo']).toBe('');
   });
 });

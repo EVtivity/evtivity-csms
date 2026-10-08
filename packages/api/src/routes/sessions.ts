@@ -94,6 +94,12 @@ const sessionListItem = z
       .describe('Final cost in cents (completed sessions)'),
     currency: z.string().length(3).describe('ISO 4217 currency the session is billed in'),
     freeVend: z.boolean().describe('True when site free vend mode bypassed payment'),
+    billingMode: z
+      .enum(['card', 'account'])
+      .nullable()
+      .describe(
+        'How the driver session is paid, decided once at its start: card, or account (billed to the fleet on its invoice, no card charged). Null for older sessions and for roaming, free vend, prepaid, guest and anonymous sessions.',
+      ),
     rebillStatus: rebillStatusField,
     isGuestSession: z
       .boolean()
@@ -209,6 +215,30 @@ const sessionDetail = z
       .nullable()
       .describe('Reservation ID linked to the session, null if no reservation'),
     freeVend: z.boolean().describe('True when site free vend mode bypassed payment'),
+    billingMode: z
+      .enum(['card', 'account'])
+      .nullable()
+      .describe(
+        'How the driver session is paid, decided once at its start: card, or account (billed to the fleet on its invoice, no card charged). Null for older sessions and for roaming, free vend, prepaid, guest and anonymous sessions.',
+      ),
+    billingFleetId: z
+      .string()
+      .nullable()
+      .describe('The fleet an account session is billed to, null otherwise'),
+    billingFleetName: z
+      .string()
+      .nullable()
+      .describe('Name of the fleet an account session is billed to, null otherwise'),
+    invoiceId: z
+      .string()
+      .nullable()
+      .describe('The invoice that bills the session, null while it is not invoiced'),
+    invoiceStatus: z
+      .string()
+      .nullable()
+      .describe(
+        'Status of that invoice (issued, paid). For an account session: no invoice means unbilled, issued means invoiced, paid means paid.',
+      ),
     rebillStatus: rebillStatusField,
     rebillClaimedAt: z.coerce
       .date()
@@ -354,9 +384,9 @@ const rebillResponse = z
         'billed: charged, debited, or nothing to charge; manual: bill outside the platform',
       ),
     result: z
-      .enum(['charged', 'prepaid', 'no_charge', 'manual'])
+      .enum(['charged', 'prepaid', 'account', 'no_charge', 'manual'])
       .describe(
-        'charged: the default saved card was charged; prepaid: the token balance was debited; no_charge: the cost is 0; manual: left to manual billing',
+        'charged: the default saved card was charged; prepaid: the token balance was debited; account: billed to the fleet on its invoice; no_charge: the cost is 0; manual: left to manual billing',
       ),
     manualReason: z
       .enum([
@@ -490,6 +520,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           finalCostCents: chargingSessions.finalCostCents,
           currency: sessionCurrencySql(),
           freeVend: chargingSessions.freeVend,
+          billingMode: chargingSessions.billingMode,
           rebillStatus: chargingSessions.rebillStatus,
           guestSessionToken: guestSessions.sessionToken,
           createdAt: chargingSessions.createdAt,
@@ -562,7 +593,16 @@ export function sessionRoutes(app: FastifyInstance): void {
           stoppedReason: chargingSessions.stoppedReason,
           reservationId: chargingSessions.reservationId,
           freeVend: chargingSessions.freeVend,
+          billingMode: chargingSessions.billingMode,
           rebillStatus: chargingSessions.rebillStatus,
+          billingFleetId: chargingSessions.billingFleetId,
+          billingFleetName: sql<
+            string | null
+          >`(SELECT f.name FROM fleets f WHERE f.id = ${chargingSessions.billingFleetId})`,
+          invoiceId: chargingSessions.invoiceId,
+          invoiceStatus: sql<
+            string | null
+          >`(SELECT i.status::text FROM invoices i WHERE i.id = ${chargingSessions.invoiceId})`,
           rebillClaimedAt: chargingSessions.rebillClaimedAt,
           tokenId: driverTokens.id,
           tokenIdToken: driverTokens.idToken,

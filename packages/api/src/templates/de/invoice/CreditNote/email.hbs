@@ -1,0 +1,11 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>Stornorechnung {{creditNoteNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Hallo {{firstName}},</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{companyName}} hat eine Stornorechnung ausgestellt, die die Rechnung {{invoiceNumber}} vollständig storniert.</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Stornorechnung</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditNoteNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Rechnung</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Ausgestellt</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Grund</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditReason}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>Stornierter Betrag</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+{{#if wasPaid}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Du hast diese Rechnung bereits bezahlt. Der Betrag wird dir gesondert erstattet.</p>{{/if}}

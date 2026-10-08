@@ -13,6 +13,30 @@
     "./company-currency": {
       "import": "./src/company-currency.ts"
     },
+    "./credit-note.service": {
+      "import": "./src/credit-note.service.ts"
+    },
+    "./fleet-billing-notice": {
+      "import": "./src/fleet-billing-notice.ts"
+    },
+    "./fleet-invoice-notice": {
+      "import": "./src/fleet-invoice-notice.ts"
+    },
+    "./fleet-invoice-run": {
+      "import": "./src/fleet-invoice-run.ts"
+    },
+    "./fleet-invoice.service": {
+      "import": "./src/fleet-invoice.service.ts"
+    },
+    "./invoice-labels": {
+      "import": "./src/invoice-labels.ts"
+    },
+    "./invoice-pdf.service": {
+      "import": "./src/invoice-pdf.service.ts"
+    },
+    "./invoice.service": {
+      "import": "./src/invoice.service.ts"
+    },
     "./load-management.service": {
       "import": "./src/load-management.service.ts"
     },
@@ -61,6 +85,7 @@
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
     "@evtivity/payments": "*",
+    "@resvg/resvg-js": "^2.6.2",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^3.4.0",
     "pdfkit": "^0.17.2"

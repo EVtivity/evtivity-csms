@@ -62,7 +62,7 @@ export type ManualBillingReason =
   | 'prepaid_not_debited'
   | 'prepaid_record_exists';
 
-export type RebillResult = 'charged' | 'prepaid' | 'no_charge' | 'manual';
+export type RebillResult = 'charged' | 'prepaid' | 'account' | 'no_charge' | 'manual';
 
 export interface RebillResponse {
   sessionId: string;
@@ -128,6 +128,10 @@ interface RebillSession {
   siteName: string | null;
   prepaid: boolean;
   guestSession: boolean;
+  /** The session's billing stamp (charging_sessions.billing_mode). */
+  billingMode: 'card' | 'account' | null;
+  /** The fleet an account session is billed to. */
+  billingFleetName: string | null;
 }
 
 interface RebillRecord {
@@ -148,11 +152,13 @@ async function loadSession(sessionId: string): Promise<RebillSession | null> {
            s.energy_delivered_wh, st.id AS station_uuid, st.station_id AS station_ocpp_id,
            st.site_id, si.name AS site_name,
            (t.prepaid_balance_cents IS NOT NULL) AS prepaid,
+           s.billing_mode, bf.name AS billing_fleet_name,
            EXISTS (SELECT 1 FROM guest_sessions g WHERE g.charging_session_id = s.id) AS guest_session
     FROM charging_sessions s
     JOIN charging_stations st ON st.id = s.station_id
     LEFT JOIN sites si ON si.id = st.site_id
     LEFT JOIN driver_tokens t ON t.id = s.token_id
+    LEFT JOIN fleets bf ON bf.id = s.billing_fleet_id
     WHERE s.id = ${sessionId}
   `;
   if (row == null) return null;
@@ -178,6 +184,11 @@ async function loadSession(sessionId: string): Promise<RebillSession | null> {
     siteName: (row.site_name as string | null) ?? null,
     prepaid: row.prepaid === true,
     guestSession: row.guest_session === true,
+    billingMode:
+      row.billing_mode === 'card' || row.billing_mode === 'account'
+        ? (row.billing_mode as 'card' | 'account')
+        : null,
+    billingFleetName: (row.billing_fleet_name as string | null) ?? null,
   };
 }
 
@@ -309,9 +320,25 @@ async function takePayment(
     isRoaming: session.isRoaming,
     freeVend: session.freeVend,
     prepaid: session.prepaid,
+    account: session.billingMode === 'account',
     driverId: session.driverId,
     guestSession: session.guestSession,
   });
+  // Charge on account: the re-billed cost goes on the fleet invoice (the
+  // session stays unbilled until the fleet invoice claims it). No card. An
+  // account session with a payment record (an operator hold the give-up
+  // cancelled) is not billed on account: it is charged by card like a card
+  // session, so the fleet invoice, which skips sessions with a record, and
+  // the driver invoice agree.
+  if (mode === 'account' && record == null) {
+    return {
+      result: 'account',
+      manualReason: null,
+      paymentRecordId: null,
+      failureReason: null,
+      billedCents: null,
+    };
+  }
   if (mode === 'prepaid') {
     // A request that died after the debit finds its own record.
     if (record != null && isRebillRecord(record) && record.paymentSource === 'prepaid') {
@@ -350,7 +377,7 @@ async function takePayment(
       billedCents: null,
     };
   }
-  if (mode === 'card' && session.driverId != null) {
+  if ((mode === 'card' || mode === 'account') && session.driverId != null) {
     const charge = await chargeSessionRebill(
       {
         sessionId: session.id,
@@ -431,6 +458,9 @@ async function notifyRebilled(
         startedAt: session.startedAt,
         endedAt: response.endedAt,
         notCharged: false,
+        billingMode:
+          response.result === 'account' ? 'account' : session.billingMode == null ? null : 'card',
+        billedTo: response.result === 'account' ? session.billingFleetName : null,
       }),
       ALL_TEMPLATES_DIRS,
       getPubSub(),

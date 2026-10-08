@@ -4,14 +4,19 @@
 import { describe, it, expect, vi } from 'vitest';
 
 const { query } = vi.hoisted(() => ({
-  query: vi.fn((..._args: unknown[]) => Promise.resolve([{ legacy: 0, hosts: [] }])),
+  query: vi.fn((..._args: unknown[]) => Promise.resolve([])),
 }));
 
-vi.mock('@evtivity/database', () => ({
+// The shared release guard runs for real on the mocked client.
+vi.mock('../../../database/src/config.js', () => ({ client: query }));
+vi.mock('@evtivity/database', async () => ({
   db: {},
   settings: {},
   sitePaymentConfigs: {},
   client: query,
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/process-versions.js',
+  )),
 }));
 
 import { createPaymentRegistry } from '../create-registry.js';
@@ -19,8 +24,8 @@ import { describePaymentProviders } from '../provider-catalog.js';
 import { PaymentProviderRegistry } from '../registry.js';
 import type { PaymentSettings } from '../settings.js';
 import type { PaymentProvider } from '../types.js';
-import { PROCESS_VERSION_WATCH_KEY } from '../provider-switch-guard.js';
-import type { ProcessWatchStore } from '../provider-switch-guard.js';
+import { PROCESS_VERSION_WATCH_KEY } from '../../../database/src/lib/process-versions.js';
+import type { ProcessWatchStore } from '../../../database/src/lib/process-versions.js';
 import { defaultSimulatedSettings, emptyAdyenSettings } from './helpers/settings.js';
 
 const KEY = 'test-encryption-key-32chars-long!';

@@ -85,6 +85,26 @@ vi.mock('@evtivity/database', () => ({
       ? value
       : null,
   clearPrepaidSettingsCache: vi.fn(),
+  INVOICE_PAYMENT_TERMS_DAYS_KEY: 'invoice.paymentTermsDays',
+  MAX_INVOICE_PAYMENT_TERMS_DAYS: 365,
+  parseInvoicePaymentTermsDays: (value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 365
+      ? value
+      : null,
+  FLEET_INVOICE_RUN_DAY_KEY: 'fleet.invoiceRunDay',
+  MAX_FLEET_INVOICE_RUN_DAY: 28,
+  parseFleetInvoiceRunDay: (value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 28
+      ? value
+      : null,
+  clearInvoiceSettingsCache: vi.fn(),
+  FLEET_CREDIT_RESERVATION_KEY: 'fleet.creditReservationCents',
+  MAX_FLEET_CREDIT_RESERVATION_CENTS: 100_000_000,
+  parseFleetCreditReservationCents: (value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100_000_000
+      ? value
+      : null,
+  clearFleetCreditSettingsCache: vi.fn(),
   invalidateReservationSettingsCache: vi.fn(),
   writeAudit: vi.fn().mockResolvedValue(undefined),
   siteAuditLog: {},
@@ -163,6 +183,8 @@ import {
   clearStationMessageSettingsCache,
   invalidateReservationSettingsCache,
   clearPrepaidSettingsCache,
+  clearInvoiceSettingsCache,
+  clearFleetCreditSettingsCache,
 } from '@evtivity/database';
 
 const VALID_USER_ID = 'usr_000000000001';
@@ -507,6 +529,123 @@ describe('Settings routes', () => {
     });
     expect(clearPrepaidSettingsCache).toHaveBeenCalled();
   });
+
+  it.each([-1, 1.5, '30', 366, null])(
+    'PUT /v1/settings/invoice.paymentTermsDays rejects %s',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/invoice.paymentTermsDays',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
+      expect(response.json().error).toContain('invoice.paymentTermsDays');
+      expect(db.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([0, 14, 365])(
+    'PUT /v1/settings/invoice.paymentTermsDays stores %s days and clears the cache',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      vi.mocked(clearInvoiceSettingsCache).mockClear();
+      setupDbResults([], [{ key: 'invoice.paymentTermsDays', value }]);
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/invoice.paymentTermsDays',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(200);
+      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith({ key: 'invoice.paymentTermsDays', value });
+      expect(clearInvoiceSettingsCache).toHaveBeenCalled();
+    },
+  );
+
+  it.each([0, -1, 1.5, '5000', 100_000_001, null])(
+    'PUT /v1/settings/fleet.creditReservationCents rejects %s',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/fleet.creditReservationCents',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
+      expect(response.json().error).toContain('fleet.creditReservationCents');
+      expect(db.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([1, 5000, 100_000_000])(
+    'PUT /v1/settings/fleet.creditReservationCents stores %s cents and clears the cache',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      vi.mocked(clearFleetCreditSettingsCache).mockClear();
+      setupDbResults([], [{ key: 'fleet.creditReservationCents', value }]);
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/fleet.creditReservationCents',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(200);
+      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith({
+        key: 'fleet.creditReservationCents',
+        value,
+      });
+      expect(clearFleetCreditSettingsCache).toHaveBeenCalled();
+    },
+  );
+
+  it.each([0, 29, 2.5, '1', null])(
+    'PUT /v1/settings/fleet.invoiceRunDay rejects %s',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/fleet.invoiceRunDay',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
+      expect(response.json().error).toContain('fleet.invoiceRunDay');
+      expect(db.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([1, 28])(
+    'PUT /v1/settings/fleet.invoiceRunDay stores day %s and clears the cache',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      vi.mocked(clearInvoiceSettingsCache).mockClear();
+      setupDbResults([], [{ key: 'fleet.invoiceRunDay', value }]);
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/fleet.invoiceRunDay',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(200);
+      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith({ key: 'fleet.invoiceRunDay', value });
+      expect(clearInvoiceSettingsCache).toHaveBeenCalled();
+    },
+  );
 
   it('PUT /v1/settings/stationMessage.language re-renders station screens when the value changes', async () => {
     vi.mocked(requestStationMessageRepush).mockClear();

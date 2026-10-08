@@ -15,7 +15,8 @@ vi.mock('@evtivity/database', () => ({
   },
 }));
 
-const { prepaidSessionCeilingCents } = await import('../../handlers/prepaid-session-limit.js');
+const { prepaidSessionCeilingCents, accountSessionCeilingCents } =
+  await import('../../handlers/prepaid-session-limit.js');
 
 describe('prepaidSessionCeilingCents', () => {
   beforeEach(() => {
@@ -39,5 +40,25 @@ describe('prepaidSessionCeilingCents', () => {
     await expect(prepaidSessionCeilingCents('CS-1', 'tx-1', 'tok-1')).resolves.toBeNull();
     h.rows = [{ cost_ceiling_cents: null }];
     await expect(prepaidSessionCeilingCents('CS-1', 'tx-1', 'tok-1')).resolves.toBeNull();
+  });
+});
+
+describe('accountSessionCeilingCents', () => {
+  beforeEach(() => {
+    h.rows = [];
+    h.calls = [];
+  });
+
+  it('returns the ceiling the gate reserved for the account session', async () => {
+    h.rows = [{ cost_ceiling_cents: '1200' }];
+    await expect(accountSessionCeilingCents('CS-1', 'tx-1')).resolves.toBe(1200);
+    expect(h.calls[0]?.values).toEqual(['CS-1', 'tx-1']);
+    expect(h.calls[0]?.text).toContain("cs.billing_mode = 'account'");
+  });
+
+  it('returns null for a session not billed on account or without a ceiling', async () => {
+    await expect(accountSessionCeilingCents('CS-1', 'tx-1')).resolves.toBeNull();
+    h.rows = [{ cost_ceiling_cents: null }];
+    await expect(accountSessionCeilingCents('CS-1', 'tx-1')).resolves.toBeNull();
   });
 });

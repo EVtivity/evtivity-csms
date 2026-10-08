@@ -14,6 +14,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
@@ -50,6 +51,30 @@ afterEach(() => {
 });
 
 describe('PaymentMethods', () => {
+  it('tells a driver billed on account that no payment method is needed', async () => {
+    getMock.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/v1/portal/auth/me' ? { billing: { mode: 'account', fleetName: 'Acme' } } : [],
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText('fleetBilling.paymentMethodsNote')).toBeTruthy();
+    // No card is needed: the empty state does not ask for one.
+    expect(await screen.findByText('fleetBilling.noMethods')).toBeTruthy();
+    expect(screen.queryByText('payments.noMethods')).toBeNull();
+  });
+
+  it('shows no fleet note to a driver who pays by card', async () => {
+    getMock.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/v1/portal/auth/me' ? { billing: { mode: 'card', fleetName: null } } : [],
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText('payments.noMethods')).toBeTruthy();
+    expect(screen.queryByText('fleetBilling.paymentMethodsNote')).toBeNull();
+  });
+
   it('adds a test card through the provider module and the generic setup route', async () => {
     getMock.mockResolvedValue([]);
     postMock.mockImplementation((path: string) => {

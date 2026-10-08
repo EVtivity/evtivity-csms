@@ -73,6 +73,13 @@ export interface AuthorizeDecision {
   /** True when the accepted token is prepaid (with or without credit). */
   prepaid: boolean;
   prepaidBalanceCents: number | null;
+  /**
+   * The fleet an accepted token's driver charges on account with, set when
+   * that fleet has a credit limit and the context checks it (plan S8): the
+   * 2.1 TransactionEvent Started response then sends the session's reserved
+   * ceiling as transactionLimit.maxCost.
+   */
+  accountFleetId?: string;
   /** The 2.1 response echoes the token as groupIdToken. */
   echoGroupId: boolean;
 }
@@ -115,6 +122,14 @@ export interface AuthorizeContextRules {
    * tokens only, or none.
    */
   concurrentTx: 'every_token' | 'prepaid_only' | 'off';
+  /**
+   * The fleet credit limit of a driver who charges on account (plan S8), for
+   * an accepted token that is not prepaid: `refuse` answers no_credit when the
+   * billing fleet has no credit left (Authorize: 2.1 NoCredit, 1.6 Blocked),
+   * `annotate` only marks the decision with the fleet (2.1 TransactionEvent
+   * Started, whose session the payment gate stops or caps), `off` skips it.
+   */
+  accountCredit: 'refuse' | 'annotate' | 'off';
 }
 
 const NO_LOOKUP_NONE: AuthorizeContextRules['noLookupTypes'] = new Map();
@@ -122,7 +137,12 @@ const NONE: ReadonlySet<never> = new Set();
 
 const UNTYPED_BASE: Omit<
   AuthorizeContextRules,
-  'freeVend' | 'freeVendReadError' | 'driverIdFallback' | 'guestAcceptedStatuses' | 'ocpi'
+  | 'freeVend'
+  | 'freeVendReadError'
+  | 'driverIdFallback'
+  | 'guestAcceptedStatuses'
+  | 'ocpi'
+  | 'accountCredit'
 > = {
   noLookupTypes: NO_LOOKUP_NONE,
   // A token that is both revoked or inactive and expired is Blocked, as in
@@ -162,11 +182,19 @@ const TYPED_TX_START: AuthorizeContextRules = {
   // station did not send Authorize (local authorization list, offline start).
   // Other tokens keep their concurrent transactions on TransactionEvent.
   concurrentTx: 'prepaid_only',
+  // The handler sends an account session's reserved ceiling as maxCost, and
+  // waits for the payment gate only for a driver whose billing fleet has a
+  // credit limit (plan S8). The gate stops a start without credit.
+  accountCredit: 'annotate',
 };
 
 // TransactionEvent (2.1) Updated and Ended: the transaction is running, so
-// there is no concurrent transaction to refuse.
-const TYPED_TX_UPDATE: AuthorizeContextRules = { ...TYPED_TX_START, concurrentTx: 'off' };
+// there is no concurrent transaction to refuse and no limit to send.
+const TYPED_TX_UPDATE: AuthorizeContextRules = {
+  ...TYPED_TX_START,
+  concurrentTx: 'off',
+  accountCredit: 'off',
+};
 
 // StartTransaction (1.6). No 1.6 message checks a token in tx_update; the row
 // repeats tx_start so the table is total.
@@ -177,6 +205,9 @@ const UNTYPED_TRANSACTION: AuthorizeContextRules = {
   driverIdFallback: true,
   guestAcceptedStatuses: new Set(['payment_authorized', 'charging']),
   ocpi: true,
+  // 1.6 has no transaction limit: the payment gate stops a start without
+  // credit and the MeterValues cost loop stops at the ceiling.
+  accountCredit: 'off',
 };
 
 /**
@@ -198,6 +229,7 @@ export const AUTHORIZE_CONTEXT_RULES: Readonly<
       driverIdFallback: true,
       guestAcceptedStatuses: new Set(['payment_authorized']),
       ocpi: true,
+      accountCredit: 'refuse',
     },
     // Authorize (2.1)
     typed: {
@@ -221,6 +253,7 @@ export const AUTHORIZE_CONTEXT_RULES: Readonly<
       ocpi: true,
       dbErrorLogLevel: 'error',
       concurrentTx: 'every_token',
+      accountCredit: 'refuse',
     },
   },
   tx_start: { untyped: UNTYPED_TRANSACTION, typed: TYPED_TX_START },

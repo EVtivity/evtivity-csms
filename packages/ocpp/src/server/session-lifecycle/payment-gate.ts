@@ -1,8 +1,18 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { TariffPriceSnapshot } from '@evtivity/database';
-import { authorizeSessionHold, classifySessionPayment } from '@evtivity/payments';
+import {
+  checkFleetCreditLimit,
+  fleetCreditNoticesClaimed,
+  readFleetCreditLimit,
+  stampSessionBilling,
+} from '@evtivity/database';
+import type { FleetCreditCheck, SessionBilling, TariffPriceSnapshot } from '@evtivity/database';
+import {
+  authorizeSessionHold,
+  classifySessionPayment,
+  dispatchFleetCreditLimitNotices,
+} from '@evtivity/payments';
 import type { HoldOutcome } from '@evtivity/payments';
 import { isTariffFree } from '@evtivity/lib';
 import {
@@ -13,6 +23,7 @@ import {
 import { activePaymentProvider } from '../../lib/payments.js';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import { stopSessionForPayment } from './payment-stop.js';
+import type { FleetCreditThrottle } from './state.js';
 
 // Payment gate on session start: decides whether a started session may keep
 // charging (allow, place a card hold, or stop), then applies that decision.
@@ -62,6 +73,7 @@ export type PaymentGateDecision =
         | 'roaming'
         | 'free_vend'
         | 'prepaid_funded'
+        | 'account'
         | 'free_tariff'
         | 'payments_off'
         | 'hold_authorized'
@@ -105,17 +117,43 @@ export type PaymentGateDecision =
       reason: 'GuestPaymentNotAuthorized';
       notice: GuestPreAuthFailedNotice | null;
     }
-  | { kind: 'stop'; why: 'anonymous'; reason: 'AnonymousSession'; notice: null };
+  | { kind: 'stop'; why: 'anonymous'; reason: 'AnonymousSession'; notice: null }
+  | {
+      kind: 'stop';
+      /**
+       * The billing fleet has no credit left for the session: its exposure is
+       * at or above the limit (plan S7), or the reservations of its other
+       * sessions leave a cost ceiling of 0 (plan S8).
+       */
+      why: 'account_credit_limit';
+      reason: 'AccountCreditLimit';
+      fleetId: string;
+      /** The driver's notice goes out from stopSessionForPayment, once. */
+      notice: null;
+    };
 
 type StopDecision = Extract<PaymentGateDecision, { kind: 'stop' }>;
 
 /**
- * The gate decision from what the Started projection knows. `hold` means a
- * card session on a priced tariff: the only path that reads the active
- * provider (runPaymentGate), so roaming, prepaid, guest and anonymous
+ * The gate decision from what the Started projection knows, the session's
+ * billing stamp (`billing`, written by runPaymentGate or the portal start;
+ * null when the session has none) and, for an account session, the billing
+ * fleet's credit check (`credit`, null when the fleet has no limit): an
+ * exposure at or above the limit, or no credit left for the session (its
+ * reserved cost ceiling, else the remaining credit, is 0), stops the
+ * session. `hold` means a card session on a
+ * priced tariff: the only path that reads the active provider
+ * (runPaymentGate), so roaming, prepaid, account, guest and anonymous
  * sessions never read payment settings.
  */
-export function planPaymentGate(input: PaymentGateInput): PaymentGateDecision {
+export function planPaymentGate(
+  input: PaymentGateInput,
+  billing: SessionBilling | null = null,
+  credit: Pick<
+    FleetCreditCheck,
+    'fleetId' | 'level' | 'remainingCents' | 'ceilingCents'
+  > | null = null,
+): PaymentGateDecision {
   const {
     driverId,
     isRoaming,
@@ -137,6 +175,7 @@ export function planPaymentGate(input: PaymentGateInput): PaymentGateDecision {
     isRoaming,
     freeVend: false,
     prepaid: prepaidBalanceCents != null,
+    account: billing?.mode === 'account',
     driverId,
     guestSession: guestStatus != null,
   });
@@ -153,6 +192,27 @@ export function planPaymentGate(input: PaymentGateInput): PaymentGateDecision {
       return { kind: 'allow', why: 'prepaid_funded' };
     }
     return { kind: 'stop', why: 'prepaid_no_credit', reason: 'PaymentFailed', notice: null };
+  }
+
+  // Charge on account: billed to the fleet on its invoice, so no card and no
+  // hold, whatever the tariff (works with payments.provider none). A fleet at
+  // its credit limit refuses the start (plan S7), and so does a fleet whose
+  // running sessions reserve the rest of the limit (a cost ceiling of 0, plan
+  // S8). A session with credit runs up to its ceiling.
+  if (mode === 'account') {
+    if (
+      credit != null &&
+      (credit.level === 'reached' || (credit.ceilingCents ?? credit.remainingCents) <= 0)
+    ) {
+      return {
+        kind: 'stop',
+        why: 'account_credit_limit',
+        reason: 'AccountCreditLimit',
+        fleetId: credit.fleetId,
+        notice: null,
+      };
+    }
+    return { kind: 'allow', why: 'account' };
   }
 
   if (mode === 'card' && driverId != null) {
@@ -246,7 +306,39 @@ export async function runPaymentGate(
   const { logger, payments } = deps;
   const { sessionId, siteId } = input;
 
-  let decision = planPaymentGate(input);
+  // How a driver session is paid, stamped once before the start is allowed
+  // (P4, P5): only after roaming and prepaid are ruled out (free vend never
+  // reaches the gate). A stamp the portal start or an earlier run wrote is
+  // kept, so a fleet change never changes a started session.
+  const billing =
+    !input.isRoaming && input.prepaidBalanceCents == null && input.driverId != null
+      ? await stampSessionBilling(deps.sql, sessionId, input.driverId)
+      : null;
+
+  // The billing fleet's credit limit, checked under the fleet row lock
+  // (checkFleetCreditLimit) with this session left out of the exposure. In
+  // the same transaction the session gets a bounded reservation as its cost
+  // ceiling (plan S8, written once): the smaller of the credit left and the
+  // fleet.creditReservationCents slice, so the fleet's other drivers can
+  // still start. Billing is capped at it, a 2.1 station gets it as
+  // transactionLimit.maxCost, and the MeterValues cost loop grows it while
+  // the fleet has credit (growAccountCeiling) and stops a station that
+  // ignores it once the fleet has none. A failed check throws (P9: the limit
+  // check is critical) and the gate runs again (memo('started:gate')).
+  const credit =
+    billing?.mode === 'account'
+      ? await checkFleetCreditLimit(deps.sql, billing.fleetId, { reserveForSessionId: sessionId })
+      : null;
+
+  let decision = planPaymentGate(input, billing, credit);
+
+  // Warning and reached notices to the fleet, once per month each.
+  // Fire-and-forget and fail-open (P9).
+  if (credit != null && credit.level !== 'ok') {
+    void deps.eventBus.track(
+      dispatchFleetCreditLimitNotices(credit, { templatesDirs: ALL_TEMPLATES_DIRS }, logger),
+    );
+  }
 
   // Payments off (payments.provider = none, or a selected provider this
   // process cannot use): no hold, as the portal start (owner decision
@@ -302,6 +394,42 @@ export async function runPaymentGate(
   return decision;
 }
 
+/**
+ * The fleet credit limit notices while an account session charges (plan S8):
+ * its running cost raises the fleet's exposure, so the warning and reached
+ * notices go out when it passes them, once per fleet and month each (the
+ * claim in dispatchFleetCreditLimitNotices). Reads the limit and exposure
+ * without the fleet row lock and reserves nothing. Fire-and-forget and
+ * fail-open (P9): a failure is logged at warn.
+ *
+ * P6, a hot path (every meter reading of every account session): at most one
+ * check per fleet and throttle interval in this process, and the fleet-wide
+ * exposure aggregate runs only while a notice of this month is still
+ * unclaimed (fleetCreditNoticesClaimed reads the claim rows by primary key).
+ */
+export function trackRunningFleetCreditNotices(
+  deps: Pick<ProjectionDeps, 'sql' | 'eventBus' | 'logger'>,
+  fleetId: string,
+  throttle: FleetCreditThrottle,
+  now: number = Date.now(),
+): void {
+  const { sql, eventBus, logger } = deps;
+  if (!throttle.due('notices', fleetId, now)) return;
+  throttle.mark('notices', fleetId, now);
+  void eventBus.track(
+    (async () => {
+      try {
+        if (await fleetCreditNoticesClaimed(sql, fleetId)) return;
+        const check = await readFleetCreditLimit(sql, fleetId);
+        if (check == null || check.level === 'ok') return;
+        await dispatchFleetCreditLimitNotices(check, { templatesDirs: ALL_TEMPLATES_DIRS }, logger);
+      } catch (err) {
+        logger.warn({ err, fleetId }, 'Fleet credit limit notice check failed; continuing');
+      }
+    })(),
+  );
+}
+
 function logStop(deps: ProjectionDeps, input: PaymentGateInput, decision: StopDecision): void {
   const { logger } = deps;
   const { sessionId, transactionId, idToken } = input;
@@ -345,6 +473,12 @@ function logStop(deps: ProjectionDeps, input: PaymentGateInput, decision: StopDe
     case 'anonymous':
       logger.warn(
         `Anonymous session ${transactionId} has no driver, no roaming token, and no guest session, stopping`,
+      );
+      return;
+    case 'account_credit_limit':
+      logger.warn(
+        { sessionId, fleetId: decision.fleetId },
+        'Fleet credit limit reached, stopping account session',
       );
       return;
   }

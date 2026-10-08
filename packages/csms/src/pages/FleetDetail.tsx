@@ -17,14 +17,20 @@ import { FleetVehiclesTab } from '@/components/fleet/FleetVehiclesTab';
 import { FleetDriversTab } from '@/components/fleet/FleetDriversTab';
 import { FleetPricingTab } from '@/components/fleet/FleetPricingTab';
 import { FleetReservationsTab } from '@/components/fleet/FleetReservationsTab';
+import { FleetBillingTab } from '@/components/fleet/FleetBillingTab';
+import { FleetBillingProfileCard } from '@/components/fleet/FleetBillingProfileCard';
+import type { FleetBillingProfile } from '@/components/fleet/FleetBillingProfileCard';
+import { FleetCreditLimitCard } from '@/components/fleet/FleetCreditLimitCard';
+import { FleetInvoicesCard } from '@/components/fleet/FleetInvoicesCard';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 
-interface Fleet {
+interface Fleet extends Partial<FleetBillingProfile> {
   id: string;
   name: string;
   description: string | null;
+  accountBillingEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -70,6 +76,7 @@ export function FleetDetail(): React.JSX.Element {
           <TabsTrigger value="vehicles">{t('fleets.vehicles')}</TabsTrigger>
           <TabsTrigger value="drivers">{t('fleets.drivers')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('fleets.pricing')}</TabsTrigger>
+          <TabsTrigger value="billing">{t('fleets.billingTab')}</TabsTrigger>
           <TabsTrigger value="reservations">{t('fleets.bulkReservations')}</TabsTrigger>
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
@@ -91,11 +98,21 @@ export function FleetDetail(): React.JSX.Element {
         </TabsContent>
 
         <TabsContent value="drivers" className="space-y-6">
-          <FleetDriversTab fleetId={fleetId} />
+          <FleetDriversTab
+            fleetId={fleetId}
+            accountBillingEnabled={fleet.accountBillingEnabled === true}
+          />
         </TabsContent>
 
         <TabsContent value="pricing" className="space-y-6">
           <FleetPricingTab fleetId={fleetId} />
+        </TabsContent>
+
+        <TabsContent value="billing" className="space-y-6">
+          <FleetBillingTab fleet={fleet} />
+          <FleetBillingProfileCard fleet={fleet} />
+          <FleetCreditLimitCard fleetId={fleetId} />
+          <FleetInvoicesCard fleetId={fleetId} />
         </TabsContent>
 
         <TabsContent value="reservations" className="space-y-6">

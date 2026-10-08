@@ -1,0 +1,5 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}님, 안녕하세요.{{else}}안녕하세요.{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>월간 청구 실행이 약 2시간 30분 동안 재시도했지만 다음 차량대의 {{period}} 청구서를 완료하지 못했습니다.</p>
+{{#if issuedNotEmailed}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>청구서 발행됨, 이메일 미발송.</strong> 청구서를 열고 보내기를 사용하십시오: {{issuedNotEmailed}}</p>{{/if}}
+{{#if notInvoiced}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>청구되지 않음.</strong> 차량대의 청구 탭에서 청구서를 직접 생성하십시오: {{notInvoiced}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>각 항목에는 차량대, 발행된 경우 청구서 번호, 마지막 오류가 표시됩니다. 실행은 {{period}}에 대해 이 차량대를 다시 시도하지 않습니다.</p>

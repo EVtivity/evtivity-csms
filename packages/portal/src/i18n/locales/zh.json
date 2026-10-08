@@ -544,7 +544,13 @@
     "EVSE_IN_USE": "该连接器上已有其他活动会话",
     "EVSE_NOT_FOUND": "未找到 EVSE",
     "FAVORITE_NOT_FOUND": "未找到收藏",
+    "FLEET_CREDIT_LIMIT_REACHED": "为您的会话付费的车队已达到信用额度。请联系您的车队管理员。",
     "FLEET_DISABLED": "车队已禁用",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有早于 v0.1.41 的进程处于连接状态。请完成升级后再开启记账计费。",
+    "FLEET_BILLING_CONTACT_REQUIRED": "自动开具发票和发送发票邮件需要车队至少有一个账单联系人。",
+    "FLEET_INVOICE_PERIOD_EXISTS": "该车队在此账期已有发票。请先开具贷项通知单，再重新为该账期开票。",
+    "FLEET_INVOICE_NOTHING_TO_BILL": "该车队在此账期没有可开票的未计费且有费用的会话。",
+    "FLEET_HAS_OPEN_BILLING": "该车队有记账到其账户的会话，无法删除。请改为关闭记账计费。",
     "FLEET_NOT_FOUND": "未找到车队",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "车队预约已取消",
     "FLEET_RESERVATION_CREATE_FAILED": "创建车队预约失败",
@@ -570,7 +576,12 @@
     "INVALID_RESTRICTIONS": "费率限制无效",
     "INVALID_SITE_IDS": "一个或多个 siteId 不存在",
     "INVALID_TOKEN": "重置链接无效或已过期",
+    "INVOICE_ALREADY_PAID": "该发票已支付",
     "INVOICE_CREATION_FAILED": "创建发票失败",
+    "INVOICE_NOT_ISSUED": "此操作仅适用于已开具的发票",
+    "INVOICE_IS_CREDIT_NOTE": "贷项通知单不能标记为已支付或贷记",
+    "INVOICE_ALREADY_CREDITED": "该发票已由贷项通知单贷记",
+    "INVOICE_NOT_VOIDABLE": "只有草稿发票可以作废。已开具的发票通过贷项通知单更正",
     "INVOICE_NO_SESSIONS": "所选日期范围内没有未开票的充电会话",
     "INVOICE_NO_DRIVER": "此发票没有可发送的驾驶员",
     "INVOICE_NOT_FOUND": "未找到发票",
@@ -999,5 +1010,20 @@
     "invalid": "无效",
     "faulted": "故障",
     "failed": "失败"
+  },
+  "fleetBilling": {
+    "billedTo": "记账到 {{fleet}}",
+    "startHint": "此充电会话由您的车队支付，无需支付方式。",
+    "title": "车队记账",
+    "fleet": "记账到",
+    "status": "状态",
+    "state": {
+      "unbilled": "尚未开票",
+      "invoiced": "已向车队开票",
+      "paid": "车队已支付"
+    },
+    "sessionLine": "{{fleet}}：{{state}}",
+    "paymentMethodsNote": "您的充电费用记账到 {{fleet}}，充电无需支付方式。",
+    "noMethods": "暂无支付方式。"
   }
 }

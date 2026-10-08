@@ -24,7 +24,7 @@ import type { TariffPriceSnapshot } from '@evtivity/database';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import type { ProjectionAttempt } from '../projection-retry.js';
 import { runPaymentGate } from './payment-gate.js';
-import { notePrepaidCostLimitReached } from './payment-stop.js';
+import { noteCostLimitReached } from './payment-stop.js';
 import { settleTransactionEnded } from './settlement.js';
 import type { SessionLifecycleState } from './state.js';
 import { getString } from '../projection-support/payload.js';
@@ -39,7 +39,7 @@ import {
   reconcileCostBreakdown,
 } from '@evtivity/lib';
 import { dispatchDriverNotification, ALL_TEMPLATES_DIRS } from '../notification-dispatcher.js';
-import { projectionLane, sessionPricedKey } from '../projection-queue.js';
+import { projectionLane, sessionGatedKey, sessionPricedKey } from '../projection-queue.js';
 import { isUnbilledTimeoutEnd } from '../session-cost.js';
 
 const CHARGING_STATE_TO_STATUS: Record<string, string> = {
@@ -948,6 +948,11 @@ export class TransactionProjector {
       }
     }
 
+    // The gate ran (or does not apply): an account session has its reserved
+    // cost ceiling, which the 2.1 handler sends as transactionLimit.maxCost
+    // (plan S8). A failed gate signals too: the handler then finds no ceiling.
+    this.state.projectionQueue.signal(sessionGatedKey(stationId, transactionId));
+
     // A driver who starts charging at a station they were watching no
     // longer needs the "now free" alert (they can start on a startable but
     // not-yet-available connector, which never fires the watch). Clears only
@@ -969,10 +974,15 @@ export class TransactionProjector {
 
   // A 2.1 station reported reaching the cost limit (triggerReason
   // CostLimitReached, E16.FR.05) of a session whose ceiling is a prepaid
-  // token's credit (C17.FR.03). The station suspends or ends the transaction
-  // itself, so the CSMS does not stop it: it shows the prepaid_exhausted
-  // station message and sends prepaid.CreditExhausted, once per session (the
-  // stop claim shared with stopSessionForPayment). A once step: a rerun never
+  // token's credit (C17.FR.03) or an account session's reserved fleet credit
+  // (plan S8). The station suspends or ends the transaction itself, so the
+  // CSMS does not stop it: it shows the prepaid_exhausted (account:
+  // account_credit_limit) station message and sends prepaid.CreditExhausted
+  // (account: payment.AccountCreditLimit), once per session (the stop claim
+  // shared with stopSessionForPayment). An account session whose ceiling the
+  // handler raised at this report (payload accountCeilingRaised, Updated
+  // only) is not claimed: the response sent the raised limit and the station
+  // resumes. A once step: a rerun never
   // claims again. Inside it only a statement that never reached the server
   // is retried; an interrupted claim may have committed, so it warns.
   private async notePrepaidCostLimit(
@@ -982,12 +992,16 @@ export class TransactionProjector {
   ): Promise<void> {
     await tx.attempt.once(`${stage}:prepaid-cost-limit`, async () => {
       try {
-        await notePrepaidCostLimitReached(this.deps, {
-          sessionId,
-          transactionId: tx.transactionId,
-          ocppStationId: tx.stationId,
-          stationDbId: tx.stationUuid,
-        });
+        await noteCostLimitReached(
+          this.deps,
+          {
+            sessionId,
+            transactionId: tx.transactionId,
+            ocppStationId: tx.stationId,
+            stationDbId: tx.stationUuid,
+          },
+          { accountCeilingRaised: stage === 'updated' && tx.payload.accountCeilingRaised === true },
+        );
       } catch (err: unknown) {
         if (pgConnectionErrorKind(err) === 'not-sent') throw err;
         this.deps.logger.warn(

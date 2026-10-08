@@ -1,0 +1,13 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>貸項通知單 {{creditNoteNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您好：</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{companyName}} 已開立貸項通知單，全額沖銷 <strong>{{fleetName}}</strong> 於 {{periodLabel}} 的發票 {{invoiceNumber}}。貸項通知單以 PDF 附件形式提供。</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>貸項通知單</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditNoteNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>發票</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>帳期</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{periodLabel}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>開立日期</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>原因</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditReason}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>貸記金額</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+{{#if wasPaid}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>該發票已付款。款項將另行退還。</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>被沖銷發票中的充電工作階段將在更正後計入下一張發票。</p>

@@ -6,6 +6,7 @@ import type { DomainEvent, EventBus } from '@evtivity/lib';
 import {
   projectionLane,
   projectionQueueFor,
+  sessionGatedKey,
   sessionPricedKey,
   transactionKey,
 } from '../server/projection-queue.js';
@@ -129,6 +130,9 @@ describe('transaction keys', () => {
     expect(transactionKey('A:B', 'C')).not.toBe(transactionKey('A', 'B:C'));
     expect(sessionPricedKey('A:B', 'C')).not.toBe(sessionPricedKey('A', 'B:C'));
     expect(sessionPricedKey('CS-1', 'tx-1')).not.toBe(sessionPricedKey('CS-2', 'tx-1'));
+    expect(sessionGatedKey('A:B', 'C')).not.toBe(sessionGatedKey('A', 'B:C'));
+    // The gate signal is its own key: the priced signal never resolves it.
+    expect(sessionGatedKey('CS-1', 'tx-1')).not.toBe(sessionPricedKey('CS-1', 'tx-1'));
   });
 
   it('puts the same transactionId of two stations on two lanes', () => {

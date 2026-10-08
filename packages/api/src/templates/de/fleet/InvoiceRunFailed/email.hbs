@@ -1,0 +1,5 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}Hallo {{firstName}},{{else}}Guten Tag,{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Der monatliche Rechnungslauf konnte die Rechnungen für {{period}} für diese Flotten nicht abschließen, auch nicht nach Wiederholungen über etwa zweieinhalb Stunden.</p>
+{{#if issuedNotEmailed}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>Rechnung erstellt, E-Mail nicht versendet.</strong> Öffnen Sie die Rechnung und verwenden Sie „Senden“: {{issuedNotEmailed}}</p>{{/if}}
+{{#if notInvoiced}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>Nicht abgerechnet.</strong> Erstellen Sie die Rechnung von Hand im Tab „Abrechnung“ der Flotte: {{notInvoiced}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>Jeder Eintrag nennt die Flotte, die Rechnungsnummer, wenn eine Rechnung erstellt wurde, und den letzten Fehler. Der Lauf versucht diese Flotten für {{period}} nicht erneut.</p>

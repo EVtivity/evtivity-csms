@@ -1,0 +1,5 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}Hi {{firstName}},{{else}}Hello,{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>The monthly invoice run could not finish the invoices of {{period}} for these fleets, after retrying for about two and a half hours.</p>
+{{#if issuedNotEmailed}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>Invoice issued, email not sent.</strong> Open the invoice and use Send: {{issuedNotEmailed}}</p>{{/if}}
+{{#if notInvoiced}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>Not invoiced.</strong> Generate the invoice by hand on the fleet's Billing tab: {{notInvoiced}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>Each entry shows the fleet, the invoice number when one was issued, and the last error. The run does not try these fleets for {{period}} again.</p>

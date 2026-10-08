@@ -8,13 +8,16 @@
  * accepted without lookup, identity resolution (driver tokens, then the drv_
  * driver id fallback where the context has it and, for an untyped 1.6 idTag,
  * the guest session fallback), OCPI external tokens, the concurrent
- * transaction check, prepaid credit. The per-context differences live in
+ * transaction check, prepaid credit, the fleet credit limit of a driver who
+ * charges on account. The per-context differences live in
  * AUTHORIZE_CONTEXT_RULES.
  */
 
 import { eq, and, ne, or } from 'drizzle-orm';
 import {
+  client,
   db,
+  loadDriverAccountCredit,
   driverTokens,
   drivers,
   ocpiExternalTokens,
@@ -42,6 +45,9 @@ const NO_MATCH = {
   prepaidBalanceCents: null,
   echoGroupId: false,
 } as const;
+
+/** The authorize reason of a driver whose billing fleet has no credit left (plan S8). */
+export const ACCOUNT_CREDIT_LIMIT_REASON = 'account_credit_limit';
 
 /** The token type logged for an untyped (1.6) idTag, as the 1.6 handlers name it in events. */
 const UNTYPED_LOG_TOKEN_TYPE = 'ISO14443';
@@ -83,7 +89,8 @@ export async function authorizeToken(
   }
 
   decision = await checkConcurrentTransaction(input, rules, decision, logger);
-  return applyPrepaidCredit(decision);
+  decision = applyPrepaidCredit(decision);
+  return checkAccountCredit(input, rules, decision, logger);
 }
 
 /**
@@ -129,6 +136,7 @@ export function authorizeDecisionMessage(decision: AuthorizeDecision): string {
     return decision.status === 'accepted' ? 'Driver-id token accepted' : 'Driver-id token blocked';
   }
   if (decision.source === 'guest') return `Guest session token ${decision.status}`;
+  if (decision.reason === ACCOUNT_CREDIT_LIMIT_REASON) return 'Fleet credit limit reached';
   if (decision.status === 'no_credit') return 'Prepaid token without credit';
   if (decision.status !== 'accepted') return 'Token rejected by status';
   return 'Token accepted';
@@ -586,4 +594,51 @@ function applyPrepaidCredit(decision: AuthorizeDecision): AuthorizeDecision {
     reason: 'no_credit',
     echoGroupId: false,
   };
+}
+
+/**
+ * Fleet credit limit (plan S8): a driver who charges on account with a fleet
+ * that has a credit limit. With `refuse` (Authorize) an accepted token that
+ * is not prepaid becomes no_credit when the fleet has no credit left: its
+ * exposure, with the running sessions at their reserved ceiling, is at the
+ * limit (2.1 NoCredit, 1.6 Blocked). Otherwise, and with `annotate` (2.1
+ * TransactionEvent Started), the decision names the fleet. Read without the
+ * fleet row lock: nothing is reserved here; the payment gate reserves the
+ * session's ceiling and stops a start without credit. A failed lookup keeps
+ * the decision (logged at warn): the gate checks again.
+ */
+async function checkAccountCredit(
+  input: AuthorizeTokenInput,
+  rules: AuthorizeContextRules,
+  decision: AuthorizeDecision,
+  logger: Logger,
+): Promise<AuthorizeDecision> {
+  if (
+    rules.accountCredit === 'off' ||
+    decision.status !== 'accepted' ||
+    decision.prepaid ||
+    decision.matchedDriverId == null
+  ) {
+    return decision;
+  }
+  try {
+    const credit = await loadDriverAccountCredit(client, decision.matchedDriverId);
+    if (credit == null) return decision;
+    if (rules.accountCredit === 'refuse' && credit.remainingCents <= 0) {
+      return {
+        ...decision,
+        status: 'no_credit',
+        outcome: 'no_credit',
+        reason: ACCOUNT_CREDIT_LIMIT_REASON,
+        echoGroupId: false,
+      };
+    }
+    return { ...decision, accountFleetId: credit.fleetId };
+  } catch (err) {
+    logger.warn(
+      { err, stationId: input.stationId, idToken: input.token.value },
+      'Fleet credit limit lookup failed; keeping the decision',
+    );
+    return decision;
+  }
 }

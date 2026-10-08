@@ -1,0 +1,5 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}，您好：{{else}}您好：{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>月度开票任务重试约两个半小时后，仍未能完成以下车队 {{period}} 的发票。</p>
+{{#if issuedNotEmailed}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>发票已开具，邮件未发送。</strong>请打开发票并使用发送：{{issuedNotEmailed}}</p>{{/if}}
+{{#if notInvoiced}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>未开票。</strong>请在该车队的账单选项卡中手动生成发票：{{notInvoiced}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>每个条目列出车队、已开具发票时的发票号以及最后一次错误。月度任务不会再次为这些车队尝试 {{period}}。</p>

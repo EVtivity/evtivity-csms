@@ -17,6 +17,7 @@ import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { DriverPortalAccessCard, type PortalAccess } from './DriverPortalAccessCard';
 import { DriverPncContractsCard } from './DriverPncContractsCard';
+import { DriverBillingCard, type DriverBilling } from './DriverBillingCard';
 
 interface Driver {
   id: string;
@@ -29,6 +30,7 @@ interface Driver {
   createdAt: string;
   updatedAt: string;
   portalAccess?: PortalAccess;
+  billing?: DriverBilling;
 }
 
 export interface DriverDetailsTabProps {
@@ -246,6 +248,7 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
           )}
         </CardContent>
       </Card>
+      <DriverBillingCard billing={driver.billing} />
       <DriverPortalAccessCard driver={driver} timezone={timezone} />
       <DriverPncContractsCard driverId={driver.id} timezone={timezone} />
     </TabsContent>

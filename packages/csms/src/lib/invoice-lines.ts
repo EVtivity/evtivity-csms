@@ -38,7 +38,10 @@ export function describeInvoiceLine(
     const date = Number.isNaN(parsed.getTime())
       ? rawDate
       : new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeZone: 'UTC' }).format(parsed);
-    return t('invoices.sessionLine', { date, kwh: formatNumber(energyWh / 1000, 2) });
+    const line = t('invoices.sessionLine', { date, kwh: formatNumber(energyWh / 1000, 2) });
+    // A fleet invoice line names the station; its driver heads the group.
+    const station = typeof meta['stationName'] === 'string' ? meta['stationName'] : '';
+    return station !== '' ? `${line} · ${station}` : line;
   }
   if (!isComponentKind(kind)) return item.description;
   const label = t(`invoices.lineKinds.${kind}`);

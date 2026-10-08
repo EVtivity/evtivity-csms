@@ -8,18 +8,26 @@ import type { TransactionEventResponse } from '../../generated/v2_1/types/messag
 import { prepaidCacheExpiry, prepaidMaxCost } from '../../authorization/prepaid.js';
 import type { AuthorizeTokenInput } from '../../authorization/authorize-context.js';
 import {
+  ACCOUNT_CREDIT_LIMIT_REASON,
   authorizeToken,
   logAuthorizeDecision,
   recordAuthorizeDecision,
 } from '../../authorization/authorize-token.js';
 import { groupIdTokenFor, idTokenStatusFor } from './id-token-info.js';
 import { findAdHocTransactionLimit } from '../ad-hoc-payment-limit.js';
-import { prepaidSessionCeilingCents } from '../prepaid-session-limit.js';
+import {
+  accountSessionCeilingCents,
+  markAccountCeilingSent,
+  prepaidSessionCeilingCents,
+  raiseAccountCeilingAtCostLimit,
+  takeGrownAccountCeiling,
+} from '../prepaid-session-limit.js';
 import { limitToSupported, stationSupportedLimits } from '../supported-limits.js';
 import type { TransactionLimitType } from '../../generated/v2_1/types/common/TransactionLimitType.js';
 import { energyRegisterWh } from '../../server/meter-units.js';
 import {
   projectionQueueFor,
+  sessionGatedKey,
   sessionPricedKey,
   transactionKey,
 } from '../../server/projection-queue.js';
@@ -68,6 +76,18 @@ export async function handleTransactionEvent(
     );
   }
 
+  // Charge on account with a fleet credit limit (plan S8): a station that
+  // suspended at its cost limit (Updated, CostLimitReached, E16.FR.05)
+  // resumes when the limit is raised (E16 scenario 2, step 4a). The ceiling
+  // grows now, before the projection runs, so this response sends it (the
+  // grown ceiling below) and the projection does not claim the session at
+  // the ceiling while the fleet has credit. An Ended transaction (E16.FR.06)
+  // is over: it is claimed as before.
+  const accountCeilingRaised =
+    request.eventType === 'Updated' && request.triggerReason === 'CostLimitReached'
+      ? await raiseCeilingAtCostLimit(ctx, transactionId)
+      : false;
+
   await ctx.eventBus.publish({
     eventType: 'ocpp.TransactionEvent',
     aggregateType: 'Transaction',
@@ -91,6 +111,7 @@ export async function handleTransactionEvent(
       ...(request.eventType === 'Ended' && cost?.calculated === true
         ? { finalCostCents: cost.totalCostCents }
         : {}),
+      ...(accountCeilingRaised ? { accountCeilingRaised: true } : {}),
     },
   });
 
@@ -184,6 +205,41 @@ export async function handleTransactionEvent(
         prepaidCreditCents = ceiling;
       }
     }
+
+    // Charge on account with a fleet credit limit (plan S8): the limit is the
+    // fleet credit the payment gate reserved for this session (its cost
+    // ceiling). No credit left answers NoCredit with no limit; the gate stops
+    // the session. Not known (gate timeout, lookup failure): no limit, the
+    // stored ceiling still caps billing and the MeterValues cost loop stops
+    // the transaction at it.
+    let accountCeilingCents: number | null = null;
+    if (
+      request.eventType === 'Started' &&
+      decision.status === 'accepted' &&
+      !decision.prepaid &&
+      decision.accountFleetId != null
+    ) {
+      const ceiling = await reservedAccountCredit(ctx, transactionId, () =>
+        Promise.race([
+          queue.waitForSignal(
+            sessionGatedKey(ctx.stationId, transactionId),
+            PROJECTION_SETTLE_TIMEOUT_MS,
+          ),
+          queue.settled([transactionLane], PROJECTION_SETTLE_TIMEOUT_MS),
+        ]),
+      );
+      if (ceiling === 0) {
+        decision = {
+          ...decision,
+          status: 'no_credit',
+          outcome: 'no_credit',
+          reason: ACCOUNT_CREDIT_LIMIT_REASON,
+          echoGroupId: false,
+        };
+      } else {
+        accountCeilingCents = ceiling;
+      }
+    }
     logAuthorizeDecision(input, decision, ctx.logger);
     const status = idTokenStatusFor(decision);
     const groupIdToken = groupIdTokenFor(decision, idToken, tokenType);
@@ -220,9 +276,20 @@ export async function handleTransactionEvent(
       }
     }
 
+    let accountLimitCents: number | null = null;
+    if (transactionLimit == null && decision.status === 'accepted' && accountCeilingCents != null) {
+      transactionLimit = { maxCost: prepaidMaxCost(accountCeilingCents) };
+      accountLimitCents = accountCeilingCents;
+    }
+
     if (transactionLimit != null) {
       const sent = await supportedTransactionLimit(ctx, request, transactionLimit);
       if (sent != null) response.transactionLimit = sent;
+      // The station got the account ceiling: a grown ceiling follows on a
+      // later response (plan S8).
+      if (accountLimitCents != null && sent?.maxCost != null) {
+        await recordAccountCeilingSent(ctx, transactionId, accountLimitCents);
+      }
     }
 
     response.idTokenInfo = {
@@ -240,6 +307,21 @@ export async function handleTransactionEvent(
     // this is the only record of the authorization decision for those flows.
     if (request.eventType === 'Started') {
       recordAuthorizeDecision(input, decision, ctx.logger);
+    }
+  }
+
+  // Charge on account with a fleet credit limit (plan S8): the session's cost
+  // ceiling grows while the fleet has credit. A station that got the first
+  // ceiling as transactionLimit.maxCost gets the grown one once, on the next
+  // response (E16.FR.02), so it does not suspend at the old limit, or resumes
+  // when it reported CostLimitReached (raised above).
+  if (request.eventType === 'Updated' && response.transactionLimit == null) {
+    const grown = await grownAccountCeiling(ctx, transactionId);
+    if (grown != null) {
+      const sent = await supportedTransactionLimit(ctx, request, {
+        maxCost: prepaidMaxCost(grown),
+      });
+      if (sent != null) response.transactionLimit = sent;
     }
   }
 
@@ -319,6 +401,105 @@ async function reservedPrepaidCredit(
     ctx.logger.warn(
       { err, stationId: ctx.stationId, transactionId },
       'Prepaid session ceiling lookup failed; sending the balance as transactionLimit.maxCost',
+    );
+    return null;
+  }
+}
+
+/**
+ * The cost ceiling the payment gate reserved for an account session from its
+ * fleet's credit limit (plan S8), or null when it is not known: the gate did
+ * not finish in time, the session is not billed on account, or the lookup
+ * failed (logged at warn). The response then carries no limit: the stored
+ * ceiling still caps billing and the MeterValues cost loop stops at it.
+ */
+async function reservedAccountCredit(
+  ctx: HandlerContext,
+  transactionId: string,
+  waitForGate: () => Promise<boolean>,
+): Promise<number | null> {
+  try {
+    const ceiling = (await waitForGate())
+      ? await accountSessionCeilingCents(ctx.stationId, transactionId)
+      : null;
+    if (ceiling == null) {
+      ctx.logger.warn(
+        { stationId: ctx.stationId, transactionId },
+        'Account session ceiling not known; responding without transactionLimit',
+      );
+    }
+    return ceiling;
+  } catch (err) {
+    ctx.logger.warn(
+      { err, stationId: ctx.stationId, transactionId },
+      'Account session ceiling lookup failed; responding without transactionLimit',
+    );
+    return null;
+  }
+}
+
+/**
+ * markAccountCeilingSent, fail-open (P9): without the record the station only
+ * misses a grown limit; the CSMS still stops the transaction at the ceiling
+ * when the fleet has no credit left.
+ */
+async function recordAccountCeilingSent(
+  ctx: HandlerContext,
+  transactionId: string,
+  ceilingCents: number,
+): Promise<void> {
+  try {
+    await markAccountCeilingSent(ctx.stationId, transactionId, ceilingCents);
+  } catch (err) {
+    ctx.logger.warn(
+      { err, stationId: ctx.stationId, transactionId },
+      'Recording the account ceiling sent to the station failed; grown limits will not be sent',
+    );
+  }
+}
+
+/**
+ * raiseAccountCeilingAtCostLimit. A failure is logged at warn and answers
+ * false: the projection then claims the session at its ceiling as for a fleet
+ * without credit (the station stays suspended at the limit it reached), so a
+ * database failure never lets a session past the fleet limit.
+ */
+async function raiseCeilingAtCostLimit(
+  ctx: HandlerContext,
+  transactionId: string,
+): Promise<boolean> {
+  try {
+    const raised = await raiseAccountCeilingAtCostLimit(ctx.stationId, transactionId);
+    if (raised) {
+      ctx.logger.info(
+        { stationId: ctx.stationId, transactionId },
+        'Account session cost ceiling raised at CostLimitReached; sending the new limit',
+      );
+    }
+    return raised;
+  } catch (err) {
+    ctx.logger.warn(
+      { err, stationId: ctx.stationId, transactionId },
+      'Raising the account ceiling at CostLimitReached failed; the session stays at its limit',
+    );
+    return false;
+  }
+}
+
+/**
+ * takeGrownAccountCeiling, fail-open (P9): a failed lookup sends no new
+ * limit on this response; the next one tries again.
+ */
+async function grownAccountCeiling(
+  ctx: HandlerContext,
+  transactionId: string,
+): Promise<number | null> {
+  try {
+    return await takeGrownAccountCeiling(ctx.stationId, transactionId);
+  } catch (err) {
+    ctx.logger.warn(
+      { err, stationId: ctx.stationId, transactionId },
+      'Grown account ceiling lookup failed; responding without a new transactionLimit',
     );
     return null;
   }

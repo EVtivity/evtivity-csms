@@ -15,6 +15,7 @@ import {
   PG_FOREIGN_KEY_VIOLATION,
 } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
+import { AppError } from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -30,11 +31,50 @@ import {
 } from '../lib/response-schemas.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { INVOICE_LANGUAGES } from '@evtivity/services/invoice-labels';
+
+const MAX_BILLING_CONTACTS = 10;
+
+// The fleet billing profile, as stored on the fleet (features/fleet-billing.md).
+const billingProfileFields = {
+  billingContactEmails: z
+    .array(z.string().email().max(255))
+    .describe('Billing contacts: the fleet invoice is emailed to these addresses'),
+  billingLegalName: z
+    .string()
+    .max(255)
+    .nullable()
+    .describe('Legal name on the invoice bill-to block; null uses the fleet name'),
+  billingStreet: z.string().max(255).nullable().describe('Bill-to street address'),
+  billingCity: z.string().max(100).nullable().describe('Bill-to city'),
+  billingState: z.string().max(100).nullable().describe('Bill-to state or region'),
+  billingZip: z.string().max(20).nullable().describe('Bill-to postal code'),
+  billingCountry: z.string().max(100).nullable().describe('Bill-to country'),
+  billingTaxId: z.string().max(50).nullable().describe('VAT ID or tax ID printed on the invoice'),
+  invoiceLanguage: z
+    .enum(INVOICE_LANGUAGES)
+    .describe('Language of the fleet invoice and its email'),
+  paymentTermsDays: z
+    .number()
+    .int()
+    .min(0)
+    .max(365)
+    .nullable()
+    .describe('Days from issue to the due date; null uses the invoice.paymentTermsDays setting'),
+  autoInvoice: z
+    .boolean()
+    .describe('The monthly run invoices the fleet and emails the invoice to the billing contacts'),
+};
 const fleetListItem = z
   .object({
     id: z.string().describe('Fleet identifier'),
     name: z.string().max(255).describe('Fleet display name'),
     description: z.string().max(1000).nullable().describe('Fleet description'),
+    accountBillingEnabled: z
+      .boolean()
+      .describe(
+        "Charge on account: the members' sessions are billed to the fleet on its invoice (no card, no hold). Members who opted out pay by card.",
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the fleet was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the fleet was last updated'),
     driverCount: z.number().int().min(0).describe('Number of drivers in this fleet'),
@@ -47,6 +87,25 @@ const fleetItem = z
     id: z.string().describe('Fleet identifier'),
     name: z.string().max(255).describe('Fleet display name'),
     description: z.string().max(1000).nullable().describe('Fleet description'),
+    accountBillingEnabled: z
+      .boolean()
+      .describe(
+        "Charge on account: the members' sessions are billed to the fleet on its invoice (no card, no hold). Members who opted out pay by card.",
+      ),
+    ...billingProfileFields,
+    creditLimitCents: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe(
+        'Credit limit of the account billing in cents of the company currency; null: no limit. An account start is refused while the exposure is at or above it.',
+      ),
+    creditLimitWarningPercent: z
+      .number()
+      .int()
+      .optional()
+      .describe('Percent of the credit limit at which the fleet is warned (1 to 99)'),
     createdAt: z.coerce.date().describe('Timestamp when the fleet was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the fleet was last updated'),
   })
@@ -60,6 +119,11 @@ const fleetDriverItem = z
     email: z.string().email().max(255).nullable().describe('Driver email address'),
     phone: z.string().max(50).nullable().describe('Driver phone number in E.164 format'),
     isActive: z.boolean().describe('Whether the driver account is enabled'),
+    accountBillingOptOut: z
+      .boolean()
+      .describe(
+        'The member pays by card although the fleet bills on account (opt-out of charge on account)',
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the driver was created'),
   })
   .passthrough();
@@ -68,6 +132,12 @@ const fleetDriverRecordItem = z
   .object({
     fleetId: z.string().describe('Fleet identifier'),
     driverId: z.string().describe('Driver identifier'),
+    accountBillingOptOut: z
+      .boolean()
+      .optional()
+      .describe(
+        'The member pays by card although the fleet bills on account (opt-out of charge on account)',
+      ),
   })
   .passthrough();
 
@@ -246,6 +316,106 @@ const createFleetBody = z.object({
 const updateFleetBody = z.object({
   name: z.string().max(255).optional(),
   description: z.string().max(500).optional(),
+});
+
+const fleetBillingBody = z.object({
+  accountBillingEnabled: z
+    .boolean()
+    .describe(
+      "Charge on account: bill the members' sessions to the fleet (no card, no hold). Off: members pay by card.",
+    ),
+});
+
+const optionalText = (max: number, what: string) =>
+  z.string().max(max).nullable().optional().describe(`${what}; null or blank clears it`);
+
+const fleetBillingProfileBody = z.object({
+  billingContactEmails: z
+    .array(z.string().trim().email().max(255))
+    .max(MAX_BILLING_CONTACTS)
+    .optional()
+    .describe(
+      `Billing contacts (up to ${String(MAX_BILLING_CONTACTS)} emails), replacing the stored list`,
+    ),
+  billingLegalName: optionalText(255, 'Legal name on the invoice'),
+  billingStreet: optionalText(255, 'Bill-to street address'),
+  billingCity: optionalText(100, 'Bill-to city'),
+  billingState: optionalText(100, 'Bill-to state or region'),
+  billingZip: optionalText(20, 'Bill-to postal code'),
+  billingCountry: optionalText(100, 'Bill-to country'),
+  billingTaxId: optionalText(50, 'VAT ID or tax ID'),
+  invoiceLanguage: z
+    .enum(INVOICE_LANGUAGES)
+    .optional()
+    .describe('Language of the fleet invoice and its email'),
+  paymentTermsDays: z
+    .number()
+    .int()
+    .min(0)
+    .max(365)
+    .nullable()
+    .optional()
+    .describe('Days from issue to the due date; null uses the invoice.paymentTermsDays setting'),
+  autoInvoice: z
+    .boolean()
+    .optional()
+    .describe('The monthly run invoices the fleet (needs at least one billing contact)'),
+});
+
+const fleetCreditLimitBody = z.object({
+  creditLimitCents: z
+    .number()
+    .int()
+    .min(1)
+    .max(2_147_483_647)
+    .nullable()
+    .optional()
+    .describe(
+      'Credit limit in cents of the company currency; null removes the limit. Left out: unchanged.',
+    ),
+  warningPercent: z
+    .number()
+    .int()
+    .min(1)
+    .max(99)
+    .optional()
+    .describe('Percent of the limit at which the fleet is warned (1 to 99). Left out: unchanged.'),
+});
+
+const fleetCreditExposure = z
+  .object({
+    unbilledCents: z.number().int().describe('Ended account sessions on no invoice yet'),
+    invoicedCents: z.number().int().describe('Account sessions on an issued, unpaid invoice'),
+    runningCents: z.number().int().describe('Running cost of active account sessions'),
+    totalCents: z.number().int().describe('Sum of the three: the exposure checked at a start'),
+    currency: z.string().length(3).describe('Company currency of the amounts'),
+  })
+  .passthrough();
+
+const fleetCreditLimitResponse = z
+  .object({
+    creditLimitCents: z
+      .number()
+      .int()
+      .nullable()
+      .describe('Credit limit in cents of the company currency; null: no limit'),
+    warningPercent: z.number().int().describe('Percent of the limit at which the fleet is warned'),
+    exposure: fleetCreditExposure.describe(
+      'What the fleet owes or will owe on account: sessions billed on account (no payment record) in the company currency',
+    ),
+    level: z
+      .enum(['ok', 'warning', 'reached'])
+      .nullable()
+      .describe(
+        'reached: account starts are refused; warning: at or above the warning percent; null: no limit',
+      ),
+  })
+  .passthrough();
+
+const memberBillingBody = z.object({
+  accountBillingOptOut: z
+    .boolean()
+    .describe('True: the member pays by card although the fleet bills on account'),
 });
 
 const addDriverBody = z.object({
@@ -440,17 +610,29 @@ export function fleetRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Delete a fleet',
         operationId: 'deleteFleet',
+        description:
+          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead.',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         response: {
           200: itemResponse(fleetItem),
           404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+          409: errorWith('Fleet has account billing', [ERROR_CODES.FLEET_HAS_OPEN_BILLING]),
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const fleet = await fleetService.deleteFleet(id);
+      let fleet;
+      try {
+        fleet = await fleetService.deleteFleet(id);
+      } catch (err) {
+        if (err instanceof AppError && err.code === 'FLEET_HAS_OPEN_BILLING') {
+          await reply.status(409).send({ error: err.message, code: 'FLEET_HAS_OPEN_BILLING' });
+          return;
+        }
+        throw err;
+      }
       if (fleet == null) {
         await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
         return;
@@ -469,6 +651,172 @@ export function fleetRoutes(app: FastifyInstance): void {
         request.log,
       );
       return fleet;
+    },
+  );
+
+  // --- Billing ---
+
+  app.patch(
+    '/fleets/:id/billing',
+    {
+      onRequest: [authorize('fleets:write')],
+      schema: {
+        tags: ['Fleets'],
+        summary: 'Turn charge on account on or off for a fleet',
+        description:
+          "On: the members' new sessions are billed to the fleet on its invoice, with no card and no hold (members who opted out pay by card). Off: new sessions are paid by card; running sessions keep how they started and unbilled sessions are still billed to the fleet. Turning it on answers 409 FLEET_BILLING_OLD_PODS_CONNECTED (details: oldConnections, hosts, lastOldSeenAt, watchCheckedAt) while processes before v0.1.41 may run. A change is audited (billing_updated) and the worker sends fleet.AccountBillingChanged to each member whose billing it moved (a background job); a request that changes nothing does neither.",
+        operationId: 'updateFleetBilling',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(fleetParams),
+        body: zodSchema(fleetBillingBody),
+        response: {
+          200: itemResponse(fleetItem),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+          409: errorWith('Processes of an older release are connected', [
+            ERROR_CODES.FLEET_BILLING_OLD_PODS_CONNECTED,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof fleetParams>;
+      const { accountBillingEnabled } = request.body as z.infer<typeof fleetBillingBody>;
+      let fleet;
+      try {
+        fleet = await fleetService.setFleetAccountBilling(id, accountBillingEnabled, {
+          actor: getAuditActor(request),
+          log: request.log,
+        });
+      } catch (err) {
+        if (err instanceof fleetService.FleetBillingUpgradePendingError) {
+          await reply.status(409).send({
+            error: err.message,
+            code: 'FLEET_BILLING_OLD_PODS_CONNECTED',
+            details: err.details,
+          });
+          return;
+        }
+        throw err;
+      }
+      if (fleet == null) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
+      return fleet;
+    },
+  );
+
+  app.patch(
+    '/fleets/:id/billing-profile',
+    {
+      onRequest: [authorize('fleets:write')],
+      schema: {
+        tags: ['Fleets'],
+        summary: 'Update the fleet billing profile',
+        description:
+          'Sets who the fleet invoice goes to and how: billing contacts, the bill-to block (legal name, address, VAT or tax ID), the invoice language, the payment terms (overrides the invoice.paymentTermsDays setting) and automatic monthly invoicing. Fields left out keep their value; null or a blank string clears a text field. Turning on automatic invoicing, or removing the last contact while it is on, answers 400 FLEET_BILLING_CONTACT_REQUIRED. A change is audited (billing_updated with the changed fields); a request that changes nothing is not.',
+        operationId: 'updateFleetBillingProfile',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(fleetParams),
+        body: zodSchema(fleetBillingProfileBody),
+        response: {
+          200: itemResponse(fleetItem),
+          400: errorWith('Automatic invoicing needs a billing contact', [
+            ERROR_CODES.FLEET_BILLING_CONTACT_REQUIRED,
+          ]),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof fleetParams>;
+      const body = request.body as z.infer<typeof fleetBillingProfileBody>;
+      let fleet;
+      try {
+        fleet = await fleetService.updateFleetBillingProfile(id, body, {
+          actor: getAuditActor(request),
+          log: request.log,
+        });
+      } catch (err) {
+        if (err instanceof AppError && err.code === 'FLEET_BILLING_CONTACT_REQUIRED') {
+          await reply
+            .status(400)
+            .send({ error: err.message, code: 'FLEET_BILLING_CONTACT_REQUIRED' });
+          return;
+        }
+        throw err;
+      }
+      if (fleet == null) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
+      return fleet;
+    },
+  );
+
+  // --- Credit limit ---
+
+  app.get(
+    '/fleets/:id/credit-limit',
+    {
+      onRequest: [authorize('fleets:read')],
+      schema: {
+        tags: ['Fleets'],
+        summary: "Get a fleet's credit limit and exposure",
+        description:
+          'The credit limit of the account billing and the exposure it is checked against: ended account sessions on no invoice, account sessions on an issued unpaid invoice, and the running cost of active account sessions, in the company currency. Sessions with a payment record are paid by card and do not count.',
+        operationId: 'getFleetCreditLimit',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(fleetParams),
+        response: {
+          200: itemResponse(fleetCreditLimitResponse),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof fleetParams>;
+      const view = await fleetService.getFleetCreditLimit(id);
+      if (view == null) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
+      return view;
+    },
+  );
+
+  app.patch(
+    '/fleets/:id/credit-limit',
+    {
+      onRequest: [authorize('fleets:write')],
+      schema: {
+        tags: ['Fleets'],
+        summary: "Set a fleet's credit limit",
+        description:
+          "Sets the credit limit of the fleet's account billing (null removes it) and the warning percent. A driver start billed to the fleet is refused while the exposure is at or above the limit: the portal answers 402 FLEET_CREDIT_LIMIT_REACHED, and the payment gate stops an RFID start (stopped reason AccountCreditLimit). The fleet is warned once per month at the warning percent (fleet.CreditLimitWarning) and once per month at the limit (fleet.CreditLimitReached). Checked at the start only. A change is audited (billing_updated).",
+        operationId: 'updateFleetCreditLimit',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(fleetParams),
+        body: zodSchema(fleetCreditLimitBody),
+        response: {
+          200: itemResponse(fleetCreditLimitResponse),
+          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof fleetParams>;
+      const body = request.body as z.infer<typeof fleetCreditLimitBody>;
+      const view = await fleetService.setFleetCreditLimit(
+        id,
+        { creditLimitCents: body.creditLimitCents, warningPercent: body.warningPercent },
+        { actor: getAuditActor(request), log: request.log },
+      );
+      if (view == null) {
+        await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+        return;
+      }
+      return view;
     },
   );
 
@@ -571,7 +919,44 @@ export function fleetRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await fleetService.notifyMemberJoined(id, body.driverId, request.log);
       await reply.status(201).send(record);
+    },
+  );
+
+  app.patch(
+    '/fleets/:id/drivers/:driverId',
+    {
+      onRequest: [authorize('fleets:write')],
+      schema: {
+        tags: ['Fleets'],
+        summary: "Set a member's opt-out of charge on account",
+        description:
+          'An opted-out member pays by card although the fleet bills on account. A change is audited (member_billing_opt_out_changed) and the driver gets fleet.AccountBillingChanged when it moved their billing; a request that changes nothing does neither. Running sessions keep how they started.',
+        operationId: 'updateFleetDriverBilling',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(driverParams),
+        body: zodSchema(memberBillingBody),
+        response: {
+          200: itemResponse(fleetDriverRecordItem),
+          404: errorWith('Driver not found in fleet', [ERROR_CODES.DRIVER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, driverId } = request.params as z.infer<typeof driverParams>;
+      const { accountBillingOptOut } = request.body as z.infer<typeof memberBillingBody>;
+      const record = await fleetService.setMemberBillingOptOut(id, driverId, accountBillingOptOut, {
+        actor: getAuditActor(request),
+        log: request.log,
+      });
+      if (record == null) {
+        await reply
+          .status(404)
+          .send({ error: 'Driver not found in fleet', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
+      return record;
     },
   );
 
@@ -613,6 +998,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await fleetService.notifyMemberLeft(record, request.log);
       return record;
     },
   );

@@ -3,6 +3,7 @@
 
 import { create } from 'zustand';
 import { api, ApiError } from './api';
+import { queryClient } from './query';
 import { loadLanguage } from '../i18n/index';
 import { applyTheme, type Theme } from './theme';
 import type { PriceDisplay } from '@evtivity/lib/price-display';
@@ -165,6 +166,9 @@ export const useAuth = create<AuthState>((set, get) => ({
     localStorage.removeItem('portal_theme');
     localStorage.removeItem('portal_distance_unit');
     set({ driver: null, isAuthenticated: false });
+    // Drop every cached driver query (billing, sessions, payment methods), so
+    // the next driver to sign in on this browser never sees this driver's data.
+    queryClient.clear();
   },
 
   hydrate: () => {

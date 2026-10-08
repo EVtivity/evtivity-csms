@@ -10,7 +10,7 @@ const { mockRecord, redisInstances, redisListeners } = vi.hoisted(() => ({
   redisListeners: [] as string[],
 }));
 
-vi.mock('@evtivity/payments', () => ({ recordProcessWatch: mockRecord }));
+vi.mock('@evtivity/database', () => ({ recordProcessWatch: mockRecord }));
 vi.mock('ioredis', () => ({
   Redis: class {
     constructor(url: string, options: unknown) {
@@ -39,7 +39,7 @@ beforeEach(() => {
 describe('processVersionWatchHandler', () => {
   it('records the watch through one Redis client and logs old processes at info', async () => {
     mockRecord.mockResolvedValue({
-      check: { legacy: 2, hosts: ['10.0.0.7'] },
+      check: { connections: 2, hosts: ['10.0.0.7'] },
       state: { checkedAt: 'now', legacySeenAt: 'now' },
     });
     const log = makeLog();
@@ -59,7 +59,7 @@ describe('processVersionWatchHandler', () => {
 
   it('logs at debug when no old process is connected', async () => {
     mockRecord.mockResolvedValue({
-      check: { legacy: 0, hosts: [] },
+      check: { connections: 0, hosts: [] },
       state: { checkedAt: 'now', legacySeenAt: null },
     });
     const log = makeLog();

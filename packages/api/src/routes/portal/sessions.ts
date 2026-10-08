@@ -26,6 +26,11 @@ import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { paginationQuery } from '../../lib/pagination.js';
 import type { PaginatedResponse } from '../../lib/pagination.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
+import {
+  sessionAccountBillingColumns,
+  sessionAccountBillingSchema,
+  withAccountBilling,
+} from '../../lib/portal-billing.js';
 
 const portalSessionListItem = z
   .object({
@@ -67,6 +72,11 @@ const portalSessionListItem = z
       .string()
       .nullable()
       .describe('Reservation ID this session was started from, if any'),
+    accountBilling: sessionAccountBillingSchema
+      .nullable()
+      .describe(
+        'Set when the session is billed to a fleet (charge on account): the billing state and the fleet. Null for a session paid by card or not billed',
+      ),
   })
   .passthrough();
 
@@ -337,6 +347,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
             siteCity: sites.city,
             siteState: sites.state,
             reservationId: chargingSessions.reservationId,
+            ...sessionAccountBillingColumns(),
           })
           .from(chargingSessions)
           .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
@@ -351,8 +362,9 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           .where(whereClause),
       ]);
 
-      return { data, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
-        (typeof data)[number]
+      const items = data.map(withAccountBilling);
+      return { data: items, total: countRows[0]?.count ?? 0 } satisfies PaginatedResponse<
+        (typeof items)[number]
       >;
     },
   );
@@ -519,6 +531,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           vehicleMake: vehicles.make,
           vehicleModel: vehicles.model,
           vehicleYear: vehicles.year,
+          ...sessionAccountBillingColumns(),
         })
         .from(chargingSessions)
         .leftJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
@@ -600,7 +613,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         vehicleYear,
         costBreakdown,
         ...sessionRest
-      } = session;
+      } = withAccountBilling(session);
       const costTax = storedSessionCostTax({
         costCents: session.finalCostCents ?? session.currentCostCents,
         costBreakdown,

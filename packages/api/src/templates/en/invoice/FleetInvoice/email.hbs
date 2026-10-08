@@ -1,0 +1,12 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>Invoice {{invoiceNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Hello,</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{companyName}} issued the invoice for the charging sessions of <strong>{{fleetName}}</strong> in {{periodLabel}}. The invoice is attached as a PDF.</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Invoice</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Period</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{periodLabel}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Charging sessions</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{sessionCount}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Issued</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Due</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{dueAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>Amount due</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Please pay the amount by the due date.</p>

@@ -13,6 +13,7 @@ import { costContainsTax } from '@evtivity/lib/price-display';
 import { formatCents, formatEnergy, formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+import type { SessionAccountBilling } from '@/lib/fleet-billing';
 
 interface Session {
   id: string;
@@ -26,6 +27,8 @@ interface Session {
   currency: string;
   stationName: string | null;
   siteName: string | null;
+  /** Set when the session is billed to a fleet (charge on account). */
+  accountBilling?: SessionAccountBilling | null;
 }
 
 interface SessionsResponse {
@@ -101,6 +104,14 @@ export function Sessions(): React.JSX.Element {
                         })
                       : formatCents(session.finalCostCents, session.currency)}
                   </p>
+                  {session.accountBilling != null && (
+                    <p className="text-xs text-muted-foreground">
+                      {t('fleetBilling.sessionLine', {
+                        fleet: session.accountBilling.fleetName,
+                        state: t(`fleetBilling.state.${session.accountBilling.state}`),
+                      })}
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>

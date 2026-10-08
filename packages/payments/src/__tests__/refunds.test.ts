@@ -41,6 +41,7 @@ function record(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
     sessionId: 's1',
     driverId: 'd1',
     sitePaymentConfigId: null,
+    invoiceId: null,
     provider: 'stripe',
     providerPaymentId: 'pi_1',
     providerCustomerId: 'cus_1',

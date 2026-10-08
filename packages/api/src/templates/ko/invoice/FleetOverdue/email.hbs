@@ -1,0 +1,11 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>납부 안내: 청구서 {{invoiceNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>안녕하세요.</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>{{fleetName}}</strong>의 {{periodLabel}} 충전 세션 청구서의 납부 기한({{dueAt}})이 지났으나 아직 납부되지 않았습니다. 청구서를 PDF로 다시 첨부합니다.</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>청구서</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>기간</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{periodLabel}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>발행일</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>납부 기한</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{dueAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>청구 금액</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>금액을 조속히 납부해 주십시오. 이미 납부하셨다면 이 안내는 무시하셔도 됩니다.</p>

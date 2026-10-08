@@ -12,6 +12,7 @@ import {
   type TaxBasis,
 } from '@evtivity/lib/price-display';
 import { formatFlatPrice, formatTaxPercent, formatUnitPrice } from '@/lib/utils';
+import type { DriverBilling } from '@/lib/fleet-billing';
 
 export interface TariffRestrictionsLite {
   timeRange?: { startTime: string; endTime: string };
@@ -32,6 +33,8 @@ export interface PricingInfo {
   taxBasis?: TaxBasis;
   isFreeVend?: boolean;
   restrictions?: TariffRestrictionsLite | null;
+  /** How the driver pays a session started here; null at a free vend site. */
+  billing?: DriverBilling | null;
 }
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;

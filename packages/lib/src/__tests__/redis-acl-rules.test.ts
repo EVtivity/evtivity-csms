@@ -141,7 +141,7 @@ describe('docker/redis/acl-rules.conf', () => {
 
   it('grants each process its keys and nothing outside them', () => {
     const watchKey = /PROCESS_VERSION_WATCH_KEY = '([^']+)'/.exec(
-      readFileSync(join(ROOT, 'packages/payments/src/provider-switch-guard.ts'), 'utf8'),
+      readFileSync(join(ROOT, 'packages/database/src/lib/process-versions.ts'), 'utf8'),
     )?.[1];
     const registryPrefix = /KEY_PREFIX = '([^']+)'/.exec(
       readFileSync(join(ROOT, 'packages/lib/src/connection-registry.ts'), 'utf8'),

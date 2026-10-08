@@ -16,6 +16,9 @@ import {
   getCompanyTaxBasis,
   isStationLevelUnavailable,
   isStationChargingFree,
+  resolveAccountBilling,
+  sessionBillingColumns,
+  checkFleetCreditLimit,
   resolveStationTariff,
 } from '@evtivity/database';
 import { decryptString, notificationMoney, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
@@ -41,12 +44,7 @@ import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { scheduleRemoteStartTimeout } from '../../lib/remote-start-timeout.js';
-import {
-  errorResponse,
-  itemResponse,
-  arrayResponse,
-  errorWith,
-} from '../../lib/response-schemas.js';
+import { itemResponse, arrayResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { getS3Config, generateDownloadUrl } from '../../services/s3.service.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
@@ -66,11 +64,16 @@ import {
   setCachedConnectorStatus,
 } from '../../lib/rate-limiters.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
-import { authorizeSessionHold, cancelOpenSessionHold } from '@evtivity/payments';
+import {
+  authorizeSessionHold,
+  cancelOpenSessionHold,
+  dispatchFleetCreditLimitNotices,
+} from '@evtivity/payments';
 import { activePaymentProvider, paymentContext } from '../../lib/payments.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
+import { driverBillingSchema, toDriverBilling } from '../../lib/portal-billing.js';
 
 // The seeded default map view (`googleMaps.default*` in seed.ts and migration
 // 0001): the center of the contiguous United States. Used when a row is missing
@@ -427,6 +430,11 @@ const portalPricingInfo = z
       .describe(
         'When present, identifies the conditions under which the resolved tariff applies (time-of-day, days-of-week, seasonal date range, holiday-only, or energy threshold). Drivers should see this so they understand why a non-default rate is showing -- otherwise a "Peak rate $0.50/kWh" reads like the always-on price when it actually only applies 09:00-17:00.',
       ),
+    billing: driverBillingSchema
+      .nullable()
+      .describe(
+        'How the driver pays a session started at this charger: account (billed to a fleet, no payment method needed, no hold) or card. Null at a free vend site, where nothing is billed',
+      ),
   })
   .passthrough();
 
@@ -683,6 +691,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           taxBasis: await getCompanyTaxBasis(),
           isFreeVend: true,
           restrictions: null,
+          billing: null,
         };
       }
 
@@ -705,6 +714,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         taxBasis: await getCompanyTaxBasis(),
         isFreeVend: false,
         restrictions: tariff.restrictions ?? null,
+        billing: toDriverBilling(await resolveAccountBilling(client, driverId)),
       };
     },
   );
@@ -1627,7 +1637,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         tags: ['Portal Chargers'],
         summary: 'Start a charging session on a charger EVSE',
         description:
-          'Validates connector availability, performs a fail-fast pre-authorization with the active payment provider on the supplied payment method (skipped for free tariffs), then dispatches RequestStartTransaction (OCPP 2.1) or RemoteStartTransaction (OCPP 1.6) to the station. On TxInProgress rejection, attempts ghost-transaction recovery (RequestStop + retry). Returns 402 PAYMENT_PREAUTH_FAILED if the card is declined, 400 if the connector is not in a startable state, 502/504 on station rejection or timeout.',
+          'Validates connector availability, performs a fail-fast pre-authorization with the active payment provider on the supplied payment method (skipped for free tariffs and for drivers whose fleet bills on account, who need no payment method), then dispatches RequestStartTransaction (OCPP 2.1) or RemoteStartTransaction (OCPP 1.6) to the station. On TxInProgress rejection, attempts ghost-transaction recovery (RequestStop + retry). Returns 402 PAYMENT_PREAUTH_FAILED if the card is declined, 402 FLEET_CREDIT_LIMIT_REACHED when the billing fleet of the driver is at its credit limit, 400 if the connector is not in a startable state, 502/504 on station rejection or timeout.',
         operationId: 'portalStartCharging',
         security: [{ bearerAuth: [] }],
         params: zodSchema(chargerParams),
@@ -1640,7 +1650,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             ERROR_CODES.SESSION_ALREADY_ACTIVE,
             ERROR_CODES.STATION_OFFLINE,
           ]),
-          402: errorResponse,
+          402: errorWith('Payment required', [
+            ERROR_CODES.FLEET_CREDIT_LIMIT_REACHED,
+            ERROR_CODES.PAYMENT_PREAUTH_FAILED,
+          ]),
           403: errorWith('Forbidden', [
             ERROR_CODES.CONNECTOR_RESERVED,
             ERROR_CODES.STATION_OFFLINE,
@@ -1833,9 +1846,41 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // asynchronously.
       const paymentProvider = await activePaymentProvider(request.log);
 
+      // Charge on account: a driver whose fleet bills on account needs no card
+      // and gets no hold, with or without a payment provider. Free vend comes
+      // first (nothing is billed, no stamp); the session is stamped below.
+      const freeVend = station.freeVendEnabled === true;
+      const accountBilling = freeVend ? null : await resolveAccountBilling(client, driverId);
+
+      // Fleet credit limit: an account start is refused while the fleet has
+      // no credit left (its exposure at or above the limit, or its running
+      // sessions reserving the rest, plan S8), read under the fleet row lock.
+      // The payment gate checks again at Started and reserves the session's
+      // ceiling (P11).
+      // The fleet's warning and reached notices go out once per month,
+      // fail-open (P9).
+      if (accountBilling != null) {
+        const credit = await checkFleetCreditLimit(client, accountBilling.fleetId);
+        if (credit != null && credit.level !== 'ok') {
+          void dispatchFleetCreditLimitNotices(
+            credit,
+            { templatesDirs: ALL_TEMPLATES_DIRS },
+            request.log,
+          );
+        }
+        if (credit != null && (credit.level === 'reached' || credit.remainingCents <= 0)) {
+          await reply.status(402).send({
+            error:
+              'The credit limit of the fleet your sessions are billed to is reached. Contact your fleet manager.',
+            code: 'FLEET_CREDIT_LIMIT_REACHED',
+          });
+          return;
+        }
+      }
+
       let pmForPreAuth: { id: number } | null = null;
 
-      if (paymentProvider != null) {
+      if (paymentProvider != null && accountBilling == null) {
         // Check if pricing is free for this driver. Free-vend wins over the
         // tariff lookup: event-projections skips the payment gate for
         // free-vend sites, so demanding a payment method here would block
@@ -1848,7 +1893,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             stationUuid: station.id,
             driverUuid: driverId,
             reserved: activeReservation?.driverId === driverId,
-            freeVend: station.freeVendEnabled === true,
+            freeVend,
           },
           client,
         );
@@ -1929,6 +1974,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           startedAt: new Date(),
           remoteStartId,
           currency: sessionCurrency,
+          // Write-once billing stamp (the gate keeps it): card or account.
+          ...(freeVend ? {} : sessionBillingColumns(accountBilling)),
         })
         .returning({ id: chargingSessions.id });
 

@@ -3,7 +3,7 @@
 
 import type { Logger } from 'pino';
 import type { Redis } from 'ioredis';
-import { recordProcessWatch } from '@evtivity/payments';
+import { recordProcessWatch } from '@evtivity/database';
 import { createRedisClient } from '@evtivity/lib';
 
 let redis: Redis | null = null;
@@ -29,9 +29,9 @@ function watchStore(): Redis {
 export async function processVersionWatchHandler(log: Logger): Promise<void> {
   try {
     const { check } = await recordProcessWatch(watchStore());
-    if (check.legacy > 0) {
+    if (check.connections > 0) {
       log.info(
-        { legacyConnections: check.legacy, hosts: check.hosts },
+        { legacyConnections: check.connections, hosts: check.hosts },
         'Processes older than v0.1.38 are connected to the database',
       );
     } else {

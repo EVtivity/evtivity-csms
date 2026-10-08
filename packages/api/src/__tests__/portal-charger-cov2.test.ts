@@ -107,6 +107,11 @@ vi.mock('@evtivity/database', async () => ({
   reservationDiffChanged: vi.fn().mockReturnValue(false),
   resolveStationTariff: vi.fn().mockResolvedValue(null),
   isStationChargingFree: vi.fn().mockResolvedValue(true),
+  resolveAccountBilling: vi.fn().mockResolvedValue(null),
+  sessionBillingColumns: (billing: { fleetId: string } | null) =>
+    billing == null
+      ? { billingMode: 'card', billingFleetId: null }
+      : { billingMode: 'account', billingFleetId: billing.fleetId },
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -442,6 +447,7 @@ describe('Portal charger routes - remaining branches', () => {
         taxBasis: 'net',
         isFreeVend: true,
         restrictions: null,
+        billing: null,
       });
     });
   });

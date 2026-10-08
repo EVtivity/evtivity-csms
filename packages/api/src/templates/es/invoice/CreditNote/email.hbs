@@ -1,0 +1,11 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>Nota de crédito {{creditNoteNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Hola, {{firstName}}:</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{companyName}} ha emitido una nota de crédito que anula por completo la factura {{invoiceNumber}}.</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Nota de crédito</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditNoteNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Factura</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Emitida</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Motivo</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditReason}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>Importe acreditado</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+{{#if wasPaid}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Ya pagó esta factura. El importe se le reembolsará por separado.</p>{{/if}}

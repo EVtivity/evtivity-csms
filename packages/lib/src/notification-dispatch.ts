@@ -1041,6 +1041,12 @@ export async function recordNotificationAttempt(
 
 // --- System notification dispatch ---
 
+/**
+ * Sends a system event to one recipient: email and SMS, rendered in the
+ * recipient's language, and records each attempt. `attachments` go with the
+ * email only (SMTP; the SMS ignores them), such as the PDF of a fleet invoice.
+ * Fail-open: an error is logged, never thrown.
+ */
 export async function dispatchSystemNotification(
   sql: postgres.Sql,
   eventType: string,
@@ -1055,6 +1061,7 @@ export async function dispatchSystemNotification(
   },
   variables: Record<string, unknown>,
   templatesDir?: string | string[],
+  attachments?: EmailAttachment[],
 ): Promise<void> {
   try {
     // System events are always on. A driver event sent through this dispatcher
@@ -1130,6 +1137,7 @@ export async function dispatchSystemNotification(
           rendered.subject,
           rendered.body,
           wrappedHtml,
+          attachments,
         );
         status = ok ? 'sent' : 'failed';
         if (!ok) {

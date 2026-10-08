@@ -39,7 +39,8 @@ import { enqueueGuestSessionEnded, enqueueGuestSessionStarted } from './guest-se
  * Not rebuilt (Redis was their only copy): delayed simulated provider events
  * in `payment-webhooks` (test provider only), `maintenance-fanout` jobs not
  * yet run (the `maintenance-scheduler` cron or an operator re-save triggers
- * them again), `station-watch` dispatches not yet run, and queued OCTT runs.
+ * them again), `fleet-billing-fanout` jobs not yet run (only driver notices
+ * are lost), `station-watch` dispatches not yet run, and queued OCTT runs.
  * The worker also rebuilds at startup, which covers a worker that restarted
  * together with Redis.
  */

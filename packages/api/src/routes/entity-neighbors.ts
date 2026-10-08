@@ -59,6 +59,9 @@ interface NeighborTarget {
   // undefined when the resource is not site-scoped. `siteIds` is non-null
   // only for restricted users.
   scopeWhere?: (siteIds: string[]) => SQL | undefined;
+  // True when scopeWhere does not depend on the sites: a restricted user with
+  // no site is then scoped like any restricted user instead of answered 404.
+  scopeServesNoSites?: boolean;
 }
 
 const stationSiteSubquery = (siteIds: string[]): SQL =>
@@ -164,6 +167,10 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'INVOICE_NOT_FOUND',
     idColumn: invoices.id,
     createdAtColumn: invoices.createdAt,
+    // A fleet invoice spans sites: restricted users see driver invoices only,
+    // matching the list and the per-invoice routes.
+    scopeWhere: () => isNull(invoices.fleetId),
+    scopeServesNoSites: true,
   },
   {
     path: '/support-cases/:id/neighbors',
@@ -314,7 +321,7 @@ export function entityNeighborRoutes(app: FastifyInstance): void {
         if (target.scopeWhere != null) {
           const { userId } = request.user as JwtPayload;
           const siteIds = await getUserSiteIds(userId);
-          if (siteIds != null && siteIds.length === 0) {
+          if (siteIds != null && siteIds.length === 0 && target.scopeServesNoSites !== true) {
             await reply.status(404).send({ error: 'Not found', code: target.notFoundCode });
             return;
           }

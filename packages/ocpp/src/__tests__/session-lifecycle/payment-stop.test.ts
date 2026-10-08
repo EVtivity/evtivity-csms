@@ -35,7 +35,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => ({
   dispatchOneShotStationMessage: mockDispatchOneShot,
 }));
 
-const { stopSessionForPayment, costLimitReported, notePrepaidCostLimitReached } =
+const { stopSessionForPayment, costLimitReported, noteCostLimitReached, ceilingStopReason } =
   await import('../../server/session-lifecycle/payment-stop.js');
 
 const target = {
@@ -128,7 +128,7 @@ describe('stopSessionForPayment', () => {
     });
     await stopSessionForPayment(h.deps, target, 'GuestHoldExhausted');
     expect(calls).toEqual(['claim', 'publish']);
-    expect(h.sql.mock.calls[0]?.slice(1)).toEqual(['GuestHoldExhausted', 'sess-1', false]);
+    expect(h.sql.mock.calls[0]?.slice(1)).toEqual(['GuestHoldExhausted', 'sess-1', 'any', 'any']);
     expect(mockPublishOcppCommand).toHaveBeenCalledWith(h.pubsub, {
       stationId: 'CS-1',
       action: 'RequestStopTransaction',
@@ -148,7 +148,12 @@ describe('stopSessionForPayment', () => {
     });
     await stopSessionForPayment(h.deps, target, 'PrepaidCreditExhausted');
     expect(calls).toEqual(['claim', 'publish', 'settings', 'message', 'notice']);
-    expect(h.sql.mock.calls[0]?.slice(1)).toEqual(['PrepaidCreditExhausted', 'sess-1', false]);
+    expect(h.sql.mock.calls[0]?.slice(1)).toEqual([
+      'PrepaidCreditExhausted',
+      'sess-1',
+      'any',
+      'any',
+    ]);
     expect(mockDispatchOneShot).toHaveBeenCalledWith(
       h.pubsub,
       h.sql,
@@ -261,6 +266,138 @@ describe('stopSessionForPayment', () => {
     });
   }
 
+  describe('AccountCreditLimit', () => {
+    const noticeRow = { driver_id: 'drv-1', fleet_name: 'Acme', site_name: 'Main Site' };
+
+    function accountHarness(rows: unknown[] = [noticeRow]): Harness {
+      const h = makeHarness();
+      h.sql.mockImplementation((strings: TemplateStringsArray) => {
+        const text = strings.join('?');
+        if (text.includes('FROM settings')) {
+          calls.push('settings');
+        } else if (text.includes('session_tariff_segments')) {
+          calls.push('segments');
+        } else if (text.includes('LEFT JOIN fleets')) {
+          calls.push('notice-read');
+          return Promise.resolve(rows);
+        }
+        return Promise.resolve([] as unknown[]);
+      });
+      return h;
+    }
+
+    it('faults before it publishes, shows the limit message and notifies the driver once', async () => {
+      const h = accountHarness();
+      await stopSessionForPayment(h.deps, target, 'AccountCreditLimit');
+      expect(calls).toEqual([
+        'fault',
+        'segments',
+        'publish',
+        'settings',
+        'message',
+        'notice-read',
+        'notice',
+        'audit',
+      ]);
+      expect(mockFaultUnbilledSession).toHaveBeenCalledWith(h.sql, {
+        sessionId: 'sess-1',
+        reason: 'AccountCreditLimit',
+        endedAt: expect.any(Date) as Date,
+      });
+      expect(mockDispatchOneShot).toHaveBeenCalledWith(
+        h.pubsub,
+        h.sql,
+        expect.objectContaining({ state: 'account_credit_limit' }),
+        { ttlSeconds: 30, autoClearMs: 30_000 },
+      );
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        h.sql,
+        'payment.AccountCreditLimit',
+        'drv-1',
+        { fleetName: 'Acme', siteName: 'Main Site', stationId: 'CS-1', transactionId: 'tx-1' },
+        ['templates'],
+        h.pubsub,
+      );
+      expect(h.track).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends no second notice when the session was already faulted', async () => {
+      const h = accountHarness();
+      mockFaultUnbilledSession.mockResolvedValueOnce(false);
+      await stopSessionForPayment(h.deps, target, 'AccountCreditLimit');
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
+      expect(calls).toContain('publish');
+    });
+
+    it('notifies nobody for a session without a driver', async () => {
+      const h = accountHarness([{ driver_id: null, fleet_name: 'Acme', site_name: null }]);
+      await stopSessionForPayment(h.deps, target, 'AccountCreditLimit');
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
+    });
+
+    it('logs a failed notice at warn', async () => {
+      const h = accountHarness();
+      mockDispatchDriver.mockRejectedValueOnce(new Error('smtp down'));
+      await stopSessionForPayment(h.deps, target, 'AccountCreditLimit');
+      await (h.track.mock.calls[0]?.[0] as Promise<unknown>);
+      expect(h.logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'sess-1' }),
+        'Account credit limit notice failed; continuing',
+      );
+    });
+
+    describe('at the ceiling (plan S8)', () => {
+      function ceilingHarness(claimed: boolean): Harness {
+        const h = accountHarness();
+        const read = h.sql.getMockImplementation();
+        h.sql.mockImplementation((strings: TemplateStringsArray, ...values: unknown[]) => {
+          if (strings.join('?').includes('SET stopped_reason')) {
+            calls.push('claim');
+            return Promise.resolve(claimed ? [claimRow] : []);
+          }
+          return read != null ? read(strings, ...values) : Promise.resolve([]);
+        });
+        return h;
+      }
+
+      it('claims the session without a fault, publishes, then shows the message and notifies', async () => {
+        const h = ceilingHarness(true);
+        await stopSessionForPayment(h.deps, target, 'AccountCreditLimit', { atCeiling: true });
+        expect(calls).toEqual(['claim', 'publish', 'settings', 'message', 'notice-read', 'notice']);
+        expect(h.sql.mock.calls[0]?.slice(1)).toEqual([
+          'AccountCreditLimit',
+          'sess-1',
+          'any',
+          'any',
+        ]);
+        expect(mockFaultUnbilledSession).not.toHaveBeenCalled();
+        expect(mockDispatchOneShot).toHaveBeenCalledWith(
+          h.pubsub,
+          h.sql,
+          expect.objectContaining({ state: 'account_credit_limit' }),
+          expect.any(Object),
+        );
+        expect(mockDispatchDriver).toHaveBeenCalledWith(
+          h.sql,
+          'payment.AccountCreditLimit',
+          'drv-1',
+          expect.objectContaining({ fleetName: 'Acme' }),
+          ['templates'],
+          h.pubsub,
+        );
+        expect(h.audit).not.toHaveBeenCalled();
+      });
+
+      it('sends nothing when another call claimed the session', async () => {
+        const h = ceilingHarness(false);
+        await stopSessionForPayment(h.deps, target, 'AccountCreditLimit', { atCeiling: true });
+        expect(calls).toEqual(['claim']);
+        expect(mockPublishOcppCommand).not.toHaveBeenCalled();
+        expect(mockDispatchDriver).not.toHaveBeenCalled();
+      });
+    });
+  });
+
   it('skips the audit when the session was not faulted', async () => {
     const h = makeHarness();
     mockFaultUnbilledSession.mockResolvedValueOnce(false);
@@ -358,7 +495,7 @@ describe('stopSessionForPayment', () => {
     });
   }
 
-  describe('notePrepaidCostLimitReached', () => {
+  describe('noteCostLimitReached', () => {
     it('claims a prepaid session with the stop claim, then shows the message and notifies, without a stop', async () => {
       const h = makeHarness();
       h.sql.mockImplementationOnce((strings: TemplateStringsArray) => {
@@ -366,11 +503,17 @@ describe('stopSessionForPayment', () => {
         const text = strings.join('?');
         expect(text).toContain('stopped_reason IS NULL');
         expect(text).toContain('token_id IS NOT NULL AND cost_ceiling_cents IS NOT NULL');
+        expect(text).toContain("billing_mode IS DISTINCT FROM 'account'");
         return Promise.resolve([claimRow]);
       });
-      await expect(notePrepaidCostLimitReached(h.deps, target)).resolves.toBe(true);
+      await expect(noteCostLimitReached(h.deps, target)).resolves.toBe(true);
       expect(calls).toEqual(['claim', 'settings', 'message', 'notice']);
-      expect(h.sql.mock.calls[0]?.slice(1)).toEqual(['PrepaidCreditExhausted', 'sess-1', true]);
+      expect(h.sql.mock.calls[0]?.slice(1)).toEqual([
+        'PrepaidCreditExhausted',
+        'sess-1',
+        'prepaid',
+        'prepaid',
+      ]);
       expect(mockPublishOcppCommand).not.toHaveBeenCalled();
       expect(mockDispatchOneShot).toHaveBeenCalledWith(
         h.pubsub,
@@ -395,10 +538,73 @@ describe('stopSessionForPayment', () => {
       expect(mockDispatchOneShot).toHaveBeenCalledTimes(1);
     });
 
-    it('sends nothing when the session is already claimed or not prepaid', async () => {
+    it('claims an account session once with the account reason (plan S8)', async () => {
       const h = makeHarness();
-      await expect(notePrepaidCostLimitReached(h.deps, target)).resolves.toBe(false);
+      h.sql.mockImplementationOnce(() => {
+        calls.push('claim');
+        return Promise.resolve([]);
+      });
+      h.sql.mockImplementationOnce(() => {
+        calls.push('claim');
+        return Promise.resolve([{ ...claimRow, id_token: null }]);
+      });
+      h.sql.mockImplementationOnce(() => {
+        calls.push('settings');
+        return Promise.resolve([]);
+      });
+      h.sql.mockImplementationOnce(() => {
+        calls.push('notice-read');
+        return Promise.resolve([{ driver_id: 'drv-1', fleet_name: 'Acme', site_name: null }]);
+      });
+      await expect(noteCostLimitReached(h.deps, target)).resolves.toBe(true);
+      expect(calls).toEqual(['claim', 'claim', 'settings', 'message', 'notice-read', 'notice']);
+      expect(h.sql.mock.calls[1]?.slice(1)).toEqual([
+        'AccountCreditLimit',
+        'sess-1',
+        'account',
+        'account',
+      ]);
+      expect(sqlText(h.sql.mock.calls[1] ?? [])).toContain(
+        "billing_mode = 'account' AND cost_ceiling_cents IS NOT NULL",
+      );
+      expect(mockPublishOcppCommand).not.toHaveBeenCalled();
+      expect(mockDispatchOneShot).toHaveBeenCalledWith(
+        h.pubsub,
+        h.sql,
+        expect.objectContaining({ state: 'account_credit_limit' }),
+        expect.any(Object),
+      );
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        h.sql,
+        'payment.AccountCreditLimit',
+        'drv-1',
+        expect.objectContaining({ fleetName: 'Acme' }),
+        ['templates'],
+        h.pubsub,
+      );
+    });
+
+    it('leaves an account session unclaimed when its ceiling was raised at the report', async () => {
+      const h = makeHarness();
+      await expect(
+        noteCostLimitReached(h.deps, target, { accountCeilingRaised: true }),
+      ).resolves.toBe(false);
+      // Only the prepaid claim ran (a prepaid session is unchanged); no account claim.
       expect(calls).toEqual(['claim']);
+      expect(h.sql.mock.calls[0]?.slice(1)).toEqual([
+        'PrepaidCreditExhausted',
+        'sess-1',
+        'prepaid',
+        'prepaid',
+      ]);
+      expect(mockDispatchOneShot).not.toHaveBeenCalled();
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
+    });
+
+    it('sends nothing when the session is already claimed or has no prepaid or account ceiling', async () => {
+      const h = makeHarness();
+      await expect(noteCostLimitReached(h.deps, target)).resolves.toBe(false);
+      expect(calls).toEqual(['claim', 'claim']);
       expect(mockDispatchOneShot).not.toHaveBeenCalled();
       expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
@@ -407,9 +613,22 @@ describe('stopSessionForPayment', () => {
       const h = makeHarness();
       const lost = new Error('connection lost');
       h.sql.mockImplementationOnce(() => Promise.reject(lost));
-      await expect(notePrepaidCostLimitReached(h.deps, target)).rejects.toBe(lost);
+      await expect(noteCostLimitReached(h.deps, target)).rejects.toBe(lost);
       expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('ceilingStopReason', () => {
+  it('derives the stop reason from how the session is paid', () => {
+    expect(ceilingStopReason({ billingMode: 'account', tokenId: 'tok-1' })).toBe(
+      'AccountCreditLimit',
+    );
+    expect(ceilingStopReason({ billingMode: null, tokenId: 'tok-1' })).toBe(
+      'PrepaidCreditExhausted',
+    );
+    expect(ceilingStopReason({ billingMode: null, tokenId: null })).toBe('GuestHoldExhausted');
+    expect(ceilingStopReason({ billingMode: 'card', tokenId: null })).toBe('GuestHoldExhausted');
   });
 });
 

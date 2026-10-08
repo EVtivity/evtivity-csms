@@ -11,17 +11,22 @@ const { query } = vi.hoisted(() => ({
   query: vi.fn<(...args: unknown[]) => Promise<unknown[]>>(),
 }));
 
-vi.mock('@evtivity/database', () => ({
+// The shared release guard runs for real on the mocked client.
+vi.mock('../../../database/src/config.js', () => ({ client: query }));
+vi.mock('@evtivity/database', async () => ({
   db: {},
   settings: {},
   sitePaymentConfigs: {},
   client: query,
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/process-versions.js',
+  )),
 }));
 
 import { createPaymentRegistry } from '../create-registry.js';
 import { describePaymentProviders } from '../provider-catalog.js';
-import { PROCESS_VERSION_WATCH_KEY } from '../provider-switch-guard.js';
-import type { ProcessWatchStore } from '../provider-switch-guard.js';
+import { PROCESS_VERSION_WATCH_KEY } from '../../../database/src/lib/process-versions.js';
+import type { ProcessWatchStore } from '../../../database/src/lib/process-versions.js';
 import type { PaymentSettings } from '../settings.js';
 import { defaultSimulatedSettings, emptyAdyenSettings } from './helpers/settings.js';
 
@@ -66,7 +71,7 @@ beforeEach(() => {
 
 describe('describePaymentProviders with the provider-switch guard', () => {
   it('lists Adyen as selectable when the guard allows it', async () => {
-    query.mockResolvedValue([{ legacy: 0, hosts: [] }]);
+    query.mockResolvedValue([]);
     const entries = await describePaymentProviders(
       registry,
       watch({ checkedAt: new Date().toISOString(), legacySeenAt: null }),
@@ -80,7 +85,7 @@ describe('describePaymentProviders with the provider-switch guard', () => {
   });
 
   it('lists Adyen as requiring the upgrade while an old process is connected', async () => {
-    query.mockResolvedValue([{ legacy: 2, hosts: ['10.0.0.7'] }]);
+    query.mockResolvedValue([{ name: 'postgres.js', connections: 2, hosts: ['10.0.0.7'] }]);
     const checkedAt = new Date().toISOString();
     const entries = await describePaymentProviders(
       registry,
@@ -106,7 +111,7 @@ describe('describePaymentProviders with the provider-switch guard', () => {
   });
 
   it('lists Adyen as requiring the upgrade without a watch result', async () => {
-    query.mockResolvedValue([{ legacy: 0, hosts: [] }]);
+    query.mockResolvedValue([]);
     const entries = await describePaymentProviders(registry, watch(null));
     expect(entries.find((e) => e.id === 'adyen')).toMatchObject({
       selectable: false,

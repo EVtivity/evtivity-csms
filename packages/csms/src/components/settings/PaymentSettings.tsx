@@ -25,6 +25,7 @@ import {
 import { AdyenSettings } from './AdyenSettings';
 import { percentError, preAuthAmountError } from './payment-amount-validation';
 import { PrepaidSettings } from './PrepaidSettings';
+import { InvoiceSettings } from './InvoiceSettings';
 import { PaymentProviderSettings } from './PaymentProviderSettings';
 import { SitePayoutAccountCard } from './SitePayoutAccountCard';
 import { StripeWebhookCard } from './StripeWebhookCard';
@@ -306,6 +307,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
       <TabsContent value="general" className="mt-4 space-y-6">
         <PaymentProviderSettings />
         {canWriteSystemSettings && <PrepaidSettings settings={settings} />}
+        {canWriteSystemSettings && <InvoiceSettings settings={settings} />}
       </TabsContent>
       <TabsContent value="stripe" className="mt-4 space-y-6">
         <Card>

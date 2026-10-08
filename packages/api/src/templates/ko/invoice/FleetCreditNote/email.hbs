@@ -1,0 +1,13 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>크레딧 노트 {{creditNoteNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>안녕하세요.</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{companyName}}에서 <strong>{{fleetName}}</strong>의 {{periodLabel}} 청구서 {{invoiceNumber}}를 전액 취소하는 크레딧 노트를 발행했습니다. 크레딧 노트는 PDF로 첨부되어 있습니다.</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>크레딧 노트</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditNoteNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>청구서</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>기간</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{periodLabel}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>발행일</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>사유</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditReason}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>크레딧 금액</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+{{#if wasPaid}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>해당 청구서는 이미 결제되었습니다. 금액은 별도로 환불됩니다.</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>취소된 청구서의 충전 세션은 수정되어 다음 청구서에 다시 청구됩니다.</p>

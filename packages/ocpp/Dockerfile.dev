@@ -27,6 +27,9 @@ COPY packages/database/ packages/database/
 COPY packages/payments/ packages/payments/
 COPY packages/v2g-exi/ packages/v2g-exi/
 COPY packages/ocpp/ packages/ocpp/
+# Notification templates of events the OCPP process sends from the API template
+# set (fleet credit limit notices), found through the default API_TEMPLATES_DIR.
+COPY packages/api/src/templates/ packages/api/src/templates/
 RUN npx tsc -b --force packages/lib packages/database packages/payments packages/v2g-exi
 
 COPY scripts/generate-test-certs.sh scripts/generate-test-certs.sh

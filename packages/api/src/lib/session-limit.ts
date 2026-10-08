@@ -20,7 +20,10 @@ const LIMIT_TRIGGERS: Record<string, SessionLimitReached> = {
  * station has no transaction limit, and a 2.1 station may ignore it: the CSMS
  * stops the transaction at the session's cost ceiling (stopped_reason
  * GuestHoldExhausted for a guest's hold, PrepaidCreditExhausted for a prepaid
- * token's credit), which reports the cost limit too.
+ * token's credit, AccountCreditLimit for the fleet credit an account session
+ * reserved), which reports the cost limit too. An account start the fleet
+ * credit limit refused is faulted with AccountCreditLimit and never ran to a
+ * limit, so it reports none.
  */
 export async function sessionLimitReached(sessionId: string): Promise<SessionLimitReached | null> {
   const [row] = await client<Array<{ trigger_reason: string | null }>>`
@@ -32,7 +35,8 @@ export async function sessionLimitReached(sessionId: string): Promise<SessionLim
        LIMIT 1),
       (SELECT 'CostLimitReached' FROM charging_sessions
        WHERE id = ${sessionId}
-         AND stopped_reason IN ('GuestHoldExhausted', 'PrepaidCreditExhausted'))
+         AND (stopped_reason IN ('GuestHoldExhausted', 'PrepaidCreditExhausted')
+              OR (stopped_reason = 'AccountCreditLimit' AND status <> 'faulted')))
     ) AS trigger_reason
   `;
   return row?.trigger_reason != null ? (LIMIT_TRIGGERS[row.trigger_reason] ?? null) : null;

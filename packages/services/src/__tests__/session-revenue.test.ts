@@ -29,6 +29,8 @@ describe('aggregateRevenueRows', () => {
       sessionCount: 4,
       sessionGrossCents: 3 * 1190 + 480,
       itemCount: 6,
+      billedOnAccountCents: 0,
+      billedOnAccountCount: 0,
     });
     expect(byKey.get(null)).toEqual({
       grossCents: 100,
@@ -37,6 +39,33 @@ describe('aggregateRevenueRows', () => {
       sessionCount: 1,
       sessionGrossCents: 100,
       itemCount: 1,
+      billedOnAccountCents: 0,
+      billedOnAccountCount: 0,
+    });
+  });
+
+  it('keeps unpaid account sessions out of revenue and totals them as billed on account', () => {
+    const byKey = aggregateRevenueRows([
+      { key: null, taxRate: '0.19', grossCents: 1190, source: 'session', count: 1 },
+      {
+        key: null,
+        taxRate: '0.19',
+        grossCents: 2380,
+        netCents: 2000,
+        taxCents: 380,
+        source: 'account',
+        count: 2,
+      },
+    ]);
+    expect(byKey.get(null)).toEqual({
+      grossCents: 1190,
+      netCents: 1000,
+      taxCents: 190,
+      sessionCount: 1,
+      sessionGrossCents: 1190,
+      itemCount: 1,
+      billedOnAccountCents: 4760,
+      billedOnAccountCount: 2,
     });
   });
 
@@ -76,6 +105,8 @@ describe('aggregateRevenueRows with stored splits', () => {
       sessionCount: 3,
       sessionGrossCents: 2379,
       itemCount: 3,
+      billedOnAccountCents: 0,
+      billedOnAccountCount: 0,
     });
   });
 });
@@ -90,6 +121,8 @@ describe('sumRevenue', () => {
       sessionCount: 1,
       sessionGrossCents: 50,
       itemCount: 1,
+      billedOnAccountCents: 300,
+      billedOnAccountCount: 1,
     };
     expect(sumRevenue([a, b])).toEqual({
       grossCents: 169,
@@ -98,6 +131,8 @@ describe('sumRevenue', () => {
       sessionCount: 1,
       sessionGrossCents: 50,
       itemCount: 2,
+      billedOnAccountCents: 300,
+      billedOnAccountCount: 1,
     });
     expect(sumRevenue([])).toEqual(EMPTY_REVENUE);
   });
@@ -117,6 +152,18 @@ describe('queryRevenue', () => {
       taxCents: 400,
       sessionCount: 2,
     });
+  });
+
+  it('counts an account session as revenue only once its invoice is paid', async () => {
+    mockExecute.mockResolvedValueOnce([]);
+    await queryRevenue({ companyCurrency: 'EUR' });
+    const text = JSON.stringify(mockExecute.mock.calls[0]?.[0]);
+    expect(text).toContain("cs.billing_mode = 'account' AND pr.id IS NULL");
+    expect(text).toContain("inv.status IS DISTINCT FROM 'paid'");
+    expect(text).toContain('LEFT JOIN invoices inv ON inv.id = cs.invoice_id');
+    // Dated by the collection date once paid; a zero-cost one is not billed on account.
+    expect(text).toContain('THEN coalesce(inv.paid_at, cs.started_at) ELSE cs.started_at END');
+    expect(text).toContain('cs.final_cost_cents > 0');
   });
 
   it('gives an empty total without revenue', async () => {

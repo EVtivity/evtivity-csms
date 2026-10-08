@@ -4,7 +4,15 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, ne, and, or, ilike, sql, desc, asc } from 'drizzle-orm';
-import { db, pgErrorCode, PG_UNIQUE_VIOLATION, PG_FOREIGN_KEY_VIOLATION } from '@evtivity/database';
+import {
+  db,
+  client,
+  pgErrorCode,
+  PG_UNIQUE_VIOLATION,
+  PG_FOREIGN_KEY_VIOLATION,
+  resolveAccountBilling,
+  resolveDriverPricingSource,
+} from '@evtivity/database';
 import {
   drivers,
   driverTokens,
@@ -73,8 +81,52 @@ const portalAccessItem = z
   })
   .passthrough();
 
+const fleetRefItem = z
+  .object({
+    id: z.string().describe('Fleet identifier'),
+    name: z.string().max(255).describe('Fleet display name'),
+  })
+  .passthrough();
+
+const driverBillingItem = z
+  .object({
+    mode: z
+      .enum(['card', 'account'])
+      .describe(
+        "How the driver's new sessions are paid: account (billed to billingFleet, no card) or card",
+      ),
+    billingFleet: fleetRefItem
+      .nullable()
+      .describe(
+        'The fleet new sessions are billed to (the oldest membership in a fleet with account billing that the driver has not opted out of), or null for card',
+      ),
+    pricingFleet: fleetRefItem
+      .nullable()
+      .describe(
+        'The fleet whose pricing group prices the driver (the oldest membership in a fleet with a pricing group), or null, also when a driver pricing group overrides it. Can differ from billingFleet.',
+      ),
+    pricingSource: z
+      .enum(['driver', 'fleet'])
+      .nullable()
+      .describe(
+        'What prices the driver at every station: driver (a driver pricing group, which overrides fleet pricing), fleet (pricingFleet), or null (the station, site or default group)',
+      ),
+    pricingGroup: z
+      .object({
+        id: z.string().describe('Pricing group identifier'),
+        name: z.string().describe('Pricing group name'),
+      })
+      .passthrough()
+      .nullable()
+      .describe('The driver or fleet pricing group, null when pricingSource is null'),
+  })
+  .passthrough();
+
 const driverDetailItem = driverItem
-  .extend({ portalAccess: portalAccessItem.describe('Driver portal access state') })
+  .extend({
+    portalAccess: portalAccessItem.describe('Driver portal access state'),
+    billing: driverBillingItem.describe('Billing mode, billing fleet and pricing fleet'),
+  })
   .passthrough();
 
 const portalInviteItem = z
@@ -393,7 +445,27 @@ export function driverRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
         return;
       }
-      return { ...driver, portalAccess: await getPortalAccess(driver.id) };
+      const [portalAccess, billingFleet, pricing] = await Promise.all([
+        getPortalAccess(driver.id),
+        resolveAccountBilling(client, driver.id),
+        resolveDriverPricingSource(client, driver.id),
+      ]);
+      return {
+        ...driver,
+        portalAccess,
+        billing: {
+          mode: billingFleet != null ? 'account' : 'card',
+          billingFleet:
+            billingFleet != null
+              ? { id: billingFleet.fleetId, name: billingFleet.fleetName }
+              : null,
+          pricingFleet:
+            pricing?.source === 'fleet' ? { id: pricing.fleetId, name: pricing.fleetName } : null,
+          pricingSource: pricing?.source ?? null,
+          pricingGroup:
+            pricing != null ? { id: pricing.pricingGroupId, name: pricing.pricingGroupName } : null,
+        },
+      };
     },
   );
 

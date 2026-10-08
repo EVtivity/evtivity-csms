@@ -45,6 +45,8 @@ const h = vi.hoisted(() => {
     stationRows: [] as Row[],
     freeVend: false as boolean | Error,
     roaming: false as boolean | Error,
+    /** The driver's account billing fleet with a credit limit (plan S8), or none. */
+    accountCredit: null as { fleetId: string; remainingCents: number } | null | Error,
   };
   return {
     TABLE,
@@ -55,6 +57,7 @@ const h = vi.hoisted(() => {
     validateCert: vi.fn(),
     adHocLimit: vi.fn(),
     prepaidCeiling: vi.fn(),
+    accountCeiling: vi.fn(),
     resolveStationTariff: vi.fn(),
   };
 });
@@ -138,6 +141,11 @@ vi.mock('@evtivity/database', () => ({
   chargingStations: h.table('charging_stations', ['id', 'stationId']),
   authorizeAttempts: h.table('authorize_attempts', []),
   isRoamingEnabled: () => setting('roaming', h.state.roaming),
+  loadDriverAccountCredit: () => {
+    h.state.trace.push('account_credit');
+    const credit = h.state.accountCredit;
+    return credit instanceof Error ? Promise.reject(credit) : Promise.resolve(credit);
+  },
   isSiteFreeVendEnabledByStation: () => setting('freeVend', h.state.freeVend),
   getCompanyCurrency: () => Promise.resolve('USD'),
   getCompanyTaxBasis: () => Promise.resolve('net'),
@@ -194,6 +202,12 @@ vi.mock('../../handlers/prepaid-session-limit.js', () => ({
     h.state.trace.push('prepaid_ceiling');
     return h.prepaidCeiling(...args) as Promise<number | null>;
   },
+  accountSessionCeilingCents: (...args: unknown[]) => {
+    h.state.trace.push('account_ceiling');
+    return h.accountCeiling(...args) as Promise<number | null>;
+  },
+  markAccountCeilingSent: () => Promise.resolve(),
+  takeGrownAccountCeiling: () => Promise.resolve(null),
 }));
 
 vi.mock('../../handlers/supported-limits.js', async (importOriginal) => ({
@@ -247,6 +261,13 @@ interface Kind {
    * not linked yet, or an Error the lookup throws.
    */
   prepaidCeilingCents?: number | null | Error;
+  /**
+   * The driver charges on account with a fleet that has a credit limit (plan
+   * S8): the credit left (an Error the lookup throws), and for TE21 Started
+   * the ceiling the payment gate reserved for the session.
+   */
+  accountCredit?: { remainingCents: number } | Error;
+  accountCeilingCents?: number | null;
   /** A prepaid Authorize remembered this long before NOW. */
   rememberedMsAgo?: number;
   /** The site free vend setting read throws. */
@@ -269,6 +290,10 @@ const GUEST_STATUSES = [
   'failed',
   'expired',
 ];
+
+const ACCOUNT_DRIVER_TOKEN = {
+  driver_tokens: [token({ id: 'tok-1', idToken: 'TAG-A', tokenType: 'ISO14443' })],
+};
 
 const KINDS: Kind[] = [
   {
@@ -772,6 +797,38 @@ const KINDS: Kind[] = [
       ],
     },
   },
+  // Charge on account with a fleet credit limit (plan S8).
+  {
+    name: 'account, fleet credit left',
+    idToken: 'TAG-A',
+    type: 'ISO14443',
+    accountCredit: { remainingCents: 1200 },
+    accountCeilingCents: 1200,
+    tables: ACCOUNT_DRIVER_TOKEN,
+  },
+  {
+    name: 'account, no fleet credit left',
+    idToken: 'TAG-A',
+    type: 'ISO14443',
+    accountCredit: { remainingCents: 0 },
+    accountCeilingCents: 0,
+    tables: ACCOUNT_DRIVER_TOKEN,
+  },
+  {
+    name: 'account, ceiling not reserved yet',
+    idToken: 'TAG-A',
+    type: 'ISO14443',
+    accountCredit: { remainingCents: 1200 },
+    accountCeilingCents: null,
+    tables: ACCOUNT_DRIVER_TOKEN,
+  },
+  {
+    name: 'account, fleet credit lookup error',
+    idToken: 'TAG-A',
+    type: 'ISO14443',
+    accountCredit: new Error('db down'),
+    tables: ACCOUNT_DRIVER_TOKEN,
+  },
 ];
 
 type HandlerName = 'A16' | 'ST16' | 'A21' | 'TE21 Started' | 'TE21 Updated' | 'TE21 Ended';
@@ -951,6 +1008,14 @@ function setUp(kind: Kind | null, roaming: boolean): void {
   h.resolveStationTariff.mockResolvedValue(kind?.tariff ?? null);
   h.adHocLimit.mockReset();
   h.adHocLimit.mockResolvedValue(kind?.adHocLimit ?? null);
+  h.state.accountCredit =
+    kind?.accountCredit instanceof Error
+      ? kind.accountCredit
+      : kind?.accountCredit != null
+        ? { fleetId: 'flt-1', remainingCents: kind.accountCredit.remainingCents }
+        : null;
+  h.accountCeiling.mockReset();
+  h.accountCeiling.mockResolvedValue(kind?.accountCeilingCents ?? null);
   h.prepaidCeiling.mockReset();
   const ceiling = kind?.prepaidCeilingCents === undefined ? 1500 : kind.prepaidCeilingCents;
   if (ceiling instanceof Error) h.prepaidCeiling.mockRejectedValue(ceiling);

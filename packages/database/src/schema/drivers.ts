@@ -8,12 +8,17 @@ import {
   serial,
   varchar,
   integer,
+  bigint,
   numeric,
   boolean,
   timestamp,
+  date,
+  smallint,
+  check,
   index,
   uniqueIndex,
   unique,
+  primaryKey,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
@@ -206,15 +211,124 @@ export const vehicles = pgTable(
   (table) => [index('idx_vehicles_driver_id').on(table.driverId)],
 );
 
-export const fleets = pgTable('fleets', {
-  id: text('id')
-    .primaryKey()
-    .$defaultFn(() => createId('fleet')),
-  name: varchar('name', { length: 255 }).notNull(),
-  description: varchar('description', { length: 500 }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const fleets = pgTable(
+  'fleets',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => createId('fleet')),
+    name: varchar('name', { length: 255 }).notNull(),
+    description: varchar('description', { length: 500 }),
+    // Charge on account: the members' sessions are billed to the fleet (no card,
+    // no hold). Off: the members pay by card. See features/fleet-billing.md.
+    accountBillingEnabled: boolean('account_billing_enabled').notNull().default(false),
+    // Fleet billing profile (who the fleet invoice goes to and how). Written
+    // only by updateFleetBillingProfile in fleet.service.ts.
+    billingContactEmails: text('billing_contact_emails')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    billingLegalName: varchar('billing_legal_name', { length: 255 }),
+    billingStreet: varchar('billing_street', { length: 255 }),
+    billingCity: varchar('billing_city', { length: 100 }),
+    billingState: varchar('billing_state', { length: 100 }),
+    billingZip: varchar('billing_zip', { length: 20 }),
+    billingCountry: varchar('billing_country', { length: 100 }),
+    billingTaxId: varchar('billing_tax_id', { length: 50 }),
+    invoiceLanguage: varchar('invoice_language', { length: 10 }).notNull().default('en'),
+    // Days from issue to due date; null uses the invoice.paymentTermsDays setting.
+    paymentTermsDays: integer('payment_terms_days'),
+    // The monthly run invoices the fleet automatically (needs a billing contact).
+    autoInvoice: boolean('auto_invoice').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    // Credit limit of the account billing (cents of the company currency, null:
+    // no limit). An account start is refused while the fleet's exposure is at or
+    // above it; the billing contacts are warned at the warning percent. See
+    // features/fleet-billing.md (credit limit).
+    creditLimitCents: integer('credit_limit_cents'),
+    creditLimitWarningPercent: smallint('credit_limit_warning_percent').notNull().default(80),
+  },
+  (table) => [
+    check(
+      'fleets_payment_terms_days_check',
+      sql`${table.paymentTermsDays} IS NULL OR ${table.paymentTermsDays} BETWEEN 0 AND 365`,
+    ),
+    check(
+      'fleets_auto_invoice_contact_check',
+      sql`NOT ${table.autoInvoice} OR cardinality(${table.billingContactEmails}) > 0`,
+    ),
+    check(
+      'fleets_credit_limit_cents_check',
+      sql`${table.creditLimitCents} IS NULL OR ${table.creditLimitCents} > 0`,
+    ),
+    check(
+      'fleets_credit_limit_warning_percent_check',
+      sql`${table.creditLimitWarningPercent} BETWEEN 1 AND 99`,
+    ),
+  ],
+);
+
+/** The credit limit notices of a fleet: a warning and a reached notice. */
+export const FLEET_CREDIT_LIMIT_NOTICE_KINDS = ['warning', 'reached'] as const;
+export type FleetCreditLimitNoticeKind = (typeof FLEET_CREDIT_LIMIT_NOTICE_KINDS)[number];
+
+/**
+ * One row per fleet, calendar month (system timezone) and notice kind: the
+ * claim that sends fleet.CreditLimitWarning and fleet.CreditLimitReached once
+ * per month (P7).
+ */
+export const fleetCreditLimitNotices = pgTable(
+  'fleet_credit_limit_notices',
+  {
+    fleetId: text('fleet_id')
+      .notNull()
+      .references(() => fleets.id, { onDelete: 'cascade' }),
+    periodStart: date('period_start').notNull(),
+    kind: varchar('kind', { length: 8 }).$type<FleetCreditLimitNoticeKind>().notNull(),
+    exposureCents: bigint('exposure_cents', { mode: 'number' }).notNull(),
+    limitCents: bigint('limit_cents', { mode: 'number' }).notNull(),
+    sentAt: timestamp('sent_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: 'fleet_credit_limit_notices_pkey',
+      columns: [table.fleetId, table.periodStart, table.kind],
+    }),
+    check('fleet_credit_limit_notices_kind_check', sql`${table.kind} IN ('warning', 'reached')`),
+  ],
+);
+
+/**
+ * One row per fleet and month (system timezone) whose scheduled invoice job
+ * failed for good. `invoice_number` is the live invoice of the month at the
+ * failure (issued, email not sent), null when none was issued. The hourly
+ * fleet-invoice-run cron claims the rows not reported yet (`reported_at`) and
+ * sends one fleet.InvoiceRunFailed digest per month. The scheduled run skips
+ * a recorded month: the operator bills it by hand.
+ */
+export const fleetInvoiceRunFailures = pgTable(
+  'fleet_invoice_run_failures',
+  {
+    fleetId: text('fleet_id')
+      .notNull()
+      .references(() => fleets.id, { onDelete: 'cascade' }),
+    periodStart: date('period_start').notNull(),
+    invoiceNumber: text('invoice_number'),
+    errorMessage: text('error_message').notNull(),
+    failedAt: timestamp('failed_at', { withTimezone: true }).notNull().defaultNow(),
+    reportedAt: timestamp('reported_at', { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      name: 'fleet_invoice_run_failures_pkey',
+      columns: [table.fleetId, table.periodStart],
+    }),
+    index('idx_fleet_invoice_run_failures_unreported')
+      .on(table.failedAt)
+      .where(sql`${table.reportedAt} IS NULL`),
+  ],
+);
 
 export const fleetDrivers = pgTable(
   'fleet_drivers',
@@ -226,6 +340,8 @@ export const fleetDrivers = pgTable(
     driverId: text('driver_id')
       .notNull()
       .references(() => drivers.id, { onDelete: 'cascade' }),
+    // The member pays by card although the fleet bills on account.
+    accountBillingOptOut: boolean('account_billing_opt_out').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

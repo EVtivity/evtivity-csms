@@ -1,0 +1,11 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>Zahlungserinnerung: Rechnung {{invoiceNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Guten Tag,</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>die Rechnung für die Ladevorgänge von <strong>{{fleetName}}</strong> im Zeitraum {{periodLabel}} war am {{dueAt}} fällig und ist noch nicht bezahlt. Die Rechnung ist erneut als PDF angehängt.</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Rechnung</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Zeitraum</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{periodLabel}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Rechnungsdatum</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>Fällig am</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{dueAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>Fälliger Betrag</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Bitte begleichen Sie den Betrag umgehend. Falls Sie bereits gezahlt haben, betrachten Sie diese Erinnerung bitte als gegenstandslos.</p>

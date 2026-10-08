@@ -16,12 +16,14 @@ import {
   uniqueIndex,
   check,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
 import { tariffs } from './pricing.js';
 import { chargingStations, evses, connectors } from './assets.js';
-import { drivers, driverTokens, vehicles } from './drivers.js';
+import { drivers, driverTokens, vehicles, fleets } from './drivers.js';
 import { reservations } from './reservations.js';
+import { invoices } from './invoices.js';
 
 export const sessionStatusEnum = pgEnum('session_status', [
   'active',
@@ -34,6 +36,10 @@ export const sessionStatusEnum = pgEnum('session_status', [
 /** charging_sessions.rebill_status: the state of an operator re-bill. */
 export const SESSION_REBILL_STATUSES = ['in_progress', 'billed', 'manual'] as const;
 export type SessionRebillStatus = (typeof SESSION_REBILL_STATUSES)[number];
+
+/** charging_sessions.billing_mode: how a driver session is paid (fleet account billing). */
+export const SESSION_BILLING_MODES = ['card', 'account'] as const;
+export type SessionBillingMode = (typeof SESSION_BILLING_MODES)[number];
 
 export const transactionEventTypeEnum = pgEnum('transaction_event_type', [
   'started',
@@ -94,6 +100,8 @@ export const chargingSessions = pgTable(
     // token's credit (C17.FR.03). The cost assembly bills at most this
     // amount. Null: no ceiling.
     costCeilingCents: integer('cost_ceiling_cents'),
+    // The ceiling last sent to an OCPP 2.1 station as transactionLimit.maxCost.
+    costCeilingSentCents: integer('cost_ceiling_sent_cents'),
     idleStartedAt: timestamp('idle_started_at', { withTimezone: true }),
     idleMinutes: numeric('idle_minutes').notNull().default('0'),
     // The idle_started_at the idle notification was sent for (one per idle period).
@@ -114,6 +122,22 @@ export const chargingSessions = pgTable(
     // never re-billed. See packages/api/src/services/session-rebill.service.ts.
     rebillStatus: varchar('rebill_status', { length: 16 }).$type<SessionRebillStatus>(),
     rebillClaimedAt: timestamp('rebill_claimed_at', { withTimezone: true }),
+    // The invoice that bills this session, set in the invoice transaction only
+    // while null, so a session is never on two invoices. A voided invoice
+    // releases it.
+    invoiceId: text('invoice_id').references((): AnyPgColumn => invoices.id, {
+      onDelete: 'set null',
+    }),
+    // How the driver session is paid, decided once at its start and never
+    // rewritten (write-once stamp, P5): 'card' (the driver's card) or
+    // 'account' (billed to billing_fleet_id on the fleet invoice). Stamped by
+    // the portal start or the payment gate on TransactionEvent Started after
+    // roaming, free vend and prepaid are ruled out. Null: older sessions and
+    // sessions without a driver, roaming, free vend or prepaid.
+    billingMode: varchar('billing_mode', { length: 8 }).$type<SessionBillingMode>(),
+    billingFleetId: text('billing_fleet_id').references((): AnyPgColumn => fleets.id, {
+      onDelete: 'restrict',
+    }),
     metadata: jsonb('metadata'),
     freeVend: boolean('free_vend').notNull().default(false),
     co2AvoidedKg: numeric('co2_avoided_kg'),
@@ -146,6 +170,23 @@ export const chargingSessions = pgTable(
     index('idx_charging_sessions_rebill_manual')
       .on(table.createdAt)
       .where(sql`rebill_status = 'manual'`),
+    index('idx_sessions_invoice_id')
+      .on(table.invoiceId)
+      .where(sql`invoice_id IS NOT NULL`),
+    index('idx_sessions_billing_fleet_id')
+      .on(table.billingFleetId)
+      .where(sql`billing_fleet_id IS NOT NULL`),
+    index('idx_sessions_account_unbilled')
+      .on(table.billingFleetId)
+      .where(sql`billing_mode = 'account' AND invoice_id IS NULL`),
+    check(
+      'charging_sessions_billing_mode_check',
+      sql`billing_mode IS NULL OR billing_mode IN ('card', 'account')`,
+    ),
+    check(
+      'charging_sessions_billing_fleet_check',
+      sql`coalesce(billing_mode = 'account', false) = (billing_fleet_id IS NOT NULL)`,
+    ),
     check(
       'charging_sessions_rebill_status_check',
       sql`rebill_status IS NULL OR rebill_status IN ('in_progress', 'billed', 'manual')`,

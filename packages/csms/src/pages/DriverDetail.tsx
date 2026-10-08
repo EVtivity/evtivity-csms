@@ -24,6 +24,7 @@ import { useHasPermission } from '@/lib/auth';
 import { useUserTimezone } from '@/lib/timezone';
 import { DriverDetailsTab } from '@/components/driver/DriverDetailsTab';
 import type { PortalAccess } from '@/components/driver/DriverPortalAccessCard';
+import type { DriverBilling } from '@/components/driver/DriverBillingCard';
 import { DriverInvoicesTab } from '@/components/driver/DriverInvoicesTab';
 import { DriverPaymentMethodsTab } from '@/components/driver/DriverPaymentMethodsTab';
 import { DriverPricingTab } from '@/components/driver/DriverPricingTab';
@@ -42,6 +43,7 @@ interface Driver {
   createdAt: string;
   updatedAt: string;
   portalAccess?: PortalAccess;
+  billing?: DriverBilling;
 }
 
 interface DriverToken {

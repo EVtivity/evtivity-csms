@@ -60,6 +60,7 @@ const STATION_MESSAGE_STATES = [
   'guest_unauthorized',
   'unauthorized',
   'prepaid_exhausted',
+  'account_credit_limit',
 ] as const satisfies readonly StationMessageState[];
 
 const stateEnum = z.enum(STATION_MESSAGE_STATES);

@@ -147,6 +147,8 @@ export const fleetAuditActionEnum = pgEnum('fleet_audit_action', [
   'station_added',
   'station_removed',
   'pricing_assignment_changed',
+  'billing_updated',
+  'member_billing_opt_out_changed',
 ]);
 
 export const fleetAuditLog = pgTable(
@@ -836,6 +838,40 @@ export const sessionAuditLog = pgTable(
   ],
 );
 
+// Invoice audit. Operator actions on an issued invoice: 'marked_paid' (payment
+// received outside EVtivity), 'voided' (drafts only), and 'invoice_credited'
+// (a credit note credited it in full), and 'invoice_generated' (a fleet invoice
+// was issued).
+export const invoiceAuditActionEnum = pgEnum('invoice_audit_action', [
+  'marked_paid',
+  'voided',
+  'invoice_credited',
+  'invoice_generated',
+]);
+
+export const invoiceAuditLog = pgTable(
+  'invoice_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    invoiceId: text('invoice_id'),
+    invoiceIdSnapshot: text('invoice_id_snapshot').notNull(),
+    action: invoiceAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_invoice_audit_invoice_id').on(table.invoiceId),
+    index('idx_invoice_audit_created_at').on(table.createdAt),
+  ],
+);
+
 // Map of every audit table keyed by the entityType used in API filters.
 // Used by the global GET /v1/audit endpoint (UNION over all tables) and by
 // the worker retention prune job (DELETE FROM each).
@@ -865,6 +901,7 @@ export const AUDIT_TABLES = {
   pricing_assignment: pricingAssignmentAuditLog,
   maintenance_event: maintenanceEventAuditLog,
   session: sessionAuditLog,
+  invoice: invoiceAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

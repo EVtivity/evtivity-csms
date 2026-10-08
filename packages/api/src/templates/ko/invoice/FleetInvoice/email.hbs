@@ -1,0 +1,12 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>청구서 {{invoiceNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>안녕하세요.</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{companyName}}에서 <strong>{{fleetName}}</strong>의 {{periodLabel}} 충전 세션에 대한 청구서를 발행했습니다. 청구서는 PDF로 첨부되어 있습니다.</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>청구서</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>기간</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{periodLabel}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>충전 세션</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{sessionCount}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>발행일</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>납부 기한</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{dueAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>청구 금액</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>납부 기한까지 금액을 납부해 주십시오.</p>

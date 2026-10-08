@@ -48,9 +48,15 @@ import { CACHE_MAX_SIZE } from './projection-support/ttl-cache.js';
 import { createProjectionLookups } from './projection-support/lookups.js';
 import { createProjectionNotifier } from './projection-support/notify.js';
 import type { ProjectionDeps } from './projection-support/context.js';
-import { costLimitReported, stopSessionForPayment } from './session-lifecycle/payment-stop.js';
+import { trackRunningFleetCreditNotices } from './session-lifecycle/payment-gate.js';
+import {
+  ceilingStopReason,
+  costLimitReported,
+  stopSessionForPayment,
+} from './session-lifecycle/payment-stop.js';
 import { projectNotifySettlement, settleTransactionEnded } from './session-lifecycle/settlement.js';
-import { CostUpdatedThrottle } from './session-lifecycle/state.js';
+import { CostUpdatedThrottle, FleetCreditThrottle } from './session-lifecycle/state.js';
+import { growAccountCeiling } from './session-lifecycle/account-ceiling.js';
 import type { SessionLifecycleState } from './session-lifecycle/state.js';
 import { TransactionProjector } from './session-lifecycle/transaction-projector.js';
 import { getString } from './projection-support/payload.js';
@@ -205,6 +211,9 @@ export function registerProjections(
   // guard still skips when cost is identical, so we only throttle the
   // chatter, not real updates.
   const COST_UPDATED_THROTTLE_MS = 30_000;
+  // Per-fleet credit work of meter readings (notice checks, extensions of a
+  // fleet without credit): at most once a minute per fleet and process (P6).
+  const FLEET_CREDIT_THROTTLE_MS = 60_000;
 
   // The EventBus fires handlers with `void Promise.allSettled(...)`, so in-flight
   // promises accumulate without backpressure. With 2000+ stations sending MeterValues
@@ -224,6 +233,7 @@ export function registerProjections(
     txBuffer: new TransactionBuffer({ logger }),
     projectionQueue: projectionQueueFor(eventBus),
     costUpdated: new CostUpdatedThrottle(COST_UPDATED_THROTTLE_MS),
+    fleetCredit: new FleetCreditThrottle(FLEET_CREDIT_THROTTLE_MS),
   };
   const projector = new TransactionProjector(deps, state);
 
@@ -1509,9 +1519,12 @@ export function registerProjections(
             () => sql`
           SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id, cs.token_id,
                  cs.energy_delivered_wh, cs.current_cost_cents, cs.cost_ceiling_cents,
-                 cs.idle_started_at, cs.idle_minutes, st.ocpp_protocol
+                 cs.idle_started_at, cs.idle_minutes, st.ocpp_protocol,
+                 cs.billing_mode, cs.billing_fleet_id, cs.stopped_reason,
+                 f.credit_limit_cents AS fleet_credit_limit_cents
           FROM charging_sessions cs
           JOIN charging_stations st ON st.id = cs.station_id
+          LEFT JOIN fleets f ON f.id = cs.billing_fleet_id AND cs.billing_mode = 'account'
           WHERE cs.station_id = ${stationUuid} AND cs.status = 'active' AND cs.tariff_id IS NOT NULL
             AND (cs.id = ${sessionId} OR (${sessionId}::text IS NULL AND cs.evse_id = ${evseUuid}))
         `,
@@ -1563,8 +1576,42 @@ export function registerProjections(
 
         // The running cost, from the one cost assembly the final cost uses
         // (segments, idle grace, and the reservation holding fee).
-        const breakdown = await priceSessionAt(sql, sessionId, now, energyWh);
+        let breakdown = await priceSessionAt(sql, sessionId, now, energyWh);
         if (breakdown == null) continue;
+
+        // Account session of a credit-limited fleet (plan S8, bounded
+        // reservation): near its ceiling the ceiling grows by another slice
+        // of the fleet credit, and the cost is priced again under the grown
+        // ceiling, so the session is neither capped nor stopped while the
+        // fleet has credit. "Near" also scales with the cost this reading
+        // added, so a large reading grows the ceiling before a 2.1 station
+        // reaches its old maxCost. Not after the session was claimed at the
+        // ceiling (stopped_reason AccountCreditLimit).
+        let ceilingCents =
+          session.cost_ceiling_cents != null ? Number(session.cost_ceiling_cents) : null;
+        if (
+          ceilingCents != null &&
+          session.billing_mode === 'account' &&
+          session.billing_fleet_id != null &&
+          session.stopped_reason !== 'AccountCreditLimit'
+        ) {
+          const pricedCents = breakdown.pricedGrossCents ?? breakdown.grossCents;
+          const storedCostCents =
+            session.current_cost_cents != null ? Number(session.current_cost_cents) : null;
+          const grown = await growAccountCeiling(deps, state.fleetCredit, {
+            sessionId,
+            fleetId: session.billing_fleet_id as string,
+            ceilingCents,
+            pricedCents,
+            lastReadingCents:
+              storedCostCents != null ? Math.max(pricedCents - storedCostCents, 0) : 0,
+          });
+          if (grown > ceilingCents) {
+            ceilingCents = grown;
+            breakdown = await priceSessionAt(sql, sessionId, now, energyWh);
+            if (breakdown == null) continue;
+          }
+        }
         const totalCents = breakdown.grossCents;
         const previousCostCents = session.current_cost_cents as number | null;
 
@@ -1581,9 +1628,29 @@ export function registerProjections(
           );
         }
 
+        // Fleet credit limit notices (plan S8): a running account session's
+        // cost raises its fleet's exposure, so the warning and reached notices
+        // also go out while it charges, once per fleet and month each (the
+        // claim in dispatchFleetCreditLimitNotices). Only for a fleet with a
+        // limit and a changed cost; read without the fleet lock, nothing is
+        // reserved. Fire-and-forget and fail-open (P9).
+        if (
+          previousCostCents !== totalCents &&
+          session.billing_mode === 'account' &&
+          session.billing_fleet_id != null &&
+          session.fleet_credit_limit_cents != null
+        ) {
+          trackRunningFleetCreditNotices(
+            deps,
+            session.billing_fleet_id as string,
+            state.fleetCredit,
+          );
+        }
+
         // Cost ceiling: a guest's card hold (the authorization is the ceiling
-        // for the cost, C25) or a prepaid token's credit (C17.FR.03), stamped
-        // by the Started projection. The cost assembly bills at most
+        // for the cost, C25), a prepaid token's credit (C17.FR.03), stamped
+        // by the Started projection, or the fleet credit an account session
+        // reserved at the payment gate (plan S8). The cost assembly bills at most
         // cost_ceiling_cents, so energy, time and idle fees past it are not
         // paid for. OCPP 1.6 has no transaction limit: the CSMS stops the
         // transaction once the cost reaches the ceiling. An OCPP 2.1 station
@@ -1591,8 +1658,9 @@ export function registerProjections(
         // (E16.FR.05), keeping the transaction open until the driver unplugs;
         // the CSMS stops it only when a later reading finds the ceiling already
         // reached and the station never reported CostLimitReached (it ignores
-        // or does not support the limit, E16.FR.12, P11).
-        const ceilingCents = session.cost_ceiling_cents as number | null;
+        // or does not support the limit, E16.FR.12, P11). An account
+        // session's ceiling grew above while its fleet had credit, so it
+        // stops here only when the fleet has none left.
         const ceilingTxId = session.transaction_id as string | null;
         if (ceilingCents != null && ceilingTxId != null && totalCents >= ceilingCents) {
           const stopNow =
@@ -1601,10 +1669,13 @@ export function registerProjections(
               previousCostCents >= ceilingCents &&
               !(await costLimitReported(sql, sessionId)));
           if (stopNow) {
-            // Only a prepaid token and a guest hold set a ceiling; a guest
-            // session has no driver token.
-            const reason =
-              session.token_id != null ? 'PrepaidCreditExhausted' : 'GuestHoldExhausted';
+            // The reason from how the session is paid: an account session
+            // (its ceiling is the fleet credit it reserved), a prepaid token's
+            // credit, or a guest's hold (no driver token).
+            const reason = ceilingStopReason({
+              billingMode: session.billing_mode as string | null,
+              tokenId: session.token_id as string | null,
+            });
             logger.info(
               {
                 sessionId,
@@ -1624,6 +1695,7 @@ export function registerProjections(
                 stationDbId: stationUuid,
               },
               reason,
+              { atCeiling: true },
             );
           }
         }

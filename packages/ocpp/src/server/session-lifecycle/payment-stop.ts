@@ -35,7 +35,34 @@ export type PaymentStopReason =
   | 'GuestPaymentNotAuthorized'
   | 'AnonymousSession'
   | 'PrepaidCreditExhausted'
-  | 'GuestHoldExhausted';
+  | 'GuestHoldExhausted'
+  | 'AccountCreditLimit';
+
+/** Driver notice of a session the fleet credit limit refused at its start or stopped at its ceiling. */
+export const ACCOUNT_CREDIT_LIMIT_EVENT = 'payment.AccountCreditLimit';
+
+/** The reasons of a stop at the session's cost ceiling (the MeterValues cost loop). */
+export type CeilingStopReason =
+  | 'PrepaidCreditExhausted'
+  | 'GuestHoldExhausted'
+  | 'AccountCreditLimit';
+
+/**
+ * The reason of a stop at the cost ceiling, from how the session is paid:
+ * an account session (stamped `account`, its ceiling the fleet credit it
+ * reserved at the start) stops with AccountCreditLimit, a session with a
+ * driver token (a prepaid token's credit) with PrepaidCreditExhausted, and a
+ * session without one (a guest's card hold) with GuestHoldExhausted. Account
+ * sessions are never prepaid (prepaid comes before account), so the token of
+ * an account driver's RFID card never makes it a prepaid stop.
+ */
+export function ceilingStopReason(session: {
+  billingMode: string | null;
+  tokenId: string | null;
+}): CeilingStopReason {
+  if (session.billingMode === 'account') return 'AccountCreditLimit';
+  return session.tokenId != null ? 'PrepaidCreditExhausted' : 'GuestHoldExhausted';
+}
 
 /** True when the station reported reaching the cost limit of the session (E16.FR.05). */
 export async function costLimitReported(sql: postgres.Sql, sessionId: string): Promise<boolean> {
@@ -49,7 +76,8 @@ export async function costLimitReported(sql: postgres.Sql, sessionId: string): P
 
 /**
  * Stops the session by publishing RequestStopTransaction. For
- * payment-failure reasons (PaymentFailed, MissingPaymentMethod) we first
+ * payment-failure reasons (PaymentFailed, MissingPaymentMethod,
+ * AccountCreditLimit) we first
  * eagerly mark the DB row faulted and close its tariff segment, then
  * publish (P4), so the operator UI clears the connector even if the
  * process dies before the publish, the station ignores the stop, or the
@@ -67,11 +95,22 @@ export async function costLimitReported(sql: postgres.Sql, sessionId: string): P
  * PrepaidCreditExhausted and GuestHoldExhausted record stopped_reason
  * first and publish only when they claimed the session, so repeated
  * MeterValues send one stop.
+ *
+ * AccountCreditLimit (an account start refused by the fleet credit limit)
+ * faults like a payment failure and tells the driver
+ * (`payment.AccountCreditLimit`) only from the call whose fault changed the
+ * session, so a repeated Started sends one notice (P7). With `atCeiling` (a
+ * running account session reached the fleet credit it reserved, plan S8) it
+ * takes the ceiling claim instead: the session is not faulted, it is billed
+ * up to its ceiling, and the station message and the driver notice go out
+ * from the call that claimed it, shared with a 2.1 CostLimitReached report
+ * (noteCostLimitReached).
  */
 export async function stopSessionForPayment(
   deps: ProjectionDeps,
   target: StopTarget,
   reason: PaymentStopReason,
+  options: { atCeiling?: boolean } = {},
 ): Promise<void> {
   const { sql, pubsub, logger, notify } = deps;
   const { sessionId, transactionId, ocppStationId } = target;
@@ -81,11 +120,12 @@ export async function stopSessionForPayment(
   // publishing, once. The session stays active until the station ends the
   // transaction, which keeps this stopped_reason (COALESCE) and settles.
   // The claim is shared with a 2.1 station's CostLimitReached report
-  // (notePrepaidCostLimitReached), so the prepaid notices go out once.
+  // (noteCostLimitReached), so the notices go out once.
+  const accountAtCeiling = reason === 'AccountCreditLimit' && options.atCeiling === true;
   let ceilingStop: CeilingStopRow | null = null;
-  if (reason === 'PrepaidCreditExhausted' || reason === 'GuestHoldExhausted') {
+  if (reason === 'PrepaidCreditExhausted' || reason === 'GuestHoldExhausted' || accountAtCeiling) {
     try {
-      ceilingStop = await claimCeilingStop(sql, sessionId, reason, false);
+      ceilingStop = await claimCeilingStop(sql, sessionId, reason, 'any');
       if (ceilingStop == null) return;
     } catch (err) {
       logger.error({ err, sessionId }, 'Failed to record the payment stop of the session');
@@ -93,7 +133,10 @@ export async function stopSessionForPayment(
     }
   }
 
-  const eagerCleanup = reason === 'PaymentFailed' || reason === 'MissingPaymentMethod';
+  const eagerCleanup =
+    reason === 'PaymentFailed' ||
+    reason === 'MissingPaymentMethod' ||
+    (reason === 'AccountCreditLimit' && !accountAtCeiling);
   let faulted = false;
   if (eagerCleanup) {
     try {
@@ -131,6 +174,9 @@ export async function stopSessionForPayment(
   if (reason === 'PrepaidCreditExhausted') {
     // Only the call that claimed the stop gets here.
     if (ceilingStop != null) await sendPrepaidExhaustedNotices(deps, target, ceilingStop);
+  } else if (accountAtCeiling) {
+    // Only the call that claimed the stop gets here.
+    await sendAccountCeilingNotices(deps, target);
   } else {
     // A guest paid by card at the QR checkout; the hold ended the session
     // as the checkout said. No station message.
@@ -141,9 +187,14 @@ export async function stopSessionForPayment(
       AnonymousSession: 'unauthorized',
       PrepaidCreditExhausted: 'prepaid_exhausted',
       GuestHoldExhausted: null,
+      AccountCreditLimit: 'account_credit_limit',
     };
     const messageState = stateByReason[reason];
     if (messageState != null) await showStopMessage(deps, target, messageState);
+  }
+
+  if (reason === 'AccountCreditLimit' && faulted) {
+    await sendAccountCreditLimitNotice(deps, target);
   }
 
   // The audit helper logs its own failures (fail-open).
@@ -153,44 +204,121 @@ export async function stopSessionForPayment(
 }
 
 /**
+ * The driver's `payment.AccountCreditLimit` notice: the fleet the session is
+ * billed to reached its credit limit, so the start was refused or the session
+ * was stopped at the credit it reserved. Read after the fault or the ceiling
+ * claim, from the session's billing stamp. Fire-and-forget and fail-open
+ * (P9).
+ */
+async function sendAccountCreditLimitNotice(
+  deps: ProjectionDeps,
+  target: StopTarget,
+): Promise<void> {
+  const { sql, eventBus, pubsub, logger } = deps;
+  try {
+    const [row] = await sql<
+      Array<{ driver_id: string | null; fleet_name: string | null; site_name: string | null }>
+    >`
+      SELECT cs.driver_id, f.name AS fleet_name, s.name AS site_name
+      FROM charging_sessions cs
+      LEFT JOIN fleets f ON f.id = cs.billing_fleet_id
+      LEFT JOIN charging_stations st ON st.id = cs.station_id
+      LEFT JOIN sites s ON s.id = st.site_id
+      WHERE cs.id = ${target.sessionId}
+    `;
+    if (row?.driver_id == null) return;
+    void eventBus.track(
+      dispatchDriverNotification(
+        sql,
+        ACCOUNT_CREDIT_LIMIT_EVENT,
+        row.driver_id,
+        {
+          fleetName: row.fleet_name ?? '',
+          siteName: row.site_name ?? '',
+          stationId: target.ocppStationId,
+          transactionId: target.transactionId,
+        },
+        ALL_TEMPLATES_DIRS,
+        pubsub,
+      ).catch((err: unknown) => {
+        logger.warn(
+          { err, sessionId: target.sessionId },
+          'Account credit limit notice failed; continuing',
+        );
+      }),
+    );
+  } catch (err) {
+    logger.warn(
+      { err, sessionId: target.sessionId },
+      'Account credit limit notice failed; continuing',
+    );
+  }
+}
+
+/**
  * A 2.1 station reported reaching the cost limit (TransactionEvent
  * triggerReason CostLimitReached, E16.FR.05) of a session with a prepaid
- * token's credit as its ceiling (C17.FR.03): the station suspended it, so the
- * CSMS does not stop it. Claims the session with the same stopped_reason
- * claim as `stopSessionForPayment` (PrepaidCreditExhausted), so the station
- * message and the driver notice go out once per session, whichever comes
- * first, and a later CSMS stop finds the session claimed and sends nothing.
- * A guest session (no token) is left alone. Returns true when it claimed.
+ * token's credit (C17.FR.03) or an account session's reserved fleet credit
+ * (plan S8) as its ceiling: the station suspended it, so the CSMS does not
+ * stop it. Claims the session with the same stopped_reason claim as
+ * `stopSessionForPayment` (PrepaidCreditExhausted, else AccountCreditLimit),
+ * so the station message and the driver notice go out once per session,
+ * whichever comes first, and a later CSMS stop finds the session claimed and
+ * sends nothing. A guest session (no token, no account) is left alone.
+ * `accountCeilingRaised` (the TransactionEvent handler raised an account
+ * session's ceiling above the limit the station reached, and the response
+ * sent it so the station resumes) leaves the account session unclaimed: it
+ * is claimed only when its ceiling cannot grow. Returns true when it claimed.
  * A failed claim throws (the caller decides the retry); the notices are
  * fail-open.
  */
-export async function notePrepaidCostLimitReached(
+export async function noteCostLimitReached(
   deps: ProjectionDeps,
   target: StopTarget,
+  options: { accountCeilingRaised?: boolean } = {},
 ): Promise<boolean> {
-  const row = await claimCeilingStop(deps.sql, target.sessionId, 'PrepaidCreditExhausted', true);
-  if (row == null) return false;
-  await sendPrepaidExhaustedNotices(deps, target, row);
+  const prepaid = await claimCeilingStop(
+    deps.sql,
+    target.sessionId,
+    'PrepaidCreditExhausted',
+    'prepaid',
+  );
+  if (prepaid != null) {
+    await sendPrepaidExhaustedNotices(deps, target, prepaid);
+    return true;
+  }
+  if (options.accountCeilingRaised === true) return false;
+  const account = await claimCeilingStop(
+    deps.sql,
+    target.sessionId,
+    'AccountCreditLimit',
+    'account',
+  );
+  if (account == null) return false;
+  await sendAccountCeilingNotices(deps, target);
   return true;
 }
 
 /**
  * Records the ceiling stop on an active session that has none yet and returns
  * what the driver's prepaid notice needs, or null when another call claimed
- * it. `prepaidOnly` also requires a token and a ceiling (a prepaid session).
+ * it. `prepaid` also requires a token and a ceiling and no account stamp (a
+ * prepaid session); `account` requires the account stamp and a ceiling.
  */
 async function claimCeilingStop(
   sql: postgres.Sql,
   sessionId: string,
-  reason: 'PrepaidCreditExhausted' | 'GuestHoldExhausted',
-  prepaidOnly: boolean,
+  reason: CeilingStopReason,
+  only: 'any' | 'prepaid' | 'account',
 ): Promise<CeilingStopRow | null> {
   const claimed = await sql<CeilingStopRow[]>`
     WITH claimed AS (
       UPDATE charging_sessions
       SET stopped_reason = ${reason}, updated_at = now()
       WHERE id = ${sessionId} AND status = 'active' AND stopped_reason IS NULL
-        AND (NOT ${prepaidOnly} OR (token_id IS NOT NULL AND cost_ceiling_cents IS NOT NULL))
+        AND (${only} <> 'prepaid' OR (token_id IS NOT NULL AND cost_ceiling_cents IS NOT NULL
+             AND billing_mode IS DISTINCT FROM 'account'))
+        AND (${only} <> 'account' OR (billing_mode = 'account' AND cost_ceiling_cents IS NOT NULL))
       RETURNING id, driver_id, token_id, station_id, cost_ceiling_cents, currency
     )
     SELECT COALESCE(claimed.driver_id, dt.driver_id) AS driver_id,
@@ -202,6 +330,16 @@ async function claimCeilingStop(
     LEFT JOIN sites s ON s.id = st.site_id
   `;
   return claimed[0] ?? null;
+}
+
+/**
+ * The account_credit_limit station message and the driver's
+ * `payment.AccountCreditLimit` notice of an account session stopped at the
+ * fleet credit it reserved (plan S8). Both fail-open (P9).
+ */
+async function sendAccountCeilingNotices(deps: ProjectionDeps, target: StopTarget): Promise<void> {
+  await showStopMessage(deps, target, 'account_credit_limit');
+  await sendAccountCreditLimitNotice(deps, target);
 }
 
 /**

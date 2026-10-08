@@ -29,6 +29,11 @@ import {
   createMaintenanceFanoutWorker,
   startMaintenanceFanoutBridge,
 } from './maintenance-fanout-worker.js';
+import {
+  createFleetBillingFanoutWorker,
+  startFleetBillingFanoutBridge,
+} from './fleet-billing-fanout-worker.js';
+import { createFleetInvoiceWorker, setFleetInvoiceQueue } from './fleet-invoice-worker.js';
 import { createStationWatchWorker, startStationWatchBridge } from './station-watch-worker.js';
 import {
   createPaymentWebhookWorker,
@@ -63,6 +68,8 @@ async function start(): Promise<void> {
     reservationQueue,
     octtQueue,
     maintenanceFanoutQueue,
+    fleetBillingFanoutQueue,
+    fleetInvoiceQueue,
     stationWatchQueue,
     paymentWebhookQueue,
     remoteStartTimeoutQueue,
@@ -71,6 +78,7 @@ async function start(): Promise<void> {
   } = createQueues(REDIS_URL);
   setSimulatedEventSink(queueSimulatedSink(paymentWebhookQueue));
   setReportQueue(reportQueue);
+  setFleetInvoiceQueue(fleetInvoiceQueue);
 
   // Schedule cron jobs from database
   await scheduleCronJobs(cronQueue);
@@ -101,6 +109,10 @@ async function start(): Promise<void> {
     createBullMQConnection(REDIS_URL),
     createBullMQConnection(REDIS_URL),
   );
+  const fleetBillingFanoutWorker = createFleetBillingFanoutWorker(
+    createBullMQConnection(REDIS_URL),
+  );
+  const fleetInvoiceWorker = createFleetInvoiceWorker(createBullMQConnection(REDIS_URL));
   const stationWatchWorker = createStationWatchWorker(createBullMQConnection(REDIS_URL));
   const paymentWebhookWorker = createPaymentWebhookWorker(
     createBullMQConnection(REDIS_URL),
@@ -136,6 +148,8 @@ async function start(): Promise<void> {
     guestWorker,
     reservationWorker,
     maintenanceFanoutWorker,
+    fleetBillingFanoutWorker,
+    fleetInvoiceWorker,
     stationWatchWorker,
     paymentWebhookWorker,
     remoteStartTimeoutWorker,
@@ -154,6 +168,10 @@ async function start(): Promise<void> {
   const stopMaintenanceFanoutBridge = await startMaintenanceFanoutBridge(
     pubsub,
     maintenanceFanoutQueue,
+  );
+  const stopFleetBillingFanoutBridge = await startFleetBillingFanoutBridge(
+    pubsub,
+    fleetBillingFanoutQueue,
   );
   const stopStationWatchBridge = await startStationWatchBridge(pubsub, stationWatchQueue);
   const stopPaymentWebhookBridge = await startPaymentWebhookBridge(pubsub, paymentWebhookQueue);
@@ -208,6 +226,7 @@ async function start(): Promise<void> {
     await stopGuestBridge();
     await stopReservationBridge();
     await stopMaintenanceFanoutBridge();
+    await stopFleetBillingFanoutBridge();
     await stopStationWatchBridge();
     await stopPaymentWebhookBridge();
     await stopRemoteStartTimeoutBridge();
@@ -220,6 +239,8 @@ async function start(): Promise<void> {
     await guestWorker.close();
     await reservationWorker.close();
     await maintenanceFanoutWorker.close();
+    await fleetBillingFanoutWorker.close();
+    await fleetInvoiceWorker.close();
     await stationWatchWorker.close();
     await paymentWebhookWorker.close();
     await remoteStartTimeoutWorker.close();
@@ -232,6 +253,9 @@ async function start(): Promise<void> {
     await reservationQueue.close();
     await octtQueue.close();
     await maintenanceFanoutQueue.close();
+    await fleetBillingFanoutQueue.close();
+    setFleetInvoiceQueue(null);
+    await fleetInvoiceQueue.close();
     await stationWatchQueue.close();
     setSimulatedEventSink(null);
     await paymentWebhookQueue.close();

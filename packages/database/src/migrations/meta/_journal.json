@@ -1135,6 +1135,146 @@
       "when": 1791000012102,
       "tag": "0161_prepaid_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 162,
+      "version": "7",
+      "when": 1791000012103,
+      "tag": "0162_invoice_claim_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1791000012104,
+      "tag": "0163_invoice_claim_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1791000012105,
+      "tag": "0164_invoice_claim_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1791000012106,
+      "tag": "0165_invoice_claim_fk_validate",
+      "breakpoints": true
+    },
+    {
+      "idx": 166,
+      "version": "7",
+      "when": 1791000012107,
+      "tag": "0166_seed_invoice_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 167,
+      "version": "7",
+      "when": 1791000012108,
+      "tag": "0167_invoice_credit_note_enums",
+      "breakpoints": true
+    },
+    {
+      "idx": 168,
+      "version": "7",
+      "when": 1791000012109,
+      "tag": "0168_invoice_credit_notes",
+      "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1791000012110,
+      "tag": "0169_fleet_account_billing_enums",
+      "breakpoints": true
+    },
+    {
+      "idx": 170,
+      "version": "7",
+      "when": 1791000012111,
+      "tag": "0170_fleet_account_billing_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 171,
+      "version": "7",
+      "when": 1791000012112,
+      "tag": "0171_fleet_account_billing_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "7",
+      "when": 1791000012113,
+      "tag": "0172_fleet_account_billing_validate",
+      "breakpoints": true
+    },
+    {
+      "idx": 173,
+      "version": "7",
+      "when": 1791000012180,
+      "tag": "0180_fleet_billing_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 174,
+      "version": "7",
+      "when": 1791000020000,
+      "tag": "0200_fleet_credit_limit",
+      "breakpoints": true
+    },
+    {
+      "idx": 175,
+      "version": "7",
+      "when": 1791000022000,
+      "tag": "0220_fleet_credit_notice_bigint",
+      "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1791000022100,
+      "tag": "0210_fleet_invoice_enums",
+      "breakpoints": true
+    },
+    {
+      "idx": 177,
+      "version": "7",
+      "when": 1791000022200,
+      "tag": "0211_fleet_invoices",
+      "breakpoints": true
+    },
+    {
+      "idx": 178,
+      "version": "7",
+      "when": 1791000023000,
+      "tag": "0230_fleet_invoice_overdue_notice",
+      "breakpoints": true
+    },
+    {
+      "idx": 179,
+      "version": "7",
+      "when": 1791000023100,
+      "tag": "0231_seed_fleet_invoice_run",
+      "breakpoints": true
+    },
+    {
+      "idx": 180,
+      "version": "7",
+      "when": 1791000023200,
+      "tag": "0232_fleet_invoice_run_failures",
+      "breakpoints": true
+    },
+    {
+      "idx": 181,
+      "version": "7",
+      "when": 1791000024000,
+      "tag": "0240_fleet_credit_reservation",
+      "breakpoints": true
     }
   ]
 }

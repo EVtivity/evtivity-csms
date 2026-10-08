@@ -17,12 +17,14 @@ import {
   check,
   primaryKey,
 } from 'drizzle-orm/pg-core';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { sites, chargingStations } from './assets.js';
 import { drivers } from './drivers.js';
 import { chargingSessions } from './charging.js';
 import { users } from './identity.js';
 import { reservations } from './reservations.js';
+import { invoices } from './invoices.js';
 
 export const paymentStatusEnum = pgEnum('payment_status', [
   'pending',
@@ -239,11 +241,19 @@ export const paymentRecords = pgTable(
       .default(sql`'[]'::jsonb`),
     // Opaque provider state of the hold (Adyen adjustAuthorisationData, P10d).
     providerState: jsonb('provider_state').$type<Record<string, string>>(),
+    // The invoice that bills this reservation fee charge, set in the invoice
+    // transaction only while null. A voided invoice releases it.
+    invoiceId: text('invoice_id').references((): AnyPgColumn => invoices.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_payment_records_session_id').on(table.sessionId),
+    index('idx_payment_records_invoice_id')
+      .on(table.invoiceId)
+      .where(sql`invoice_id IS NOT NULL`),
     check(
       'payment_records_pending_operation_check',
       sql`${table.pendingOperation} IS NULL OR ${table.pendingOperation} IN ('capture', 'cancel', 'adjust')`,

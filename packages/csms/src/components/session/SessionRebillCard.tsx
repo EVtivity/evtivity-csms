@@ -49,13 +49,14 @@ export interface SessionRebillCardProps {
 
 interface RebillResult {
   rebillStatus: 'billed' | 'manual';
-  result: 'charged' | 'prepaid' | 'no_charge' | 'manual';
+  result: 'charged' | 'prepaid' | 'account' | 'no_charge' | 'manual';
   manualReason: ManualReason | null;
 }
 
 const RESULT_TOAST = {
   charged: 'sessions.rebill.charged',
   prepaid: 'sessions.rebill.prepaid',
+  account: 'sessions.rebill.account',
   no_charge: 'sessions.rebill.noCharge',
   manual: 'sessions.rebill.manual',
 } as const;

@@ -1,0 +1,12 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>发票 {{invoiceNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您好：</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{companyName}} 已开具 <strong>{{fleetName}}</strong> 在 {{periodLabel}} 的充电会话发票。发票以 PDF 附件形式提供。</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>发票</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>账期</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{periodLabel}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>充电会话</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{sessionCount}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>开具日期</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>到期日</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{dueAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>应付金额</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>请在到期日前支付该金额。</p>

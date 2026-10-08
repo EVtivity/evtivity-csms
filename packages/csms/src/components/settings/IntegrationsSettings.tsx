@@ -22,6 +22,7 @@ import { ReservationSettings } from '@/components/settings/ReservationSettings';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { StationMessageSettings } from '@/components/settings/StationMessageSettings';
 import { PncLocalCaSection } from '@/components/settings/PncLocalCaSection';
+import { FleetCreditReservationSettings } from '@/components/settings/FleetCreditReservationSettings';
 
 interface IntegrationsSettingsProps {
   settings: Record<string, unknown> | undefined;
@@ -986,6 +987,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${fleetEnabled ? 'translate-x-5' : 'translate-x-0'}`}
                 />
               </button>
+            </div>
+            <div className="mt-4">
+              <FleetCreditReservationSettings settings={settings} />
             </div>
           </CardContent>
         </Card>

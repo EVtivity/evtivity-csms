@@ -153,20 +153,10 @@ export {
   assertProviderSelectable,
   GUARDED_PROVIDER_IDS,
   isGuardedProvider,
-  LEGACY_CLEAN_MS,
-  legacyProcessCheck,
   PaymentProviderUpgradePendingError,
-  PROCESS_VERSION_WATCH_KEY,
   providerUpgradePending,
-  recordProcessWatch,
-  WATCH_FRESH_MS,
 } from './provider-switch-guard.js';
-export type {
-  LegacyProcessCheck,
-  ProcessWatchState,
-  ProcessWatchStore,
-  ProviderUpgradePendingDetails,
-} from './provider-switch-guard.js';
+export type { ProviderUpgradePendingDetails } from './provider-switch-guard.js';
 export type { PaymentRecord } from './payment-records.js';
 export { closeUnstartedRemoteStart, failUnstartedGuestSession } from './unstarted-starts.js';
 export type { UnstartedGuestOutcome, UnstartedStartOutcome } from './unstarted-starts.js';
@@ -194,6 +184,8 @@ export type {
 export { classifySessionPayment } from './payment-mode.js';
 export type { SessionPaymentFacts, SessionPaymentMode } from './payment-mode.js';
 export {
+  claimFeeRecordsForInvoice,
+  releaseInvoiceFeeRecords,
   isRebillRecord,
   isStaleRebillCharge,
   REBILL_RESUME_MAX_HOURS,
@@ -290,3 +282,10 @@ export type {
   ReservationFeeResult,
   ReservationFeeType,
 } from './reservation-fees.js';
+export {
+  dispatchFleetCreditLimitNotices,
+  FLEET_CREDIT_LIMIT_WARNING_EVENT,
+  FLEET_CREDIT_LIMIT_REACHED_EVENT,
+  FLEET_CREDIT_NOTICE_PERMISSION,
+} from './fleet-credit-notices.js';
+export type { FleetCreditNoticeDeps } from './fleet-credit-notices.js';

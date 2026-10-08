@@ -948,6 +948,57 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       clock.restore();
     });
 
+    it('attaches the given files to the email only', async () => {
+      const { dispatchSystemNotification } = notificationDispatchModule;
+      const clock = advanceClock();
+
+      setupSqlResults(
+        [{ is_enabled: true }], // driver_event_settings
+        [{ key: 'company.name', value: 'SysCo' }], // company.*
+        [
+          { key: 'smtp.host', value: 'smtp.example.com' },
+          { key: 'smtp.port', value: '587' },
+          { key: 'smtp.username', value: 'user' },
+          { key: 'smtp.passwordEnc', value: '' },
+          { key: 'smtp.from', value: 'from@example.com' },
+        ], // settings
+        [], // email DB template miss
+        [], // INSERT email
+        [], // INSERT sms (no phone)
+      );
+
+      const pdf = {
+        filename: 'INV-202609-0001.pdf',
+        content: Buffer.from('%PDF'),
+        contentType: 'application/pdf',
+      };
+      await dispatchSystemNotification(
+        sql as never,
+        'invoice.FleetInvoice',
+        { email: 'billing@fleet.test', language: 'en', timezone: 'UTC' },
+        { invoiceNumber: 'INV-202609-0001' },
+        undefined,
+        [pdf],
+      );
+
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+      expect(mockSendMail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'billing@fleet.test',
+          attachments: [
+            {
+              filename: 'INV-202609-0001.pdf',
+              content: Buffer.from('%PDF'),
+              contentType: 'application/pdf',
+            },
+          ],
+        }),
+      );
+      expect(mockFetch).not.toHaveBeenCalled();
+
+      clock.restore();
+    });
+
     it('records recipient_missing when email and phone are absent', async () => {
       const { dispatchSystemNotification } = notificationDispatchModule;
       const clock = advanceClock();

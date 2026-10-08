@@ -106,7 +106,7 @@ describe('loadStationPricing', () => {
       expect(calls).toHaveLength(1);
       expect(calls[0]?.values).toEqual(['drv_1', 'drv_1', 'sta_1', 'sta_1', 'sta_1']);
       // driver > fleet (oldest membership) > station > site > default.
-      expect(calls[0]?.text).toContain('ORDER BY fd.created_at ASC');
+      expect(calls[0]?.text).toContain('ORDER BY fd.created_at ASC, fd.id ASC');
       expect(calls[0]?.text).toContain('ORDER BY priority');
     }
   });

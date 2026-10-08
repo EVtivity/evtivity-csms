@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TariffPriceSnapshot } from '@evtivity/database';
+import type { FleetCreditCheck, SessionBilling, TariffPriceSnapshot } from '@evtivity/database';
 import type { HoldOutcome } from '@evtivity/payments';
 import type { ProjectionDeps } from '../../server/projection-support/context.js';
 import {
@@ -22,6 +22,9 @@ const {
   mockStopSessionForPayment,
   mockDispatchDriverNotification,
   mockDispatchSystemNotification,
+  mockStampSessionBilling,
+  mockCheckFleetCreditLimit,
+  mockDispatchFleetCreditLimitNotices,
 } = vi.hoisted(() => ({
   calls: [] as string[],
   mockAuthorizeSessionHold: vi.fn(),
@@ -29,11 +32,21 @@ const {
   mockStopSessionForPayment: vi.fn(),
   mockDispatchDriverNotification: vi.fn(),
   mockDispatchSystemNotification: vi.fn(),
+  mockStampSessionBilling: vi.fn(),
+  mockCheckFleetCreditLimit: vi.fn(),
+  mockDispatchFleetCreditLimitNotices: vi.fn(),
+}));
+
+vi.mock('@evtivity/database', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/database')>()),
+  stampSessionBilling: mockStampSessionBilling,
+  checkFleetCreditLimit: mockCheckFleetCreditLimit,
 }));
 
 vi.mock('@evtivity/payments', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/payments')>()),
   authorizeSessionHold: mockAuthorizeSessionHold,
+  dispatchFleetCreditLimitNotices: mockDispatchFleetCreditLimitNotices,
 }));
 
 vi.mock('../../lib/payments.js', () => ({
@@ -184,6 +197,113 @@ describe('planPaymentGate', () => {
   ])('plans %s', (_name, overrides, expected) => {
     expect(planPaymentGate({ ...input, ...overrides })).toEqual(expected);
   });
+
+  const account: SessionBilling = { mode: 'account', fleetId: 'flt-1', fleetName: 'Acme' };
+  const card: SessionBilling = { mode: 'card', fleetId: null, fleetName: null };
+
+  it.each<[string, Partial<PaymentGateInput>, SessionBilling, PaymentGateDecision]>([
+    [
+      'an account driver on a priced tariff (no hold)',
+      { driverId: 'drv-1' },
+      account,
+      { kind: 'allow', why: 'account' },
+    ],
+    [
+      'an account driver on a free tariff',
+      { driverId: 'drv-1', sessionTariff: freeTariff },
+      account,
+      { kind: 'allow', why: 'account' },
+    ],
+    [
+      'a prepaid token of an account driver (prepaid wins)',
+      { driverId: 'drv-1', prepaidBalanceCents: 500 },
+      account,
+      { kind: 'allow', why: 'prepaid_funded' },
+    ],
+    [
+      'a roaming session with an account stamp (roaming wins)',
+      { driverId: 'drv-1', isRoaming: true },
+      account,
+      { kind: 'allow', why: 'roaming' },
+    ],
+    [
+      'a card stamp on a priced tariff',
+      { driverId: 'drv-1' },
+      card,
+      { kind: 'hold', driverId: 'drv-1' },
+    ],
+    [
+      'an account stamp without a driver (anonymous)',
+      {},
+      account,
+      { kind: 'stop', why: 'anonymous', reason: 'AnonymousSession', notice: null },
+    ],
+  ])('plans %s', (_name, overrides, billing, expected) => {
+    expect(planPaymentGate({ ...input, ...overrides }, billing)).toEqual(expected);
+  });
+
+  it.each<[FleetCreditCheck['level'], PaymentGateDecision]>([
+    ['ok', { kind: 'allow', why: 'account' }],
+    ['warning', { kind: 'allow', why: 'account' }],
+    [
+      'reached',
+      {
+        kind: 'stop',
+        why: 'account_credit_limit',
+        reason: 'AccountCreditLimit',
+        fleetId: 'flt-1',
+        notice: null,
+      },
+    ],
+  ])('plans an account start with the fleet credit %s', (level, expected) => {
+    expect(
+      planPaymentGate({ ...input, driverId: 'drv-1' }, account, {
+        fleetId: 'flt-1',
+        level,
+        remainingCents: level === 'reached' ? 0 : 1500,
+        ceilingCents: level === 'reached' ? 0 : 1500,
+      }),
+    ).toEqual(expected);
+  });
+
+  it('stops an account start whose reserved ceiling is 0 below the limit (plan S8)', () => {
+    expect(
+      planPaymentGate({ ...input, driverId: 'drv-1' }, account, {
+        fleetId: 'flt-1',
+        level: 'ok',
+        remainingCents: 0,
+        ceilingCents: 0,
+      }),
+    ).toEqual({
+      kind: 'stop',
+      why: 'account_credit_limit',
+      reason: 'AccountCreditLimit',
+      fleetId: 'flt-1',
+      notice: null,
+    });
+  });
+
+  it('decides from the stored ceiling of an earlier gate run', () => {
+    expect(
+      planPaymentGate({ ...input, driverId: 'drv-1' }, account, {
+        fleetId: 'flt-1',
+        level: 'ok',
+        remainingCents: 0,
+        ceilingCents: 800,
+      }),
+    ).toEqual({ kind: 'allow', why: 'account' });
+  });
+
+  it('ignores the credit check for a prepaid token of an account driver', () => {
+    expect(
+      planPaymentGate({ ...input, driverId: 'drv-1', prepaidBalanceCents: 500 }, account, {
+        fleetId: 'flt-1',
+        level: 'reached',
+        remainingCents: 0,
+        ceilingCents: null,
+      }),
+    ).toEqual({ kind: 'allow', why: 'prepaid_funded' });
+  });
 });
 
 describe('decideAfterHold', () => {
@@ -319,6 +439,9 @@ describe('runPaymentGate', () => {
     });
     mockDispatchDriverNotification.mockResolvedValue(undefined);
     mockDispatchSystemNotification.mockResolvedValue(undefined);
+    mockStampSessionBilling.mockResolvedValue({ mode: 'card', fleetId: null, fleetName: null });
+    mockCheckFleetCreditLimit.mockResolvedValue(null);
+    mockDispatchFleetCreditLimitNotices.mockResolvedValue(null);
     logger = {
       warn: vi.fn(() => calls.push('log')),
       error: vi.fn(() => calls.push('log')),
@@ -489,5 +612,166 @@ describe('runPaymentGate', () => {
     expect(mockActivePaymentProvider).toHaveBeenCalledWith(logger);
     expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('stamps an account driver and allows the session without a provider or a hold', async () => {
+    mockStampSessionBilling.mockResolvedValue({
+      mode: 'account',
+      fleetId: 'flt-1',
+      fleetName: 'Acme',
+    });
+    mockActivePaymentProvider.mockResolvedValue(null);
+
+    const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+    expect(decision).toEqual({ kind: 'allow', why: 'account' });
+    expect(mockStampSessionBilling).toHaveBeenCalledWith(deps.sql, 'sess-1', 'drv-1');
+    expect(mockActivePaymentProvider).not.toHaveBeenCalled();
+    expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+    expect(mockStopSessionForPayment).not.toHaveBeenCalled();
+  });
+
+  function creditCheck(level: FleetCreditCheck['level'], totalCents: number): FleetCreditCheck {
+    return {
+      fleetId: 'flt-1',
+      fleetName: 'Acme',
+      limitCents: 10_000,
+      warningPercent: 80,
+      exposure: {
+        unbilledCents: totalCents,
+        invoicedCents: 0,
+        runningCents: 0,
+        totalCents,
+        currency: 'EUR',
+      },
+      level,
+      remainingCents: Math.max(10_000 - totalCents, 0),
+      ceilingCents: Math.max(10_000 - totalCents, 0),
+    };
+  }
+
+  it('reserves the billing fleet credit for the session under the fleet lock', async () => {
+    mockStampSessionBilling.mockResolvedValue({
+      mode: 'account',
+      fleetId: 'flt-1',
+      fleetName: 'Acme',
+    });
+    mockCheckFleetCreditLimit.mockResolvedValue(creditCheck('ok', 1000));
+
+    const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+    expect(decision).toEqual({ kind: 'allow', why: 'account' });
+    expect(mockCheckFleetCreditLimit).toHaveBeenCalledWith(deps.sql, 'flt-1', {
+      reserveForSessionId: 'sess-1',
+    });
+    expect(mockDispatchFleetCreditLimitNotices).not.toHaveBeenCalled();
+  });
+
+  it('allows an account start at the warning percent and notifies the fleet', async () => {
+    mockStampSessionBilling.mockResolvedValue({
+      mode: 'account',
+      fleetId: 'flt-1',
+      fleetName: 'Acme',
+    });
+    const check = creditCheck('warning', 8500);
+    mockCheckFleetCreditLimit.mockResolvedValue(check);
+
+    const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+    expect(decision).toEqual({ kind: 'allow', why: 'account' });
+    expect(mockDispatchFleetCreditLimitNotices).toHaveBeenCalledWith(
+      check,
+      { templatesDirs: [] },
+      logger,
+    );
+    expect(mockStopSessionForPayment).not.toHaveBeenCalled();
+  });
+
+  it('stops an account start at the credit limit and notifies the fleet', async () => {
+    mockStampSessionBilling.mockResolvedValue({
+      mode: 'account',
+      fleetId: 'flt-1',
+      fleetName: 'Acme',
+    });
+    const check = creditCheck('reached', 10_000);
+    mockCheckFleetCreditLimit.mockResolvedValue(check);
+
+    const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+    expect(decision).toEqual({
+      kind: 'stop',
+      why: 'account_credit_limit',
+      reason: 'AccountCreditLimit',
+      fleetId: 'flt-1',
+      notice: null,
+    });
+    expect(mockStopSessionForPayment).toHaveBeenCalledWith(
+      deps,
+      {
+        sessionId: 'sess-1',
+        transactionId: 'tx-1',
+        ocppStationId: 'CS-1',
+        stationDbId: 'station-uuid',
+      },
+      'AccountCreditLimit',
+    );
+    expect(mockDispatchFleetCreditLimitNotices).toHaveBeenCalledWith(
+      check,
+      { templatesDirs: [] },
+      logger,
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      { sessionId: 'sess-1', fleetId: 'flt-1' },
+      'Fleet credit limit reached, stopping account session',
+    );
+    expect(mockDispatchDriverNotification).not.toHaveBeenCalled();
+    expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+  });
+
+  it('fails the gate when the credit check fails (P9)', async () => {
+    mockStampSessionBilling.mockResolvedValue({
+      mode: 'account',
+      fleetId: 'flt-1',
+      fleetName: 'Acme',
+    });
+    mockCheckFleetCreditLimit.mockRejectedValue(new Error('db down'));
+
+    await expect(runPaymentGate(deps, { ...input, driverId: 'drv-1' })).rejects.toThrow('db down');
+    expect(mockStopSessionForPayment).not.toHaveBeenCalled();
+  });
+
+  it('checks no credit limit for a card driver', async () => {
+    mockAuthorizeSessionHold.mockResolvedValue({
+      outcome: 'authorized',
+      paymentRecordId: 1,
+      paymentId: 'pi_1',
+    });
+    await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+    expect(mockCheckFleetCreditLimit).not.toHaveBeenCalled();
+  });
+
+  it('stamps a card driver before the hold', async () => {
+    mockAuthorizeSessionHold.mockResolvedValue({
+      outcome: 'authorized',
+      paymentRecordId: 1,
+      paymentId: 'pi_1',
+    });
+
+    const decision = await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+
+    expect(decision).toEqual({ kind: 'allow', why: 'hold_authorized' });
+    expect(mockStampSessionBilling).toHaveBeenCalledTimes(1);
+    expect(mockStampSessionBilling.mock.invocationCallOrder[0]).toBeLessThan(
+      mockAuthorizeSessionHold.mock.invocationCallOrder[0] ?? 0,
+    );
+  });
+
+  it.each<[string, Partial<PaymentGateInput>]>([
+    ['a prepaid token', { driverId: 'drv-1', prepaidBalanceCents: 500 }],
+    ['a roaming session', { driverId: 'drv-1', isRoaming: true }],
+    ['a session without a driver', { guestStatus: 'payment_authorized' }],
+  ])('writes no billing stamp for %s', async (_name, overrides) => {
+    await runPaymentGate(deps, { ...input, ...overrides });
+    expect(mockStampSessionBilling).not.toHaveBeenCalled();
   });
 });

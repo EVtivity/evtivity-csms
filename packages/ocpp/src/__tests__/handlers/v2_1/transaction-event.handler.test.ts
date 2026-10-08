@@ -4,7 +4,11 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
-import { sessionPricedKey, transactionKey } from '../../../server/projection-queue.js';
+import {
+  sessionGatedKey,
+  sessionPricedKey,
+  transactionKey,
+} from '../../../server/projection-queue.js';
 
 let whereResult: Record<string, unknown>[] | Error;
 const whereFn = vi.fn((): Promise<Record<string, unknown>[]> => {
@@ -29,7 +33,10 @@ vi.mock('@evtivity/database', () => ({
   },
   authorizeAttempts: {},
   client: {},
+  // The driver's account billing fleet with a credit limit (plan S8): none by default.
+  loadDriverAccountCredit: (...args: unknown[]) => accountCreditMock(...args) as unknown,
 }));
+const accountCreditMock = vi.fn().mockResolvedValue(null);
 
 const costMock = vi.fn();
 vi.mock('../../../server/session-cost.js', () => ({
@@ -50,8 +57,20 @@ vi.mock('../../../handlers/ad-hoc-payment-limit.js', () => ({
 
 // The cost ceiling the Started projection reserved; null: not linked yet.
 const ceilingMock = vi.fn().mockResolvedValue(null);
+// The cost ceiling the payment gate reserved for an account session (plan S8).
+const accountCeilingMock = vi.fn().mockResolvedValue(null);
+// The station got the account ceiling at Started (plan S8, bounded reservation).
+const markCeilingSentMock = vi.fn().mockResolvedValue(undefined);
+// A grown account ceiling not sent yet; null: nothing new.
+const grownCeilingMock = vi.fn().mockResolvedValue(null);
+// CostLimitReached: whether the account ceiling was raised above the reached limit.
+const raiseCeilingMock = vi.fn().mockResolvedValue(false);
 vi.mock('../../../handlers/prepaid-session-limit.js', () => ({
+  raiseAccountCeilingAtCostLimit: raiseCeilingMock,
   prepaidSessionCeilingCents: ceilingMock,
+  accountSessionCeilingCents: accountCeilingMock,
+  markAccountCeilingSent: markCeilingSentMock,
+  takeGrownAccountCeiling: grownCeilingMock,
 }));
 
 // The station's TxCtrlr.SupportedLimits (E16.FR.12): null means not reported.
@@ -117,6 +136,12 @@ beforeEach(() => {
   costMock.mockResolvedValue(null);
   settledMock.mockResolvedValue(true);
   waitForSignalMock.mockResolvedValue(true);
+  accountCreditMock.mockResolvedValue(null);
+  accountCeilingMock.mockResolvedValue(null);
+  markCeilingSentMock.mockResolvedValue(undefined);
+  grownCeilingMock.mockResolvedValue(null);
+  raiseCeilingMock.mockReset();
+  raiseCeilingMock.mockResolvedValue(false);
 });
 
 describe('v2_1 TransactionEvent handler', () => {
@@ -515,6 +540,208 @@ describe('v2_1 TransactionEvent handler', () => {
       expect(info['status']).toBe('NoCredit');
       expect(info['groupIdToken']).toBeUndefined();
       expect(info['cacheExpiryDateTime']).toBeDefined();
+      expect(response['transactionLimit']).toBeUndefined();
+    });
+  });
+
+  describe('fleet credit limit of an account session (plan S8)', () => {
+    const accountRow = [
+      {
+        id: 'dtk_acc',
+        driverId: 'drv_acc',
+        isActive: true,
+        expiresAt: null,
+        revokedAt: null,
+        prepaidBalanceCents: null,
+      },
+    ];
+    const event = (eventType: string) => ({
+      eventType,
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'Authorized',
+      seqNo: 0,
+      transactionInfo: { transactionId: 'tx-acc', chargingState: 'Charging' },
+      idToken: { idToken: 'ACCOUNT-1', type: 'ISO14443' },
+    });
+
+    beforeEach(() => {
+      whereResult = accountRow;
+      accountCreditMock.mockResolvedValue({ fleetId: 'flt_1', remainingCents: 5000 });
+    });
+
+    it('sends the reserved ceiling as transactionLimit.maxCost once the gate ran', async () => {
+      accountCeilingMock.mockResolvedValue(1250);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(event('Started'));
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toEqual({ maxCost: 12.5 });
+      expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+      expect(accountCreditMock).toHaveBeenCalledWith({}, 'drv_acc');
+      expect(waitForSignalMock).toHaveBeenCalledWith(sessionGatedKey('CS-001', 'tx-acc'), 5000);
+      expect(accountCeilingMock).toHaveBeenCalledWith('CS-001', 'tx-acc');
+      // Recorded as sent, so a grown ceiling follows on a later response.
+      expect(markCeilingSentMock).toHaveBeenCalledWith('CS-001', 'tx-acc', 1250);
+    });
+
+    it('records no sent ceiling when the station does not support maxCost', async () => {
+      accountCeilingMock.mockResolvedValue(1250);
+      supportedLimitsMock.mockResolvedValue(new Set(['maxEnergy']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      await handleTransactionEvent(makeCtx(event('Started')).ctx);
+      expect(markCeilingSentMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the Started response when recording the sent ceiling fails', async () => {
+      accountCeilingMock.mockResolvedValue(1250);
+      markCeilingSentMock.mockRejectedValue(new Error('db down'));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const response = await handleTransactionEvent(makeCtx(event('Started')).ctx);
+      expect(response['transactionLimit']).toEqual({ maxCost: 12.5 });
+    });
+
+    it('sends a grown ceiling once on the next Updated response (E16.FR.02)', async () => {
+      grownCeilingMock.mockResolvedValueOnce(2500).mockResolvedValue(null);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const update = { ...event('Updated'), triggerReason: 'MeterValuePeriodic' };
+      delete (update as { idToken?: unknown }).idToken;
+
+      const first = await handleTransactionEvent(makeCtx(update).ctx);
+      expect(first['transactionLimit']).toEqual({ maxCost: 25 });
+      expect(grownCeilingMock).toHaveBeenCalledWith('CS-001', 'tx-acc');
+
+      const second = await handleTransactionEvent(makeCtx(update).ctx);
+      expect(second['transactionLimit']).toBeUndefined();
+    });
+
+    describe('CostLimitReached (E16.FR.05, the station suspended at its limit)', () => {
+      const reached = () => {
+        const update = {
+          ...event('Updated'),
+          triggerReason: 'CostLimitReached',
+          transactionInfo: { transactionId: 'tx-acc', chargingState: 'SuspendedEVSE' },
+        };
+        delete (update as { idToken?: unknown }).idToken;
+        return update;
+      };
+
+      it('raises the ceiling before the projection runs and sends it in the same response', async () => {
+        raiseCeilingMock.mockResolvedValue(true);
+        grownCeilingMock.mockResolvedValueOnce(3000);
+        const { handleTransactionEvent } = transactionEventHandlerModule;
+        const { ctx, publishMock } = makeCtx(reached());
+
+        const response = await handleTransactionEvent(ctx);
+
+        expect(raiseCeilingMock).toHaveBeenCalledWith('CS-001', 'tx-acc');
+        // The station resumes at the raised limit (E16 scenario 2, step 4a).
+        expect(response['transactionLimit']).toEqual({ maxCost: 30 });
+        // The projection learns that the ceiling grew, so it does not claim the session.
+        const [published] = publishMock.mock.calls[0] as [{ payload: Record<string, unknown> }];
+        expect(published.payload['accountCeilingRaised']).toBe(true);
+        expect(raiseCeilingMock.mock.invocationCallOrder[0]).toBeLessThan(
+          publishMock.mock.invocationCallOrder[0] ?? 0,
+        );
+      });
+
+      it('marks nothing when the fleet has no credit left', async () => {
+        const { handleTransactionEvent } = transactionEventHandlerModule;
+        const { ctx, publishMock } = makeCtx(reached());
+
+        const response = await handleTransactionEvent(ctx);
+
+        expect(response['transactionLimit']).toBeUndefined();
+        const [published] = publishMock.mock.calls[0] as [{ payload: Record<string, unknown> }];
+        expect(published.payload).not.toHaveProperty('accountCeilingRaised');
+      });
+
+      it('marks nothing when raising fails (the projection claims the session)', async () => {
+        raiseCeilingMock.mockRejectedValue(new Error('db down'));
+        const { handleTransactionEvent } = transactionEventHandlerModule;
+        const { ctx, publishMock } = makeCtx(reached());
+
+        await handleTransactionEvent(ctx);
+
+        const [published] = publishMock.mock.calls[0] as [{ payload: Record<string, unknown> }];
+        expect(published.payload).not.toHaveProperty('accountCeilingRaised');
+      });
+
+      it('raises nothing on an Ended transaction (E16.FR.06) or another trigger', async () => {
+        const { handleTransactionEvent } = transactionEventHandlerModule;
+        await handleTransactionEvent(
+          makeCtx({ ...event('Ended'), triggerReason: 'CostLimitReached' }).ctx,
+        );
+        await handleTransactionEvent(
+          makeCtx({ ...event('Updated'), triggerReason: 'MeterValuePeriodic' }).ctx,
+        );
+        expect(raiseCeilingMock).not.toHaveBeenCalled();
+      });
+    });
+
+    it('sends no grown ceiling when its lookup fails', async () => {
+      grownCeilingMock.mockRejectedValue(new Error('db down'));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const response = await handleTransactionEvent(makeCtx(event('Updated')).ctx);
+      expect(response['transactionLimit']).toBeUndefined();
+    });
+
+    it('looks for a grown ceiling only on Updated', async () => {
+      accountCeilingMock.mockResolvedValue(1250);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      await handleTransactionEvent(makeCtx(event('Started')).ctx);
+      await handleTransactionEvent(makeCtx(event('Ended')).ctx);
+      expect(grownCeilingMock).not.toHaveBeenCalled();
+    });
+
+    it('answers NoCredit without a limit when the reserved ceiling is 0', async () => {
+      accountCeilingMock.mockResolvedValue(0);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(event('Started'));
+
+      const response = await handleTransactionEvent(ctx);
+      const info = response['idTokenInfo'] as Record<string, unknown>;
+
+      expect(info['status']).toBe('NoCredit');
+      expect(info['groupIdToken']).toBeUndefined();
+      expect(response['transactionLimit']).toBeUndefined();
+    });
+
+    it('sends no limit when the ceiling is not known (gate timeout or lookup failure)', async () => {
+      waitForSignalMock.mockResolvedValue(false);
+      settledMock.mockResolvedValue(false);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const first = await handleTransactionEvent(makeCtx(event('Started')).ctx);
+      expect(first['transactionLimit']).toBeUndefined();
+      expect(accountCeilingMock).not.toHaveBeenCalled();
+
+      waitForSignalMock.mockResolvedValue(true);
+      accountCeilingMock.mockRejectedValue(new Error('db down'));
+      const second = await handleTransactionEvent(makeCtx(event('Started')).ctx);
+      expect(second['transactionLimit']).toBeUndefined();
+      expect((second['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+    });
+
+    it('sends no account limit on Updated and reads no fleet credit there', async () => {
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const response = await handleTransactionEvent(makeCtx(event('Updated')).ctx);
+      expect(response['transactionLimit']).toBeUndefined();
+      expect(accountCreditMock).not.toHaveBeenCalled();
+    });
+
+    it('waits for no gate for a driver without a limited account fleet', async () => {
+      accountCreditMock.mockResolvedValue(null);
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const response = await handleTransactionEvent(makeCtx(event('Started')).ctx);
+      expect(response['transactionLimit']).toBeUndefined();
+      expect(accountCeilingMock).not.toHaveBeenCalled();
+    });
+
+    it('sends only the limits the station supports (E16.FR.12)', async () => {
+      accountCeilingMock.mockResolvedValue(1250);
+      supportedLimitsMock.mockResolvedValue(new Set(['maxEnergy']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const response = await handleTransactionEvent(makeCtx(event('Started')).ctx);
       expect(response['transactionLimit']).toBeUndefined();
     });
   });

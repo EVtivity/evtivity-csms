@@ -55,6 +55,15 @@ export function sessionPricedKey(stationId: string, transactionId: string): stri
   return `session-priced:${transactionKey(stationId, transactionId)}`;
 }
 
+/**
+ * Signal key: the Started projection ran the payment gate of this
+ * transaction's session (or skipped it), so an account session has its
+ * reserved cost ceiling (plan S8).
+ */
+export function sessionGatedKey(stationId: string, transactionId: string): string {
+  return `session-gated:${transactionKey(stationId, transactionId)}`;
+}
+
 interface SignalEntry {
   promise: Promise<void>;
   resolve: () => void;

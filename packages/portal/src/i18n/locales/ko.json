@@ -544,7 +544,13 @@
     "EVSE_IN_USE": "이 커넥터에서 다른 세션이 이미 활성 상태입니다",
     "EVSE_NOT_FOUND": "EVSE를 찾을 수 없습니다",
     "FAVORITE_NOT_FOUND": "즐겨찾기를 찾을 수 없습니다",
+    "FLEET_CREDIT_LIMIT_REACHED": "세션 요금이 청구되는 차량대의 신용 한도에 도달했습니다. 차량대 관리자에게 문의하십시오.",
     "FLEET_DISABLED": "차량대가 사용 중지되었습니다",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "v0.1.41 이전 프로세스가 아직 연결되어 있습니다. 업그레이드를 마친 후 계정 청구를 켜십시오.",
+    "FLEET_BILLING_CONTACT_REQUIRED": "자동 청구서 발행과 청구서 이메일 발송에는 차량대 청구 담당자가 한 명 이상 필요합니다.",
+    "FLEET_INVOICE_PERIOD_EXISTS": "이 기간에 대한 차량대 청구서가 이미 있습니다. 기간을 다시 청구하려면 크레딧 노트를 발행하십시오.",
+    "FLEET_INVOICE_NOTHING_TO_BILL": "이 기간에 청구할 비용이 있는 미청구 세션이 차량대에 없습니다.",
+    "FLEET_HAS_OPEN_BILLING": "플릿 계정으로 청구된 세션이 있어 플릿을 삭제할 수 없습니다. 대신 계정 청구를 끄십시오.",
     "FLEET_NOT_FOUND": "차량대를 찾을 수 없습니다",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "차량대 예약이 이미 취소되었습니다",
     "FLEET_RESERVATION_CREATE_FAILED": "차량대 예약 생성에 실패했습니다",
@@ -570,7 +576,12 @@
     "INVALID_RESTRICTIONS": "유효하지 않은 요금 제한입니다",
     "INVALID_SITE_IDS": "하나 이상의 siteId가 존재하지 않습니다",
     "INVALID_TOKEN": "유효하지 않거나 만료된 재설정 링크입니다",
+    "INVOICE_ALREADY_PAID": "이미 결제된 청구서입니다",
     "INVOICE_CREATION_FAILED": "청구서 생성에 실패했습니다",
+    "INVOICE_NOT_ISSUED": "이 작업은 발행된 청구서에만 가능합니다",
+    "INVOICE_IS_CREDIT_NOTE": "크레딧 노트는 결제 완료로 표시하거나 크레딧 처리할 수 없습니다",
+    "INVOICE_ALREADY_CREDITED": "이미 크레딧 노트로 크레딧 처리된 청구서입니다",
+    "INVOICE_NOT_VOIDABLE": "초안 청구서만 무효 처리할 수 있습니다. 발행된 청구서는 크레딧 노트로 정정합니다",
     "INVOICE_NO_SESSIONS": "선택한 기간에 미청구 세션이 없습니다",
     "INVOICE_NO_DRIVER": "이 청구서에는 보낼 드라이버가 없습니다",
     "INVOICE_NOT_FOUND": "청구서를 찾을 수 없습니다",
@@ -999,5 +1010,20 @@
     "invalid": "유효하지 않음",
     "faulted": "결함",
     "failed": "실패"
+  },
+  "fleetBilling": {
+    "billedTo": "{{fleet}}(으)로 청구",
+    "startHint": "차량대가 이 충전 세션 요금을 지불합니다. 결제 수단이 필요하지 않습니다.",
+    "title": "차량대 청구",
+    "fleet": "청구 대상",
+    "status": "상태",
+    "state": {
+      "unbilled": "아직 청구되지 않음",
+      "invoiced": "차량대에 청구됨",
+      "paid": "차량대가 결제함"
+    },
+    "sessionLine": "{{fleet}}: {{state}}",
+    "paymentMethodsNote": "충전 요금은 {{fleet}}(으)로 청구됩니다. 충전에 결제 수단이 필요하지 않습니다.",
+    "noMethods": "등록된 결제 수단이 없습니다."
   }
 }

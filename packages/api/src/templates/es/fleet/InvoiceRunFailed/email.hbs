@@ -1,0 +1,5 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}Hola {{firstName}}:{{else}}Hola:{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>El proceso mensual de facturación no pudo completar las facturas de {{period}} de estas flotas, tras reintentarlo durante unas dos horas y media.</p>
+{{#if issuedNotEmailed}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>Factura emitida, correo no enviado.</strong> Abra la factura y use Enviar: {{issuedNotEmailed}}</p>{{/if}}
+{{#if notInvoiced}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>Sin facturar.</strong> Genere la factura a mano en la pestaña Facturación de la flota: {{notInvoiced}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>Cada entrada indica la flota, el número de factura si se emitió una y el último error. El proceso no vuelve a intentar estas flotas para {{period}}.</p>

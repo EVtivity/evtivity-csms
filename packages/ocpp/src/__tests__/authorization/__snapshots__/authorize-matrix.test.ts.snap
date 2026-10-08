@@ -39,6 +39,7 @@ exports[`authorize decision matrix > A16 | C07 Accepted | roaming off 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -82,6 +83,7 @@ exports[`authorize decision matrix > A16 | C07 Accepted | roaming on 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -209,6 +211,7 @@ exports[`authorize decision matrix > A16 | C07 Accepted from certificate hash da
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -252,6 +255,7 @@ exports[`authorize decision matrix > A16 | C07 Accepted from certificate hash da
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -295,6 +299,7 @@ exports[`authorize decision matrix > A16 | C07 CertChainError | roaming off 1`] 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -338,6 +343,7 @@ exports[`authorize decision matrix > A16 | C07 CertChainError | roaming on 1`] =
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -381,6 +387,7 @@ exports[`authorize decision matrix > A16 | C07 CertificateExpired | roaming off 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -424,6 +431,7 @@ exports[`authorize decision matrix > A16 | C07 CertificateExpired | roaming on 1
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -467,6 +475,7 @@ exports[`authorize decision matrix > A16 | C07 CertificateRevoked | roaming off 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -510,6 +519,7 @@ exports[`authorize decision matrix > A16 | C07 CertificateRevoked | roaming on 1
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -641,6 +651,7 @@ exports[`authorize decision matrix > A16 | C07 validation throws | roaming off 1
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -684,6 +695,7 @@ exports[`authorize decision matrix > A16 | C07 validation throws | roaming on 1`
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -1390,6 +1402,362 @@ exports[`authorize decision matrix > A16 | NoAuthorization | roaming on 1`] = `
 }
 `;
 
+exports[`authorize decision matrix > A16 | account, ceiling not reserved yet | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A16 | account, ceiling not reserved yet | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A16 | account, fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A16 | account, fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A16 | account, fleet credit lookup error | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [
+    "warn",
+  ],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A16 | account, fleet credit lookup error | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [
+    "warn",
+  ],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A16 | account, no fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "no_credit",
+      "reason": "account_credit_limit",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Blocked",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A16 | account, no fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "no_credit",
+      "reason": "account_credit_limit",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Blocked",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
 exports[`authorize decision matrix > A16 | active | roaming off 1`] = `
 {
   "adHocLimitLookups": 0,
@@ -1429,6 +1797,7 @@ exports[`authorize decision matrix > A16 | active | roaming off 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -1472,6 +1841,7 @@ exports[`authorize decision matrix > A16 | active | roaming on 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -1515,6 +1885,7 @@ exports[`authorize decision matrix > A16 | active with a tariff | roaming off 1`
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -1558,6 +1929,7 @@ exports[`authorize decision matrix > A16 | active with a tariff | roaming on 1`]
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -1601,6 +1973,7 @@ exports[`authorize decision matrix > A16 | active with a tariff, no station row 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -1644,6 +2017,7 @@ exports[`authorize decision matrix > A16 | active with a tariff, no station row 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -1688,6 +2062,7 @@ exports[`authorize decision matrix > A16 | active with expiry | roaming off 1`] 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -1732,6 +2107,7 @@ exports[`authorize decision matrix > A16 | active with expiry | roaming on 1`] =
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -2035,6 +2411,7 @@ exports[`authorize decision matrix > A16 | concurrent session lookup error | roa
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -2080,6 +2457,7 @@ exports[`authorize decision matrix > A16 | concurrent session lookup error | roa
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -2123,6 +2501,7 @@ exports[`authorize decision matrix > A16 | driver id, active driver | roaming of
     "freeVend",
     "driver_tokens",
     "drivers",
+    "account_credit",
   ],
 }
 `;
@@ -2166,6 +2545,7 @@ exports[`authorize decision matrix > A16 | driver id, active driver | roaming on
     "freeVend",
     "driver_tokens",
     "drivers",
+    "account_credit",
   ],
 }
 `;
@@ -3903,6 +4283,7 @@ exports[`authorize decision matrix > A16 | multiple rows, revoked of this type a
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -3946,6 +4327,7 @@ exports[`authorize decision matrix > A16 | multiple rows, revoked of this type a
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6023,6 +6405,7 @@ exports[`authorize decision matrix > A21 | C07 Accepted | roaming off 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6076,6 +6459,7 @@ exports[`authorize decision matrix > A21 | C07 Accepted | roaming on 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6215,6 +6599,7 @@ exports[`authorize decision matrix > A21 | C07 Accepted from certificate hash da
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6268,6 +6653,7 @@ exports[`authorize decision matrix > A21 | C07 Accepted from certificate hash da
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6312,6 +6698,7 @@ exports[`authorize decision matrix > A21 | C07 CertChainError | roaming off 1`] 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6356,6 +6743,7 @@ exports[`authorize decision matrix > A21 | C07 CertChainError | roaming on 1`] =
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6400,6 +6788,7 @@ exports[`authorize decision matrix > A21 | C07 CertificateExpired | roaming off 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6444,6 +6833,7 @@ exports[`authorize decision matrix > A21 | C07 CertificateExpired | roaming on 1
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6488,6 +6878,7 @@ exports[`authorize decision matrix > A21 | C07 CertificateRevoked | roaming off 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6532,6 +6923,7 @@ exports[`authorize decision matrix > A21 | C07 CertificateRevoked | roaming on 1
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6666,6 +7058,7 @@ exports[`authorize decision matrix > A21 | C07 validation throws | roaming off 1
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -6712,6 +7105,7 @@ exports[`authorize decision matrix > A21 | C07 validation throws | roaming on 1`
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -7488,6 +7882,416 @@ exports[`authorize decision matrix > A21 | NoAuthorization | roaming on 1`] = `
 }
 `;
 
+exports[`authorize decision matrix > A21 | account, ceiling not reserved yet | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [
+    {
+      "driverUuid": "drv-owner",
+      "stationUuid": "sta_db_1",
+    },
+  ],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A21 | account, ceiling not reserved yet | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [
+    {
+      "driverUuid": "drv-owner",
+      "stationUuid": "sta_db_1",
+    },
+  ],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A21 | account, fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [
+    {
+      "driverUuid": "drv-owner",
+      "stationUuid": "sta_db_1",
+    },
+  ],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A21 | account, fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [
+    {
+      "driverUuid": "drv-owner",
+      "stationUuid": "sta_db_1",
+    },
+  ],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A21 | account, fleet credit lookup error | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [
+    "warn",
+  ],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [
+    {
+      "driverUuid": "drv-owner",
+      "stationUuid": "sta_db_1",
+    },
+  ],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A21 | account, fleet credit lookup error | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [
+    "warn",
+  ],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [
+    {
+      "driverUuid": "drv-owner",
+      "stationUuid": "sta_db_1",
+    },
+  ],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A21 | account, no fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "no_credit",
+      "reason": "account_credit_limit",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "status": "NoCredit",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > A21 | account, no fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "no_credit",
+      "reason": "account_credit_limit",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.Authorize",
+      "payload": {
+        "idToken": "TAG-A",
+        "stationId": "CS-001",
+        "tokenType": "ISO14443",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "status": "NoCredit",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.Authorize",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+    "account_credit",
+  ],
+}
+`;
+
 exports[`authorize decision matrix > A21 | active | roaming off 1`] = `
 {
   "adHocLimitLookups": 0,
@@ -7536,6 +8340,7 @@ exports[`authorize decision matrix > A21 | active | roaming off 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -7588,6 +8393,7 @@ exports[`authorize decision matrix > A21 | active | roaming on 1`] = `
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -7696,6 +8502,7 @@ exports[`authorize decision matrix > A21 | active with a tariff | roaming off 1`
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -7804,6 +8611,7 @@ exports[`authorize decision matrix > A21 | active with a tariff | roaming on 1`]
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -7867,6 +8675,7 @@ exports[`authorize decision matrix > A21 | active with a tariff, no station row 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
     "client:station",
   ],
 }
@@ -7931,6 +8740,7 @@ exports[`authorize decision matrix > A21 | active with a tariff, no station row 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
     "client:station",
   ],
 }
@@ -7985,6 +8795,7 @@ exports[`authorize decision matrix > A21 | active with expiry | roaming off 1`] 
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -8038,6 +8849,7 @@ exports[`authorize decision matrix > A21 | active with expiry | roaming on 1`] =
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -8368,6 +9180,7 @@ exports[`authorize decision matrix > A21 | concurrent session lookup error | roa
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -8422,6 +9235,7 @@ exports[`authorize decision matrix > A21 | concurrent session lookup error | roa
     "freeVend",
     "driver_tokens",
     "charging_sessions",
+    "account_credit",
   ],
 }
 `;
@@ -8474,6 +9288,7 @@ exports[`authorize decision matrix > A21 | driver id, active driver | roaming of
     "freeVend",
     "driver_tokens",
     "drivers",
+    "account_credit",
   ],
 }
 `;
@@ -8526,6 +9341,7 @@ exports[`authorize decision matrix > A21 | driver id, active driver | roaming on
     "freeVend",
     "driver_tokens",
     "drivers",
+    "account_credit",
   ],
 }
 `;
@@ -14526,6 +15342,454 @@ exports[`authorize decision matrix > ST16 | NoAuthorization | roaming on 1`] = `
     "guest_sessions",
     "roaming",
     "ocpi_external_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > ST16 | account, ceiling not reserved yet | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "meterStart": 1000,
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationId": "CS-001",
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "5000",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+    "transactionId": 5000,
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "execute:find_resent",
+    "execute:claim_remote_start",
+    "execute:nextval",
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > ST16 | account, ceiling not reserved yet | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "meterStart": 1000,
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationId": "CS-001",
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "5000",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+    "transactionId": 5000,
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "execute:find_resent",
+    "execute:claim_remote_start",
+    "execute:nextval",
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > ST16 | account, fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "meterStart": 1000,
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationId": "CS-001",
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "5000",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+    "transactionId": 5000,
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "execute:find_resent",
+    "execute:claim_remote_start",
+    "execute:nextval",
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > ST16 | account, fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "meterStart": 1000,
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationId": "CS-001",
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "5000",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+    "transactionId": 5000,
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "execute:find_resent",
+    "execute:claim_remote_start",
+    "execute:nextval",
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > ST16 | account, fleet credit lookup error | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "meterStart": 1000,
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationId": "CS-001",
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "5000",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+    "transactionId": 5000,
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "execute:find_resent",
+    "execute:claim_remote_start",
+    "execute:nextval",
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > ST16 | account, fleet credit lookup error | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "meterStart": 1000,
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationId": "CS-001",
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "5000",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+    "transactionId": 5000,
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "execute:find_resent",
+    "execute:claim_remote_start",
+    "execute:nextval",
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > ST16 | account, no fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "meterStart": 1000,
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationId": "CS-001",
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "5000",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+    "transactionId": 5000,
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "execute:find_resent",
+    "execute:claim_remote_start",
+    "execute:nextval",
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > ST16 | account, no fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp1.6",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "meterStart": 1000,
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationId": "CS-001",
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "5000",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTagInfo": {
+      "status": "Accepted",
+    },
+    "transactionId": 5000,
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "execute:find_resent",
+    "execute:claim_remote_start",
+    "execute:nextval",
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "charging_sessions",
   ],
 }
 `;
@@ -21920,6 +23184,374 @@ exports[`authorize decision matrix > TE21 Ended | NoAuthorization | roaming on 1
 }
 `;
 
+exports[`authorize decision matrix > TE21 Ended | account, ceiling not reserved yet | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Ended",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 2,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "StopAuthorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Ended | account, ceiling not reserved yet | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Ended",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 2,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "StopAuthorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Ended | account, fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Ended",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 2,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "StopAuthorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Ended | account, fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Ended",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 2,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "StopAuthorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Ended | account, fleet credit lookup error | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Ended",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 2,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "StopAuthorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Ended | account, fleet credit lookup error | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Ended",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 2,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "StopAuthorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Ended | account, no fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Ended",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 2,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "StopAuthorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Ended | account, no fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Ended",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 2,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "StopAuthorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
 exports[`authorize decision matrix > TE21 Ended | active | roaming off 1`] = `
 {
   "adHocLimitLookups": 0,
@@ -26771,6 +28403,7 @@ exports[`authorize decision matrix > TE21 Started | C07 Accepted | roaming off 1
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -26828,6 +28461,7 @@ exports[`authorize decision matrix > TE21 Started | C07 Accepted | roaming on 1`
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -26991,6 +28625,7 @@ exports[`authorize decision matrix > TE21 Started | C07 Accepted from certificat
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27048,6 +28683,7 @@ exports[`authorize decision matrix > TE21 Started | C07 Accepted from certificat
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27105,6 +28741,7 @@ exports[`authorize decision matrix > TE21 Started | C07 CertChainError | roaming
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27162,6 +28799,7 @@ exports[`authorize decision matrix > TE21 Started | C07 CertChainError | roaming
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27219,6 +28857,7 @@ exports[`authorize decision matrix > TE21 Started | C07 CertificateExpired | roa
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27276,6 +28915,7 @@ exports[`authorize decision matrix > TE21 Started | C07 CertificateExpired | roa
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27333,6 +28973,7 @@ exports[`authorize decision matrix > TE21 Started | C07 CertificateRevoked | roa
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27390,6 +29031,7 @@ exports[`authorize decision matrix > TE21 Started | C07 CertificateRevoked | roa
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27573,6 +29215,7 @@ exports[`authorize decision matrix > TE21 Started | C07 validation throws | roam
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -27630,6 +29273,7 @@ exports[`authorize decision matrix > TE21 Started | C07 validation throws | roam
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -28542,6 +30186,484 @@ exports[`authorize decision matrix > TE21 Started | NoAuthorization | roaming on
 }
 `;
 
+exports[`authorize decision matrix > TE21 Started | account, ceiling not reserved yet | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [
+    "warn",
+  ],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "account_credit",
+    "account_ceiling",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Started | account, ceiling not reserved yet | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [
+    "warn",
+  ],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "account_credit",
+    "account_ceiling",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Started | account, fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+    "transactionLimit": {
+      "maxCost": 12,
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "account_credit",
+    "account_ceiling",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Started | account, fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+    "transactionLimit": {
+      "maxCost": 12,
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "account_credit",
+    "account_ceiling",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Started | account, fleet credit lookup error | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [
+    "warn",
+  ],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Started | account, fleet credit lookup error | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "accepted",
+      "reason": "active",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [
+    "warn",
+  ],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "account_credit",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Started | account, no fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "no_credit",
+      "reason": "account_credit_limit",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "cacheExpiryDateTime": "2026-10-07T12:00:00.000Z",
+      "status": "NoCredit",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "account_credit",
+    "account_ceiling",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Started | account, no fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [
+    {
+      "idToken": "TAG-A",
+      "matchedDriverId": "drv-owner",
+      "matchedTokenId": "tok-1",
+      "ocppVersion": "ocpp2.1",
+      "outcome": "no_credit",
+      "reason": "account_credit_limit",
+      "stationId": "CS-001",
+      "tokenType": "ISO14443",
+    },
+  ],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Started",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 0,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "cacheExpiryDateTime": "2026-10-07T12:00:00.000Z",
+      "status": "NoCredit",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+    "account_credit",
+    "account_ceiling",
+  ],
+}
+`;
+
 exports[`authorize decision matrix > TE21 Started | active | roaming off 1`] = `
 {
   "adHocLimitLookups": 0,
@@ -28595,6 +30717,7 @@ exports[`authorize decision matrix > TE21 Started | active | roaming off 1`] = `
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -28652,6 +30775,7 @@ exports[`authorize decision matrix > TE21 Started | active | roaming on 1`] = `
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -28709,6 +30833,7 @@ exports[`authorize decision matrix > TE21 Started | active with a tariff | roami
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -28766,6 +30891,7 @@ exports[`authorize decision matrix > TE21 Started | active with a tariff | roami
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -28823,6 +30949,7 @@ exports[`authorize decision matrix > TE21 Started | active with a tariff, no sta
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -28880,6 +31007,7 @@ exports[`authorize decision matrix > TE21 Started | active with a tariff, no sta
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -28938,6 +31066,7 @@ exports[`authorize decision matrix > TE21 Started | active with expiry | roaming
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -28996,6 +31125,7 @@ exports[`authorize decision matrix > TE21 Started | active with expiry | roaming
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -29167,6 +31297,7 @@ exports[`authorize decision matrix > TE21 Started | concurrent session | roaming
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -29224,6 +31355,7 @@ exports[`authorize decision matrix > TE21 Started | concurrent session | roaming
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -29281,6 +31413,7 @@ exports[`authorize decision matrix > TE21 Started | concurrent session is the re
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -29338,6 +31471,7 @@ exports[`authorize decision matrix > TE21 Started | concurrent session is the re
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -29395,6 +31529,7 @@ exports[`authorize decision matrix > TE21 Started | concurrent session lookup er
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -29452,6 +31587,7 @@ exports[`authorize decision matrix > TE21 Started | concurrent session lookup er
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -29510,6 +31646,7 @@ exports[`authorize decision matrix > TE21 Started | driver id, active driver | r
     "freeVend",
     "driver_tokens",
     "drivers",
+    "account_credit",
   ],
 }
 `;
@@ -29568,6 +31705,7 @@ exports[`authorize decision matrix > TE21 Started | driver id, active driver | r
     "freeVend",
     "driver_tokens",
     "drivers",
+    "account_credit",
   ],
 }
 `;
@@ -30069,6 +32207,7 @@ exports[`authorize decision matrix > TE21 Started | free vend setting read throw
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -30128,6 +32267,7 @@ exports[`authorize decision matrix > TE21 Started | free vend setting read throw
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "account_credit",
   ],
 }
 `;
@@ -36029,6 +38169,374 @@ exports[`authorize decision matrix > TE21 Updated | NoAuthorization | roaming on
       "groupIdToken": {
         "idToken": "NOAUTH",
         "type": "NoAuthorization",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Updated | account, ceiling not reserved yet | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Updated",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 1,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Updated | account, ceiling not reserved yet | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Updated",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 1,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Updated | account, fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Updated",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 1,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Updated | account, fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Updated",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 1,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Updated | account, fleet credit lookup error | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Updated",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 1,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Updated | account, fleet credit lookup error | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Updated",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 1,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Updated | account, no fleet credit left | roaming off 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Updated",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 1,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
+      },
+      "status": "Accepted",
+    },
+  },
+  "tariffResolvedFor": [],
+  "trace": [
+    "publish:ocpp.TransactionEvent",
+    "freeVend",
+    "driver_tokens",
+  ],
+}
+`;
+
+exports[`authorize decision matrix > TE21 Updated | account, no fleet credit left | roaming on 1`] = `
+{
+  "adHocLimitLookups": 0,
+  "authorizeAttempts": [],
+  "certificateValidations": 0,
+  "events": [
+    {
+      "eventType": "ocpp.TransactionEvent",
+      "payload": {
+        "chargingState": "Charging",
+        "connectorId": 1,
+        "eventType": "Updated",
+        "evseId": 1,
+        "idToken": "TAG-A",
+        "reservationId": undefined,
+        "seqNo": 1,
+        "stationDbId": "sta_db_1",
+        "stationId": "CS-001",
+        "stoppedReason": undefined,
+        "timestamp": "2026-10-07T11:59:00.000Z",
+        "tokenType": "ISO14443",
+        "transactionId": "tx-1",
+        "triggerReason": "Authorized",
+      },
+    },
+  ],
+  "logs": [],
+  "prepaidRemembered": [],
+  "response": {
+    "idTokenInfo": {
+      "groupIdToken": {
+        "idToken": "TAG-A",
+        "type": "ISO14443",
       },
       "status": "Accepted",
     },

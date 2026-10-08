@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { EventBus, DomainEvent, PubSubClient } from '@evtivity/lib';
+import { projectionQueueFor, sessionGatedKey } from '../../server/projection-queue.js';
 
 // SQL mock answered by statement text, so the test does not depend on the
 // statement order of the Started step.
@@ -182,6 +183,11 @@ describe('TransactionEvent Started when the payment gate fails', () => {
     );
 
     expect(mockRunPaymentGate).toHaveBeenCalledTimes(1);
+    // The gate signal fires after a failed gate too, so the 2.1 handler waiting
+    // for an account session's ceiling (plan S8) answers at once without one.
+    await expect(
+      projectionQueueFor(eventBus).waitForSignal(sessionGatedKey('CS-1', 'tx-1'), 0),
+    ).resolves.toBe(true);
     // Buffer drained.
     expect(eventBus.publish).toHaveBeenCalledWith(updated);
     // Station screen published.

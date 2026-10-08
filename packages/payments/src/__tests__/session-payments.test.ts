@@ -221,6 +221,7 @@ function record(overrides: Partial<PaymentRecord> = {}): PaymentRecord {
     sessionId: 's1',
     driverId: 'd1',
     sitePaymentConfigId: null,
+    invoiceId: null,
     provider: 'stripe',
     providerPaymentId: 'pi_1',
     providerCustomerId: 'cus_1',
@@ -1176,6 +1177,8 @@ describe('settleSessionPayment', () => {
     isRoaming: false,
     freeVend: false,
     prepaid: false,
+    account: false,
+    billingFleetId: null,
     finalCostCents: 4000,
     tariffTaxRate: '0.19',
     costBreakdown: { energy: 4000 },
@@ -1309,6 +1312,32 @@ describe('settleSessionPayment', () => {
     h.findSessionHold.mockResolvedValue(null);
     expect(await settleSessionPayment('s1', ctx)).toEqual({ mode: 'none' });
     expect(h.settlePrepaidSession).not.toHaveBeenCalled();
+  });
+
+  it('returns account for an account session without a provider call or record', async () => {
+    h.results.push([{ ...SESSION, account: true, billingFleetId: 'flt_1' }]);
+    h.findSessionHold.mockResolvedValue(null);
+    expect(await settleSessionPayment('s1', ctx)).toEqual({
+      mode: 'account',
+      billingFleetId: 'flt_1',
+    });
+    expect(h.settlePrepaidSession).not.toHaveBeenCalled();
+    expect(getPaymentProvider).not.toHaveBeenCalled();
+  });
+
+  it('still settles an open hold on an account session (it must not stay held)', async () => {
+    h.results.push([{ ...SESSION, account: true, billingFleetId: 'flt_1' }]);
+    expect(await settleSessionPayment('s1', ctx)).toMatchObject({
+      mode: 'card',
+      status: 'captured',
+    });
+  });
+
+  it('settles a prepaid session of an account driver as prepaid', async () => {
+    h.results.push([{ ...SESSION, prepaid: true, account: false }]);
+    h.findSessionHold.mockResolvedValue(null);
+    expect(await settleSessionPayment('s1', ctx)).toEqual({ mode: 'none' });
+    expect(h.settlePrepaidSession).toHaveBeenCalled();
   });
 
   it('leaves a guest hold to the worker', async () => {

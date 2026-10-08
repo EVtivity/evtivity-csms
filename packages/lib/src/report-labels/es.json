@@ -47,6 +47,7 @@
       "tax": "Impuestos",
       "electricityCost": "Coste de electricidad",
       "profit": "Beneficio",
+      "billedOnAccount": "Facturado a la flota (pendiente)",
       "paymentStatus": "Estado del pago"
     },
     "summary": {
@@ -55,6 +56,7 @@
       "totalRevenueExclTax": "Ingresos totales (sin imp.)",
       "totalElectricityCost": "Coste total de electricidad",
       "totalProfit": "Beneficio total",
+      "totalBilledOnAccount": "Total facturado a la flota (pendiente)",
       "totalSessions": "Sesiones totales"
     }
   },

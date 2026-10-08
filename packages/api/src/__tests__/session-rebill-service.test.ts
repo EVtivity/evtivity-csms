@@ -314,6 +314,43 @@ describe('rebillSession', () => {
     });
   });
 
+  it('bills an account session to its fleet without a card charge', async () => {
+    useSession({ billing_mode: 'account', billing_fleet_name: 'Acme' });
+    await expect(rebillSession('ses_1', ctx)).resolves.toMatchObject({
+      rebillStatus: 'billed',
+      result: 'account',
+      manualReason: null,
+      paymentRecordId: null,
+    });
+    expect(m.chargeSessionRebill).not.toHaveBeenCalled();
+    expect(m.settlePrepaidSession).not.toHaveBeenCalled();
+    expect(m.dispatchDriverNotification).toHaveBeenCalledWith(
+      m.client,
+      'session.Receipt',
+      'drv_1',
+      expect.objectContaining({ billingMode: 'account', billedTo: 'Acme' }),
+      ['templates'],
+      expect.anything(),
+    );
+  });
+
+  it('charges the card of an account session that has a payment record', async () => {
+    useSession(
+      { billing_mode: 'account', billing_fleet_name: 'Acme' },
+      { id: 4, status: 'cancelled', payment_source: 'web_portal' },
+    );
+    await expect(rebillSession('ses_1', ctx)).resolves.toMatchObject({ result: 'charged' });
+    expect(m.chargeSessionRebill).toHaveBeenCalled();
+    expect(m.dispatchDriverNotification).toHaveBeenCalledWith(
+      m.client,
+      'session.Receipt',
+      'drv_1',
+      expect.objectContaining({ billingMode: 'card', billedTo: '' }),
+      ['templates'],
+      expect.anything(),
+    );
+  });
+
   it('debits a prepaid balance with the recomputed cost', async () => {
     useSession({ prepaid: true });
     m.answers.record = [[], [{ id: 12, status: 'captured', payment_source: 'prepaid' }]];

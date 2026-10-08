@@ -60,8 +60,15 @@ const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 const mockAuthorizeSessionHold = vi.fn();
 const mockSettleSessionPayment = vi.fn();
 const mockRecordTerminalSettlement = vi.fn();
+const mockDispatchFleetCreditNotices = vi.fn().mockResolvedValue(null);
+const mockReadFleetCreditLimit = vi.fn().mockResolvedValue(null);
+const mockFleetCreditNoticesClaimed = vi.fn().mockResolvedValue(false);
+// No credit left by default: the ceiling stays and the cost loop stops at it.
+const mockExtendFleetSessionCeiling = vi.fn();
 vi.mock('@evtivity/payments', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  dispatchFleetCreditLimitNotices: (...args: unknown[]) =>
+    mockDispatchFleetCreditNotices(...args) as unknown,
   authorizeSessionHold: (...args: unknown[]) => mockAuthorizeSessionHold(...args) as unknown,
   settleSessionPayment: (...args: unknown[]) => mockSettleSessionPayment(...args) as unknown,
   recordTerminalSettlement: (...args: unknown[]) =>
@@ -157,6 +164,26 @@ vi.mock('@evtivity/database', async () => ({
   isSiteFreeVendEnabledByStation: mockIsSiteFreeVend,
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
+  readFleetCreditLimit: (...args: unknown[]) => mockReadFleetCreditLimit(...args) as unknown,
+  fleetCreditNoticesClaimed: (...args: unknown[]) =>
+    mockFleetCreditNoticesClaimed(...args) as unknown,
+  extendFleetSessionCeiling: (...args: unknown[]) =>
+    mockExtendFleetSessionCeiling(...args) as unknown,
+  // The rule of fleet-credit-limit.ts: headroom below 20 % of the slice or
+  // twice the last reading's cost.
+  ceilingExtensionDue: (input: {
+    pricedCents: number;
+    ceilingCents: number;
+    sliceCents: number;
+    lastReadingCents?: number;
+  }) => {
+    const headroom = input.ceilingCents - input.pricedCents;
+    return (
+      headroom * 100 < input.sliceCents * 20 ||
+      headroom < 2 * Math.max(input.lastReadingCents ?? 0, 0)
+    );
+  },
+  getFleetCreditReservationCents: vi.fn().mockResolvedValue(50),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);
@@ -1836,6 +1863,260 @@ describe('Event projections - coverage round 2', () => {
         await emitReading();
 
         expect(stopCommands()).toHaveLength(0);
+      });
+    });
+
+    describe('fleet credit (account cost ceiling, plan S8)', () => {
+      // An account driver's RFID card: the session has a token, but the
+      // ceiling is the fleet credit it reserved, not a prepaid credit.
+      const accountSession = (
+        ocppProtocol: string,
+        costCeilingCents: number | null,
+        currentCostCents: number,
+        fleetLimitCents: number | null = 10_000,
+      ) => ({
+        id: 'ses_1',
+        transaction_id: '1001',
+        tariff_id: 'trf_1',
+        driver_id: 'drv_1',
+        token_id: 'dtk_1',
+        energy_delivered_wh: 950,
+        current_cost_cents: currentCostCents,
+        cost_ceiling_cents: costCeilingCents,
+        idle_started_at: null,
+        idle_minutes: 0,
+        ocpp_protocol: ocppProtocol,
+        billing_mode: 'account',
+        billing_fleet_id: 'flt_1',
+        fleet_credit_limit_cents: fleetLimitCents,
+      });
+      const credit = (level: 'ok' | 'warning' | 'reached') => ({
+        fleetId: 'flt_1',
+        fleetName: 'Acme',
+        limitCents: 10_000,
+        warningPercent: 80,
+        exposure: {
+          unbilledCents: 0,
+          invoicedCents: 0,
+          runningCents: 24,
+          totalCents: 24,
+          currency: 'USD',
+        },
+        level,
+        remainingCents: 0,
+        ceilingCents: null,
+      });
+      beforeEach(() => {
+        mockPriceSessionAt.mockResolvedValue(costBreakdown(24));
+        mockReadFleetCreditLimit.mockReset();
+        mockReadFleetCreditLimit.mockResolvedValue(credit('ok'));
+        mockDispatchFleetCreditNotices.mockClear();
+        mockFleetCreditNoticesClaimed.mockReset();
+        mockFleetCreditNoticesClaimed.mockResolvedValue(false);
+        mockExtendFleetSessionCeiling.mockReset();
+        mockExtendFleetSessionCeiling.mockResolvedValue({
+          previousCents: 20,
+          ceilingCents: 20,
+          grown: false,
+        });
+      });
+      afterEach(() => {
+        mockPriceSessionAt.mockResolvedValue(costBreakdown(1500));
+      });
+      const base = [
+        STA, // resolveStationUuid
+        [{ id: 'ses_1' }], // resolveMeterValueSession
+        [], // INSERT meter_values
+        [{ energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
+        [], // UPDATE meter_start
+        [], // UPDATE energy_delivered_wh
+        [], // UPDATE idle accrue
+      ];
+      const emitReading = () =>
+        emit('ocpp.MeterValues', 'CS-1', {
+          stationId: 'CS-1',
+          evseId: 0,
+          transactionId: '1001',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2026-01-01T01:00:00Z',
+              sampledValue: [{ measurand: 'Energy.Active.Import.Register', value: 1000 }],
+            },
+          ],
+        });
+      const stopCommands = () =>
+        (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
+          (c) => c[0] === 'ocpp_commands' && (c[1] as string).includes('RequestStopTransaction'),
+        );
+
+      it('stops an OCPP 1.6 transaction at the ceiling with the account reason', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [accountSession('ocpp1.6', 20, 0)], // active sessions
+          [{ id: 'ses_1', driver_id: 'drv_1' }], // claim the stop
+          [], // station message settings
+          [{ driver_id: 'drv_1', fleet_name: 'Acme', site_name: null }], // notice read
+          [{ site_id: null }], // resolveSiteId
+        );
+
+        await emitReading();
+
+        // The ceiling could not grow (the fleet has no credit left), so it stops.
+        expect(mockExtendFleetSessionCeiling).toHaveBeenCalledWith(
+          expect.anything(),
+          'flt_1',
+          'ses_1',
+          { pricedCents: 24, sliceCents: 50, lastReadingCents: 24 },
+        );
+        const claim = findSql(/stopped_reason IS NULL/);
+        expect(claim?.values).toContain('AccountCreditLimit');
+        expect(claim?.values).not.toContain('PrepaidCreditExhausted');
+        expect(stopCommands()).toHaveLength(1);
+        // Billed up to the ceiling, not faulted: the station's end settles it.
+        expect(findSql(/SET status = 'faulted'/)).toBeUndefined();
+        expect(findSql(/LEFT JOIN fleets f ON f.id = cs.billing_fleet_id/)).toBeDefined();
+      });
+
+      it('grows the ceiling of a session at its ceiling while the fleet has credit, prices again and does not stop', async () => {
+        mockExtendFleetSessionCeiling.mockResolvedValue({
+          previousCents: 20,
+          ceilingCents: 5020,
+          grown: true,
+        });
+        await setup();
+        setupSqlResults(...base, [accountSession('ocpp1.6', 20, 0)], [{ site_id: null }]);
+        mockPriceSessionAt.mockClear();
+
+        await emitReading();
+
+        // Priced once with the old ceiling, once more under the grown one.
+        expect(mockPriceSessionAt).toHaveBeenCalledTimes(2);
+        expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('grows the ceiling early when the reading added more than half the headroom', async () => {
+        mockPriceSessionAt.mockResolvedValue(costBreakdown(70));
+        mockExtendFleetSessionCeiling.mockResolvedValue({
+          previousCents: 100,
+          ceilingCents: 120,
+          grown: true,
+        });
+        await setup();
+        // Ceiling 100, cost 50 -> 70: 30 left (above 20 % of the 50 slice),
+        // but the reading added 20, and twice that is more than what is left.
+        setupSqlResults(...base, [accountSession('ocpp2.1', 100, 50)], [{ site_id: null }]);
+
+        await emitReading();
+
+        expect(mockExtendFleetSessionCeiling).toHaveBeenCalledWith(
+          expect.anything(),
+          'flt_1',
+          'ses_1',
+          { pricedCents: 70, sliceCents: 50, lastReadingCents: 20 },
+        );
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('extends nothing while the headroom covers the slice bound and the last reading', async () => {
+        mockPriceSessionAt.mockResolvedValue(costBreakdown(60));
+        await setup();
+        setupSqlResults(...base, [accountSession('ocpp2.1', 100, 50)], [{ site_id: null }]);
+
+        await emitReading();
+
+        expect(mockExtendFleetSessionCeiling).not.toHaveBeenCalled();
+      });
+
+      it('extends nothing for a session claimed at the ceiling already', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [{ ...accountSession('ocpp2.1', 24, 24), stopped_reason: 'AccountCreditLimit' }],
+          [{ '?column?': 1 }], // the station reported CostLimitReached
+          [{ site_id: null }],
+        );
+
+        await emitReading();
+
+        expect(mockExtendFleetSessionCeiling).not.toHaveBeenCalled();
+      });
+
+      it('stops an OCPP 2.1 transaction still running past the ceiling without CostLimitReached', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [accountSession('ocpp2.1', 24, 24)],
+          [], // no CostLimitReached (the station ignores or does not support maxCost)
+          [{ id: 'ses_1', driver_id: 'drv_1' }], // claim the stop
+          [],
+          [{ driver_id: 'drv_1', fleet_name: 'Acme', site_name: null }],
+          [{ site_id: null }],
+        );
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)?.values).toContain('AccountCreditLimit');
+        expect(stopCommands()).toHaveLength(1);
+      });
+
+      it('leaves an OCPP 2.1 transaction that reported CostLimitReached to the station', async () => {
+        await setup();
+        setupSqlResults(
+          ...base,
+          [accountSession('ocpp2.1', 24, 24)],
+          [{ '?column?': 1 }], // the station reported CostLimitReached
+          [{ site_id: null }],
+        );
+
+        await emitReading();
+
+        expect(findSql(/stopped_reason IS NULL/)).toBeUndefined();
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('sends the fleet credit notices when the running cost passes the warning', async () => {
+        mockReadFleetCreditLimit.mockResolvedValue(credit('warning'));
+        await setup();
+        setupSqlResults(...base, [accountSession('ocpp1.6', 5000, 0)], [{ site_id: null }]);
+
+        await emitReading();
+        await vi.waitFor(() => {
+          expect(mockDispatchFleetCreditNotices).toHaveBeenCalledTimes(1);
+        });
+
+        expect(mockReadFleetCreditLimit).toHaveBeenCalledWith(expect.anything(), 'flt_1');
+        expect(mockDispatchFleetCreditNotices.mock.calls[0]?.[0]).toMatchObject({
+          fleetId: 'flt_1',
+          level: 'warning',
+        });
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('sends no fleet notice below the warning', async () => {
+        await setup();
+        setupSqlResults(...base, [accountSession('ocpp1.6', 5000, 0)], [{ site_id: null }]);
+
+        await emitReading();
+        await vi.waitFor(() => {
+          expect(mockReadFleetCreditLimit).toHaveBeenCalledTimes(1);
+        });
+
+        expect(mockDispatchFleetCreditNotices).not.toHaveBeenCalled();
+      });
+
+      it('reads no fleet credit for a fleet without a limit or an unchanged cost', async () => {
+        await setup();
+        setupSqlResults(...base, [accountSession('ocpp1.6', null, 0, null)], [{ site_id: null }]);
+        await emitReading();
+
+        await setup();
+        setupSqlResults(...base, [accountSession('ocpp1.6', 5000, 24)], [{ site_id: null }]);
+        await emitReading();
+
+        expect(mockReadFleetCreditLimit).not.toHaveBeenCalled();
       });
     });
 

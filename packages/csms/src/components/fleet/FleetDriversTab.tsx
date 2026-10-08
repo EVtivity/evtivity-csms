@@ -11,7 +11,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Pagination } from '@/components/ui/pagination';
 import { DriversTable } from '@/components/DriversTable';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Toggle } from '@/components/ui/toggle';
+import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
+import { getErrorMessage } from '@/lib/error-message';
 import { useUserTimezone } from '@/lib/timezone';
 
 interface FleetDriver {
@@ -21,14 +25,21 @@ interface FleetDriver {
   email: string | null;
   phone: string | null;
   isActive: boolean;
+  /** The member pays by card although the fleet bills on account. */
+  accountBillingOptOut?: boolean;
   createdAt: string;
 }
 
 interface FleetDriversTabProps {
   fleetId: string;
+  /** The fleet bills its members' sessions on account. */
+  accountBillingEnabled?: boolean;
 }
 
-export function FleetDriversTab({ fleetId }: FleetDriversTabProps): React.JSX.Element {
+export function FleetDriversTab({
+  fleetId,
+  accountBillingEnabled = false,
+}: FleetDriversTabProps): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -36,6 +47,12 @@ export function FleetDriversTab({ fleetId }: FleetDriversTabProps): React.JSX.El
 
   const [page, setPage] = useState(1);
   const [removeDriverId, setRemoveDriverId] = useState<string | null>(null);
+  const [billingChange, setBillingChange] = useState<{
+    driverId: string;
+    optOut: boolean;
+  } | null>(null);
+  const { toast } = useToast();
+  const canWrite = useHasPermission('fleets:write');
   const limit = 10;
 
   const { data: response } = useQuery({
@@ -56,6 +73,26 @@ export function FleetDriversTab({ fleetId }: FleetDriversTabProps): React.JSX.El
     },
   });
 
+  const billingMutation = useMutation({
+    mutationFn: (change: { driverId: string; optOut: boolean }) =>
+      api.patch(`/v1/fleets/${fleetId}/drivers/${change.driverId}`, {
+        accountBillingOptOut: change.optOut,
+      }),
+    onSuccess: () => {
+      toast({ title: t('fleets.billing.memberUpdated'), variant: 'success' });
+      void queryClient.invalidateQueries({ queryKey: ['fleets', fleetId, 'drivers'] });
+      setBillingChange(null);
+    },
+    onError: (err) => {
+      toast({
+        title: t('fleets.billing.updateFailed'),
+        description: getErrorMessage(err, t),
+        variant: 'destructive',
+      });
+      setBillingChange(null);
+    },
+  });
+
   return (
     <>
       <Card>
@@ -63,6 +100,9 @@ export function FleetDriversTab({ fleetId }: FleetDriversTabProps): React.JSX.El
           <div>
             <CardTitle>{t('fleets.drivers')}</CardTitle>
             <CardDescription>{t('fleets.addDriverNote')}</CardDescription>
+            {!accountBillingEnabled && (
+              <CardDescription>{t('fleets.billing.memberNoteOff')}</CardDescription>
+            )}
           </div>
           <AddButton
             label={t('fleets.addDriver')}
@@ -79,6 +119,25 @@ export function FleetDriversTab({ fleetId }: FleetDriversTabProps): React.JSX.El
             onPageChange={setPage}
             timezone={timezone}
             emptyMessage={t('fleets.noDrivers')}
+            extraColumn={{
+              header: t('fleets.billing.memberColumn'),
+              render: (driver) => {
+                const member = driver as FleetDriver;
+                const onAccount = member.accountBillingOptOut !== true;
+                return (
+                  <Toggle
+                    size="sm"
+                    checked={onAccount}
+                    disabled={!canWrite || billingMutation.isPending}
+                    aria-label={t('fleets.billing.memberColumn')}
+                    data-testid={`member-billing-${driver.id}`}
+                    onCheckedChange={() => {
+                      setBillingChange({ driverId: driver.id, optOut: onAccount });
+                    }}
+                  />
+                );
+              },
+            }}
             onRemove={(driverId) => {
               setRemoveDriverId(driverId);
             }}
@@ -87,6 +146,30 @@ export function FleetDriversTab({ fleetId }: FleetDriversTabProps): React.JSX.El
       </Card>
 
       <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+
+      <ConfirmDialog
+        open={billingChange != null}
+        onOpenChange={(open) => {
+          if (!open) setBillingChange(null);
+        }}
+        title={
+          billingChange?.optOut === true
+            ? t('fleets.billing.optOutTitle')
+            : t('fleets.billing.optInTitle')
+        }
+        description={
+          billingChange?.optOut === true
+            ? t('fleets.billing.optOutConfirm')
+            : t('fleets.billing.optInConfirm')
+        }
+        confirmLabel={t('common.confirm')}
+        variant="default"
+        isPending={billingMutation.isPending}
+        onConfirm={() => {
+          if (billingChange != null) billingMutation.mutate(billingChange);
+          return false;
+        }}
+      />
 
       <ConfirmDialog
         open={removeDriverId != null}

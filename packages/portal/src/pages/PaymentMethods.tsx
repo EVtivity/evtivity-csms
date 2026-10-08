@@ -12,6 +12,8 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
+import { InfoNote } from '@/components/ui/info-note';
+import { useDriverBilling } from '@/lib/fleet-billing';
 import { api, getApiErrorCode } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { ProviderHost } from '@/payments/ProviderHost';
@@ -33,6 +35,7 @@ export function PaymentMethods(): React.JSX.Element {
   // The opened card form: its provider session and one attempt id (createCardSetupSteps).
   const [setup, setSetup] = useState<{ session: SetupSession; steps: CardSetupSteps } | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const billing = useDriverBilling();
 
   const { data: methods, isLoading } = useQuery({
     queryKey: ['portal-payment-methods'],
@@ -84,6 +87,10 @@ export function PaymentMethods(): React.JSX.Element {
     <div className="space-y-4">
       <PageHeader title={t('payments.title')} />
 
+      {billing?.mode === 'account' && billing.fleetName != null && (
+        <InfoNote>{t('fleetBilling.paymentMethodsNote', { fleet: billing.fleetName })}</InfoNote>
+      )}
+
       {setupError !== '' && <p className="text-sm text-destructive">{setupError}</p>}
 
       {/* Add entry point sits at the top, matching the mobile app. While the
@@ -124,7 +131,9 @@ export function PaymentMethods(): React.JSX.Element {
       )}
 
       {methods != null && methods.length === 0 && setup == null && (
-        <p className="text-center text-sm text-muted-foreground">{t('payments.noMethods')}</p>
+        <p className="text-center text-sm text-muted-foreground">
+          {billing?.mode === 'account' ? t('fleetBilling.noMethods') : t('payments.noMethods')}
+        </p>
       )}
 
       <div className="space-y-2">

@@ -88,7 +88,54 @@ export {
   isStationChargingFree,
   getPricingHolidays,
   clearTariffResolutionCache,
+  resolveDriverPricingSource,
 } from './lib/tariff-resolution.js';
+export {
+  ACCOUNT_BILLING_MIN_VERSION,
+  resolveAccountBilling,
+  loadBillingMemberships,
+  pickAccountBilling,
+  stampSessionBilling,
+  sessionBillingColumns,
+  toSessionBilling,
+} from './lib/fleet-billing.js';
+export type { AccountBilling, BillingMembership, SessionBilling } from './lib/fleet-billing.js';
+export {
+  DEFAULT_CREDIT_LIMIT_WARNING_PERCENT,
+  fleetCreditLevel,
+  loadFleetCreditExposure,
+  checkFleetCreditLimit,
+  readFleetCreditLimit,
+  fleetCreditRemaining,
+  loadDriverAccountCredit,
+  claimFleetCreditLimitNotice,
+  loadFleetBillingContacts,
+  CEILING_EXTEND_HEADROOM_PERCENT,
+  sessionReservationCents,
+  ceilingExtensionDue,
+  extendedCeilingCents,
+  extendFleetSessionCeiling,
+  fleetCreditNoticesClaimed,
+} from './lib/fleet-credit-limit.js';
+export type {
+  FleetCreditExposure,
+  FleetCreditLevel,
+  FleetCreditCheck,
+  FleetBillingContacts,
+  DriverAccountCredit,
+  FleetCeilingExtension,
+  CeilingExtensionInput,
+} from './lib/fleet-credit-limit.js';
+export {
+  FLEET_CREDIT_RESERVATION_KEY,
+  DEFAULT_FLEET_CREDIT_RESERVATION_CENTS,
+  MAX_FLEET_CREDIT_RESERVATION_CENTS,
+  parseFleetCreditReservationCents,
+  getFleetCreditReservationCents,
+  clearFleetCreditSettingsCache,
+} from './lib/fleet-credit-settings.js';
+export { invoiceNumberPrefix, allocateInvoiceNumber } from './lib/invoice-number.js';
+export type { InvoiceNumberExecutor } from './lib/invoice-number.js';
 export { sessionFeeGrossCents, siteMaxSessionFeeGrossCents } from './lib/session-fee-floor.js';
 export type {
   PricingGroupSource,
@@ -97,6 +144,7 @@ export type {
   StationTariff,
   StationPricing,
   TariffQuery,
+  DriverPricingSource,
 } from './lib/tariff-resolution.js';
 export {
   recomputeStationAvailability,
@@ -146,6 +194,23 @@ export type {
 } from './lib/station-status.js';
 export type { AuditActor, WriteAuditArgs } from './lib/audit.js';
 export { isFleetEnabled, clearFleetCache } from './lib/fleet-setting.js';
+export {
+  guardVersion,
+  isOlderRelease,
+  LEGACY_CLEAN_MS,
+  oldProcessCheck,
+  parseWatchState,
+  PROCESS_VERSION_WATCH_KEY,
+  recordProcessWatch,
+  releaseUpgradePending,
+  WATCH_FRESH_MS,
+} from './lib/process-versions.js';
+export type {
+  OldProcessCheck,
+  ProcessWatchState,
+  ProcessWatchStore,
+  ReleaseUpgradePending,
+} from './lib/process-versions.js';
 export { isPortalRegistrationEnabled } from './lib/portal-registration-setting.js';
 export { isGuestChargingEnabled, clearGuestChargingCache } from './lib/guest-setting.js';
 export { getIdlingGracePeriodMinutes } from './lib/idling-setting.js';
@@ -157,6 +222,19 @@ export {
   getPrepaidLowCreditThresholdCents,
   clearPrepaidSettingsCache,
 } from './lib/prepaid-settings.js';
+export {
+  INVOICE_PAYMENT_TERMS_DAYS_KEY,
+  DEFAULT_INVOICE_PAYMENT_TERMS_DAYS,
+  MAX_INVOICE_PAYMENT_TERMS_DAYS,
+  parseInvoicePaymentTermsDays,
+  getInvoicePaymentTermsDays,
+  FLEET_INVOICE_RUN_DAY_KEY,
+  DEFAULT_FLEET_INVOICE_RUN_DAY,
+  MAX_FLEET_INVOICE_RUN_DAY,
+  parseFleetInvoiceRunDay,
+  getFleetInvoiceRunDay,
+  clearInvoiceSettingsCache,
+} from './lib/invoice-settings.js';
 export { getStaleSessionTimeoutHours } from './lib/session-settings.js';
 export {
   REMOTE_START_TIMEOUT_CHANNEL,

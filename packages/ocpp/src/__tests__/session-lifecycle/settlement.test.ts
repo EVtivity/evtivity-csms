@@ -308,6 +308,56 @@ describe('settleTransactionEnded', () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
+  it('account: sends the session end emails billed to the fleet, nothing else', async () => {
+    const outcome: SettlementOutcome = { mode: 'account', billingFleetId: 'flt-1' };
+    sqlResults = [
+      [sessionRow],
+      [{ ...endedSessionRow('completed'), billing_mode: 'account', billing_fleet_name: 'Acme' }],
+      [],
+    ];
+    mockSettleSessionPayment.mockResolvedValue(outcome);
+
+    const result = await settleTransactionEnded(deps, endedEvent(), attempt);
+
+    expect(result).toEqual(outcome);
+    expect(sentEvents()).toEqual(['session.Completed', 'session.Receipt']);
+    for (const eventType of ['session.Completed', 'session.Receipt']) {
+      expect(variablesOf(eventType)).toMatchObject({
+        billingMode: 'account',
+        billedTo: 'Acme',
+        notCharged: false,
+      });
+    }
+    expect(notifyChange).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('account with a payment record (operator hold): the emails do not say billed to the fleet', async () => {
+    sqlResults = [
+      [sessionRow],
+      [{ ...endedSessionRow('completed'), billing_mode: 'account', billing_fleet_name: 'Acme' }],
+      [{ status: 'captured', failure_reason: null }],
+    ];
+    mockSettleSessionPayment.mockResolvedValue({ mode: 'none' });
+
+    await settleTransactionEnded(deps, endedEvent(), attempt);
+
+    expect(variablesOf('session.Receipt')).toMatchObject({ billingMode: 'card', billedTo: '' });
+  });
+
+  it('card: the session end emails carry billingMode card and no billedTo', async () => {
+    sqlResults = [
+      [sessionRow],
+      [{ ...endedSessionRow('completed'), billing_mode: 'card', billing_fleet_name: null }],
+      [],
+    ];
+    mockSettleSessionPayment.mockResolvedValue({ mode: 'none' });
+
+    await settleTransactionEnded(deps, endedEvent(), attempt);
+
+    expect(variablesOf('session.Completed')).toMatchObject({ billingMode: 'card', billedTo: '' });
+  });
+
   it('card captured but not recorded: no session.PaymentReceived', async () => {
     sqlResults = [[sessionRow], [endedSessionRow('completed')], []];
     mockSettleSessionPayment.mockResolvedValue({

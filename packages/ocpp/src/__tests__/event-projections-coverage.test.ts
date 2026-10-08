@@ -165,6 +165,8 @@ vi.mock('@evtivity/database', async () => ({
   isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
+  // Driver sessions pay by card (no fleet account billing) unless a test says so.
+  stampSessionBilling: vi.fn().mockResolvedValue({ mode: 'card', fleetId: null, fleetName: null }),
 }));
 
 const mockDispatchOcpp = vi.fn().mockResolvedValue(undefined);

@@ -46,7 +46,8 @@ export type StationMessageState =
   | 'payment_required'
   | 'guest_unauthorized'
   | 'unauthorized'
-  | 'prepaid_exhausted';
+  | 'prepaid_exhausted'
+  | 'account_credit_limit';
 
 export interface StationMessageContext {
   companyName: string;

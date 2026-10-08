@@ -51,6 +51,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     unauthorized: 'Tap your RFID card\nor scan the QR code\nto authorize charging.',
     prepaid_exhausted:
       'Prepaid credit used up.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
+    account_credit_limit:
+      'Fleet credit limit reached.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
   },
   de: {
     available:
@@ -73,6 +75,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     unauthorized: 'RFID-Karte vorhalten\noder QR-Code scannen,\num das Laden freizugeben.',
     prepaid_exhausted:
       'Prepaid-Guthaben aufgebraucht.\nLaden beendet.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
+    account_credit_limit:
+      'Kreditlimit der Flotte erreicht.\nLaden beendet.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
   },
   es: {
     available:
@@ -96,6 +100,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     unauthorized: 'Acerque su tarjeta RFID\no escanee el código QR\npara autorizar la carga.',
     prepaid_exhausted:
       'Saldo prepago agotado.\nCarga detenida.\n{{#if supportPhone}}Soporte: {{supportPhone}}{{/if}}',
+    account_credit_limit:
+      'Límite de crédito de la flota alcanzado.\nCarga detenida.\n{{#if supportPhone}}Soporte: {{supportPhone}}{{/if}}',
   },
   ko: {
     available:
@@ -118,6 +124,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     unauthorized: 'RFID 카드를 태그하거나\nQR 코드를 스캔하여\n충전을 승인하세요.',
     prepaid_exhausted:
       '선불 잔액이 소진되었습니다.\n충전이 중지되었습니다.\n{{#if supportPhone}}고객센터: {{supportPhone}}{{/if}}',
+    account_credit_limit:
+      '차량대 신용 한도에 도달했습니다.\n충전이 중지되었습니다.\n{{#if supportPhone}}고객센터: {{supportPhone}}{{/if}}',
   },
   zh: {
     available:
@@ -139,6 +147,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     unauthorized: '请刷 RFID 卡\n或扫描二维码\n授权充电。',
     prepaid_exhausted:
       '预付余额已用完。\n充电已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}',
+    account_credit_limit:
+      '车队信用额度已用完。\n充电已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}',
   },
   'zh-TW': {
     available:
@@ -160,6 +170,8 @@ export const STATION_MESSAGE_DEFAULTS: Record<
     unauthorized: '請感應 RFID 卡\n或掃描 QR 碼\n授權充電。',
     prepaid_exhausted:
       '預付餘額已用完。\n充電已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}',
+    account_credit_limit:
+      '車隊信用額度已用完。\n充電已停止。\n{{#if supportPhone}}客服：{{supportPhone}}{{/if}}',
   },
 };
 

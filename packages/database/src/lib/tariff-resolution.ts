@@ -143,7 +143,7 @@ export async function loadStationPricing(
       FROM pricing_group_fleets pgf
       JOIN fleet_drivers fd ON fd.fleet_id = pgf.fleet_id
       WHERE fd.driver_id = ${driverUuid}
-      ORDER BY fd.created_at ASC
+      ORDER BY fd.created_at ASC, fd.id ASC
       LIMIT 1
     ),
     station_group AS (
@@ -308,6 +308,73 @@ export async function isStationChargingFree(
 ): Promise<boolean> {
   if (q.freeVend) return true;
   return isTariffFree(await resolveStationTariff(q, sql), { reserved: q.reserved });
+}
+
+/** What prices a driver at every station, for display next to the billing fleet. */
+export type DriverPricingSource =
+  | { source: 'driver'; pricingGroupId: string; pricingGroupName: string }
+  | {
+      source: 'fleet';
+      fleetId: string;
+      fleetName: string;
+      pricingGroupId: string;
+      pricingGroupName: string;
+    };
+
+/**
+ * The driver steps of loadStationPricing: a driver pricing group wins, else
+ * the fleet of the oldest membership in a fleet with a pricing group (same
+ * order and tie-break as loadStationPricing). Null when neither applies (the
+ * station, site or default group prices the driver).
+ */
+export async function resolveDriverPricingSource(
+  sql: postgres.Sql,
+  driverId: string,
+): Promise<DriverPricingSource | null> {
+  const rows = await sql<
+    Array<{
+      source: 'driver' | 'fleet';
+      fleet_id: string | null;
+      fleet_name: string | null;
+      group_id: string;
+      group_name: string;
+    }>
+  >`
+    WITH driver_group AS (
+      SELECT 'driver'::text AS source, NULL::text AS fleet_id, NULL::text AS fleet_name,
+             pgd.pricing_group_id AS group_id, 1 AS priority
+      FROM pricing_group_drivers pgd
+      WHERE pgd.driver_id = ${driverId}
+      LIMIT 1
+    ),
+    fleet_group AS (
+      SELECT 'fleet'::text AS source, f.id AS fleet_id, f.name AS fleet_name,
+             pgf.pricing_group_id AS group_id, 2 AS priority
+      FROM pricing_group_fleets pgf
+      JOIN fleet_drivers fd ON fd.fleet_id = pgf.fleet_id
+      JOIN fleets f ON f.id = pgf.fleet_id
+      WHERE fd.driver_id = ${driverId}
+      ORDER BY fd.created_at ASC, fd.id ASC
+      LIMIT 1
+    )
+    SELECT s.source, s.fleet_id, s.fleet_name, s.group_id, pg.name AS group_name
+    FROM (SELECT * FROM driver_group UNION ALL SELECT * FROM fleet_group) s
+    JOIN pricing_groups pg ON pg.id = s.group_id
+    ORDER BY s.priority
+    LIMIT 1
+  `;
+  const row = rows[0];
+  if (row == null) return null;
+  if (row.source === 'fleet' && row.fleet_id != null) {
+    return {
+      source: 'fleet',
+      fleetId: row.fleet_id,
+      fleetName: row.fleet_name ?? '',
+      pricingGroupId: row.group_id,
+      pricingGroupName: row.group_name,
+    };
+  }
+  return { source: 'driver', pricingGroupId: row.group_id, pricingGroupName: row.group_name };
 }
 
 const HOLIDAY_TTL_MS = 60_000;

@@ -40,6 +40,7 @@ import { usePriceDisplay } from '@/hooks/use-price-display';
 import { useAuth } from '@/lib/auth';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+import type { SessionAccountBilling } from '@/lib/fleet-billing';
 
 interface SessionDetailData {
   id: string;
@@ -79,6 +80,8 @@ interface SessionDetailData {
     currency: string;
   } | null;
   reservationId: string | null;
+  /** Set when the session is billed to a fleet (charge on account). */
+  accountBilling?: SessionAccountBilling | null;
   token: { idToken: string; tokenType: string } | null;
   vehicle: {
     id: string;
@@ -548,6 +551,22 @@ export function SessionDetail(): React.JSX.Element {
             <Row
               label={t('sessionDetail.captured')}
               value={formatCents(session.payment.capturedAmountCents, session.payment.currency)}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Charge on account: billed to the fleet */}
+      {session.accountBilling != null && (
+        <Card data-testid="fleet-billing">
+          <CardHeader>
+            <CardTitle className="text-sm">{t('fleetBilling.title')}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <Row label={t('fleetBilling.fleet')} value={session.accountBilling.fleetName} />
+            <Row
+              label={t('fleetBilling.status')}
+              value={t(`fleetBilling.state.${session.accountBilling.state}`)}
             />
           </CardContent>
         </Card>

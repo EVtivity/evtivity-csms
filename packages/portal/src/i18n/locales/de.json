@@ -544,7 +544,13 @@
     "EVSE_IN_USE": "An diesem Anschluss ist bereits ein anderer Ladevorgang aktiv",
     "EVSE_NOT_FOUND": "EVSE nicht gefunden",
     "FAVORITE_NOT_FOUND": "Favorit nicht gefunden",
+    "FLEET_CREDIT_LIMIT_REACHED": "Das Kreditlimit der Flotte, über die deine Ladevorgänge abgerechnet werden, ist erreicht. Wende dich an deinen Flottenverwalter.",
     "FLEET_DISABLED": "Flotte ist deaktiviert",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "Ein Prozess älter als v0.1.41 ist noch verbunden. Schließe das Upgrade ab und schalte dann die Abrechnung auf Rechnung ein.",
+    "FLEET_BILLING_CONTACT_REQUIRED": "Die Flotte benötigt mindestens einen Rechnungskontakt für die automatische Rechnungsstellung und den Rechnungsversand per E-Mail.",
+    "FLEET_INVOICE_PERIOD_EXISTS": "Für diesen Zeitraum besteht bereits eine Rechnung der Flotte. Stornieren Sie sie mit einer Stornorechnung, um den Zeitraum neu abzurechnen.",
+    "FLEET_INVOICE_NOTHING_TO_BILL": "Die Flotte hat für diesen Zeitraum keine noch nicht abgerechneten Ladevorgänge mit Kosten.",
+    "FLEET_HAS_OPEN_BILLING": "Die Flotte hat Ladevorgänge, die auf ihre Rechnung abgerechnet werden, und kann nicht gelöscht werden. Schalte stattdessen die Abrechnung auf Rechnung aus.",
     "FLEET_NOT_FOUND": "Flotte nicht gefunden",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "Flottenreservierung wurde bereits storniert",
     "FLEET_RESERVATION_CREATE_FAILED": "Flottenreservierung konnte nicht erstellt werden",
@@ -570,7 +576,12 @@
     "INVALID_RESTRICTIONS": "Ungültige Tarifbeschränkungen",
     "INVALID_SITE_IDS": "Eine oder mehrere siteIds existieren nicht",
     "INVALID_TOKEN": "Ungültiger oder abgelaufener Zurücksetzungslink",
+    "INVOICE_ALREADY_PAID": "Die Rechnung ist bereits bezahlt",
     "INVOICE_CREATION_FAILED": "Rechnung konnte nicht erstellt werden",
+    "INVOICE_NOT_ISSUED": "Für diese Aktion muss die Rechnung ausgestellt sein",
+    "INVOICE_IS_CREDIT_NOTE": "Eine Stornorechnung kann nicht als bezahlt markiert oder storniert werden",
+    "INVOICE_ALREADY_CREDITED": "Die Rechnung ist bereits durch eine Stornorechnung storniert",
+    "INVOICE_NOT_VOIDABLE": "Nur ein Rechnungsentwurf kann storniert werden. Eine ausgestellte Rechnung wird mit einer Stornorechnung korrigiert",
     "INVOICE_NO_SESSIONS": "Keine nicht abgerechneten Ladevorgänge im ausgewählten Zeitraum",
     "INVOICE_NO_DRIVER": "Diese Rechnung hat keinen Fahrer, an den sie gesendet werden kann",
     "INVOICE_NOT_FOUND": "Rechnung nicht gefunden",
@@ -999,5 +1010,20 @@
     "invalid": "Ungültig",
     "faulted": "Fehlerhaft",
     "failed": "Fehlgeschlagen"
+  },
+  "fleetBilling": {
+    "billedTo": "Abgerechnet über {{fleet}}",
+    "startHint": "Deine Flotte zahlt diesen Ladevorgang. Du brauchst keine Zahlungsmethode.",
+    "title": "Flottenabrechnung",
+    "fleet": "Abgerechnet über",
+    "status": "Status",
+    "state": {
+      "unbilled": "Noch nicht abgerechnet",
+      "invoiced": "Der Flotte in Rechnung gestellt",
+      "paid": "Von der Flotte bezahlt"
+    },
+    "sessionLine": "{{fleet}}: {{state}}",
+    "paymentMethodsNote": "Dein Laden wird über {{fleet}} abgerechnet. Zum Laden brauchst du keine Zahlungsmethode.",
+    "noMethods": "Noch keine Zahlungsmethoden."
   }
 }

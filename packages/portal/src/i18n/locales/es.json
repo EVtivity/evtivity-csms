@@ -544,7 +544,13 @@
     "EVSE_IN_USE": "Ya hay otra sesión activa en este conector",
     "EVSE_NOT_FOUND": "EVSE no encontrado",
     "FAVORITE_NOT_FOUND": "Favorito no encontrado",
+    "FLEET_CREDIT_LIMIT_REACHED": "Se alcanzó el límite de crédito de la flota a la que se facturan sus sesiones. Contacte al responsable de su flota.",
     "FLEET_DISABLED": "La flota está deshabilitada",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "Todavía hay conectado un proceso anterior a la v0.1.41. Termine la actualización y después active la facturación a cuenta.",
+    "FLEET_BILLING_CONTACT_REQUIRED": "La flota necesita al menos un contacto de facturación para la facturación automática y el envío de facturas por correo.",
+    "FLEET_INVOICE_PERIOD_EXISTS": "La flota ya tiene una factura para este periodo. Emita una nota de crédito para volver a facturarlo.",
+    "FLEET_INVOICE_NOTHING_TO_BILL": "La flota no tiene sesiones sin facturar con importe para este periodo.",
+    "FLEET_HAS_OPEN_BILLING": "La flota tiene sesiones facturadas a su cuenta y no se puede eliminar. Desactive la facturación a cuenta en su lugar.",
     "FLEET_NOT_FOUND": "Flota no encontrada",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "La reserva de flota ya está cancelada",
     "FLEET_RESERVATION_CREATE_FAILED": "Error al crear la reserva de flota",
@@ -570,7 +576,12 @@
     "INVALID_RESTRICTIONS": "Restricciones de tarifa invalidas",
     "INVALID_SITE_IDS": "Uno o más siteIds no existen",
     "INVALID_TOKEN": "Enlace de restablecimiento inválido o expirado",
+    "INVOICE_ALREADY_PAID": "La factura ya está pagada",
     "INVOICE_CREATION_FAILED": "Error al crear la factura",
+    "INVOICE_NOT_ISSUED": "La factura debe estar emitida para esta acción",
+    "INVOICE_IS_CREDIT_NOTE": "Una nota de crédito no se puede marcar como pagada ni acreditar",
+    "INVOICE_ALREADY_CREDITED": "La factura ya está acreditada por una nota de crédito",
+    "INVOICE_NOT_VOIDABLE": "Solo se puede anular un borrador de factura. Una factura emitida se corrige con una nota de crédito",
     "INVOICE_NO_SESSIONS": "No hay sesiones sin facturar en el rango de fechas seleccionado",
     "INVOICE_NO_DRIVER": "Esta factura no tiene un conductor al que enviarla",
     "INVOICE_NOT_FOUND": "Factura no encontrada",
@@ -999,5 +1010,20 @@
     "invalid": "No válida",
     "faulted": "Con falla",
     "failed": "Fallida"
+  },
+  "fleetBilling": {
+    "billedTo": "Facturado a {{fleet}}",
+    "startHint": "Su flota paga esta sesión. No necesita un método de pago.",
+    "title": "Facturación de la flota",
+    "fleet": "Facturado a",
+    "status": "Estado",
+    "state": {
+      "unbilled": "Aún no facturada",
+      "invoiced": "Facturada a la flota",
+      "paid": "Pagada por la flota"
+    },
+    "sessionLine": "{{fleet}}: {{state}}",
+    "paymentMethodsNote": "Su carga se factura a {{fleet}}. No necesita un método de pago para cargar.",
+    "noMethods": "No hay métodos de pago."
   }
 }

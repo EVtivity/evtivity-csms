@@ -38,7 +38,7 @@ describe('createQueues', () => {
     }
   });
 
-  it('creates all eleven queues with the expected names', async () => {
+  it('creates all thirteen queues with the expected names', async () => {
     const { createQueues, QUEUE_NAMES } = queuesModule;
     const queues = createQueues('redis://localhost:6379');
 
@@ -48,6 +48,8 @@ describe('createQueues', () => {
     expect(queues.reservationQueue).toBeDefined();
     expect(queues.octtQueue).toBeDefined();
     expect(queues.maintenanceFanoutQueue).toBeDefined();
+    expect(queues.fleetBillingFanoutQueue).toBeDefined();
+    expect(queues.fleetInvoiceQueue).toBeDefined();
     expect(queues.stationWatchQueue).toBeDefined();
     expect(queues.paymentWebhookQueue).toBeDefined();
     expect(queues.remoteStartTimeoutQueue).toBeDefined();
@@ -62,6 +64,8 @@ describe('createQueues', () => {
       QUEUE_NAMES.RESERVATIONS,
       QUEUE_NAMES.OCTT,
       QUEUE_NAMES.MAINTENANCE_FANOUT,
+      QUEUE_NAMES.FLEET_BILLING_FANOUT,
+      QUEUE_NAMES.FLEET_INVOICES,
       QUEUE_NAMES.STATION_WATCH,
       QUEUE_NAMES.PAYMENT_WEBHOOKS,
       QUEUE_NAMES.REMOTE_START_TIMEOUTS,
@@ -75,6 +79,8 @@ describe('createQueues', () => {
       'reservations',
       'octt',
       'maintenance-fanout',
+      'fleet-billing-fanout',
+      'fleet-invoices',
       'station-watch',
       'payment-webhooks',
       'remote-start-timeouts',
@@ -88,7 +94,7 @@ describe('createQueues', () => {
     const { createQueues } = queuesModule;
     createQueues('redis://localhost:6379');
 
-    expect(createBullMQConnection).toHaveBeenCalledTimes(11);
+    expect(createBullMQConnection).toHaveBeenCalledTimes(13);
     expect(createBullMQConnection).toHaveBeenCalledWith('redis://localhost:6379');
     for (const call of queueCalls) {
       expect(call.opts.connection).toBe(mockConnection);
@@ -117,6 +123,14 @@ describe('createQueues', () => {
       removeOnComplete: 100,
       removeOnFail: { count: 500 },
       attempts: 1,
+    });
+    // Finished fleet invoice jobs keep their id longer than a month (P7 dedup of the hourly re-add);
+    // 6 attempts from 5 minutes outlast a database failover or a deploy.
+    expect(byName['fleet-invoices']?.['defaultJobOptions']).toEqual({
+      removeOnComplete: { age: 40 * 24 * 60 * 60 },
+      removeOnFail: { age: 40 * 24 * 60 * 60 },
+      attempts: 6,
+      backoff: { type: 'exponential', delay: 300_000 },
     });
   });
 

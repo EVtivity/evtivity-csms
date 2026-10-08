@@ -106,6 +106,21 @@ export async function projectNotifySettlement(
   }
 }
 
+function billingModeOf(value: unknown): 'card' | 'account' | null {
+  return value === 'card' || value === 'account' ? value : null;
+}
+
+/** The receipt billing of a session: account only without a payment record. */
+function receiptBilling(
+  mode: 'card' | 'account' | null,
+  fleetName: string | null,
+  hasPaymentRecord: boolean,
+): { billingMode: 'card' | 'account' | null; billedTo: string | null } {
+  if (mode === 'account' && !hasPaymentRecord)
+    return { billingMode: 'account', billedTo: fleetName };
+  return { billingMode: mode == null ? null : 'card', billedTo: null };
+}
+
 // Driver notifications at the end of a session: session.Completed and
 // session.Receipt. Sent after the settlement so the state is read at dispatch
 // (P5): no notification for a faulted or failed session (a payment failure
@@ -123,9 +138,12 @@ async function notifySessionEnded(
 ): Promise<void> {
   const { sql, eventBus, pubsub, lookups } = deps;
   const [endedSession] = await sql`
-    SELECT driver_id, energy_delivered_wh, final_cost_cents, started_at, ended_at, status,
-           tariff_tax_rate, UPPER(currency) AS currency
-    FROM charging_sessions WHERE id = ${sessionId}`;
+    SELECT cs.driver_id, cs.energy_delivered_wh, cs.final_cost_cents, cs.started_at, cs.ended_at,
+           cs.status, cs.tariff_tax_rate, UPPER(cs.currency) AS currency, cs.billing_mode,
+           f.name AS billing_fleet_name
+    FROM charging_sessions cs
+    LEFT JOIN fleets f ON f.id = cs.billing_fleet_id
+    WHERE cs.id = ${sessionId}`;
   if (endedSession == null || endedSession.driver_id == null) return;
   const status = endedSession.status as string;
   if (status === 'faulted' || status === 'failed' || status === 'active') return;
@@ -151,6 +169,14 @@ async function notifySessionEnded(
     startedAt: endedSession.started_at as string,
     endedAt: endedSession.ended_at as string,
     notCharged,
+    // The stamp, not the current fleet state: an account session without a
+    // payment record says "billed to <fleet>, no card charged". One with a
+    // record (an operator hold) was paid by card.
+    ...receiptBilling(
+      billingModeOf(endedSession.billing_mode),
+      (endedSession.billing_fleet_name as string | null) ?? null,
+      record != null,
+    ),
   });
   for (const eventType of ['session.Completed', 'session.Receipt']) {
     await attempt.once(`settle:${eventType}`, () => {

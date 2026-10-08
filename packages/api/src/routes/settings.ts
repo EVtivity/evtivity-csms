@@ -39,6 +39,17 @@ import {
   MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS,
   parsePrepaidLowCreditThresholdCents,
   clearPrepaidSettingsCache,
+  INVOICE_PAYMENT_TERMS_DAYS_KEY,
+  MAX_INVOICE_PAYMENT_TERMS_DAYS,
+  parseInvoicePaymentTermsDays,
+  FLEET_INVOICE_RUN_DAY_KEY,
+  MAX_FLEET_INVOICE_RUN_DAY,
+  parseFleetInvoiceRunDay,
+  clearInvoiceSettingsCache,
+  FLEET_CREDIT_RESERVATION_KEY,
+  MAX_FLEET_CREDIT_RESERVATION_CENTS,
+  parseFleetCreditReservationCents,
+  clearFleetCreditSettingsCache,
 } from '@evtivity/database';
 import { clearPaymentCaches, isPaymentSettingKey } from '../lib/payments.js';
 import {
@@ -150,6 +161,18 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     const cents = parsePrepaidLowCreditThresholdCents(value);
     return cents != null ? { value: cents } : null;
   }
+  if (key === INVOICE_PAYMENT_TERMS_DAYS_KEY) {
+    const days = parseInvoicePaymentTermsDays(value);
+    return days != null ? { value: days } : null;
+  }
+  if (key === FLEET_CREDIT_RESERVATION_KEY) {
+    const cents = parseFleetCreditReservationCents(value);
+    return cents != null ? { value: cents } : null;
+  }
+  if (key === FLEET_INVOICE_RUN_DAY_KEY) {
+    const day = parseFleetInvoiceRunDay(value);
+    return day != null ? { value: day } : null;
+  }
   if (key !== COMPANY_CURRENCY_KEY) return { value };
   const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
   return isSupportedCurrency(code) ? { value: code } : null;
@@ -196,6 +219,21 @@ const invalidPrepaidLowCreditThresholdError = {
   code: 'VALIDATION_ERROR',
 };
 
+const invalidInvoicePaymentTermsError = {
+  error: `${INVOICE_PAYMENT_TERMS_DAYS_KEY} must be a whole number of days from 0 to ${String(MAX_INVOICE_PAYMENT_TERMS_DAYS)}`,
+  code: 'VALIDATION_ERROR',
+};
+
+const invalidFleetCreditReservationError = {
+  error: `${FLEET_CREDIT_RESERVATION_KEY} must be a whole number of cents from 1 to ${String(MAX_FLEET_CREDIT_RESERVATION_CENTS)}`,
+  code: 'VALIDATION_ERROR',
+};
+
+const invalidFleetInvoiceRunDayError = {
+  error: `${FLEET_INVOICE_RUN_DAY_KEY} must be a whole day of the month from 1 to ${String(MAX_FLEET_INVOICE_RUN_DAY)}`,
+  code: 'VALIDATION_ERROR',
+};
+
 const serverManagedSettingError = {
   error: 'This setting is managed by the CSMS and cannot be written directly',
   code: 'VALIDATION_ERROR',
@@ -205,6 +243,9 @@ function invalidSettingError(key: string): { error: string; code: string } {
   if (isServerManagedSetting(key)) return serverManagedSettingError;
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) return invalidWebhookAllowedHostsError;
   if (key === PREPAID_LOW_CREDIT_THRESHOLD_KEY) return invalidPrepaidLowCreditThresholdError;
+  if (key === INVOICE_PAYMENT_TERMS_DAYS_KEY) return invalidInvoicePaymentTermsError;
+  if (key === FLEET_CREDIT_RESERVATION_KEY) return invalidFleetCreditReservationError;
+  if (key === FLEET_INVOICE_RUN_DAY_KEY) return invalidFleetInvoiceRunDayError;
   if (key === MOBILE_APP_URL_SCHEMES_KEY) return invalidMobileAppSchemesError;
   if (key === MOBILE_APP_ANDROID_PACKAGES_KEY) return invalidMobileAppPackagesError;
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;
@@ -247,6 +288,10 @@ function clearCachesForKey(key: string): void {
   if (isMobileAppSettingKey(key)) clearMobileAppConfigCache();
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) clearWebhookSettingsCache();
   if (key === PREPAID_LOW_CREDIT_THRESHOLD_KEY) clearPrepaidSettingsCache();
+  if (key === INVOICE_PAYMENT_TERMS_DAYS_KEY || key === FLEET_INVOICE_RUN_DAY_KEY) {
+    clearInvoiceSettingsCache();
+  }
+  if (key === FLEET_CREDIT_RESERVATION_KEY) clearFleetCreditSettingsCache();
   if (key === 'roaming.enabled') clearRoamingCache();
   if (key === 'support.enabled') clearSupportCache();
   if (key === 'fleet.enabled') clearFleetCache();

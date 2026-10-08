@@ -65,6 +65,7 @@ import { reportRoutes } from './routes/reports.js';
 import { neviRoutes } from './routes/nevi.js';
 import { webhookRoutes } from './routes/webhooks.js';
 import { invoiceRoutes } from './routes/invoices.js';
+import { fleetInvoiceRoutes } from './routes/fleet-invoices.js';
 import { adHocPaymentRoutes } from './routes/ad-hoc-payments.js';
 import { stationWebPaymentRoutes } from './routes/station-web-payments.js';
 import { supportCaseRoutes } from './routes/support-cases.js';
@@ -220,6 +221,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(neviRoutes);
       await v1.register(webhookRoutes);
       await v1.register(invoiceRoutes);
+      await v1.register(fleetInvoiceRoutes);
       await v1.register(adHocPaymentRoutes);
       await v1.register(stationWebPaymentRoutes);
       await v1.register(supportCaseRoutes);

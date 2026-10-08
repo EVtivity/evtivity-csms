@@ -78,7 +78,7 @@ vi.mock('@evtivity/database', () => {
     users: fakeTable('users'),
     driverTokens: fakeTable('driver_tokens'),
     reservations: { ...fakeTable('reservations'), stationId: { name: 'rsv_station_id' } },
-    invoices: fakeTable('invoices'),
+    invoices: { ...fakeTable('invoices'), fleetId: { name: 'fleet_id' } },
     supportCases: { ...fakeTable('support_cases'), stationId: { name: 'case_station_id' } },
     pricingGroups: fakeTable('pricing_groups'),
     ocpiPartners: fakeTable('ocpi_partners'),
@@ -105,6 +105,7 @@ import { entityNeighborRoutes } from '../routes/entity-neighbors.js';
 import {
   chargingSessions,
   chargingStations,
+  invoices,
   reservations,
   sites,
   supportCases,
@@ -182,6 +183,45 @@ describe('entity neighbor site scoping (cov2)', () => {
     const scope = currentScope() as { or: Array<Record<string, unknown>> };
     expect(scope.or[0]).toEqual({ isNull: supportCases.stationId });
     expect((scope.or[1] as { inArray: unknown[] }).inArray[0]).toBe(supportCases.stationId);
+  });
+
+  it('skips fleet invoices for restricted users', async () => {
+    setupDbResults([{ id: 'inv_1' }], [{ id: 'inv_0' }], [{ id: 'inv_2' }]);
+    const res = await get('/invoices/inv_1/neighbors');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ prevId: 'inv_0', nextId: 'inv_2' });
+    // The current, prev and next queries all leave fleet invoices out.
+    expect(mainWheres()).toHaveLength(3);
+    for (const where of mainWheres()) {
+      expect(where.and[1]).toEqual({ isNull: invoices.fleetId });
+    }
+  });
+
+  it('serves driver invoice neighbors to a restricted user with no site', async () => {
+    state.siteIds = [];
+    setupDbResults([{ id: 'inv_1' }], [], [{ id: 'inv_2' }]);
+    const res = await get('/invoices/inv_1/neighbors');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ prevId: null, nextId: 'inv_2' });
+    expect(currentScope()).toEqual({ isNull: invoices.fleetId });
+  });
+
+  it('404s a fleet invoice for a restricted user as a missing invoice', async () => {
+    setupDbResults([]);
+    const res = await get('/invoices/inv_fleet/neighbors');
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'Not found', code: 'INVOICE_NOT_FOUND' });
+  });
+
+  it('does not scope invoices for unrestricted users', async () => {
+    state.siteIds = null;
+    isNullMock.mockClear();
+    setupDbResults([{ id: 'inv_1' }], [{ id: 'inv_fleet' }], []);
+    const res = await get('/invoices/inv_1/neighbors');
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ prevId: 'inv_fleet', nextId: null });
+    expect(mainWheres()).toHaveLength(0);
+    expect(isNullMock).not.toHaveBeenCalledWith(invoices.fleetId);
   });
 
   it('404s a scoped session the user cannot see', async () => {

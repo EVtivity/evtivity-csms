@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { and, eq, inArray, lte, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import {
   chargingSessions,
@@ -873,6 +873,39 @@ export async function markChargeFailed(id: number, reason: string): Promise<bool
       .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FROM_PENDING)))
       .returning({ id: paymentRecords.id }),
   );
+}
+
+/**
+ * Claims reservation fee charges for an invoice, inside the invoice
+ * transaction: invoice_id is set only while it is null, so a fee is never on
+ * two invoices. Returns the ids it claimed; fewer than asked means another
+ * invoice claimed one first and the caller rolls back.
+ */
+export async function claimFeeRecordsForInvoice(
+  tx: Tx,
+  ids: number[],
+  invoiceId: string,
+): Promise<number[]> {
+  if (ids.length === 0) return [];
+  const rows = await tx
+    .update(paymentRecords)
+    .set({ invoiceId, updatedAt: new Date() })
+    .where(and(inArray(paymentRecords.id, ids), isNull(paymentRecords.invoiceId)))
+    .returning({ id: paymentRecords.id });
+  return rows.map((row) => row.id);
+}
+
+/**
+ * Releases the reservation fee charges a voided invoice claimed, inside the
+ * void transaction, so they can be invoiced again. Returns their ids.
+ */
+export async function releaseInvoiceFeeRecords(tx: Tx, invoiceId: string): Promise<number[]> {
+  const rows = await tx
+    .update(paymentRecords)
+    .set({ invoiceId: null, updatedAt: new Date() })
+    .where(eq(paymentRecords.invoiceId, invoiceId))
+    .returning({ id: paymentRecords.id });
+  return rows.map((row) => row.id);
 }
 
 /**

@@ -5,7 +5,7 @@ import type { FastifyReply } from 'fastify';
 import type { Redis } from 'ioredis';
 import { createRedisClient } from '@evtivity/lib';
 import { assertProviderSelectable, PaymentProviderUpgradePendingError } from '@evtivity/payments';
-import type { ProcessWatchStore } from '@evtivity/payments';
+import type { ProcessWatchStore } from '@evtivity/database';
 import { config } from './config.js';
 import { ERROR_CODES, ERROR_MESSAGES } from './error-codes.generated.js';
 

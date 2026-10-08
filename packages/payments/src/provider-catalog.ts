@@ -3,7 +3,8 @@
 
 import { PaymentProviderNotConfiguredError } from './errors.js';
 import { providerUpgradePending } from './provider-switch-guard.js';
-import type { ProcessWatchStore, ProviderUpgradePendingDetails } from './provider-switch-guard.js';
+import type { ProviderUpgradePendingDetails } from './provider-switch-guard.js';
+import type { ProcessWatchStore } from '@evtivity/database';
 import { adyenCapabilities, ADYEN_PROVIDER_ID } from './providers/adyen/index.js';
 import { STRIPE_CAPABILITIES, STRIPE_PROVIDER_ID } from './providers/stripe/index.js';
 import type { PaymentProviderRegistry } from './registry.js';

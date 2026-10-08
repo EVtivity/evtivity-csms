@@ -47,6 +47,7 @@
       "tax": "세금",
       "electricityCost": "전기 요금",
       "profit": "이익",
+      "billedOnAccount": "차량대 청구 (미결제)",
       "paymentStatus": "결제 상태"
     },
     "summary": {
@@ -55,6 +56,7 @@
       "totalRevenueExclTax": "총매출 (세금 제외)",
       "totalElectricityCost": "총 전기 요금",
       "totalProfit": "총이익",
+      "totalBilledOnAccount": "차량대 청구 합계 (미결제)",
       "totalSessions": "총 세션"
     }
   },

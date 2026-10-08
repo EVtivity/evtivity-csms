@@ -1,0 +1,13 @@
+<h2 style='color:#1a1a1a;margin:0 0 16px 0;'>贷项通知单 {{creditNoteNumber}}</h2>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>您好：</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{companyName}} 已开具贷项通知单，全额冲销 <strong>{{fleetName}}</strong> 在 {{periodLabel}} 的发票 {{invoiceNumber}}。贷项通知单以 PDF 附件形式提供。</p>
+<table style='width:100%;border-collapse:collapse;margin:0 0 16px 0;'>
+  <tr><td style='padding:6px 0;color:#6b7280;'>贷项通知单</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditNoteNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>发票</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{invoiceNumber}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>账期</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{periodLabel}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>开具日期</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{issuedAt}}</td></tr>
+  <tr><td style='padding:6px 0;color:#6b7280;'>原因</td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'>{{creditReason}}</td></tr>
+  <tr><td style='padding:6px 0;color:#1a1a1a;'><strong>贷记金额</strong></td><td style='padding:6px 0;color:#1a1a1a;text-align:right;'><strong>{{total}}</strong></td></tr>
+</table>
+{{#if wasPaid}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>该发票已支付。款项将另行退还。</p>{{/if}}
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>被冲销发票中的充电会话将在更正后计入下一张发票。</p>

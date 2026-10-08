@@ -20,6 +20,7 @@ vi.mock('../theme', () => ({ applyTheme: mockApplyTheme }));
 
 import { ApiError } from '../api';
 import { useAuth } from '../auth';
+import { queryClient } from '../query';
 
 const driver = {
   id: 'd1',
@@ -192,6 +193,19 @@ describe('portal useAuth', () => {
       expect(sessionStorage.getItem('noAutoLogin')).toBe('true');
       expect(useAuth.getState().driver).toBeNull();
       expect(useAuth.getState().isAuthenticated).toBe(false);
+    });
+
+    it('drops the cached driver queries, the billing state included', async () => {
+      useAuth.setState({ driver, isAuthenticated: true });
+      queryClient.setQueryData(['portal-driver-billing'], {
+        billing: { mode: 'account', fleetName: 'Acme' },
+      });
+      queryClient.setQueryData(['portal-sessions'], []);
+
+      await useAuth.getState().logout();
+
+      expect(queryClient.getQueryData(['portal-driver-billing'])).toBeUndefined();
+      expect(queryClient.getQueryCache().getAll()).toHaveLength(0);
     });
 
     it('clears local state even when the server call fails', async () => {

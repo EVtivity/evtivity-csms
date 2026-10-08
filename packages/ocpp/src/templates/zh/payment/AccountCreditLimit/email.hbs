@@ -1,0 +1,14 @@
+<p style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">{{#if firstName}}您好 {{firstName}},{{else}}您好,{{/if}}</p>
+<h2 style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">车队信用额度已用完</h2>
+<p style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">您的充电会话已停止，因为为您的会话付费的车队 {{fleetName}} 已达到信用额度。请联系您的车队管理员。</p>
+<table cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;border-collapse:collapse;border-spacing:0;margin-bottom:24px;">
+  <tr>
+    <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%">充电站</td>
+    <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top">{{stationId}}</td>
+  </tr>
+  <tr>
+    <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%">车队</td>
+    <td style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top">{{fleetName}}</td>
+  </tr>
+</table>
+<p style="color:#4b5563;font-size:14px;line-height:1.6;margin:0;">如有疑问，请联系支持团队：{{companyContactEmail}}。</p>

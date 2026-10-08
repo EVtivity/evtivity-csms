@@ -186,6 +186,14 @@ const financialStatsResponse = z
       .describe(
         "Today's revenue excluding tax minus today's electricity cost, in cents (may be negative)",
       ),
+    billedOnAccountCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Billed on account: the final cost of ended account sessions (charge on account, billed to a fleet) whose fleet invoice is not paid yet (unbilled, or on an unpaid invoice), in cents, tax included. Not part of revenue until the invoice is paid.',
+      ),
+    billedOnAccountCount: z.number().int().min(0).describe('Number of those account sessions'),
     currency: z.string().length(3).describe('Company currency (ISO 4217) of every amount'),
   })
   .passthrough();
@@ -898,6 +906,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
         dayElectricityCostCents: 0,
         totalProfitCents: 0,
         dayProfitCents: 0,
+        billedOnAccountCents: 0,
+        billedOnAccountCount: 0,
         currency,
       };
 
@@ -958,6 +968,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
         dayElectricityCostCents,
         totalProfitCents: totalRevenue.netCents - totalElectricityCostCents,
         dayProfitCents: todayRevenue.netCents - dayElectricityCostCents,
+        billedOnAccountCents: totalRevenue.billedOnAccountCents,
+        billedOnAccountCount: totalRevenue.billedOnAccountCount,
         currency,
       };
     },

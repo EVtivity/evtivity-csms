@@ -31,6 +31,7 @@ import { ocpiLocationSyncHandler } from './handlers/ocpi-location-sync.js';
 import { payoutAccountSyncHandler } from './handlers/payout-account-sync.js';
 import { processVersionWatchHandler } from './handlers/process-version-watch.js';
 import { stationOfflineSweepHandler } from './handlers/station-offline-sweep.js';
+import { fleetInvoiceRunHandler } from './handlers/fleet-invoice-run.js';
 
 const log = createLogger('cron-worker');
 
@@ -62,6 +63,7 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['payout-account-sync', payoutAccountSyncHandler],
   ['process-version-watch', processVersionWatchHandler],
   ['station-offline-sweep', stationOfflineSweepHandler],
+  ['fleet-invoice-run', fleetInvoiceRunHandler],
 ]);
 
 export function createCronWorker(connection: ConnectionOptions): Worker {

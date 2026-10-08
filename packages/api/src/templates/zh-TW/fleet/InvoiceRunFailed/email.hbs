@@ -1,0 +1,5 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}，您好：{{else}}您好：{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>每月開立發票作業重試約兩個半小時後，仍未能完成以下車隊 {{period}} 的發票。</p>
+{{#if issuedNotEmailed}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>發票已開立，郵件未寄送。</strong>請開啟發票並使用寄送：{{issuedNotEmailed}}</p>{{/if}}
+{{#if notInvoiced}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'><strong>未開立發票。</strong>請在該車隊的帳單分頁中手動產生發票：{{notInvoiced}}</p>{{/if}}
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>每個項目列出車隊、已開立發票時的發票號碼以及最後一次錯誤。每月作業不會再次為這些車隊嘗試 {{period}}。</p>

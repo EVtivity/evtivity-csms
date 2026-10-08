@@ -31,7 +31,18 @@ const h = vi.hoisted(() => {
     queries: { table: string; cond: Cond }[];
     freeVend: boolean | Error;
     roaming: boolean;
-  } = { TABLE, table, tables: {}, queries: [], freeVend: false, roaming: false };
+    accountCredit: { fleetId: string; remainingCents: number } | null | Error;
+    accountCreditCalls: string[];
+  } = {
+    TABLE,
+    table,
+    tables: {},
+    queries: [],
+    freeVend: false,
+    roaming: false,
+    accountCredit: null,
+    accountCreditCalls: [],
+  };
   return state;
 });
 
@@ -70,6 +81,13 @@ const selectFn = vi.fn(() => ({
 
 vi.mock('@evtivity/database', () => ({
   db: { select: selectFn },
+  client: {},
+  loadDriverAccountCredit: (_sql: unknown, driverId: string) => {
+    h.accountCreditCalls.push(driverId);
+    return h.accountCredit instanceof Error
+      ? Promise.reject(h.accountCredit)
+      : Promise.resolve(h.accountCredit);
+  },
   driverTokens: h.table('driver_tokens', [
     'id',
     'driverId',
@@ -144,6 +162,8 @@ beforeEach(() => {
   h.roaming = false;
   h.tables = {};
   h.queries = [];
+  h.accountCredit = null;
+  h.accountCreditCalls = [];
 });
 
 afterAll(() => {
@@ -793,6 +813,95 @@ describe('authorizeToken: prepaid', () => {
     ];
     const d = await authorizeToken(input('authorize', 'TAG', null), logger);
     expect(d).toMatchObject({ status: 'blocked', prepaid: false });
+  });
+});
+
+describe('authorizeToken: fleet credit limit (plan S8)', () => {
+  beforeEach(() => {
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', driverId: 'drv-1' }),
+    ];
+  });
+
+  it.each([
+    ['authorize', null],
+    ['authorize', 'ISO14443'],
+  ] as const)('%s (%s) answers no_credit when the fleet has no credit left', async (ctx, type) => {
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 0 };
+    const d = await authorizeToken(input(ctx, 'TAG', type), logger);
+    expect(d).toMatchObject({
+      status: 'no_credit',
+      outcome: 'no_credit',
+      reason: 'account_credit_limit',
+      echoGroupId: false,
+      prepaid: false,
+    });
+    expect(h.accountCreditCalls).toEqual(['drv-1']);
+    expect(authorizeDecisionMessage(d)).toBe('Fleet credit limit reached');
+  });
+
+  it('accepts and names the fleet while credit is left', async () => {
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 1200 };
+    const d = await authorizeToken(input('authorize', 'TAG', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', accountFleetId: 'flt-1' });
+  });
+
+  it('only names the fleet at a 2.1 TransactionEvent Started, even without credit', async () => {
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 0 };
+    const d = await authorizeToken(input('tx_start', 'TAG', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', accountFleetId: 'flt-1' });
+  });
+
+  it.each([
+    ['tx_start', null],
+    ['tx_update', null],
+    ['tx_update', 'ISO14443'],
+  ] as const)('is not checked in %s (%s)', async (ctx, type) => {
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 0 };
+    const d = await authorizeToken(input(ctx, 'TAG', type), logger);
+    expect(d.status).toBe('accepted');
+    expect(d.accountFleetId).toBeUndefined();
+    expect(h.accountCreditCalls).toEqual([]);
+  });
+
+  it('leaves a card driver (no limited account fleet) unchanged', async () => {
+    const d = await authorizeToken(input('authorize', 'TAG', 'ISO14443'), logger);
+    expect(d.status).toBe('accepted');
+    expect(d.accountFleetId).toBeUndefined();
+  });
+
+  it('is not checked for a prepaid token (prepaid comes first)', async () => {
+    h.tables['driver_tokens'] = [
+      token({
+        id: 'tok-1',
+        idToken: 'TAG',
+        tokenType: 'ISO14443',
+        driverId: 'drv-1',
+        prepaidBalanceCents: 500,
+      }),
+    ];
+    h.accountCredit = { fleetId: 'flt-1', remainingCents: 0 };
+    const d = await authorizeToken(input('authorize', 'TAG', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', prepaid: true });
+    expect(h.accountCreditCalls).toEqual([]);
+  });
+
+  it('is not checked for a rejected token', async () => {
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', isActive: false }),
+    ];
+    await authorizeToken(input('authorize', 'TAG', 'ISO14443'), logger);
+    expect(h.accountCreditCalls).toEqual([]);
+  });
+
+  it('keeps the decision and warns when the lookup fails', async () => {
+    h.accountCredit = new Error('db down');
+    const d = await authorizeToken(input('authorize', 'TAG', 'ISO14443'), logger);
+    expect(d.status).toBe('accepted');
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationId: 'CS-001', idToken: 'TAG' }),
+      'Fleet credit limit lookup failed; keeping the decision',
+    );
   });
 });
 

@@ -766,6 +766,12 @@ export type SettlementOutcome =
    * driver hears about the payment then.
    */
   | { mode: 'card'; status: 'adjusting'; paymentRecordId: number; driverId: string }
+  /**
+   * Charge on account (`billing_mode = 'account'`): billed to the fleet on its
+   * invoice. No provider call and no payment record; the billing state is the
+   * session's invoice (`invoice_id`).
+   */
+  | { mode: 'account'; billingFleetId: string }
   /** A guest hold (no driver): the worker finalizes it. */
   | { mode: 'guest' }
   /** Nothing to settle (no open hold, a free or roaming session). */
@@ -777,6 +783,8 @@ interface SettlementSession extends SessionCharge {
   isRoaming: boolean;
   freeVend: boolean;
   prepaid: boolean;
+  account: boolean;
+  billingFleetId: string | null;
 }
 
 async function settlementSession(sessionId: string): Promise<SettlementSession | null> {
@@ -787,6 +795,8 @@ async function settlementSession(sessionId: string): Promise<SettlementSession |
       isRoaming: chargingSessions.isRoaming,
       freeVend: chargingSessions.freeVend,
       prepaid: sql<boolean>`${driverTokens.prepaidBalanceCents} IS NOT NULL`,
+      account: sql<boolean>`${chargingSessions.billingMode} IS NOT DISTINCT FROM 'account'`,
+      billingFleetId: chargingSessions.billingFleetId,
       finalCostCents: chargingSessions.finalCostCents,
       tariffTaxRate: chargingSessions.tariffTaxRate,
       costBreakdown: chargingSessions.costBreakdown,
@@ -802,7 +812,8 @@ async function settlementSession(sessionId: string): Promise<SettlementSession |
 /**
  * Settles an ended session (TransactionEvent Ended, 1.6 StopTransaction). A
  * prepaid token's balance is debited (once: its record is the idempotency
- * marker). A driver's open hold is captured by the provider it is pinned to,
+ * marker). An account session (stamped `billing_mode = 'account'`) returns
+ * `account` with no provider call and no payment record. A driver's open hold is captured by the provider it is pinned to,
  * at most the hold (`capture_<paymentId>`); a final cost above the hold is
  * charged as a top-up on the same card and payout account (`topup_<paymentId>`),
  * and a declined top-up leaves the record `captured` with a `Top-up declined:`
@@ -843,9 +854,17 @@ export async function settleSessionPayment(
   }
 
   // An open hold is settled whatever the mode: an operator can place one on
-  // any session, and it must not stay held.
+  // any session, and it must not stay held. An account session collected by
+  // a card this way has a payment record, so the fleet invoice leaves it out.
   const record = await findSessionHold(sessionId);
-  if (record == null) return { mode: 'none' };
+  if (record == null) {
+    // Account: the stamp (read, not the current fleet state) says the fleet
+    // bills it; nothing to charge here.
+    if (mode === 'account' && session.billingFleetId != null) {
+      return { mode: 'account', billingFleetId: session.billingFleetId };
+    }
+    return { mode: 'none' };
+  }
   if (record.driverId == null) return { mode: 'guest' };
   if (record.providerPaymentId == null) return { mode: 'none' };
   if (record.pendingOperation === 'adjust') {

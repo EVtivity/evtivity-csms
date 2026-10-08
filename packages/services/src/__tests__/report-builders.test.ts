@@ -12,16 +12,10 @@ vi.mock('../pdf-fonts.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../pdf-fonts.js')>()),
   CJK_FONT_FILES: {
     regular: fileURLToPath(
-      new URL(
-        '../../../api/src/__tests__/fixtures/noto-sans-cjk/NotoSansCJK-Regular-subset.ttc',
-        import.meta.url,
-      ),
+      new URL('./fixtures/noto-sans-cjk/NotoSansCJK-Regular-subset.ttc', import.meta.url),
     ),
     bold: fileURLToPath(
-      new URL(
-        '../../../api/src/__tests__/fixtures/noto-sans-cjk/NotoSansCJK-Bold-subset.ttc',
-        import.meta.url,
-      ),
+      new URL('./fixtures/noto-sans-cjk/NotoSansCJK-Bold-subset.ttc', import.meta.url),
     ),
   },
 }));

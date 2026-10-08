@@ -17,7 +17,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, client } from './config.js';
-import { sql, eq, and, isNotNull, isNull } from 'drizzle-orm';
+import { sql, eq, and, inArray, isNotNull, isNull } from 'drizzle-orm';
 import { createId } from './lib/id.js';
 import { getCompanyCurrency, clearSystemSettingsCache } from './lib/system-settings.js';
 import {
@@ -592,6 +592,8 @@ async function seed(): Promise<void> {
     'sustainability.avgMpg': '25.4',
     'idling.gracePeriodMinutes': 30,
     'prepaid.lowCreditThresholdCents': 500,
+    'invoice.paymentTermsDays': 30,
+    'fleet.invoiceRunDay': 1,
     'session.staleTimeoutHours': 24,
     // Connection timeout (s) assumed for a station that has not reported its own,
     // when the CSMS closes a remote start the driver never plugged in for.
@@ -648,6 +650,7 @@ async function seed(): Promise<void> {
     'reservation.maxHours': 3,
     'reservation.activeSessionCheckHours': 3,
     'fleet.enabled': true,
+    'fleet.creditReservationCents': 5000,
     'support.enabled': true,
     'guest.enabled': true,
     'ocpp.commandRetryMaxAttempts': 3,
@@ -2654,6 +2657,23 @@ async function seed(): Promise<void> {
     console.log(`  ${String(rebillSessionIds.length)} re-bill sessions created.`);
   }
 
+  // ------ Fleet account billing (charge on account) ------
+  // One fleet billed on account with a billing profile and a credit limit, its
+  // unbilled sessions this month, last month's issued fleet invoice, and a
+  // credited earlier invoice with its credit note (seed-fleet-billing.ts).
+  {
+    const accountStation = at(createdStations, 0);
+    const accountEvse = createdEvses.find((e) => e.stationId === accountStation.id);
+    const { seedFleetBillingDemo } = await import('./seed-fleet-billing.js');
+    const accountSessions = await seedFleetBillingDemo(client, {
+      stationId: accountStation.id,
+      evseId: accountEvse?.id ?? null,
+      currency: companyCurrency,
+      now: seedNow,
+    });
+    console.log(`  Fleet billing demo created (${String(accountSessions)} account sessions).`);
+  }
+
   // Portal driver support cases (the portal Support page should show data)
   const portalCaseRows = [
     {
@@ -2741,7 +2761,7 @@ async function seed(): Promise<void> {
 
   // Invoices for the portal test driver (the driver detail Invoices tab and
   // the invoice detail page should show data). Numbers use a 9xxx suffix so
-  // they never collide with app-generated invoice_number_seq values.
+  // they never collide with numbers from invoice_number_counters.
   const invoiceMonth = (offset: number): string => {
     const d = new Date(Date.UTC(curYear, curMonth - offset, 1));
     return `${String(d.getUTCFullYear())}${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -2773,6 +2793,7 @@ async function seed(): Promise<void> {
         status: 'paid' as const,
         issuedAt: new Date(Date.UTC(curYear, curMonth - 1, 1)),
         dueAt: new Date(Date.UTC(curYear, curMonth - 1, 1) + 30 * 86400000),
+        paidAt: new Date(Date.UTC(curYear, curMonth - 1, 1)),
         currency: companyCurrency,
         subtotalCents: 3185,
         taxCents: 255,
@@ -2797,6 +2818,19 @@ async function seed(): Promise<void> {
         };
       }),
     );
+    // Claim the billed sessions, as the invoice service does.
+    await db
+      .update(chargingSessions)
+      .set({ invoiceId: issuedInvoice.id })
+      .where(
+        and(
+          inArray(
+            chargingSessions.id,
+            invoiceSessions.map((session) => session.id),
+          ),
+          isNull(chargingSessions.invoiceId),
+        ),
+      );
   }
   console.log('  Portal test driver invoices created.');
 

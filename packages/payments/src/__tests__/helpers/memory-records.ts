@@ -67,6 +67,7 @@ function insert(
     sessionId: input.sessionId,
     driverId: input.driverId,
     sitePaymentConfigId: input.sitePaymentConfigId,
+    invoiceId: null,
     provider: input.provider,
     providerPaymentId: input.paymentId,
     providerCustomerId: input.customerId,

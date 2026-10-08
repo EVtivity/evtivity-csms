@@ -18,6 +18,14 @@ export interface SessionReceiptInput {
   endedAt: string | Date;
   /** The hold was released because the cost is below the provider minimum charge. */
   notCharged: boolean;
+  /**
+   * How the session is paid (its write-once stamp `charging_sessions.billing_mode`):
+   * 'account' is billed to the fleet named by `billedTo`, no card is charged.
+   * Null: no stamp (older, prepaid, roaming or free vend sessions).
+   */
+  billingMode: 'card' | 'account' | null;
+  /** The name of the fleet an account session is billed to; null otherwise. */
+  billedTo: string | null;
 }
 
 /**
@@ -41,5 +49,8 @@ export function sessionReceiptVariables(input: SessionReceiptInput): Record<stri
     startedAt: input.startedAt,
     endedAt: input.endedAt,
     notCharged: input.notCharged,
+    // Templates test `{{#if billedTo}}` for the account wording.
+    billingMode: input.billingMode ?? '',
+    billedTo: input.billingMode === 'account' ? (input.billedTo ?? '') : '',
   };
 }

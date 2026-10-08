@@ -88,6 +88,8 @@ const STATE_BODIES: Record<StationMessageState, string> = {
   unauthorized: 'Tap your RFID card\nor scan the QR code\nto authorize charging.',
   prepaid_exhausted:
     'Prepaid credit used up.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
+  account_credit_limit:
+    'Fleet credit limit reached.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
 };
 
 describe('renderStationMessage', () => {

@@ -72,6 +72,7 @@ vi.mock('@evtivity/database', () => ({
   userTokens: {},
   getRecaptchaConfig: vi.fn().mockResolvedValue(null),
   isPortalRegistrationEnabled: vi.fn().mockResolvedValue(true),
+  resolveAccountBilling: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -145,7 +146,7 @@ vi.mock('../services/driver-portal-access.service.js', () => ({
 
 import { eq, isNotNull } from 'drizzle-orm';
 import { AppError } from '@evtivity/lib';
-import { db } from '@evtivity/database';
+import { db, resolveAccountBilling } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { portalAuthRoutes } from '../routes/portal/auth.js';
 import * as argon2Module from 'argon2';
@@ -672,6 +673,39 @@ describe('Portal auth routes - handler logic', () => {
       const body = response.json();
       expect(body.id).toBe(DRIVER_ID);
       expect(body.email).toBe('john@example.com');
+      expect(body.billing).toEqual({ mode: 'card', fleetName: null });
+    });
+
+    it('returns account billing for a driver whose fleet bills on account', async () => {
+      setupDbResults([
+        {
+          id: DRIVER_ID,
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
+          phone: null,
+          language: 'en',
+          timezone: null,
+          themePreference: 'light',
+          distanceUnit: 'miles',
+          priceDisplay: null,
+          isActive: true,
+          emailVerified: true,
+          createdAt: '2024-01-01',
+        },
+      ]);
+      vi.mocked(resolveAccountBilling).mockResolvedValueOnce({
+        fleetId: 'flt_1',
+        fleetName: 'Acme Logistics',
+      });
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/auth/me',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().billing).toEqual({ mode: 'account', fleetName: 'Acme Logistics' });
+      expect(resolveAccountBilling).toHaveBeenCalledWith(expect.anything(), DRIVER_ID);
     });
   });
 

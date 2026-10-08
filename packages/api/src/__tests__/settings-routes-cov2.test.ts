@@ -90,6 +90,23 @@ vi.mock('@evtivity/database', () => ({
   parsePrepaidLowCreditThresholdCents: (value: unknown) =>
     typeof value === 'number' ? value : null,
   clearPrepaidSettingsCache: vi.fn(),
+  INVOICE_PAYMENT_TERMS_DAYS_KEY: 'invoice.paymentTermsDays',
+  MAX_INVOICE_PAYMENT_TERMS_DAYS: 365,
+  parseInvoicePaymentTermsDays: (value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 365
+      ? value
+      : null,
+  FLEET_INVOICE_RUN_DAY_KEY: 'fleet.invoiceRunDay',
+  MAX_FLEET_INVOICE_RUN_DAY: 28,
+  parseFleetInvoiceRunDay: () => null,
+  clearInvoiceSettingsCache: vi.fn(),
+  FLEET_CREDIT_RESERVATION_KEY: 'fleet.creditReservationCents',
+  MAX_FLEET_CREDIT_RESERVATION_CENTS: 100_000_000,
+  parseFleetCreditReservationCents: (value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 100_000_000
+      ? value
+      : null,
+  clearFleetCreditSettingsCache: vi.fn(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

@@ -33,6 +33,14 @@ export function paymentsKeptCentsSql(companyCurrency: string): SQL {
  *   refunded): the amount captured minus the amount refunded. Dated by the
  *   charge, attributed to the reservation's station.
  *
+ * - An account session (charge on account, billing_mode 'account', no
+ *   payment record): revenue only once its fleet invoice is paid, dated by
+ *   the invoice's paid_at (the collection date), so the daily snapshot of
+ *   that day counts it. Until then (unbilled, invoiced and unpaid, or
+ *   released by a credit note) a session with a cost is "billed on account":
+ *   counted in billedOnAccountCents, not in revenue. A zero-cost account
+ *   session counts like any free session.
+ *
  * Every amount includes tax. A session without a refund counts the net
  * amount and tax stored with its final cost (net_cents, tax_cents, written by
  * the one cost assembly in @evtivity/database session-pricing; exact per
@@ -43,7 +51,8 @@ export function paymentsKeptCentsSql(companyCurrency: string): SQL {
  */
 function revenueItemsSql(companyCurrency: string): SQL {
   return sql`
-    SELECT cs.started_at AS occurred_at,
+    SELECT CASE WHEN cs.billing_mode = 'account' AND pr.id IS NULL AND inv.status = 'paid'
+                THEN coalesce(inv.paid_at, cs.started_at) ELSE cs.started_at END AS occurred_at,
            cs.station_id,
            st.site_id,
            cs.driver_id,
@@ -53,10 +62,13 @@ function revenueItemsSql(companyCurrency: string): SQL {
                 THEN cs.net_cents END AS net_cents,
            CASE WHEN coalesce(pr.refunded_amount_cents, 0) = 0 AND cs.net_cents IS NOT NULL
                 THEN cs.tax_cents END AS tax_cents,
-           'session'::text AS source
+           CASE WHEN cs.billing_mode = 'account' AND pr.id IS NULL AND cs.final_cost_cents > 0
+                     AND inv.status IS DISTINCT FROM 'paid'
+                THEN 'account' ELSE 'session' END AS source
     FROM charging_sessions cs
     JOIN charging_stations st ON st.id = cs.station_id
     LEFT JOIN payment_records pr ON pr.session_id = cs.id
+    LEFT JOIN invoices inv ON inv.id = cs.invoice_id
     WHERE cs.final_cost_cents IS NOT NULL
       AND upper(cs.currency) = ${companyCurrency}
     UNION ALL
@@ -107,6 +119,13 @@ export interface RevenueTotals extends TaxTotals {
   sessionGrossCents: number;
   /** Billed sessions plus reservation fee charges. */
   itemCount: number;
+  /**
+   * Account sessions not paid yet (unbilled, or on an unpaid fleet invoice),
+   * tax included: billed on account, not revenue.
+   */
+  billedOnAccountCents: number;
+  /** The number of those account sessions. */
+  billedOnAccountCount: number;
 }
 
 export const EMPTY_REVENUE: RevenueTotals = {
@@ -116,6 +135,8 @@ export const EMPTY_REVENUE: RevenueTotals = {
   sessionCount: 0,
   sessionGrossCents: 0,
   itemCount: 0,
+  billedOnAccountCents: 0,
+  billedOnAccountCount: 0,
 };
 
 /** Revenue items of one key, tax rate, amount, and source, as the database returns them. */
@@ -141,7 +162,17 @@ export function aggregateRevenueRows(
     else list.push(row);
   }
   const result = new Map<string | null, RevenueTotals>();
-  for (const [key, list] of byKey) {
+  for (const [key, all] of byKey) {
+    // Unpaid account sessions are billed on account, not revenue.
+    const list = all.filter((r) => r.source !== 'account');
+    let billedOnAccountCents = 0;
+    let billedOnAccountCount = 0;
+    for (const r of all) {
+      if (r.source !== 'account') continue;
+      const count = Number(r.count);
+      billedOnAccountCount += count;
+      billedOnAccountCents += Number(r.grossCents) * count;
+    }
     const stored = list.filter((r) => r.netCents != null && r.taxCents != null);
     const split = revenueFromGrossGroups(
       list
@@ -169,7 +200,14 @@ export function aggregateRevenueRows(
         sessionGrossCents += Number(r.grossCents) * count;
       }
     }
-    result.set(key, { ...split, sessionCount, sessionGrossCents, itemCount });
+    result.set(key, {
+      ...split,
+      sessionCount,
+      sessionGrossCents,
+      itemCount,
+      billedOnAccountCents,
+      billedOnAccountCount,
+    });
   }
   return result;
 }
@@ -184,6 +222,8 @@ export function sumRevenue(totals: Iterable<RevenueTotals>): RevenueTotals {
     sum.sessionCount += t.sessionCount;
     sum.sessionGrossCents += t.sessionGrossCents;
     sum.itemCount += t.itemCount;
+    sum.billedOnAccountCents += t.billedOnAccountCents;
+    sum.billedOnAccountCount += t.billedOnAccountCount;
   }
   return sum;
 }

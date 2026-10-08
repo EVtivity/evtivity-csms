@@ -130,6 +130,7 @@ vi.mock('@evtivity/database', () => ({
     pendingOperationRef: 'pr.pending_operation_ref',
     pendingOperationAt: 'pr.pending_operation_at',
     providerRefunds: 'pr.provider_refunds',
+    invoiceId: 'pr.invoice_id',
   },
 }));
 
@@ -137,6 +138,7 @@ vi.mock('drizzle-orm', () => ({
   and: (...args: unknown[]) => ({ op: 'and', args }),
   eq: (col: unknown, value: unknown) => ({ op: 'eq', col, value }),
   inArray: (col: unknown, values: unknown) => ({ op: 'inArray', col, values }),
+  isNull: (col: unknown) => ({ op: 'isNull', col }),
   lte: (col: unknown, value: unknown) => ({ op: 'lte', col, value }),
   or: (...args: unknown[]) => ({ op: 'or', args }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
@@ -148,6 +150,8 @@ vi.mock('drizzle-orm', () => ({
 
 import {
   addPendingRefunds,
+  claimFeeRecordsForInvoice,
+  releaseInvoiceFeeRecords,
   claimRebillRecord,
   isStaleRebillCharge,
   REBILL_RESUME_MAX_HOURS,
@@ -1569,5 +1573,44 @@ describe('claimRebillRecord', () => {
     expect(isRebillRecord({ metadata: { rebill: {} } })).toBe(true);
     expect(isRebillRecord({ metadata: { tokenId: 't1' } })).toBe(false);
     expect(isRebillRecord({ metadata: null })).toBe(false);
+  });
+});
+
+describe('invoice claims of reservation fee charges', () => {
+  it('claims only unclaimed fee records and returns the ids it claimed', async () => {
+    h.results.push([{ id: 7 }]);
+
+    const claimed = await claimFeeRecordsForInvoice(h.db as never, [7, 8], 'inv_1');
+
+    expect(claimed).toEqual([7]);
+    expect(last()).toMatchObject({
+      kind: 'update',
+      set: { invoiceId: 'inv_1' },
+      where: {
+        op: 'and',
+        args: [
+          { op: 'inArray', col: 'pr.id', values: [7, 8] },
+          { op: 'isNull', col: 'pr.invoice_id' },
+        ],
+      },
+    });
+  });
+
+  it('claims nothing without fee records', async () => {
+    expect(await claimFeeRecordsForInvoice(h.db as never, [], 'inv_1')).toEqual([]);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  it('releases the fee records of a voided invoice', async () => {
+    h.results.push([{ id: 7 }, { id: 9 }]);
+
+    const released = await releaseInvoiceFeeRecords(h.db as never, 'inv_1');
+
+    expect(released).toEqual([7, 9]);
+    expect(last()).toMatchObject({
+      kind: 'update',
+      set: { invoiceId: null },
+      where: { op: 'eq', col: 'pr.invoice_id', value: 'inv_1' },
+    });
   });
 });

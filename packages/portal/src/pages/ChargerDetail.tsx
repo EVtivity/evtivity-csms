@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
   ArrowLeft,
+  Building2,
   CalendarClock,
   Info,
   Mail,
@@ -34,6 +35,7 @@ import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth';
+import { billedToFleet, useDriverBilling } from '@/lib/fleet-billing';
 import { cn, formatDate } from '@/lib/utils';
 import {
   connectorStatusVariant,
@@ -132,6 +134,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   // Signed-out visitors see times in the browser's time zone.
   const timezone = useAuth((s) => s.driver?.timezone);
   const currentDriverId = useAuth((s) => s.driver?.id ?? null);
+  const driverBilling = useDriverBilling(isAuthenticated && mode === 'charge');
   useStationEvents(stationId);
 
   const evseParam = searchParams.get('evse');
@@ -286,6 +289,8 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
   }
 
   const isFree = pricing != null && isPricingFree(pricing);
+  // Charge on account: the fleet pays, so no card is picked or sent.
+  const fleetName = mode === 'charge' ? billedToFleet(pricing, driverBilling) : null;
 
   async function doStart(): Promise<void> {
     if (selectedEvseId == null) return;
@@ -294,7 +299,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
     try {
       const result = await api.post<{ chargingSessionId: string }>(
         `/v1/portal/chargers/${stationId ?? ''}/evse/${String(selectedEvseId)}/start`,
-        selectedPm != null ? { paymentMethodId: selectedPm } : {},
+        selectedPm != null && fleetName == null ? { paymentMethodId: selectedPm } : {},
       );
       void navigate(`/sessions/${result.chargingSessionId}`, {
         replace: true,
@@ -422,12 +427,20 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
     selectedEvseId != null &&
     station.paymentEnabled &&
     !isFree &&
+    fleetName == null &&
+    isAuthenticated &&
+    !hasActiveSession;
+  const showFleetBilling =
+    mode === 'charge' &&
+    selectedEvseId != null &&
+    !isFree &&
+    fleetName != null &&
     isAuthenticated &&
     !hasActiveSession;
   const showStartButton =
     mode === 'charge' &&
     selectedEvseId != null &&
-    (isFree || !station.paymentEnabled || selectedPm != null) &&
+    (isFree || !station.paymentEnabled || fleetName != null || selectedPm != null) &&
     !hasActiveSession;
   // Reserve mode shows the time pickers + Reserve button as soon as the
   // user lands on the page so they can pick a connector OR leave it null.
@@ -798,6 +811,21 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
                 </div>
               ))
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Charge on account: billed to the fleet instead of a card */}
+      {showFleetBilling && (
+        <Card data-testid="fleet-billing">
+          <CardContent className="flex items-start gap-3 p-4">
+            <Building2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
+            <div>
+              <p className="text-sm font-medium">
+                {t('fleetBilling.billedTo', { fleet: fleetName })}
+              </p>
+              <p className="text-xs text-muted-foreground">{t('fleetBilling.startHint')}</p>
+            </div>
           </CardContent>
         </Card>
       )}
