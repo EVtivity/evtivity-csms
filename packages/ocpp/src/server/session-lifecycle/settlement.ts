@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { DomainEvent } from '@evtivity/lib';
-import { notificationMoney, sessionReceiptVariables } from '@evtivity/lib';
+import { notificationMoney, receiptBilling, sessionReceiptVariables } from '@evtivity/lib';
 import {
   dispatchPrepaidLowCreditNotice,
   isReleasedBelowMinimum,
@@ -106,29 +106,18 @@ export async function projectNotifySettlement(
   }
 }
 
-function billingModeOf(value: unknown): 'card' | 'account' | null {
-  return value === 'card' || value === 'account' ? value : null;
-}
-
-/** The receipt billing of a session: account only without a payment record. */
-function receiptBilling(
-  mode: 'card' | 'account' | null,
-  fleetName: string | null,
-  hasPaymentRecord: boolean,
-): { billingMode: 'card' | 'account' | null; billedTo: string | null } {
-  if (mode === 'account' && !hasPaymentRecord)
-    return { billingMode: 'account', billedTo: fleetName };
-  return { billingMode: mode == null ? null : 'card', billedTo: null };
-}
-
 // Driver notifications at the end of a session: session.Completed and
 // session.Receipt. Sent after the settlement so the state is read at dispatch
 // (P5): no notification for a faulted or failed session (a payment failure
 // or a missing payment method faults it, which also covers the path that
 // never wrote a payment record), no receipt when the capture failed (the
 // payment record is failed: there is no payment to confirm, and
-// payment.CaptureFailed tells the driver), and `notCharged` when the hold was
-// released because the cost is below the provider minimum charge.
+// payment.CaptureFailed tells the driver), no receipt yet while an async
+// provider has not confirmed the capture (the record's pending_operation is
+// capture or adjust: the webhook that confirms it sends the receipt through
+// dispatchPaymentWebhookNotices, and a capture that fails then sends
+// payment.CaptureFailed instead, finding JB-3), and `notCharged` when the
+// hold was released because the cost is below the provider minimum charge.
 // Each notice goes out at most once per session: a one-statement claim on the
 // session (completed_notified_at, receipt_notified_at, set WHERE IS NULL
 // RETURNING) picks the run that sends it, so a station that resends its Ended
@@ -156,10 +145,13 @@ async function notifySessionEnded(
   const status = endedSession.status as string;
   if (status === 'faulted' || status === 'failed' || status === 'active') return;
   const [record] = await sql`
-    SELECT status, failure_reason FROM payment_records
+    SELECT status, failure_reason, pending_operation FROM payment_records
     WHERE session_id = ${sessionId}
     ORDER BY id LIMIT 1`;
   const captureFailed = record != null && record.status === 'failed';
+  const capturePending =
+    record != null &&
+    (record.pending_operation === 'capture' || record.pending_operation === 'adjust');
   const notCharged =
     record != null &&
     isReleasedBelowMinimum({
@@ -182,7 +174,7 @@ async function notifySessionEnded(
     // payment record says "billed to <fleet>, no card charged". One with a
     // record (an operator hold) was paid by card.
     ...receiptBilling(
-      billingModeOf(endedSession.billing_mode),
+      endedSession.billing_mode,
       (endedSession.billing_fleet_name as string | null) ?? null,
       record != null,
     ),
@@ -197,9 +189,10 @@ async function notifySessionEnded(
       WHERE id = ${sessionId} AND receipt_notified_at IS NULL
       RETURNING id`,
   };
-  const eventTypes = captureFailed
-    ? (['session.Completed'] as const)
-    : (['session.Completed', 'session.Receipt'] as const);
+  const eventTypes =
+    captureFailed || capturePending
+      ? (['session.Completed'] as const)
+      : (['session.Completed', 'session.Receipt'] as const);
   for (const eventType of eventTypes) {
     const claimed = await attempt.memo(`settle:${eventType}:claim`, claims[eventType]);
     if (claimed.length === 0) continue;

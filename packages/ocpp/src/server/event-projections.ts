@@ -366,17 +366,17 @@ export function registerProjections(
     stationUuid: string,
     evseUuid: string | null,
     transactionId: string | undefined,
-  ): Promise<{ id: string; evseUuid: string | null } | null> {
+  ): Promise<{ id: string; evseUuid: string | null; transactionId: string | null } | null> {
     const rows =
       transactionId != null
         ? await sql`
-            SELECT id, evse_id FROM charging_sessions
+            SELECT id, evse_id, transaction_id FROM charging_sessions
             WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
             LIMIT 1
           `
         : evseUuid != null
           ? await sql`
-              SELECT id, evse_id FROM charging_sessions
+              SELECT id, evse_id, transaction_id FROM charging_sessions
               WHERE evse_id = ${evseUuid} AND status = 'active'
               ORDER BY started_at DESC
               LIMIT 1
@@ -384,7 +384,11 @@ export function registerProjections(
           : [];
     const row = rows[0];
     if (row == null) return null;
-    return { id: row.id as string, evseUuid: (row.evse_id as string | null) ?? null };
+    return {
+      id: row.id as string,
+      evseUuid: (row.evse_id as string | null) ?? null,
+      transactionId: (row.transaction_id as string | null) ?? transactionId ?? null,
+    };
   }
 
   // Cached holiday loader (60s TTL)
@@ -1195,35 +1199,31 @@ export function registerProjections(
       // a station-side SuspendedEVSE, Finishing, Faulted (1.6 and 2.1),
       // Unavailable, Available, Reserved. OCPP 2.1 Occupied says nothing about
       // the charging state (the TransactionEvent chargingState decides there).
+      const statusTimestamp = (payload.timestamp as string | undefined) ?? new Date().toISOString();
+      // An idle period of the EVSE's active session open for
+      // IDLE_NOTICE_MIN_SECONDS at this status notifies first, before this
+      // status can end it (JB-2).
+      const [idleSession] = await sql`
+        SELECT id, transaction_id FROM charging_sessions
+        WHERE station_id = ${stationUuid} AND status = 'active' AND evse_id = ${resolvedEvseUuid}
+          AND idle_started_at IS NOT NULL AND idle_notified_at IS DISTINCT FROM idle_started_at
+      `;
+      if (idleSession != null) {
+        await notify.dispatchDueIdlingNotification(
+          idleSession.id as string,
+          event.aggregateId,
+          idleSession.transaction_id as string,
+          statusTimestamp,
+        );
+      }
       if (ocppStatus === 'SuspendedEV') {
-        const statusTimestamp =
-          (payload.timestamp as string | undefined) ?? new Date().toISOString();
         await sql`
         UPDATE charging_sessions
         SET idle_started_at = ${statusTimestamp}, updated_at = now()
         WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
           AND evse_id = ${resolvedEvseUuid}
       `;
-
-        // Dispatch idling notification for the active session on this EVSE
-        // (it re-marks the period if a meter reading ended it in between).
-        const activeSession = await sql`
-        SELECT id, transaction_id FROM charging_sessions
-        WHERE station_id = ${stationUuid} AND status = 'active'
-          AND evse_id = ${resolvedEvseUuid}
-      `;
-        const sess = activeSession[0];
-        if (sess != null) {
-          await notify.dispatchIdlingNotification(
-            sess.id as string,
-            event.aggregateId,
-            sess.transaction_id as string,
-            statusTimestamp,
-          );
-        }
       } else if (ocppStatus !== 'Occupied') {
-        const statusTimestamp =
-          (payload.timestamp as string | undefined) ?? new Date().toISOString();
         await sql`
         UPDATE charging_sessions
         SET idle_minutes = idle_minutes + GREATEST(0, EXTRACT(EPOCH FROM (${statusTimestamp}::timestamptz - idle_started_at)) / 60),
@@ -1273,6 +1273,13 @@ export function registerProjections(
             : 0;
       const transactionId = payload.transactionId as string | undefined;
       const source = (payload.source as string | undefined) ?? null;
+      // The chargingState of the 2.1 TransactionEvent that carried these
+      // readings. A station that reports chargingState decides the idle state
+      // itself (finding JB-1): the meter fallbacks below apply only to
+      // sessions whose events never carried one (1.6, and 2.1 stations
+      // without chargingState).
+      const eventChargingState =
+        typeof payload.chargingState === 'string' ? payload.chargingState : null;
 
       const reportedEvseUuid = await lookups.resolveEvseUuid(stationUuid, ocppEvseId);
       // Link meter values to a session when they came from a TransactionEvent or
@@ -1393,6 +1400,19 @@ export function registerProjections(
           }
         }
 
+        // An idle period open for IDLE_NOTICE_MIN_SECONDS at this reading
+        // notifies first, before this reading can end it (JB-2). Readings a
+        // TransactionEvent carried are checked by its own projection, at the
+        // event timestamp.
+        if (session?.transactionId != null && source !== 'TransactionEvent') {
+          await notify.dispatchDueIdlingNotification(
+            session.id,
+            stationId,
+            session.transactionId,
+            mvTimestamp,
+          );
+        }
+
         // Update energy_delivered_wh on the session when we get an energy reading.
         // Energy registers are cumulative, so we compute: currentValue - meterStart.
         // If meterStart is not yet set (OCPP 2.1 sessions), capture the first reading as meterStart.
@@ -1456,7 +1476,7 @@ export function registerProjections(
           // for the session's EVSE, or the event's EVSE for a session without
           // one (connectors.status_reported_at): a reading replayed from an
           // offline queue after a live status is stale.
-          if (existingMeterStart != null && prevEnergyWh >= 0) {
+          if (eventChargingState == null && existingMeterStart != null && prevEnergyWh >= 0) {
             const newEnergyWh = meterValue - Number(existingMeterStart);
             if (Math.abs(newEnergyWh - prevEnergyWh) < 1) {
               const flat =
@@ -1477,6 +1497,11 @@ export function registerProjections(
                 WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
                   AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
                   AND NOT EXISTS (
+                    SELECT 1 FROM transaction_events te
+                    WHERE te.session_id = charging_sessions.id
+                      AND te.payload->>'chargingState' IS NOT NULL
+                  )
+                  AND NOT EXISTS (
                     SELECT 1 FROM connectors c
                     WHERE (c.id = charging_sessions.connector_id
                       OR (charging_sessions.connector_id IS NULL AND c.evse_id = charging_sessions.evse_id))
@@ -1492,7 +1517,7 @@ export function registerProjections(
               }
             } else {
               // Energy increased: accumulate idle time and clear idle_started_at,
-              // unless a station signal confirmed this idle period (see below).
+              // unless the station reports this idle period (see below).
               await attempt.once(
                 `mv:${String(reading)}:energy-idle-close`,
                 () => sql`
@@ -1501,8 +1526,18 @@ export function registerProjections(
                   idle_started_at = NULL,
                   updated_at = now()
               WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
-                AND idle_notified_at IS DISTINCT FROM idle_started_at
                 AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+                AND NOT EXISTS (
+                  SELECT 1 FROM transaction_events te
+                  WHERE te.session_id = charging_sessions.id
+                    AND te.payload->>'chargingState' IS NOT NULL
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM connectors c
+                  WHERE (c.id = charging_sessions.connector_id
+                    OR (charging_sessions.connector_id IS NULL AND c.evse_id = charging_sessions.evse_id))
+                    AND c.status = 'suspended_ev'
+                )
                 AND NOT EXISTS (
                   SELECT 1 FROM connectors c
                   WHERE c.evse_id = COALESCE(charging_sessions.evse_id, ${evseUuid})
@@ -1514,10 +1549,17 @@ export function registerProjections(
           }
         }
 
-        // Power-based idle detection (fallback for OCPP 1.6 and stations without chargingState)
-        // Only transaction-scoped readings should update session idle state.
+        // Power-based idle detection (fallback for OCPP 1.6 and 2.1 stations
+        // that never report chargingState: a reading carried by an event with
+        // chargingState, or of a session whose events carried one, changes
+        // nothing, JB-1). Only transaction-scoped readings update idle state.
         const powerValue = overallValue(powerSamples);
-        if (appliesToSession && isTransactionScoped && powerValue != null) {
+        if (
+          eventChargingState == null &&
+          appliesToSession &&
+          isTransactionScoped &&
+          powerValue != null
+        ) {
           if (powerValue === 0) {
             // No power flowing: mark idle start if not already set
             await attempt.once(
@@ -1527,6 +1569,11 @@ export function registerProjections(
             SET idle_started_at = ${mvTimestamp}, updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
               AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+              AND NOT EXISTS (
+                SELECT 1 FROM transaction_events te
+                WHERE te.session_id = charging_sessions.id
+                  AND te.payload->>'chargingState' IS NOT NULL
+              )
               AND NOT EXISTS (
                 SELECT 1 FROM connectors c
                 WHERE (c.id = charging_sessions.connector_id
@@ -1542,13 +1589,10 @@ export function registerProjections(
             );
           } else {
             // Power resumed: accumulate idle time and clear idle_started_at.
-            // The meter fallbacks only end an idle period they started: once the
-            // station itself reported it (2.1 chargingState SuspendedEV, 1.6
-            // SuspendedEV status), dispatchIdlingNotification claimed it
-            // (idle_notified_at = idle_started_at), and only the station's next
-            // state ends it. A reading carried by the same TransactionEvent as a
-            // SuspendedEV would otherwise end the period and the next event
-            // would open a second one with a second notification.
+            // The meter fallbacks never end a period the station reports: while
+            // the session's connector is suspended_ev (1.6 SuspendedEV status)
+            // only the station's next state ends it, and a 2.1 session that
+            // reports chargingState never takes the fallbacks (JB-1).
             await attempt.once(
               `mv:${String(reading)}:power-idle-close`,
               () => sql`
@@ -1557,8 +1601,18 @@ export function registerProjections(
                 idle_started_at = NULL,
                 updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
-              AND idle_notified_at IS DISTINCT FROM idle_started_at
               AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+              AND NOT EXISTS (
+                SELECT 1 FROM transaction_events te
+                WHERE te.session_id = charging_sessions.id
+                  AND te.payload->>'chargingState' IS NOT NULL
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM connectors c
+                WHERE (c.id = charging_sessions.connector_id
+                  OR (charging_sessions.connector_id IS NULL AND c.evse_id = charging_sessions.evse_id))
+                  AND c.status = 'suspended_ev'
+              )
               AND NOT EXISTS (
                 SELECT 1 FROM connectors c
                 WHERE c.evse_id = COALESCE(charging_sessions.evse_id, ${evseUuid})

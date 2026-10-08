@@ -24,11 +24,11 @@ import {
 
 export interface ProjectionNotifier {
   auditLinkedReservationFault(sessionId: string, reason: string): Promise<void>;
-  dispatchIdlingNotification(
+  dispatchDueIdlingNotification(
     sessionId: string,
     stationId: string,
     transactionId: string,
-    idleAt: string,
+    at: string,
   ): Promise<void>;
   notifyChange(
     eventType: string,
@@ -49,6 +49,13 @@ export interface ProjectionNotifier {
   ): Promise<void>;
   linkCpoRoamingSession(sessionId: string, idToken: string): Promise<void>;
 }
+
+/**
+ * How long an idle period lasts before session.IdlingStarted goes out (owner
+ * rule 2026-10-08): an EV that reports full and ends the transaction a moment
+ * later gets no idling notice. The idle fee still follows the grace period.
+ */
+export const IDLE_NOTICE_MIN_SECONDS = 60;
 
 export interface ProjectionNotifierDeps {
   sql: postgres.Sql;
@@ -89,39 +96,42 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
     }
   }
 
-  // Dispatch IdlingStarted notification for both driver and guest sessions.
-  // Used by TransactionEvent Updated (chargingState) and StatusNotification (1.6 fallback).
-  async function dispatchIdlingNotification(
+  // Dispatch session.IdlingStarted for both driver and guest sessions, once
+  // an idle period has lasted IDLE_NOTICE_MIN_SECONDS (owner rule
+  // 2026-10-08, finding JB-2). Every projection that sees an event or a
+  // meter reading of an active session calls it with that event's timestamp
+  // before it applies its own idle open or close: the first one at or after
+  // the minimum, while the period is still open, sends the notice, also when
+  // that event ends the period (a resume, the transaction end). A period that
+  // ends sooner sends nothing, whichever signal opened it (2.1 chargingState,
+  // 1.6 status, the meter fallbacks), so 1.6 and 2.1 behave the same.
+  // The claim copies the period start into idle_notified_at: only the
+  // claiming call gets a row and notifies, so a period notifies once and a
+  // later period (a new idle_started_at) notifies again.
+  // Retry safety (event-projections.md, "Retry on a lost database
+  // connection"): the settings are read before the claim, and the claim
+  // statement itself returns everything the notice needs (the idle fee and
+  // tax rate that apply now, from the open tariff segment's snapshot under
+  // split billing, else the session's; the site name; a guest's email).
+  // After the claim only the fail-open dispatch runs, so no lost connection
+  // can fail a rerun between the claim and the send and lose the notice.
+  async function dispatchDueIdlingNotification(
     sessionId: string,
     stationId: string,
     transactionId: string,
-    idleAt: string,
+    at: string,
   ): Promise<void> {
-    // The station reported the vehicle idle (2.1 chargingState, 1.6 status).
-    // One statement marks the session idle (keeping a period already open) and
-    // claims the period by copying its start into idle_notified_at; only the
-    // claiming call gets a row and notifies. So two events of one period
-    // (ChargingStateChanged then CostLimitReached, repeated SuspendedEV) notify
-    // once, a meter reading cannot end the period between the mark and the
-    // claim (the meter fallbacks never clear a claimed period), and a later
-    // period has a new idle_started_at and notifies again.
-    // Retry safety (event-projections.md, "Retry on a lost database
-    // connection"): the settings are read before the claim, and the claim
-    // statement itself returns everything the notice needs (the idle fee and
-    // tax rate that apply now, from the open tariff segment's snapshot under
-    // split billing, else the session's; the site name; a guest's email).
-    // After the claim only the fail-open dispatch runs, so no lost connection
-    // can fail a rerun between the claim and the send and lose the notice.
     const gracePeriodMinutes = await getIdlingGracePeriodMinutes();
     const companyPriceDisplay = await getCompanyPriceDisplay();
     const idleSession = await sql`
       WITH claimed AS (
         UPDATE charging_sessions
-        SET idle_started_at = COALESCE(idle_started_at, ${idleAt}::timestamptz),
-            idle_notified_at = COALESCE(idle_started_at, ${idleAt}::timestamptz),
+        SET idle_notified_at = idle_started_at,
             updated_at = now()
         WHERE id = ${sessionId} AND status = 'active'
-          AND idle_notified_at IS DISTINCT FROM COALESCE(idle_started_at, ${idleAt}::timestamptz)
+          AND idle_started_at IS NOT NULL
+          AND idle_notified_at IS DISTINCT FROM idle_started_at
+          AND ${at}::timestamptz >= idle_started_at + make_interval(secs => ${IDLE_NOTICE_MIN_SECONDS})
         RETURNING id, idle_started_at
       )
       SELECT cs.driver_id, claimed.idle_started_at,
@@ -305,7 +315,7 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
 
   return {
     auditLinkedReservationFault,
-    dispatchIdlingNotification,
+    dispatchDueIdlingNotification,
     notifyChange,
     publishStationMessageTransaction,
     notifyOcpiPush,

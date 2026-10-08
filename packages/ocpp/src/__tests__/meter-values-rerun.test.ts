@@ -31,8 +31,8 @@ function route(text: string, values: unknown[]): unknown[] {
   if (text.includes('SELECT id FROM charging_stations WHERE station_id')) return [{ id: 'sta-1' }];
   if (text.includes('SELECT id FROM evses WHERE station_id')) return [{ id: 'evse-1' }];
   if (text.includes('SELECT site_id FROM charging_stations')) return [{ site_id: 'site-1' }];
-  if (text.includes('SELECT id, evse_id FROM charging_sessions')) {
-    return [{ id: 'session-1', evse_id: 'evse-1' }];
+  if (text.includes('SELECT id, evse_id, transaction_id FROM charging_sessions')) {
+    return [{ id: 'session-1', evse_id: 'evse-1', transaction_id: 'tx-1' }];
   }
   if (text.includes('SELECT energy_delivered_wh, meter_start')) {
     return [

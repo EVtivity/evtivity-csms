@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { sessionReceiptVariables } from '../session-receipt.js';
+import { receiptBilling, sessionReceiptVariables } from '../session-receipt.js';
 import { MoneyValue } from '../notification-values.js';
 
 describe('sessionReceiptVariables', () => {
@@ -84,5 +84,27 @@ describe('sessionReceiptVariables', () => {
     expect(account['billedTo']).toBe('Acme Logistics');
     const card = sessionReceiptVariables({ ...base, billingMode: 'card', billedTo: 'Acme' });
     expect(card['billedTo']).toBe('');
+  });
+});
+
+describe('receiptBilling', () => {
+  it('bills an account session without a payment record to its fleet', () => {
+    expect(receiptBilling('account', 'Fleet A', false)).toEqual({
+      billingMode: 'account',
+      billedTo: 'Fleet A',
+    });
+  });
+
+  it('treats an account session with a payment record (an operator hold) as paid by card', () => {
+    expect(receiptBilling('account', 'Fleet A', true)).toEqual({
+      billingMode: 'card',
+      billedTo: null,
+    });
+  });
+
+  it('keeps card and gives no mode for a missing or unknown stamp', () => {
+    expect(receiptBilling('card', null, true)).toEqual({ billingMode: 'card', billedTo: null });
+    expect(receiptBilling(null, null, false)).toEqual({ billingMode: null, billedTo: null });
+    expect(receiptBilling('other', null, false)).toEqual({ billingMode: null, billedTo: null });
   });
 });

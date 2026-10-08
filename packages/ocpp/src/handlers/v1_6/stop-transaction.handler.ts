@@ -3,6 +3,10 @@
 
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { StopTransaction } from '../../generated/v1_6/types/messages/StopTransaction.js';
+import { projectionQueueFor } from '../../server/projection-queue.js';
+
+/** Bound on waiting for the station's queued projections before the stop. */
+const STATION_SETTLE_TIMEOUT_MS = 5000;
 
 export async function handleStopTransaction(ctx: HandlerContext): Promise<Record<string, unknown>> {
   const request = ctx.payload as unknown as StopTransaction;
@@ -16,6 +20,15 @@ export async function handleStopTransaction(ctx: HandlerContext): Promise<Record
     },
     'StopTransaction received (1.6)',
   );
+
+  // The station's MeterValues and StatusNotifications run on the station
+  // projection lane, the stop on the transaction lane, in parallel. A station
+  // that replays its offline queue sends the readings before the stop within
+  // milliseconds: wait until the station lane projected them, so each reading
+  // is judged at its own timestamp while the session is still active and the
+  // idle period they show is billed (finding JB-4), as the 2.1 handler waits
+  // before an Ended.
+  await projectionQueueFor(ctx.eventBus).settled([ctx.stationId], STATION_SETTLE_TIMEOUT_MS);
 
   await ctx.eventBus.publish({
     eventType: 'ocpp.TransactionEvent',

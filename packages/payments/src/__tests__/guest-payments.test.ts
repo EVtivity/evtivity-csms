@@ -124,6 +124,7 @@ import {
   guestHoldTerms,
   handleGuestSessionEvent,
   rollbackGuestStart,
+  sendGuestReceiptForSession,
 } from '../guest-payments.js';
 import type { GuestEventDeps, GuestHoldInput } from '../guest-payments.js';
 import { PaymentDeclinedError, PaymentProviderNotConfiguredError } from '../errors.js';
@@ -164,6 +165,16 @@ const TERMS = {
 
 function guestTable(): unknown {
   return { __table: 'guest_sessions', provider: 'gs.provider' };
+}
+
+/** The guest session updates (the receipt claim updates charging_sessions). */
+function guestUpdates(): typeof m.updates {
+  return m.updates.filter((u) => (u.table as { __table?: string }).__table === 'guest_sessions');
+}
+
+/** The receipt claims (`receipt_notified_at` on charging_sessions). */
+function receiptClaims(): typeof m.updates {
+  return m.updates.filter((u) => 'receiptNotifiedAt' in u.values);
 }
 
 function record(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -424,7 +435,8 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
       failureReason: null,
       pendingRef: null,
     });
-    expect(m.updates.at(-1)?.values).toMatchObject({ status: 'completed' });
+    expect(guestUpdates().at(-1)?.values).toMatchObject({ status: 'completed' });
+    expect(receiptClaims()).toHaveLength(1);
     expect(m.dispatchSystemNotification).toHaveBeenCalledWith(
       { __client: true },
       'session.Receipt',
@@ -525,7 +537,50 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
       idempotencyKey: 'cancel_pi_1',
     });
     expect(m.markCancelled).toHaveBeenCalledWith(11, null);
-    expect(m.updates.at(-1)?.values).toMatchObject({ status: 'completed' });
+    expect(guestUpdates().at(-1)?.values).toMatchObject({ status: 'completed' });
+  });
+
+  // Finding JB-3: an async capture is final only once the provider confirms
+  // it, so the receipt waits for the confirming webhook.
+  it('sends no receipt while the provider has not confirmed the capture', async () => {
+    m.findSessionRecord.mockResolvedValue(record());
+    m.selectQueue.push([finalizeGuest()], [chargedSession(800)]);
+    provider.capture.mockResolvedValueOnce({ state: 'pending', operationRef: 'op_1' });
+
+    await end();
+
+    expect(m.markCaptured).toHaveBeenCalledWith(11, {
+      capturedCents: 800,
+      failureReason: null,
+      pendingRef: 'op_1',
+    });
+    expect(guestUpdates().at(-1)?.values).toMatchObject({ status: 'completed' });
+    expect(receiptClaims()).toHaveLength(0);
+    expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
+  });
+
+  it('sends no receipt on a retry while the recorded capture is still pending', async () => {
+    m.findSessionRecord.mockResolvedValue(
+      record({ status: 'captured', pendingOperation: 'capture' }),
+    );
+    m.selectQueue.push([finalizeGuest()]);
+
+    await end();
+
+    expect(guestUpdates()[0]?.values).toMatchObject({ status: 'completed' });
+    expect(receiptClaims()).toHaveLength(0);
+    expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
+  });
+
+  it('sends no second receipt when the receipt was claimed already', async () => {
+    m.findSessionRecord.mockResolvedValue(record({ status: 'captured' }));
+    m.selectQueue.push([finalizeGuest()]);
+    m.updateReturns.push([]);
+
+    await end();
+
+    expect(receiptClaims()).toHaveLength(1);
+    expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
   });
 
   // Finding J7: a retry after a failed capture skipped the failed record and
@@ -573,8 +628,9 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
 
     expect(provider.capture).not.toHaveBeenCalled();
     expect(provider.cancelHold).not.toHaveBeenCalled();
-    expect(m.updates).toHaveLength(1);
-    expect(m.updates[0]?.values).toMatchObject({ status: 'completed' });
+    expect(guestUpdates()).toHaveLength(1);
+    expect(guestUpdates()[0]?.values).toMatchObject({ status: 'completed' });
+    expect(receiptClaims()).toHaveLength(1);
     expect(m.dispatchSystemNotification).toHaveBeenCalledTimes(1);
   });
 
@@ -598,8 +654,9 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     await end();
 
     expect(registry.getPaymentProvider).not.toHaveBeenCalled();
-    expect(m.updates).toHaveLength(1);
-    expect(m.updates[0]?.values).toMatchObject({ status: 'completed' });
+    expect(guestUpdates()).toHaveLength(1);
+    expect(guestUpdates()[0]?.values).toMatchObject({ status: 'completed' });
+    expect(receiptClaims()).toHaveLength(1);
     expect(m.dispatchSystemNotification).toHaveBeenCalledTimes(1);
   });
 
@@ -1427,5 +1484,29 @@ describe('claimGuestStart (P10 Part B)', () => {
 
     expect(await claimGuestStart('tok_1')).toEqual({ claim: 'not_startable' });
     expect(await claimGuestStart('tok_1')).toEqual({ claim: 'not_startable' });
+  });
+});
+
+describe('sendGuestReceiptForSession (finding JB-3)', () => {
+  it('sends the guest receipt once the provider confirmed the capture', async () => {
+    m.selectQueue.push([finalizeGuest()], [receiptSession()]);
+
+    await sendGuestReceiptForSession('ses_1', deps);
+
+    expect(receiptClaims()).toHaveLength(1);
+    expect(m.dispatchSystemNotification).toHaveBeenCalledWith(
+      { __client: true },
+      'session.Receipt',
+      { email: 'guest@example.com' },
+      expect.objectContaining({ stationId: 'CS-1', finalCostCents: 800 }),
+      ['/templates'],
+    );
+  });
+
+  it('does nothing for a session without a guest session', async () => {
+    await sendGuestReceiptForSession('ses_1', deps);
+
+    expect(m.updates).toHaveLength(0);
+    expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
   });
 });

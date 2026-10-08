@@ -764,7 +764,7 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
       const notice = await applyPaymentEvent('adyen', event, ctx);
       expect(h.findByChargePaymentId).toHaveBeenCalledWith('adyen', 'PSP1');
       expect(h.confirmOperation).toHaveBeenCalledWith(9, 'capture', 'MOD1');
-      expect(notice).toEqual({ kind: 'record_changed', record: { id: 9, status: 'changed' } });
+      expect(notice).toEqual({ kind: 'capture_confirmed', record: { id: 9, status: 'changed' } });
     });
 
     it('captures an open hold when the confirmation arrives before the capture was recorded', async () => {
@@ -772,7 +772,7 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
       h.markCaptured.mockResolvedValue(true);
       const notice = await applyPaymentEvent('adyen', event, ctx);
       expect(h.markCaptured).toHaveBeenCalledWith(9, { capturedCents: 4000, failureReason: null });
-      expect(notice).toMatchObject({ kind: 'record_changed' });
+      expect(notice).toMatchObject({ kind: 'capture_confirmed' });
     });
 
     it('ignores a capture of a failed record (a CAPTURE after CAPTURE_FAILED does not revive it)', async () => {

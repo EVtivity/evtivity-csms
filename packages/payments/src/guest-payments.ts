@@ -630,12 +630,17 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
       // An earlier run recorded the payment and stopped before completing the
       // guest session, so it sent no receipt either. A release below the
       // provider minimum (a cancel with a reason) charged nothing: no receipt.
+      // A capture the provider has not confirmed yet gets its receipt from
+      // the confirming webhook (finding JB-3).
       deps.logger.warn(
         { guestSessionId: guest.id, paymentRecordId: record.id, status: record.status },
         'Guest payment recorded earlier; completing the guest session',
       );
       await completeGuestSession(guest.id);
-      if (record.status === 'captured' || record.failureReason == null) {
+      if (
+        (record.status === 'captured' && record.pendingOperation !== 'capture') ||
+        (record.status === 'cancelled' && record.failureReason == null)
+      ) {
         await sendGuestReceipt(guest, sessionId, deps);
       }
       return;
@@ -740,11 +745,17 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
           'Captured guest payment',
         );
       }
+      const captureRef = pendingRef(captured);
       await markCaptured(record.id, {
         capturedCents: captureCents,
         failureReason,
-        pendingRef: pendingRef(captured),
+        pendingRef: captureRef,
       });
+      await completeGuestSession(guest.id);
+      // An async capture is not final until the provider confirms it: the
+      // confirming webhook sends the receipt, a failure sends none (JB-3).
+      if (captureRef == null) await sendGuestReceipt(guest, sessionId, deps);
+      return;
     } else {
       const cancelled = await provider.cancelHold({
         paymentId,
@@ -776,13 +787,59 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
   }
 }
 
+/**
+ * The guest's session.Receipt once the provider confirmed an async capture
+ * (`dispatchPaymentWebhookNotices`, finding JB-3). Nothing for a session
+ * without a guest session.
+ */
+export async function sendGuestReceiptForSession(
+  sessionId: string,
+  deps: Pick<GuestEventDeps, 'templatesDirs' | 'logger'>,
+): Promise<void> {
+  const [guest] = await db
+    .select({
+      id: guestSessions.id,
+      guestEmail: guestSessions.guestEmail,
+      stationOcppId: guestSessions.stationOcppId,
+    })
+    .from(guestSessions)
+    .where(eq(guestSessions.chargingSessionId, sessionId));
+  if (guest == null) return;
+  await sendGuestReceipt(guest, sessionId, deps);
+}
+
+/**
+ * Sends the guest receipt once per session: the claim (`receipt_notified_at`,
+ * the column the driver receipt uses) also requires that the session's
+ * payment is final, neither failed nor waiting for an async capture or
+ * adjustment, so a finalization rerun and the confirming webhook send it once.
+ */
 async function sendGuestReceipt(
   guest: { id: number; guestEmail: string; stationOcppId: string },
   sessionId: string,
-  deps: GuestEventDeps,
+  deps: Pick<GuestEventDeps, 'templatesDirs' | 'logger'>,
 ): Promise<void> {
   if (guest.guestEmail === '') return;
   try {
+    const claimed = await db
+      .update(chargingSessions)
+      .set({ receiptNotifiedAt: new Date() })
+      .where(
+        and(
+          eq(chargingSessions.id, sessionId),
+          sql`${chargingSessions.receiptNotifiedAt} IS NULL AND NOT EXISTS (
+            SELECT 1 FROM (
+              SELECT pr.status, pr.pending_operation FROM payment_records pr
+              WHERE pr.session_id = ${sessionId}
+              ORDER BY pr.id LIMIT 1
+            ) first_record
+            WHERE first_record.status = 'failed'
+              OR first_record.pending_operation IN ('capture', 'adjust')
+          )`,
+        ),
+      )
+      .returning({ id: chargingSessions.id });
+    if (claimed.length === 0) return;
     const [session] = await db
       .select({
         energyDeliveredWh: chargingSessions.energyDeliveredWh,

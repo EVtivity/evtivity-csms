@@ -34,7 +34,8 @@ vi.mock('../../server/notification-dispatcher.js', () => ({
   ALL_TEMPLATES_DIRS: ['templates'],
 }));
 
-const { createProjectionNotifier } = await import('../../server/projection-support/notify.js');
+const { createProjectionNotifier, IDLE_NOTICE_MIN_SECONDS } =
+  await import('../../server/projection-support/notify.js');
 
 interface Harness {
   query: ReturnType<typeof vi.fn>;
@@ -249,7 +250,7 @@ describe('createProjectionNotifier', () => {
     });
   });
 
-  describe('dispatchIdlingNotification', () => {
+  describe('dispatchDueIdlingNotification', () => {
     const idleRow = {
       driver_id: 'drv-1',
       idle_started_at: '2026-01-01T00:00:00Z',
@@ -265,7 +266,12 @@ describe('createProjectionNotifier', () => {
     it('notifies the driver once the idle period is claimed', async () => {
       const h = makeHarness();
       h.query.mockResolvedValueOnce([idleRow]);
-      await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      await h.notify.dispatchDueIdlingNotification(
+        'sess-1',
+        'CS-1',
+        'tx-1',
+        '2026-01-01T00:00:00Z',
+      );
       // The claim is the only statement: nothing after it can fail a rerun.
       expect(h.query).toHaveBeenCalledTimes(1);
       expect(mockDispatchDriver).toHaveBeenCalledWith(
@@ -290,7 +296,12 @@ describe('createProjectionNotifier', () => {
     it('formats the idle fee gross when the driver chose gross prices', async () => {
       const h = makeHarness();
       h.query.mockResolvedValueOnce([{ ...idleRow, price_display: 'gross', tax_rate: '0.2' }]);
-      await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      await h.notify.dispatchDueIdlingNotification(
+        'sess-1',
+        'CS-1',
+        'tx-1',
+        '2026-01-01T00:00:00Z',
+      );
       expect(mockDispatchDriver).toHaveBeenCalledWith(
         h.query,
         'session.IdlingStarted',
@@ -311,7 +322,12 @@ describe('createProjectionNotifier', () => {
       h.query.mockResolvedValueOnce([
         { ...idleRow, driver_id: null, guest_email: 'guest@example.com' },
       ]);
-      await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      await h.notify.dispatchDueIdlingNotification(
+        'sess-1',
+        'CS-1',
+        'tx-1',
+        '2026-01-01T00:00:00Z',
+      );
       expect(h.query).toHaveBeenCalledTimes(1);
       expect(mockDispatchSystem).toHaveBeenCalledWith(
         h.query,
@@ -328,20 +344,30 @@ describe('createProjectionNotifier', () => {
       const lost = Object.assign(new Error('connect timeout'), { code: 'CONNECT_TIMEOUT' });
       mockGetCompanyPriceDisplay.mockRejectedValueOnce(lost);
       await expect(
-        h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z'),
+        h.notify.dispatchDueIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z'),
       ).rejects.toBe(lost);
       expect(h.query).not.toHaveBeenCalled();
 
       // The projection rerun claims the period and sends the notice.
       h.query.mockResolvedValueOnce([idleRow]);
-      await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      await h.notify.dispatchDueIdlingNotification(
+        'sess-1',
+        'CS-1',
+        'tx-1',
+        '2026-01-01T00:00:00Z',
+      );
       expect(mockDispatchDriver).toHaveBeenCalledTimes(1);
     });
 
     it('sends nothing to a guest session without an email', async () => {
       const h = makeHarness();
       h.query.mockResolvedValueOnce([{ ...idleRow, driver_id: null }]);
-      await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      await h.notify.dispatchDueIdlingNotification(
+        'sess-1',
+        'CS-1',
+        'tx-1',
+        '2026-01-01T00:00:00Z',
+      );
       expect(mockDispatchDriver).not.toHaveBeenCalled();
       expect(mockDispatchSystem).not.toHaveBeenCalled();
     });
@@ -349,10 +375,38 @@ describe('createProjectionNotifier', () => {
     it('does nothing when the idle period was already claimed', async () => {
       const h = makeHarness();
       h.query.mockResolvedValueOnce([]);
-      await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      await h.notify.dispatchDueIdlingNotification(
+        'sess-1',
+        'CS-1',
+        'tx-1',
+        '2026-01-01T00:00:00Z',
+      );
       expect(h.query).toHaveBeenCalledTimes(1);
       expect(mockDispatchDriver).not.toHaveBeenCalled();
       expect(mockDispatchSystem).not.toHaveBeenCalled();
+    });
+
+    it('claims only an open, unclaimed period that lasted the minimum at the given time (JB-2)', async () => {
+      const h = makeHarness();
+      h.query.mockResolvedValueOnce([]);
+      await h.notify.dispatchDueIdlingNotification(
+        'sess-1',
+        'CS-1',
+        'tx-1',
+        '2026-01-01T00:01:00Z',
+      );
+      expect(IDLE_NOTICE_MIN_SECONDS).toBe(60);
+      const [strings, ...values] = h.query.mock.calls[0] as [TemplateStringsArray, ...unknown[]];
+      const text = strings.join('?');
+      expect(text).toContain('idle_started_at IS NOT NULL');
+      expect(text).toContain('idle_notified_at IS DISTINCT FROM idle_started_at');
+      expect(text).toContain("status = 'active'");
+      expect(text).toContain('::timestamptz >= idle_started_at + make_interval(secs => ?)');
+      expect(values).toContain('2026-01-01T00:01:00Z');
+      expect(values).toContain(IDLE_NOTICE_MIN_SECONDS);
+      // The claim never opens a period: only the station or meter signals do.
+      expect(text).not.toContain('SET idle_started_at');
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
   });
 });

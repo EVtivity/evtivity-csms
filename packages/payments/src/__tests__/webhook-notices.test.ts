@@ -13,8 +13,17 @@ const h = vi.hoisted(() => {
     sessions,
     select: vi.fn(() => chain),
     dispatchDriverNotification: vi.fn(),
+    dispatchSessionReceiptIfDue: vi.fn(),
+    sendGuestReceiptForSession: vi.fn(),
   };
 });
+
+vi.mock('../session-receipt-notice.js', () => ({
+  dispatchSessionReceiptIfDue: h.dispatchSessionReceiptIfDue,
+}));
+vi.mock('../guest-payments.js', () => ({
+  sendGuestReceiptForSession: h.sendGuestReceiptForSession,
+}));
 
 vi.mock('@evtivity/database', () => ({
   db: { select: h.select },
@@ -173,6 +182,49 @@ describe('dispatchPaymentWebhookNotices', () => {
       ['/t'],
       pubsub,
     );
+  });
+
+  // Finding JB-3: the receipt the settlement held back while an async
+  // capture was pending goes out once the provider confirms it.
+  it('sends the held-back session receipt once a capture is confirmed', async () => {
+    h.sessions.push([SESSION]);
+    await dispatchPaymentWebhookNotices([{ kind: 'capture_confirmed', record: rec() }], deps);
+    expect(h.dispatchSessionReceiptIfDue).toHaveBeenCalledWith('s1', deps);
+    expect(h.sendGuestReceiptForSession).not.toHaveBeenCalled();
+    expect(h.dispatchDriverNotification).not.toHaveBeenCalled();
+    expect(publish).toHaveBeenCalledWith(
+      'csms_events',
+      expect.stringContaining('"change":"capture_confirmed"'),
+    );
+  });
+
+  it('sends the guest receipt once a guest capture is confirmed', async () => {
+    h.sessions.push([SESSION]);
+    await dispatchPaymentWebhookNotices(
+      [{ kind: 'capture_confirmed', record: rec({ driverId: null }) }],
+      deps,
+    );
+    expect(h.sendGuestReceiptForSession).toHaveBeenCalledWith('s1', deps);
+    expect(h.dispatchSessionReceiptIfDue).not.toHaveBeenCalled();
+  });
+
+  it('sends the session receipt after a session settled after its adjustment', async () => {
+    h.sessions.push([SESSION]);
+    await dispatchPaymentWebhookNotices(
+      [{ kind: 'session_paid', record: rec(), amountCents: 7000 }],
+      deps,
+    );
+    expect(h.dispatchSessionReceiptIfDue).toHaveBeenCalledWith('s1', deps);
+  });
+
+  it('sends no receipt for a confirmed capture of a no-show fee', async () => {
+    h.sessions.push([SESSION]);
+    await dispatchPaymentWebhookNotices(
+      [{ kind: 'capture_confirmed', record: rec({ chargeType: 'reservation_no_show' }) }],
+      deps,
+    );
+    expect(h.dispatchSessionReceiptIfDue).not.toHaveBeenCalled();
+    expect(h.sendGuestReceiptForSession).not.toHaveBeenCalled();
   });
 
   it('sends the receipt with empty labels when the session is gone', async () => {

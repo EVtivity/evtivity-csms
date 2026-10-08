@@ -3855,8 +3855,14 @@ export class StationSimulator {
     const gen = this.meterGens.get(firstEvse.evseId);
     if (gen == null) return Promise.resolve();
 
-    // Tick with idle=true for ambient readings
-    gen.tick(true, this.evsePowerLimits.get(firstEvse.evseId) ?? null);
+    // Without a transaction the reading is ambient (no power). During a
+    // transaction it reports the EVSE's real state, which the periodic
+    // readings keep current: the power a charging EV draws, 0 while it is
+    // suspended. An idle tick here reported 0 W with chargingState Charging
+    // (finding JB-1), and a charging tick would add energy between samples.
+    if (this.getActiveTransactionSync(firstEvse.evseId) == null) {
+      gen.tick(true, this.evsePowerLimits.get(firstEvse.evseId) ?? null);
+    }
 
     const sampledValues = gen
       .generate(measurands, this.is16)

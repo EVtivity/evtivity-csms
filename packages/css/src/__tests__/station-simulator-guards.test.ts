@@ -256,6 +256,53 @@ describe('StationSimulator action guards', () => {
     });
   });
 
+  // Finding JB-1: a clock-aligned reading during a transaction reported 0 W
+  // with chargingState Charging, so the CSMS saw a charging EV as idle.
+  describe('clock-aligned reading during a transaction', () => {
+    interface ClockInternals {
+      bootStatus: string | null;
+      activeTransactionIds: Map<number, string>;
+      evseChargingState: Map<number, string>;
+      meterGens: Map<number, { tick(idle: boolean, limit: number | null): void }>;
+    }
+
+    function clockPower(sim: StationSimulator): number | null {
+      const call = getSendCallSpy(sim).mock.calls.find(
+        (c: unknown[]) => c[0] === 'TransactionEvent',
+      ) as [string, { triggerReason: string; meterValue: Array<{ sampledValue: unknown[] }> }];
+      expect(call[1].triggerReason).toBe('MeterValueClock');
+      const power = call[1].meterValue[0]?.sampledValue.find(
+        (sv) => (sv as { measurand?: string }).measurand === 'Power.Active.Import',
+      ) as { value: number } | undefined;
+      return power != null ? power.value : null;
+    }
+
+    function charging(chargingState: string, idle: boolean): StationSimulator {
+      const sim = makeSimulator();
+      Object.defineProperty(sim.client, 'isConnected', { get: () => true });
+      sim.setConfigValue('AlignedDataCtrlr.Measurands', 'Power.Active.Import');
+      const internals = sim as unknown as ClockInternals;
+      internals.bootStatus = 'Accepted';
+      internals.activeTransactionIds.set(1, 'tx-clock');
+      internals.evseChargingState.set(1, chargingState);
+      // The last periodic reading: charging, or suspended by the EV.
+      internals.meterGens.get(1)?.tick(idle, null);
+      return sim;
+    }
+
+    it('reports the power a charging EV draws', async () => {
+      const sim = charging('Charging', false);
+      await sim.sendClockAlignedMeterValues();
+      expect(clockPower(sim)).toBeGreaterThan(0);
+    });
+
+    it('reports 0 W while the EV is suspended', async () => {
+      const sim = charging('SuspendedEV', true);
+      await sim.sendClockAlignedMeterValues();
+      expect(clockPower(sim)).toBe(0);
+    });
+  });
+
   describe('BootNotification retry while Pending', () => {
     it('keeps one retry timer across repeated boots and clears it on stop', async () => {
       vi.useFakeTimers();

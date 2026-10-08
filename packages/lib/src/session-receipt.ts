@@ -29,6 +29,22 @@ export interface SessionReceiptInput {
 }
 
 /**
+ * The receipt billing of an ended session from its write-once stamp
+ * (`charging_sessions.billing_mode`): account only without a payment record
+ * (billed to the fleet, no card charged); one with a record (an operator
+ * hold) was paid by card.
+ */
+export function receiptBilling(
+  mode: unknown,
+  fleetName: string | null,
+  hasPaymentRecord: boolean,
+): Pick<SessionReceiptInput, 'billingMode' | 'billedTo'> {
+  if (mode === 'account' && !hasPaymentRecord)
+    return { billingMode: 'account', billedTo: fleetName };
+  return { billingMode: mode === 'card' || mode === 'account' ? 'card' : null, billedTo: null };
+}
+
+/**
  * The template variables of session.Completed and session.Receipt: the OCPP
  * settlement sends them when a session ends, and the operator re-bill of a
  * session the CSMS gave up ending sends session.Receipt with them.

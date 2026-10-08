@@ -390,6 +390,33 @@ describe('settleTransactionEnded', () => {
     expect(sentEvents()).toEqual(['session.Completed', 'session.Receipt']);
   });
 
+  // Finding JB-3: an async provider confirms the capture later by webhook;
+  // the webhook sends the receipt, or payment.CaptureFailed and no receipt.
+  it.each(['capture', 'adjust'])(
+    'card %s pending: holds the receipt back without claiming it',
+    async (pendingOperation) => {
+      sqlResults = [
+        [sessionRow],
+        [endedSessionRow('completed')],
+        [{ status: 'captured', failure_reason: null, pending_operation: pendingOperation }],
+      ];
+      mockSettleSessionPayment.mockResolvedValue({
+        mode: 'card',
+        status: 'captured',
+        paymentRecordId: 7,
+        driverId: 'drv-1',
+        capturedCents: 1234,
+        shortfallCents: 0,
+        recorded: false,
+      });
+
+      await settleTransactionEnded(deps, endedEvent(), attempt);
+
+      expect(sentEvents()).toEqual(['session.Completed']);
+      expect(claimedNotices.has('receipt_notified_at')).toBe(false);
+    },
+  );
+
   it('card failed: sends payment.CaptureFailed with the reason cut to 200 characters', async () => {
     sqlResults = [
       [sessionRow],

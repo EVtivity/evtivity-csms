@@ -1380,6 +1380,16 @@ export class TransactionProjector {
       // while the EV suspends (SuspendedEV). Any other state (Charging, a
       // station-side SuspendedEVSE, EVConnected, Idle) closes an open period
       // at the event timestamp. Both UPDATEs touch only an active session.
+      // First, an idle period open for IDLE_NOTICE_MIN_SECONDS at this event
+      // notifies the driver or guest, before this event can end it (JB-2).
+      if (sessionActive) {
+        await this.deps.notify.dispatchDueIdlingNotification(
+          sessionId,
+          stationId,
+          transactionId,
+          timestamp,
+        );
+      }
       const chargingState = getString(payload, 'chargingState');
       if (chargingState != null) {
         if (chargingState === 'SuspendedEV') {
@@ -1388,14 +1398,6 @@ export class TransactionProjector {
               SET idle_started_at = ${timestamp}, updated_at = now()
               WHERE id = ${sessionId} AND status = 'active' AND idle_started_at IS NULL
             `;
-
-          // Dispatch idling notification to driver or guest (claims the period)
-          await this.deps.notify.dispatchIdlingNotification(
-            sessionId,
-            stationId,
-            transactionId,
-            timestamp,
-          );
         } else {
           await this.deps.sql`
               UPDATE charging_sessions
@@ -1548,6 +1550,24 @@ export class TransactionProjector {
       if (limitSession != null) {
         await this.notePrepaidCostLimit(tx, limitSession.id as string, 'ended');
       }
+    }
+
+    // An idle period open for IDLE_NOTICE_MIN_SECONDS at the end notifies
+    // the driver before the Ended UPDATE folds it; a shorter one (an EV that
+    // reports full and ends the transaction a moment later) sends nothing
+    // (JB-2). A rerun after the UPDATE finds no active session.
+    const [endingIdleSession] = await this.deps.sql`
+        SELECT id FROM charging_sessions
+        WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
+          AND status = 'active' AND idle_started_at IS NOT NULL
+      `;
+    if (endingIdleSession != null) {
+      await this.deps.notify.dispatchDueIdlingNotification(
+        endingIdleSession.id as string,
+        stationId,
+        transactionId,
+        timestamp,
+      );
     }
 
     const endStatus = hasPaymentFailure ? 'faulted' : 'completed';

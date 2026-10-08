@@ -219,7 +219,7 @@ export {
   notificationTaxRate,
   formatLocalizedVariables,
 } from './notification-values.js';
-export { sessionReceiptVariables } from './session-receipt.js';
+export { receiptBilling, sessionReceiptVariables } from './session-receipt.js';
 export type { SessionReceiptInput } from './session-receipt.js';
 
 export {

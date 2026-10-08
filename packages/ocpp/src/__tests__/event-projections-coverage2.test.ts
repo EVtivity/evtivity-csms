@@ -1428,7 +1428,7 @@ describe('Event projections - coverage round 2', () => {
       expect(ocpi.length).toBe(1);
     });
 
-    it('1.6 idle detection: SuspendedEV sets idle_started_at and notifies', async () => {
+    it('1.6 idle detection: SuspendedEV sets idle_started_at and sends no notice at the period start', async () => {
       await setup();
       setupSqlResults(
         STA,
@@ -1438,18 +1438,8 @@ describe('Event projections - coverage round 2', () => {
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
+        [], // SELECT the active session with an open idle period (JB-2): none yet
         [], // UPDATE charging_sessions set idle_started_at
-        [{ id: 'ses_1', transaction_id: 'tx_1' }], // SELECT active session
-        // dispatchIdlingNotification:
-        [
-          {
-            driver_id: 'drv_1',
-            idle_started_at: 't',
-            tariff_idle_fee_price_per_minute: '0.05',
-            currency: 'USD',
-            site_name: 'Site A',
-          },
-        ],
       );
       await emit('ocpp.StatusNotification', 'CS-1', {
         evseId: 1,
@@ -1458,11 +1448,52 @@ describe('Event projections - coverage round 2', () => {
         timestamp: '2026-01-01T00:00:00Z',
       });
       expect(findSql(/UPDATE charging_sessions\s+SET idle_started_at/)).toBeDefined();
+      // Owner rule (JB-2): the notice waits until the period lasted 60 s.
+      expect(findSql(/WITH claimed AS/)).toBeUndefined();
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
+    });
+
+    it('1.6 idle detection: a later status notifies from the due claim before it ends the period', async () => {
+      await setup();
+      setupSqlResults(
+        STA,
+        [{ id: 'evs_1' }],
+        [{ previous_status: 'suspended_ev', applied: true }], // guarded UPDATE connectors
+        [], // INSERT port_status_log (suspended_ev -> charging)
+        [], // SELECT charging_stations FOR UPDATE (availability lock)
+        [], // UPDATE charging_stations (connector fault reconciliation)
+        [{ site_id: null }], // resolveSiteId
+        [{ id: 'ses_1', transaction_id: 'tx_1' }], // SELECT the active session with an open idle period
+        // dispatchDueIdlingNotification: the claim (period open for 60 s or more)
+        [
+          {
+            driver_id: 'drv_1',
+            idle_started_at: '2026-01-01T00:00:00Z',
+            idle_fee_price_per_minute: '0.05',
+            currency: 'USD',
+            site_name: 'Site A',
+          },
+        ],
+        [], // UPDATE charging_sessions: close the period
+      );
+      await emit('ocpp.StatusNotification', 'CS-1', {
+        evseId: 1,
+        connectorId: 1,
+        connectorStatus: 'Charging',
+        timestamp: '2026-01-01T00:02:00Z',
+      });
+      const claimIndex = sqlCalls.findIndex((c) => c.strings.join('?').includes('WITH claimed AS'));
+      const closeIndex = sqlCalls.findIndex((c) =>
+        c.strings.join('?').includes('SET idle_minutes = idle_minutes'),
+      );
+      expect(claimIndex).toBeGreaterThan(-1);
+      expect(closeIndex).toBeGreaterThan(claimIndex);
+      expect(sqlCalls[claimIndex]?.values).toContain('2026-01-01T00:02:00Z');
       expect(mockDispatchDriver).toHaveBeenCalledWith(
         expect.anything(),
         'session.IdlingStarted',
         'drv_1',
-        expect.anything(),
+        expect.objectContaining({ transactionId: 'tx_1', stationId: 'CS-1' }),
         expect.anything(),
         expect.anything(),
       );
@@ -2845,6 +2876,7 @@ describe('Event projections - coverage round 2', () => {
       await emitEndedFirstOnly(
         [{ id: 'sta_1' }], // 0 resolveStationId
         [], // 1 failed payment_records -> none
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // 2 UPDATE charging_sessions CASE
         [
           {
@@ -2893,7 +2925,8 @@ describe('Event projections - coverage round 2', () => {
     it('logs warning when region set but intensity factor missing', async () => {
       await emitEndedFirstOnly(
         [{ id: 'sta_1' }],
-        [],
+        [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [],
         [
           {
@@ -2937,7 +2970,8 @@ describe('Event projections - coverage round 2', () => {
       const first = handlers[0];
       setupSqlResults(
         [{ id: 'sta_1' }],
-        [],
+        [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [],
         [
           {
@@ -2956,11 +2990,11 @@ describe('Event projections - coverage round 2', () => {
         ],
         [], // INSERT transaction_events
       );
-      // carbon query (index 5) throws
-      sqlErrors.set(5, new Error('carbon table missing'));
-      // resolveSiteId (6), endedDriverRows (7), station message protocol (8)
-      sqlResults[6] = [{ site_id: null }];
-      sqlResults[7] = [
+      // carbon query (index 6, after the JB-2 open idle period SELECT) throws
+      sqlErrors.set(6, new Error('carbon table missing'));
+      // resolveSiteId (7), endedDriverRows (8), station message protocol (9)
+      sqlResults[7] = [{ site_id: null }];
+      sqlResults[8] = [
         {
           driver_id: null,
           status: 'completed',
@@ -2968,7 +3002,7 @@ describe('Event projections - coverage round 2', () => {
           ended_at: '2026-01-01T01:00:00Z',
         },
       ];
-      sqlResults[8] = [];
+      sqlResults[9] = [];
       await first?.(
         makeDomainEvent('ocpp.TransactionEvent', 'CS-1', {
           eventType: 'Ended',

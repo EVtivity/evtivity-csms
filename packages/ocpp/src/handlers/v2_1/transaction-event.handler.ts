@@ -128,6 +128,11 @@ export async function handleTransactionEvent(
         // Stations send evse only in the first event of a transaction, so later
         // readings are matched to their session by transactionId.
         transactionId: request.transactionInfo.transactionId,
+        // The charging state the station reported with these readings: when
+        // present it decides idle, not the meter fallbacks (finding JB-1).
+        ...(request.transactionInfo.chargingState != null
+          ? { chargingState: request.transactionInfo.chargingState }
+          : {}),
         source: 'TransactionEvent',
       },
     });

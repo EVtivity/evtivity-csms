@@ -7,6 +7,8 @@ import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
 import type { PaymentLogger } from './context.js';
 import { dispatchFeeRefundNotification } from './fee-refund-notice.js';
+import { sendGuestReceiptForSession } from './guest-payments.js';
+import { dispatchSessionReceiptIfDue } from './session-receipt-notice.js';
 import type { PaymentWebhookNotice } from './webhooks.js';
 
 export interface WebhookNoticeDeps {
@@ -57,7 +59,10 @@ async function sessionRef(sessionId: string | null): Promise<SessionRef> {
  * ended sends `payment.CaptureFailed` (the driver may already hold a receipt,
  * D-A6); a confirmed async refund sends `payment.Refunded` (a reservation fee
  * refund `payment.FeeRefunded`); a session settled
- * after its authorisation adjustment sends `session.PaymentReceived`. Every record
+ * after its authorisation adjustment sends `session.PaymentReceived`. A
+ * confirmed capture of a session payment (and a session settled after its
+ * adjustment) sends the `session.Receipt` the settlement held back while the
+ * capture was pending (`dispatchSessionReceiptIfDue`, once per session). Every record
  * change refreshes the operator UI (`payment.settled` on `csms_events`).
  * Everything here is fail-open (P9): a failure is logged at warn.
  */
@@ -100,6 +105,17 @@ export async function dispatchPaymentWebhookNotices(
           deps.templatesDirs,
           deps.pubsub ?? undefined,
         );
+      }
+      if (
+        (notice.kind === 'capture_confirmed' || notice.kind === 'session_paid') &&
+        record.chargeType === 'session' &&
+        record.sessionId != null
+      ) {
+        if (record.driverId != null) {
+          await dispatchSessionReceiptIfDue(record.sessionId, deps);
+        } else {
+          await sendGuestReceiptForSession(record.sessionId, deps);
+        }
       }
       // A reservation fee refund has its own event (no session to name).
       if (notice.kind === 'refund_succeeded' && record.chargeType !== 'session') {

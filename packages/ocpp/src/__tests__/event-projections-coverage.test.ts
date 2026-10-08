@@ -1154,6 +1154,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions
         [], // SELECT session (empty) - first subscriber stops here
         // Second subscriber
@@ -1184,6 +1185,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }], // 0: resolveStationId
         [], // 1: SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // 2: UPDATE charging_sessions
         [
           {
@@ -1249,6 +1251,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions
         [
           {
@@ -1310,6 +1313,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber (main Ended handler)
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions
         [
           {
@@ -1399,6 +1403,7 @@ describe('Event projections - coverage expansion', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions
         [
           {
@@ -1485,6 +1490,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions
         [
           {
@@ -3276,6 +3282,7 @@ describe('Event projections - coverage expansion', () => {
     ): unknown[][] => [
       [{ id: 'sta_000000000001' }], // resolveStationId
       [], // SELECT payment_records (no failed payment)
+      [], // SELECT the active session with an open idle period (JB-2 due notice): none
       [], // UPDATE charging_sessions SET status=completed
       [
         {
@@ -3968,6 +3975,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions SET status = 'completed'
         [
           {
@@ -4037,6 +4045,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions SET status = 'completed'
         [
           {
@@ -4108,6 +4117,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions SET status = 'completed'
         [
           {
@@ -4194,6 +4204,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [], // UPDATE charging_sessions SET status = 'completed'
         [
           {
@@ -4431,6 +4442,7 @@ describe('Event projections - coverage expansion', () => {
         // First subscriber
         [{ id: 'sta_000000000001' }],
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [],
         [
           {
@@ -4513,6 +4525,7 @@ describe('Event projections - coverage expansion', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }],
         [], // SELECT payment_records (no failed payment)
+        [], // SELECT the active session with an open idle period (JB-2 due notice): none
         [],
         [{ id: 'session-pp-end', tariff_id: null, current_cost_cents: 0, currency: 'USD' }],
         [],

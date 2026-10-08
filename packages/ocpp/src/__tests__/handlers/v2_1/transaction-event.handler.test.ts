@@ -223,9 +223,31 @@ describe('v2_1 TransactionEvent handler', () => {
         evseId: 1,
         meterValues: meterValue,
         transactionId: 'tx-3',
+        // The station's chargingState decides idle, not the meter fallbacks (JB-1).
+        chargingState: 'Charging',
         source: 'TransactionEvent',
       },
     });
+  });
+
+  it('publishes ocpp.MeterValues without chargingState when the event carries none', async () => {
+    const meterValue = [{ timestamp: '2026-06-04T00:00:00Z', sampledValue: [{ value: 10 }] }];
+    const { handleTransactionEvent } = transactionEventHandlerModule;
+    const { ctx, publishMock } = makeCtx({
+      eventType: 'Updated',
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'MeterValuePeriodic',
+      seqNo: 3,
+      transactionInfo: { transactionId: 'tx-3' },
+      evse: { id: 1 },
+      meterValue,
+    });
+    await handleTransactionEvent(ctx);
+
+    const meterEvent = publishMock.mock.calls
+      .map((c: unknown[]) => c[0] as { eventType: string; payload: Record<string, unknown> })
+      .find((e) => e.eventType === 'ocpp.MeterValues');
+    expect(meterEvent?.payload).not.toHaveProperty('chargingState');
   });
 
   it('passes the reported connector on the transaction event', async () => {
