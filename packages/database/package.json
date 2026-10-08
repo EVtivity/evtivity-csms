@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/database",
-  "version": "0.1.41-alpha.4",
+  "version": "0.1.41-alpha.5",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
