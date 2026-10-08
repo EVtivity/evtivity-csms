@@ -149,6 +149,14 @@ export { isFleetEnabled, clearFleetCache } from './lib/fleet-setting.js';
 export { isPortalRegistrationEnabled } from './lib/portal-registration-setting.js';
 export { isGuestChargingEnabled, clearGuestChargingCache } from './lib/guest-setting.js';
 export { getIdlingGracePeriodMinutes } from './lib/idling-setting.js';
+export {
+  PREPAID_LOW_CREDIT_THRESHOLD_KEY,
+  DEFAULT_PREPAID_LOW_CREDIT_THRESHOLD_CENTS,
+  MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS,
+  parsePrepaidLowCreditThresholdCents,
+  getPrepaidLowCreditThresholdCents,
+  clearPrepaidSettingsCache,
+} from './lib/prepaid-settings.js';
 export { getStaleSessionTimeoutHours } from './lib/session-settings.js';
 export {
   REMOTE_START_TIMEOUT_CHANNEL,

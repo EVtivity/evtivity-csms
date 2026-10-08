@@ -22,6 +22,7 @@ import {
 import {
   chargeSessionRebill,
   classifySessionPayment,
+  dispatchPrepaidLowCreditNotice,
   isRebillRecord,
   isStaleRebillCharge,
   settlePrepaidSession,
@@ -330,6 +331,16 @@ async function takePayment(
       rebill: true,
     });
     if (settled == null) return manual('prepaid_not_debited');
+    // Low credit notice when this debit took the balance below the threshold
+    // (fail-open, P9).
+    try {
+      await dispatchPrepaidLowCreditNotice(settled, {
+        templatesDirs: ALL_TEMPLATES_DIRS,
+        pubsub: getPubSub(),
+      });
+    } catch (err: unknown) {
+      ctx.log.warn({ err, sessionId: session.id }, 'Prepaid low credit notice failed; continuing');
+    }
     const debited = await loadRecord(session.id);
     return {
       result: 'prepaid',

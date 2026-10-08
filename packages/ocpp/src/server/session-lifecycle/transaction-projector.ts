@@ -18,11 +18,13 @@ import {
   closeOpenSegment,
   sessionIdleMinutesAt,
   pgConnectionErrorKind,
+  SESSION_END_FAILED_REASON,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import type { ProjectionAttempt } from '../projection-retry.js';
 import { runPaymentGate } from './payment-gate.js';
+import { notePrepaidCostLimitReached } from './payment-stop.js';
 import { settleTransactionEnded } from './settlement.js';
 import type { SessionLifecycleState } from './state.js';
 import { getString } from '../projection-support/payload.js';
@@ -77,6 +79,12 @@ interface TransactionEventContext {
 }
 
 /** What resolveStartedSession resolved for the session, read by completeStartedSession. */
+/**
+ * How long an ended prepaid session without its debit still reserves its cost
+ * from the token's balance (`linkPrepaidToken`).
+ */
+const UNSETTLED_RESERVATION_HOURS = 24;
+
 interface StartedContext {
   sessionId: string;
   isFreeVend: boolean;
@@ -87,7 +95,8 @@ interface StartedContext {
   tokenLookup: {
     id: string;
     driverId: string | null;
-    prepaidBalanceCents: number | null;
+    /** The credit a prepaid token's session may spend (its cost ceiling); null when not prepaid. */
+    prepaidCreditCents: number | null;
   } | null;
   sessionTariff: TariffPriceSnapshot | null;
   linkedReservationId: string | null;
@@ -459,7 +468,7 @@ export class TransactionProjector {
     let tokenLookup: {
       id: string;
       driverId: string | null;
-      prepaidBalanceCents: number | null;
+      prepaidCreditCents: number | null;
     } | null = null;
     // The tariff snapshotted on the session (null: no tariff applies).
     let sessionTariff: TariffPriceSnapshot | null = null;
@@ -500,26 +509,22 @@ export class TransactionProjector {
           tokenLookup = {
             id: r.id as string,
             driverId: (r.driver_id as string | null) ?? null,
-            prepaidBalanceCents:
-              r.prepaid_balance_cents != null ? Number(r.prepaid_balance_cents) : null,
+            prepaidCreditCents: null,
           };
-          // A prepaid token's credit is the most the session may cost
-          // (C17.FR.03: the station got it as transactionLimit.maxCost). It
-          // is the session's cost ceiling, like a guest's card hold, stamped
-          // before the first running cost so the cost assembly never bills
-          // more than the credit (P4). A token without credit is stopped by
-          // the payment gate.
-          const ceilingCents =
-            tokenLookup.prepaidBalanceCents != null && tokenLookup.prepaidBalanceCents > 0
-              ? tokenLookup.prepaidBalanceCents
-              : null;
-          await this.deps.sql`
+          if (r.prepaid_balance_cents != null) {
+            // A prepaid token's credit is the most the session may cost
+            // (C17.FR.03). It is the session's cost ceiling, like a guest's
+            // card hold, stamped before the first running cost so the cost
+            // assembly never bills more than the credit (P4). A session
+            // without credit is stopped by the payment gate.
+            tokenLookup.prepaidCreditCents = await this.linkPrepaidToken(sessionId, tokenLookup.id);
+          } else {
+            await this.deps.sql`
                 UPDATE charging_sessions
-                SET token_id = ${tokenLookup.id},
-                    cost_ceiling_cents = COALESCE(${ceilingCents}::integer, cost_ceiling_cents),
-                    updated_at = now()
+                SET token_id = ${tokenLookup.id}, updated_at = now()
                 WHERE id = ${sessionId}
               `;
+          }
         }
       }
 
@@ -739,6 +744,88 @@ export class TransactionProjector {
   }
 
   /**
+   * Links a session to its prepaid token and stamps the credit it may spend as
+   * its cost ceiling (C17.FR.03): the balance minus what the token's other
+   * sessions may still take from it, never below zero. Those are the active
+   * sessions (their ceiling, else their running cost) and the ended ones not
+   * yet settled (their final cost): the Ended projection completes a session
+   * before the settlement debits it. A session the CSMS gave up ending
+   * (EndRequestFailed, faulted at cost 0) reserves its ceiling, else its
+   * running cost, until it is re-billed, with no time limit: the re-bill
+   * debits it later. The token row lock serializes sessions of
+   * one token that start at once, and the settlement's debit waits for it, so
+   * the ceilings never add up to more than the balance. The ceiling is fixed
+   * here: a balance edit during the session applies to the next one. Returns
+   * null, linking without a ceiling, when the token is no longer prepaid.
+   */
+  private async linkPrepaidToken(sessionId: string, tokenId: string): Promise<number | null> {
+    const companyCurrency = await getCompanyCurrency();
+    return this.deps.sql.begin(async (sql) => {
+      const tokenRows = await sql`
+        SELECT prepaid_balance_cents FROM driver_tokens WHERE id = ${tokenId} FOR UPDATE
+      `;
+      const balance = tokenRows[0]?.prepaid_balance_cents as number | string | null | undefined;
+      if (balance == null) {
+        await sql`
+          UPDATE charging_sessions SET token_id = ${tokenId}, updated_at = now()
+          WHERE id = ${sessionId}
+        `;
+        return null;
+      }
+      // An ended session counts until its debit (a payment_records row), for
+      // at most UNSETTLED_RESERVATION_HOURS: the settlement runs right
+      // after the Ended projection and retries for minutes, so an older
+      // unsettled session failed for good and is reconciled by hand instead
+      // of holding the credit forever. Only company-currency sessions are
+      // debited. A session the CSMS gave up ending (EndRequestFailed) is
+      // faulted with its cost zeroed but stays re-billable (the re-bill's
+      // eligibility: rebill_status not billed or manual, not free vend, a
+      // tariff), so it reserves its ceiling, else its running cost, with no
+      // time limit: the re-bill debits it whenever the operator runs it.
+      const reservedRows = await sql`
+        SELECT COALESCE(SUM(
+                 CASE WHEN o.status = 'active' OR o.rebillable
+                      THEN COALESCE(o.cost_ceiling_cents, o.current_cost_cents, 0)
+                      ELSE COALESCE(o.final_cost_cents, o.cost_ceiling_cents,
+                                    o.current_cost_cents, 0)
+                 END), 0)::integer AS reserved_cents
+        FROM (
+          SELECT cs.status, cs.ended_at, cs.cost_ceiling_cents, cs.current_cost_cents,
+                 cs.final_cost_cents,
+                 upper(cs.currency) = ${companyCurrency}
+                   AND NOT EXISTS (SELECT 1 FROM payment_records pr WHERE pr.session_id = cs.id)
+                   AS unsettled,
+                 cs.status = 'faulted'
+                   AND cs.stopped_reason = ${SESSION_END_FAILED_REASON}
+                   AND (cs.rebill_status IS NULL OR cs.rebill_status = 'in_progress')
+                   AND NOT cs.free_vend
+                   AND cs.tariff_id IS NOT NULL
+                   AS rebillable
+          FROM charging_sessions cs
+          WHERE cs.token_id = ${tokenId}
+            AND cs.id <> ${sessionId}
+        ) o
+        WHERE o.status = 'active'
+          OR (o.unsettled AND o.rebillable)
+          OR (
+            o.unsettled
+            AND o.ended_at > now() - make_interval(hours => ${UNSETTLED_RESERVATION_HOURS})
+          )
+      `;
+      const creditCents = Math.max(
+        Number(balance) - Number(reservedRows[0]?.reserved_cents ?? 0),
+        0,
+      );
+      await sql`
+        UPDATE charging_sessions
+        SET token_id = ${tokenId}, cost_ceiling_cents = ${creditCents}, updated_at = now()
+        WHERE id = ${sessionId}
+      `;
+      return creditCents;
+    });
+  }
+
+  /**
    * The Started step from the priced signal on: notifications, the payment
    * gate and the station-watch clear. Returns a gate failure for the caller
    * to rethrow after the buffer drain and the station screen.
@@ -851,7 +938,7 @@ export class TransactionProjector {
             idToken: payload.idToken as string | undefined,
             guestStatus,
             guestEmail,
-            prepaidBalanceCents: tokenLookup?.prepaidBalanceCents ?? null,
+            prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
             reserved: linkedReservationId != null,
             sessionTariff,
           }),
@@ -878,6 +965,37 @@ export class TransactionProjector {
       this.deps.logger.warn({ err, stationUuid }, 'Station-watch clear-on-start failed');
     }
     return gateFailure;
+  }
+
+  // A 2.1 station reported reaching the cost limit (triggerReason
+  // CostLimitReached, E16.FR.05) of a session whose ceiling is a prepaid
+  // token's credit (C17.FR.03). The station suspends or ends the transaction
+  // itself, so the CSMS does not stop it: it shows the prepaid_exhausted
+  // station message and sends prepaid.CreditExhausted, once per session (the
+  // stop claim shared with stopSessionForPayment). A once step: a rerun never
+  // claims again. Inside it only a statement that never reached the server
+  // is retried; an interrupted claim may have committed, so it warns.
+  private async notePrepaidCostLimit(
+    tx: TransactionEventContext,
+    sessionId: string,
+    stage: 'updated' | 'ended',
+  ): Promise<void> {
+    await tx.attempt.once(`${stage}:prepaid-cost-limit`, async () => {
+      try {
+        await notePrepaidCostLimitReached(this.deps, {
+          sessionId,
+          transactionId: tx.transactionId,
+          ocppStationId: tx.stationId,
+          stationDbId: tx.stationUuid,
+        });
+      } catch (err: unknown) {
+        if (pgConnectionErrorKind(err) === 'not-sent') throw err;
+        this.deps.logger.warn(
+          { err, sessionId, transactionId: tx.transactionId },
+          'Prepaid cost limit notice failed; continuing',
+        );
+      }
+    });
   }
 
   private async projectUpdated(tx: TransactionEventContext): Promise<void> {
@@ -916,6 +1034,10 @@ export class TransactionProjector {
           );
         }
       });
+
+      if (triggerReason === 'CostLimitReached') {
+        await this.notePrepaidCostLimit(tx, sessionId, 'updated');
+      }
 
       // Idle detection from chargingState (OCPP 2.1)
       const chargingState = getString(payload, 'chargingState');
@@ -1059,6 +1181,18 @@ export class TransactionProjector {
         LIMIT 1
       `;
     const hasPaymentFailure = failedPaymentRows.length > 0;
+
+    // A station that ends the transaction at its cost limit: tell a prepaid
+    // driver before the Ended UPDATE, while the session is still active.
+    if (triggerReason === 'CostLimitReached') {
+      const [limitSession] = await this.deps.sql`
+        SELECT id FROM charging_sessions
+        WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
+      `;
+      if (limitSession != null) {
+        await this.notePrepaidCostLimit(tx, limitSession.id as string, 'ended');
+      }
+    }
 
     const endStatus = hasPaymentFailure ? 'faulted' : 'completed';
     const meterStopVal = payload.meterStop != null ? Number(payload.meterStop) : null;

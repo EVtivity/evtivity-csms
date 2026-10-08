@@ -26,8 +26,13 @@ export interface AuthorizeTokenInput {
   token: { value: string; type: string | null };
   context: AuthorizeContext;
   ocppVersion: AuthorizeOcppVersion;
-  /** A session the concurrent transaction check ignores (a resent 1.6 StartTransaction). */
-  excludeSessionId?: string | null;
+  /**
+   * The transaction the message belongs to (1.6 StartTransaction, 2.1
+   * TransactionEvent). Its own session, at this station, is not a concurrent
+   * transaction: a resent 1.6 StartTransaction, or a 2.1 Started event whose
+   * session the projection already linked to the token.
+   */
+  transactionId?: string | null;
 }
 
 export type AuthorizeStatus =
@@ -105,8 +110,11 @@ export interface AuthorizeContextRules {
   ocpi: boolean;
   /** Level of the log for a failed token lookup (the token is accepted). */
   dbErrorLogLevel: 'error' | 'warn';
-  /** ConcurrentTx check for an accepted driver token. */
-  concurrentTx: boolean;
+  /**
+   * ConcurrentTx check for an accepted driver token: every token, prepaid
+   * tokens only, or none.
+   */
+  concurrentTx: 'every_token' | 'prepaid_only' | 'off';
 }
 
 const NO_LOOKUP_NONE: AuthorizeContextRules['noLookupTypes'] = new Map();
@@ -122,11 +130,11 @@ const UNTYPED_BASE: Omit<
   rejectPrecedence: 'blocked_first',
   acceptWhenNotFound: NONE,
   dbErrorLogLevel: 'error',
-  concurrentTx: true,
+  concurrentTx: 'every_token',
 };
 
-// TransactionEvent (2.1): every event carrying an idToken, Started or not.
-const TYPED_TRANSACTION: AuthorizeContextRules = {
+// TransactionEvent (2.1) Started: the first event carrying the idToken.
+const TYPED_TX_START: AuthorizeContextRules = {
   // A station that skips Authorize sends the token here first: free vend
   // must accept it as Authorize does.
   freeVend: 'match_token',
@@ -148,8 +156,17 @@ const TYPED_TRANSACTION: AuthorizeContextRules = {
   guestAcceptedStatuses: null,
   ocpi: true,
   dbErrorLogLevel: 'warn',
-  concurrentTx: false,
+  // ConcurrentTx is the answer to a TransactionEvent Started (OCPP 2.1
+  // AuthorizationStatusEnumType). A prepaid token's credit covers one
+  // transaction at a time (C17), so a second one is refused even when the
+  // station did not send Authorize (local authorization list, offline start).
+  // Other tokens keep their concurrent transactions on TransactionEvent.
+  concurrentTx: 'prepaid_only',
 };
+
+// TransactionEvent (2.1) Updated and Ended: the transaction is running, so
+// there is no concurrent transaction to refuse.
+const TYPED_TX_UPDATE: AuthorizeContextRules = { ...TYPED_TX_START, concurrentTx: 'off' };
 
 // StartTransaction (1.6). No 1.6 message checks a token in tx_update; the row
 // repeats tx_start so the table is total.
@@ -203,11 +220,11 @@ export const AUTHORIZE_CONTEXT_RULES: Readonly<
       guestAcceptedStatuses: null,
       ocpi: true,
       dbErrorLogLevel: 'error',
-      concurrentTx: true,
+      concurrentTx: 'every_token',
     },
   },
-  tx_start: { untyped: UNTYPED_TRANSACTION, typed: TYPED_TRANSACTION },
-  tx_update: { untyped: UNTYPED_TRANSACTION, typed: TYPED_TRANSACTION },
+  tx_start: { untyped: UNTYPED_TRANSACTION, typed: TYPED_TX_START },
+  tx_update: { untyped: UNTYPED_TRANSACTION, typed: TYPED_TX_UPDATE },
 };
 
 export function authorizeContextRules(input: AuthorizeTokenInput): AuthorizeContextRules {

@@ -12,17 +12,23 @@ import {
   settleTransactionEnded,
 } from '../../server/session-lifecycle/settlement.js';
 
-const { mockSettleSessionPayment, mockRecordTerminalSettlement, mockDispatchDriverNotification } =
-  vi.hoisted(() => ({
-    mockSettleSessionPayment: vi.fn(),
-    mockRecordTerminalSettlement: vi.fn(),
-    mockDispatchDriverNotification: vi.fn(),
-  }));
+const {
+  mockSettleSessionPayment,
+  mockRecordTerminalSettlement,
+  mockDispatchDriverNotification,
+  mockLowCreditNotice,
+} = vi.hoisted(() => ({
+  mockSettleSessionPayment: vi.fn(),
+  mockRecordTerminalSettlement: vi.fn(),
+  mockDispatchDriverNotification: vi.fn(),
+  mockLowCreditNotice: vi.fn(),
+}));
 
 vi.mock('@evtivity/payments', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/payments')>()),
   settleSessionPayment: mockSettleSessionPayment,
   recordTerminalSettlement: mockRecordTerminalSettlement,
+  dispatchPrepaidLowCreditNotice: mockLowCreditNotice,
 }));
 
 vi.mock('../../server/notification-dispatcher.js', () => ({
@@ -80,6 +86,7 @@ beforeEach(() => {
   publish = vi.fn(() => Promise.resolve());
   notifyChange = vi.fn(() => Promise.resolve());
   mockDispatchDriverNotification.mockResolvedValue(undefined);
+  mockLowCreditNotice.mockResolvedValue(true);
   logger = { warn: vi.fn(), info: vi.fn(), debug: vi.fn() };
   deps = {
     sql,
@@ -202,6 +209,65 @@ describe('settleTransactionEnded', () => {
     expect(variablesOf('session.Receipt')).toMatchObject({
       notCharged: false,
       durationMinutes: 60,
+    });
+    expect(mockLowCreditNotice).toHaveBeenCalledWith(outcome, {
+      templatesDirs: [],
+      pubsub: deps.pubsub,
+    });
+  });
+
+  it('prepaid: a repeated debit sends no low credit notice', async () => {
+    sqlResults = [[sessionRow], [endedSessionRow('completed')], []];
+    mockSettleSessionPayment.mockResolvedValue({
+      mode: 'prepaid',
+      tokenId: 'tok-1',
+      debitedCents: 1234,
+      balanceCents: 266,
+      repeated: true,
+    });
+
+    await settleTransactionEnded(deps, endedEvent(), attempt);
+
+    expect(mockLowCreditNotice).not.toHaveBeenCalled();
+  });
+
+  it('prepaid: the low credit notice is a once step, skipped on a rerun that already ran it', async () => {
+    sqlResults = [[sessionRow], [endedSessionRow('completed')], []];
+    mockSettleSessionPayment.mockResolvedValue({
+      mode: 'prepaid',
+      tokenId: 'tok-1',
+      debitedCents: 1234,
+      balanceCents: 266,
+    });
+    const done = new Set(['settle:prepaid-low-credit']);
+    const rerun: ProjectionAttempt = {
+      ...attempt,
+      number: 2,
+      once: (key, step) => (done.has(key) ? Promise.resolve(undefined as never) : step()),
+    };
+
+    await settleTransactionEnded(deps, endedEvent(), rerun);
+
+    expect(mockLowCreditNotice).not.toHaveBeenCalled();
+  });
+
+  it('prepaid: a failed low credit notice is logged at warn and the settlement returns', async () => {
+    const outcome: SettlementOutcome = {
+      mode: 'prepaid',
+      tokenId: 'tok-1',
+      debitedCents: 1234,
+      balanceCents: 266,
+    };
+    sqlResults = [[sessionRow], [endedSessionRow('completed')], []];
+    mockSettleSessionPayment.mockResolvedValue(outcome);
+    mockLowCreditNotice.mockRejectedValue(new Error('smtp down'));
+
+    await expect(settleTransactionEnded(deps, endedEvent(), attempt)).resolves.toEqual(outcome);
+    await vi.waitFor(() => {
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'sess-1', tokenId: 'tok-1' }),
+        'Prepaid low credit notice failed; continuing',
+      );
     });
   });
 

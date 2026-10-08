@@ -48,6 +48,12 @@ vi.mock('../../../handlers/ad-hoc-payment-limit.js', () => ({
   findAdHocTransactionLimit: findLimitMock,
 }));
 
+// The cost ceiling the Started projection reserved; null: not linked yet.
+const ceilingMock = vi.fn().mockResolvedValue(null);
+vi.mock('../../../handlers/prepaid-session-limit.js', () => ({
+  prepaidSessionCeilingCents: ceilingMock,
+}));
+
 // The station's TxCtrlr.SupportedLimits (E16.FR.12): null means not reported.
 const supportedLimitsMock = vi.fn();
 vi.mock('../../../handlers/supported-limits.js', async (importOriginal) => ({
@@ -608,6 +614,64 @@ describe('v2_1 TransactionEvent handler', () => {
       const response = await handleTransactionEvent(ctx);
 
       expect(response['transactionLimit']).toEqual({ maxCost: 12.34 });
+    });
+
+    it('sends the credit reserved for the session, not the balance', async () => {
+      whereResult = prepaidRow;
+      ceilingMock.mockResolvedValueOnce(500);
+      supportedLimitsMock.mockResolvedValue(new Set(['maxCost']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(prepaidStart);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(ceilingMock).toHaveBeenCalledWith('CS-001', expect.any(String), 'dtk_pp');
+      expect(response['transactionLimit']).toEqual({ maxCost: 5 });
+      expect((response['idTokenInfo'] as Record<string, unknown>)['status']).toBe('Accepted');
+    });
+
+    it('still filters the reserved credit by the supported limits (E16.FR.12)', async () => {
+      whereResult = prepaidRow;
+      ceilingMock.mockResolvedValueOnce(500);
+      supportedLimitsMock.mockResolvedValue(new Set(['maxEnergy']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(prepaidStart);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toBeUndefined();
+    });
+
+    it('answers NoCredit without a limit when no credit is left for the session', async () => {
+      whereResult = prepaidRow;
+      ceilingMock.mockResolvedValueOnce(0);
+      supportedLimitsMock.mockResolvedValue(new Set(['maxCost']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(prepaidStart);
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toBeUndefined();
+      const info = response['idTokenInfo'] as Record<string, unknown>;
+      expect(info['status']).toBe('NoCredit');
+      expect(typeof info['cacheExpiryDateTime']).toBe('string');
+    });
+
+    it('sends the balance and warns when the ceiling lookup fails', async () => {
+      whereResult = prepaidRow;
+      ceilingMock.mockRejectedValueOnce(new Error('db down'));
+      supportedLimitsMock.mockResolvedValue(new Set(['maxCost']));
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const { ctx } = makeCtx(prepaidStart);
+      const warn = vi.spyOn(ctx.logger, 'warn');
+
+      const response = await handleTransactionEvent(ctx);
+
+      expect(response['transactionLimit']).toEqual({ maxCost: 12.34 });
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({ transactionId: expect.any(String) }),
+        expect.stringContaining('Prepaid session ceiling lookup failed'),
+      );
     });
 
     it('omits the prepaid maxCost for a station that does not support it', async () => {

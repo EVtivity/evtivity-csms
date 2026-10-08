@@ -38,6 +38,7 @@
     "stationMessage.brandLine": "",
     "stationMessage.language": "en",
     "idling.gracePeriodMinutes": 30,
+    "prepaid.lowCreditThresholdCents": 500,
     "session.staleTimeoutHours": 24,
     "session.evConnectionTimeoutSeconds": 180,
     "maintenance.defaultMessageTemplate": "This site is temporarily unavailable for maintenance. {{reason}}",

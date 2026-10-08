@@ -35,6 +35,10 @@ import {
   clearMobileAppConfigCache,
   clearWebhookSettingsCache,
   WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY,
+  PREPAID_LOW_CREDIT_THRESHOLD_KEY,
+  MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS,
+  parsePrepaidLowCreditThresholdCents,
+  clearPrepaidSettingsCache,
 } from '@evtivity/database';
 import { clearPaymentCaches, isPaymentSettingKey } from '../lib/payments.js';
 import {
@@ -142,6 +146,10 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     const hosts = parseAllowedPrivateHosts(value);
     return hosts != null ? { value: hosts } : null;
   }
+  if (key === PREPAID_LOW_CREDIT_THRESHOLD_KEY) {
+    const cents = parsePrepaidLowCreditThresholdCents(value);
+    return cents != null ? { value: cents } : null;
+  }
   if (key !== COMPANY_CURRENCY_KEY) return { value };
   const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
   return isSupportedCurrency(code) ? { value: code } : null;
@@ -183,6 +191,11 @@ const invalidWebhookAllowedHostsError = {
   code: 'VALIDATION_ERROR',
 };
 
+const invalidPrepaidLowCreditThresholdError = {
+  error: `${PREPAID_LOW_CREDIT_THRESHOLD_KEY} must be a whole number of cents from 0 to ${String(MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS)}`,
+  code: 'VALIDATION_ERROR',
+};
+
 const serverManagedSettingError = {
   error: 'This setting is managed by the CSMS and cannot be written directly',
   code: 'VALIDATION_ERROR',
@@ -191,6 +204,7 @@ const serverManagedSettingError = {
 function invalidSettingError(key: string): { error: string; code: string } {
   if (isServerManagedSetting(key)) return serverManagedSettingError;
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) return invalidWebhookAllowedHostsError;
+  if (key === PREPAID_LOW_CREDIT_THRESHOLD_KEY) return invalidPrepaidLowCreditThresholdError;
   if (key === MOBILE_APP_URL_SCHEMES_KEY) return invalidMobileAppSchemesError;
   if (key === MOBILE_APP_ANDROID_PACKAGES_KEY) return invalidMobileAppPackagesError;
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;
@@ -232,6 +246,7 @@ function clearCachesForKey(key: string): void {
   if (isPaymentSettingKey(key)) clearPaymentCaches();
   if (isMobileAppSettingKey(key)) clearMobileAppConfigCache();
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) clearWebhookSettingsCache();
+  if (key === PREPAID_LOW_CREDIT_THRESHOLD_KEY) clearPrepaidSettingsCache();
   if (key === 'roaming.enabled') clearRoamingCache();
   if (key === 'support.enabled') clearSupportCache();
   if (key === 'fleet.enabled') clearFleetCache();

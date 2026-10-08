@@ -30,7 +30,8 @@ type StationMessageState =
   | 'payment_failed'
   | 'payment_required'
   | 'guest_unauthorized'
-  | 'unauthorized';
+  | 'unauthorized'
+  | 'prepaid_exhausted';
 
 type StationMessageLanguage = (typeof LANGUAGES)[number]['code'];
 
@@ -73,6 +74,7 @@ const ALL: ReadonlySet<StationMessageState> = new Set([
   'payment_required',
   'guest_unauthorized',
   'unauthorized',
+  'prepaid_exhausted',
 ]);
 
 const VARIABLES: VariableDef[] = [
@@ -155,6 +157,7 @@ const STATES: StationMessageState[] = [
   'payment_required',
   'guest_unauthorized',
   'unauthorized',
+  'prepaid_exhausted',
 ];
 
 const STATE_LABEL_KEY: Record<StationMessageState, string> = {
@@ -170,6 +173,7 @@ const STATE_LABEL_KEY: Record<StationMessageState, string> = {
   payment_required: 'messages.statePaymentRequired',
   guest_unauthorized: 'messages.stateGuestUnauthorized',
   unauthorized: 'messages.stateUnauthorized',
+  prepaid_exhausted: 'messages.statePrepaidExhausted',
 };
 
 interface StationMessageSettingsProps {

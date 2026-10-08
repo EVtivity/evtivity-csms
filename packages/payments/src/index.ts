@@ -215,6 +215,12 @@ export type { PaymentWebhookNotice, WebhookResult } from './webhooks.js';
 export { dispatchPaymentWebhookNotices } from './webhook-notices.js';
 export { dispatchFeeRefundNotification, FEE_REFUNDED_EVENT } from './fee-refund-notice.js';
 export type { FeeRefundNoticeDeps } from './fee-refund-notice.js';
+export {
+  crossedLowCreditThreshold,
+  dispatchPrepaidLowCreditNotice,
+  PREPAID_LOW_CREDIT_EVENT,
+} from './prepaid-notices.js';
+export type { PrepaidNoticeDeps } from './prepaid-notices.js';
 export { isSameWebhookUrl, partitionWebhookEndpoints } from './webhook-endpoint-url.js';
 export type { WebhookNoticeDeps } from './webhook-notices.js';
 export {

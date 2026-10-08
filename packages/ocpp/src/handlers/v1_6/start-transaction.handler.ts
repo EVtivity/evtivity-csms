@@ -48,17 +48,14 @@ export async function handleStartTransaction(
   );
 
   let transactionId: number | null = null;
-  // The session that already holds this transaction when the message is a
-  // resend. The concurrent transaction check must not count it.
-  let resentSessionId: string | null = null;
 
   if (ctx.stationDbId != null) {
     // A resend (the station retries a StartTransaction whose response it did
     // not get, OCPP 1.6 3.7.1) carries the same connectorId, idTag,
     // meterStart and timestamp. It gets the transaction id it already has,
     // found by the Started event the projection recorded for it.
-    const resent = await db.execute<{ session_id: string; transaction_id: string }>(
-      dsql`SELECT cs.id AS session_id, cs.transaction_id
+    const resent = await db.execute<{ transaction_id: string }>(
+      dsql`SELECT cs.transaction_id
            FROM transaction_events te
            JOIN charging_sessions cs ON cs.id = te.session_id
            WHERE cs.station_id = ${ctx.stationDbId}
@@ -74,7 +71,6 @@ export async function handleStartTransaction(
     const resentId = resentRow != null ? Number(resentRow.transaction_id) : NaN;
     if (resentRow != null && Number.isSafeInteger(resentId)) {
       transactionId = resentId;
-      resentSessionId = resentRow.session_id;
     }
   }
 
@@ -144,8 +140,9 @@ export async function handleStartTransaction(
 
   // A station that skips Authorize (LocalAuthList, LocalPreAuthorize) comes
   // straight here, so the idTag goes through the whole authorize pipeline:
-  // revocation, expiry, ConcurrentTx (OCPP 1.6 5.13, not counting the session
-  // of a resent message) and prepaid credit. The attempts log is the only
+  // revocation, expiry, ConcurrentTx (OCPP 1.6 5.13, not counting this
+  // transaction's own session: a resent message's, or the one the projection
+  // may already have linked) and prepaid credit. The attempts log is the only
   // record of the decision for those flows.
   const input: AuthorizeTokenInput = {
     stationId: ctx.stationId,
@@ -154,7 +151,7 @@ export async function handleStartTransaction(
     token: { value: request.idTag, type: null },
     context: 'tx_start',
     ocppVersion: 'ocpp1.6',
-    excludeSessionId: resentSessionId,
+    transactionId: String(transactionId),
   };
   const decision = await authorizeToken(input, ctx.logger);
   logAuthorizeDecision(input, decision, ctx.logger);

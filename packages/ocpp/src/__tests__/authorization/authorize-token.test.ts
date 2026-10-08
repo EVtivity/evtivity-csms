@@ -14,6 +14,7 @@ type Row = Record<string, unknown>;
 type Cond =
   | { op: 'eq' | 'ne'; col: string; val: unknown }
   | { op: 'and'; conds: Cond[] }
+  | { op: 'or'; conds: Cond[] }
   | undefined;
 
 const h = vi.hoisted(() => {
@@ -37,6 +38,7 @@ const h = vi.hoisted(() => {
 function matches(row: Row, cond: Cond): boolean {
   if (cond == null) return true;
   if (cond.op === 'and') return cond.conds.every((c) => matches(row, c));
+  if (cond.op === 'or') return cond.conds.some((c) => matches(row, c));
   if (cond.op === 'eq') return row[cond.col] === cond.val;
   return row[cond.col] !== cond.val;
 }
@@ -81,7 +83,14 @@ vi.mock('@evtivity/database', () => ({
   drivers: h.table('drivers', ['id', 'isActive']),
   guestSessions: h.table('guest_sessions', ['sessionToken', 'status', 'stationOcppId']),
   ocpiExternalTokens: h.table('ocpi_external_tokens', ['uid', 'isValid', 'whitelist', 'tokenData']),
-  chargingSessions: h.table('charging_sessions', ['id', 'tokenId', 'status']),
+  chargingSessions: h.table('charging_sessions', [
+    'id',
+    'tokenId',
+    'status',
+    'stationId',
+    'transactionId',
+  ]),
+  chargingStations: h.table('charging_stations', ['id', 'stationId']),
   isRoamingEnabled: vi.fn(() => Promise.resolve(h.roaming)),
   isSiteFreeVendEnabledByStation: vi.fn(() =>
     h.freeVend instanceof Error ? Promise.reject(h.freeVend) : Promise.resolve(h.freeVend),
@@ -92,6 +101,7 @@ vi.mock('drizzle-orm', () => ({
   eq: (a: { col: string }, val: unknown) => ({ op: 'eq', col: a.col, val }),
   ne: (a: { col: string }, val: unknown) => ({ op: 'ne', col: a.col, val }),
   and: (...conds: unknown[]) => ({ op: 'and', conds: conds.filter((c) => c != null) }),
+  or: (...conds: unknown[]) => ({ op: 'or', conds: conds.filter((c) => c != null) }),
 }));
 
 const logAuthorizeAttemptMock = vi.fn().mockResolvedValue(undefined);
@@ -620,19 +630,120 @@ describe('authorizeToken: concurrent transaction', () => {
     });
   });
 
-  it.each(TX_CONTEXTS)('%s (typed) does not check', async (context) => {
+  it.each(TX_CONTEXTS)('%s (typed) does not check a postpaid token', async (context) => {
     const d = await authorizeToken(input(context, 'TAG', 'ISO14443'), logger);
     expect(d.status).toBe('accepted');
     expect(tables()).toEqual(['driver_tokens']);
   });
 
-  it('ignores the excluded session', async () => {
-    h.tables['charging_sessions'] = [{ id: 'ses-resent', tokenId: 'tok-1', status: 'active' }];
+  it('tx_start (typed) rejects a prepaid token in an active session', async () => {
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', prepaidBalanceCents: 1500 }),
+    ];
     const d = await authorizeToken(
-      input('tx_start', 'TAG', null, { excludeSessionId: 'ses-resent' }),
+      input('tx_start', 'TAG', 'ISO14443', { transactionId: 'tx-2' }),
+      logger,
+    );
+    expect(d).toMatchObject({
+      status: 'concurrent_tx',
+      reason: 'concurrent_session ses-1',
+      prepaid: false,
+    });
+  });
+
+  it('tx_update (typed) does not check a prepaid token', async () => {
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', prepaidBalanceCents: 1500 }),
+    ];
+    const d = await authorizeToken(input('tx_update', 'TAG', 'ISO14443'), logger);
+    expect(d).toMatchObject({ status: 'accepted', prepaid: true });
+    expect(tables()).toEqual(['driver_tokens']);
+  });
+
+  it.each([
+    ['untyped', null],
+    ['typed prepaid', 'ISO14443'],
+  ] as const)(
+    'tx_start (%s) does not count the session of its own transaction',
+    async (_kind, type) => {
+      h.tables['driver_tokens'] = [
+        token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', prepaidBalanceCents: 1500 }),
+      ];
+      h.tables['charging_sessions'] = [
+        {
+          id: 'ses-own',
+          tokenId: 'tok-1',
+          status: 'active',
+          stationId: 'sta_db_1',
+          transactionId: 'tx-1',
+        },
+      ];
+      const d = await authorizeToken(
+        input('tx_start', 'TAG', type, { transactionId: 'tx-1' }),
+        logger,
+      );
+      expect(d.status).toBe('accepted');
+    },
+  );
+
+  it('resolves the station row id to exclude its own transaction when the context has none', async () => {
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', prepaidBalanceCents: 1500 }),
+    ];
+    h.tables['charging_stations'] = [{ id: 'sta_db_1', stationId: 'CS-001' }];
+    h.tables['charging_sessions'] = [
+      {
+        id: 'ses-own',
+        tokenId: 'tok-1',
+        status: 'active',
+        stationId: 'sta_db_1',
+        transactionId: 'tx-1',
+      },
+    ];
+    const d = await authorizeToken(
+      input('tx_start', 'TAG', 'ISO14443', { transactionId: 'tx-1', stationDbId: null }),
       logger,
     );
     expect(d.status).toBe('accepted');
+    expect(tables()).toContain('charging_stations');
+  });
+
+  it('counts every active session when the station row is not found', async () => {
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', prepaidBalanceCents: 1500 }),
+    ];
+    h.tables['charging_stations'] = [];
+    h.tables['charging_sessions'] = [
+      {
+        id: 'ses-own',
+        tokenId: 'tok-1',
+        status: 'active',
+        stationId: 'sta_db_1',
+        transactionId: 'tx-1',
+      },
+    ];
+    const d = await authorizeToken(
+      input('tx_start', 'TAG', 'ISO14443', { transactionId: 'tx-1', stationDbId: null }),
+      logger,
+    );
+    expect(d).toMatchObject({ status: 'concurrent_tx', reason: 'concurrent_session ses-own' });
+  });
+
+  it('counts a session with the same transaction id at another station', async () => {
+    h.tables['charging_sessions'] = [
+      {
+        id: 'ses-2',
+        tokenId: 'tok-1',
+        status: 'active',
+        stationId: 'sta_db_2',
+        transactionId: 'tx-1',
+      },
+    ];
+    const d = await authorizeToken(
+      input('tx_start', 'TAG', null, { transactionId: 'tx-1' }),
+      logger,
+    );
+    expect(d).toMatchObject({ status: 'concurrent_tx', reason: 'concurrent_session ses-2' });
   });
 
   it('keeps the decision and warns when the lookup fails', async () => {

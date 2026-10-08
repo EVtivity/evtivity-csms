@@ -14,6 +14,7 @@ import {
 } from '../../authorization/authorize-token.js';
 import { groupIdTokenFor, idTokenStatusFor } from './id-token-info.js';
 import { findAdHocTransactionLimit } from '../ad-hoc-payment-limit.js';
+import { prepaidSessionCeilingCents } from '../prepaid-session-limit.js';
 import { limitToSupported, stationSupportedLimits } from '../supported-limits.js';
 import type { TransactionLimitType } from '../../generated/v2_1/types/common/TransactionLimitType.js';
 import { energyRegisterWh } from '../../server/meter-units.js';
@@ -115,16 +116,18 @@ export async function handleTransactionEvent(
   // running cost waits for the projection to snapshot the tariff (a signal
   // before its notifications and payment gate), or for the whole projection
   // when it ends without one.
+  // The prepaid limit below waits the same way: the projection links the
+  // token and reserves its credit before that signal.
+  const startedSessionReady = (): Promise<boolean> =>
+    Promise.race([
+      queue.waitForSignal(
+        sessionPricedKey(ctx.stationId, transactionId),
+        PROJECTION_SETTLE_TIMEOUT_MS,
+      ),
+      queue.settled([transactionLane], PROJECTION_SETTLE_TIMEOUT_MS),
+    ]);
   if (centralCost && request.eventType === 'Started') {
-    cost = await costForTransaction(ctx, request, registerWh, () =>
-      Promise.race([
-        queue.waitForSignal(
-          sessionPricedKey(ctx.stationId, transactionId),
-          PROJECTION_SETTLE_TIMEOUT_MS,
-        ),
-        queue.settled([transactionLane], PROJECTION_SETTLE_TIMEOUT_MS),
-      ]),
-    );
+    cost = await costForTransaction(ctx, request, registerWh, startedSessionReady);
   }
 
   const response: TransactionEventResponse = {};
@@ -147,8 +150,40 @@ export async function handleTransactionEvent(
       token: { value: idToken, type: tokenType },
       context: request.eventType === 'Started' ? 'tx_start' : 'tx_update',
       ocppVersion: 'ocpp2.1',
+      transactionId: request.transactionInfo.transactionId,
     };
-    const decision = await authorizeToken(input, ctx.logger);
+    let decision = await authorizeToken(input, ctx.logger);
+
+    // Prepaid token at the transaction start: the limit is the credit the
+    // Started projection reserved for this session (its cost ceiling), not the
+    // whole balance, which the token's other active or unsettled sessions may
+    // hold in part. No credit left answers NoCredit (C17.FR.02 semantics) with
+    // no limit.
+    let prepaidCreditCents = decision.prepaidBalanceCents;
+    if (
+      request.eventType === 'Started' &&
+      decision.status === 'accepted' &&
+      decision.prepaid &&
+      decision.matchedTokenId != null
+    ) {
+      const ceiling = await reservedPrepaidCredit(
+        ctx,
+        transactionId,
+        decision.matchedTokenId,
+        startedSessionReady,
+      );
+      if (ceiling === 0) {
+        decision = {
+          ...decision,
+          status: 'no_credit',
+          outcome: 'no_credit',
+          reason: 'no_credit',
+          echoGroupId: false,
+        };
+      } else if (ceiling != null) {
+        prepaidCreditCents = ceiling;
+      }
+    }
     logAuthorizeDecision(input, decision, ctx.logger);
     const status = idTokenStatusFor(decision);
     const groupIdToken = groupIdTokenFor(decision, idToken, tokenType);
@@ -160,8 +195,8 @@ export async function handleTransactionEvent(
     let transactionLimit: TransactionLimitType | null = null;
     if (decision.status === 'accepted' && decision.prepaid) {
       prepaidExpiry = prepaidCacheExpiry(ctx.stationId, idToken);
-      if (request.eventType !== 'Ended' && decision.prepaidBalanceCents != null) {
-        transactionLimit = { maxCost: prepaidMaxCost(decision.prepaidBalanceCents) };
+      if (request.eventType !== 'Ended' && prepaidCreditCents != null) {
+        transactionLimit = { maxCost: prepaidMaxCost(prepaidCreditCents) };
       }
     } else if (decision.status === 'no_credit') {
       prepaidExpiry = new Date().toISOString();
@@ -253,6 +288,39 @@ async function supportedTransactionLimit(
       'TxCtrlr.SupportedLimits lookup failed; sending the transaction limit unchanged',
     );
     return limit;
+  }
+}
+
+/**
+ * The cost ceiling the Started projection reserved for a prepaid session, or
+ * null when it is not known: the projection did not finish in time, the
+ * session is not linked to the token, or the lookup failed. The caller then
+ * sends the balance as before (fail-open, logged at warn): the stored ceiling
+ * still caps the cost billed and debited.
+ */
+async function reservedPrepaidCredit(
+  ctx: HandlerContext,
+  transactionId: string,
+  tokenId: string,
+  waitForSession: () => Promise<boolean>,
+): Promise<number | null> {
+  try {
+    const ceiling = (await waitForSession())
+      ? await prepaidSessionCeilingCents(ctx.stationId, transactionId, tokenId)
+      : null;
+    if (ceiling == null) {
+      ctx.logger.warn(
+        { stationId: ctx.stationId, transactionId },
+        'Prepaid session ceiling not known yet; sending the balance as transactionLimit.maxCost',
+      );
+    }
+    return ceiling;
+  } catch (err) {
+    ctx.logger.warn(
+      { err, stationId: ctx.stationId, transactionId },
+      'Prepaid session ceiling lookup failed; sending the balance as transactionLimit.maxCost',
+    );
+    return null;
   }
 }
 

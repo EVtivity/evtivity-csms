@@ -213,7 +213,6 @@ export default tseslint.config(
       'vitest.integration.ts',
       'coverage/',
       'scripts/',
-      'internal-scripts/',
       '**/vite.config.*',
       '**/drizzle.config.ts',
       'commitlint.config.cjs',

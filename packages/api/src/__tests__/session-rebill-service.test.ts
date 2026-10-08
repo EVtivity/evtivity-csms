@@ -24,6 +24,7 @@ const m = vi.hoisted(() => {
     writeAudit: vi.fn(),
     chargeSessionRebill: vi.fn(),
     settlePrepaidSession: vi.fn(),
+    dispatchPrepaidLowCreditNotice: vi.fn(),
     dispatchDriverNotification: vi.fn(),
     publish: vi.fn(),
   };
@@ -46,6 +47,7 @@ vi.mock('@evtivity/payments', async () => {
   return {
     chargeSessionRebill: m.chargeSessionRebill,
     settlePrepaidSession: m.settlePrepaidSession,
+    dispatchPrepaidLowCreditNotice: m.dispatchPrepaidLowCreditNotice,
     classifySessionPayment: actual.classifySessionPayment,
     isRebillRecord: actual.isRebillRecord,
     isStaleRebillCharge: actual.isStaleRebillCharge,
@@ -330,6 +332,29 @@ describe('rebillSession', () => {
       rebill: true,
     });
     expect(m.chargeSessionRebill).not.toHaveBeenCalled();
+    expect(m.dispatchPrepaidLowCreditNotice).toHaveBeenCalledWith(
+      { tokenId: 't1', debitedCents: 1190, balanceCents: 10 },
+      expect.objectContaining({ templatesDirs: expect.any(Array) }),
+    );
+  });
+
+  it('bills a prepaid debit when the low credit notice fails', async () => {
+    useSession({ prepaid: true });
+    m.answers.record = [[], [{ id: 12, status: 'captured', payment_source: 'prepaid' }]];
+    m.settlePrepaidSession.mockResolvedValue({
+      tokenId: 't1',
+      debitedCents: 1190,
+      balanceCents: 10,
+    });
+    m.dispatchPrepaidLowCreditNotice.mockRejectedValueOnce(new Error('smtp down'));
+    await expect(rebillSession('ses_1', ctx)).resolves.toMatchObject({
+      rebillStatus: 'billed',
+      result: 'prepaid',
+    });
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'ses_1' }),
+      'Prepaid low credit notice failed; continuing',
+    );
   });
 
   it('leaves a prepaid session it cannot debit to manual billing', async () => {

@@ -27,6 +27,7 @@ type Row = Record<string, unknown>;
 type Cond =
   | { op: 'eq' | 'ne'; col: string; val: unknown }
   | { op: 'and'; conds: Cond[] }
+  | { op: 'or'; conds: Cond[] }
   | undefined;
 
 const h = vi.hoisted(() => {
@@ -53,6 +54,7 @@ const h = vi.hoisted(() => {
     remember: vi.fn(),
     validateCert: vi.fn(),
     adHocLimit: vi.fn(),
+    prepaidCeiling: vi.fn(),
     resolveStationTariff: vi.fn(),
   };
 });
@@ -60,6 +62,7 @@ const h = vi.hoisted(() => {
 function matches(row: Row, cond: Cond): boolean {
   if (cond == null) return true;
   if (cond.op === 'and') return cond.conds.every((c) => matches(row, c));
+  if (cond.op === 'or') return cond.conds.some((c) => matches(row, c));
   if (cond.op === 'eq') return row[cond.col] === cond.val;
   return row[cond.col] !== cond.val;
 }
@@ -125,7 +128,14 @@ vi.mock('@evtivity/database', () => ({
   drivers: h.table('drivers', ['id', 'isActive']),
   guestSessions: h.table('guest_sessions', ['sessionToken', 'status', 'stationOcppId']),
   ocpiExternalTokens: h.table('ocpi_external_tokens', ['uid', 'isValid', 'whitelist', 'tokenData']),
-  chargingSessions: h.table('charging_sessions', ['id', 'tokenId', 'status']),
+  chargingSessions: h.table('charging_sessions', [
+    'id',
+    'tokenId',
+    'status',
+    'stationId',
+    'transactionId',
+  ]),
+  chargingStations: h.table('charging_stations', ['id', 'stationId']),
   authorizeAttempts: h.table('authorize_attempts', []),
   isRoamingEnabled: () => setting('roaming', h.state.roaming),
   isSiteFreeVendEnabledByStation: () => setting('freeVend', h.state.freeVend),
@@ -138,6 +148,7 @@ vi.mock('drizzle-orm', () => ({
   eq: (a: { col: string }, val: unknown) => ({ op: 'eq', col: a.col, val }),
   ne: (a: { col: string }, val: unknown) => ({ op: 'ne', col: a.col, val }),
   and: (...conds: unknown[]) => ({ op: 'and', conds: conds.filter((c) => c != null) }),
+  or: (...conds: unknown[]) => ({ op: 'or', conds: conds.filter((c) => c != null) }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     raw: strings.join('?'),
     values,
@@ -178,6 +189,13 @@ vi.mock('../../handlers/ad-hoc-payment-limit.js', () => ({
   findAdHocTransactionLimit: h.adHocLimit,
 }));
 
+vi.mock('../../handlers/prepaid-session-limit.js', () => ({
+  prepaidSessionCeilingCents: (...args: unknown[]) => {
+    h.state.trace.push('prepaid_ceiling');
+    return h.prepaidCeiling(...args) as Promise<number | null>;
+  },
+}));
+
 vi.mock('../../handlers/supported-limits.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../handlers/supported-limits.js')>()),
   stationSupportedLimits: () => Promise.resolve(null),
@@ -199,8 +217,15 @@ function token(fields: Partial<Row> & { id: string; idToken: string; tokenType: 
   };
 }
 
-function activeSession(id: string, tokenId: string): Row {
-  return { id, tokenId, status: 'active' };
+function activeSession(
+  id: string,
+  tokenId: string,
+  at: { stationId: string; transactionId: string } = {
+    stationId: 'sta_db_2',
+    transactionId: 'tx-other',
+  },
+): Row {
+  return { id, tokenId, status: 'active', ...at };
 }
 
 interface Kind {
@@ -216,6 +241,12 @@ interface Kind {
   certificate?: string | Error;
   /** TE21: the stored ad hoc payment limit. */
   adHocLimit?: Record<string, number>;
+  /**
+   * TE21 Started: the cost ceiling the projection reserved for the prepaid
+   * session (default 1500, the whole balance of the prepaid kinds), null when
+   * not linked yet, or an Error the lookup throws.
+   */
+  prepaidCeilingCents?: number | null | Error;
   /** A prepaid Authorize remembered this long before NOW. */
   rememberedMsAgo?: number;
   /** The site free vend setting read throws. */
@@ -529,7 +560,10 @@ const KINDS: Kind[] = [
     resentSessionId: 'ses-resent',
     tables: {
       driver_tokens: [token({ id: 'tok-1', idToken: 'TAG-1', tokenType: 'ISO14443' })],
-      charging_sessions: [activeSession('ses-resent', 'tok-1')],
+      // The resend's transaction (ST16 gets id 77 back) at this station.
+      charging_sessions: [
+        activeSession('ses-resent', 'tok-1', { stationId: 'sta_db_1', transactionId: '77' }),
+      ],
     },
   },
   {
@@ -597,6 +631,46 @@ const KINDS: Kind[] = [
         token({ id: 'tok-1', idToken: 'TAG-P', tokenType: 'ISO14443', prepaidBalanceCents: 1500 }),
       ],
       charging_sessions: [activeSession('ses-1', 'tok-1')],
+    },
+  },
+  ...(
+    [
+      ["reserved in part by the token's other sessions", 600],
+      ["reserved in full by the token's other sessions", 0],
+      ['session not linked yet', null],
+      ['ceiling lookup error', new Error('db down')],
+    ] as const
+  ).map(
+    ([what, ceiling]): Kind => ({
+      name: `prepaid with credit, ${what}`,
+      idToken: 'TAG-P',
+      type: 'ISO14443',
+      prepaidCeilingCents: ceiling,
+      tables: {
+        driver_tokens: [
+          token({
+            id: 'tok-1',
+            idToken: 'TAG-P',
+            tokenType: 'ISO14443',
+            prepaidBalanceCents: 1500,
+          }),
+        ],
+      },
+    }),
+  ),
+  {
+    // TE21 Started: the projection already linked the event's own session
+    // (transaction tx-1 at this station) to the token. It is not concurrent.
+    name: 'prepaid with credit, own transaction in progress',
+    idToken: 'TAG-P',
+    type: 'ISO14443',
+    tables: {
+      driver_tokens: [
+        token({ id: 'tok-1', idToken: 'TAG-P', tokenType: 'ISO14443', prepaidBalanceCents: 1500 }),
+      ],
+      charging_sessions: [
+        activeSession('ses-own', 'tok-1', { stationId: 'sta_db_1', transactionId: 'tx-1' }),
+      ],
     },
   },
   ...['Accepted', 'CertificateRevoked', 'CertificateExpired', 'CertChainError'].map(
@@ -877,6 +951,10 @@ function setUp(kind: Kind | null, roaming: boolean): void {
   h.resolveStationTariff.mockResolvedValue(kind?.tariff ?? null);
   h.adHocLimit.mockReset();
   h.adHocLimit.mockResolvedValue(kind?.adHocLimit ?? null);
+  h.prepaidCeiling.mockReset();
+  const ceiling = kind?.prepaidCeilingCents === undefined ? 1500 : kind.prepaidCeilingCents;
+  if (ceiling instanceof Error) h.prepaidCeiling.mockRejectedValue(ceiling);
+  else h.prepaidCeiling.mockResolvedValue(ceiling);
   h.validateCert.mockReset();
   if (kind?.certificate instanceof Error) h.validateCert.mockRejectedValue(kind.certificate);
   else h.validateCert.mockResolvedValue(kind?.certificate);

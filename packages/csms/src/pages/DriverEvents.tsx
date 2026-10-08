@@ -18,6 +18,7 @@ import {
   DRIVER_TOKEN_EVENTS,
   DRIVER_MAINTENANCE_EVENTS,
   DRIVER_WATCH_EVENTS,
+  DRIVER_PREPAID_EVENTS,
 } from '@/lib/template-variables';
 
 const CHANNELS = ['email', 'sms'] as const;
@@ -58,6 +59,7 @@ export function DriverEvents(): React.JSX.Element {
         { title: t('notifications.tokenEvents'), events: DRIVER_TOKEN_EVENTS },
         { title: t('notifications.maintenanceEvents'), events: DRIVER_MAINTENANCE_EVENTS },
         { title: t('notifications.watchEvents'), events: DRIVER_WATCH_EVENTS },
+        { title: t('notifications.prepaidEvents'), events: DRIVER_PREPAID_EVENTS },
       ]}
       channels={CHANNELS}
       channelTooltip={t('notifications.channelTooltipDriver')}

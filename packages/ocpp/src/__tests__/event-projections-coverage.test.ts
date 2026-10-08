@@ -4298,7 +4298,7 @@ describe('Event projections - coverage expansion', () => {
         idToken: 'PREPAID-1',
         tokenType: 'ISO14443',
       });
-    const startedResults = (prepaidBalanceCents: number) => [
+    const startedResults = (prepaidBalanceCents: number, reservedCents = 0) => [
       [{ id: 'sta_000000000001' }], // resolveStationId
       [], // eager OCPI roaming check
       [{ id: 'session-pp' }], // INSERT charging_sessions RETURNING id
@@ -4307,6 +4307,9 @@ describe('Event projections - coverage expansion', () => {
       [{ is_roaming: false }], // SELECT is_roaming
       [{ driver_id: null }], // SELECT driver_id
       [{ id: 'dtk_pp', driver_id: 'drv_pp', prepaid_balance_cents: prepaidBalanceCents }], // driver_tokens
+      [{ prepaid_balance_cents: prepaidBalanceCents }], // driver_tokens FOR UPDATE
+      [{ reserved_cents: reservedCents }], // other active sessions of the token
+      [], // UPDATE charging_sessions SET token_id, cost_ceiling_cents
     ];
     const stopCommands = (): unknown[][] =>
       (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls.filter(
@@ -4344,16 +4347,69 @@ describe('Event projections - coverage expansion', () => {
 
       await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp-0'));
 
-      // No credit: no ceiling (the stamp keeps the stored value).
+      // No credit: a zero ceiling, so nothing is billed.
       expect(findSql(/SET token_id = .*cost_ceiling_cents/s)?.values).toEqual([
         'dtk_pp',
-        null,
+        0,
         'session-pp',
       ]);
       expect(stopCommands()).toHaveLength(1);
       expect(sqlCalls.some((c) => c.strings.join('?').includes('driver_payment_methods'))).toBe(
         false,
       );
+    });
+
+    it("reserves the credit of the token's other active sessions", async () => {
+      await setup();
+      setupSqlResults(...startedResults(5000, 3000));
+
+      await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp-second'));
+
+      expect(findSql(/FROM driver_tokens WHERE id = .* FOR UPDATE/s)?.values).toEqual(['dtk_pp']);
+      // Other active sessions, ended ones without a debit for 24 hours, and
+      // re-billable EndRequestFailed ones without a time limit, in the company
+      // currency.
+      const reserved = findSql(/AS reserved_cents/);
+      expect(reserved?.values).toEqual(['USD', 'EndRequestFailed', 'dtk_pp', 'session-pp', 24]);
+      const reservedSql = reserved?.strings.join('?') ?? '';
+      expect(reservedSql).toContain('NOT EXISTS (SELECT 1 FROM payment_records');
+      expect(reservedSql).toContain("rebill_status IS NULL OR cs.rebill_status = 'in_progress'");
+      expect(reservedSql).toContain('OR (o.unsettled AND o.rebillable)');
+      expect(findSql(/SET token_id = .*cost_ceiling_cents/s)?.values).toEqual([
+        'dtk_pp',
+        2000,
+        'session-pp',
+      ]);
+      expect(stopCommands()).toHaveLength(0);
+    });
+
+    it('links without a ceiling when the token is no longer prepaid at the lock', async () => {
+      await setup();
+      const results: unknown[][] = startedResults(5000);
+      // The operator made the token postpaid between the lookup and the lock.
+      results.splice(8, 3, [{ prepaid_balance_cents: null }], []);
+      setupSqlResults(...results);
+
+      await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp-postpaid'));
+
+      expect(findSql(/SET token_id = .*cost_ceiling_cents/s)).toBeUndefined();
+      expect(findSql(/AS reserved_cents/)).toBeUndefined();
+      const link = findSql(/UPDATE charging_sessions SET token_id = /);
+      expect(link?.values).toEqual(['dtk_pp', 'session-pp']);
+    });
+
+    it('stops a second session when the other sessions reserve the whole credit', async () => {
+      await setup();
+      setupSqlResults(...startedResults(5000, 5000));
+
+      await eventBus.emit('ocpp.TransactionEvent', startedEvent('tx-pp-full'));
+
+      expect(findSql(/SET token_id = .*cost_ceiling_cents/s)?.values).toEqual([
+        'dtk_pp',
+        0,
+        'session-pp',
+      ]);
+      expect(stopCommands()).toHaveLength(1);
     });
 
     it('reports the prepaid debit when the session ends', async () => {

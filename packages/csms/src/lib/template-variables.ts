@@ -83,6 +83,8 @@ export const DRIVER_INVOICE_EVENTS = ['invoice.Sent'] as const;
 
 export const DRIVER_WATCH_EVENTS = ['watch.StationAvailable'] as const;
 
+export const DRIVER_PREPAID_EVENTS = ['prepaid.LowCredit', 'prepaid.CreditExhausted'] as const;
+
 // All driver-facing event types (for backward compat)
 export const DRIVER_EVENT_TYPES = [
   ...DRIVER_SESSION_EVENTS,
@@ -95,6 +97,7 @@ export const DRIVER_EVENT_TYPES = [
   ...DRIVER_MAINTENANCE_EVENTS,
   ...DRIVER_INVOICE_EVENTS,
   ...DRIVER_WATCH_EVENTS,
+  ...DRIVER_PREPAID_EVENTS,
 ] as const;
 
 // Keep old names for imports that haven't been updated
@@ -636,6 +639,37 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'code', description: 'Six-digit verification code' },
     { name: 'firstName', description: 'Recipient first name' },
     { name: 'email', description: 'Recipient email address' },
+  ],
+  'prepaid.LowCredit': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Prepaid card identifier (e.g. RFID UID)' },
+    {
+      name: 'balanceFormatted',
+      description: 'Balance after the debit, with currency, in the driver language (e.g. $3.50)',
+    },
+    { name: 'balanceCents', description: 'Balance after the debit in cents' },
+    {
+      name: 'thresholdFormatted',
+      description: 'Low credit threshold with currency, in the driver language (e.g. $5.00)',
+    },
+    { name: 'currency', description: 'Currency code' },
+  ],
+  'prepaid.CreditExhausted': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'idToken', description: 'Prepaid card identifier (e.g. RFID UID)' },
+    { name: 'siteName', description: 'Site name (empty when the station has no site)' },
+    { name: 'stationId', description: 'Station identifier' },
+    { name: 'transactionId', description: 'Transaction ID' },
+    {
+      name: 'creditFormatted',
+      description:
+        'Prepaid credit the session used up, with currency, in the driver language (e.g. $25.00)',
+    },
+    { name: 'currency', description: 'Currency code' },
   ],
   'token.Added': [
     { name: 'firstName', description: 'Driver first name' },

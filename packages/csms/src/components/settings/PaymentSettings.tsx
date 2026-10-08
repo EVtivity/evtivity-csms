@@ -24,6 +24,7 @@ import {
 } from '@evtivity/lib/currency';
 import { AdyenSettings } from './AdyenSettings';
 import { percentError, preAuthAmountError } from './payment-amount-validation';
+import { PrepaidSettings } from './PrepaidSettings';
 import { PaymentProviderSettings } from './PaymentProviderSettings';
 import { SitePayoutAccountCard } from './SitePayoutAccountCard';
 import { StripeWebhookCard } from './StripeWebhookCard';
@@ -81,10 +82,17 @@ interface SitePaymentConfig {
   isEnabled: boolean;
 }
 
-export function PaymentSettings(): React.JSX.Element {
+interface PaymentSettingsProps {
+  /** The generic settings (GET /v1/settings), for the prepaid card settings. */
+  settings?: Record<string, unknown> | undefined;
+}
+
+export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('payments:write');
+  // The prepaid threshold is a generic setting (settings.system:write).
+  const canWriteSystemSettings = useHasPermission('settings.system:write');
 
   const [paymentSubTab, setPaymentSubTab] = useTab('general', 'sub');
 
@@ -295,8 +303,9 @@ export function PaymentSettings(): React.JSX.Element {
         <TabsTrigger value="adyen">{t('settings.paymentSubTabAdyen')}</TabsTrigger>
         <TabsTrigger value="siteConfigs">{t('settings.paymentSubTabSiteConfigs')}</TabsTrigger>
       </TabsList>
-      <TabsContent value="general" className="mt-4">
+      <TabsContent value="general" className="mt-4 space-y-6">
         <PaymentProviderSettings />
+        {canWriteSystemSettings && <PrepaidSettings settings={settings} />}
       </TabsContent>
       <TabsContent value="stripe" className="mt-4 space-y-6">
         <Card>

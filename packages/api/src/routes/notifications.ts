@@ -267,6 +267,8 @@ export const DRIVER_EVENT_TYPES = [
   'token.Reactivated',
   'maintenance.SessionStopped',
   'watch.StationAvailable',
+  'prepaid.LowCredit',
+  'prepaid.CreditExhausted',
 ];
 
 // Notifications sent to operators and site hosts. Matches the CSMS System Events tab.
@@ -467,6 +469,27 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   'driver.Welcome': ['firstName', 'lastName', 'email'],
   'driver.ForgotPassword': ['firstName', 'lastName', 'email'],
   'driver.PortalInvite': ['firstName', 'lastName', 'email', 'activateUrl', 'expiresInDays'],
+  'prepaid.LowCredit': [
+    'firstName',
+    'lastName',
+    'email',
+    'idToken',
+    'balanceFormatted',
+    'balanceCents',
+    'thresholdFormatted',
+    'currency',
+  ],
+  'prepaid.CreditExhausted': [
+    'firstName',
+    'lastName',
+    'email',
+    'idToken',
+    'siteName',
+    'stationId',
+    'transactionId',
+    'creditFormatted',
+    'currency',
+  ],
   'site.PayoutOnboarding': ['siteName', 'contactName', 'email', 'onboardingUrl', 'expiresInDays'],
   'session.EndRequestFailed': [
     'firstName',
@@ -1339,6 +1362,8 @@ export function notificationRoutes(app: FastifyInstance): void {
         feeType: 'cancellation',
         isNoShowFee: false,
         refundedAt: new Date().toISOString(),
+        idToken: 'PREPAID-0042',
+        balanceCents: 350,
         // Money and rates as the dispatcher formats them, in the template language.
         ...formatLocalizedVariables(
           {
@@ -1346,6 +1371,9 @@ export function notificationRoutes(app: FastifyInstance): void {
             amountFormatted: notificationMoney(1250, companyCurrency),
             total: notificationMoney(1250, companyCurrency),
             cancellationFeeFormatted: notificationMoney(595, companyCurrency),
+            balanceFormatted: notificationMoney(350, companyCurrency),
+            thresholdFormatted: notificationMoney(500, companyCurrency),
+            creditFormatted: notificationMoney(2500, companyCurrency),
             idleFeeFormatted: notificationUnitPrice(0.25, companyCurrency),
             taxRatePercent: notificationTaxRate(0.19),
           },

@@ -591,6 +591,7 @@ async function seed(): Promise<void> {
     'sustainability.gasolineEmissionFactor': '8.887',
     'sustainability.avgMpg': '25.4',
     'idling.gracePeriodMinutes': 30,
+    'prepaid.lowCreditThresholdCents': 500,
     'session.staleTimeoutHours': 24,
     // Connection timeout (s) assumed for a station that has not reported its own,
     // when the CSMS closes a remote start the driver never plugged in for.

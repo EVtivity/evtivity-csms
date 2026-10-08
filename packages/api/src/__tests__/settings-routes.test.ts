@@ -78,6 +78,13 @@ vi.mock('@evtivity/database', () => ({
   clearSupportCache: vi.fn(),
   clearFleetCache: vi.fn(),
   WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY: 'notifications.webhookAllowedPrivateHosts',
+  PREPAID_LOW_CREDIT_THRESHOLD_KEY: 'prepaid.lowCreditThresholdCents',
+  MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS: 100_000_000,
+  parsePrepaidLowCreditThresholdCents: (value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 100_000_000
+      ? value
+      : null,
+  clearPrepaidSettingsCache: vi.fn(),
   invalidateReservationSettingsCache: vi.fn(),
   writeAudit: vi.fn().mockResolvedValue(undefined),
   siteAuditLog: {},
@@ -155,6 +162,7 @@ import {
   clearMobileAppConfigCache,
   clearStationMessageSettingsCache,
   invalidateReservationSettingsCache,
+  clearPrepaidSettingsCache,
 } from '@evtivity/database';
 
 const VALID_USER_ID = 'usr_000000000001';
@@ -460,6 +468,44 @@ describe('Settings routes', () => {
     });
     expect(clearStationMessageSettingsCache).toHaveBeenCalled();
     expect(clearSystemSettingsCache).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 2.5, '500', 100_000_001])(
+    'PUT /v1/settings/prepaid.lowCreditThresholdCents rejects %s',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/prepaid.lowCreditThresholdCents',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
+      expect(response.json().error).toContain('prepaid.lowCreditThresholdCents');
+      expect(db.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('PUT /v1/settings/prepaid.lowCreditThresholdCents stores the threshold and clears the cache', async () => {
+    vi.mocked(db.insert).mockClear();
+    vi.mocked(clearPrepaidSettingsCache).mockClear();
+    setupDbResults([], [{ key: 'prepaid.lowCreditThresholdCents', value: 1000 }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/prepaid.lowCreditThresholdCents',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 1000 },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({
+      key: 'prepaid.lowCreditThresholdCents',
+      value: 1000,
+    });
+    expect(clearPrepaidSettingsCache).toHaveBeenCalled();
   });
 
   it('PUT /v1/settings/stationMessage.language re-renders station screens when the value changes', async () => {

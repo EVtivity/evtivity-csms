@@ -911,9 +911,9 @@ describe('Event projections', () => {
             tax_rate: '0.19',
             price_display: 'gross',
             currency: 'USD',
+            site_name: 'Test Site',
           },
-        ], // dispatchIdlingNotification: SELECT from charging_sessions
-        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
+        ], // dispatchIdlingNotification: the claim
       );
 
       await eventBus.emit(
@@ -1007,9 +1007,9 @@ describe('Event projections', () => {
             tax_rate: '0.19',
             price_display: null,
             currency: 'USD',
+            site_name: 'Test Site',
           },
-        ], // dispatchIdlingNotification: SELECT from charging_sessions
-        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
+        ], // dispatchIdlingNotification: the claim
       );
 
       await eventBus.emit(
@@ -1064,9 +1064,9 @@ describe('Event projections', () => {
             tax_rate: '0.19',
             price_display: 'gross',
             currency: 'USD',
+            site_name: 'Test Site',
           },
-        ], // dispatchIdlingNotification: SELECT from charging_sessions
-        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
+        ], // dispatchIdlingNotification: the claim
       );
 
       await eventBus.emit(
@@ -2122,9 +2122,7 @@ describe('Event projections', () => {
         [{ id: 'session-1' }], // SELECT id FROM charging_sessions
         [], // INSERT transaction_events
         [], // UPDATE idle_started_at (chargingState = EVConnected)
-        [{ driver_id: null }], // dispatchIdlingNotification: SELECT from charging_sessions (no driver)
-        [{ name: null }], // dispatchIdlingNotification: resolveSiteName
-        [], // dispatchIdlingNotification: SELECT guest_email FROM guest_sessions (no guest)
+        [{ driver_id: null, site_name: null, guest_email: null }], // dispatchIdlingNotification: the claim (no driver, no guest)
         [{ site_id: null }], // resolveSiteId
         [{ driver_id: null }], // SELECT driver_id (no driver)
       );
@@ -2169,10 +2167,10 @@ describe('Event projections', () => {
             tax_rate: '0.19',
             price_display: null,
             currency: 'USD',
+            site_name: 'Test Site',
+            guest_email: 'guest@example.com',
           },
-        ], // dispatchIdlingNotification: SELECT from charging_sessions (no driver)
-        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
-        [{ guest_email: 'guest@example.com' }], // dispatchIdlingNotification: SELECT guest_email
+        ], // dispatchIdlingNotification: the claim (no driver)
         [{ site_id: null }], // resolveSiteId
         [{ driver_id: null }], // SELECT driver_id (no driver)
       );
@@ -2223,10 +2221,10 @@ describe('Event projections', () => {
             tax_rate: '0.19',
             price_display: null,
             currency: 'USD',
+            site_name: 'Test Site',
+            guest_email: 'guest@example.com',
           },
-        ], // dispatchIdlingNotification: SELECT from charging_sessions (no driver)
-        [{ name: 'Test Site' }], // dispatchIdlingNotification: resolveSiteName
-        [{ guest_email: 'guest@example.com' }], // dispatchIdlingNotification: SELECT guest_email
+        ], // dispatchIdlingNotification: the claim (no driver)
         [{ site_id: null }], // resolveSiteId
         [{ driver_id: null }], // SELECT driver_id (no driver)
       );

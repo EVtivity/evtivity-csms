@@ -1420,10 +1420,9 @@ describe('Event projections - coverage round 2', () => {
             idle_started_at: 't',
             tariff_idle_fee_price_per_minute: '0.05',
             currency: 'USD',
+            site_name: 'Site A',
           },
         ],
-        STA, // resolveStationUuid (cached, but be safe)
-        [{ name: 'Site A' }], // resolveSiteName
       );
       await emit('ocpp.StatusNotification', 'CS-1', {
         evseId: 1,

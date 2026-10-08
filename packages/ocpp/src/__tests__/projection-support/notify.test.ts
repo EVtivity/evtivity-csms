@@ -4,7 +4,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type postgres from 'postgres';
 import type { EventBus, Logger, PubSubClient } from '@evtivity/lib';
-import type { ProjectionLookups } from '../../server/projection-support/lookups.js';
 
 const {
   mockIsRoamingEnabled,
@@ -42,10 +41,6 @@ interface Harness {
   publish: ReturnType<typeof vi.fn>;
   track: ReturnType<typeof vi.fn>;
   logger: { warn: ReturnType<typeof vi.fn>; debug: ReturnType<typeof vi.fn> };
-  lookups: {
-    resolveStationUuid: ReturnType<typeof vi.fn>;
-    resolveSiteName: ReturnType<typeof vi.fn>;
-  };
   notify: ReturnType<typeof createProjectionNotifier>;
 }
 
@@ -54,18 +49,13 @@ function makeHarness(): Harness {
   const publish = vi.fn().mockResolvedValue(undefined);
   const track = vi.fn();
   const logger = { warn: vi.fn(), debug: vi.fn() };
-  const lookups = {
-    resolveStationUuid: vi.fn().mockResolvedValue('station-uuid'),
-    resolveSiteName: vi.fn().mockResolvedValue('Main Site'),
-  };
   const notify = createProjectionNotifier({
     sql: query as unknown as postgres.Sql,
     eventBus: { track } as unknown as EventBus,
     pubsub: { publish } as unknown as PubSubClient,
     logger: logger as unknown as Logger,
-    lookups: lookups as unknown as ProjectionLookups,
   });
-  return { query, publish, track, logger, lookups, notify };
+  return { query, publish, track, logger, notify };
 }
 
 describe('createProjectionNotifier', () => {
@@ -268,14 +258,16 @@ describe('createProjectionNotifier', () => {
       tax_basis: 'net',
       price_display: null,
       currency: 'USD',
+      site_name: 'Main Site',
+      guest_email: null,
     };
 
     it('notifies the driver once the idle period is claimed', async () => {
       const h = makeHarness();
       h.query.mockResolvedValueOnce([idleRow]);
       await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
-      expect(h.lookups.resolveStationUuid).toHaveBeenCalledWith('CS-1');
-      expect(h.lookups.resolveSiteName).toHaveBeenCalledWith('station-uuid');
+      // The claim is the only statement: nothing after it can fail a rerun.
+      expect(h.query).toHaveBeenCalledTimes(1);
       expect(mockDispatchDriver).toHaveBeenCalledWith(
         h.query,
         'session.IdlingStarted',
@@ -316,10 +308,11 @@ describe('createProjectionNotifier', () => {
 
     it('emails the guest when the session has no driver', async () => {
       const h = makeHarness();
-      h.query
-        .mockResolvedValueOnce([{ ...idleRow, driver_id: null }])
-        .mockResolvedValueOnce([{ guest_email: 'guest@example.com' }]);
+      h.query.mockResolvedValueOnce([
+        { ...idleRow, driver_id: null, guest_email: 'guest@example.com' },
+      ]);
       await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      expect(h.query).toHaveBeenCalledTimes(1);
       expect(mockDispatchSystem).toHaveBeenCalledWith(
         h.query,
         'session.IdlingStarted',
@@ -328,6 +321,29 @@ describe('createProjectionNotifier', () => {
         ['templates'],
       );
       expect(mockDispatchDriver).not.toHaveBeenCalled();
+    });
+
+    it('reads the settings before the claim, so a failed read leaves the period unclaimed', async () => {
+      const h = makeHarness();
+      const lost = Object.assign(new Error('connect timeout'), { code: 'CONNECT_TIMEOUT' });
+      mockGetCompanyPriceDisplay.mockRejectedValueOnce(lost);
+      await expect(
+        h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z'),
+      ).rejects.toBe(lost);
+      expect(h.query).not.toHaveBeenCalled();
+
+      // The projection rerun claims the period and sends the notice.
+      h.query.mockResolvedValueOnce([idleRow]);
+      await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      expect(mockDispatchDriver).toHaveBeenCalledTimes(1);
+    });
+
+    it('sends nothing to a guest session without an email', async () => {
+      const h = makeHarness();
+      h.query.mockResolvedValueOnce([{ ...idleRow, driver_id: null }]);
+      await h.notify.dispatchIdlingNotification('sess-1', 'CS-1', 'tx-1', '2026-01-01T00:00:00Z');
+      expect(mockDispatchDriver).not.toHaveBeenCalled();
+      expect(mockDispatchSystem).not.toHaveBeenCalled();
     });
 
     it('does nothing when the idle period was already claimed', async () => {

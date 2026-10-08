@@ -24,6 +24,8 @@ const db = {
   sessionReservationId: null as string | null,
   endedEnergyWh: 10000,
   endedStatus: 'completed',
+  // Prepaid ceiling claim (stopped_reason): null while unclaimed.
+  prepaidClaim: null as 'open' | 'claimed' | null,
 };
 
 function connectionError(code: string): Error {
@@ -31,6 +33,22 @@ function connectionError(code: string): Error {
 }
 
 function route(text: string): unknown[] {
+  if (text.includes('WITH claimed AS') && text.includes('SET stopped_reason')) {
+    if (db.prepaidClaim !== 'open') return [];
+    db.prepaidClaim = 'claimed';
+    return [
+      {
+        driver_id: 'drv-1',
+        id_token: 'PREPAID-1',
+        cost_ceiling_cents: 500,
+        currency: 'USD',
+        site_name: 'Site 1',
+      },
+    ];
+  }
+  if (db.prepaidClaim != null && text.trim().startsWith('SELECT id FROM charging_sessions')) {
+    return [{ id: 'session-1' }];
+  }
   if (text.includes('SELECT id FROM charging_stations WHERE station_id')) return [{ id: 'sta-1' }];
   if (text.includes('SELECT site_id FROM charging_stations')) return [{ site_id: 'site-1' }];
   if (text.includes('SELECT s.name FROM sites')) return [{ name: 'Site 1' }];
@@ -275,7 +293,7 @@ const drain = vi.fn(() => []);
 
 function createDeps() {
   const lookups = createProjectionLookups(sql);
-  const notify = createProjectionNotifier({ sql, eventBus, pubsub, logger, lookups });
+  const notify = createProjectionNotifier({ sql, eventBus, pubsub, logger });
   return { sql, eventBus, pubsub, logger, payments: {} as PaymentContext, lookups, notify };
 }
 
@@ -348,6 +366,7 @@ beforeEach(() => {
   db.sessionReservationId = null;
   db.endedEnergyWh = 10000;
   db.endedStatus = 'completed';
+  db.prepaidClaim = null;
   vi.clearAllMocks();
   mockFreeVend.mockResolvedValue(false);
   mockElectricityPeriods.mockResolvedValue([]);
@@ -586,6 +605,73 @@ describe('TransactionEvent Updated run again after a lost connection', () => {
 
     expect(countCalls('INSERT INTO transaction_events')).toBe(1);
     expect(driverNotifications('session.Updated')).toHaveLength(1);
+  });
+
+  describe('CostLimitReached on a prepaid session', () => {
+    beforeEach(() => {
+      db.prepaidClaim = 'open';
+    });
+
+    it('claims the session and sends prepaid.CreditExhausted once, without a stop', async () => {
+      await projectWithRetry(
+        transactionEvent('Updated', {
+          triggerReason: 'CostLimitReached',
+          chargingState: 'SuspendedEVSE',
+        }),
+      );
+      expect(countCalls('SET stopped_reason =')).toBe(1);
+      expect(driverNotifications('prepaid.CreditExhausted')).toHaveLength(1);
+      expect(
+        publish.mock.calls.filter(
+          (call) =>
+            call[0] === 'ocpp_commands' && String(call[1]).includes('RequestStopTransaction'),
+        ),
+      ).toHaveLength(0);
+
+      // The station repeats the report: the session is claimed, nothing more.
+      await projectWithRetry(
+        transactionEvent('Updated', { triggerReason: 'CostLimitReached', seqNo: 2 }),
+      );
+      expect(driverNotifications('prepaid.CreditExhausted')).toHaveLength(1);
+    });
+
+    it('does not claim again on a rerun after a later step failed', async () => {
+      failOn = { match: 'SELECT s.name FROM sites', code: 'CONNECT_TIMEOUT', left: 1 };
+      await projectWithRetry(transactionEvent('Updated', { triggerReason: 'CostLimitReached' }));
+      expect(countCalls('SET stopped_reason =')).toBe(1);
+      expect(driverNotifications('prepaid.CreditExhausted')).toHaveLength(1);
+    });
+
+    it('retries a claim that never reached the server and notifies once', async () => {
+      failOn = { match: 'SET stopped_reason =', code: 'CONNECT_TIMEOUT', left: 1 };
+      await projectWithRetry(transactionEvent('Updated', { triggerReason: 'CostLimitReached' }));
+      expect(countCalls('SET stopped_reason =')).toBe(2);
+      expect(driverNotifications('prepaid.CreditExhausted')).toHaveLength(1);
+    });
+
+    it('warns and goes on when the claim was interrupted (it may have committed)', async () => {
+      failOn = { match: 'SET stopped_reason =', code: 'ECONNRESET', left: 1 };
+      await projectWithRetry(transactionEvent('Updated', { triggerReason: 'CostLimitReached' }));
+      expect(countCalls('SET stopped_reason =')).toBe(1);
+      expect(driverNotifications('prepaid.CreditExhausted')).toHaveLength(0);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ sessionId: 'session-1' }),
+        'Prepaid cost limit notice failed; continuing',
+      );
+      expect(countCalls('INSERT INTO transaction_events')).toBe(1);
+    });
+
+    it('notifies when the station ends the transaction at the limit', async () => {
+      await projectWithRetry(transactionEvent('Ended', { triggerReason: 'CostLimitReached' }));
+      expect(countCalls('SET stopped_reason =')).toBe(1);
+      expect(driverNotifications('prepaid.CreditExhausted')).toHaveLength(1);
+      // The claim runs before the Ended update keeps it (COALESCE).
+      const claimAt = sqlCalls.findIndex((text) => text.includes('SET stopped_reason ='));
+      const endAt = sqlCalls.findIndex((text) =>
+        text.includes('stopped_reason = COALESCE(stopped_reason'),
+      );
+      expect(claimAt).toBeLessThan(endAt);
+    });
   });
 });
 

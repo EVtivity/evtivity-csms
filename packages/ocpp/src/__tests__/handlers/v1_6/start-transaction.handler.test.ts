@@ -24,7 +24,14 @@ vi.mock('@evtivity/database', () => {
       status: 'status',
       stationOcppId: 'station_ocpp_id',
     },
-    chargingSessions: { id: 'id', tokenId: 'token_id', status: 'status' },
+    chargingSessions: {
+      id: 'id',
+      tokenId: 'token_id',
+      status: 'status',
+      stationId: 'stationId',
+      transactionId: 'transactionId',
+    },
+    chargingStations: { id: 'id', stationId: 'station_id' },
     authorizeAttempts: { __table: 'authorize_attempts' },
     ocpiExternalTokens: { uid: 'uid', isValid: 'is_valid', whitelist: 'whitelist' },
     isSiteFreeVendEnabledByStation: vi.fn().mockResolvedValue(false),
@@ -36,6 +43,7 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ type: 'eq', a, b })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
   ne: vi.fn((a: unknown, b: unknown) => ({ type: 'ne', a, b })),
+  or: vi.fn((...args: unknown[]) => ({ type: 'or', args })),
   sql: Object.assign(
     (strings: TemplateStringsArray, ...values: unknown[]) => ({
       type: 'sql',
@@ -227,9 +235,12 @@ describe('OCPP 1.6 StartTransaction handler', () => {
 
       const response = await handleStartTransaction(ctx);
 
+      expect(response.transactionId).toBe(55);
       expect(response.idTagInfo).toEqual({ status: 'Accepted' });
+      // The check skips the session of transaction 55 at this station.
       const { ne } = await import('drizzle-orm');
-      expect(ne).toHaveBeenCalledWith('id', 'ses_1');
+      expect(ne).toHaveBeenCalledWith('stationId', 'sta_1');
+      expect(ne).toHaveBeenCalledWith('transactionId', '55');
     });
 
     it('allocates a new id when the resend row has no numeric transaction id', async () => {
@@ -367,6 +378,7 @@ describe('OCPP 1.6 StartTransaction handler', () => {
     it('Accepted with expiryDate now for a prepaid token with credit', async () => {
       selectFn
         .mockReturnValueOnce(selectResolving([prepaidRow(5000)]))
+        .mockReturnValueOnce(selectResolving([])) // own station row lookup: none
         .mockReturnValueOnce(selectResolving([])); // concurrent-tx lookup: none
       const { ctx } = makeCtx(basePayload('PREPAID-TAG'));
 
@@ -380,6 +392,7 @@ describe('OCPP 1.6 StartTransaction handler', () => {
     it('Blocked with outcome no_credit when the balance is not positive', async () => {
       selectFn
         .mockReturnValueOnce(selectResolving([prepaidRow(-10)]))
+        .mockReturnValueOnce(selectResolving([])) // own station row lookup: none
         .mockReturnValueOnce(selectResolving([])); // concurrent-tx lookup: none
       const { ctx } = makeCtx(basePayload('NOCREDIT-TAG'));
 
@@ -405,6 +418,7 @@ describe('OCPP 1.6 StartTransaction handler', () => {
             },
           ]),
         )
+        .mockReturnValueOnce(selectResolving([])) // own station row lookup: none
         .mockReturnValueOnce(selectResolving([])); // concurrent-tx lookup: none
       const { ctx } = makeCtx(basePayload('GOOD-TAG'));
 
@@ -587,6 +601,7 @@ describe('OCPP 1.6 StartTransaction handler', () => {
             },
           ]),
         )
+        .mockReturnValueOnce(selectResolving([])) // own station row lookup: none
         .mockReturnValueOnce(selectResolving([{ id: 'ses_active' }]));
       const { ctx } = makeCtx(basePayload('BUSY-TAG'));
 
@@ -608,6 +623,7 @@ describe('OCPP 1.6 StartTransaction handler', () => {
             { id: 'dtk_w', driverId: 'drv_w', isActive: true, expiresAt: future, revokedAt: null },
           ]),
         )
+        .mockReturnValueOnce(selectResolving([])) // own station row lookup: none
         .mockReturnValueOnce(selectThrowing(new Error('session lookup failed')));
       const warnSpy = vi.spyOn(logger, 'warn');
       const { ctx } = makeCtx(basePayload('WARN-TAG'));

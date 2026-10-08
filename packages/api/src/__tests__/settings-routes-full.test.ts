@@ -63,6 +63,11 @@ vi.mock('@evtivity/database', () => ({
   clearSupportCache: vi.fn(),
   clearFleetCache: vi.fn(),
   WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY: 'notifications.webhookAllowedPrivateHosts',
+  PREPAID_LOW_CREDIT_THRESHOLD_KEY: 'prepaid.lowCreditThresholdCents',
+  MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS: 100_000_000,
+  parsePrepaidLowCreditThresholdCents: (value: unknown) =>
+    typeof value === 'number' ? value : null,
+  clearPrepaidSettingsCache: vi.fn(),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

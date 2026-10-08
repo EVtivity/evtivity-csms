@@ -135,7 +135,7 @@ export function registerProjections(
   const logger = createLogger('event-projections');
 
   const lookups = createProjectionLookups(sql);
-  const notify = createProjectionNotifier({ sql, eventBus, pubsub, logger, lookups });
+  const notify = createProjectionNotifier({ sql, eventBus, pubsub, logger });
   const deps: ProjectionDeps = {
     sql,
     eventBus,

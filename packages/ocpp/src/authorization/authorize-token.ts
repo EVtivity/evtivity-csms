@@ -12,13 +12,14 @@
  * AUTHORIZE_CONTEXT_RULES.
  */
 
-import { eq, and, ne } from 'drizzle-orm';
+import { eq, and, ne, or } from 'drizzle-orm';
 import {
   db,
   driverTokens,
   drivers,
   ocpiExternalTokens,
   chargingSessions,
+  chargingStations,
   guestSessions,
   isRoamingEnabled,
   isSiteFreeVendEnabledByStation,
@@ -504,7 +505,10 @@ async function notFound(
 /**
  * A driver token already in an active session gets ConcurrentTx. Only an
  * accepted driver token is checked: the other sources do not write
- * `charging_sessions.token_id`. A failed lookup keeps the decision.
+ * `charging_sessions.token_id`. The session of the message's own transaction
+ * at this station is not counted, matched by the station row id or, when the
+ * context has none, by the station's OCPP id. A failed lookup keeps the
+ * decision.
  */
 async function checkConcurrentTransaction(
   input: AuthorizeTokenInput,
@@ -512,10 +516,26 @@ async function checkConcurrentTransaction(
   decision: AuthorizeDecision,
   logger: Logger,
 ): Promise<AuthorizeDecision> {
-  if (!rules.concurrentTx || decision.status !== 'accepted' || decision.matchedTokenId == null) {
+  if (
+    rules.concurrentTx === 'off' ||
+    (rules.concurrentTx === 'prepaid_only' && decision.prepaidBalanceCents == null) ||
+    decision.status !== 'accepted' ||
+    decision.matchedTokenId == null
+  ) {
     return decision;
   }
   try {
+    // The context has no station row id when its station lookup missed:
+    // resolve it here so the own transaction is still excluded.
+    let ownStationDbId = input.stationDbId;
+    if (input.transactionId != null && ownStationDbId == null) {
+      const [station] = await db
+        .select({ id: chargingStations.id })
+        .from(chargingStations)
+        .where(eq(chargingStations.stationId, input.stationId))
+        .limit(1);
+      ownStationDbId = station?.id ?? null;
+    }
     const [active] = await db
       .select({ id: chargingSessions.id })
       .from(chargingSessions)
@@ -523,8 +543,11 @@ async function checkConcurrentTransaction(
         and(
           eq(chargingSessions.tokenId, decision.matchedTokenId),
           eq(chargingSessions.status, 'active'),
-          input.excludeSessionId != null
-            ? ne(chargingSessions.id, input.excludeSessionId)
+          input.transactionId != null && ownStationDbId != null
+            ? or(
+                ne(chargingSessions.stationId, ownStationDbId),
+                ne(chargingSessions.transactionId, input.transactionId),
+              )
             : undefined,
         ),
       )

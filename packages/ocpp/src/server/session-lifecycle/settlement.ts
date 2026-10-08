@@ -4,6 +4,7 @@
 import type { DomainEvent } from '@evtivity/lib';
 import { notificationMoney, sessionReceiptVariables } from '@evtivity/lib';
 import {
+  dispatchPrepaidLowCreditNotice,
   isReleasedBelowMinimum,
   recordTerminalSettlement,
   settleSessionPayment,
@@ -253,6 +254,26 @@ export async function settleTransactionEnded(
           logger.debug({ err }, 'token.changed SSE publish failed; continuing');
         }
       });
+      // Low credit notice when this debit took the balance below the
+      // threshold (once per debit: a repeated settlement sends nothing, and a
+      // rerun keeps the first outcome and skips the done step). Fire-and-forget
+      // and fail-open (P9).
+      if (outcome.repeated !== true) {
+        await attempt.once('settle:prepaid-low-credit', () => {
+          void eventBus.track(
+            dispatchPrepaidLowCreditNotice(outcome, {
+              templatesDirs: ALL_TEMPLATES_DIRS,
+              pubsub,
+            }).catch((err: unknown) => {
+              logger.warn(
+                { err, sessionId: session.id, tokenId: outcome.tokenId },
+                'Prepaid low credit notice failed; continuing',
+              );
+            }),
+          );
+          return Promise.resolve();
+        });
+      }
       return outcome;
     }
     if (outcome.mode !== 'card') return outcome;

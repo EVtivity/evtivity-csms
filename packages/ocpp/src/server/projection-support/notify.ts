@@ -21,7 +21,6 @@ import {
   dispatchSystemNotification,
   ALL_TEMPLATES_DIRS,
 } from '../notification-dispatcher.js';
-import type { ProjectionLookups } from './lookups.js';
 
 export interface ProjectionNotifier {
   auditLinkedReservationFault(sessionId: string, reason: string): Promise<void>;
@@ -56,11 +55,10 @@ export interface ProjectionNotifierDeps {
   eventBus: EventBus;
   pubsub: PubSubClient;
   logger: Logger;
-  lookups: ProjectionLookups;
 }
 
 export function createProjectionNotifier(deps: ProjectionNotifierDeps): ProjectionNotifier {
-  const { sql, eventBus, pubsub, logger, lookups } = deps;
+  const { sql, eventBus, pubsub, logger } = deps;
 
   // Write a `session_failed` reservation audit row when a charging session
   // that was linked to a reservation ends in a non-success state. Covers the
@@ -107,8 +105,15 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
     // once, a meter reading cannot end the period between the mark and the
     // claim (the meter fallbacks never clear a claimed period), and a later
     // period has a new idle_started_at and notifies again.
-    // The idle fee and tax rate that apply now: the open tariff segment's
-    // snapshot (split billing), else the session's.
+    // Retry safety (event-projections.md, "Retry on a lost database
+    // connection"): the settings are read before the claim, and the claim
+    // statement itself returns everything the notice needs (the idle fee and
+    // tax rate that apply now, from the open tariff segment's snapshot under
+    // split billing, else the session's; the site name; a guest's email).
+    // After the claim only the fail-open dispatch runs, so no lost connection
+    // can fail a rerun between the claim and the send and lose the notice.
+    const gracePeriodMinutes = await getIdlingGracePeriodMinutes();
+    const companyPriceDisplay = await getCompanyPriceDisplay();
     const idleSession = await sql`
       WITH claimed AS (
         UPDATE charging_sessions
@@ -124,10 +129,13 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
                   ELSE cs.tariff_idle_fee_price_per_minute END AS idle_fee_price_per_minute,
              CASE WHEN seg.price_snapshot THEN seg.tax_rate
                   ELSE cs.tariff_tax_rate END AS tax_rate,
-             cs.tax_basis, d.price_display, UPPER(cs.currency) AS currency
+             cs.tax_basis, d.price_display, UPPER(cs.currency) AS currency,
+             site.name AS site_name, guest.guest_email
       FROM charging_sessions cs
       JOIN claimed ON claimed.id = cs.id
       LEFT JOIN drivers d ON d.id = cs.driver_id
+      LEFT JOIN charging_stations st ON st.id = cs.station_id
+      LEFT JOIN sites site ON site.id = st.site_id
       LEFT JOIN LATERAL (
         SELECT price_snapshot, idle_fee_price_per_minute, tax_rate
         FROM session_tariff_segments
@@ -135,19 +143,22 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
         ORDER BY started_at DESC
         LIMIT 1
       ) seg ON true
+      LEFT JOIN LATERAL (
+        SELECT gs.guest_email FROM guest_sessions gs
+        WHERE gs.charging_session_id = cs.id AND gs.guest_email != ''
+        LIMIT 1
+      ) guest ON cs.driver_id IS NULL
       WHERE cs.id = ${sessionId}
     `;
     const idleRow = idleSession[0];
     if (idleRow == null) return;
 
-    const stationUuid = await lookups.resolveStationUuid(stationId);
-    const gracePeriodMinutes = await getIdlingGracePeriodMinutes();
     const idleFeeRate = idleRow.idle_fee_price_per_minute as string | null;
-    const idleSiteName = stationUuid != null ? await lookups.resolveSiteName(stationUuid) : null;
+    const idleSiteName = idleRow.site_name as string | null;
 
     // The idle fee is shown as the driver chose in the portal, else as the
     // company setting says. Guests have no choice and follow the setting.
-    const priceDisplay = resolvePriceDisplay(idleRow.price_display, await getCompanyPriceDisplay());
+    const priceDisplay = resolvePriceDisplay(idleRow.price_display, companyPriceDisplay);
     const idleFee = idleFeeRate != null ? Number(idleFeeRate) : 0;
     const taxRate = idleRow.tax_rate != null ? Number(idleRow.tax_rate) : 0;
     const taxBasis = resolveTaxBasis(idleRow.tax_basis);
@@ -187,19 +198,14 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
         ),
       );
     } else {
-      // Guest session: check for guest email
-      const guestRows = await sql`
-        SELECT guest_email FROM guest_sessions
-        WHERE charging_session_id = ${sessionId} AND guest_email != ''
-        LIMIT 1
-      `;
-      const guestRow = guestRows[0];
-      if (guestRow != null) {
+      // Guest session: the guest's email, read by the claim.
+      const guestEmail = idleRow.guest_email as string | null;
+      if (guestEmail != null) {
         void eventBus.track(
           dispatchSystemNotification(
             sql,
             'session.IdlingStarted',
-            { email: guestRow.guest_email as string },
+            { email: guestEmail },
             templateVars,
             ALL_TEMPLATES_DIRS,
           ),

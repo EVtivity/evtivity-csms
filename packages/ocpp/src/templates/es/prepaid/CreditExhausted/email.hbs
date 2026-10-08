@@ -1,0 +1,59 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Hola {{firstName}},</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Saldo prepago agotado</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Su sesión de carga se detuvo porque se agotó el saldo de su tarjeta prepago. Contacte con nosotros para recargarlo antes de su próxima carga.</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='width:100%;border-collapse:collapse;border-spacing:0;margin-bottom:24px;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >Tarjeta</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{idToken}}</td>
+  </tr>
+  {{#if siteName}}
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >Sitio</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{siteName}}</td>
+  </tr>
+  {{/if}}
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >ID de estación</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{stationId}}</td>
+  </tr>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >ID de transacción</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{transactionId}}</td>
+  </tr>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >Saldo utilizado</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{creditFormatted}}</td>
+  </tr>
+</table>

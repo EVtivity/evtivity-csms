@@ -86,6 +86,8 @@ const STATE_BODIES: Record<StationMessageState, string> = {
   payment_required: 'Add a payment method\nin the app to start charging.\n{{companyName}}',
   guest_unauthorized: 'Guest payment not authorized.\nScan the QR code\nto restart checkout.',
   unauthorized: 'Tap your RFID card\nor scan the QR code\nto authorize charging.',
+  prepaid_exhausted:
+    'Prepaid credit used up.\nCharging stopped.\n{{#if supportPhone}}Support: {{supportPhone}}{{/if}}',
 };
 
 describe('renderStationMessage', () => {
