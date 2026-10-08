@@ -180,6 +180,13 @@ export default defineConfig({
                 'packages/css/src/station-simulator.ts',
               ),
             },
+            {
+              find: '@evtivity/css/iso15118-test-ev',
+              replacement: path.resolve(
+                import.meta.dirname,
+                'packages/css/src/lib/iso15118-test-ev.ts',
+              ),
+            },
           ],
         },
         test: {

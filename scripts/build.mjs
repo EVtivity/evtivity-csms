@@ -72,6 +72,22 @@ export const embedWasmPlugin = {
   },
 };
 
+// The source .ts file a workspace package exports for a subpath, from the
+// "types" (or a .ts "import") condition of its package.json "exports" entry.
+function exportedSource(pkgDir, subpath) {
+  const pkg = JSON.parse(readFileSync(resolve(pkgDir, 'package.json'), 'utf8'));
+  const entry = pkg.exports?.[`./${subpath}`];
+  const target =
+    typeof entry === 'string'
+      ? entry
+      : typeof entry?.import === 'string'
+        ? entry.import
+        : (entry?.import?.types ?? entry?.types);
+  if (typeof target !== 'string' || !target.endsWith('.ts')) return undefined;
+  const file = resolve(pkgDir, target);
+  return statSync(file, { throwIfNoEntry: false })?.isFile() === true ? file : undefined;
+}
+
 const workspacePlugin = {
   name: 'workspace-source',
   setup(build) {
@@ -84,6 +100,10 @@ const workspacePlugin = {
         if (args.path.startsWith(pkg + '/')) {
           const subpath = args.path.slice(pkg.length + 1);
           const tsPath = subpath.replace(/\.js$/, '.ts');
+          // A package.json export can map the subpath to a source file elsewhere
+          // (@evtivity/css/iso15118-test-ev -> src/lib/iso15118-test-ev.ts).
+          const exported = exportedSource(pkgDir, subpath);
+          if (exported !== undefined) return { path: exported };
           const candidates = [
             resolve(pkgDir, 'src', tsPath),
             resolve(pkgDir, tsPath),
