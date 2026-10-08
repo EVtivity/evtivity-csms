@@ -1269,6 +1269,47 @@ describe('Event projections', () => {
       expect(refreshCalls.length).toBe(1);
     });
 
+    for (const [connectorStatus, expected] of [
+      ['SuspendedEV', 'open'],
+      ['SuspendedEVSE', 'close'],
+      ['Faulted', 'close'],
+      ['Finishing', 'close'],
+      ['Charging', 'close'],
+      ['Occupied', 'none'],
+    ] as const) {
+      it(`idle detection on StatusNotification ${connectorStatus}: ${expected}`, async () => {
+        await setup();
+
+        setupSqlResults(
+          [{ id: 'sta_000000000001' }], // resolveStationUuid
+          [{ id: 'evse_000000000001' }], // SELECT evses (found)
+          [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prev)
+        );
+
+        await eventBus.emit(
+          'ocpp.StatusNotification',
+          makeDomainEvent('ocpp.StatusNotification', 'CS-001', {
+            evseId: 1,
+            connectorId: 1,
+            connectorStatus,
+            timestamp: '2024-01-01T01:00:00Z',
+          }),
+        );
+
+        const joined = sqlCalls.map((c) => c.strings.join(''));
+        const opened = joined.some(
+          (t) => t.includes('SET idle_started_at =') && t.includes('idle_started_at IS NULL'),
+        );
+        const closed = joined.some(
+          (t) => t.includes('SET idle_minutes') && t.includes('idle_started_at IS NOT NULL'),
+        );
+        expect({ opened, closed }).toEqual({
+          opened: expected === 'open',
+          closed: expected === 'close',
+        });
+      });
+    }
+
     it('publishes station_message_refresh on auto-create EVSE branch for OCPP 2.1', async () => {
       await setup();
 
@@ -2114,14 +2155,14 @@ describe('Event projections', () => {
       expect(sqlCalls.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('sets idle_started_at when chargingState is EVConnected on Updated', async () => {
+    it('sets idle_started_at on an active session when chargingState is SuspendedEV', async () => {
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
-        [{ id: 'session-1' }], // SELECT id FROM charging_sessions
+        [{ id: 'session-1', status: 'active' }], // SELECT id FROM charging_sessions
         [], // INSERT transaction_events
-        [], // UPDATE idle_started_at (chargingState = EVConnected)
+        [], // UPDATE idle_started_at (chargingState = SuspendedEV)
         [{ driver_id: null, site_name: null, guest_email: null }], // dispatchIdlingNotification: the claim (no driver, no guest)
         [{ site_id: null }], // resolveSiteId
         [{ driver_id: null }], // SELECT driver_id (no driver)
@@ -2136,17 +2177,49 @@ describe('Event projections', () => {
           seqNo: 1,
           triggerReason: 'ChargingStateChanged',
           timestamp: '2024-01-01T01:00:00Z',
-          chargingState: 'EVConnected',
+          chargingState: 'SuspendedEV',
         }),
       );
 
-      // Verify the idle_started_at UPDATE was issued
       const idleUpdateCall = sqlCalls.find((c) => {
         const joined = c.strings.join('');
-        return joined.includes('idle_started_at') && joined.includes('idle_started_at IS NULL');
+        return joined.includes('SET idle_started_at') && joined.includes('idle_started_at IS NULL');
       });
       expect(idleUpdateCall).toBeDefined();
+      expect(idleUpdateCall!.strings.join('')).toContain("status = 'active'");
     });
+
+    for (const chargingState of ['EVConnected', 'SuspendedEVSE', 'Idle', 'Charging']) {
+      it(`closes an open idle period and opens none when chargingState is ${chargingState}`, async () => {
+        await setup();
+
+        setupSqlResults(
+          [{ id: 'sta_000000000001' }], // resolveStationId
+          [{ id: 'session-1', status: 'active' }], // SELECT id FROM charging_sessions
+          [], // INSERT transaction_events
+          [], // UPDATE idle_minutes (close the open period)
+        );
+
+        await eventBus.emit(
+          'ocpp.TransactionEvent',
+          makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+            eventType: 'Updated',
+            stationId: 'CS-001',
+            transactionId: 'tx-1',
+            seqNo: 1,
+            triggerReason: 'ChargingStateChanged',
+            timestamp: '2024-01-01T01:00:00Z',
+            chargingState,
+          }),
+        );
+
+        const joined = sqlCalls.map((c) => c.strings.join(''));
+        expect(joined.some((t) => t.includes('SET idle_started_at ='))).toBe(false);
+        const close = joined.find((t) => t.includes('idle_started_at IS NOT NULL'));
+        expect(close).toBeDefined();
+        expect(close).toContain("status = 'active'");
+      });
+    }
 
     it('dispatches guest idling notification when guest email is present', async () => {
       await setup();
@@ -2158,7 +2231,7 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [{ id: 'session-1' }], // SELECT id FROM charging_sessions
         [], // INSERT transaction_events
-        [], // UPDATE idle_started_at (chargingState = EVConnected)
+        [], // UPDATE idle_started_at (chargingState = SuspendedEV)
         [
           {
             driver_id: null,
@@ -2184,7 +2257,7 @@ describe('Event projections', () => {
           seqNo: 1,
           triggerReason: 'ChargingStateChanged',
           timestamp: '2024-01-01T01:00:00Z',
-          chargingState: 'EVConnected',
+          chargingState: 'SuspendedEV',
         }),
       );
 
@@ -2212,7 +2285,7 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [{ id: 'session-1' }], // SELECT id FROM charging_sessions
         [], // INSERT transaction_events
-        [], // UPDATE idle_started_at (chargingState = EVConnected)
+        [], // UPDATE idle_started_at (chargingState = SuspendedEV)
         [
           {
             driver_id: null,
@@ -2238,7 +2311,7 @@ describe('Event projections', () => {
           seqNo: 1,
           triggerReason: 'ChargingStateChanged',
           timestamp: '2024-01-01T01:00:00Z',
-          chargingState: 'EVConnected',
+          chargingState: 'SuspendedEV',
         }),
       );
 
@@ -3038,12 +3111,13 @@ describe('Event projections', () => {
       await setup();
 
       // Session has meter_start=1000 and energy_delivered_wh=5000 (meter was at 6000).
-      // New reading is also 6000 (same as before), so energy is flat.
+      // New reading is also 6000 (same as before), so energy is flat. It last
+      // rose one sample interval earlier.
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 5000, meter_start: 1000 }], // SELECT prev energy
+        [{ energy_delivered_wh: 5000, meter_start: 1000, last_rise_at: '2024-01-01T00:59:00Z' }], // SELECT prev energy
         [], // UPDATE meter_start (no-op, already set)
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle_started_at (flat energy)
@@ -3078,6 +3152,57 @@ describe('Event projections', () => {
         return joined.includes('SET idle_started_at') && joined.includes('idle_started_at IS NULL');
       });
       expect(idleSetCall).toBeDefined();
+    });
+
+    // Finding J3: a clock-aligned or transaction-end sample a moment after the
+    // periodic one that raised the energy is flat too, but no proof the EV
+    // stopped drawing power.
+    it('opens no idle period for a flat reading moments after the energy rose', async () => {
+      await setup();
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationUuid
+        [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
+        [], // INSERT meter_values
+        [
+          {
+            energy_delivered_wh: 5000,
+            meter_start: 1000,
+            last_rise_at: '2024-01-01T00:59:59.600Z',
+          },
+        ], // SELECT prev energy (rose 0.4 s earlier)
+        [], // UPDATE meter_start (no-op, already set)
+        [], // UPDATE energy_delivered_wh
+        [], // SELECT active sessions
+        [{ site_id: null }], // resolveSiteId
+        [], // pg_notify
+      );
+
+      await eventBus.emit(
+        'ocpp.MeterValues',
+        makeDomainEvent('ocpp.MeterValues', 'CS-001', {
+          stationId: 'CS-001',
+          transactionId: 'TX-MV',
+          source: 'TransactionEvent',
+          meterValues: [
+            {
+              timestamp: '2024-01-01T01:00:00Z',
+              sampledValue: [
+                {
+                  measurand: 'Energy.Active.Import.Register',
+                  value: 6000.3,
+                  unitOfMeasure: { unit: 'Wh' },
+                },
+              ],
+            },
+          ],
+        }),
+      );
+
+      const idleSetCall = sqlCalls.find((c) => {
+        const joined = c.strings.join('');
+        return joined.includes('SET idle_started_at') && joined.includes('idle_started_at IS NULL');
+      });
+      expect(idleSetCall).toBeUndefined();
     });
 
     it('clears idle_started_at when energy reading increases from previous', async () => {

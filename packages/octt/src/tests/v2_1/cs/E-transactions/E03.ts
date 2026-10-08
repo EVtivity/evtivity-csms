@@ -212,7 +212,7 @@ export const TC_E_38_CS: CsTestCase = {
     }
 
     // Manual Action: EV stops accepting energy (not ready)
-    await ctx.station.setEvNotReady(1);
+    await ctx.station.suspendCharging(1, 'EV');
 
     // Step 2: TransactionEvent with SuspendedEV (EV not ready)
     const txMsg = await waitForTriggerReason(ctx.server, 'ChargingStateChanged', 10_000);

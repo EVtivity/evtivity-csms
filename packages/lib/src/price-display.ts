@@ -537,6 +537,11 @@ export function taxPerRate(parts: readonly RatedAmount[], basis: TaxBasis): TaxL
 export interface CostComponentGroup {
   segment: number | null;
   taxLines: CostTaxLine[];
+  /**
+   * Idle minutes billed in this group (after the grace period), when its
+   * idle fee is not zero. Absent in breakdowns stored before it was recorded.
+   */
+  billableIdleMinutes?: number;
 }
 
 /**
@@ -675,7 +680,13 @@ function parseComponents(value: unknown): CostComponentGroup[] | null | undefine
     const lines = g['taxLines'];
     if (segment !== null && !isFiniteNumber(segment)) return undefined;
     if (!Array.isArray(lines) || !lines.every(isCostTaxLineValue)) return undefined;
-    groups.push({ segment, taxLines: lines });
+    const idle = g['billableIdleMinutes'];
+    if (idle !== undefined && !isFiniteNumber(idle)) return undefined;
+    groups.push(
+      idle === undefined
+        ? { segment, taxLines: lines }
+        : { segment, taxLines: lines, billableIdleMinutes: idle },
+    );
   }
   return groups;
 }

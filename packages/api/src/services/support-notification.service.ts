@@ -2,15 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq } from 'drizzle-orm';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { db, client, users, roles, isSupportEnabled } from '@evtivity/database';
 import { createLogger, dispatchSystemNotification } from '@evtivity/lib';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 
 const logger = createLogger('support-notification');
-
-const currentDir = dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = resolve(currentDir, '..', 'templates');
 
 async function resolveOperatorRecipient(
   assignedTo: string | null,
@@ -76,7 +72,7 @@ export async function dispatchOperatorNotification(
         subject,
         type,
       },
-      TEMPLATES_DIR,
+      ALL_TEMPLATES_DIRS,
     );
   } catch (err) {
     logger.warn(

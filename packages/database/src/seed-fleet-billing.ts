@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
+import argon2 from 'argon2';
 import { sql as dsql } from 'drizzle-orm';
 import { DEFAULT_TAX_BASIS, chargedCostBreakdown, taxTotals } from '@evtivity/lib';
 import type { TaxLine } from '@evtivity/lib';
@@ -83,6 +84,9 @@ const MEMBERS = [
     optOut: true,
   },
 ] as const;
+
+/** Sign-in password of the demo members, the demo driver password of seed.ts. */
+const MEMBER_PASSWORD = 'driver123';
 
 export interface FleetBillingDemoInput {
   /** charging_stations.id of a demo station the sessions ran on. */
@@ -202,6 +206,7 @@ export async function seedFleetBillingDemo(
     ON CONFLICT (id) DO NOTHING
   `;
 
+  const memberPasswordHash = await argon2.hash(MEMBER_PASSWORD);
   for (const [i, member] of MEMBERS.entries()) {
     await sql`
       INSERT INTO drivers (id, first_name, last_name, email, registration_source, is_active,
@@ -209,6 +214,12 @@ export async function seedFleetBillingDemo(
       VALUES (${member.id}, ${member.firstName}, ${member.lastName}, ${member.email}, 'admin',
         true, true, ${new Date(now.getTime() - (120 - i) * DAY_MS)})
       ON CONFLICT (id) DO NOTHING
+    `;
+    // Sign-in for the portal and the app. Only where no password is set, so a
+    // rerun or a password the driver chose stays untouched.
+    await sql`
+      UPDATE drivers SET password_hash = ${memberPasswordHash}
+      WHERE id = ${member.id} AND password_hash IS NULL
     `;
     await sql`
       INSERT INTO fleet_drivers (fleet_id, driver_id, account_billing_opt_out, created_at)

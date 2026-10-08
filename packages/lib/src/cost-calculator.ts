@@ -45,6 +45,11 @@ export interface CostBreakdown {
    * total. Empty when nothing is billed.
    */
   taxLines: CostTaxLine[];
+  /**
+   * Idle minutes billed (after the grace period) when an idle fee was
+   * charged. Absent when no idle fee was billed.
+   */
+  billableIdleMinutes?: number;
 }
 
 export interface SplitCostBreakdown extends CostBreakdown {
@@ -117,6 +122,7 @@ export function calculateSessionCost(
     sessionFeeCents,
     idleFeeCents,
     reservationHoldingFeeCents,
+    ...(idleFeeCents > 0 ? { billableIdleMinutes } : {}),
     subtotalCents: netCents,
     taxCents,
     totalCents: netCents + taxCents,
@@ -294,6 +300,7 @@ function withTax(b: CostBreakdown, tax: TaxLine): CostBreakdown {
   return {
     basis: b.basis,
     ...dimensions,
+    ...(b.billableIdleMinutes != null ? { billableIdleMinutes: b.billableIdleMinutes } : {}),
     subtotalCents: tax.netCents,
     taxCents: tax.taxCents,
     totalCents: tax.netCents + tax.taxCents,
@@ -402,12 +409,18 @@ function isSplit(breakdown: CostBreakdown | SplitCostBreakdown): breakdown is Sp
 export function toSessionCostBreakdown(
   breakdown: CostBreakdown | SplitCostBreakdown,
 ): SessionCostBreakdown {
+  const idleOf = (b: CostBreakdown): { billableIdleMinutes?: number } =>
+    b.billableIdleMinutes != null ? { billableIdleMinutes: b.billableIdleMinutes } : {};
   const components: CostComponentGroup[] = isSplit(breakdown)
     ? [
-        ...breakdown.segments.map((seg, i) => ({ segment: i + 1, taxLines: seg.taxLines })),
+        ...breakdown.segments.map((seg, i) => ({
+          segment: i + 1,
+          taxLines: seg.taxLines,
+          ...idleOf(seg),
+        })),
         { segment: null, taxLines: taxBreakdownByRate([breakdown.reservationHolding]) },
       ]
-    : [{ segment: null, taxLines: breakdown.taxLines }];
+    : [{ segment: null, taxLines: breakdown.taxLines, ...idleOf(breakdown) }];
   return {
     basis: breakdown.basis,
     netCents: breakdown.subtotalCents,

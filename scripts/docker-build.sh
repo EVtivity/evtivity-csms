@@ -55,10 +55,15 @@ if [ -z "${BIND_IP:-}" ]; then
   fi
 fi
 
-# Tools: pgadmin, mailpit, ftp
-read -rp "Start dev tools (pgadmin, mailpit, ftp)? [y/N] " tools
+# Tools: pgadmin, mailpit, notify-sink (driver SMS and push), ftp
+read -rp "Start dev tools (pgadmin, mailpit, notify-sink, ftp)? [y/N] " tools
 if [[ "$tools" == "y" || "$tools" == "Y" ]]; then
   PROFILES+=(--profile tools)
+  # Send driver SMS and push from api, ocpp and worker to notify-sink instead of
+  # Twilio and Expo (off in docker-compose.yml otherwise). A value from .env wins:
+  # NOTIFICATIONS_TEST_SINK_URL= (empty) keeps Twilio and Expo with the tools.
+  export NOTIFICATIONS_ALLOW_TEST_SINK="${NOTIFICATIONS_ALLOW_TEST_SINK:-true}"
+  export NOTIFICATIONS_TEST_SINK_URL="${NOTIFICATIONS_TEST_SINK_URL-http://notify-sink:8080}"
 fi
 
 # OCPI: ocpi server + simulators
@@ -102,11 +107,11 @@ else
   docker compose --profile tools --profile ocpi --profile monitoring stop --timeout 10 \
     api ocpp csms portal simulator worker migrate \
     ocpi ocpi-simulator ocpi-cpo-sim \
-    pgadmin mailpit ftp prometheus grafana loki alloy 2>/dev/null || true
+    pgadmin mailpit notify-sink ftp prometheus grafana loki alloy 2>/dev/null || true
   docker compose --profile tools --profile ocpi --profile monitoring rm -f \
     api ocpp csms portal simulator worker migrate \
     ocpi ocpi-simulator ocpi-cpo-sim \
-    pgadmin mailpit ftp prometheus grafana loki alloy 2>/dev/null || true
+    pgadmin mailpit notify-sink ftp prometheus grafana loki alloy 2>/dev/null || true
 fi
 
 # Wait for TLS port to free up

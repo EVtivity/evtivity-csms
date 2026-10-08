@@ -1,17 +1,21 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// The Test System's ISO 15118 EV for the contract certificate tests (TC_M_26,
-// TC_M_28, TC_M_100): an OEM PKI (root and provisioning certificate, CN =
-// PCID) on secp256r1 for ISO 15118-2 or secp521r1 for ISO 15118-20, signed
-// EXI CertificateInstallationReq and CertificateUpdateReq messages, and the
-// checks an EV makes on the CertificateInstallationRes: response code, CPS
-// signature, contract certificate, and the encrypted private key.
+// An ISO 15118 EV for Plug and Charge: an OEM PKI (root and provisioning
+// certificate, CN = PCID) on secp256r1 for ISO 15118-2 or secp521r1 for
+// ISO 15118-20, signed EXI CertificateInstallationReq and CertificateUpdateReq
+// messages, the checks an EV makes on the CertificateInstallationRes (response
+// code, CPS signature, contract certificate, and the encrypted private key),
+// and the iso15118CertificateHashData of an installed contract. The simulator
+// uses it for its Plug and Charge actions; the OCTT contract certificate tests
+// (TC_M_01, TC_M_02, TC_M_100) use it as the Test System's EV.
 
 // @peculiar/x509 resolves its algorithm providers through tsyringe.
 import 'reflect-metadata';
 import crypto, { webcrypto, type KeyObject } from 'node:crypto';
 import * as x509 from '@peculiar/x509';
+import { AsnConvert } from '@peculiar/asn1-schema';
+import { Certificate } from '@peculiar/asn1-x509';
 import {
   decodeMessage,
   decryptContractKeyIso2,
@@ -40,9 +44,9 @@ const ALGORITHMS: Record<Edition, EcKeyGenParams & { hash: string }> = {
 
 const PCID_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
-/** A random 18 character PCID (letters and digits). */
-export function randomPcid(): string {
-  let pcid = 'OCTT';
+/** A random 18 character PCID (letters and digits) starting with `prefix`. */
+export function randomPcid(prefix = 'OCTT'): string {
+  let pcid = prefix;
   while (pcid.length < 18) pcid += PCID_ALPHABET.charAt(crypto.randomInt(PCID_ALPHABET.length));
   return pcid;
 }
@@ -62,7 +66,11 @@ export class TestEv {
     readonly oemKey: KeyObject,
   ) {}
 
-  static async create(edition: Edition, pcid = randomPcid()): Promise<TestEv> {
+  static async create(
+    edition: Edition,
+    pcid = randomPcid(),
+    organization = 'OCTT',
+  ): Promise<TestEv> {
     const alg = ALGORITHMS[edition];
     const rootKeys = (await webcrypto.subtle.generateKey(alg, true, [
       'sign',
@@ -78,7 +86,7 @@ export class TestEv {
         .randomBytes(8)
         .toString('hex')
         .replace(/^[89a-f]/, '1'),
-      name: `CN=OCTT OEM Root ${pcid.slice(-6)},O=OCTT`,
+      name: `CN=${organization} OEM Root ${pcid.slice(-6)},O=${organization}`,
       notBefore: new Date(now - 60_000),
       notAfter: new Date(now + 2 * 86_400_000),
       signingAlgorithm: alg,
@@ -93,7 +101,7 @@ export class TestEv {
         .randomBytes(8)
         .toString('hex')
         .replace(/^[89a-f]/, '1'),
-      subject: `CN=${pcid},O=OCTT`,
+      subject: `CN=${pcid},O=${organization}`,
       issuer: root.subject,
       notBefore: new Date(now - 60_000),
       notAfter: new Date(now + 2 * 86_400_000),
@@ -307,4 +315,63 @@ export function checkIso20Response(exiResponse: string, ev: TestEv): ResponseChe
       privateKey,
     },
   };
+}
+
+/** OCPP 2.1 OCSPRequestDataType (AuthorizeRequest iso15118CertificateHashData). */
+export interface OcspRequestData {
+  hashAlgorithm: 'SHA256';
+  issuerNameHash: string;
+  issuerKeyHash: string;
+  serialNumber: string;
+  responderURL: string;
+}
+
+const id_pe_authorityInfoAccess = '1.3.6.1.5.5.7.1.1';
+
+function sha256Hex(data: ArrayBuffer): string {
+  return crypto.createHash('sha256').update(Buffer.from(data)).digest('hex');
+}
+
+function sameName(a: Certificate, b: Certificate): boolean {
+  return Buffer.from(AsnConvert.serialize(a.tbsCertificate.issuer)).equals(
+    Buffer.from(AsnConvert.serialize(b.tbsCertificate.subject)),
+  );
+}
+
+/** The OCSP responder of a certificate (Authority Information Access), or ''. */
+function ocspResponderUrl(der: Buffer): string {
+  const aia = new x509.X509Certificate(new Uint8Array(der)).getExtension(id_pe_authorityInfoAccess);
+  if (aia == null) return '';
+  const ocsp = new x509.AuthorityInfoAccessExtension(aia.rawData).ocsp;
+  const uri = ocsp.find((name) => name.type === 'url');
+  return uri?.value ?? '';
+}
+
+/**
+ * The iso15118CertificateHashData a station sends with the eMAID of an installed contract
+ * (C07): one SHA256 CertID per certificate of the contract chain whose issuer is in the
+ * chain (the contract certificate and the sub-CAs below the MO root). Serial numbers are
+ * hexadecimal without leading zeros. The responder URL is the certificate's AIA OCSP URL,
+ * '' when it has none (the CSMS answers its own local contract certificates without OCSP).
+ */
+export function contractCertificateHashData(contract: InstalledContract): OcspRequestData[] {
+  const chain = [contract.certificate, ...contract.subCertificates];
+  const parsed = chain.map((der) => AsnConvert.parse(der, Certificate));
+  const entries: OcspRequestData[] = [];
+  parsed.forEach((cert, index) => {
+    const issuer = parsed.find((candidate) => sameName(cert, candidate));
+    if (issuer == null || issuer === cert) return;
+    const serial = Buffer.from(cert.tbsCertificate.serialNumber)
+      .toString('hex')
+      .replace(/^0+(?=.)/, '')
+      .toUpperCase();
+    entries.push({
+      hashAlgorithm: 'SHA256',
+      issuerNameHash: sha256Hex(AsnConvert.serialize(issuer.tbsCertificate.subject)),
+      issuerKeyHash: sha256Hex(issuer.tbsCertificate.subjectPublicKeyInfo.subjectPublicKey),
+      serialNumber: serial,
+      responderURL: ocspResponderUrl(chain[index] as Buffer),
+    });
+  });
+  return entries.slice(0, 4);
 }

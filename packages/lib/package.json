@@ -49,6 +49,9 @@
     },
     "./safe-json": {
       "import": "./src/safe-json.ts"
+    },
+    "./notification-test-sink": {
+      "import": "./src/notification-test-sink.ts"
     }
   },
   "scripts": {

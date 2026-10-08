@@ -549,6 +549,7 @@ describe('runPaymentGate', () => {
         deps,
         expect.objectContaining({ sessionId: 'sess-1' }),
         'PaymentFailed',
+        { transactionEnded: false },
       );
       expect(logger.warn).toHaveBeenCalledWith(
         { sessionId: 'sess-1', status },
@@ -714,6 +715,7 @@ describe('runPaymentGate', () => {
         stationDbId: 'station-uuid',
       },
       'AccountCreditLimit',
+      { transactionEnded: false },
     );
     expect(mockDispatchFleetCreditLimitNotices).toHaveBeenCalledWith(
       check,

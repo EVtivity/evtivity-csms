@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { createLogger } from './logger.js';
+import {
+  getNotificationTestSinkUrl,
+  postToNotificationTestSink,
+} from './notification-test-sink.js';
 
 const logger = createLogger('push-send');
 
@@ -76,11 +80,44 @@ async function sendBatch(messages: ExpoPushMessage[]): Promise<ExpoPushResult[]>
   }
 }
 
-// Sends native push notifications via the Expo push service. Invalid-format
-// tokens are dropped before the request (Expo rejects the whole batch on one
-// bad token). Returns one result per input message; the caller acts on
-// `unregistered` to prune dead tokens. Never throws.
-export async function sendExpoPush(messages: ExpoPushMessage[]): Promise<ExpoPushResult[]> {
+/** What the notification test sink records next to each push message. */
+export interface PushSendContext {
+  eventType?: string | undefined;
+  language?: string | undefined;
+}
+
+async function sendToTestSink(
+  sinkUrl: string,
+  messages: ExpoPushMessage[],
+  context: PushSendContext,
+): Promise<ExpoPushResult[]> {
+  const results: ExpoPushResult[] = [];
+  for (const m of messages) {
+    const ok = await postToNotificationTestSink(sinkUrl, {
+      channel: 'push',
+      to: m.to,
+      eventType: context.eventType ?? null,
+      language: context.language ?? null,
+      title: m.title,
+      body: m.body,
+      data: m.data ?? null,
+    });
+    results.push({ token: m.to, ok, unregistered: false });
+  }
+  return results;
+}
+
+// Sends native push notifications via the Expo push service, or to the
+// notification test sink when this process has one (local development only).
+// Invalid-format tokens are dropped before the request (Expo rejects the whole
+// batch on one bad token). Returns one result per input message; the caller
+// acts on `unregistered` to prune dead tokens. Never throws, except on invalid
+// test sink settings, which the config schemas refuse at startup.
+export async function sendExpoPush(
+  messages: ExpoPushMessage[],
+  context: PushSendContext = {},
+): Promise<ExpoPushResult[]> {
+  const sinkUrl = getNotificationTestSinkUrl();
   const valid: ExpoPushMessage[] = [];
   const results: ExpoPushResult[] = [];
   for (const m of messages) {
@@ -93,7 +130,9 @@ export async function sendExpoPush(messages: ExpoPushMessage[]): Promise<ExpoPus
 
   for (let i = 0; i < valid.length; i += EXPO_BATCH_SIZE) {
     const batch = valid.slice(i, i + EXPO_BATCH_SIZE);
-    results.push(...(await sendBatch(batch)));
+    results.push(
+      ...(sinkUrl != null ? await sendToTestSink(sinkUrl, batch, context) : await sendBatch(batch)),
+    );
   }
   return results;
 }

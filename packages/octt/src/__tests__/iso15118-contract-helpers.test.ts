@@ -14,7 +14,7 @@ const create = vi.hoisted(() =>
     }),
   ),
 );
-vi.mock('../iso15118-test-ev.js', () => ({ TestEv: { create } }));
+vi.mock('@evtivity/css/iso15118-test-ev', () => ({ TestEv: { create } }));
 
 const { setUpContracts, skippedContractTest, pushResponseSteps } =
   await import('../iso15118-contract-helpers.js');

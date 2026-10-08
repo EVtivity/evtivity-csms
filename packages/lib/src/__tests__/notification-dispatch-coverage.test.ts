@@ -464,9 +464,15 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT push
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Completed', 'drv_99', {
-        stationId: 'CS-1',
-      });
+      await dispatchDriverNotification(
+        sql as never,
+        'session.Completed',
+        'drv_99',
+        {
+          stationId: 'CS-1',
+        },
+        [],
+      );
 
       expect(mockSendMail).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(
@@ -519,14 +525,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT push
       );
 
-      await dispatchDriverNotification(
-        sql as never,
-        'session.Started',
-        'drv_pub',
-        {},
-        undefined,
-        pubsub,
-      );
+      await dispatchDriverNotification(sql as never, 'session.Started', 'drv_pub', {}, [], pubsub);
 
       expect(publish).toHaveBeenCalledWith(
         'portal_events',
@@ -564,14 +563,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       );
 
       await expect(
-        dispatchDriverNotification(
-          sql as never,
-          'session.Started',
-          'drv_failpub',
-          {},
-          undefined,
-          pubsub,
-        ),
+        dispatchDriverNotification(sql as never, 'session.Started', 'drv_failpub', {}, [], pubsub),
       ).resolves.toBeUndefined();
 
       expect(publish).toHaveBeenCalled();
@@ -613,7 +605,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT push
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'drv_failmail', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'drv_failmail', {}, []);
 
       const email = decodeInsert(findInsert('email')!);
       expect(email.status).toBe('failed');
@@ -655,7 +647,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT push
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Completed', 'drv_failsms', {});
+      await dispatchDriverNotification(sql as never, 'session.Completed', 'drv_failsms', {}, []);
 
       const smsRow = decodeInsert(findInsert('sms')!);
       expect(smsRow.status).toBe('failed');
@@ -697,7 +689,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT push
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'drv_cred', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'drv_cred', {}, []);
 
       const email = decodeInsert(findInsert('email')!);
       expect(email.status).toBe('failed');
@@ -737,7 +729,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT push
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Completed', 'drv_credsms', {});
+      await dispatchDriverNotification(sql as never, 'session.Completed', 'drv_credsms', {}, []);
 
       const smsRow = decodeInsert(findInsert('sms')!);
       expect(smsRow.status).toBe('failed');
@@ -772,7 +764,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       );
 
       // driver.Welcome is sensitive but not required, so the driver's opt-outs apply.
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'drv_mfa', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'drv_mfa', {}, []);
 
       const push = decodeInsert(findInsert('push')!);
       const parsed = JSON.parse(push.body) as { message: string };
@@ -803,7 +795,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [],
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.ForgotPassword', 'drv_req', {});
+      await dispatchDriverNotification(sql as never, 'driver.ForgotPassword', 'drv_req', {}, []);
 
       const readsSwitch = sqlCalls.some((c) => c.strings.join('').includes('event_settings'));
       expect(readsSwitch).toBe(false);
@@ -828,6 +820,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com' },
         {},
+        [],
       );
 
       const readsSystem = sqlCalls.some((c) =>
@@ -846,6 +839,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.Receipt',
         { email: 'g@test.com' },
         {},
+        [],
       );
 
       // only the driver_event_settings SELECT ran, no INSERTs
@@ -863,6 +857,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'driver.ForgotPassword',
         { email: 'd@test.com' },
         {},
+        [],
       );
 
       const readsSwitch = sqlCalls.some((c) => c.strings.join('').includes('event_settings'));
@@ -883,6 +878,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'mfa.VerificationCode',
         { email: 'op@test.com', phone: '+15551112222', userId: 'usr_1' },
         {},
+        [],
       );
 
       const readsPrefs = sqlCalls.some((c) =>
@@ -929,6 +925,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
           timezone: 'UTC',
         },
         { resetUrl: 'https://x' },
+        [],
       );
 
       expect(mockSendMail).toHaveBeenCalledTimes(1);
@@ -977,7 +974,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'invoice.FleetInvoice',
         { email: 'billing@fleet.test', language: 'en', timezone: 'UTC' },
         { invoiceNumber: 'INV-202609-0001' },
-        undefined,
+        [],
         [pdf],
       );
 
@@ -1011,7 +1008,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT sms
       );
 
-      await dispatchSystemNotification(sql as never, 'session.EndRequestFailed', {}, {});
+      await dispatchSystemNotification(sql as never, 'session.EndRequestFailed', {}, {}, []);
 
       expect(mockSendMail).not.toHaveBeenCalled();
       const email = decodeInsert(findInsert('email')!);
@@ -1042,6 +1039,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222' },
         {},
+        [],
       );
 
       const email = decodeInsert(findInsert('email')!);
@@ -1069,6 +1067,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222', userId: 'usr_1' },
         {},
+        [],
       );
 
       // email row written, but no sms row because the operator opted out
@@ -1101,6 +1100,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { phone: '+15551112222', userId: 'usr_norow' },
         {},
+        [],
       );
 
       // SMS still sent because the missing pref row defaults to enabled.
@@ -1136,6 +1136,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222', userId: 'usr_2' },
         {},
+        [],
       );
 
       expect(mockFetch).toHaveBeenCalledWith(
@@ -1172,6 +1173,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com' },
         {},
+        [],
       );
 
       const email = decodeInsert(findInsert('email')!);
@@ -1204,6 +1206,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { phone: '+15551112222' },
         {},
+        [],
       );
 
       const smsRow = decodeInsert(findInsert('sms')!);
@@ -1238,6 +1241,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com' },
         {},
+        [],
       );
 
       const email = decodeInsert(findInsert('email')!);
@@ -1271,6 +1275,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { phone: '+15551112222' },
         {},
+        [],
       );
 
       const smsRow = decodeInsert(findInsert('sms')!);
@@ -1304,6 +1309,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com' },
         {},
+        [],
       );
 
       expect(mockSendMail).toHaveBeenCalledWith(
@@ -1332,6 +1338,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222' },
         { occurredAt: '2026-01-01T00:00:00.000Z' },
+        [],
       );
 
       // No throw, rows recorded with default behavior
@@ -1358,6 +1365,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         'session.EndRequestFailed',
         { email: 'op@test.com', phone: '+15551112222' },
         {},
+        [],
       );
 
       expect(notificationInserts().length).toBeGreaterThanOrEqual(2);
@@ -1377,6 +1385,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
           'session.EndRequestFailed',
           { email: 'op@test.com' },
           {},
+          [],
         ),
       ).resolves.toBeUndefined();
     });

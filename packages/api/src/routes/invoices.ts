@@ -214,7 +214,7 @@ const invoiceLineItem = z
       .record(z.unknown())
       .nullable()
       .describe(
-        'Line item metadata. kind (energy, time, sessionFee, idleFee, reservationFee, session, cancellationFee, noShowFee) says what the line bills; segment is the 1-based tariff segment of a split session; sessionDate and energyWh describe session lines; chargeDate is the charge date of a reservation fee line.',
+        'Line item metadata. kind (energy, time, sessionFee, idleFee, reservationFee, session, cancellationFee, noShowFee) says what the line bills; segment is the 1-based tariff segment of a split session; sessionDate and energyWh describe session lines; chargeDate is the charge date of a reservation fee line; on fleet invoices driverId, driverName and stationName describe session and idleFee lines, and idleMinutes is the idle time billed on an idleFee line (a session idle fee shown as its own line).',
       ),
     createdAt: z.string().describe('Timestamp when the line item was created'),
   })
@@ -555,7 +555,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Generate an invoice for a single charging session',
         description:
-          'Builds an invoice from the session and its tariff snapshot, allocating a sequential invoice number from invoice_number_seq. Inserts the invoice header and line items in a transaction. Returns 400 if the session is not eligible (no driver, no final cost, or already invoiced).',
+          'Builds an invoice from the session and its tariff snapshot, allocating the next gap-free invoice number from the invoice counter. Inserts the invoice header and line items in a transaction. Returns 400 if the session is not eligible (no driver, no final cost, or already invoiced).',
         operationId: 'createSessionInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
@@ -587,7 +587,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Generate an aggregated invoice for a driver over a date range',
         description:
-          'Aggregates every uninvoiced completed session for the driver between startDate and endDate into a single invoice with one line item per session and tax rate, plus one line per reservation cancellation or no-show fee charged in the window and not yet invoiced. Allocates an invoice number from invoice_number_seq. Returns 400 if no eligible sessions or fees are found in the window.',
+          'Aggregates every uninvoiced completed session for the driver between startDate and endDate into a single invoice with one line item per session and tax rate, plus one line per reservation cancellation or no-show fee charged in the window and not yet invoiced. Allocates the next gap-free invoice number from the invoice counter. Returns 400 if no eligible sessions or fees are found in the window.',
         operationId: 'createAggregatedInvoice',
         security: [{ bearerAuth: [] }],
         body: zodSchema(aggregatedInvoiceBody),

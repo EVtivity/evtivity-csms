@@ -18,6 +18,8 @@ const db = {
   energyWh: 0,
   meterStart: 1000,
   idleStartedAt: null as string | null,
+  // The reading that last raised the energy (energy_rose_at).
+  energyRoseAt: null as string | null,
   costCents: 800 as number | null,
 };
 
@@ -32,11 +34,19 @@ function route(text: string, values: unknown[]): unknown[] {
   if (text.includes('SELECT id, evse_id FROM charging_sessions')) {
     return [{ id: 'session-1', evse_id: 'evse-1' }];
   }
-  if (text.includes('SELECT energy_delivered_wh, meter_start FROM charging_sessions')) {
-    return [{ energy_delivered_wh: db.energyWh, meter_start: String(db.meterStart) }];
+  if (text.includes('SELECT energy_delivered_wh, meter_start')) {
+    return [
+      {
+        energy_delivered_wh: db.energyWh,
+        meter_start: String(db.meterStart),
+        last_rise_at: db.energyRoseAt,
+      },
+    ];
   }
   if (text.includes('SET energy_delivered_wh = GREATEST')) {
-    db.energyWh = Math.max(0, Number(values[0]) - db.meterStart);
+    const energyWh = Math.max(0, Number(values[0]) - db.meterStart);
+    if (energyWh - db.energyWh >= 1) db.energyRoseAt = values[2] as string;
+    db.energyWh = energyWh;
     return [];
   }
   if (text.includes('SET idle_started_at = ?') && text.includes('idle_started_at IS NULL')) {
@@ -257,6 +267,7 @@ describe('MeterValues run again after a lost connection', () => {
     db.energyWh = 3000;
     db.meterStart = 1000;
     db.idleStartedAt = '2026-10-07T09:50:00.000Z';
+    db.energyRoseAt = '2026-10-07T09:40:00.000Z';
     db.costCents = 800;
     const { registerProjections } = await import('../server/event-projections.js');
     eventBus = createMockEventBus();

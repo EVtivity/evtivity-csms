@@ -96,21 +96,12 @@ const ocppEventSettingItem = z
   })
   .passthrough();
 
-// Shared item shape for driver + system event toggle settings. Both tables
-// expose the same columns; the endpoint summaries differentiate which catalog
-// of event types each surface manages.
+// Item shape of the driver event settings (driver_event_settings).
 const eventToggleSettingItem = z
   .object({
     id: z.number().int().describe('Setting ID'),
-    eventType: z
-      .string()
-      .max(255)
-      .describe(
-        'Event type identifier (driver event for driver settings, system event for system settings)',
-      ),
-    isEnabled: z
-      .boolean()
-      .describe('Whether the event type is sent (always true for system events)'),
+    eventType: z.string().max(255).describe('Driver event type identifier'),
+    isEnabled: z.boolean().describe('Whether the driver event type is sent'),
     createdAt: z.coerce.date().describe('Timestamp when the setting was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the setting was last updated'),
   })

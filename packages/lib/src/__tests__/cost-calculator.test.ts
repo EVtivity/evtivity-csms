@@ -889,3 +889,48 @@ describe('tax rounded once per rate (audit N3)', () => {
     expect(taxPerRate([], 'net')).toEqual([]);
   });
 });
+
+describe('billable idle minutes in the stored breakdown', () => {
+  const tariff: TariffInput = {
+    pricePerKwh: '0.25',
+    pricePerMinute: '0',
+    pricePerSession: '1.00',
+    idleFeePricePerMinute: '0.10',
+    reservationFeePerMinute: null,
+    taxRate: '0.10',
+  };
+
+  it('records the minutes billed after the grace period on the component group', () => {
+    const stored = toSessionCostBreakdown(calculateSessionCost(tariff, 10000, 90, 55, 30));
+    expect(stored.components).toEqual([
+      expect.objectContaining({ segment: null, billableIdleMinutes: 25 }),
+    ]);
+  });
+
+  it('records nothing when no idle fee was billed', () => {
+    const stored = toSessionCostBreakdown(calculateSessionCost(tariff, 10000, 90, 20, 30));
+    expect(stored.components?.[0]).not.toHaveProperty('billableIdleMinutes');
+  });
+
+  it('records each segment its billable minutes after the grace taken once', () => {
+    const segments: TariffSegment[] = [
+      {
+        tariff,
+        durationMinutes: 60,
+        energyDeliveredWh: 5000,
+        idleMinutes: 20,
+        isFirstSegment: true,
+      },
+      {
+        tariff,
+        durationMinutes: 60,
+        energyDeliveredWh: 5000,
+        idleMinutes: 40,
+        isFirstSegment: false,
+      },
+    ];
+    const stored = toSessionCostBreakdown(calculateSplitSessionCost(segments, 30));
+    // Grace 30 is taken from the last segment: 20 and 10 minutes billed.
+    expect(stored.components?.map((g) => g.billableIdleMinutes)).toEqual([20, 10]);
+  });
+});

@@ -50,6 +50,7 @@ import {
 import {
   meterValueType as meterValueType16,
   sampledValueType as sampledValueType16,
+  stopReasonEnum as stopReasonEnum16,
 } from '../lib/ocpp-zod-types-v16.js';
 import { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from '../lib/css-config-defaults.js';
 import { authorize } from '../middleware/rbac.js';
@@ -97,6 +98,10 @@ export const HIGH_LEVEL_ACTIONS = [
   'unplug',
   'injectFault',
   'clearFault',
+  'suspendCharging',
+  'resumeCharging',
+  'evFull',
+  'powerCycle',
   'goOffline',
   'comeOnline',
 ] as const;
@@ -121,10 +126,17 @@ export const ACTION_VERSIONS: Record<string, 'all' | 'ocpp1.6' | 'ocpp2.1'> = {
   unplug: 'all',
   injectFault: 'all',
   clearFault: 'all',
+  suspendCharging: 'all',
+  resumeCharging: 'all',
+  evFull: 'all',
+  powerCycle: 'all',
   goOffline: 'all',
   comeOnline: 'all',
 
   // OCPP 2.1 only
+  createPncEv: 'ocpp2.1',
+  installPncContract: 'ocpp2.1',
+  startPncCharging: 'ocpp2.1',
   sendTransactionEvent: 'ocpp2.1',
   sendLogStatusNotification: 'ocpp2.1',
   sendSecurityEventNotification: 'ocpp2.1',
@@ -314,7 +326,9 @@ const stopChargingBody = z.object({
       'UnlockCommand',
     ])
     .optional()
-    .describe('Stop reason (Local, Remote, etc.)'),
+    .describe(
+      'Stop reason of the station OCPP version (1.6 StopTransaction reason, 2.1 ReasonEnumType). A reason of the other version is refused with 400 VALIDATION_ERROR.',
+    ),
 });
 
 const unplugBody = z.object({
@@ -345,10 +359,70 @@ const injectFaultBody = z.object({
     .describe(
       'Error code (1.6: GroundFailure, OverCurrentFailure, HighTemperature, InternalError, etc.)',
     ),
+  mode: z
+    .enum(['end', 'suspend'])
+    .optional()
+    .describe(
+      'What happens to a running transaction: end (default) ends it with the fault stop reason (2.1: GroundFault, OvercurrentFault or Other, trigger AbnormalCondition; 1.6: Other), suspend keeps it suspended by the EVSE until clearFault and resumeCharging',
+    ),
 });
 
 const clearFaultBody = z.object({
   evseId: z.number().int().describe('EVSE ID'),
+});
+
+const suspendChargingBody = z.object({
+  evseId: z.number().int().describe('EVSE ID'),
+  by: z
+    .enum(['EV', 'EVSE'])
+    .describe(
+      'Who stops the energy transfer: EV (SuspendedEV) or EVSE (SuspendedEVSE). The transaction and the cable stay; meter values report power 0 with flat energy.',
+    ),
+});
+
+const resumeChargingBody = z.object({
+  evseId: z.number().int().describe('EVSE ID'),
+});
+
+const evFullBody = z.object({
+  evseId: z.number().int().describe('EVSE ID'),
+});
+
+const powerCycleBody = z.object({
+  powerOffMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(600_000)
+    .optional()
+    .describe('How long the station stays without power, in milliseconds (default 0)'),
+  preserveTransactions: z
+    .boolean()
+    .optional()
+    .describe(
+      'true (default): the station goes down without stopping its transactions. 2.1 resumes them with TxResumed when TxCtrlr.ResumptionTimeout is above 0 (default 0: they end with PowerLoss); 1.6 stops them with PowerLoss after the reboot. false: the transactions stop with PowerLoss first.',
+    ),
+});
+
+// --- Plug and Charge (OCPP 2.1) ---
+
+const createPncEvBody = z.object({
+  evseId: z.number().int().describe('EVSE ID the EV is plugged into'),
+  edition: z
+    .union([z.literal(2), z.literal(20)])
+    .optional()
+    .describe('ISO 15118 edition of the EV: 2 (ISO 15118-2, default) or 20 (ISO 15118-20)'),
+});
+
+const installPncContractBody = z.object({
+  evseId: z.number().int().describe('EVSE ID of the EV created with createPncEv'),
+});
+
+const startPncChargingBody = z.object({
+  evseId: z
+    .number()
+    .int()
+    .describe('EVSE ID of the EV with an installed contract; the cable must be plugged in'),
 });
 
 const goOfflineBody = z.object({});
@@ -821,6 +895,7 @@ function actionRoute(
             ERROR_CODES.CONNECTOR_NOT_AVAILABLE,
             ERROR_CODES.CSS_ACTION_REJECTED,
             ERROR_CODES.OCPP_VERSION_MISMATCH,
+            ERROR_CODES.VALIDATION_ERROR,
           ]),
           404: errorWith('Resource not found', [
             ERROR_CODES.EVSE_NOT_FOUND,
@@ -862,6 +937,20 @@ function actionRoute(
           error: `Action ${actionName} requires ${version}, station ${station.stationId} is ${station.ocppProtocol ?? 'unknown'}`,
           code: 'OCPP_VERSION_MISMATCH',
         });
+      }
+
+      // A stop reason must belong to the station's OCPP version: the simulator would
+      // otherwise send a StopTransaction or TransactionEvent that fails the schema.
+      if (actionName === 'stopCharging') {
+        const reason = (params as { reason?: string }).reason;
+        const allowed: readonly string[] =
+          station.ocppProtocol === 'ocpp1.6' ? stopReasonEnum16.options : reasonEnum.options;
+        if (reason != null && !allowed.includes(reason)) {
+          return reply.status(400).send({
+            error: `Stop reason ${reason} is not valid for ${station.ocppProtocol ?? 'unknown'}`,
+            code: 'VALIDATION_ERROR',
+          });
+        }
       }
 
       // Pre-check connector status for startCharging so the dashboard Simulate
@@ -1570,8 +1659,31 @@ export function cssRoutes(app: FastifyInstance): void {
   actionRoute(app, 'unplug', 'all', 'Unplug charging cable', unplugBody);
   actionRoute(app, 'injectFault', 'all', 'Inject a fault on an EVSE', injectFaultBody);
   actionRoute(app, 'clearFault', 'all', 'Clear a fault on an EVSE', clearFaultBody);
-  actionRoute(app, 'goOffline', 'all', 'Disconnect station from OCPP server', goOfflineBody);
-  actionRoute(app, 'comeOnline', 'all', 'Reconnect station to OCPP server', comeOnlineBody);
+  actionRoute(
+    app,
+    'suspendCharging',
+    'all',
+    'Suspend the energy transfer (EV or EVSE)',
+    suspendChargingBody,
+  );
+  actionRoute(app, 'resumeCharging', 'all', 'Resume the energy transfer', resumeChargingBody);
+  actionRoute(app, 'evFull', 'all', 'EV battery full: suspend, then end', evFullBody);
+  actionRoute(app, 'powerCycle', 'all', 'Power cycle the station', powerCycleBody);
+  actionRoute(
+    app,
+    'goOffline',
+    'all',
+    'Disconnect station from OCPP server, keeping its transactions and queueing their messages',
+    goOfflineBody,
+  );
+  // The journey runner reads "replays queued" in this summary as the comeOnlineResume capability.
+  actionRoute(
+    app,
+    'comeOnline',
+    'all',
+    'Reconnect station to OCPP server without a reboot: reports connector statuses and replays queued transaction messages',
+    comeOnlineBody,
+  );
 
   // --- Station-initiated messages (version-specific endpoints) ---
   for (const ver of ['ocpp1.6', 'ocpp2.1'] as const) {
@@ -1629,6 +1741,27 @@ export function cssRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Send SecurityEventNotification',
     sendSecurityEventNotificationBody,
+  );
+  actionRoute(
+    app,
+    'createPncEv',
+    'ocpp2.1',
+    'Plug and Charge: create an EV with an OEM provisioning certificate (returns pcid and oemRootCertificate)',
+    createPncEvBody,
+  );
+  actionRoute(
+    app,
+    'installPncContract',
+    'ocpp2.1',
+    'Plug and Charge: the EV installs a contract through Get15118EVCertificate (returns emaid)',
+    installPncContractBody,
+  );
+  actionRoute(
+    app,
+    'startPncCharging',
+    'ocpp2.1',
+    'Plug and Charge: Authorize with the eMAID and certificate hash data, then start',
+    startPncChargingBody,
   );
   actionRoute(app, 'sendNotifyEvent', 'ocpp2.1', 'Send NotifyEvent', sendNotifyEventBody);
   actionRoute(app, 'sendNotifyReport', 'ocpp2.1', 'Send NotifyReport', sendNotifyReportBody);

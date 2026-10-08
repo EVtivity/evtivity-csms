@@ -20,10 +20,11 @@ import {
 import {
   checkIso2Response,
   checkIso20Response,
+  contractCertificateHashData,
   randomPcid,
   TestEv,
   updateRequest,
-} from '../iso15118-test-ev.js';
+} from '../lib/iso15118-test-ev.js';
 
 x509.cryptoProvider.set(webcrypto as unknown as Crypto);
 
@@ -183,5 +184,83 @@ describe('response checks', () => {
       contract: { emaid: 'USOCTC00000002' },
     });
     expect(checkIso20Response(build('OTHERPCID'), ev20)).toMatchObject({ ok: false });
+  });
+});
+
+describe('contractCertificateHashData', () => {
+  const alg = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' };
+
+  async function issue(
+    subject: string,
+    serialNumber: string,
+    issuer: { cert: x509.X509Certificate; key: CryptoKey } | null,
+    ocspUrl?: string,
+  ): Promise<{ cert: x509.X509Certificate; key: CryptoKey }> {
+    const keys = (await webcrypto.subtle.generateKey(alg, true, [
+      'sign',
+      'verify',
+    ])) as CryptoKeyPair;
+    const extensions: x509.Extension[] = [new x509.BasicConstraintsExtension(issuer == null)];
+    if (ocspUrl != null)
+      extensions.push(new x509.AuthorityInfoAccessExtension({ ocsp: [ocspUrl] }));
+    const cert =
+      issuer == null
+        ? await x509.X509CertificateGenerator.createSelfSigned({
+            serialNumber,
+            name: subject,
+            signingAlgorithm: alg,
+            keys,
+            extensions,
+          })
+        : await x509.X509CertificateGenerator.create({
+            serialNumber,
+            subject,
+            issuer: issuer.cert.subject,
+            signingAlgorithm: alg,
+            publicKey: keys.publicKey,
+            signingKey: issuer.key,
+            extensions,
+          });
+    return { cert, key: keys.privateKey };
+  }
+
+  function sha256(data: ArrayBuffer | Buffer): string {
+    return crypto
+      .createHash('sha256')
+      .update(Buffer.from(data as ArrayBuffer))
+      .digest('hex');
+  }
+
+  it('names every chain certificate whose issuer the chain holds', async () => {
+    const root = await issue('CN=MO Root', '01', null);
+    const sub1 = await issue('CN=MO Sub 1', '02', root);
+    const sub2 = await issue('CN=MO Sub 2', '03', sub1);
+    const leaf = await issue('CN=NLEVSC12345678', '00ab', sub2, 'http://ocsp.example/mo');
+    const entries = contractCertificateHashData({
+      emaid: 'NLEVSC12345678',
+      certificate: Buffer.from(leaf.cert.rawData),
+      subCertificates: [Buffer.from(sub2.cert.rawData), Buffer.from(sub1.cert.rawData)],
+      privateKey: crypto.createPrivateKey({
+        key: Buffer.from(await webcrypto.subtle.exportKey('pkcs8', leaf.key)),
+        format: 'der',
+        type: 'pkcs8',
+      }),
+    });
+    // Sub-CA 1 is left out: its issuer, the MO root, is not in the chain.
+    expect(entries).toHaveLength(2);
+    const spkiPoint = (c: x509.X509Certificate): Buffer =>
+      Buffer.from(c.publicKey.rawData).subarray(-65);
+    expect(entries[0]).toEqual({
+      hashAlgorithm: 'SHA256',
+      issuerNameHash: sha256(sub2.cert.subjectName.toArrayBuffer()),
+      issuerKeyHash: sha256(spkiPoint(sub2.cert)),
+      serialNumber: 'AB',
+      responderURL: 'http://ocsp.example/mo',
+    });
+    expect(entries[1]).toMatchObject({
+      issuerKeyHash: sha256(spkiPoint(sub1.cert)),
+      serialNumber: '3',
+      responderURL: '',
+    });
   });
 });

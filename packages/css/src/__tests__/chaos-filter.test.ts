@@ -12,6 +12,8 @@ const STATE_MUTATING_ACTIONS = [
   { name: 'stopCharging' },
   { name: 'injectFault' },
   { name: 'clearFault' },
+  { name: 'suspendCharging' },
+  { name: 'resumeCharging' },
   { name: 'comeOnline' },
   { name: 'goOffline' },
   { name: 'sendStatusNotification' },
@@ -58,9 +60,23 @@ describe('filterChaosActions', () => {
     expect(result).toContain('unplug');
   });
 
-  it('charging state: only stopCharging, unplug, injectFault, goOffline', () => {
+  it('charging state: stop, unplug, fault, offline, suspend and resume', () => {
     const result = names(filterChaosActions(STATE_MUTATING_ACTIONS, 'charging', 'Charging'));
-    expect(result.sort()).toEqual(['stopCharging', 'unplug', 'injectFault', 'goOffline'].sort());
+    expect(result.sort()).toEqual(
+      [
+        'stopCharging',
+        'unplug',
+        'injectFault',
+        'goOffline',
+        'suspendCharging',
+        'resumeCharging',
+      ].sort(),
+    );
+  });
+
+  it('a session kept through a fault (Faulted connector) can only clear it or go offline', () => {
+    const result = names(filterChaosActions(STATE_MUTATING_ACTIONS, 'charging', 'Faulted'));
+    expect(result.sort()).toEqual(['clearFault', 'goOffline'].sort());
   });
 
   it('charging state never returns startCharging', () => {

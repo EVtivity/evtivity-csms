@@ -229,7 +229,14 @@ describe('ChaosOrchestrator action selection', () => {
       }),
     );
     expect(sorted(actions)).toEqual(
-      sorted([...NON_MUTATING_16, 'stopCharging', 'unplug', 'injectFault']),
+      sorted([
+        ...NON_MUTATING_16,
+        'stopCharging',
+        'unplug',
+        'injectFault',
+        'suspendCharging',
+        'resumeCharging',
+      ]),
     );
   });
 
@@ -468,6 +475,7 @@ describe('ChaosOrchestrator session journeys', () => {
     }
 
     expect(published(pubsub).at(-1)?.action).toBe('injectFault');
+    expect(['end', 'suspend']).toContain(published(pubsub).at(-1)?.params['mode']);
     expect(internals(o).journeys.nextDue(Number.MAX_SAFE_INTEGER)).toEqual({
       stationId: 'CS-1',
       action: 'stopCharging',

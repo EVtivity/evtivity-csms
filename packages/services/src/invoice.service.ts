@@ -118,6 +118,11 @@ export interface InvoiceLineMetadata {
   driverName?: string;
   /** Fleet invoice 'session' lines: the station's name or OCPP id at issue. */
   stationName?: string;
+  /**
+   * Fleet invoice 'idleFee' lines: the idle minutes billed, from the stored
+   * cost breakdown. Absent when the breakdown does not record them.
+   */
+  idleMinutes?: number;
 }
 
 /** A line item before it is inserted. */
@@ -347,26 +352,12 @@ function singleSessionLines(session: SessionForInvoice): LineDraft[] {
   return sessionSummaryLines(session, breakdown.taxLines);
 }
 
-// Transitional for one release (v0.1.41, owner decision): pods of v0.1.40 still
-// running during the rolling upgrade invoice without setting invoice_id, so a
-// session or fee charge on a line of a live invoice counts as claimed too. A
-// void or credited invoice and a credit note (its lines mirror the credited
-// ones) are not live. v0.1.42 re-runs the 0163 backfill in a migration and
-// removes these guards.
-export const sessionNotOnLiveInvoice = sql`NOT EXISTS (
-  SELECT 1 FROM invoice_line_items li JOIN invoices i ON i.id = li.invoice_id
-  WHERE li.session_id = ${chargingSessions.id} AND i.kind = 'invoice'
-    AND i.status NOT IN ('void', 'credited'))`;
 // Account sessions (charge on account) without a payment record are billed
 // to their fleet on the fleet invoice, never on a driver invoice (P11: the
 // query and the claim). One with a payment record (an operator hold) was paid
 // by card: the fleet invoice skips it, so a driver invoice may bill it.
 const sessionNotOnAccount = sql`NOT (${chargingSessions.billingMode} IS NOT DISTINCT FROM 'account'
   AND NOT EXISTS (SELECT 1 FROM payment_records apr WHERE apr.session_id = ${chargingSessions.id}))`;
-const feeNotOnLiveInvoice = sql`NOT EXISTS (
-  SELECT 1 FROM invoice_line_items li JOIN invoices i ON i.id = li.invoice_id
-  WHERE li.payment_record_id = ${paymentRecords.id} AND i.kind = 'invoice'
-    AND i.status NOT IN ('void', 'credited'))`;
 
 /** Thrown when a session of the invoice is already on another invoice. */
 export function alreadyInvoicedError(): Error {
@@ -493,7 +484,6 @@ export async function insertInvoiceInTransaction(
         and(
           inArray(chargingSessions.id, sessionIds),
           isNull(chargingSessions.invoiceId),
-          sessionNotOnLiveInvoice,
           claimGuard,
         ),
       )
@@ -535,7 +525,6 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
       currency: sessionCurrencySql(),
       status: chargingSessions.status,
       billingMode: chargingSessions.billingMode,
-      notOnLiveInvoice: sql<boolean>`${sessionNotOnLiveInvoice}`,
     })
     .from(chargingSessions)
     .leftJoin(paymentRecords, eq(paymentRecords.sessionId, chargingSessions.id))
@@ -564,7 +553,7 @@ export async function createSessionInvoice(sessionId: string): Promise<InvoiceWi
     );
   }
 
-  if (row.invoiceId != null || !row.notOnLiveInvoice) {
+  if (row.invoiceId != null) {
     throw alreadyInvoicedError();
   }
 
@@ -606,7 +595,6 @@ export async function createAggregatedInvoice(
         isNotNull(chargingSessions.finalCostCents),
         between(chargingSessions.endedAt, startDate, endDate),
         isNull(chargingSessions.invoiceId),
-        sessionNotOnLiveInvoice,
         sessionNotOnAccount,
         inCompanyCurrency(chargingSessions.currency, currency),
       ),
@@ -632,7 +620,6 @@ export async function createAggregatedInvoice(
         isNotNull(paymentRecords.capturedAmountCents),
         between(paymentRecords.createdAt, startDate, endDate),
         isNull(paymentRecords.invoiceId),
-        feeNotOnLiveInvoice,
         inCompanyCurrency(paymentRecords.currency, currency),
       ),
     )

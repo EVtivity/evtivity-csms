@@ -299,7 +299,9 @@ describe('SimulatorManager.handleCommand', () => {
       ['authorize', 'authorize', [2, 'TOK', 'ISO14443']],
       ['stopCharging', 'stopCharging', [2, 'Remote']],
       ['unplug', 'unplug', [2]],
-      ['injectFault', 'injectFault', [2, 'GroundFailure']],
+      ['injectFault', 'injectFault', [2, 'GroundFailure', 'end']],
+      ['resumeCharging', 'resumeCharging', [2]],
+      ['evFull', 'evFull', [2]],
       ['clearFault', 'clearFault', [2]],
       ['goOffline', 'goOffline', []],
       ['comeOnline', 'comeOnline', []],
@@ -373,6 +375,39 @@ describe('SimulatorManager.handleCommand', () => {
       await send(action, p);
       expect(sim[method]).toHaveBeenCalledWith(...args);
       expect(results(pubsub)).toEqual([{ commandId: 'cmd', success: true }]);
+    });
+
+    it('passes suspendCharging by and the injectFault mode', async () => {
+      await send('suspendCharging', { evseId: 1, by: 'EVSE' });
+      expect(sim.suspendCharging).toHaveBeenCalledWith(1, 'EVSE');
+      await send('injectFault', { evseId: 1, errorCode: 'GroundFailure', mode: 'suspend' });
+      expect(sim.injectFault).toHaveBeenLastCalledWith(1, 'GroundFailure', 'suspend');
+    });
+
+    it('returns the Plug and Charge results in the result data', async () => {
+      sim.createPncEv = vi.fn(async () => ({ pcid: 'P', oemRootCertificate: 'PEM', edition: 2 }));
+      sim.installPncContract = vi.fn(async () => ({ emaid: 'E', remainingContracts: null }));
+      sim.startPncCharging = vi.fn(async () => 'tx-pnc');
+      await send('createPncEv', { evseId: 1 });
+      expect(sim.createPncEv).toHaveBeenCalledWith(1, 2);
+      await send('installPncContract', { evseId: 1 });
+      await send('startPncCharging', { evseId: 1 });
+      expect(results(pubsub)).toEqual([
+        {
+          commandId: 'cmd',
+          success: true,
+          data: { pcid: 'P', oemRootCertificate: 'PEM', edition: 2 },
+        },
+        { commandId: 'cmd', success: true, data: { emaid: 'E', remainingContracts: null } },
+        { commandId: 'cmd', success: true, data: { transactionId: 'tx-pnc' } },
+      ]);
+    });
+
+    it('powerCycle preserves the transactions unless preserveTransactions is false', async () => {
+      await send('powerCycle', {});
+      expect(sim.simulatePowerCyclePreserveTransactions).toHaveBeenCalledWith(0);
+      await send('powerCycle', { powerOffMs: 3000, preserveTransactions: false });
+      expect(sim.simulatePowerCycle).toHaveBeenCalledWith('PowerLoss', 3000);
     });
 
     it('returns the transaction id from startCharging in the result data', async () => {

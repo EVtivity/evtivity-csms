@@ -45,6 +45,11 @@ export function describeInvoiceLine(
   }
   if (!isComponentKind(kind)) return item.description;
   const label = t(`invoices.lineKinds.${kind}`);
+  // A fleet invoice shows a session's idle fee as its own line with the
+  // billable idle minutes.
+  if (kind === 'idleFee' && typeof meta['idleMinutes'] === 'number') {
+    return t('invoices.idleFeeLine', { label, minutes: formatNumber(meta['idleMinutes'], 0) });
+  }
   return typeof meta['segment'] === 'number'
     ? t('invoices.segmentLine', { n: meta['segment'], label })
     : label;

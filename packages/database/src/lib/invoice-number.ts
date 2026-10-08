@@ -53,13 +53,10 @@ export type InvoiceNumberExecutor = Pick<typeof db, 'execute'>;
  *
  * The sequence part (NNNN) is global per kind and does not reset monthly.
  *
- * Transitional for one release (v0.1.41, owner decision): pods of v0.1.40 in
- * the rolling upgrade still number invoices with nextval('invoice_number_seq').
- * The invoice counter UPDATE takes the next sequence value when it is ahead
- * and sets the sequence to the new counter value, so both numbering paths stay
- * in step and never draw the same number. Trade-off: setval and nextval are
- * not rolled back, so while the sequence exists a rolled-back invoice can
- * leave a gap. v0.1.42 drops the sequence and this part of the statement.
+ * invoice_number_seq is no longer read. v0.1.41 pods still number through it
+ * during the rolling upgrade to v0.1.42, under the same counter row lock and
+ * always above the counter, so the two never draw the same number. v0.1.43
+ * drops it.
  */
 export async function allocateInvoiceNumber(
   tx: InvoiceNumberExecutor,
@@ -67,15 +64,10 @@ export async function allocateInvoiceNumber(
   issuedAt: Date,
 ): Promise<string> {
   const prefix = invoiceNumberPrefix(issuedAt, await getSystemTimezone(), kind);
-  const statement =
-    kind === 'invoice'
-      ? sql`UPDATE invoice_number_counters
-          SET value = setval('invoice_number_seq',
-                             GREATEST(value + 1, nextval('invoice_number_seq')))
-          WHERE name = 'invoice' RETURNING value`
-      : sql`UPDATE invoice_number_counters SET value = value + 1
-          WHERE name = 'credit_note' RETURNING value`;
-  const [row] = await tx.execute(statement);
+  const [row] = await tx.execute(
+    sql`UPDATE invoice_number_counters SET value = value + 1
+        WHERE name = ${kind} RETURNING value`,
+  );
   if (row == null) throw new Error(`Invoice number counter '${kind}' is missing`);
   const value = Number((row as { value: string | number }).value);
   return `${prefix}${String(value).padStart(4, '0')}`;

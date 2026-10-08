@@ -446,8 +446,44 @@ export class SimulatorManager {
         case 'unplug':
           await sim.unplug(params.evseId as number);
           break;
+        case 'suspendCharging':
+          await sim.suspendCharging(params.evseId as number, params.by as 'EV' | 'EVSE');
+          break;
+        case 'resumeCharging':
+          await sim.resumeCharging(params.evseId as number);
+          break;
+        case 'evFull':
+          await sim.evFull(params.evseId as number);
+          break;
+        case 'powerCycle': {
+          const powerOffMs = (params.powerOffMs as number | undefined) ?? 0;
+          if (params.preserveTransactions === false) {
+            await sim.simulatePowerCycle('PowerLoss', powerOffMs);
+          } else {
+            await sim.simulatePowerCyclePreserveTransactions(powerOffMs);
+          }
+          break;
+        }
+        case 'createPncEv':
+          resultData = await sim.createPncEv(
+            params.evseId as number,
+            (params.edition as 2 | 20 | undefined) ?? 2,
+          );
+          break;
+        case 'installPncContract':
+          resultData = await sim.installPncContract(params.evseId as number);
+          break;
+        case 'startPncCharging': {
+          const txId = await sim.startPncCharging(params.evseId as number);
+          resultData = { transactionId: txId };
+          break;
+        }
         case 'injectFault':
-          await sim.injectFault(params.evseId as number, params.errorCode as string);
+          await sim.injectFault(
+            params.evseId as number,
+            params.errorCode as string,
+            (params.mode as 'end' | 'suspend' | undefined) ?? 'end',
+          );
           break;
         case 'clearFault':
           await sim.clearFault(params.evseId as number);

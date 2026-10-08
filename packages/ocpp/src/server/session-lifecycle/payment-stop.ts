@@ -110,7 +110,7 @@ export async function stopSessionForPayment(
   deps: ProjectionDeps,
   target: StopTarget,
   reason: PaymentStopReason,
-  options: { atCeiling?: boolean } = {},
+  options: { atCeiling?: boolean; transactionEnded?: boolean } = {},
 ): Promise<void> {
   const { sql, pubsub, logger, notify } = deps;
   const { sessionId, transactionId, ocppStationId } = target;
@@ -161,14 +161,18 @@ export async function stopSessionForPayment(
     }
   }
 
-  try {
-    await publishOcppCommand(pubsub, {
-      stationId: ocppStationId,
-      action: 'RequestStopTransaction',
-      payload: { transactionId },
-    });
-  } catch (err) {
-    logger.error({ err }, 'Failed to publish RequestStopTransaction');
+  // A transaction the station already ended (the gate ran for an idToken
+  // first presented in TransactionEvent Ended) needs no stop.
+  if (options.transactionEnded !== true) {
+    try {
+      await publishOcppCommand(pubsub, {
+        stationId: ocppStationId,
+        action: 'RequestStopTransaction',
+        payload: { transactionId },
+      });
+    } catch (err) {
+      logger.error({ err }, 'Failed to publish RequestStopTransaction');
+    }
   }
 
   if (reason === 'PrepaidCreditExhausted') {

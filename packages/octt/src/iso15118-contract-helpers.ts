@@ -10,7 +10,7 @@
 
 import type { CallApiFn, StepResult, TestContext, TestResult } from './types.js';
 import { callPncApi } from './pnc-api.js';
-import { TestEv, type Edition } from './iso15118-test-ev.js';
+import { TestEv, type Edition } from '@evtivity/css/iso15118-test-ev';
 
 export interface ContractSetup {
   ev: TestEv;

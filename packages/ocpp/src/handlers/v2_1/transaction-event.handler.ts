@@ -150,6 +150,11 @@ export async function handleTransactionEvent(
   if (centralCost && request.eventType === 'Started') {
     cost = await costForTransaction(ctx, request, registerWh, startedSessionReady);
   }
+  // Updated: an idToken first presented here (cable plugged in first, E02) is
+  // linked by this event's projection, which reserves a prepaid token's credit
+  // and runs the payment gate. The limit below waits for it.
+  const updatedProjected = (): Promise<boolean> =>
+    queue.settled([transactionLane], PROJECTION_SETTLE_TIMEOUT_MS);
 
   const response: TransactionEventResponse = {};
   if (cost != null) {
@@ -175,14 +180,14 @@ export async function handleTransactionEvent(
     };
     let decision = await authorizeToken(input, ctx.logger);
 
-    // Prepaid token at the transaction start: the limit is the credit the
-    // Started projection reserved for this session (its cost ceiling), not the
-    // whole balance, which the token's other active or unsettled sessions may
-    // hold in part. No credit left answers NoCredit (C17.FR.02 semantics) with
-    // no limit.
+    // Prepaid token at the transaction start, or first presented in an
+    // Updated: the limit is the credit the projection reserved for this
+    // session (its cost ceiling), not the whole balance, which the token's
+    // other active or unsettled sessions may hold in part. No credit left
+    // answers NoCredit (C17.FR.02 semantics) with no limit.
     let prepaidCreditCents = decision.prepaidBalanceCents;
     if (
-      request.eventType === 'Started' &&
+      request.eventType !== 'Ended' &&
       decision.status === 'accepted' &&
       decision.prepaid &&
       decision.matchedTokenId != null
@@ -191,7 +196,7 @@ export async function handleTransactionEvent(
         ctx,
         transactionId,
         decision.matchedTokenId,
-        startedSessionReady,
+        request.eventType === 'Started' ? startedSessionReady : updatedProjected,
       );
       if (ceiling === 0) {
         decision = {
@@ -214,19 +219,21 @@ export async function handleTransactionEvent(
     // the transaction at it.
     let accountCeilingCents: number | null = null;
     if (
-      request.eventType === 'Started' &&
+      request.eventType !== 'Ended' &&
       decision.status === 'accepted' &&
       !decision.prepaid &&
       decision.accountFleetId != null
     ) {
       const ceiling = await reservedAccountCredit(ctx, transactionId, () =>
-        Promise.race([
-          queue.waitForSignal(
-            sessionGatedKey(ctx.stationId, transactionId),
-            PROJECTION_SETTLE_TIMEOUT_MS,
-          ),
-          queue.settled([transactionLane], PROJECTION_SETTLE_TIMEOUT_MS),
-        ]),
+        request.eventType === 'Started'
+          ? Promise.race([
+              queue.waitForSignal(
+                sessionGatedKey(ctx.stationId, transactionId),
+                PROJECTION_SETTLE_TIMEOUT_MS,
+              ),
+              queue.settled([transactionLane], PROJECTION_SETTLE_TIMEOUT_MS),
+            ])
+          : updatedProjected(),
       );
       if (ceiling === 0) {
         decision = {

@@ -206,6 +206,25 @@ describe('OcppClient socket state', () => {
     expect(client.isConnected).toBe(false);
   });
 
+  it('connects again after disconnect, ignoring the old socket close, and reconnects on a loss', async () => {
+    const { client, socket } = await connectedClient();
+    const disconnected = vi.fn();
+    client.setDisconnectedHandler(disconnected);
+    const oldClosed = new Promise<void>((resolve) => socket.once('close', () => resolve()));
+    client.disconnect();
+    // comeOnline: a new connection opens before the old socket's close arrives.
+    await client.connect();
+    await oldClosed;
+    expect(client.isConnected).toBe(true);
+    expect(disconnected).not.toHaveBeenCalled();
+
+    // Auto-reconnect is back on after the explicit connect.
+    const reconnected = new Promise<void>((resolve) => client.setConnectedHandler(resolve));
+    client.reconnectNow();
+    await reconnected;
+    expect(client.isConnected).toBe(true);
+  });
+
   async function serverAndClient(): Promise<{ client: OcppClient; server: WebSocket }> {
     const wss = new WebSocketServer({
       port: 0,

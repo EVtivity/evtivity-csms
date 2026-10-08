@@ -220,6 +220,8 @@ describe('loadFleetsToInvoice', () => {
     expect(text).toContain("cs.billing_mode = 'account'");
     expect(text).toContain('cs.final_cost_cents > 0');
     expect(text).toContain('NOT EXISTS (SELECT 1 FROM payment_records');
+    expect(text).toContain('cs.invoice_id IS NULL');
+    expect(text).not.toContain('invoice_line_items');
     // A month with an invoice in any status (a credited one is left to the
     // operator) or a recorded run failure is not billed by the run.
     expect(text).toContain("i.period_start = u.period_start AND i.kind = 'invoice')");

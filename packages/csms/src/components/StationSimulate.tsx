@@ -10,10 +10,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ClearableInput } from '@/components/ui/clearable-input';
 import { Label } from '@/components/ui/label';
+import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tooltip } from '@/components/ui/tooltip';
 import { api } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
+import {
+  getValidActions,
+  simulateRequest,
+  type FaultMode,
+  type SimulateAction,
+} from '@/lib/simulate-actions';
 
 interface SimEvse {
   evseId: number;
@@ -28,70 +35,10 @@ interface StationSimulateProps {
 }
 
 interface ActionConfig {
-  action: string;
+  action: SimulateAction;
   label: string;
   needsEvse: boolean;
   needsToken: boolean;
-}
-
-// Mirrors the chaos VALID_BY_STATE map, keyed by `connectors.status` (lowercase
-// CSMS form). Notifications are not exposed in the UI, so this list only
-// covers the 9 dashboard-button actions. The simulator's per-action guards are
-// the actual source of truth -- this is a UX hint only.
-function getValidActions(connectorStatus: string): Set<string> {
-  switch (connectorStatus) {
-    case 'available':
-      return new Set(['plugIn', 'authorize', 'goOffline', 'injectFault']);
-    case 'preparing':
-    case 'ev_connected':
-    case 'occupied':
-      return new Set([
-        'plugIn',
-        'unplug',
-        'authorize',
-        'startCharging',
-        'goOffline',
-        'injectFault',
-      ]);
-    case 'charging':
-    case 'discharging':
-    case 'suspended_ev':
-    case 'suspended_evse':
-    case 'idle':
-      return new Set(['stopCharging', 'unplug', 'injectFault', 'goOffline']);
-    case 'finishing':
-      // OCPP 1.6 Finishing: cable still connected, session ended, ready
-      // for the next driver. Real 1.6 stations accept a fresh RemoteStart
-      // here without an Unplug/Plug-in cycle. Mirror the 2.1 'occupied'
-      // post-stop set so dashboard parity holds across versions.
-      return new Set([
-        'plugIn',
-        'unplug',
-        'authorize',
-        'startCharging',
-        'goOffline',
-        'injectFault',
-      ]);
-    case 'reserved':
-      return new Set(['plugIn', 'authorize', 'goOffline', 'injectFault']);
-    case 'faulted':
-      return new Set(['clearFault', 'goOffline']);
-    case 'unavailable':
-      return new Set(['comeOnline', 'goOffline']);
-    default:
-      // Unknown status: don't gate. The simulator will no-op invalid actions.
-      return new Set([
-        'plugIn',
-        'unplug',
-        'authorize',
-        'startCharging',
-        'stopCharging',
-        'injectFault',
-        'clearFault',
-        'goOffline',
-        'comeOnline',
-      ]);
-  }
 }
 
 export function StationSimulate({
@@ -106,27 +53,35 @@ export function StationSimulate({
   const [idToken, setIdToken] = useState('');
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<string | null>(null);
+  const [faultMode, setFaultMode] = useState<FaultMode>('end');
 
+  const evseAction = (action: SimulateAction, needsToken = false): ActionConfig => ({
+    action,
+    label: t(`simulate.${action}`),
+    needsEvse: true,
+    needsToken,
+  });
+  const stationAction = (action: SimulateAction): ActionConfig => ({
+    action,
+    label: t(`simulate.${action}`),
+    needsEvse: false,
+    needsToken: false,
+  });
   const actions: ActionConfig[] = [
-    { action: 'plugIn', label: t('simulate.plugIn'), needsEvse: true, needsToken: false },
-    { action: 'unplug', label: t('simulate.unplug'), needsEvse: true, needsToken: false },
-    { action: 'authorize', label: t('simulate.authorize'), needsEvse: true, needsToken: true },
-    {
-      action: 'startCharging',
-      label: t('simulate.startCharging'),
-      needsEvse: true,
-      needsToken: true,
-    },
-    {
-      action: 'stopCharging',
-      label: t('simulate.stopCharging'),
-      needsEvse: true,
-      needsToken: false,
-    },
-    { action: 'injectFault', label: t('simulate.injectFault'), needsEvse: true, needsToken: false },
-    { action: 'clearFault', label: t('simulate.clearFault'), needsEvse: true, needsToken: false },
-    { action: 'goOffline', label: t('simulate.goOffline'), needsEvse: false, needsToken: false },
-    { action: 'comeOnline', label: t('simulate.comeOnline'), needsEvse: false, needsToken: false },
+    evseAction('plugIn'),
+    evseAction('unplug'),
+    evseAction('authorize', true),
+    evseAction('startCharging', true),
+    evseAction('stopCharging'),
+    evseAction('evFull'),
+    evseAction('suspendEv'),
+    evseAction('suspendEvse'),
+    evseAction('resumeCharging'),
+    evseAction('injectFault'),
+    evseAction('clearFault'),
+    stationAction('powerCycle'),
+    stationAction('goOffline'),
+    stationAction('comeOnline'),
   ];
 
   const selectedConnectorStatus =
@@ -134,7 +89,7 @@ export function StationSimulate({
 
   // Build the valid-action set. When isOnline is explicitly false, only
   // comeOnline is allowed. When evses data is missing, allow everything.
-  let validActions: Set<string>;
+  let validActions: Set<SimulateAction>;
   let invalidReason: string | null = null;
   if (isOnline === false) {
     validActions = new Set(['comeOnline']);
@@ -147,11 +102,21 @@ export function StationSimulate({
   }
 
   const actionMutation = useMutation({
-    mutationFn: async ({ action, body }: { action: string; body: Record<string, unknown> }) => {
+    mutationFn: async ({
+      action,
+      body,
+    }: {
+      action: string;
+      body: Record<string, unknown>;
+      button: SimulateAction;
+    }) => {
       return api.post<{ commandId: string }>(`/v1/css/actions/${action}`, body);
     },
     onSuccess: (_data, variables) => {
-      toast({ title: t('simulate.actionSent', { action: variables.action }), variant: 'success' });
+      toast({
+        title: t('simulate.actionSent', { action: t(`simulate.${variables.button}`) }),
+        variant: 'success',
+      });
       setActiveAction(null);
     },
     onError: (err: unknown, variables) => {
@@ -159,7 +124,7 @@ export function StationSimulate({
         err != null && typeof err === 'object' && 'body' in err
           ? ((err as { body: { error?: string } }).body.error ?? t('simulate.actionFailed'))
           : t('simulate.actionFailed');
-      toast({ title: `${variables.action}: ${message}`, variant: 'destructive' });
+      toast({ title: `${t(`simulate.${variables.button}`)}: ${message}`, variant: 'destructive' });
       setActiveAction(null);
     },
   });
@@ -192,7 +157,8 @@ export function StationSimulate({
       }
     }
 
-    const body: Record<string, unknown> = { stationId };
+    const { apiAction, params } = simulateRequest(config.action, faultMode);
+    const body: Record<string, unknown> = { stationId, ...params };
     if (config.needsEvse) {
       body.evseId = selectedEvse;
     }
@@ -200,11 +166,8 @@ export function StationSimulate({
       body.idToken = idToken.trim();
       body.tokenType = 'ISO14443';
     }
-    if (config.action === 'injectFault') {
-      body.errorCode = 'InternalError';
-    }
     setActiveAction(config.action);
-    actionMutation.mutate({ action: config.action, body });
+    actionMutation.mutate({ action: apiAction, body, button: config.action });
   }
 
   return (
@@ -213,7 +176,7 @@ export function StationSimulate({
         <CardTitle>{t('simulate.title')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="grid gap-2">
             <Label htmlFor="sim-evse">{t('simulate.evseId')}</Label>
             <Input
@@ -252,6 +215,19 @@ export function StationSimulate({
                 {tokenError}
               </p>
             )}
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="sim-fault-mode">{t('simulate.faultMode')}</Label>
+            <Select
+              id="sim-fault-mode"
+              value={faultMode}
+              onChange={(e) => {
+                setFaultMode(e.target.value === 'suspend' ? 'suspend' : 'end');
+              }}
+            >
+              <option value="end">{t('simulate.faultModeEnd')}</option>
+              <option value="suspend">{t('simulate.faultModeSuspend')}</option>
+            </Select>
           </div>
         </div>
 

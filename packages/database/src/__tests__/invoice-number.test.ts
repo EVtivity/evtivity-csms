@@ -15,13 +15,18 @@ const dialect = new PgDialect();
 function executor(rows: unknown[] = [{ value: '42' }]): {
   tx: { execute: (q: SQL) => Promise<unknown[]> };
   statements: string[];
+  params: unknown[][];
 } {
   const statements: string[] = [];
+  const params: unknown[][] = [];
   return {
     statements,
+    params,
     tx: {
       execute: (q: SQL) => {
-        statements.push(dialect.sqlToQuery(q).sql.replace(/\s+/g, ' '));
+        const query = dialect.sqlToQuery(q);
+        statements.push(query.sql.replace(/\s+/g, ' '));
+        params.push(query.params);
         return Promise.resolve(rows);
       },
     },
@@ -66,20 +71,19 @@ describe('allocateInvoiceNumber', () => {
     expect(result).toBe('INV-202606-0042');
   });
 
-  it('keeps invoice_number_seq in step in the same counter update', async () => {
-    const { tx, statements } = executor();
-    await allocateInvoiceNumber(tx as never, 'invoice', new Date('2026-06-15T12:00:00Z'));
-    const text = statements.at(-1) ?? '';
-    expect(text).toContain('UPDATE invoice_number_counters');
-    expect(text).toContain("SET value = setval('invoice_number_seq',");
-    expect(text).toContain("GREATEST(value + 1, nextval('invoice_number_seq'))");
-  });
-
-  it('leaves the sequence alone for credit notes', async () => {
-    const { tx, statements } = executor();
-    await allocateInvoiceNumber(tx as never, 'credit_note', new Date('2026-06-15T12:00:00Z'));
-    expect(statements.at(-1)).not.toContain('invoice_number_seq');
-  });
+  it.each(['invoice', 'credit_note'] as const)(
+    'increments only the %s counter row, without a sequence',
+    async (kind) => {
+      const { tx, statements, params } = executor();
+      await allocateInvoiceNumber(tx as never, kind, new Date('2026-06-15T12:00:00Z'));
+      const text = statements.at(-1) ?? '';
+      expect(text).toBe(
+        'UPDATE invoice_number_counters SET value = value + 1 WHERE name = $1 RETURNING value',
+      );
+      expect(params.at(-1)).toEqual([kind]);
+      expect(text).not.toMatch(/nextval|setval|_seq/);
+    },
+  );
 
   it('fails when the counter row is missing', async () => {
     const { tx } = executor([]);

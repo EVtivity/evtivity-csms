@@ -5,36 +5,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   call,
   defaultResponse,
+  liveHarness,
   makeHarness,
   priv,
   silenceConsole,
-  stubSql,
-  type CallResponder,
   type Harness,
   type Protocol,
 } from './sim-harness.js';
-
-// A station whose css_transactions reads follow its in-memory transactions,
-// as the real table would after createTransaction / completeTransaction.
-async function liveHarness(protocol: Protocol, respond?: CallResponder): Promise<Harness> {
-  let ref: Harness | null = null;
-  const sql = stubSql((q, values) => {
-    if (ref == null || !q.includes('SELECT transaction_id, meter_start_wh, id_token')) {
-      return undefined;
-    }
-    const evseId = values[1] as number;
-    const txId = (priv(ref, 'activeTransactionIds') as Map<number, string>).get(evseId);
-    if (txId == null) return [];
-    const ctx = (priv(ref, 'evseContexts') as Map<number, { authorizedToken: string | null }>).get(
-      evseId,
-    );
-    return [{ transaction_id: txId, meter_start_wh: 0, id_token: ctx?.authorizedToken ?? '' }];
-  });
-  const h = await makeHarness({ protocol, sql, boot: true, ...(respond ? { respond } : {}) });
-  ref = h;
-  h.sendCall.mockClear();
-  return h;
-}
 
 function ctxOf(h: Harness, evseId = 1): Record<string, unknown> {
   return (priv(h, 'evseContexts') as Map<number, Record<string, unknown>>).get(evseId) ?? {};
@@ -634,7 +611,7 @@ describe('stopCharging', () => {
 
   it.each([
     ['PowerLoss', 'AbnormalCondition'],
-    ['EVDeparted', 'EVDeparted'],
+    ['MasterPass', 'StopAuthorized'],
   ])('2.1: stoppedReason %s maps to triggerReason %s', async (reason, trigger) => {
     const h = await liveHarness('ocpp2.1');
     await h.sim.plugIn(1);
@@ -715,22 +692,14 @@ describe('unplug during a transaction', () => {
 });
 
 describe('EV and parking bay events (2.1 only)', () => {
-  it('suspendEV ends with StoppedByEV and ChargingStateChanged', async () => {
-    const h = await liveHarness('ocpp2.1');
-    await h.sim.plugIn(1);
-    await h.sim.startCharging(1, 'TAG-1');
-    await h.sim.suspendEV(1);
-    const ended = txEvents(h, 'Ended')[0];
-    expect(ended?.['triggerReason']).toBe('ChargingStateChanged');
-    expect(infoOf(ended)['stoppedReason']).toBe('StoppedByEV');
-  });
-
-  it('departParkingBay ends with EVDeparted', async () => {
+  it('departParkingBay ends with triggerReason EVDeparted and stoppedReason Local', async () => {
     const h = await liveHarness('ocpp2.1');
     await h.sim.plugIn(1);
     await h.sim.startCharging(1, 'TAG-1');
     await h.sim.departParkingBay(1);
-    expect(txEvents(h, 'Ended')[0]?.['triggerReason']).toBe('EVDeparted');
+    const ended = txEvents(h, 'Ended')[0];
+    expect(ended?.['triggerReason']).toBe('EVDeparted');
+    expect(infoOf(ended)['stoppedReason']).toBe('Local');
   });
 
   it('occupyParkingBay starts a transaction with ParkingBayOccupancy', async () => {
@@ -739,28 +708,14 @@ describe('EV and parking bay events (2.1 only)', () => {
     expect(txEvents(h, 'Started')[0]?.['triggerReason']).toBe('ParkingBayOccupancy');
   });
 
-  it('setEvNotReady reports chargingState SuspendedEV', async () => {
-    const h = await liveHarness('ocpp2.1');
-    await h.sim.plugIn(1);
-    await h.sim.startCharging(1, 'TAG-1');
-    await h.sim.setEvNotReady(1);
-    const last = txEvents(h, 'Updated').at(-1);
-    expect(last?.['triggerReason']).toBe('ChargingStateChanged');
-    expect(infoOf(last)['chargingState']).toBe('SuspendedEV');
-  });
-
   it('all are no-ops without a transaction or on 1.6', async () => {
     const h21 = await liveHarness('ocpp2.1');
-    await h21.sim.suspendEV(1);
     await h21.sim.departParkingBay(1);
-    await h21.sim.setEvNotReady(1);
     expect(h21.sendCall).not.toHaveBeenCalled();
 
     const h16 = await liveHarness('ocpp1.6');
-    await h16.sim.suspendEV(1);
     await h16.sim.departParkingBay(1);
     await h16.sim.occupyParkingBay(1, 'T');
-    await h16.sim.setEvNotReady(1);
     expect(h16.sendCall).not.toHaveBeenCalled();
   });
 
@@ -771,7 +726,7 @@ describe('EV and parking bay events (2.1 only)', () => {
     await h.sim.injectFault(1, 'GroundFailure');
     const ended = txEvents(h, 'Ended')[0];
     expect(ended?.['triggerReason']).toBe('AbnormalCondition');
-    expect(infoOf(ended)['stoppedReason']).toBe('Other');
+    expect(infoOf(ended)['stoppedReason']).toBe('GroundFault');
     expect(statusOf(h)).toBe('Faulted');
   });
 });

@@ -32,6 +32,7 @@ import {
   markHoldFailed,
   recordGuestHold,
 } from './payment-records.js';
+import type { PaymentRecord } from './payment-records.js';
 import { PAYOUT_NOT_READY_REASON } from './payout-accounts.js';
 import { belowMinimumCaptureReason, belowMinimumCharge, holdTerms } from './session-payments.js';
 import type { HoldTerms } from './session-payments.js';
@@ -583,9 +584,21 @@ async function completeGuestSession(guestSessionId: number): Promise<void> {
  * stamped) can still end above the hold: the capture stays at the hold, as a
  * guest has no saved card for a top-up, and the uncollected rest is recorded
  * as `Guest shortfall:` (not picked up by the daily top-up retry). A cost of
- * 0 cancels the hold. Idempotent: a record already captured, cancelled or
- * failed is left alone. A failed capture marks the record failed and
- * rethrows, so the worker retries the job.
+ * 0 cancels the hold.
+ *
+ * Failures (finding J7):
+ * - A definitive decline (`PaymentDeclinedError`) marks the record failed,
+ *   fails the guest session and releases the hold at once (P4). No retry.
+ * - Any other error (provider 5xx or timeout, a database error, also one
+ *   after the provider captured) leaves the record `pre_authorized` and
+ *   rethrows, so the BullMQ retry captures again with the same `captureKey`
+ *   (P7): the provider answers with the capture it already made, and the
+ *   retry records it. After the last attempt the worker's failed hook runs
+ *   `failExhaustedGuestCapture`.
+ *
+ * Idempotent: a record already captured or cancelled is not sent to the
+ * provider again; a retry only completes the guest session (and sends the
+ * receipt) when an earlier run recorded the payment but stopped before that.
  */
 async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Promise<void> {
   const [guest] = await db
@@ -593,16 +606,40 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
       id: guestSessions.id,
       guestEmail: guestSessions.guestEmail,
       stationOcppId: guestSessions.stationOcppId,
+      status: guestSessions.status,
     })
     .from(guestSessions)
     .where(eq(guestSessions.chargingSessionId, sessionId));
   if (guest == null) return;
 
   const record = await findSessionRecord(sessionId);
-  if (
-    record != null &&
-    (record.status === 'captured' || record.status === 'cancelled' || record.status === 'failed')
-  ) {
+  if (record?.status === 'failed') {
+    // Only a decline or the exhausted hook fails the record, and both fail the
+    // guest session and release the hold. A retry that finds it failed (the
+    // earlier run stopped before the guest session update) finishes that now
+    // (P4); the cancel is keyed by the hold, so a second one is harmless.
+    deps.logger.warn(
+      { guestSessionId: guest.id, paymentRecordId: record.id },
+      'Guest capture failed earlier; failing the guest session and releasing the hold',
+    );
+    await failGuestSessionAndReleaseHold(sessionId, record, deps);
+    return;
+  }
+  if (record != null && (record.status === 'captured' || record.status === 'cancelled')) {
+    if (guest.status === 'charging') {
+      // An earlier run recorded the payment and stopped before completing the
+      // guest session, so it sent no receipt either. A release below the
+      // provider minimum (a cancel with a reason) charged nothing: no receipt.
+      deps.logger.warn(
+        { guestSessionId: guest.id, paymentRecordId: record.id, status: record.status },
+        'Guest payment recorded earlier; completing the guest session',
+      );
+      await completeGuestSession(guest.id);
+      if (record.status === 'captured' || record.failureReason == null) {
+        await sendGuestReceipt(guest, sessionId, deps);
+      }
+      return;
+    }
     deps.logger.info(
       { guestSessionId: guest.id, paymentRecordId: record.id, status: record.status },
       'Skipping guest payment finalization, already terminal',
@@ -720,10 +757,21 @@ async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Pr
     await completeGuestSession(guest.id);
     await sendGuestReceipt(guest, sessionId, deps);
   } catch (err) {
+    if (err instanceof PaymentDeclinedError) {
+      // Definitive: a retry would be declined again.
+      deps.logger.error(
+        { err, guestSessionId: guest.id },
+        'Guest capture declined; failing the guest session and releasing the hold',
+      );
+      await markHoldFailed(record.id, errorMessage(err, 'Capture declined'));
+      await failGuestSessionAndReleaseHold(sessionId, record, deps);
+      return;
+    }
+    // Transient, or the capture went through and recording it failed: the
+    // record stays pre_authorized and BullMQ retries the job (3 attempts)
+    // with the same captureKey. After the last one the worker's failed hook
+    // fails the guest session and cancels the hold.
     deps.logger.error({ err, guestSessionId: guest.id }, 'Failed to finalize guest payment');
-    await markHoldFailed(record.id, errorMessage(err, 'Unknown payment error'));
-    // BullMQ retries the job (3 attempts); after the last one the worker's
-    // failed hook fails the guest session and cancels the hold.
     throw err;
   }
 }
@@ -786,15 +834,33 @@ export async function failExhaustedGuestCapture(
   reason: string,
   ctx: PaymentContext,
 ): Promise<void> {
+  const record = await findSessionRecord(sessionId);
+  if (record?.status === 'pre_authorized') {
+    await markHoldFailed(record.id, `Capture worker exhausted retries: ${reason}`);
+  }
+  await failGuestSessionAndReleaseHold(
+    sessionId,
+    record?.status === 'pre_authorized' || record?.status === 'failed' ? record : null,
+    ctx,
+  );
+}
+
+/**
+ * Fails the guest session of a charging session and cancels the hold of its
+ * failed payment record (best effort, keyed by the hold, so a second call
+ * sends the same cancel). `record` null: nothing to cancel.
+ */
+async function failGuestSessionAndReleaseHold(
+  sessionId: string,
+  record: PaymentRecord | null,
+  ctx: PaymentContext,
+): Promise<void> {
   await db
     .update(guestSessions)
     .set({ status: 'failed', updatedAt: new Date() })
     .where(eq(guestSessions.chargingSessionId, sessionId));
-  const record = await findSessionRecord(sessionId);
-  if (record?.status !== 'pre_authorized') return;
-  await markHoldFailed(record.id, `Capture worker exhausted retries: ${reason}`);
-  const paymentId = record.providerPaymentId;
-  if (paymentId == null) return;
+  const paymentId = record?.providerPaymentId ?? null;
+  if (record == null || paymentId == null) return;
   try {
     const provider = await pinnedProvider(ctx.registry, record.provider);
     await provider.cancelHold({
@@ -805,7 +871,7 @@ export async function failExhaustedGuestCapture(
   } catch (err) {
     ctx.logger.warn(
       { sessionId, paymentRecordId: record.id, err },
-      'Failed to cancel the guest hold after exhausted retries; it expires by itself',
+      'Failed to cancel the guest hold after the capture failed; it expires by itself',
     );
   }
 }

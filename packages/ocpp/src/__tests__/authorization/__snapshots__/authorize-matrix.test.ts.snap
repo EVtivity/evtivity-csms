@@ -37316,6 +37316,7 @@ exports[`authorize decision matrix > TE21 Updated | C07 CertificateRevoked for a
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -37366,6 +37367,7 @@ exports[`authorize decision matrix > TE21 Updated | C07 CertificateRevoked for a
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -41848,6 +41850,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit | roamin
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -41898,6 +41901,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit | roamin
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -41948,6 +41952,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit and expi
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -41998,6 +42003,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit and expi
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42048,6 +42054,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit in a con
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42098,6 +42105,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit in a con
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42148,6 +42156,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, authori
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42198,6 +42207,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, authori
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42228,7 +42238,9 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, ceiling
       },
     },
   ],
-  "logs": [],
+  "logs": [
+    "warn",
+  ],
   "prepaidRemembered": [],
   "response": {
     "idTokenInfo": {
@@ -42248,6 +42260,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, ceiling
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42278,7 +42291,9 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, ceiling
       },
     },
   ],
-  "logs": [],
+  "logs": [
+    "warn",
+  ],
   "prepaidRemembered": [],
   "response": {
     "idTokenInfo": {
@@ -42298,6 +42313,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, ceiling
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42348,6 +42364,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, no stat
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42398,6 +42415,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, no stat
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42448,6 +42466,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, own tra
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42498,6 +42517,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, own tra
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42533,14 +42553,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, reserve
   "response": {
     "idTokenInfo": {
       "cacheExpiryDateTime": "2026-10-07T12:00:00.000Z",
-      "groupIdToken": {
-        "idToken": "TAG-P",
-        "type": "ISO14443",
-      },
-      "status": "Accepted",
-    },
-    "transactionLimit": {
-      "maxCost": 15,
+      "status": "NoCredit",
     },
   },
   "tariffResolvedFor": [],
@@ -42548,6 +42561,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, reserve
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42583,14 +42597,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, reserve
   "response": {
     "idTokenInfo": {
       "cacheExpiryDateTime": "2026-10-07T12:00:00.000Z",
-      "groupIdToken": {
-        "idToken": "TAG-P",
-        "type": "ISO14443",
-      },
-      "status": "Accepted",
-    },
-    "transactionLimit": {
-      "maxCost": 15,
+      "status": "NoCredit",
     },
   },
   "tariffResolvedFor": [],
@@ -42598,6 +42605,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, reserve
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42640,7 +42648,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, reserve
       "status": "Accepted",
     },
     "transactionLimit": {
-      "maxCost": 15,
+      "maxCost": 6,
     },
   },
   "tariffResolvedFor": [],
@@ -42648,6 +42656,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, reserve
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42690,7 +42699,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, reserve
       "status": "Accepted",
     },
     "transactionLimit": {
-      "maxCost": 15,
+      "maxCost": 6,
     },
   },
   "tariffResolvedFor": [],
@@ -42698,6 +42707,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, reserve
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42728,7 +42738,9 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, session
       },
     },
   ],
-  "logs": [],
+  "logs": [
+    "warn",
+  ],
   "prepaidRemembered": [],
   "response": {
     "idTokenInfo": {
@@ -42748,6 +42760,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, session
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;
@@ -42778,7 +42791,9 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, session
       },
     },
   ],
-  "logs": [],
+  "logs": [
+    "warn",
+  ],
   "prepaidRemembered": [],
   "response": {
     "idTokenInfo": {
@@ -42798,6 +42813,7 @@ exports[`authorize decision matrix > TE21 Updated | prepaid with credit, session
     "publish:ocpp.TransactionEvent",
     "freeVend",
     "driver_tokens",
+    "prepaid_ceiling",
   ],
 }
 `;

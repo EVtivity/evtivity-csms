@@ -119,8 +119,12 @@ class StripeRecorder {
   chargeFailMethods = new Set<string>();
   /** Methods that need 3DS (Stripe 4000 0025 0000 3155). */
   actionMethods = new Set<string>();
-  /** Intents whose capture fails. */
+  /** Intents whose capture fails (invalid request: the hold is no longer capturable). */
   captureFailIntents = new Set<string>();
+  /** Intents whose capture is declined (a card error). */
+  captureDeclineIntents = new Set<string>();
+  /** The answered captures by idempotency key: Stripe replays them for a repeated key. */
+  captureReplies = new Map<string, FakeIntent>();
   /** Intents whose retrieve fails (network). */
   retrieveFailIntents = new Set<string>();
   /** Customers Stripe does not know (deleted, or another account). */
@@ -144,6 +148,8 @@ class StripeRecorder {
     this.chargeFailMethods.clear();
     this.actionMethods.clear();
     this.captureFailIntents.clear();
+    this.captureDeclineIntents.clear();
+    this.captureReplies.clear();
     this.retrieveFailIntents.clear();
     this.staleCustomers.clear();
     this.webhookEndpoints.clear();
@@ -337,7 +343,13 @@ class FakeStripe {
     ): Promise<FakeIntent> => {
       stripeRecorder.record('paymentIntents.capture', [id, params], options);
       return settle(() => {
+        // A queued failure is an outage before Stripe handled the request.
+        stripeRecorder.failIfQueued('paymentIntents.capture');
+        const key = options?.idempotencyKey;
+        const replay = key != null ? stripeRecorder.captureReplies.get(key) : undefined;
+        if (replay != null) return clone(replay);
         const intent = getIntent(id);
+        if (stripeRecorder.captureDeclineIntents.has(id)) throw cardDeclined();
         if (stripeRecorder.captureFailIntents.has(id) || intent.status !== 'requires_capture') {
           throw new FakeStripeError(
             'StripeInvalidRequestError',
@@ -351,6 +363,7 @@ class FakeStripe {
         intent.amount_capturable = 0;
         const fee = params['application_fee_amount'] as number | undefined;
         if (fee != null) intent.application_fee_amount = fee;
+        if (key != null) stripeRecorder.captureReplies.set(key, clone(intent));
         return intent;
       });
     },

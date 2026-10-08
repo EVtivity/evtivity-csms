@@ -333,6 +333,94 @@ describe('CSS routes', () => {
       expect(publishCall).toBeDefined();
     });
 
+    it.each([
+      ['ocpp1.6', 'SOCLimitReached'],
+      ['ocpp2.1', 'HardReset'],
+    ])('refuses a stop reason the %s station does not have (%s)', async (protocol, reason) => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-X', ocppProtocol: protocol }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/stopCharging',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-X', evseId: 1, reason },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.payload).code).toBe('VALIDATION_ERROR');
+      expect(mockState.publishCalls).toHaveLength(0);
+    });
+
+    it('accepts a stop reason of the station version', async () => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-16', ocppProtocol: 'ocpp1.6' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/stopCharging',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-16', evseId: 1, reason: 'HardReset' },
+      });
+      expect(response.statusCode).toBe(200);
+    });
+
+    it.each([
+      ['suspendCharging', { evseId: 1, by: 'EV' }],
+      ['resumeCharging', { evseId: 1 }],
+      ['evFull', { evseId: 1 }],
+      ['powerCycle', { powerOffMs: 2000, preserveTransactions: true }],
+      ['injectFault', { evseId: 1, errorCode: 'GroundFailure', mode: 'suspend' }],
+    ])('publishes the journey action %s with its params', async (action, params) => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-21', ocppProtocol: 'ocpp2.1' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: `/css/actions/${action}`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-21', ...params },
+      });
+      expect(response.statusCode).toBe(200);
+      const published = mockState.publishCalls.find(([ch]) => ch === 'css_commands');
+      expect(JSON.parse(published?.[1] ?? '{}')).toMatchObject({ action, params });
+    });
+
+    it('registers the Plug and Charge actions for OCPP 2.1 stations only', async () => {
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-16', ocppProtocol: 'ocpp1.6' }]);
+      const refused = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v21/createPncEv',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-16', evseId: 1 },
+      });
+      expect(JSON.parse(refused.payload).code).toBe('OCPP_VERSION_MISMATCH');
+
+      setupDbResults([{ id: 'id-1', stationId: 'TEST-21', ocppProtocol: 'ocpp2.1' }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/css/actions/v21/createPncEv',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { stationId: 'TEST-21', evseId: 1, edition: 20 },
+      });
+      expect(response.statusCode).toBe(200);
+      const published = mockState.publishCalls.find(([ch]) => ch === 'css_commands');
+      expect(JSON.parse(published?.[1] ?? '{}')).toMatchObject({
+        action: 'createPncEv',
+        params: { evseId: 1, edition: 20 },
+      });
+    });
+
+    it('rejects an invalid suspendCharging party and power off time', async () => {
+      const bad = [
+        ['suspendCharging', { evseId: 1, by: 'Driver' }],
+        ['powerCycle', { powerOffMs: -1 }],
+        ['injectFault', { evseId: 1, errorCode: 'GroundFailure', mode: 'later' }],
+      ] as const;
+      for (const [action, params] of bad) {
+        const response = await app.inject({
+          method: 'POST',
+          url: `/css/actions/${action}`,
+          headers: { authorization: `Bearer ${token}` },
+          payload: { stationId: 'TEST-21', ...params },
+        });
+        expect(response.statusCode).toBe(400);
+      }
+    });
+
     it('returns 200 for version-specific action matching station protocol', async () => {
       const station = { id: 'id-1', stationId: 'TEST-21', ocppProtocol: 'ocpp2.1' };
       setupDbResults([station]);

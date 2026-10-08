@@ -11,7 +11,7 @@ import {
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
 } from '@evtivity/database';
-import { AppError, isValidTimezone, taxTotals } from '@evtivity/lib';
+import { AppError, dimensionAmounts, isValidTimezone, taxTotals } from '@evtivity/lib';
 import {
   insertInvoiceInTransaction,
   sessionCostBreakdown,
@@ -322,15 +322,13 @@ export function planFleetInvoice(
         ? `${session.siteName} ${session.stationName}`
         : session.stationName;
     const description = `Charging session ${sessionDate}, ${place}, ${session.driverName} (${(sessionEnergy / 1000).toFixed(2)} kWh)`;
-    const sessionLines = sessionSummaryLines(
-      forInvoice,
-      sessionCostBreakdown(forInvoice).taxLines,
-    ).map(
+    const sessionLines = fleetSessionLines(forInvoice).map(
       (line): LineDraft => ({
         ...line,
-        description: description.slice(0, 500),
+        description:
+          line.metadata.kind === 'idleFee' ? line.description : description.slice(0, 500),
         metadata: {
-          kind: 'session',
+          ...line.metadata,
           sessionDate,
           energyWh: sessionEnergy,
           ...(session.driverId != null ? { driverId: session.driverId } : {}),
@@ -422,9 +420,8 @@ async function loadFleet(
  * `endsAt` (sessions of earlier months that are still unbilled, such as ones
  * a credit note released, are billed too; sessions that end later roll into
  * the next invoice). Billed on account means: stamped `account` for the fleet,
- * no payment record (one with a record was paid by card), completed, no
- * invoice_id, and on no live invoice line (the S1 transitional guard for
- * v0.1.40 pods). `lock` takes the selected session rows (`FOR UPDATE OF cs`)
+ * no payment record (one with a record was paid by card), completed, and no
+ * invoice_id. `lock` takes the selected session rows (`FOR UPDATE OF cs`)
  * in the caller's transaction, so nothing can bill or change them before the
  * invoice claims them. With `startsAt` (the scheduled run), only sessions
  * ended in the month itself: earlier months get their own invoice.
@@ -454,9 +451,6 @@ export async function loadFleetInvoiceCandidates(
       AND cs.ended_at < ${endsAt.toISOString()}::timestamptz
       ${lowerBound}
       AND NOT EXISTS (SELECT 1 FROM payment_records pr WHERE pr.session_id = cs.id)
-      AND NOT EXISTS (
-        SELECT 1 FROM invoice_line_items li JOIN invoices i ON i.id = li.invoice_id
-        WHERE li.session_id = cs.id AND i.kind = 'invoice' AND i.status NOT IN ('void', 'credited'))
     ORDER BY cs.ended_at, cs.id
     ${options.lock === true ? sql`FOR UPDATE OF cs` : sql``}
   `)) as unknown as Array<Record<string, unknown>>;
@@ -586,6 +580,72 @@ export async function previewFleetInvoice(
   };
 }
 
+/**
+ * The lines of one session on a fleet invoice (owner decision 2026-10-08):
+ * per tax rate, a 'session' line with the session's amount without its idle
+ * fee, then an 'idleFee' line with the idle fee and the idle minutes billed,
+ * both from the stored cost breakdown. The lines of a rate add up to the
+ * breakdown's tax line of that rate, so totals and tax are unchanged. A
+ * breakdown without components (no itemized cost) gives the session lines only.
+ */
+export function fleetSessionLines(session: SessionForInvoice): LineDraft[] {
+  const breakdown = sessionCostBreakdown(session);
+  const summary = sessionSummaryLines(session, breakdown.taxLines);
+  const idleByRate = new Map<
+    number,
+    { netCents: number; taxCents: number; minutes: number; minutesKnown: boolean }
+  >();
+  for (const group of breakdown.components ?? []) {
+    for (const line of group.taxLines) {
+      if (line.idleFeeCents === 0) continue;
+      const amount = dimensionAmounts(line, breakdown.basis).idleFeeCents;
+      const current = idleByRate.get(line.taxRate) ?? {
+        netCents: 0,
+        taxCents: 0,
+        minutes: 0,
+        minutesKnown: true,
+      };
+      current.netCents += amount.netCents;
+      current.taxCents += amount.taxCents;
+      if (group.billableIdleMinutes != null) current.minutes += group.billableIdleMinutes;
+      else current.minutesKnown = false;
+      idleByRate.set(line.taxRate, current);
+    }
+  }
+  if (idleByRate.size === 0) return summary;
+
+  const lines: LineDraft[] = [];
+  for (const line of summary) {
+    const idle = idleByRate.get(line.taxRate);
+    if (idle == null) {
+      lines.push(line);
+      continue;
+    }
+    const rest = {
+      ...line,
+      netCents: line.netCents - idle.netCents,
+      taxCents: line.taxCents - idle.taxCents,
+    };
+    // A rate billed only for idle keeps no empty session line.
+    if (rest.netCents !== 0 || rest.taxCents !== 0) lines.push(rest);
+    const minutes = idle.minutesKnown ? Math.round(idle.minutes) : null;
+    lines.push({
+      sessionId: line.sessionId,
+      description: minutes != null ? `Idle fee, ${String(minutes)} min` : 'Idle fee',
+      metadata: { kind: 'idleFee', ...(minutes != null ? { idleMinutes: minutes } : {}) },
+      taxRate: line.taxRate,
+      netCents: idle.netCents,
+      taxCents: idle.taxCents,
+    });
+  }
+  // Every session keeps a session line, so it reads as one charging session.
+  if (!lines.some((l) => l.metadata.kind === 'session')) {
+    const first = summary[0];
+    if (first != null) lines.unshift({ ...first, netCents: 0, taxCents: 0 });
+  }
+  return lines;
+}
+
 export interface FleetInvoiceResult extends InvoiceWithLineItems {
   drivers: FleetInvoiceDriverTotal[];
   /** Unbilled account sessions left off, at most FLEET_INVOICE_EXCLUDED_LIMIT. */
@@ -611,7 +671,7 @@ export interface FleetInvoiceResult extends InvoiceWithLineItems {
  * generation that billed some of them meanwhile leaves only the rest. The
  * invoice number is allocated only after that read, when the claim of the
  * locked sessions cannot fail, so a refused generation never consumes a
- * number (including the transitional invoice_number_seq path). The claim
+ * number. The claim
  * keeps its guard (invoice_id set only while null and only for sessions still
  * billed on account to the fleet) as the second layer.
  *

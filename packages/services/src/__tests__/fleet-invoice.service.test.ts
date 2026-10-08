@@ -85,12 +85,14 @@ import {
   billToFromFleet,
   createFleetInvoice,
   fleetInvoicePeriod,
+  fleetSessionLines,
   planFleetInvoice,
   previewFleetInvoice,
   previousPeriod,
   zonedMidnight,
 } from '../fleet-invoice.service.js';
 import type { FleetSessionCandidate } from '../fleet-invoice.service.js';
+import { calculateSessionCost, toSessionCostBreakdown, taxTotals } from '@evtivity/lib';
 
 function candidate(overrides: Partial<FleetSessionCandidate> = {}): FleetSessionCandidate {
   return {
@@ -340,7 +342,8 @@ describe('createFleetInvoice', () => {
     expect(text).toContain(
       'NOT EXISTS (SELECT 1 FROM payment_records pr WHERE pr.session_id = cs.id)',
     );
-    expect(text).toContain('li.session_id = cs.id');
+    // The invoice_id claim is the only guard: no line-item lookup.
+    expect(text).not.toContain('invoice_line_items');
     // A session that ends after the month is not selected: it rolls into the next invoice.
     expect(text).toContain('cs.ended_at < $2::timestamptz');
     expect(h.state.params[index]).toEqual(['flt_1', '2026-10-01T00:00:00.000Z']);
@@ -513,5 +516,55 @@ describe('previewFleetInvoice', () => {
     });
     expect(preview.drivers).toHaveLength(1);
     expect(preview.excluded[0]).toMatchObject({ sessionId: 'ses_zero', reason: 'zero_cost' });
+  });
+});
+
+describe('fleetSessionLines', () => {
+  const tariff = {
+    pricePerKwh: '0.25',
+    pricePerMinute: '0',
+    pricePerSession: '1.00',
+    idleFeePricePerMinute: '0.10',
+    reservationFeePerMinute: null,
+    taxRate: '0.10',
+  };
+  const session = (idleMinutes: number, basis: 'net' | 'gross' = 'net') => {
+    const breakdown = toSessionCostBreakdown(
+      calculateSessionCost(tariff, 10000, 90, idleMinutes, 30, 0, basis),
+    );
+    return {
+      id: 'sess-1',
+      invoiceId: null,
+      driverId: 'drv-1',
+      energyDeliveredWh: '10000',
+      endedAt: new Date('2026-09-15T10:00:00Z'),
+      finalCostCents: breakdown.grossCents,
+      tariffTaxRate: '0.10',
+      costBreakdown: breakdown,
+    };
+  };
+
+  it('shows the idle fee as its own line with the billed minutes, totals unchanged', () => {
+    // 55 idle minutes, grace 30: 25 billed = 2.50 net. Session 1.00 + 2.50.
+    const lines = fleetSessionLines(session(55));
+    expect(lines.map((l) => [l.metadata.kind, l.netCents, l.taxCents])).toEqual([
+      ['session', 350, 35],
+      ['idleFee', 250, 25],
+    ]);
+    expect(lines[1]?.metadata.idleMinutes).toBe(25);
+    expect(lines[1]?.description).toBe('Idle fee, 25 min');
+    expect(taxTotals(lines)).toMatchObject({ netCents: 600, taxCents: 60, grossCents: 660 });
+  });
+
+  it('keeps net plus tax of the lines equal to the gross on the gross basis', () => {
+    const s = session(55, 'gross');
+    const lines = fleetSessionLines(s);
+    expect(lines.map((l) => l.metadata.kind)).toEqual(['session', 'idleFee']);
+    expect(taxTotals(lines).grossCents).toBe(s.finalCostCents);
+  });
+
+  it('bills one session line when no idle fee was charged', () => {
+    const lines = fleetSessionLines(session(20));
+    expect(lines.map((l) => l.metadata.kind)).toEqual(['session']);
   });
 });

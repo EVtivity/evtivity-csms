@@ -172,7 +172,7 @@ import {
   toSessionCostBreakdown,
 } from '@evtivity/lib';
 import type { TariffInput, TaxBasis } from '@evtivity/lib';
-import { inArray, isNull } from 'drizzle-orm';
+import { inArray, isNull, sql } from 'drizzle-orm';
 import { allocateInvoiceNumber, chargingSessions, db, paymentRecords } from '@evtivity/database';
 import { claimFeeRecordsForInvoice, releaseInvoiceFeeRecords } from '@evtivity/payments';
 import {
@@ -186,6 +186,16 @@ import {
 } from '../invoice.service.js';
 
 const ENDED = new Date('2026-06-04T11:00:00Z');
+
+/** The SQL fragments the service module built at import, before any mock reset. */
+const sqlTextsAtImport = vi
+  .mocked(sql)
+  .mock.calls.map((call) => (Array.isArray(call[0]) ? call[0].join('?') : ''));
+
+/** The SQL fragments built since the last mock reset. */
+function sqlTextsSinceReset(): string[] {
+  return vi.mocked(sql).mock.calls.map((call) => (Array.isArray(call[0]) ? call[0].join('?') : ''));
+}
 
 function tariff(pricePerKwh: string, taxRate: string, extra: Partial<TariffInput> = {}) {
   return {
@@ -250,7 +260,6 @@ function session(overrides: Record<string, unknown> = {}): Record<string, unknow
     finalCostCents: 357,
     currency: 'EUR',
     status: 'completed',
-    notOnLiveInvoice: true,
     ...overrides,
   };
 }
@@ -529,10 +538,14 @@ describe('createSessionInvoice', () => {
     expect(h.state.inserted['invoices']).toBeUndefined();
   });
 
-  it('refuses a session on a non-void invoice of an older release without a claim', async () => {
-    queue('chargingSessions', [session({ invoiceId: null, notOnLiveInvoice: false })]);
-    await expect(createSessionInvoice('ses_1')).rejects.toThrow('already invoiced');
-    expect(h.state.inserted['invoices']).toBeUndefined();
+  it('decides by the invoice_id claim alone, with no line-item guard', async () => {
+    queue('chargingSessions', [session({ invoiceId: null })]);
+
+    await createSessionInvoice('ses_1');
+
+    expect(sessionClaims()).toEqual([{ invoiceId: 'inv_1' }]);
+    const texts = [...sqlTextsAtImport, ...sqlTextsSinceReset()];
+    expect(texts.some((text) => text.includes('invoice_line_items'))).toBe(false);
   });
 
   it('claims the session for the invoice in the invoice transaction', async () => {

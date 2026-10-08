@@ -14,6 +14,7 @@ import {
   openFirstTariffSegment,
   resolveStationTariff,
   priceSessionAt,
+  loadSessionPricing,
   storeFinalCost,
   closeOpenSegment,
   sessionIdleMinutesAt,
@@ -37,6 +38,7 @@ import {
   notificationMoney,
   costIncludesTax,
   reconcileCostBreakdown,
+  chargedCostBreakdown,
 } from '@evtivity/lib';
 import { dispatchDriverNotification, ALL_TEMPLATES_DIRS } from '../notification-dispatcher.js';
 import { projectionLane, sessionGatedKey, sessionPricedKey } from '../projection-queue.js';
@@ -506,25 +508,11 @@ export class TransactionProjector {
             `;
         const r = tokenRows[0];
         if (r != null) {
-          tokenLookup = {
+          tokenLookup = await this.linkDriverToken(sessionId, {
             id: r.id as string,
             driverId: (r.driver_id as string | null) ?? null,
-            prepaidCreditCents: null,
-          };
-          if (r.prepaid_balance_cents != null) {
-            // A prepaid token's credit is the most the session may cost
-            // (C17.FR.03). It is the session's cost ceiling, like a guest's
-            // card hold, stamped before the first running cost so the cost
-            // assembly never bills more than the credit (P4). A session
-            // without credit is stopped by the payment gate.
-            tokenLookup.prepaidCreditCents = await this.linkPrepaidToken(sessionId, tokenLookup.id);
-          } else {
-            await this.deps.sql`
-                UPDATE charging_sessions
-                SET token_id = ${tokenLookup.id}, updated_at = now()
-                WHERE id = ${sessionId}
-              `;
-          }
+            prepaid: r.prepaid_balance_cents != null,
+          });
         }
       }
 
@@ -543,32 +531,10 @@ export class TransactionProjector {
 
         // If still unresolved and idToken present, check guest sessions
         if (driverUuid == null && !isRoamingSession && idTokenValue != null) {
-          const guestRows = await this.deps.sql`
-                SELECT status, guest_email, pre_auth_amount_cents, provider_payment_id
-                FROM guest_sessions
-                WHERE session_token = ${idTokenValue}
-                LIMIT 1
-              `;
-          const guest = guestRows[0];
+          const guest = await this.linkGuestSession(sessionId, idTokenValue);
           if (guest != null) {
-            guestStatus = guest.status as string;
-            guestEmail = (guest.guest_email as string | null) ?? null;
-            // The guest's card authorization is the ceiling for the cost
-            // (OCPP 2.1 C25 step 9): a guest has no saved card for a
-            // top-up. Stamped now, before the first running cost, so the
-            // cost assembly never bills more than the hold (P4).
-            const holdCents = guest.pre_auth_amount_cents as number | null;
-            if (
-              holdCents != null &&
-              guest.provider_payment_id != null &&
-              (guestStatus === 'payment_authorized' || guestStatus === 'charging')
-            ) {
-              await this.deps.sql`
-                    UPDATE charging_sessions
-                    SET cost_ceiling_cents = ${holdCents}, updated_at = now()
-                    WHERE id = ${sessionId}
-                  `;
-            }
+            guestStatus = guest.status;
+            guestEmail = guest.email;
           }
         }
       }
@@ -577,22 +543,7 @@ export class TransactionProjector {
       // portal session detail page shows estimated miles without prompting.
       // The driver can override later via PATCH /v1/portal/sessions/:id/vehicle.
       if (driverUuid != null) {
-        const vehicleRows = await this.deps.sql`
-              SELECT vehicle_id FROM charging_sessions
-              WHERE driver_id = ${driverUuid}
-                AND vehicle_id IS NOT NULL
-                AND id != ${sessionId}
-              ORDER BY started_at DESC NULLS LAST, created_at DESC
-              LIMIT 1
-            `;
-        const lastVehicleId = vehicleRows[0]?.vehicle_id as string | undefined;
-        if (lastVehicleId != null) {
-          await this.deps.sql`
-                UPDATE charging_sessions
-                SET vehicle_id = ${lastVehicleId}, updated_at = now()
-                WHERE id = ${sessionId}
-              `;
-        }
+        await this.linkLastVehicle(sessionId, driverUuid);
       }
 
       // Resolve the tariff for this station and snapshot its prices and the
@@ -744,6 +695,349 @@ export class TransactionProjector {
   }
 
   /**
+   * Links a session to its driver token (`token_id`). A prepaid token's credit
+   * is the most the session may cost (C17.FR.03): it is the session's cost
+   * ceiling, like a guest's card hold, stamped before the first running cost
+   * so the cost assembly never bills more than the credit (P4). A session
+   * without credit is stopped by the payment gate. Repeats safely: the
+   * reservation leaves the session's own ceiling out.
+   */
+  private async linkDriverToken(
+    sessionId: string,
+    token: { id: string; driverId: string | null; prepaid: boolean },
+  ): Promise<NonNullable<StartedContext['tokenLookup']>> {
+    if (token.prepaid) {
+      const prepaidCreditCents = await this.linkPrepaidToken(sessionId, token.id);
+      return { id: token.id, driverId: token.driverId, prepaidCreditCents };
+    }
+    await this.deps.sql`
+      UPDATE charging_sessions
+      SET token_id = ${token.id}, updated_at = now()
+      WHERE id = ${sessionId}
+    `;
+    return { id: token.id, driverId: token.driverId, prepaidCreditCents: null };
+  }
+
+  /**
+   * The guest checkout or ad hoc payment of the session's idToken, or null.
+   * The guest's card authorization is the ceiling for the cost (OCPP 2.1 C25
+   * step 9): a guest has no saved card for a top-up. A lower maxCost the guest
+   * chose (C25.FR.06) is the ceiling instead (finding J5): the 2.1 station got
+   * it as transactionLimit.maxCost (findAdHocTransactionLimit), and the CSMS
+   * stops a 1.6 transaction at it. Stamped now, before the first running cost,
+   * so the cost assembly never bills more than the ceiling (P4). Repeats
+   * safely.
+   */
+  private async linkGuestSession(
+    sessionId: string,
+    idToken: string,
+  ): Promise<{ status: string; email: string | null } | null> {
+    const guestRows = await this.deps.sql`
+      SELECT status, guest_email, pre_auth_amount_cents, provider_payment_id,
+             max_cost_cents
+      FROM guest_sessions
+      WHERE session_token = ${idToken}
+      LIMIT 1
+    `;
+    const guest = guestRows[0];
+    if (guest == null) return null;
+    const status = guest.status as string;
+    const holdCents = guest.pre_auth_amount_cents as number | null;
+    const maxCostCents = guest.max_cost_cents as number | null;
+    if (
+      holdCents != null &&
+      guest.provider_payment_id != null &&
+      (status === 'payment_authorized' || status === 'charging')
+    ) {
+      const ceilingCents = maxCostCents != null ? Math.min(holdCents, maxCostCents) : holdCents;
+      await this.deps.sql`
+        UPDATE charging_sessions
+        SET cost_ceiling_cents = ${ceilingCents}, updated_at = now()
+        WHERE id = ${sessionId}
+      `;
+    }
+    return { status, email: (guest.guest_email as string | null) ?? null };
+  }
+
+  /**
+   * Tells the guest session service the transaction started with this
+   * idToken, so linkGuestSession() in @evtivity/api links the guest checkout
+   * (the guest portal waits on guest_sessions.charging_session_id). Once per
+   * event; fail-open.
+   */
+  private async publishGuestTransactionStarted(
+    tx: TransactionEventContext,
+    sessionId: string,
+    idToken: string,
+    stage: 'started' | 'updated' | 'ended',
+  ): Promise<void> {
+    await tx.attempt.once(`${stage}:csms-transaction-started`, async () => {
+      try {
+        await this.deps.pubsub.publish(
+          'csms_events',
+          JSON.stringify({
+            type: 'TransactionStarted',
+            sessionId,
+            stationId: tx.stationId,
+            transactionId: tx.transactionId,
+            idToken: {
+              idToken,
+              type: (tx.payload.tokenType as string | undefined) ?? 'ISO14443',
+            },
+          }),
+        );
+      } catch (err) {
+        this.deps.logger.debug({ err, sessionId }, 'Guest session SSE publish failed; continuing');
+      }
+    });
+  }
+
+  /**
+   * Auto-links the driver's most recent vehicle to this session so the portal
+   * session detail page shows estimated miles without prompting. The driver
+   * can override later via PATCH /v1/portal/sessions/:id/vehicle. Repeats
+   * safely.
+   */
+  private async linkLastVehicle(sessionId: string, driverId: string): Promise<void> {
+    const vehicleRows = await this.deps.sql`
+      SELECT vehicle_id FROM charging_sessions
+      WHERE driver_id = ${driverId}
+        AND vehicle_id IS NOT NULL
+        AND id != ${sessionId}
+      ORDER BY started_at DESC NULLS LAST, created_at DESC
+      LIMIT 1
+    `;
+    const lastVehicleId = vehicleRows[0]?.vehicle_id as string | undefined;
+    if (lastVehicleId != null) {
+      await this.deps.sql`
+        UPDATE charging_sessions
+        SET vehicle_id = ${lastVehicleId}, updated_at = now()
+        WHERE id = ${sessionId}
+      `;
+    }
+  }
+
+  /**
+   * Links the idToken a 2.1 station presents first after the transaction
+   * started (E02.FR.01, E03.FR.01: cable plugged in first with TxStartPoint
+   * EVConnected, so Started carried no idToken) the way the Started
+   * projection resolves one (driver token, then OCPI roaming token, then guest
+   * checkout): the driver token and driver, a prepaid token's reserved credit
+   * as the cost ceiling (`linkPrepaidToken`, under the token row lock), the
+   * driver's last vehicle and station watch, the session.Started notice
+   * (Updated only: on Ended the transaction is already over), a roaming
+   * session's OCPI link, a guest's ceiling and guest link, and the payment
+   * gate for the token (an unknown token is stopped as anonymous, as at
+   * Started). Runs only for the sessions the Started gate left waiting: an
+   * active, unclaimed, non-free-vend session without a driver, token or
+   * roaming flag none of whose earlier events carried an idToken. So a session
+   * started with a token (every OCPP 1.6 session: StartTransaction requires
+   * the idTag, and StopTransaction's idTag is who stopped it) and a repeated
+   * idToken change nothing. The read is memoized and comes before this event's
+   * transaction_events row, so a rerun links the same token again (each write
+   * repeats safely) and keeps the first gate decision. Returns the gate
+   * failure for the caller to rethrow.
+   */
+  private async linkFirstPresentedToken(
+    tx: TransactionEventContext,
+    sessionId: string,
+    stage: 'updated' | 'ended',
+  ): Promise<{ err: unknown } | null> {
+    const idTokenValue = getString(tx.payload, 'idToken');
+    if (idTokenValue == null) return null;
+    const pending = await tx.attempt.memo(`${stage}:first-token`, async () => {
+      const [row] = await this.deps.sql`
+        SELECT cs.reservation_id, cs.started_at,
+               dt.id AS token_id, dt.driver_id AS token_driver_id,
+               dt.prepaid_balance_cents IS NOT NULL AS prepaid,
+               EXISTS (
+                 SELECT 1 FROM ocpi_external_tokens ot
+                 WHERE ot.uid = ${idTokenValue} AND ot.is_valid = true
+               ) AS roaming
+        FROM charging_sessions cs
+        LEFT JOIN driver_tokens dt ON dt.id_token = ${idTokenValue} AND dt.is_active = true
+        WHERE cs.id = ${sessionId}
+          AND cs.status = 'active'
+          AND cs.stopped_reason IS NULL
+          AND cs.token_id IS NULL
+          AND cs.driver_id IS NULL
+          AND NOT cs.free_vend
+          AND NOT cs.is_roaming
+          AND NOT EXISTS (
+            SELECT 1 FROM transaction_events te
+            WHERE te.session_id = cs.id AND te.payload->>'idToken' IS NOT NULL
+          )
+        LIMIT 1
+      `;
+      if (row == null) return null;
+      return {
+        reserved: row.reservation_id != null,
+        startedAt: new Date(row.started_at as string | Date).toISOString(),
+        token:
+          row.token_id != null
+            ? {
+                id: row.token_id as string,
+                driverId: (row.token_driver_id as string | null) ?? null,
+                prepaid: row.prepaid === true,
+              }
+            : null,
+        roaming: row.roaming === true,
+      };
+    });
+    if (pending == null) return null;
+
+    const { stationId, stationUuid, transactionId } = tx;
+    // The resolution chain of the Started step: driver_tokens ->
+    // ocpi_external_tokens -> guest_sessions.
+    let tokenLookup: StartedContext['tokenLookup'] = null;
+    let driverUuid: string | null = null;
+    let isRoaming = false;
+    let guest: { status: string; email: string | null } | null = null;
+    if (pending.token != null) {
+      tokenLookup = await this.linkDriverToken(sessionId, pending.token);
+      if (tokenLookup.driverId != null) {
+        driverUuid = tokenLookup.driverId;
+        await this.deps.sql`
+          UPDATE charging_sessions SET driver_id = ${driverUuid}, updated_at = now()
+          WHERE id = ${sessionId}
+        `;
+      }
+    } else if (pending.roaming) {
+      isRoaming = true;
+      await this.deps.sql`
+        UPDATE charging_sessions SET is_roaming = true, updated_at = now()
+        WHERE id = ${sessionId}
+      `;
+      await this.deps.notify.linkCpoRoamingSession(sessionId, idTokenValue);
+    } else {
+      guest = await this.linkGuestSession(sessionId, idTokenValue);
+    }
+    if (driverUuid == null && !isRoaming) {
+      await this.publishGuestTransactionStarted(tx, sessionId, idTokenValue, stage);
+    }
+    this.deps.logger.info(
+      { sessionId, stationId, transactionId, tokenId: tokenLookup?.id ?? null, stage },
+      'Linked the idToken first presented after the transaction started',
+    );
+
+    const siteId = await this.deps.lookups.resolveSiteId(stationUuid);
+    if (driverUuid != null) {
+      await this.linkLastVehicle(sessionId, driverUuid);
+      await this.clearStationWatch(stationUuid, sessionId);
+      if (stage === 'updated') {
+        const driverIdForNotify = driverUuid;
+        const siteName = await this.deps.lookups.resolveSiteName(stationUuid);
+        await tx.attempt.once(`${stage}:session-started-notification`, () =>
+          dispatchDriverNotification(
+            this.deps.sql,
+            'session.Started',
+            driverIdForNotify,
+            {
+              siteName: siteName ?? '',
+              stationId,
+              transactionId,
+              startedAt: pending.startedAt,
+            },
+            ALL_TEMPLATES_DIRS,
+            this.deps.pubsub,
+          ),
+        );
+      }
+    }
+
+    // The gate decides from the tariff snapshotted at Started.
+    const pricing = await loadSessionPricing(this.deps.sql, sessionId);
+    const sessionTariff: TariffPriceSnapshot | null =
+      pricing?.tariffId != null ? { id: pricing.tariffId, ...pricing.tariff } : null;
+    try {
+      await tx.attempt.memo(`${stage}:gate`, () =>
+        runPaymentGate(this.deps, {
+          sessionId,
+          transactionId,
+          driverId: driverUuid,
+          stationDbId: stationUuid,
+          ocppStationId: stationId,
+          siteId: siteId ?? null,
+          isRoaming,
+          idToken: idTokenValue,
+          guestStatus: guest?.status ?? null,
+          guestEmail: guest?.email ?? null,
+          prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
+          reserved: pending.reserved,
+          sessionTariff,
+          transactionEnded: stage === 'ended',
+        }),
+      );
+    } catch (err: unknown) {
+      return { err };
+    }
+    return null;
+  }
+
+  /**
+   * A 2.1 session that started without an idToken (cable plugged in first,
+   * E02) and is charging although no event authorized it (a station with
+   * authorization disabled, or one that ignores the CSMS answer): nobody pays
+   * for it, so the payment gate stops it as anonymous (`AnonymousSession`,
+   * the station message `unauthorized`). The `stopped_reason` claim makes it
+   * once per session; the Ended COALESCE keeps the reason. A driver, guest,
+   * roaming or free vend session, and one an event carried an idToken for,
+   * is never claimed.
+   */
+  private async stopUnauthorizedSession(
+    tx: TransactionEventContext,
+    sessionId: string,
+    stage: 'started' | 'updated',
+  ): Promise<{ err: unknown } | null> {
+    const claimed = await tx.attempt.once(
+      `${stage}:unauthorized-claim`,
+      () => this.deps.sql`
+        UPDATE charging_sessions cs
+        SET stopped_reason = 'AnonymousSession', updated_at = now()
+        WHERE cs.id = ${sessionId}
+          AND cs.status = 'active'
+          AND cs.stopped_reason IS NULL
+          AND cs.token_id IS NULL
+          AND cs.driver_id IS NULL
+          AND NOT cs.is_roaming
+          AND NOT cs.free_vend
+          AND NOT EXISTS (
+            SELECT 1 FROM transaction_events te
+            WHERE te.session_id = cs.id AND te.payload->>'idToken' IS NOT NULL
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM guest_sessions g WHERE g.charging_session_id = cs.id
+          )
+        RETURNING cs.id
+      `,
+    );
+    if (claimed.length === 0) return null;
+    const siteId = await this.deps.lookups.resolveSiteId(tx.stationUuid);
+    try {
+      await tx.attempt.memo(`${stage}:unauthorized-gate`, () =>
+        runPaymentGate(this.deps, {
+          sessionId,
+          transactionId: tx.transactionId,
+          driverId: null,
+          stationDbId: tx.stationUuid,
+          ocppStationId: tx.stationId,
+          siteId: siteId ?? null,
+          isRoaming: false,
+          idToken: undefined,
+          guestStatus: null,
+          guestEmail: null,
+          prepaidBalanceCents: null,
+          reserved: false,
+          sessionTariff: null,
+        }),
+      );
+    } catch (err: unknown) {
+      return { err };
+    }
+    return null;
+  }
+
+  /**
    * Links a session to its prepaid token and stamps the credit it may spend as
    * its cost ceiling (C17.FR.03): the balance minus what the token's other
    * sessions may still take from it, never below zero. Those are the active
@@ -872,26 +1166,7 @@ export class TransactionProjector {
     // by linkGuestSession() in @evtivity/api.
     const idTokenForGuest = payload.idToken as string | null;
     if (idTokenForGuest != null) {
-      await tx.attempt.once('started:csms-transaction-started', async () => {
-        try {
-          const guestPayload = JSON.stringify({
-            type: 'TransactionStarted',
-            sessionId,
-            stationId,
-            transactionId,
-            idToken: {
-              idToken: idTokenForGuest,
-              type: (payload.tokenType as string | undefined) ?? 'ISO14443',
-            },
-          });
-          await this.deps.pubsub.publish('csms_events', guestPayload);
-        } catch (err) {
-          this.deps.logger.debug(
-            { err, sessionId },
-            'Guest session SSE publish failed; continuing',
-          );
-        }
-      });
+      await this.publishGuestTransactionStarted(tx, sessionId, idTokenForGuest, 'started');
     }
 
     if (!isFreeVend) {
@@ -925,26 +1200,47 @@ export class TransactionProjector {
       // the station screen below still run, so buffered events are not stuck.
       // A rerun keeps the first decision; a gate that failed runs again, and
       // its hold key (preauth_<sessionId>) makes the provider charge once.
-      try {
-        await tx.attempt.memo('started:gate', () =>
-          runPaymentGate(this.deps, {
-            sessionId,
-            transactionId,
-            driverId: driverUuid,
-            stationDbId: stationUuid,
-            ocppStationId: stationId,
-            siteId: siteId ?? null,
-            isRoaming: isRoamingSession,
-            idToken: payload.idToken as string | undefined,
-            guestStatus,
-            guestEmail,
-            prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
-            reserved: linkedReservationId != null,
-            sessionTariff,
-          }),
-        );
-      } catch (err: unknown) {
-        gateFailure = { err };
+      //
+      // Cable plugged in first (E02, TxStartPoint EVConnected): a 2.1
+      // transaction starts without an idToken, and the station sends the
+      // idToken in the next event after authorization (E02.FR.01, E03.FR.01)
+      // and offers energy only then. Such a session is not anonymous yet: the
+      // gate waits for that event (linkFirstPresentedToken). One already
+      // charging without authorization is stopped now (stopUnauthorizedSession),
+      // and one that starts charging later is stopped then (Updated).
+      const awaitingAuthorization =
+        payload.idToken == null && driverUuid == null && !isRoamingSession && guestStatus == null;
+      if (awaitingAuthorization) {
+        if (getString(payload, 'chargingState') === 'Charging') {
+          gateFailure = await this.stopUnauthorizedSession(tx, sessionId, 'started');
+        } else {
+          this.deps.logger.info(
+            { sessionId, stationId, transactionId },
+            'Transaction started without an idToken; payment gate waits for its authorization',
+          );
+        }
+      } else {
+        try {
+          await tx.attempt.memo('started:gate', () =>
+            runPaymentGate(this.deps, {
+              sessionId,
+              transactionId,
+              driverId: driverUuid,
+              stationDbId: stationUuid,
+              ocppStationId: stationId,
+              siteId: siteId ?? null,
+              isRoaming: isRoamingSession,
+              idToken: payload.idToken as string | undefined,
+              guestStatus,
+              guestEmail,
+              prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
+              reserved: linkedReservationId != null,
+              sessionTariff,
+            }),
+          );
+        } catch (err: unknown) {
+          gateFailure = { err };
+        }
       }
     }
 
@@ -960,16 +1256,21 @@ export class TransactionProjector {
     // keep theirs. The null-driver subquery matches no rows, so guest/
     // anonymous starts are a no-op. Kept last in the Started block so it
     // never reorders the writes above. Fail-open.
+    await this.clearStationWatch(stationUuid, sessionId);
+    return gateFailure;
+  }
+
+  /** Clears the session driver's watch of this station (see the Started step). Fail-open. */
+  private async clearStationWatch(stationUuid: string, sessionId: string): Promise<void> {
     try {
       await this.deps.sql`
-            DELETE FROM station_watches
-            WHERE station_id = ${stationUuid}
-              AND driver_id = (SELECT driver_id FROM charging_sessions WHERE id = ${sessionId})
-          `;
+        DELETE FROM station_watches
+        WHERE station_id = ${stationUuid}
+          AND driver_id = (SELECT driver_id FROM charging_sessions WHERE id = ${sessionId})
+      `;
     } catch (err) {
       this.deps.logger.warn({ err, stationUuid }, 'Station-watch clear-on-start failed');
     }
-    return gateFailure;
   }
 
   // A 2.1 station reported reaching the cost limit (triggerReason
@@ -1025,13 +1326,24 @@ export class TransactionProjector {
       payloadJson,
     } = tx;
     const updatedRows = await this.deps.sql`
-        SELECT id, evse_id FROM charging_sessions
+        SELECT id, evse_id, status FROM charging_sessions
         WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
       `;
     const updatedRow = updatedRows[0];
     const sessionId = updatedRow != null ? (updatedRow.id as string) : null;
     const sessionEvseUuid = updatedRow != null ? (updatedRow.evse_id as string | null) : null;
+    // A queued Updated delivered after the Ended changes neither the idle
+    // state nor the connector of the ended session (P5).
+    const sessionActive = updatedRow != null && updatedRow.status === 'active';
     if (sessionId != null) {
+      // An idToken first presented after the transaction started (cable
+      // plugged in first, E02.FR.01, E03.FR.01): link it and run its gate as
+      // the Started step would, before this event's transaction_events row.
+      // A gate failure is rethrown after the station screen.
+      const gateFailure = sessionActive
+        ? await this.linkFirstPresentedToken(tx, sessionId, 'updated')
+        : null;
+
       await tx.attempt.once('updated:transaction-event', async () => {
         try {
           await this.deps.sql`
@@ -1053,15 +1365,28 @@ export class TransactionProjector {
         await this.notePrepaidCostLimit(tx, sessionId, 'updated');
       }
 
-      // Idle detection from chargingState (OCPP 2.1)
+      // A session that started without an idToken and charges although no
+      // event authorized it is stopped as anonymous, once.
+      let unauthorizedFailure: { err: unknown } | null = null;
+      if (
+        sessionActive &&
+        payload.idToken == null &&
+        getString(payload, 'chargingState') === 'Charging'
+      ) {
+        unauthorizedFailure = await this.stopUnauthorizedSession(tx, sessionId, 'updated');
+      }
+
+      // Idle detection from chargingState (OCPP 2.1). Idle fees accrue only
+      // while the EV suspends (SuspendedEV). Any other state (Charging, a
+      // station-side SuspendedEVSE, EVConnected, Idle) closes an open period
+      // at the event timestamp. Both UPDATEs touch only an active session.
       const chargingState = getString(payload, 'chargingState');
       if (chargingState != null) {
-        if (chargingState !== 'Charging') {
-          // Vehicle stopped charging: mark idle start if not already set
+        if (chargingState === 'SuspendedEV') {
           await this.deps.sql`
               UPDATE charging_sessions
               SET idle_started_at = ${timestamp}, updated_at = now()
-              WHERE id = ${sessionId} AND idle_started_at IS NULL
+              WHERE id = ${sessionId} AND status = 'active' AND idle_started_at IS NULL
             `;
 
           // Dispatch idling notification to driver or guest (claims the period)
@@ -1072,13 +1397,12 @@ export class TransactionProjector {
             timestamp,
           );
         } else {
-          // Charging resumed: accumulate idle time and clear idle_started_at
           await this.deps.sql`
               UPDATE charging_sessions
-              SET idle_minutes = idle_minutes + EXTRACT(EPOCH FROM (${timestamp}::timestamptz - idle_started_at)) / 60,
+              SET idle_minutes = idle_minutes + GREATEST(0, EXTRACT(EPOCH FROM (${timestamp}::timestamptz - idle_started_at)) / 60),
                   idle_started_at = NULL,
                   updated_at = now()
-              WHERE id = ${sessionId} AND idle_started_at IS NOT NULL
+              WHERE id = ${sessionId} AND status = 'active' AND idle_started_at IS NOT NULL
             `;
         }
       }
@@ -1086,7 +1410,7 @@ export class TransactionProjector {
       // Update connector status from chargingState (OCPP 2.1 enrichment).
       // Portal SSE forwarder only relays 'station.status', so the
       // 'session.updated' notify below isn't enough -- we publish here too.
-      if (chargingState != null) {
+      if (chargingState != null && sessionActive) {
         const connectorStatus = CHARGING_STATE_TO_STATUS[chargingState];
         if (connectorStatus != null && sessionEvseUuid != null) {
           await applyEvseChargingState(this.deps.sql, sessionEvseUuid, connectorStatus, timestamp);
@@ -1165,6 +1489,8 @@ export class TransactionProjector {
 
       const updatedChargingState = getString(payload, 'chargingState');
       await this.publishTransactionScreen(tx, sessionId, 'updated', updatedChargingState);
+      if (gateFailure != null) throw gateFailure.err;
+      if (unauthorizedFailure != null) throw unauthorizedFailure.err;
     } else {
       this.state.txBuffer.add(stationId, transactionId, event);
     }
@@ -1183,6 +1509,22 @@ export class TransactionProjector {
       payloadJson,
     } = tx;
     const stoppedReason = getString(payload, 'stoppedReason');
+
+    // An idToken first presented in the Ended event (E03.FR.01: the event
+    // after authorization can be the last one): link it and run its gate
+    // while the session is still active, so the settlement debits a prepaid
+    // token or captures the card hold. A gate failure is rethrown at the end.
+    let gateFailure: { err: unknown } | null = null;
+    if (payload.idToken != null) {
+      const [activeSession] = await this.deps.sql`
+        SELECT id FROM charging_sessions
+        WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
+          AND status = 'active'
+      `;
+      if (activeSession != null) {
+        gateFailure = await this.linkFirstPresentedToken(tx, activeSession.id as string, 'ended');
+      }
+    }
 
     // Check if this session was stopped due to a payment failure (pre-auth or missing payment method)
     const failedPaymentRows = await this.deps.sql`
@@ -1229,6 +1571,10 @@ export class TransactionProjector {
               ELSE ${endStatus}
             END,
             ended_at = ${timestamp},
+            -- An idle period still open at the end closes at the end (JC-2).
+            idle_minutes = idle_minutes + COALESCE(
+              GREATEST(0, EXTRACT(EPOCH FROM (${timestamp}::timestamptz - idle_started_at)) / 60), 0),
+            idle_started_at = NULL,
             stopped_reason = COALESCE(stopped_reason, ${stoppedReason}),
             meter_stop = COALESCE(${meterStopVal}, meter_stop),
             energy_delivered_wh = CASE
@@ -1244,7 +1590,7 @@ export class TransactionProjector {
     const sessionRows = await this.deps.sql`
         SELECT id, evse_id, status, tariff_id, current_cost_cents, started_at, ended_at,
                energy_delivered_wh, currency, tariff_tax_rate, idle_started_at, idle_minutes,
-               reservation_id
+               reservation_id, free_vend
         FROM charging_sessions
         WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}
       `;
@@ -1334,7 +1680,16 @@ export class TransactionProjector {
       // cost in Recent Sessions and the portal, and a capture of the hold.
       const skipCostCalc = sessionStatus === 'faulted' || sessionStatus === 'failed';
       const hasTariffSnapshot = sessionRow.tariff_id != null;
-      if (hasTariffSnapshot && !skipCostCalc) {
+      if (sessionRow.free_vend === true && !skipCostCalc) {
+        // Free vend: the session is not billed, so its final cost is a zero
+        // with a zero split (finding J4), not unknown. A free vend session
+        // has no tariff snapshot, so the branch below would leave it null.
+        await storeFinalCost(
+          this.deps.sql,
+          sessionId,
+          chargedCostBreakdown(0, 0, await getCompanyTaxBasis()),
+        );
+      } else if (hasTariffSnapshot && !skipCostCalc) {
         const endedAt = new Date(sessionRow.ended_at as string);
         const energyWh = Number(sessionRow.energy_delivered_wh ?? 0);
         const idleMinutes = sessionIdleMinutesAt(
@@ -1534,6 +1889,7 @@ export class TransactionProjector {
     } else {
       this.state.txBuffer.add(stationId, transactionId, event);
     }
+    if (gateFailure != null) throw gateFailure.err;
   }
 
   async endByCsms(event: DomainEvent, attempt: ProjectionAttempt): Promise<void> {

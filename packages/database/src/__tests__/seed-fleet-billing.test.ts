@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import argon2 from 'argon2';
 import { PgDialect } from 'drizzle-orm/pg-core';
 import type { SQL } from 'drizzle-orm';
 
@@ -140,6 +141,22 @@ describe('seedFleetBillingDemo', () => {
     }
     const [credited, creditNote] = headers;
     expect(creditNote?.values[11]).toBe(-(credited?.values[11] as number));
+  });
+
+  it('gives each member the demo driver password only where none is set', async () => {
+    const { sql } = fakeSql();
+    await seedFleetBillingDemo(sql as never, seedInput);
+
+    const updates = h.calls.filter((c) => c.text.includes('UPDATE drivers SET password_hash'));
+    expect(updates.map((c) => c.values[1])).toEqual([
+      FLEET_BILLING_DEMO.accountDriverId,
+      FLEET_BILLING_DEMO.secondDriverId,
+      FLEET_BILLING_DEMO.optedOutDriverId,
+    ]);
+    for (const update of updates) {
+      expect(update.text).toContain('password_hash IS NULL');
+      expect(await argon2.verify(update.values[0] as string, 'driver123')).toBe(true);
+    }
   });
 
   it('numbers the invoices and the credit note from the gap-free counter', async () => {

@@ -464,9 +464,15 @@ describe('notification-dispatch', () => {
         [], // INSERT notifications (sms)
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {
-        stationId: 'CS-001',
-      });
+      await dispatchDriverNotification(
+        sql as never,
+        'session.Started',
+        'driver-1',
+        {
+          stationId: 'CS-001',
+        },
+        [],
+      );
 
       // Should have made SQL calls
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
@@ -478,7 +484,7 @@ describe('notification-dispatch', () => {
         [{ is_enabled: false }], // disabled
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {}, []);
 
       expect(sqlCalls.length).toBe(1);
     });
@@ -500,7 +506,7 @@ describe('notification-dispatch', () => {
         [], // smtp/twilio settings SELECT (parallel, may be cached)
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {}, []);
 
       expect(sqlCalls.length).toBeLessThanOrEqual(5);
     });
@@ -511,8 +517,26 @@ describe('notification-dispatch', () => {
 
       // Should not throw
       await expect(
-        dispatchDriverNotification(sql as never, 'test.event', 'driver-1', {}),
+        dispatchDriverNotification(sql as never, 'test.event', 'driver-1', {}, []),
       ).resolves.toBeUndefined();
     });
+  });
+});
+
+// Finding J2: a dispatch without the template directories finds no file
+// template and sends the notification unrendered (subject "<event>
+// Notification", body a dump of the variables). The parameter is required, so
+// a call that omits it fails the typecheck.
+describe('template directories are required', () => {
+  it('rejects a dispatch without template directories at compile time', () => {
+    const { dispatchDriverNotification, dispatchSystemNotification } = notificationDispatchModule;
+    const sql = createSqlMock() as never;
+    const omitted = [
+      // @ts-expect-error templatesDir is required
+      () => dispatchDriverNotification(sql, 'token.Added', 'driver-1', {}),
+      // @ts-expect-error templatesDir is required
+      () => dispatchSystemNotification(sql, 'user.Invited', { email: 'a@b.c' }, {}),
+    ];
+    expect(omitted).toHaveLength(2);
   });
 });

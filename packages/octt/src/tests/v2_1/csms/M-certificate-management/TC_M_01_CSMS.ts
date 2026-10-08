@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { StepResult, TestCase } from '../../../../types.js';
-import { checkIso2Response, checkIso20Response } from '../../../../iso15118-test-ev.js';
+import { checkIso2Response, checkIso20Response } from '@evtivity/css/iso15118-test-ev';
 import {
   pushResponseSteps,
   setUpContracts,

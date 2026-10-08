@@ -497,8 +497,8 @@ export const TC_E_22_CS: CsTestCase = {
       if ((await ctx.server.waitForMessageOrNull('StatusNotification', 200)) == null) break;
     }
 
-    // EV suspends energy transfer
-    await ctx.station.suspendEV(1);
+    // EV stops the energy transfer, which ends the transaction (TxStopPoint EnergyTransfer)
+    await ctx.station.stopCharging(1, 'StoppedByEV');
 
     // Step 1: TransactionEvent Ended with SuspendedEV
     const txMsg = await waitForTransactionEventType(ctx.server, 'Ended', 10_000);
@@ -838,10 +838,10 @@ export const TC_E_19_CS: CsTestCase = {
       step: 1,
       description: 'TransactionEvent Ended with EVDeparted',
       status:
-        trigReason === 'EVDeparted' && stoppedReason === 'EVDeparted' && txMsg != null
+        trigReason === 'EVDeparted' && stoppedReason === 'Local' && txMsg != null
           ? 'passed'
           : 'failed',
-      expected: 'triggerReason EVDeparted, stoppedReason EVDeparted, eventType Ended',
+      expected: 'triggerReason EVDeparted, stoppedReason Local, eventType Ended',
       actual: `triggerReason=${trigReason}, stoppedReason=${stoppedReason}, eventType=${txMsg ? 'Ended' : 'timeout'}`,
     });
 

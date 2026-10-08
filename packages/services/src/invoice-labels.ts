@@ -67,6 +67,8 @@ export interface InvoiceLabels {
   session: string;
   /** "{n}" and "{label}" are replaced. */
   segment: string;
+  /** Fleet invoice idle fee line: "{label}" (kinds.idleFee) and "{minutes}" are replaced. */
+  idleFeeMinutes: string;
 }
 
 export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
@@ -119,6 +121,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     },
     session: 'Charging session {date} ({kwh} kWh)',
     segment: 'Segment {n}: {label}',
+    idleFeeMinutes: '{label}, {minutes} min',
   },
   de: {
     locale: 'de-DE',
@@ -170,6 +173,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     },
     session: 'Ladevorgang {date} ({kwh} kWh)',
     segment: 'Abschnitt {n}: {label}',
+    idleFeeMinutes: '{label}, {minutes} Min.',
   },
   es: {
     locale: 'es-ES',
@@ -220,6 +224,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     },
     session: 'Sesión de carga {date} ({kwh} kWh)',
     segment: 'Tramo {n}: {label}',
+    idleFeeMinutes: '{label}, {minutes} min',
   },
   ko: {
     locale: 'ko-KR',
@@ -270,6 +275,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     },
     session: '충전 세션 {date} ({kwh} kWh)',
     segment: '구간 {n}: {label}',
+    idleFeeMinutes: '{label}, {minutes}분',
   },
   zh: {
     locale: 'zh-CN',
@@ -320,6 +326,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     },
     session: '充电会话 {date}（{kwh} kWh）',
     segment: '第 {n} 段：{label}',
+    idleFeeMinutes: '{label}，{minutes} 分钟',
   },
   'zh-TW': {
     locale: 'zh-TW',
@@ -370,6 +377,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     },
     session: '充電會話 {date}（{kwh} kWh）',
     segment: '第 {n} 段：{label}',
+    idleFeeMinutes: '{label}，{minutes} 分鐘',
   },
 };
 
@@ -426,6 +434,14 @@ export function describeLineItem(
 
   if (!isComponentKind(kind)) return description;
   const label = labels.kinds[kind];
+  // A fleet invoice shows a session's idle fee as its own line with the
+  // billable idle minutes.
+  if (kind === 'idleFee' && typeof meta['idleMinutes'] === 'number') {
+    const minutes = new Intl.NumberFormat(labels.locale, { maximumFractionDigits: 0 }).format(
+      meta['idleMinutes'],
+    );
+    return labels.idleFeeMinutes.replace('{label}', label).replace('{minutes}', minutes);
+  }
   const segment = meta['segment'];
   return typeof segment === 'number'
     ? labels.segment.replace('{n}', String(segment)).replace('{label}', label)

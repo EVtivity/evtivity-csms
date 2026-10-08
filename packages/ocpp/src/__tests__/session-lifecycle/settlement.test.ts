@@ -69,6 +69,7 @@ function endedEvent(eventType = 'Ended'): DomainEvent {
 }
 
 let sqlResults: unknown[][];
+let claimedNotices: Set<string>;
 let deps: ProjectionDeps;
 let sql: ReturnType<typeof vi.fn>;
 let publish: ReturnType<typeof vi.fn>;
@@ -82,7 +83,21 @@ let logger: {
 beforeEach(() => {
   vi.clearAllMocks();
   sqlResults = [];
-  sql = vi.fn(() => Promise.resolve(sqlResults.shift() ?? []));
+  claimedNotices = new Set();
+  // The end notice claims (completed_notified_at, receipt_notified_at) answer
+  // by column: a claim already taken returns no row. Every other statement
+  // takes the next queued result.
+  sql = vi.fn((strings: TemplateStringsArray) => {
+    const text = Array.isArray(strings) ? strings.join('?') : '';
+    const claim = /SET (completed_notified_at|receipt_notified_at) = now\(\)/.exec(text);
+    if (claim != null) {
+      const column = claim[1] as string;
+      if (claimedNotices.has(column)) return Promise.resolve([]);
+      claimedNotices.add(column);
+      return Promise.resolve([{ id: 'sess-1' }]);
+    }
+    return Promise.resolve(sqlResults.shift() ?? []);
+  });
   publish = vi.fn(() => Promise.resolve());
   notifyChange = vi.fn(() => Promise.resolve());
   mockDispatchDriverNotification.mockResolvedValue(undefined);
@@ -391,10 +406,41 @@ describe('settleTransactionEnded', () => {
 
     await settleTransactionEnded(deps, endedEvent(), attempt);
 
-    expect(sentEvents()).toEqual(['session.Completed', 'session.Receipt', 'payment.CaptureFailed']);
+    // No receipt after a failed capture (JC-3): there is no payment to confirm.
+    expect(sentEvents()).toEqual(['session.Completed', 'payment.CaptureFailed']);
     const vars = variablesOf('payment.CaptureFailed');
     expect(vars).toMatchObject({ stationId: 'CS-1', transactionId: 'tx-1' });
     expect((vars.reason as string).length).toBe(200);
+    expect(claimedNotices.has('receipt_notified_at')).toBe(false);
+  });
+
+  it('a second Ended of the session sends no end notice again (claims taken)', async () => {
+    sqlResults = [[sessionRow], [endedSessionRow('completed')], []];
+    mockSettleSessionPayment.mockResolvedValue({ mode: 'none' });
+    await settleTransactionEnded(deps, endedEvent(), attempt);
+    expect(sentEvents()).toEqual(['session.Completed', 'session.Receipt']);
+
+    mockDispatchDriverNotification.mockClear();
+    sqlResults = [[sessionRow], [endedSessionRow('completed')], []];
+    await settleTransactionEnded(deps, endedEvent(), attempt);
+    expect(sentEvents()).toEqual([]);
+  });
+
+  it('a rerun keeps the claim it made and sends the claimed notice once', async () => {
+    sqlResults = [[sessionRow], [endedSessionRow('completed')], []];
+    mockSettleSessionPayment.mockResolvedValue({ mode: 'none' });
+    const memos = new Map<string, unknown>([
+      ['settle:session.Completed:claim', [{ id: 'sess-1' }]],
+    ]);
+    claimedNotices.add('completed_notified_at');
+    const rerun: ProjectionAttempt = {
+      ...attempt,
+      number: 2,
+      memo: <T>(key: string, step: () => Promise<T>) =>
+        memos.has(key) ? Promise.resolve(memos.get(key) as T) : step(),
+    };
+    await settleTransactionEnded(deps, endedEvent(), rerun);
+    expect(sentEvents()).toEqual(['session.Completed', 'session.Receipt']);
   });
 
   it('card cancelled below the provider minimum: session end emails say nothing was charged', async () => {

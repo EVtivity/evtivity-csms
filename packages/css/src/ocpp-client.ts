@@ -333,8 +333,13 @@ export class OcppClient {
       if (this.clientKey != null) wsOptions['key'] = this.clientKey;
     }
 
+    // An explicit connect after disconnect() (the station comes back online)
+    // turns automatic reconnection back on.
+    this.destroyed = false;
+
     return new Promise<void>((resolve, reject) => {
-      this.ws = new WebSocket(url, [this._protocol], wsOptions);
+      const socket = new WebSocket(url, [this._protocol], wsOptions);
+      this.ws = socket;
 
       this.ws.on('open', () => {
         this.connected = true;
@@ -353,6 +358,9 @@ export class OcppClient {
       });
 
       this.ws.on('close', (code: number, reason: Buffer) => {
+        // The close of a socket that disconnect() dropped can arrive after a
+        // newer connection opened: it says nothing about the current one.
+        if (this.ws != null && this.ws !== socket) return;
         this.connected = false;
         if (this.onDisconnectedCallback != null) {
           this.onDisconnectedCallback();

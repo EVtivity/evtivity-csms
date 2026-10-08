@@ -19,6 +19,32 @@ export function applyMultiplier(value: number, multiplier: number): number {
 }
 
 /**
+ * The shortest time the energy register must stay flat before the meter
+ * fallback opens an idle period. A station sends clock-aligned and
+ * transaction-end samples a moment after a periodic one, and those show almost
+ * no new energy even while the EV charges (finding J3). 30 s is below the
+ * usual sample interval (60 s), so a true flat interval still counts.
+ */
+export const FLAT_ENERGY_MIN_GAP_MS = 30_000;
+
+/**
+ * Whether an energy reading shows that no power flowed: it rose less than
+ * 1 Wh above the previous reading and the register has not risen for at least
+ * FLAT_ENERGY_MIN_GAP_MS (`lastRiseAt`: the reading that last raised it, or
+ * the session start).
+ */
+export function isFlatEnergyReading(args: {
+  previousEnergyWh: number;
+  energyWh: number;
+  lastRiseAt: Date;
+  readingAt: Date;
+}): boolean {
+  if (Math.abs(args.energyWh - args.previousEnergyWh) >= 1) return false;
+  const gapMs = args.readingAt.getTime() - args.lastRiseAt.getTime();
+  return Number.isFinite(gapMs) && gapMs >= FLAT_ENERGY_MIN_GAP_MS;
+}
+
+/**
  * Converts an energy register reading to Wh. A missing unit means Wh (the
  * spec default for Energy measurands). Returns null for any other unit, so
  * a misconfigured station cannot write a non-energy value into session energy.

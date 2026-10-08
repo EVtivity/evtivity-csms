@@ -262,6 +262,7 @@ export {
 export type {
   SmtpConfig,
   TwilioConfig,
+  SmsSendContext,
   NotificationSettings,
   Recipient,
   RenderedTemplate,
@@ -285,7 +286,17 @@ export {
 export type { GuardOptions, SafeFetchInit, SafeFetchResponse } from './safe-fetch.js';
 
 export { sendExpoPush, isExpoPushToken } from './push-send.js';
-export type { ExpoPushMessage, ExpoPushResult } from './push-send.js';
+export type { ExpoPushMessage, ExpoPushResult, PushSendContext } from './push-send.js';
+export {
+  resolveNotificationTestSinkUrl,
+  getNotificationTestSinkUrl,
+  clearNotificationTestSinkCache,
+  postToNotificationTestSink,
+} from './notification-test-sink.js';
+export type {
+  NotificationTestSinkEnv,
+  NotificationTestSinkMessage,
+} from './notification-test-sink.js';
 
 export { initSentry } from './sentry.js';
 export type { SentryConfig } from './sentry.js';

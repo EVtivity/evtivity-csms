@@ -88,7 +88,7 @@ describe('dispatchDriverNotification native push', () => {
     });
     const { dispatchDriverNotification } = notificationDispatchModule;
 
-    await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {});
+    await dispatchDriverNotification(sql as never, 'session.Started', 'driver-1', {}, []);
 
     expect(mockFetch).toHaveBeenCalledTimes(1);
     expect(mockFetch.mock.calls[0]?.[0]).toContain('exp.host');
@@ -110,7 +110,7 @@ describe('dispatchDriverNotification native push', () => {
     });
     const { dispatchDriverNotification } = notificationDispatchModule;
 
-    await dispatchDriverNotification(sql as never, 'session.Started', 'driver-2', {});
+    await dispatchDriverNotification(sql as never, 'session.Started', 'driver-2', {}, []);
 
     const del = callsMatching('DELETE FROM driver_push_tokens');
     expect(del).toHaveLength(1);
@@ -122,7 +122,7 @@ describe('dispatchDriverNotification native push', () => {
     pushTokens = [];
     const { dispatchDriverNotification } = notificationDispatchModule;
 
-    await dispatchDriverNotification(sql as never, 'session.Started', 'driver-3', {});
+    await dispatchDriverNotification(sql as never, 'session.Started', 'driver-3', {}, []);
 
     expect(mockFetch).not.toHaveBeenCalled();
   });
@@ -146,7 +146,7 @@ describe('dispatchDriverNotification native push', () => {
     sqlOff.json = (v) => v;
 
     const { dispatchDriverNotification } = notificationDispatchModule;
-    await dispatchDriverNotification(sqlOff as never, 'session.Started', 'driver-4', {});
+    await dispatchDriverNotification(sqlOff as never, 'session.Started', 'driver-4', {}, []);
 
     expect(mockFetch).not.toHaveBeenCalled();
     expect(callsMatching('SELECT token FROM driver_push_tokens')).toHaveLength(0);

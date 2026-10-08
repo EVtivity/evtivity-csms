@@ -125,9 +125,17 @@ function receiptBilling(
 // session.Receipt. Sent after the settlement so the state is read at dispatch
 // (P5): no notification for a faulted or failed session (a payment failure
 // or a missing payment method faults it, which also covers the path that
-// never wrote a payment record), and `notCharged` when the hold was released
-// because the cost is below the provider minimum charge. The reads run before
-// the once steps, so a rerun reads again and each notice goes out once.
+// never wrote a payment record), no receipt when the capture failed (the
+// payment record is failed: there is no payment to confirm, and
+// payment.CaptureFailed tells the driver), and `notCharged` when the hold was
+// released because the cost is below the provider minimum charge.
+// Each notice goes out at most once per session: a one-statement claim on the
+// session (completed_notified_at, receipt_notified_at, set WHERE IS NULL
+// RETURNING) picks the run that sends it, so a station that resends its Ended
+// event gets no second notice. The claim result is memoized, so a projection
+// rerun after the claim still sends the notice it claimed; a claim that
+// committed but whose reply was lost reads as claimed on the rerun and that
+// notice is skipped.
 async function notifySessionEnded(
   deps: ProjectionDeps,
   attempt: ProjectionAttempt,
@@ -151,6 +159,7 @@ async function notifySessionEnded(
     SELECT status, failure_reason FROM payment_records
     WHERE session_id = ${sessionId}
     ORDER BY id LIMIT 1`;
+  const captureFailed = record != null && record.status === 'failed';
   const notCharged =
     record != null &&
     isReleasedBelowMinimum({
@@ -178,7 +187,22 @@ async function notifySessionEnded(
       record != null,
     ),
   });
-  for (const eventType of ['session.Completed', 'session.Receipt']) {
+  const claims = {
+    'session.Completed': () => sql`
+      UPDATE charging_sessions SET completed_notified_at = now()
+      WHERE id = ${sessionId} AND completed_notified_at IS NULL
+      RETURNING id`,
+    'session.Receipt': () => sql`
+      UPDATE charging_sessions SET receipt_notified_at = now()
+      WHERE id = ${sessionId} AND receipt_notified_at IS NULL
+      RETURNING id`,
+  };
+  const eventTypes = captureFailed
+    ? (['session.Completed'] as const)
+    : (['session.Completed', 'session.Receipt'] as const);
+  for (const eventType of eventTypes) {
+    const claimed = await attempt.memo(`settle:${eventType}:claim`, claims[eventType]);
+    if (claimed.length === 0) continue;
     await attempt.once(`settle:${eventType}`, () => {
       void eventBus.track(
         dispatchDriverNotification(

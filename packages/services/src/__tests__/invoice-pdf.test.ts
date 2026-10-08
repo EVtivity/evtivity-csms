@@ -240,6 +240,15 @@ describe('INVOICE_LABELS', () => {
 });
 
 describe('describeLineItem', () => {
+  it('labels a fleet idle fee line with its minutes in every language', () => {
+    const meta = { kind: 'idleFee', idleMinutes: 25 };
+    expect(describeLineItem(INVOICE_LABELS.en, 'x', meta)).toBe('Idle fee, 25 min');
+    expect(describeLineItem(INVOICE_LABELS.de, 'x', meta)).toBe('Standgebühr, 25 Min.');
+    for (const lang of INVOICE_LANGUAGES) {
+      expect(describeLineItem(INVOICE_LABELS[lang], 'x', meta)).toContain('25');
+    }
+  });
+
   it('localizes component lines with their segment', () => {
     expect(describeLineItem(INVOICE_LABELS.de, 'x', { kind: 'idleFee' })).toBe('Standgebühr');
     expect(describeLineItem(INVOICE_LABELS.de, 'x', { kind: 'energy', segment: 2 })).toBe(

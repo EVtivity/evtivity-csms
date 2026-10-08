@@ -14,6 +14,10 @@ import { formatLocalizedVariables } from './notification-values.js';
 import { isPrivateUrl } from './url-validation.js';
 import { blockedDestinationOf, safeFetch } from './safe-fetch.js';
 import { sendExpoPush } from './push-send.js';
+import {
+  getNotificationTestSinkUrl,
+  postToNotificationTestSink,
+} from './notification-test-sink.js';
 import { compileAllowedTemplate, type TemplateRenderer } from './template-safety.js';
 import type { PubSubClient } from './pubsub.js';
 
@@ -617,8 +621,37 @@ export function normalizeE164(phone: string): string {
   return cleaned;
 }
 
-export async function sendSms(config: TwilioConfig, to: string, body: string): Promise<boolean> {
+/** What the notification test sink records next to each SMS. */
+export interface SmsSendContext {
+  eventType?: string | undefined;
+  language?: string | undefined;
+}
+
+/**
+ * Sends one SMS through Twilio, or to the notification test sink when this
+ * process has one (local development only; Twilio is then never called and
+ * its credentials are not needed). Returns false when neither is available.
+ */
+export async function sendSms(
+  config: TwilioConfig | null,
+  to: string,
+  body: string,
+  context: SmsSendContext = {},
+): Promise<boolean> {
   const normalizedTo = normalizeE164(to);
+  const sinkUrl = getNotificationTestSinkUrl();
+  if (sinkUrl != null) {
+    return postToNotificationTestSink(sinkUrl, {
+      channel: 'sms',
+      to: normalizedTo,
+      eventType: context.eventType ?? null,
+      language: context.language ?? null,
+      title: null,
+      body,
+      data: null,
+    });
+  }
+  if (config == null) return false;
   try {
     const url = `https://api.twilio.com/2010-04-01/Accounts/${config.accountSid}/Messages.json`;
     const auth = Buffer.from(`${config.accountSid}:${config.authToken}`).toString('base64');
@@ -648,6 +681,13 @@ export async function sendSms(config: TwilioConfig, to: string, body: string): P
     logger.error({ err, to: normalizedTo }, 'Failed to send SMS');
     return false;
   }
+}
+
+function smsFailureReason(twilio: TwilioConfig | null, testSink: boolean): string {
+  if (testSink) return 'test_sink_send_failed';
+  return twilio?.credentialError === 'decrypt_failed'
+    ? 'credentials_decrypt_failed'
+    : 'twilio_send_failed';
 }
 
 function isAllowedHost(url: string, allowedPrivateHosts: readonly string[]): boolean {
@@ -760,7 +800,10 @@ export async function dispatchDriverNotification(
   eventType: string,
   driverId: string,
   variables: Record<string, unknown>,
-  templatesDir?: string | string[],
+  // Required: without the template directories the file templates are not
+  // found and the notification goes out unrendered (subject
+  // "<event> Notification", body a dump of the variables).
+  templatesDir: string | string[],
   pubsub?: PubSubClient,
 ): Promise<void> {
   try {
@@ -905,19 +948,18 @@ export async function dispatchDriverNotification(
       let storedSmsSubject = `[${eventType}]`;
       let storedSmsBody = '';
 
+      const testSink = getNotificationTestSinkUrl() != null;
       if (phone == null || phone === '') {
         failureReason = 'recipient_missing';
-      } else if (notificationSettings.twilio == null) {
+      } else if (notificationSettings.twilio == null && !testSink) {
         failureReason = 'twilio_not_configured';
       } else {
-        const ok = await sendSms(notificationSettings.twilio, phone, smsRendered.body);
+        const ok = await sendSms(notificationSettings.twilio, phone, smsRendered.body, {
+          eventType,
+          language,
+        });
         status = ok ? 'sent' : 'failed';
-        if (!ok) {
-          failureReason =
-            notificationSettings.twilio.credentialError === 'decrypt_failed'
-              ? 'credentials_decrypt_failed'
-              : 'twilio_send_failed';
-        }
+        if (!ok) failureReason = smsFailureReason(notificationSettings.twilio, testSink);
         storedSmsSubject = redactSensitiveNotificationContent(smsRendered.subject, eventType);
         storedSmsBody = redactSensitiveNotificationContent(smsRendered.body, eventType);
       }
@@ -979,6 +1021,7 @@ export async function dispatchDriverNotification(
               body: pushMessage,
               data: pushData,
             })),
+            { eventType, language },
           );
           const dead = results.filter((r) => r.unregistered).map((r) => r.token);
           const delivered = results.filter((r) => r.ok).map((r) => r.token);
@@ -1060,7 +1103,8 @@ export async function dispatchSystemNotification(
     userId?: string | undefined;
   },
   variables: Record<string, unknown>,
-  templatesDir?: string | string[],
+  // Required, see dispatchDriverNotification.
+  templatesDir: string | string[],
   attachments?: EmailAttachment[],
 ): Promise<void> {
   try {
@@ -1187,9 +1231,10 @@ export async function dispatchSystemNotification(
       let storedSmsSubject = `[${eventType}]`;
       let storedSmsBody = '';
 
+      const testSink = getNotificationTestSinkUrl() != null;
       if (phone == null || phone === '') {
         failureReason = 'recipient_missing';
-      } else if (notificationSettings.twilio == null) {
+      } else if (notificationSettings.twilio == null && !testSink) {
         failureReason = 'twilio_not_configured';
       } else {
         const rendered = await renderTemplate(
@@ -1202,14 +1247,12 @@ export async function dispatchSystemNotification(
           templatesDir,
         );
 
-        const ok = await sendSms(notificationSettings.twilio, phone, rendered.body);
+        const ok = await sendSms(notificationSettings.twilio, phone, rendered.body, {
+          eventType,
+          language,
+        });
         status = ok ? 'sent' : 'failed';
-        if (!ok) {
-          failureReason =
-            notificationSettings.twilio.credentialError === 'decrypt_failed'
-              ? 'credentials_decrypt_failed'
-              : 'twilio_send_failed';
-        }
+        if (!ok) failureReason = smsFailureReason(notificationSettings.twilio, testSink);
         storedSmsSubject = redactSensitiveNotificationContent(rendered.subject, eventType);
         storedSmsBody = redactSensitiveNotificationContent(rendered.body, eventType);
       }

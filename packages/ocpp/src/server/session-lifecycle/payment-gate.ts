@@ -46,6 +46,12 @@ export interface PaymentGateInput {
   reserved: boolean;
   /** The tariff snapshotted on the session at Started (null: no tariff applies). */
   sessionTariff: TariffPriceSnapshot | null;
+  /**
+   * The gate runs for an idToken first presented in TransactionEvent Ended
+   * (`linkFirstPresentedToken`): a stop faults the session but sends the
+   * station no RequestStopTransaction, the transaction is over.
+   */
+  transactionEnded?: boolean;
 }
 
 interface PreAuthFailedNotice {
@@ -387,6 +393,7 @@ export async function runPaymentGate(
         stationDbId: input.stationDbId,
       },
       decision.reason,
+      { transactionEnded: input.transactionEnded === true },
     );
     if (decision.notice != null) await sendNotice(deps, input, decision.notice);
   }

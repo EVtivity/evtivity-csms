@@ -327,7 +327,7 @@
   {
     "path": "/docs/integrations/adyen",
     "title": "Adyen",
-    "description": "Set up and use Adyen step by step. Merchant account, API credential roles, client key and allowed origins, the Adyen settings, the webhook, Adyen Support enablements, local testing, selecting Adyen after the upgrade, 3D Secure, guest checkout, captures and refunds confirmed by webhook, the mobile app, and the Content Security Policy."
+    "description": "Set up and use Adyen step by step. Merchant account, API credential roles, client key and allowed origins, the Adyen settings, the webhook, Adyen Support enablements, local testing, selecting Adyen, 3D Secure, guest checkout, captures and refunds confirmed by webhook, the mobile app, and the Content Security Policy."
   },
   {
     "path": "/docs/integrations/energy-management",

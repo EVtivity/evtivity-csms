@@ -13,6 +13,7 @@ import {
 } from '@evtivity/database';
 import { dispatchDriverNotification, createLogger, csvEscape } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { PaginationParams, PaginatedResponse } from '../lib/pagination.js';
 
 const logger = createLogger('token-service');
@@ -193,7 +194,14 @@ async function notifyDriver(
 ): Promise<void> {
   if (driverId == null) return;
   try {
-    await dispatchDriverNotification(client, eventType, driverId, variables);
+    await dispatchDriverNotification(
+      client,
+      eventType,
+      driverId,
+      variables,
+      ALL_TEMPLATES_DIRS,
+      getPubSub(),
+    );
   } catch (err) {
     // Non-critical for the mutation, but operators need a signal that SMTP/
     // Twilio is misconfigured. Logged at warn so it shows up in normal log

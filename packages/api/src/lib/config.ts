@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
+import { resolveNotificationTestSinkUrl } from '@evtivity/lib/notification-test-sink';
 
 const schema = z.object({
   API_PORT: z.coerce.number().int().positive(),
@@ -36,7 +37,24 @@ const schema = z.object({
       ['development', 'test'].includes(process.env['NODE_ENV'] ?? 'development') ? 'true' : 'false',
     )
     .transform((v) => v === 'true'),
+  // Notification test sink (local development only, off by default): driver SMS
+  // and push go to NOTIFICATIONS_TEST_SINK_URL instead of Twilio and Expo. The
+  // URL needs NOTIFICATIONS_ALLOW_TEST_SINK=true, which only NODE_ENV development
+  // or test accepts (resolveNotificationTestSinkUrl below). Helm and CDK refuse both.
+  NOTIFICATIONS_ALLOW_TEST_SINK: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+  NOTIFICATIONS_TEST_SINK_URL: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().url().optional(),
+  ),
 });
 
 export type ApiConfig = z.infer<typeof schema>;
 export const config = schema.parse(process.env);
+
+// Refuses the notification test sink unless NODE_ENV is development or test
+// (unset included), or without the allow flag, so the process does not start
+// (the senders check again, P11).
+resolveNotificationTestSinkUrl(process.env);

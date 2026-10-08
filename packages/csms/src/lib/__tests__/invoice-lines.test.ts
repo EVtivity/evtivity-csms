@@ -25,6 +25,16 @@ describe('describeInvoiceLine', () => {
     ).toBe('Segment 2: Energy');
   });
 
+  it('labels a fleet idle fee line with its minutes', () => {
+    expect(
+      describeInvoiceLine(
+        { description: 'x', metadata: { kind: 'idleFee', idleMinutes: 25 } },
+        t,
+        'en',
+      ),
+    ).toBe('Idle fee, 25 min');
+  });
+
   it('labels session lines with their date and energy', () => {
     expect(
       describeInvoiceLine(

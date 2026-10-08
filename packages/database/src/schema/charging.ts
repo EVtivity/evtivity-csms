@@ -103,10 +103,19 @@ export const chargingSessions = pgTable(
     // The ceiling last sent to an OCPP 2.1 station as transactionLimit.maxCost.
     costCeilingSentCents: integer('cost_ceiling_sent_cents'),
     idleStartedAt: timestamp('idle_started_at', { withTimezone: true }),
+    // Timestamp of the meter reading that last raised energy_delivered_wh by
+    // 1 Wh or more. The flat-energy idle fallback opens a period only when the
+    // register stayed flat for a full sample interval since then (finding J3).
+    energyRoseAt: timestamp('energy_rose_at', { withTimezone: true }),
     idleMinutes: numeric('idle_minutes').notNull().default('0'),
     // The idle_started_at the idle notification was sent for (one per idle period).
     idleNotifiedAt: timestamp('idle_notified_at', { withTimezone: true }),
     lastUpdateNotifiedAt: timestamp('last_update_notified_at', { withTimezone: true }),
+    // Claims of the end notices: session.Completed and session.Receipt go out
+    // only from the projection run that set them (one per session, also when
+    // the station resends its Ended event).
+    completedNotifiedAt: timestamp('completed_notified_at', { withTimezone: true }),
+    receiptNotifiedAt: timestamp('receipt_notified_at', { withTimezone: true }),
     // A durable request to end the session the normal way (completed and
     // billed) because the station will not: 'GhostRecovered' or 'Superseded'.
     // end_claimed_at is the lease of the OCPP pod processing it (retried by the

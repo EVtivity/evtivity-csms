@@ -26,6 +26,15 @@ const db = {
   endedStatus: 'completed',
   // Prepaid ceiling claim (stopped_reason): null while unclaimed.
   prepaidClaim: null as 'open' | 'claimed' | null,
+  // End notice claims taken (completed_notified_at, receipt_notified_at).
+  claimedNotices: new Set<string>(),
+  // The session the Started gate left waiting for its idToken (the late
+  // link's eligibility read), or null when it has a token already.
+  firstToken: null as Record<string, unknown> | null,
+  // What the token's other sessions reserve from its prepaid balance.
+  reservedCents: 0,
+  // The anonymous stop claim of a session charging without authorization.
+  unauthorizedClaimOpen: false,
 };
 
 function connectionError(code: string): Error {
@@ -33,6 +42,35 @@ function connectionError(code: string): Error {
 }
 
 function route(text: string): unknown[] {
+  if (text.includes('SELECT cs.reservation_id, cs.started_at')) {
+    return db.firstToken != null ? [db.firstToken] : [];
+  }
+  if (text.includes('AS reserved_cents')) return [{ reserved_cents: db.reservedCents }];
+  if (
+    db.firstToken != null &&
+    text.includes("AND status = 'active'") &&
+    text.includes('SELECT id FROM charging_sessions')
+  ) {
+    return [{ id: 'session-1' }];
+  }
+  // The session's tariff snapshot (loadSessionPricing): a priced tariff.
+  if (text.includes('SELECT s.id, s.started_at, s.tariff_id')) {
+    return [
+      {
+        id: 'session-1',
+        started_at: '2026-10-07T10:00:00.000Z',
+        tariff_id: 'tariff-1',
+        tax_basis: 'net',
+        tariff_price_per_kwh: '0.30',
+        idle_minutes: 0,
+      },
+    ];
+  }
+  if (text.includes("SET stopped_reason = 'AnonymousSession'")) {
+    if (!db.unauthorizedClaimOpen) return [];
+    db.unauthorizedClaimOpen = false;
+    return [{ id: 'session-1' }];
+  }
   if (text.includes('WITH claimed AS') && text.includes('SET stopped_reason')) {
     if (db.prepaidClaim !== 'open') return [];
     db.prepaidClaim = 'claimed';
@@ -123,8 +161,16 @@ function route(text: string): unknown[] {
     return [{ status: 'captured', failure_reason: null }];
   }
   // Updated and Ended.
-  if (text.includes('SELECT id, evse_id FROM charging_sessions')) {
-    return [{ id: 'session-1', evse_id: 'evse-1' }];
+  if (text.includes('SELECT id, evse_id, status FROM charging_sessions')) {
+    return [{ id: 'session-1', evse_id: 'evse-1', status: 'active' }];
+  }
+  // The end notice claims: the first claim of each notice wins.
+  const noticeClaim = /SET (completed_notified_at|receipt_notified_at) = now\(\)/.exec(text);
+  if (noticeClaim != null) {
+    const column = noticeClaim[1] as string;
+    if (db.claimedNotices.has(column)) return [];
+    db.claimedNotices.add(column);
+    return [{ id: 'session-1' }];
   }
   if (text.includes('SET last_update_notified_at = now()')) {
     return [
@@ -171,6 +217,7 @@ const sql = ((strings: TemplateStringsArray, ...values: unknown[]): Promise<unkn
   return Promise.resolve(route(text));
 }) as unknown as postgres.Sql;
 (sql as unknown as { json: (v: unknown) => unknown }).json = (v) => v;
+(sql as unknown as { begin: (fn: (tx: unknown) => unknown) => unknown }).begin = (fn) => fn(sql);
 
 const TARIFF = {
   id: 'tariff-1',
@@ -369,6 +416,10 @@ beforeEach(() => {
   db.endedEnergyWh = 10000;
   db.endedStatus = 'completed';
   db.prepaidClaim = null;
+  db.claimedNotices.clear();
+  db.firstToken = null;
+  db.reservedCents = 0;
+  db.unauthorizedClaimOpen = false;
   vi.clearAllMocks();
   mockFreeVend.mockResolvedValue(false);
   mockElectricityPeriods.mockResolvedValue([]);
@@ -920,5 +971,164 @@ describe('Settlement run again after a lost connection', () => {
       expect.objectContaining({ sessionId: 'session-1' }),
       'Session end notifications failed; continuing',
     );
+  });
+});
+
+describe('An idToken first presented after the transaction started (E02, E03)', () => {
+  const prepaidToken = {
+    reservation_id: null,
+    started_at: '2026-10-07T10:00:00.000Z',
+    token_id: 'tok-p',
+    token_driver_id: 'drv-1',
+    prepaid: true,
+    roaming: false,
+  };
+
+  function ocppStops(): unknown[] {
+    return publish.mock.calls.filter(
+      (call) =>
+        call[0] === 'ocpp_commands' &&
+        (JSON.parse(call[1] as string) as { action?: string }).action === 'RequestStopTransaction',
+    );
+  }
+
+  function tokenLinks(): unknown[][] {
+    return sqlValues.filter((_, i) => sqlCalls[i]?.includes('SET token_id ='));
+  }
+
+  it('leaves a Started without an idToken waiting for its authorization', async () => {
+    await projectWithRetry(
+      startedEvent({
+        idToken: undefined,
+        triggerReason: 'CablePluggedIn',
+        chargingState: 'EVConnected',
+      }),
+    );
+
+    expect(gateSpy).not.toHaveBeenCalled();
+    expect(ocppStops()).toHaveLength(0);
+    expect(countCalls("SET stopped_reason = 'AnonymousSession'")).toBe(0);
+  });
+
+  it('stops a Started without an idToken that already charges, once', async () => {
+    db.unauthorizedClaimOpen = true;
+
+    await projectWithRetry(startedEvent({ idToken: undefined, chargingState: 'Charging' }));
+
+    expect(gateSpy).toHaveBeenCalledTimes(1);
+    expect(gateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ driverId: null, idToken: undefined, prepaidBalanceCents: null }),
+    );
+    expect(ocppStops()).toHaveLength(1);
+  });
+
+  it('stops an unauthorized session once it charges, and not again on the next Charging', async () => {
+    db.unauthorizedClaimOpen = true;
+    const charging = transactionEvent('Updated', {
+      idToken: undefined,
+      triggerReason: 'ChargingStateChanged',
+      chargingState: 'Charging',
+    });
+
+    await projectWithRetry(charging);
+    await projectWithRetry(charging);
+
+    expect(countCalls("SET stopped_reason = 'AnonymousSession'")).toBe(2);
+    expect(gateSpy).toHaveBeenCalledTimes(1);
+    expect(ocppStops()).toHaveLength(1);
+  });
+
+  it('links a prepaid token on Updated with its reserved credit, notifies and gates once', async () => {
+    db.firstToken = prepaidToken;
+    db.tokenRow = { prepaid_balance_cents: 5000 };
+    db.reservedCents = 1500;
+
+    await projectWithRetry(transactionEvent('Updated', { idToken: 'PREPAID-1' }));
+
+    const links = tokenLinks();
+    expect(links).toHaveLength(1);
+    // The credit is the balance minus what the token's other sessions reserve.
+    expect(links[0]).toEqual(['tok-p', 3500, 'session-1']);
+    expect(countCalls('UPDATE charging_sessions SET driver_id')).toBe(1);
+    expect(driverNotifications('session.Started')).toHaveLength(1);
+    expect(gateSpy).toHaveBeenCalledTimes(1);
+    expect(gateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driverId: 'drv-1',
+        idToken: 'PREPAID-1',
+        prepaidBalanceCents: 3500,
+        transactionEnded: false,
+      }),
+    );
+    expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+    expect(ocppStops()).toHaveLength(0);
+  });
+
+  it('runs the link again after a lost connection but notifies and gates once', async () => {
+    db.firstToken = prepaidToken;
+    db.tokenRow = { prepaid_balance_cents: 5000 };
+    failOn = { match: 'SET last_update_notified_at', code: 'CONNECT_TIMEOUT', left: 1 };
+
+    await projectWithRetry(transactionEvent('Updated', { idToken: 'PREPAID-1' }));
+
+    // The eligibility read is memoized, so the rerun links the same token.
+    expect(countCalls('SELECT cs.reservation_id, cs.started_at')).toBe(1);
+    expect(tokenLinks()).toHaveLength(2);
+    expect(tokenLinks()[1]).toEqual(['tok-p', 5000, 'session-1']);
+    expect(driverNotifications('session.Started')).toHaveLength(1);
+    expect(gateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops a prepaid session whose token has no credit left', async () => {
+    db.firstToken = prepaidToken;
+    db.tokenRow = { prepaid_balance_cents: 1000 };
+    db.reservedCents = 1000;
+
+    await projectWithRetry(transactionEvent('Updated', { idToken: 'PREPAID-1' }));
+
+    expect(tokenLinks()[0]).toEqual(['tok-p', 0, 'session-1']);
+    expect(gateSpy).toHaveBeenCalledWith(expect.objectContaining({ prepaidBalanceCents: 0 }));
+    expect(ocppStops()).toHaveLength(1);
+  });
+
+  it('places the card hold for a postpaid token', async () => {
+    db.firstToken = { ...prepaidToken, token_id: 'tok-c', prepaid: false };
+
+    await projectWithRetry(transactionEvent('Updated', { idToken: 'CARD-1' }));
+
+    expect(countCalls('SET token_id =')).toBe(1);
+    expect(countCalls('FOR UPDATE')).toBe(0);
+    expect(gateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ driverId: 'drv-1', prepaidBalanceCents: null }),
+    );
+    expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
+  });
+
+  it('changes nothing for a session that already has its token', async () => {
+    db.firstToken = null;
+
+    await projectWithRetry(transactionEvent('Updated', { idToken: 'PREPAID-1' }));
+
+    expect(countCalls('SELECT cs.reservation_id, cs.started_at')).toBe(1);
+    expect(countCalls('SET token_id =')).toBe(0);
+    expect(driverNotifications('session.Started')).toHaveLength(0);
+    expect(gateSpy).not.toHaveBeenCalled();
+  });
+
+  it('links the token on Ended before the end, without a session.Started notice or a stop', async () => {
+    db.firstToken = prepaidToken;
+    db.tokenRow = { prepaid_balance_cents: 1000 };
+    db.reservedCents = 1000;
+
+    await projectWithRetry(transactionEvent('Ended', { idToken: 'PREPAID-1' }));
+
+    const linkIndex = sqlCalls.findIndex((text) => text.includes('SET token_id ='));
+    const endIndex = sqlCalls.findIndex((text) => text.includes('ended_at = ?'));
+    expect(linkIndex).toBeGreaterThanOrEqual(0);
+    expect(linkIndex).toBeLessThan(endIndex);
+    expect(driverNotifications('session.Started')).toHaveLength(0);
+    expect(gateSpy).toHaveBeenCalledWith(expect.objectContaining({ transactionEnded: true }));
+    // No credit: the gate faults the session, but the transaction is over.
+    expect(ocppStops()).toHaveLength(0);
   });
 });

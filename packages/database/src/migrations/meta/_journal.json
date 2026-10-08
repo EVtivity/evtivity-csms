@@ -1275,6 +1275,34 @@
       "when": 1791000024000,
       "tag": "0240_fleet_credit_reservation",
       "breakpoints": true
+    },
+    {
+      "idx": 182,
+      "version": "7",
+      "when": 1791000025000,
+      "tag": "0250_session_end_notice_claims",
+      "breakpoints": true
+    },
+    {
+      "idx": 183,
+      "version": "7",
+      "when": 1791000026000,
+      "tag": "0251_session_energy_rose_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 184,
+      "version": "7",
+      "when": 1791000027000,
+      "tag": "0252_session_end_notice_claims_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 185,
+      "version": "7",
+      "when": 1791000028000,
+      "tag": "0270_invoice_claim_contract",
+      "breakpoints": true
     }
   ]
 }

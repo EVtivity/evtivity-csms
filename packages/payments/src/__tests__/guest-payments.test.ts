@@ -178,8 +178,14 @@ function record(overrides: Record<string, unknown> = {}): Record<string, unknown
   };
 }
 
-function finalizeGuest(): Record<string, unknown> {
-  return { id: 21, guestEmail: 'guest@example.com', stationOcppId: 'CS-1' };
+function finalizeGuest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: 21,
+    guestEmail: 'guest@example.com',
+    stationOcppId: 'CS-1',
+    status: 'charging',
+    ...overrides,
+  };
 }
 
 function chargedSession(finalCostCents: number | null): Record<string, unknown> {
@@ -522,9 +528,29 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     expect(m.updates.at(-1)?.values).toMatchObject({ status: 'completed' });
   });
 
-  it.each(['captured', 'cancelled', 'failed'])('skips a record already %s', async (status) => {
-    m.findSessionRecord.mockResolvedValue(record({ status }));
+  // Finding J7: a retry after a failed capture skipped the failed record and
+  // succeeded, so the guest session stayed `charging` and the hold stayed open.
+  it('fails the guest session and releases the hold of a record a failed capture left', async () => {
+    m.findSessionRecord.mockResolvedValue(record({ status: 'failed' }));
     m.selectQueue.push([finalizeGuest()]);
+
+    await end();
+
+    expect(provider.capture).not.toHaveBeenCalled();
+    expect(m.updates).toHaveLength(1);
+    expect(m.updates[0]?.table).toEqual(guestTable());
+    expect(m.updates[0]?.values).toMatchObject({ status: 'failed' });
+    expect(m.markHoldFailed).not.toHaveBeenCalled();
+    expect(provider.cancelHold).toHaveBeenCalledWith({
+      paymentId: 'pi_1',
+      merchantReference: 'sess_ses_1',
+      idempotencyKey: 'cancel_pi_1',
+    });
+  });
+
+  it.each(['captured', 'cancelled'])('skips a record already %s', async (status) => {
+    m.findSessionRecord.mockResolvedValue(record({ status }));
+    m.selectQueue.push([finalizeGuest({ status: 'completed' })]);
 
     await end();
 
@@ -535,6 +561,34 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
       expect.objectContaining({ paymentRecordId: 11, status }),
       'Skipping guest payment finalization, already terminal',
     );
+  });
+
+  // A retry after the capture was recorded but completing the guest session
+  // failed: the record is captured, the guest session still charging.
+  it('completes the guest session and sends the receipt of a capture recorded earlier', async () => {
+    m.findSessionRecord.mockResolvedValue(record({ status: 'captured' }));
+    m.selectQueue.push([finalizeGuest()], [receiptSession()]);
+
+    await end();
+
+    expect(provider.capture).not.toHaveBeenCalled();
+    expect(provider.cancelHold).not.toHaveBeenCalled();
+    expect(m.updates).toHaveLength(1);
+    expect(m.updates[0]?.values).toMatchObject({ status: 'completed' });
+    expect(m.dispatchSystemNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it('completes the guest session of a below-minimum release recorded earlier, without a receipt', async () => {
+    m.findSessionRecord.mockResolvedValue(
+      record({ status: 'cancelled', failureReason: 'Capture below the provider minimum charge' }),
+    );
+    m.selectQueue.push([finalizeGuest()]);
+
+    await end();
+
+    expect(provider.cancelHold).not.toHaveBeenCalled();
+    expect(m.updates[0]?.values).toMatchObject({ status: 'completed' });
+    expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
   });
 
   it('completes a free session without a record and sends the receipt', async () => {
@@ -595,26 +649,66 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     expect(registry.getPaymentProvider).toHaveBeenCalledWith('simulated');
   });
 
-  it('marks the record failed and rethrows when the capture fails', async () => {
+  // Finding J7: a transient error must leave the hold open, so the BullMQ
+  // retry captures again with the same idempotency key (P7).
+  it('leaves the record pre_authorized and rethrows on a transient capture error', async () => {
     m.findSessionRecord.mockResolvedValue(record());
     m.selectQueue.push([finalizeGuest()], [chargedSession(800)]);
-    provider.capture.mockRejectedValue(new Error('card declined'));
+    provider.capture.mockRejectedValue(new Error('provider 503'));
 
-    await expect(end()).rejects.toThrow('card declined');
+    await expect(end()).rejects.toThrow('provider 503');
 
-    expect(m.markHoldFailed).toHaveBeenCalledWith(11, 'card declined');
+    expect(m.markHoldFailed).not.toHaveBeenCalled();
     expect(m.markCaptured).not.toHaveBeenCalled();
+    expect(provider.cancelHold).not.toHaveBeenCalled();
     expect(m.updates).toHaveLength(0);
     expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
   });
 
-  it('uses the Unknown payment error fallback for a non-Error throw', async () => {
+  it('rethrows a non-Error throw without failing the record', async () => {
     m.findSessionRecord.mockResolvedValue(record());
     m.selectQueue.push([finalizeGuest()], [chargedSession(800)]);
     provider.capture.mockRejectedValue('weird');
 
     await expect(end()).rejects.toBe('weird');
-    expect(m.markHoldFailed).toHaveBeenCalledWith(11, 'Unknown payment error');
+    expect(m.markHoldFailed).not.toHaveBeenCalled();
+  });
+
+  it('rethrows when recording a successful capture fails, and never cancels the hold', async () => {
+    m.findSessionRecord.mockResolvedValue(record());
+    m.selectQueue.push([finalizeGuest()], [chargedSession(800)]);
+    m.markCaptured.mockRejectedValueOnce(new Error('db down'));
+
+    await expect(end()).rejects.toThrow('db down');
+
+    expect(provider.capture).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: 'capture_pi_1' }),
+    );
+    expect(m.markHoldFailed).not.toHaveBeenCalled();
+    expect(provider.cancelHold).not.toHaveBeenCalled();
+    expect(m.updates).toHaveLength(0);
+  });
+
+  it('fails the record and the guest session and releases the hold on a decline', async () => {
+    m.findSessionRecord.mockResolvedValue(record());
+    m.selectQueue.push([finalizeGuest()], [chargedSession(800)]);
+    provider.capture.mockRejectedValue(
+      new PaymentDeclinedError('Card declined', { code: 'card_declined' }),
+    );
+
+    await end();
+
+    expect(m.markHoldFailed).toHaveBeenCalledWith(11, 'Card declined');
+    expect(m.markCaptured).not.toHaveBeenCalled();
+    expect(m.updates).toHaveLength(1);
+    expect(m.updates[0]?.table).toEqual(guestTable());
+    expect(m.updates[0]?.values).toMatchObject({ status: 'failed' });
+    expect(provider.cancelHold).toHaveBeenCalledWith({
+      paymentId: 'pi_1',
+      merchantReference: 'sess_ses_1',
+      idempotencyKey: 'cancel_pi_1',
+    });
+    expect(m.dispatchSystemNotification).not.toHaveBeenCalled();
   });
 
   it('returns when the charging session row is missing', async () => {
@@ -988,6 +1082,16 @@ describe('failExhaustedGuestCapture', () => {
     });
   });
 
+  it('cancels the hold of a record a failed capture already marked failed', async () => {
+    m.findSessionRecord.mockResolvedValue(record({ status: 'failed' }));
+
+    await failExhaustedGuestCapture('ses_1', 'boom', deps);
+
+    expect(m.updates[0]?.values).toMatchObject({ status: 'failed' });
+    expect(m.markHoldFailed).not.toHaveBeenCalled();
+    expect(provider.cancelHold).toHaveBeenCalledTimes(1);
+  });
+
   it('stops after the guest session when no hold is open', async () => {
     m.findSessionRecord.mockResolvedValue(record({ status: 'captured' }));
 
@@ -1023,7 +1127,7 @@ describe('failExhaustedGuestCapture', () => {
 
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'ses_1', paymentRecordId: 11 }),
-      'Failed to cancel the guest hold after exhausted retries; it expires by itself',
+      'Failed to cancel the guest hold after the capture failed; it expires by itself',
     );
   });
 });

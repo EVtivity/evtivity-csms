@@ -24,8 +24,9 @@ RUN npm ci --ignore-scripts
 COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
+COPY packages/v2g-exi/ packages/v2g-exi/
 COPY packages/css/ packages/css/
-RUN npx tsc -b --force packages/lib packages/database
+RUN npx tsc -b --force packages/lib packages/database packages/v2g-exi
 
 COPY scripts/generate-test-certs.sh scripts/generate-test-certs.sh
 RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/* \

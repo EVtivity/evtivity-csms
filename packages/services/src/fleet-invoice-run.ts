@@ -78,7 +78,7 @@ export interface FleetPeriodToInvoice {
  * up to `latestPeriod` (the month before the current one). Per fleet with
  * `auto_invoice`: the oldest month (system timezone) in which an account
  * session ended that the fleet invoice would bill (completed, no invoice, no
- * payment record, on no live invoice line, a cost above zero in the company
+ * payment record, a cost above zero in the company
  * currency), that has no fleet invoice in any status and no recorded run
  * failure. So a month the run missed (the worker was down for the whole run
  * window) is billed first, on its own invoice, and the next month on a later
@@ -106,9 +106,6 @@ export async function loadFleetsToInvoice(
         AND cs.final_cost_cents > 0
         AND upper(cs.currency) = ${currency.toUpperCase()}
         AND NOT EXISTS (SELECT 1 FROM payment_records pr WHERE pr.session_id = cs.id)
-        AND NOT EXISTS (
-          SELECT 1 FROM invoice_line_items li JOIN invoices i ON i.id = li.invoice_id
-          WHERE li.session_id = cs.id AND i.kind = 'invoice' AND i.status NOT IN ('void', 'credited'))
     )
     SELECT u.fleet_id, to_char(min(u.period_start), 'YYYY-MM') AS period
     FROM unbilled u

@@ -925,7 +925,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT notifications
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-1', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-1', {}, []);
       // Should reach the email send stage (6+ SQL calls)
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
@@ -956,7 +956,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT notifications (sms)
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-2', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-2', {}, []);
       // No email SQL calls (no renderTemplate for email, no INSERT for email)
       // Should still process SMS
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
@@ -988,7 +988,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT email notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-3', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-3', {}, []);
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
       Date.now = realNow;
@@ -1018,7 +1018,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT sms notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-4', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-4', {}, []);
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
       Date.now = realNow;
@@ -1048,7 +1048,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT email notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-5', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-5', {}, []);
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
       Date.now = realNow;
@@ -1080,7 +1080,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT sms notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-6', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-6', {}, []);
       expect(sqlCalls.length).toBeGreaterThanOrEqual(7);
 
       Date.now = realNow;
@@ -1118,7 +1118,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT email notification
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-7', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-7', {}, []);
       expect(mockSendMail).toHaveBeenCalled();
 
       Date.now = realNow;
@@ -1156,7 +1156,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT notification (should have status 'failed')
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-8', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-8', {}, []);
       // The INSERT call should have 'failed' as the status
       const insertCall = sqlCalls.find((c) => c.values.some((v) => v === 'failed'));
       expect(insertCall).toBeTruthy();
@@ -1192,7 +1192,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT sms notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Completed', 'driver-9', {});
+      await dispatchDriverNotification(sql as never, 'session.Completed', 'driver-9', {}, []);
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('twilio.com'),
         expect.objectContaining({ method: 'POST' }),
@@ -1235,7 +1235,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT sms notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Completed', 'driver-10', {});
+      await dispatchDriverNotification(sql as never, 'session.Completed', 'driver-10', {}, []);
       const insertCall = sqlCalls.find((c) => c.values.some((v) => v === 'failed'));
       expect(insertCall).toBeTruthy();
 
@@ -1266,7 +1266,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT push notification
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-11', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-11', {}, []);
       // SMTP must not be called when it isn't configured, but the dispatcher
       // now always writes an audit row with failureReason='smtp_not_configured'
       // so operators can see the attempt in the Email Log.
@@ -1309,7 +1309,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT push notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-12', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-12', {}, []);
       // Twilio must not be called when it isn't configured, but the dispatcher
       // now always writes an audit row with failureReason='twilio_not_configured'.
       expect(mockFetch).not.toHaveBeenCalled();
@@ -1351,7 +1351,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT sms notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-13', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-13', {}, []);
       // Email path skipped even though email_enabled is true because email is empty
       expect(mockSendMail).not.toHaveBeenCalled();
 
@@ -1382,7 +1382,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT email notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-14', {});
+      await dispatchDriverNotification(sql as never, 'session.Started', 'driver-14', {}, []);
       expect(mockFetch).not.toHaveBeenCalled();
 
       Date.now = realNow;
@@ -1413,7 +1413,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT email notification
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-15', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-15', {}, []);
       // Check that the renderTemplate DB lookup used 'es' language
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
@@ -1455,9 +1455,15 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT notification
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-16', {
-        customVar: 'hello',
-      });
+      await dispatchDriverNotification(
+        sql as never,
+        'driver.Welcome',
+        'driver-16',
+        {
+          customVar: 'hello',
+        },
+        [],
+      );
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
       Date.now = realNow;
@@ -1494,7 +1500,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT notification
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-17', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-17', {}, []);
       // The sendEmail call should include wrapped HTML
       expect(mockSendMail).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1529,7 +1535,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT notification
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-18', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-18', {}, []);
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
       Date.now = realNow;
@@ -1562,7 +1568,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-19', {});
+      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-19', {}, []);
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
       Date.now = realNow;
@@ -1604,7 +1610,7 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT sms notification
       );
 
-      await dispatchDriverNotification(sql as never, 'session.Completed', 'driver-20', {});
+      await dispatchDriverNotification(sql as never, 'session.Completed', 'driver-20', {}, []);
       expect(mockSendMail).toHaveBeenCalled();
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('twilio.com'),
@@ -1660,7 +1666,7 @@ describe('notification-dispatch (full coverage)', () => {
       }) as unknown;
 
       await expect(
-        dispatchDriverNotification(throwingSql as never, 'test.event', 'driver-err', {}),
+        dispatchDriverNotification(throwingSql as never, 'test.event', 'driver-err', {}, []),
       ).resolves.toBeUndefined();
     });
 
@@ -1690,9 +1696,15 @@ describe('notification-dispatch (full coverage)', () => {
         [], // INSERT
       );
 
-      await dispatchDriverNotification(sql as never, 'driver.Welcome', 'driver-22', {
-        companyName: 'OverrideCo',
-      });
+      await dispatchDriverNotification(
+        sql as never,
+        'driver.Welcome',
+        'driver-22',
+        {
+          companyName: 'OverrideCo',
+        },
+        [],
+      );
       expect(sqlCalls.length).toBeGreaterThanOrEqual(5);
 
       Date.now = realNow;

@@ -63,6 +63,19 @@ for svc in $SERVICES; do
   COMPOSE_SERVICES="${COMPOSE_SERVICES:+$COMPOSE_SERVICES }$(get_compose_service "$svc")"
 done
 
+# Keep the notification test sink on when the stack runs the tools profile, as
+# docker-build.sh sets it (docker-compose.yml leaves it off otherwise). A value
+# in .env wins, as Compose reads it when the shell does not set the variable.
+if docker compose -f "${CSMS_DIR}/docker-compose.yml" ps --status running --services 2> /dev/null |
+  grep -qx notify-sink; then
+  if ! grep -qs '^NOTIFICATIONS_ALLOW_TEST_SINK=' "${CSMS_DIR}/.env"; then
+    export NOTIFICATIONS_ALLOW_TEST_SINK="${NOTIFICATIONS_ALLOW_TEST_SINK:-true}"
+  fi
+  if ! grep -qs '^NOTIFICATIONS_TEST_SINK_URL=' "${CSMS_DIR}/.env"; then
+    export NOTIFICATIONS_TEST_SINK_URL="${NOTIFICATIONS_TEST_SINK_URL-http://notify-sink:8080}"
+  fi
+fi
+
 echo "Building: ${COMPOSE_SERVICES}"
 docker compose -f "${CSMS_DIR}/docker-compose.yml" build $COMPOSE_SERVICES
 

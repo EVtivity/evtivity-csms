@@ -6,6 +6,7 @@ import {
   applyMultiplier,
   energyRegisterWh,
   energyToWh,
+  isFlatEnergyReading,
   overallValue,
 } from '../server/meter-units.js';
 
@@ -136,5 +137,72 @@ describe('overallValue', () => {
 
   it('returns null for no samples', () => {
     expect(overallValue([])).toBeNull();
+  });
+});
+
+// Finding J3: a clock-aligned or TxEnded sample sent 0.3 to 1.4 s after a
+// periodic one shows almost no new energy. That is no proof the EV stopped
+// drawing power, so it must not open an idle period.
+describe('isFlatEnergyReading', () => {
+  const lastRise = new Date('2026-10-08T10:00:00.000Z');
+
+  it('is not flat for a reading moments after the last rise', () => {
+    expect(
+      isFlatEnergyReading({
+        previousEnergyWh: 5000,
+        energyWh: 5000.4,
+        lastRiseAt: lastRise,
+        readingAt: new Date('2026-10-08T10:00:00.400Z'),
+      }),
+    ).toBe(false);
+    expect(
+      isFlatEnergyReading({
+        previousEnergyWh: 5000,
+        energyWh: 5000,
+        lastRiseAt: lastRise,
+        readingAt: new Date('2026-10-08T10:00:01.400Z'),
+      }),
+    ).toBe(false);
+  });
+
+  it('is flat when the energy did not rise for a full sample interval', () => {
+    expect(
+      isFlatEnergyReading({
+        previousEnergyWh: 5000,
+        energyWh: 5000,
+        lastRiseAt: lastRise,
+        readingAt: new Date('2026-10-08T10:01:00.000Z'),
+      }),
+    ).toBe(true);
+    expect(
+      isFlatEnergyReading({
+        previousEnergyWh: 5000,
+        energyWh: 5000.5,
+        lastRiseAt: lastRise,
+        readingAt: new Date('2026-10-08T10:00:30.000Z'),
+      }),
+    ).toBe(true);
+  });
+
+  it('is not flat when the energy rose', () => {
+    expect(
+      isFlatEnergyReading({
+        previousEnergyWh: 5000,
+        energyWh: 5001,
+        lastRiseAt: lastRise,
+        readingAt: new Date('2026-10-08T10:05:00.000Z'),
+      }),
+    ).toBe(false);
+  });
+
+  it('is not flat for an unparsable reading time', () => {
+    expect(
+      isFlatEnergyReading({
+        previousEnergyWh: 5000,
+        energyWh: 5000,
+        lastRiseAt: lastRise,
+        readingAt: new Date('not a date'),
+      }),
+    ).toBe(false);
   });
 });

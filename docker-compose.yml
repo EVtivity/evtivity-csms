@@ -101,6 +101,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-jwt-secret-change-in-production!!}
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
       PAYMENTS_ALLOW_SIMULATED: ${PAYMENTS_ALLOW_SIMULATED:-true}
+      # Off by default. scripts/docker-build.sh turns it on with the tools profile:
+      # driver SMS and push then go to the notify-sink dev tool, not Twilio and Expo.
+      NOTIFICATIONS_ALLOW_TEST_SINK: ${NOTIFICATIONS_ALLOW_TEST_SINK:-false}
+      NOTIFICATIONS_TEST_SINK_URL: ${NOTIFICATIONS_TEST_SINK_URL:-}
       CORS_ORIGIN: local
       LOG_LEVEL: info
       NODE_ENV: development
@@ -143,11 +147,16 @@ services:
     cpus: 2.0
     environment:
       NODE_OPTIONS: --max-old-space-size=3072
+      NODE_ENV: development
       DATABASE_URL: postgres://evtivity:evtivity@postgres:5432/evtivity
       DB_POOL_MAX: ${DB_POOL_MAX:-20}
       REDIS_URL: redis://ocpp:${REDIS_OCPP_PASSWORD:-ocpp-dev-password}@redis:6379
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
       PAYMENTS_ALLOW_SIMULATED: ${PAYMENTS_ALLOW_SIMULATED:-true}
+      # Off by default. scripts/docker-build.sh turns it on with the tools profile:
+      # driver SMS and push then go to the notify-sink dev tool, not Twilio and Expo.
+      NOTIFICATIONS_ALLOW_TEST_SINK: ${NOTIFICATIONS_ALLOW_TEST_SINK:-false}
+      NOTIFICATIONS_TEST_SINK_URL: ${NOTIFICATIONS_TEST_SINK_URL:-}
       NODE_INSPECT: ${NODE_INSPECT:-}
       OCPP_PORT: ${OCPP_PORT:-7103}
       OCPP_HEALTH_PORT: 8081
@@ -348,6 +357,10 @@ services:
       REDIS_URL: redis://worker:${REDIS_WORKER_PASSWORD:-worker-dev-password}@redis:6379
       SETTINGS_ENCRYPTION_KEY: ${SETTINGS_ENCRYPTION_KEY:-dev-encryption-key-32chars-long!}
       PAYMENTS_ALLOW_SIMULATED: ${PAYMENTS_ALLOW_SIMULATED:-true}
+      # Off by default. scripts/docker-build.sh turns it on with the tools profile:
+      # driver SMS and push then go to the notify-sink dev tool, not Twilio and Expo.
+      NOTIFICATIONS_ALLOW_TEST_SINK: ${NOTIFICATIONS_ALLOW_TEST_SINK:-false}
+      NOTIFICATIONS_TEST_SINK_URL: ${NOTIFICATIONS_TEST_SINK_URL:-}
       API_PORT: ${API_PORT:-7102}
       OCPP_PORT: ${OCPP_PORT:-7103}
       OCPP_SERVER_URL: ws://ocpp:${OCPP_PORT:-7103}
@@ -391,6 +404,34 @@ services:
       - '${INFRA_BIND_IP:-127.0.0.1}:1025:1025'
     mem_limit: 1g
     cpus: 0.25
+    profiles:
+      - tools
+
+  # Notification test sink: receives the driver SMS and push the api, ocpp and
+  # worker would send to Twilio and Expo (NOTIFICATIONS_ALLOW_TEST_SINK). Read
+  # them with GET /messages (docker/notify-sink/server.mjs). Local dev only.
+  notify-sink:
+    image: node:24-alpine
+    restart: unless-stopped
+    command: ['node', '/app/server.mjs']
+    working_dir: /app
+    volumes:
+      - ./docker/notify-sink:/app:ro
+    ports:
+      - '${INFRA_BIND_IP:-127.0.0.1}:${NOTIFY_SINK_PORT:-7111}:8080'
+    mem_limit: 256m
+    cpus: 0.25
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://localhost:8080/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     profiles:
       - tools
 

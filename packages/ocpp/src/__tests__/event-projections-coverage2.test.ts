@@ -2126,7 +2126,7 @@ describe('Event projections - coverage round 2', () => {
         STA, // 0
         [{ id: 'ses_1' }], // 1 session
         [], // 2 INSERT meter_values
-        [{ energy_delivered_wh: 100, meter_start: '50' }], // 3 prev
+        [{ energy_delivered_wh: 100, meter_start: '50', last_rise_at: '2026-01-01T00:59:00Z' }], // 3 prev
         [], // 4 UPDATE meter_start
         [], // 5 UPDATE energy
         // newEnergyWh = 150-50 = 100 == prevEnergyWh -> flat -> mark idle
@@ -2152,6 +2152,9 @@ describe('Event projections - coverage round 2', () => {
           /idle_started_at IS NULL/.test(c.strings.join(' ')),
       );
       expect(idleUpdate).toBeDefined();
+      // A reading older than the newest status of the EVSE (offline replay) opens nothing.
+      expect(idleUpdate!.strings.join('?')).toContain('c.status_reported_at > ?::timestamptz');
+      expect(idleUpdate!.values).toContain('2026-01-01T01:00:00Z');
     });
 
     it('Power.Active.Import = 0 marks idle; nonzero accrues idle', async () => {
@@ -2176,7 +2179,37 @@ describe('Event projections - coverage round 2', () => {
           },
         ],
       });
-      expect(findSql(/SET idle_started_at/)).toBeDefined();
+      const idleOpen = findSql(/SET idle_started_at/);
+      expect(idleOpen).toBeDefined();
+      // A reading older than the newest status of the EVSE (offline replay) opens nothing.
+      expect(idleOpen!.strings.join('?')).toContain('c.status_reported_at > ?::timestamptz');
+    });
+
+    it('a nonzero power reading closes an idle period only when it is not older than the status', async () => {
+      await setup();
+      setupSqlResults(
+        STA,
+        [{ id: 'ses_1' }], // session
+        [], // INSERT meter_values
+        [], // UPDATE idle_minutes (power resumed)
+        [], // active sessions empty
+        [{ site_id: null }], // resolveSiteId
+      );
+      await emit('ocpp.MeterValues', 'CS-1', {
+        stationId: 'CS-1',
+        evseId: 0,
+        transactionId: 'tx-1',
+        source: 'TransactionEvent',
+        meterValues: [
+          {
+            timestamp: '2026-01-01T01:00:00Z',
+            sampledValue: [{ measurand: 'Power.Active.Import', value: 7000 }],
+          },
+        ],
+      });
+      const idleClose = findSql(/SET idle_minutes/);
+      expect(idleClose).toBeDefined();
+      expect(idleClose!.strings.join('?')).toContain('c.status_reported_at > ?::timestamptz');
     });
 
     it('re-resolves station and re-inserts when first meter_values insert conflicts', async () => {

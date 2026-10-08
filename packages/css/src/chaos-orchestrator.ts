@@ -36,6 +36,8 @@ const CHAOS_STATE_MUTATING: ReadonlySet<string> = new Set([
   'stopCharging',
   'injectFault',
   'clearFault',
+  'suspendCharging',
+  'resumeCharging',
   'comeOnline',
   'goOffline',
   'sendStatusNotification',
@@ -46,7 +48,14 @@ const CHAOS_VALID_BY_STATE: Readonly<Record<CssStationStatus, ReadonlySet<string
   disconnected: new Set(['comeOnline']),
   booting: new Set([]),
   available: new Set(['plugIn', 'authorize', 'goOffline', 'injectFault', 'sendStatusNotification']),
-  charging: new Set(['stopCharging', 'unplug', 'injectFault', 'goOffline']),
+  charging: new Set([
+    'stopCharging',
+    'unplug',
+    'injectFault',
+    'goOffline',
+    'suspendCharging',
+    'resumeCharging',
+  ]),
   faulted: new Set(['clearFault', 'goOffline']),
   unavailable: new Set(['comeOnline', 'sendStatusNotification']),
 };
@@ -101,6 +110,13 @@ export function filterChaosActions<T extends { name: string }>(
   state: CssStationStatus,
   connectorStatus: string,
 ): T[] {
+  // A fault in mode 'suspend' keeps the transaction: the station is in a session but
+  // its connector is Faulted, so only clearFault (or going offline) applies.
+  if (connectorStatus === 'Faulted') {
+    return actions.filter(
+      (a) => !CHAOS_STATE_MUTATING.has(a.name) || CHAOS_VALID_BY_STATE.faulted.has(a.name),
+    );
+  }
   if (connectorStatus === 'Finishing') {
     return actions.filter(
       (a) => !CHAOS_STATE_MUTATING.has(a.name) || CHAOS_FINISHING_ACTIONS.has(a.name),
@@ -148,6 +164,12 @@ const GLOBAL_ACTIONS: Array<{
   },
   { name: 'unplug', params: () => ({ evseId: 1 }) },
   { name: 'clearFault', params: () => ({ evseId: 1 }) },
+  // Idle periods inside a session: the EV or the EVSE stops the energy transfer
+  {
+    name: 'suspendCharging',
+    params: () => ({ evseId: 1, by: pick(['EV', 'EVSE']) }),
+  },
+  { name: 'resumeCharging', params: () => ({ evseId: 1 }) },
   { name: 'sendHeartbeat', params: () => ({}) },
   { name: 'sendMeterValues', params: () => ({ evseId: 1 }) },
   {
@@ -171,10 +193,15 @@ const OCPP21_ACTIONS: Array<{
   name: string;
   params: (tokens: DriverToken[]) => Record<string, unknown>;
 }> = [
-  // OCPP 2.1 injectFault: no errorCode field on StatusNotification
+  // OCPP 2.1 injectFault: no errorCode field on StatusNotification; the error code picks
+  // the stop reason when the fault ends the session (GroundFault, OvercurrentFault, Other)
   {
     name: 'injectFault',
-    params: () => ({ evseId: 1, errorCode: 'InternalError' }),
+    params: () => ({
+      evseId: 1,
+      errorCode: pick(['GroundFailure', 'OverCurrentFailure', 'InternalError']),
+      mode: pick(['end', 'suspend']),
+    }),
   },
   // OCPP 2.1 sendBootNotification has reason field
   {
@@ -449,6 +476,7 @@ const OCPP16_ACTIONS: Array<{
         'OverVoltage',
         'WeakSignal',
       ]),
+      mode: pick(['end', 'suspend']),
     }),
   },
   // OCPP 1.6 sendBootNotification: no reason field

@@ -24,6 +24,11 @@ function createSqlMock() {
 
   const sqlFn = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     sqlCalls.push({ strings: [...strings], values });
+    // The session end notice claims answer by text (claimed), outside the
+    // queued results, since the settlement runs beside the Ended projection.
+    if (/SET (completed_notified_at|receipt_notified_at) = now\(\)/.test(strings.join('?'))) {
+      return Promise.resolve(Object.assign([{ id: 'session-claimed' }], { count: 1 }));
+    }
     const idx = sqlCallIndex;
     sqlCallIndex++;
     const error = sqlErrors.get(idx);

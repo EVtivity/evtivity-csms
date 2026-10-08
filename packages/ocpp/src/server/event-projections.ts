@@ -83,6 +83,7 @@ import {
   DEFAULT_MEASURAND,
   applyMultiplier,
   energyToWh,
+  isFlatEnergyReading,
   overallValue,
 } from './meter-units.js';
 import type { PhaseSample } from './meter-units.js';
@@ -1187,15 +1188,14 @@ export function registerProjections(
         });
       }
 
-      // OCPP 1.6 StatusNotification idle detection fallback.
-      // OCPP 1.6 sends fine-grained statuses (SuspendedEV, SuspendedEVSE, Finishing, Charging).
-      // OCPP 2.1 only sends coarse statuses (Available, Occupied, Reserved, Unavailable, Faulted).
-      // If we see a 1.6-specific status, use it for idle detection on active sessions
-      // that do not already have idle_started_at set by a higher-priority signal.
-      const IDLE_STATUSES_1_6 = new Set(['SuspendedEV', 'SuspendedEVSE', 'Finishing']);
-      const RESUME_STATUSES_1_6 = new Set(['Charging', 'Preparing']);
-
-      if (IDLE_STATUSES_1_6.has(ocppStatus)) {
+      // StatusNotification idle detection. Idle fees accrue only while the EV
+      // suspends: OCPP 1.6 SuspendedEV opens a period on the active session of
+      // this EVSE. Every other status that says the EV is not the one pausing
+      // closes an open period at the status timestamp: Charging, Preparing,
+      // a station-side SuspendedEVSE, Finishing, Faulted (1.6 and 2.1),
+      // Unavailable, Available, Reserved. OCPP 2.1 Occupied says nothing about
+      // the charging state (the TransactionEvent chargingState decides there).
+      if (ocppStatus === 'SuspendedEV') {
         const statusTimestamp =
           (payload.timestamp as string | undefined) ?? new Date().toISOString();
         await sql`
@@ -1221,12 +1221,12 @@ export function registerProjections(
             statusTimestamp,
           );
         }
-      } else if (RESUME_STATUSES_1_6.has(ocppStatus)) {
+      } else if (ocppStatus !== 'Occupied') {
         const statusTimestamp =
           (payload.timestamp as string | undefined) ?? new Date().toISOString();
         await sql`
         UPDATE charging_sessions
-        SET idle_minutes = idle_minutes + EXTRACT(EPOCH FROM (${statusTimestamp}::timestamptz - idle_started_at)) / 60,
+        SET idle_minutes = idle_minutes + GREATEST(0, EXTRACT(EPOCH FROM (${statusTimestamp}::timestamptz - idle_started_at)) / 60),
             idle_started_at = NULL,
             updated_at = now()
         WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
@@ -1405,13 +1405,15 @@ export function registerProjections(
           const prevRows = await attempt.memo(
             `mv:${String(reading)}:prev`,
             () => sql`
-          SELECT energy_delivered_wh, meter_start FROM charging_sessions
+          SELECT energy_delivered_wh, meter_start, COALESCE(energy_rose_at, started_at) AS last_rise_at
+          FROM charging_sessions
           WHERE station_id = ${stationUuid} AND status = 'active'
             AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
         `,
           );
           const prevEnergyWh = Number(prevRows[0]?.energy_delivered_wh ?? -1);
           const existingMeterStart = prevRows[0]?.meter_start as string | null | undefined;
+          const lastRiseAt = prevRows[0]?.last_rise_at as Date | string | null | undefined;
 
           // Set meter_start from the first energy reading if not already set (OCPP 2.1 path)
           await sql`
@@ -1423,30 +1425,71 @@ export function registerProjections(
         `;
           // Compute energy as delta: currentReading - meterStart (clamp to 0 if meter resets).
           // The cast is required: untyped, Postgres infers integer from meter_start and rejects decimals.
+          // energy_rose_at records the reading that raised the energy by 1 Wh or more
+          // (the flat-energy fallback below measures the flat time from it).
           await sql`
           UPDATE charging_sessions
-          SET energy_delivered_wh = GREATEST(0, ${meterValue}::numeric - meter_start), updated_at = now()
+          SET energy_delivered_wh = GREATEST(0, ${meterValue}::numeric - meter_start),
+              energy_rose_at = CASE
+                WHEN GREATEST(0, ${meterValue}::numeric - meter_start) - COALESCE(energy_delivered_wh, 0) >= 1
+                THEN GREATEST(COALESCE(energy_rose_at, ${mvTimestamp}::timestamptz), ${mvTimestamp}::timestamptz)
+                ELSE energy_rose_at
+              END,
+              updated_at = now()
           WHERE station_id = ${stationUuid} AND status = 'active'
             AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
             AND meter_start IS NOT NULL
         `;
 
           // Flat energy reading idle detection (Priority 3 fallback).
-          // If energy_delivered_wh did not change after this reading, no power is flowing.
+          // If energy_delivered_wh did not change after this reading and has not
+          // risen for a full sample interval (isFlatEnergyReading), no power is
+          // flowing. A sample sent a moment after a periodic one (clock-aligned,
+          // transaction end) shows almost no new energy while the EV charges,
+          // so it opens nothing (finding J3).
           // The idle_started_at IS NULL guard ensures higher-priority signals are not overwritten.
+          // Neither meter fallback opens a period while the session's connector
+          // is faulted, suspended by the station (suspended_evse), finishing
+          // (1.6), or in OCPP 2.1 Idle or EVConnected: idle fees accrue only
+          // while the EV suspends. Neither fallback opens or closes a period
+          // for a reading older than the newest status the station reported
+          // for the session's EVSE, or the event's EVSE for a session without
+          // one (connectors.status_reported_at): a reading replayed from an
+          // offline queue after a live status is stale.
           if (existingMeterStart != null && prevEnergyWh >= 0) {
             const newEnergyWh = meterValue - Number(existingMeterStart);
             if (Math.abs(newEnergyWh - prevEnergyWh) < 1) {
-              // Energy unchanged: mark idle if not already set
-              await attempt.once(
-                `mv:${String(reading)}:energy-idle-open`,
-                () => sql`
-              UPDATE charging_sessions
-              SET idle_started_at = ${mvTimestamp}, updated_at = now()
-              WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
-                AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
-            `,
-              );
+              const flat =
+                lastRiseAt != null &&
+                isFlatEnergyReading({
+                  previousEnergyWh: prevEnergyWh,
+                  energyWh: newEnergyWh,
+                  lastRiseAt: new Date(lastRiseAt),
+                  readingAt: new Date(mvTimestamp),
+                });
+              // Energy flat for a full interval: mark idle if not already set
+              if (flat) {
+                await attempt.once(
+                  `mv:${String(reading)}:energy-idle-open`,
+                  () => sql`
+                UPDATE charging_sessions
+                SET idle_started_at = ${mvTimestamp}, updated_at = now()
+                WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
+                  AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+                  AND NOT EXISTS (
+                    SELECT 1 FROM connectors c
+                    WHERE (c.id = charging_sessions.connector_id
+                      OR (charging_sessions.connector_id IS NULL AND c.evse_id = charging_sessions.evse_id))
+                      AND c.status IN ('faulted', 'suspended_evse', 'finishing', 'ev_connected', 'idle')
+                  )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM connectors c
+                    WHERE c.evse_id = COALESCE(charging_sessions.evse_id, ${evseUuid})
+                      AND c.status_reported_at > ${mvTimestamp}::timestamptz
+                  )
+              `,
+                );
+              }
             } else {
               // Energy increased: accumulate idle time and clear idle_started_at,
               // unless a station signal confirmed this idle period (see below).
@@ -1460,6 +1503,11 @@ export function registerProjections(
               WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
                 AND idle_notified_at IS DISTINCT FROM idle_started_at
                 AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+                AND NOT EXISTS (
+                  SELECT 1 FROM connectors c
+                  WHERE c.evse_id = COALESCE(charging_sessions.evse_id, ${evseUuid})
+                    AND c.status_reported_at > ${mvTimestamp}::timestamptz
+                )
             `,
               );
             }
@@ -1479,17 +1527,28 @@ export function registerProjections(
             SET idle_started_at = ${mvTimestamp}, updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
               AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+              AND NOT EXISTS (
+                SELECT 1 FROM connectors c
+                WHERE (c.id = charging_sessions.connector_id
+                  OR (charging_sessions.connector_id IS NULL AND c.evse_id = charging_sessions.evse_id))
+                  AND c.status IN ('faulted', 'suspended_evse', 'finishing', 'ev_connected', 'idle')
+              )
+              AND NOT EXISTS (
+                SELECT 1 FROM connectors c
+                WHERE c.evse_id = COALESCE(charging_sessions.evse_id, ${evseUuid})
+                  AND c.status_reported_at > ${mvTimestamp}::timestamptz
+              )
           `,
             );
           } else {
             // Power resumed: accumulate idle time and clear idle_started_at.
             // The meter fallbacks only end an idle period they started: once the
-            // station itself reported it (2.1 chargingState, 1.6 SuspendedEV
-            // status), dispatchIdlingNotification claimed it (idle_notified_at =
-            // idle_started_at), and only the station's own Charging ends it. A
-            // reading carried by the same TransactionEvent as a SuspendedEVSE would
-            // otherwise end the period and the next event would open a second one
-            // with a second notification.
+            // station itself reported it (2.1 chargingState SuspendedEV, 1.6
+            // SuspendedEV status), dispatchIdlingNotification claimed it
+            // (idle_notified_at = idle_started_at), and only the station's next
+            // state ends it. A reading carried by the same TransactionEvent as a
+            // SuspendedEV would otherwise end the period and the next event
+            // would open a second one with a second notification.
             await attempt.once(
               `mv:${String(reading)}:power-idle-close`,
               () => sql`
@@ -1500,6 +1559,11 @@ export function registerProjections(
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
               AND idle_notified_at IS DISTINCT FROM idle_started_at
               AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+              AND NOT EXISTS (
+                SELECT 1 FROM connectors c
+                WHERE c.evse_id = COALESCE(charging_sessions.evse_id, ${evseUuid})
+                  AND c.status_reported_at > ${mvTimestamp}::timestamptz
+              )
           `,
             );
           }
