@@ -60,7 +60,7 @@
   },
   "dependencies": {
     "@sentry/node": "^10.42.0",
-    "handlebars": "^4.7.8",
+    "handlebars": "^4.7.10",
     "html-to-text": "^10.0.1",
     "ioredis": "^5.9.3",
     "nanoid": "^6.0.1",
