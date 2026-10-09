@@ -532,7 +532,7 @@ describe('User routes (extended coverage)', () => {
         method: 'POST',
         url: '/auth/logout',
         headers: auth,
-        cookies: { csms_refresh: 'raw-refresh-value' },
+        cookies: { csms_refresh: app.signCookie('raw-refresh-value') },
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
@@ -541,6 +541,17 @@ describe('User routes (extended coverage)', () => {
       const cleared = res.cookies.filter((c) => c.name === 'csms_token');
       expect(cleared).toHaveLength(1);
       expect(cleared[0]?.value).toBe('');
+    });
+
+    it('skips refresh revocation for a tampered refresh cookie', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/logout',
+        headers: auth,
+        cookies: { csms_refresh: 'raw-refresh-value.bad-signature' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(revokeRefreshToken).not.toHaveBeenCalled();
     });
 
     it('skips refresh revocation when no refresh cookie is present', async () => {
@@ -570,11 +581,24 @@ describe('User routes (extended coverage)', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/auth/refresh',
-        cookies: { csms_refresh: 'bad' },
+        cookies: { csms_refresh: app.signCookie('bad') },
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('INVALID_REFRESH_TOKEN');
       expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('bad');
+      expect(cookieNames(res)).toContain('csms_refresh');
+      expect(createRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('returns 401 INVALID_REFRESH_TOKEN and clears cookies for a tampered cookie', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/refresh',
+        cookies: { csms_refresh: 'good.not-a-valid-signature' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('INVALID_REFRESH_TOKEN');
+      expect(validateAndRotateRefreshToken).not.toHaveBeenCalled();
       expect(cookieNames(res)).toContain('csms_refresh');
       expect(createRefreshToken).not.toHaveBeenCalled();
     });
@@ -584,7 +608,7 @@ describe('User routes (extended coverage)', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/auth/refresh',
-        cookies: { csms_refresh: 'driver-token' },
+        cookies: { csms_refresh: app.signCookie('driver-token') },
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('INVALID_REFRESH_TOKEN');
@@ -596,7 +620,7 @@ describe('User routes (extended coverage)', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/auth/refresh',
-        cookies: { csms_refresh: 'good' },
+        cookies: { csms_refresh: app.signCookie('good') },
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('ACCOUNT_DISABLED');
@@ -609,7 +633,7 @@ describe('User routes (extended coverage)', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/auth/refresh',
-        cookies: { csms_refresh: 'good' },
+        cookies: { csms_refresh: app.signCookie('good') },
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('ACCOUNT_DISABLED');
@@ -621,7 +645,7 @@ describe('User routes (extended coverage)', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/auth/refresh',
-        cookies: { csms_refresh: 'good' },
+        cookies: { csms_refresh: app.signCookie('good') },
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });

@@ -38,7 +38,12 @@ import {
   recordNotificationAttempt,
 } from '@evtivity/lib';
 import QRCode from 'qrcode';
-import { setAuthCookies, clearAuthCookies, isSecureRequest } from '../lib/auth-cookies.js';
+import {
+  setAuthCookies,
+  clearAuthCookies,
+  isSecureRequest,
+  readRefreshCookie,
+} from '../lib/auth-cookies.js';
 import { checkRecaptcha } from '../lib/recaptcha-check.js';
 import {
   createRefreshToken,
@@ -454,9 +459,9 @@ export function userRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const rawRefreshToken = request.cookies['csms_refresh'];
-      if (rawRefreshToken) {
-        await revokeRefreshToken(rawRefreshToken);
+      const refreshCookie = readRefreshCookie('csms', request);
+      if (refreshCookie.status === 'valid') {
+        await revokeRefreshToken(refreshCookie.value);
       }
       // Clear cached permissions for the logged-out user
       const jwtUser = request.user as unknown as Record<string, unknown>;
@@ -493,13 +498,16 @@ export function userRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const rawToken = request.cookies['csms_refresh'];
-      if (!rawToken) {
+      const refreshCookie = readRefreshCookie('csms', request);
+      if (refreshCookie.status === 'absent') {
         await reply.status(401).send({ error: 'No refresh token', code: 'NO_REFRESH_TOKEN' });
         return;
       }
 
-      const result = await validateAndRotateRefreshToken(rawToken);
+      const result =
+        refreshCookie.status === 'valid'
+          ? await validateAndRotateRefreshToken(refreshCookie.value)
+          : null;
       if (result == null || result.userId == null) {
         clearAuthCookies('csms', reply, isSecureRequest(request));
         await reply

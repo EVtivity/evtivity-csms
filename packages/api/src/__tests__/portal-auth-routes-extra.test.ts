@@ -495,10 +495,21 @@ describe('Portal auth routes - extra coverage', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/logout',
-        cookies: { portal_token: signedDriverToken, portal_refresh: 'web-refresh' },
+        cookies: { portal_token: signedDriverToken, portal_refresh: app.signCookie('web-refresh') },
       });
       expect(res.statusCode).toBe(204);
       expect(revokeRefreshToken).toHaveBeenCalledWith('web-refresh');
+      expect(cookieMap(res).get('portal_refresh')).toBe('');
+    });
+
+    it('revokes nothing for a tampered refresh cookie and still clears cookies', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/logout',
+        cookies: { portal_token: signedDriverToken, portal_refresh: 'web-refresh.bad-signature' },
+      });
+      expect(res.statusCode).toBe(204);
+      expect(revokeRefreshToken).not.toHaveBeenCalled();
       expect(cookieMap(res).get('portal_refresh')).toBe('');
     });
 
@@ -530,12 +541,24 @@ describe('Portal auth routes - extra coverage', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/refresh',
-        cookies: { portal_refresh: 'stale' },
+        cookies: { portal_refresh: app.signCookie('stale') },
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('INVALID_REFRESH_TOKEN');
       expect(validateAndRotateRefreshToken).toHaveBeenCalledWith('stale', { deviceId: undefined });
       expect(cookieMap(res).get('portal_token')).toBe('');
+    });
+
+    it('returns 401 INVALID_REFRESH_TOKEN and clears cookies for a tampered web cookie', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/refresh',
+        cookies: { portal_refresh: 'stale.not-a-valid-signature' },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe('INVALID_REFRESH_TOKEN');
+      expect(validateAndRotateRefreshToken).not.toHaveBeenCalled();
+      expect(cookieMap(res).get('portal_refresh')).toBe('');
     });
 
     it('returns 401 INVALID_REFRESH_TOKEN for an operator refresh token', async () => {
@@ -562,7 +585,7 @@ describe('Portal auth routes - extra coverage', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/refresh',
-        cookies: { portal_refresh: 'valid' },
+        cookies: { portal_refresh: app.signCookie('valid') },
       });
       expect(res.statusCode).toBe(401);
       expect(res.json().code).toBe('ACCOUNT_DISABLED');
@@ -578,7 +601,7 @@ describe('Portal auth routes - extra coverage', () => {
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/refresh',
-        cookies: { portal_refresh: 'valid' },
+        cookies: { portal_refresh: app.signCookie('valid') },
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });

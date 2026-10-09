@@ -22,7 +22,12 @@ import {
   verifyMfaChallenge,
   verifyTotpCode,
 } from '@evtivity/lib';
-import { setAuthCookies, clearAuthCookies, isSecureRequest } from '../../lib/auth-cookies.js';
+import {
+  setAuthCookies,
+  clearAuthCookies,
+  isSecureRequest,
+  readRefreshCookie,
+} from '../../lib/auth-cookies.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { emailEquals } from '../../lib/email-match.js';
 import { generateUserToken, hashUserToken } from '../../lib/user-token.js';
@@ -508,9 +513,13 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const mobile = isMobileClient(request);
-      const rawRefreshToken = mobile
-        ? (request.body as { refreshToken?: string } | undefined)?.refreshToken
-        : request.cookies['portal_refresh'];
+      let rawRefreshToken: string | undefined;
+      if (mobile) {
+        rawRefreshToken = (request.body as { refreshToken?: string } | undefined)?.refreshToken;
+      } else {
+        const refreshCookie = readRefreshCookie('portal', request);
+        if (refreshCookie.status === 'valid') rawRefreshToken = refreshCookie.value;
+      }
       if (rawRefreshToken) {
         await revokeRefreshToken(rawRefreshToken);
       }
@@ -548,15 +557,23 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const mobile = isMobileClient(request);
       const deviceId = mobile ? deviceIdFromRequest(request) : undefined;
-      const rawToken = mobile
-        ? (request.body as { refreshToken?: string } | undefined)?.refreshToken
-        : request.cookies['portal_refresh'];
-      if (!rawToken) {
+      let rawToken: string | undefined;
+      let invalidCookie = false;
+      if (mobile) {
+        rawToken = (request.body as { refreshToken?: string } | undefined)?.refreshToken;
+      } else {
+        const refreshCookie = readRefreshCookie('portal', request);
+        if (refreshCookie.status === 'valid') rawToken = refreshCookie.value;
+        invalidCookie = refreshCookie.status === 'invalid';
+      }
+      if (!rawToken && !invalidCookie) {
         await reply.status(401).send({ error: 'No refresh token', code: 'NO_REFRESH_TOKEN' });
         return;
       }
 
-      const result = await validateAndRotateRefreshToken(rawToken, { deviceId });
+      // A portal_refresh cookie whose signature does not verify is refused
+      // like an unknown token: 401 INVALID_REFRESH_TOKEN and cleared cookies.
+      const result = rawToken ? await validateAndRotateRefreshToken(rawToken, { deviceId }) : null;
       if (result == null || result.driverId == null) {
         if (!mobile) clearAuthCookies('portal', reply, isSecureRequest(request));
         await reply
