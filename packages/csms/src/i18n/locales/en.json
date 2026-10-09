@@ -324,7 +324,6 @@
     "contactAdminForInvite": "Contact your administrator to send a new invitation.",
     "setPasswordTitle": "Set New Password",
     "setPasswordSubtitle": "Your account requires a password change before you can continue.",
-    "passwordRequirements": "Minimum 12 characters",
     "setPasswordButton": "Set Password",
     "settingPassword": "Setting password...",
     "setPasswordSuccess": "Password updated. Signing you in...",
@@ -2068,6 +2067,7 @@
     "recaptcha": "reCAPTCHA",
     "recaptchaDescription": "reCAPTCHA v3 protects login pages from automated bots. Users are scored invisibly without solving puzzles.",
     "recaptchaEnabled": "Enable reCAPTCHA v3",
+    "recaptchaOffWarning": "reCAPTCHA is off. Driver portal sign-up, sign-in and password reset are protected only by IP rate limits. Turn it on when anyone can register.",
     "recaptchaSiteKey": "Site Key",
     "recaptchaSecretKey": "Secret Key",
     "recaptchaSecretHint": "Stored encrypted on the server. Leave blank to keep the current value.",
@@ -2970,7 +2970,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "Set the eMAID country code and provider ID first",
     "LOCAL_CA_EXISTS": "A local contract CA already exists",
     "LOCAL_CA_NOT_CONFIGURED": "Create the local contract CA first",
-    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge contract not found"
+    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge contract not found",
+    "PHONE_REGISTRATION_LIMITED": "Too many accounts were registered with this phone number. Try again later.",
+    "VERIFICATION_RESEND_LIMITED": "Too many verification emails. Wait before you request another one."
   },
   "logs": {
     "title": "Logs",
@@ -3433,7 +3435,17 @@
     "min": "Must be at least {{min}}",
     "max": "Must be at most {{max}}",
     "invalidNumber": "Enter a valid number",
-    "invalidValue": "Invalid value"
+    "invalidValue": "Invalid value",
+    "passwordNeeds": "Password needs:",
+    "passwordMissing": "Password needs {{rules}}.",
+    "passwordRuleMet": "met",
+    "passwordRuleNotMet": "not met",
+    "passwordRule": {
+      "minLength": "at least {{min}} characters",
+      "uppercase": "an uppercase letter",
+      "lowercase": "a lowercase letter",
+      "number": "a number"
+    }
   },
   "simulate": {
     "tab": "Simulate",

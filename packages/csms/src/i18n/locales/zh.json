@@ -324,7 +324,6 @@
     "contactAdminForInvite": "请联系您的管理员发送新的邀请。",
     "setPasswordTitle": "设置新密码",
     "setPasswordSubtitle": "您的账户需要更改密码才能继续。",
-    "passwordRequirements": "至少12个字符",
     "setPasswordButton": "设置密码",
     "settingPassword": "正在设置密码...",
     "setPasswordSuccess": "密码已更新。正在登录...",
@@ -2068,6 +2067,7 @@
     "recaptcha": "reCAPTCHA",
     "recaptchaDescription": "reCAPTCHA v3 保护登录页面免受自动化机器人攻击。用户会被隐形评分，无需解决验证码。",
     "recaptchaEnabled": "启用 reCAPTCHA v3",
+    "recaptchaOffWarning": "reCAPTCHA 已关闭。驾驶员门户的注册、登录和密码重置仅受 IP 速率限制保护。任何人都可以注册时，请将其开启。",
     "recaptchaSiteKey": "网站密钥",
     "recaptchaSecretKey": "密钥",
     "recaptchaSecretHint": "在服务器上加密存储。留空以保留当前值。",
@@ -2970,7 +2970,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "请先设置 eMAID 国家代码和提供商 ID",
     "LOCAL_CA_EXISTS": "本地合同 CA 已存在",
     "LOCAL_CA_NOT_CONFIGURED": "请先创建本地合同 CA",
-    "PNC_CONTRACT_NOT_FOUND": "未找到 Plug & Charge 合同"
+    "PNC_CONTRACT_NOT_FOUND": "未找到 Plug & Charge 合同",
+    "PHONE_REGISTRATION_LIMITED": "使用此电话号码注册的账户过多。请稍后再试。",
+    "VERIFICATION_RESEND_LIMITED": "验证邮件请求过多。请稍后再请求。"
   },
   "logs": {
     "title": "日志",
@@ -3433,7 +3435,17 @@
     "min": "必须至少为 {{min}}",
     "max": "必须最多为 {{max}}",
     "invalidNumber": "请输入有效数字",
-    "invalidValue": "无效值"
+    "invalidValue": "无效值",
+    "passwordNeeds": "密码要求：",
+    "passwordMissing": "密码不符合以下要求：{{rules}}",
+    "passwordRuleMet": "已满足",
+    "passwordRuleNotMet": "未满足",
+    "passwordRule": {
+      "minLength": "至少 {{min}} 个字符",
+      "uppercase": "至少一个大写字母",
+      "lowercase": "至少一个小写字母",
+      "number": "至少一个数字"
+    }
   },
   "simulate": {
     "tab": "模拟",

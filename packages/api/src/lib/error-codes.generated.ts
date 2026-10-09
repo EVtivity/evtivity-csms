@@ -181,6 +181,7 @@ export const ERROR_CODES = {
   PAYOUT_ACCOUNT_EXISTS: 'PAYOUT_ACCOUNT_EXISTS',
   PAYOUT_ACCOUNT_NOT_READY: 'PAYOUT_ACCOUNT_NOT_READY',
   PERMISSIONS_EXCEED_OWN: 'PERMISSIONS_EXCEED_OWN',
+  PHONE_REGISTRATION_LIMITED: 'PHONE_REGISTRATION_LIMITED',
   PKI_ROOT_REFRESH_FAILED: 'PKI_ROOT_REFRESH_FAILED',
   PNC_CONTRACT_NOT_FOUND: 'PNC_CONTRACT_NOT_FOUND',
   PNC_DISABLED: 'PNC_DISABLED',
@@ -276,6 +277,7 @@ export const ERROR_CODES = {
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   VEHICLE_NOT_FOUND: 'VEHICLE_NOT_FOUND',
   VENDOR_NOT_FOUND: 'VENDOR_NOT_FOUND',
+  VERIFICATION_RESEND_LIMITED: 'VERIFICATION_RESEND_LIMITED',
   WEAK_PASSWORD: 'WEAK_PASSWORD',
   WEBHOOK_NOT_CONFIGURED: 'WEBHOOK_NOT_CONFIGURED',
   WEBHOOK_SIGNATURE_INVALID: 'WEBHOOK_SIGNATURE_INVALID',
@@ -454,6 +456,7 @@ export type ErrorCode =
   | 'PAYOUT_ACCOUNT_EXISTS'
   | 'PAYOUT_ACCOUNT_NOT_READY'
   | 'PERMISSIONS_EXCEED_OWN'
+  | 'PHONE_REGISTRATION_LIMITED'
   | 'PKI_ROOT_REFRESH_FAILED'
   | 'PNC_CONTRACT_NOT_FOUND'
   | 'PNC_DISABLED'
@@ -549,6 +552,7 @@ export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'VEHICLE_NOT_FOUND'
   | 'VENDOR_NOT_FOUND'
+  | 'VERIFICATION_RESEND_LIMITED'
   | 'WEAK_PASSWORD'
   | 'WEBHOOK_NOT_CONFIGURED'
   | 'WEBHOOK_SIGNATURE_INVALID'
@@ -747,6 +751,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PAYOUT_ACCOUNT_EXISTS: 'The site already has a payout account',
   PAYOUT_ACCOUNT_NOT_READY: "The site's payout account cannot receive payments yet",
   PERMISSIONS_EXCEED_OWN: 'API key permissions must be a subset of your own permissions',
+  PHONE_REGISTRATION_LIMITED:
+    'Too many accounts were registered with this phone number. Try again later.',
   PKI_ROOT_REFRESH_FAILED: 'Root certificate refresh from the PKI provider failed',
   PNC_CONTRACT_NOT_FOUND: 'Plug & Charge contract not found',
   PNC_DISABLED: 'Plug & Charge is disabled',
@@ -849,6 +855,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   VALIDATION_ERROR: 'Validation error',
   VEHICLE_NOT_FOUND: 'Vehicle not found',
   VENDOR_NOT_FOUND: 'Vendor not found',
+  VERIFICATION_RESEND_LIMITED: 'Too many verification emails. Wait before you request another one.',
   WEAK_PASSWORD: 'Password does not meet complexity requirements',
   WEBHOOK_NOT_CONFIGURED: 'Webhook not configured',
   WEBHOOK_SIGNATURE_INVALID: 'Invalid signature',

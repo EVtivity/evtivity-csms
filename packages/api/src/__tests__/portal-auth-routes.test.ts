@@ -136,6 +136,16 @@ vi.mock('@evtivity/services/template-dirs', () => ({
   OCPP_TEMPLATES_DIR: '/mock/templates',
 }));
 
+const signupLimits = vi.hoisted(() => ({
+  registrationPhone: vi.fn((phone: string | undefined) =>
+    phone == null || phone === '' ? null : phone,
+  ),
+  isPhoneRegistrationLimited: vi.fn().mockResolvedValue(false),
+  verificationResendRetryAfter: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../lib/signup-limits.js', () => signupLimits);
+
 const { activateDriverPortalMock } = vi.hoisted(() => ({
   activateDriverPortalMock: vi.fn(),
 }));
@@ -145,7 +155,7 @@ vi.mock('../services/driver-portal-access.service.js', () => ({
 }));
 
 import { eq, isNotNull } from 'drizzle-orm';
-import { AppError } from '@evtivity/lib';
+import { AppError, dispatchSystemNotification } from '@evtivity/lib';
 import { db, resolveAccountBilling } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { portalAuthRoutes } from '../routes/portal/auth.js';
@@ -814,6 +824,38 @@ describe('Portal auth routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().success).toBe(true);
+      const call = vi.mocked(dispatchSystemNotification).mock.calls.at(-1);
+      expect(call?.[1]).toBe('driver.AccountVerification');
+      expect(call?.[2]).not.toHaveProperty('phone');
+    });
+
+    it('refuses a resend over the per-driver cap with 429 and Retry-After', async () => {
+      signupLimits.verificationResendRetryAfter.mockResolvedValueOnce(42);
+      vi.mocked(dispatchSystemNotification).mockClear();
+      setupDbResults([
+        {
+          id: DRIVER_ID,
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
+          language: 'en',
+          emailVerified: false,
+        },
+      ]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/resend-verification',
+        cookies: { portal_token: signedDriverToken },
+        payload: {},
+      });
+      expect(response.statusCode).toBe(429);
+      expect(response.headers['retry-after']).toBe('42');
+      expect(response.json()).toMatchObject({
+        code: 'VERIFICATION_RESEND_LIMITED',
+        retryAfterSeconds: 42,
+      });
+      expect(signupLimits.verificationResendRetryAfter).toHaveBeenCalledWith(DRIVER_ID);
+      expect(dispatchSystemNotification).not.toHaveBeenCalled();
     });
   });
 

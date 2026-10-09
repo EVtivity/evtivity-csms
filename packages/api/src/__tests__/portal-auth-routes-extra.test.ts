@@ -130,6 +130,16 @@ vi.mock('@evtivity/services/template-dirs', () => ({
   OCPP_TEMPLATES_DIR: '/mock/templates',
 }));
 
+const signupLimits = vi.hoisted(() => ({
+  registrationPhone: vi.fn((phone: string | undefined) =>
+    phone == null || phone === '' ? null : phone,
+  ),
+  isPhoneRegistrationLimited: vi.fn().mockResolvedValue(false),
+  verificationResendRetryAfter: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../lib/signup-limits.js', () => signupLimits);
+
 vi.mock('../services/driver-portal-access.service.js', () => ({
   activateDriverPortal: vi.fn(),
 }));
@@ -384,11 +394,36 @@ describe('Portal auth routes - extra coverage', () => {
 
       const call = vi.mocked(dispatchSystemNotification).mock.calls[0];
       expect(call?.[1]).toBe('driver.AccountVerification');
+      // Email only: the phone is never verified, so the link never goes by SMS.
+      expect(call?.[2]).toEqual(expect.objectContaining({ email: 'john@example.com' }));
+      expect(call?.[2]).not.toHaveProperty('phone');
       const vars = call?.[3] as { verifyUrl: string };
       const rawToken = new URL(vars.verifyUrl).searchParams.get('token') ?? '';
       expect(vars.verifyUrl).toContain('/verify-email?token=');
       // The stored hash is the hash of the emailed raw token.
       expect((tokenInsert as { tokenHash: string }).tokenHash).toBe(hashUserToken(rawToken));
+    });
+
+    it('refuses a phone number used in too many registrations with 429', async () => {
+      signupLimits.isPhoneRegistrationLimited.mockResolvedValueOnce(true);
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/register',
+        payload: { ...body, phone: '555-1234' },
+      });
+      expect(res.statusCode).toBe(429);
+      expect(res.json().code).toBe('PHONE_REGISTRATION_LIMITED');
+      expect(signupLimits.isPhoneRegistrationLimited).toHaveBeenCalledWith('555-1234');
+      expect(valuesWrites()).toEqual([]);
+      expect(dispatchSystemNotification).not.toHaveBeenCalled();
+    });
+
+    it('does not check the phone cap without a phone', async () => {
+      setupDbResults([], [driverRow], []);
+      const res = await app.inject({ method: 'POST', url: '/portal/auth/register', payload: body });
+      expect(res.statusCode).toBe(201);
+      expect(signupLimits.isPhoneRegistrationLimited).not.toHaveBeenCalled();
     });
 
     it('maps a concurrent unique violation on insert to 409 EMAIL_EXISTS', async () => {
@@ -952,6 +987,35 @@ describe('Portal auth routes - extra coverage', () => {
   });
 
   describe('POST /portal/auth/reset-password', () => {
+    it('returns 400 RECAPTCHA_REQUIRED when reCAPTCHA is on and no token is sent', async () => {
+      vi.mocked(getRecaptchaConfig).mockResolvedValueOnce({
+        secretKeyEnc: 'enc',
+        threshold: 0.5,
+      } as never);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/reset-password',
+        payload: { token: 'abc', password: STRONG },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('RECAPTCHA_REQUIRED');
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('returns 403 ATTESTATION_FAILED for a mobile client that fails attestation', async () => {
+      vi.mocked(verifyDeviceAttestation).mockResolvedValueOnce(false);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/reset-password',
+        headers: MOBILE,
+        payload: { token: 'abc', password: STRONG },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('ATTESTATION_FAILED');
+      expect(getRecaptchaConfig).not.toHaveBeenCalled();
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
     it('returns 400 WEAK_PASSWORD before looking up the token', async () => {
       const res = await app.inject({
         method: 'POST',

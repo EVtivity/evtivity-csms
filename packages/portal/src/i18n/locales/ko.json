@@ -764,12 +764,24 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "먼저 eMAID 국가 코드와 공급자 ID를 설정하세요",
     "LOCAL_CA_EXISTS": "로컬 계약 CA가 이미 있습니다",
     "LOCAL_CA_NOT_CONFIGURED": "먼저 로컬 계약 CA를 만드세요",
-    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge 계약을 찾을 수 없습니다"
+    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge 계약을 찾을 수 없습니다",
+    "PHONE_REGISTRATION_LIMITED": "이 전화번호로 등록된 계정이 너무 많습니다. 나중에 다시 시도하세요.",
+    "VERIFICATION_RESEND_LIMITED": "인증 이메일 요청이 너무 많습니다. 잠시 후 다시 요청하세요."
   },
   "validation": {
     "required": "필수 항목입니다",
     "email": "유효한 이메일 주소를 입력하세요",
-    "minLength": "최소 {{min}}자 이상이어야 합니다"
+    "minLength": "최소 {{min}}자 이상이어야 합니다",
+    "passwordNeeds": "비밀번호 요구 사항:",
+    "passwordMissing": "비밀번호가 요구 사항을 충족하지 않습니다: {{rules}}",
+    "passwordRuleMet": "충족",
+    "passwordRuleNotMet": "미충족",
+    "passwordRule": {
+      "minLength": "{{min}}자 이상",
+      "uppercase": "영문 대문자 1개 이상",
+      "lowercase": "영문 소문자 1개 이상",
+      "number": "숫자 1개 이상"
+    }
   },
   "activity": {
     "title": "활동",

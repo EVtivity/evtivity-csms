@@ -324,7 +324,6 @@
     "contactAdminForInvite": "Wenden Sie sich an Ihren Administrator, um eine neue Einladung zu erhalten.",
     "setPasswordTitle": "Neues Passwort festlegen",
     "setPasswordSubtitle": "Ihr Konto erfordert eine Passwortänderung, bevor Sie fortfahren können.",
-    "passwordRequirements": "Mindestens 12 Zeichen",
     "setPasswordButton": "Passwort festlegen",
     "settingPassword": "Passwort wird festgelegt...",
     "setPasswordSuccess": "Passwort aktualisiert. Sie werden angemeldet...",
@@ -2068,6 +2067,7 @@
     "recaptcha": "reCAPTCHA",
     "recaptchaDescription": "reCAPTCHA v3 schützt Anmeldeseiten vor automatisierten Bots. Benutzer werden unsichtbar bewertet, ohne Rätsel lösen zu müssen.",
     "recaptchaEnabled": "reCAPTCHA v3 aktivieren",
+    "recaptchaOffWarning": "reCAPTCHA ist ausgeschaltet. Registrierung, Anmeldung und Passwort-Zurücksetzung im Fahrerportal sind nur durch IP-Ratenlimits geschützt. Schalten Sie es ein, wenn sich jeder registrieren kann.",
     "recaptchaSiteKey": "Site Key",
     "recaptchaSecretKey": "Secret Key",
     "recaptchaSecretHint": "Wird verschlüsselt auf dem Server gespeichert. Leer lassen, um den aktuellen Wert beizubehalten.",
@@ -2970,7 +2970,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "Legen Sie zuerst Ländercode und Provider-ID der eMAID fest",
     "LOCAL_CA_EXISTS": "Eine lokale Vertrags-CA ist bereits vorhanden",
     "LOCAL_CA_NOT_CONFIGURED": "Erstellen Sie zuerst die lokale Vertrags-CA",
-    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge-Vertrag nicht gefunden"
+    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge-Vertrag nicht gefunden",
+    "PHONE_REGISTRATION_LIMITED": "Mit dieser Telefonnummer wurden zu viele Konten registriert. Versuchen Sie es später erneut.",
+    "VERIFICATION_RESEND_LIMITED": "Zu viele Bestätigungs-E-Mails. Warten Sie, bevor Sie eine weitere anfordern."
   },
   "logs": {
     "title": "Protokolle",
@@ -3433,7 +3435,17 @@
     "min": "Muss mindestens {{min}} sein",
     "max": "Darf höchstens {{max}} sein",
     "invalidNumber": "Geben Sie eine gültige Zahl ein",
-    "invalidValue": "Ungültiger Wert"
+    "invalidValue": "Ungültiger Wert",
+    "passwordNeeds": "Das Passwort braucht:",
+    "passwordMissing": "Das Passwort braucht {{rules}}.",
+    "passwordRuleMet": "erfüllt",
+    "passwordRuleNotMet": "nicht erfüllt",
+    "passwordRule": {
+      "minLength": "mindestens {{min}} Zeichen",
+      "uppercase": "einen Großbuchstaben",
+      "lowercase": "einen Kleinbuchstaben",
+      "number": "eine Ziffer"
+    }
   },
   "simulate": {
     "tab": "Simulieren",

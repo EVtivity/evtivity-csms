@@ -8,10 +8,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
-import { api } from '@/lib/api';
+import { api, getApiErrorCode } from '@/lib/api';
+import { passwordRulesMessage } from '@/lib/password-rules';
+import { PasswordRequirements } from '@/components/PasswordRequirements';
 
 export function ProfilePassword(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -19,6 +21,8 @@ export function ProfilePassword(): React.JSX.Element {
   const [passwordError, setPasswordError] = useState('');
   const [passwordSuccess, setPasswordSuccess] = useState(false);
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
+  // The API refused the new password (WEAK_PASSWORD). Translated at render, cleared on edit.
+  const [serverWeakPassword, setServerWeakPassword] = useState(false);
 
   const changePasswordMutation = useMutation({
     mutationFn: (body: { currentPassword: string; newPassword: string }) =>
@@ -35,7 +39,9 @@ export function ProfilePassword(): React.JSX.Element {
       }, 3000);
     },
     onError: (err: unknown) => {
-      if (err != null && typeof err === 'object' && 'body' in err) {
+      if (getApiErrorCode(err) === 'WEAK_PASSWORD') {
+        setServerWeakPassword(true);
+      } else if (err != null && typeof err === 'object' && 'body' in err) {
         const body = (err as { body: { error?: string } }).body;
         setPasswordError(body.error ?? t('profile.passwordChangeFailed'));
       } else {
@@ -51,8 +57,10 @@ export function ProfilePassword(): React.JSX.Element {
     }
     if (newPassword.trim() === '') {
       errors.newPassword = t('validation.required');
-    } else if (newPassword.length < 12) {
-      errors.newPassword = t('validation.minLength', { min: 12 });
+    } else {
+      const rulesError = passwordRulesMessage(newPassword, t, i18n.language);
+      if (rulesError != null) errors.newPassword = rulesError;
+      else if (serverWeakPassword) errors.newPassword = t('errors.WEAK_PASSWORD');
     }
     if (confirmPassword.trim() === '') {
       errors.confirmPassword = t('validation.required');
@@ -113,8 +121,10 @@ export function ProfilePassword(): React.JSX.Element {
             <PasswordInput
               id="new-password"
               value={newPassword}
+              aria-describedby="new-password-requirements"
               onChange={(e) => {
                 setNewPassword(e.target.value);
+                setServerWeakPassword(false);
               }}
               autoComplete="new-password"
               className={
@@ -123,10 +133,14 @@ export function ProfilePassword(): React.JSX.Element {
                   : ''
               }
             />
-            <p className="text-xs text-muted-foreground">{t('auth.passwordRequirements')}</p>
             {hasSubmittedPassword && passwordValidationErrors.newPassword && (
               <p className="text-sm text-destructive">{passwordValidationErrors.newPassword}</p>
             )}
+            <PasswordRequirements
+              id="new-password-requirements"
+              password={newPassword}
+              showUnmet={hasSubmittedPassword}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm-password" className="leading-6">

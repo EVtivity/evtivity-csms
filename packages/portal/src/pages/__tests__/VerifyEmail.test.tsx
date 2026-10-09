@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 
 const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
@@ -39,9 +39,9 @@ vi.mock('react-i18next', () => ({
 import { ApiError } from '@/lib/api';
 import { VerifyEmail } from '../VerifyEmail';
 
-function renderPage(): void {
+function renderPage(path = '/verify-email?token=raw-token'): void {
   render(
-    <MemoryRouter initialEntries={['/verify-email?token=raw-token']}>
+    <MemoryRouter initialEntries={[path]}>
       <VerifyEmail />
     </MemoryRouter>,
   );
@@ -69,5 +69,47 @@ describe('VerifyEmail', () => {
     postMock.mockRejectedValue(new TypeError('Failed to fetch'));
     renderPage();
     expect(await screen.findByText('auth.verifyEmailFailed')).toBeTruthy();
+  });
+
+  describe('check your email', () => {
+    it('fills the app layout content area and centers the card in it', () => {
+      renderPage('/verify-email');
+      const wrapper = screen.getByTestId('verify-email-pending');
+      // Inside Layout's <main> (a flex column): flex-1 fills it, min-h-screen overflowed it.
+      expect(wrapper.className).toContain('flex-1');
+      expect(wrapper.className).toContain('justify-center');
+      expect(wrapper.className).toContain('items-center');
+      expect(wrapper.className).not.toContain('min-h-screen');
+    });
+
+    it('shows the per-account resend limit and disables the button for the wait', async () => {
+      postMock.mockRejectedValue(
+        new ApiError(429, {
+          error: 'x',
+          code: 'VERIFICATION_RESEND_LIMITED',
+          retryAfterSeconds: 45,
+        }),
+      );
+      renderPage('/verify-email');
+      fireEvent.click(screen.getByRole('button', { name: 'auth.resendVerification' }));
+      expect(await screen.findByText('translated:errors.VERIFICATION_RESEND_LIMITED')).toBeTruthy();
+      const button = screen.getByRole('button', { name: 'auth.resendVerificationCooldown' });
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('keeps the button disabled without a countdown for a wait longer than a minute', async () => {
+      postMock.mockRejectedValue(
+        new ApiError(429, {
+          error: 'x',
+          code: 'VERIFICATION_RESEND_LIMITED',
+          retryAfterSeconds: 3600,
+        }),
+      );
+      renderPage('/verify-email');
+      fireEvent.click(screen.getByRole('button', { name: 'auth.resendVerification' }));
+      expect(await screen.findByText('translated:errors.VERIFICATION_RESEND_LIMITED')).toBeTruthy();
+      const button = screen.getByRole('button', { name: 'auth.resendVerification' });
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    });
   });
 });

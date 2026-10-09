@@ -44,6 +44,8 @@ interface EventSettingsLayoutProps {
   emptyMessage: string;
   sections: EventSection[];
   channels: readonly string[];
+  /** The channels one event type is sent on, when fewer than `channels`. */
+  channelsFor?: (eventType: string) => readonly string[];
   channelTooltip?: string;
   toggleEndpoint?: string;
   toggleQueryKey?: string[];
@@ -69,6 +71,7 @@ export function EventSettingsLayout({
   emptyMessage,
   sections,
   channels,
+  channelsFor,
   channelTooltip,
   toggleEndpoint,
   toggleQueryKey,
@@ -83,7 +86,14 @@ export function EventSettingsLayout({
   const queryClient = useQueryClient();
 
   const [selectedEvent, setSelectedEvent] = useState('');
-  const [channel, setChannel] = useState<string>(channels[0] ?? 'email');
+  const [channelChoice, setChannel] = useState<string>(channels[0] ?? 'email');
+  const eventChannels =
+    selectedEvent !== '' ? (channelsFor?.(selectedEvent) ?? channels) : channels;
+  // An event sent on fewer channels (driver.AccountVerification is email only) falls back to
+  // its first channel instead of showing a template that is never sent.
+  const channel = eventChannels.includes(channelChoice)
+    ? channelChoice
+    : (eventChannels[0] ?? channelChoice);
   const [language, setLanguage] = useState<string>('en');
   const [pendingEvent, setPendingEvent] = useState<string | null>(null);
   // Local toggle override: tracks unsaved active/inactive state per eventType:channel
@@ -172,7 +182,7 @@ export function EventSettingsLayout({
                   {section.events.map((et) => {
                     const isSelected = selectedEvent === et;
                     const anyEnabled = hasToggle
-                      ? channels.some((ch) => {
+                      ? (channelsFor?.(et) ?? channels).some((ch) => {
                           const key = `${et}:${ch}`;
                           return (
                             localToggle.get(key) ?? enabledMap.get(key) ?? defaultEnabled ?? false
@@ -306,7 +316,7 @@ export function EventSettingsLayout({
                           {channelTooltip != null && <InfoTooltip content={channelTooltip} />}
                         </Label>
                         <div className="flex rounded-md border border-input overflow-hidden">
-                          {channels.map((ch) => (
+                          {eventChannels.map((ch) => (
                             <button
                               key={ch}
                               type="button"

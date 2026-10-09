@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -9,10 +10,18 @@ import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api, ApiError } from '@/lib/api';
+import { passwordRulesMessage } from '@/lib/password-rules';
+import { executeRecaptcha } from '@/lib/recaptcha';
+import { PasswordRequirements } from '@/components/PasswordRequirements';
 import { rateLimitedMessage } from '@/lib/error-message';
 
+interface SecurityPublic {
+  recaptchaEnabled: boolean;
+  recaptchaSiteKey: string;
+}
+
 export function ResetPassword(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
 
@@ -22,12 +31,21 @@ export function ResetPassword(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
+  const [serverWeakPassword, setServerWeakPassword] = useState(false);
 
   const { companyName, companyLogo, branding } = useAuthBranding();
 
+  const { data: securityPublic } = useQuery({
+    queryKey: ['security-public'],
+    queryFn: () => api.get<SecurityPublic>('/v1/security/public'),
+  });
+
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
-    if (password.length < 12) errors.password = t('validation.minLength', { min: 12 });
+    const rulesError = passwordRulesMessage(password, t, i18n.language);
+    if (rulesError != null) errors.password = rulesError;
+    else if (serverWeakPassword) errors.password = t('errors.WEAK_PASSWORD');
     if (confirmPassword !== password) errors.confirmPassword = t('auth.passwordsMustMatch');
     return errors;
   }
@@ -42,7 +60,11 @@ export function ResetPassword(): React.JSX.Element {
     setError(null);
     setLoading(true);
     try {
-      await api.post('/v1/portal/auth/reset-password', { token, password });
+      let recaptchaToken: string | undefined;
+      if (securityPublic?.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
+        recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'reset_password');
+      }
+      await api.post('/v1/portal/auth/reset-password', { token, password, recaptchaToken });
       setSuccess(true);
     } catch (err) {
       const limited = rateLimitedMessage(err, t);
@@ -52,6 +74,8 @@ export function ResetPassword(): React.JSX.Element {
         const body = err.body as { code?: string } | null;
         if (body?.code === 'INVALID_TOKEN') {
           setError(t('auth.invalidResetLink'));
+        } else if (body?.code === 'WEAK_PASSWORD') {
+          setServerWeakPassword(true);
         } else {
           setError(t('errors.unknown'));
         }
@@ -109,14 +133,21 @@ export function ResetPassword(): React.JSX.Element {
                 <PasswordInput
                   id="password"
                   value={password}
+                  aria-describedby="password-requirements"
                   onChange={(e) => {
                     setPassword(e.target.value);
+                    setServerWeakPassword(false);
                   }}
                   className={hasSubmitted && validationErrors.password ? 'border-destructive' : ''}
                 />
                 {hasSubmitted && validationErrors.password && (
                   <p className="text-sm text-destructive">{validationErrors.password}</p>
                 )}
+                <PasswordRequirements
+                  id="password-requirements"
+                  password={password}
+                  showUnmet={hasSubmitted}
+                />
               </div>
               <div className="space-y-2">
                 <label htmlFor="confirmPassword" className="block text-sm font-medium leading-6">

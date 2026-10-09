@@ -32,11 +32,17 @@ import { zodSchema } from '../../lib/zod-schema.js';
 import { emailEquals } from '../../lib/email-match.js';
 import { generateUserToken, hashUserToken } from '../../lib/user-token.js';
 import { validatePasswordComplexity } from '../../lib/password-validation.js';
+import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { itemResponse, successResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { checkRecaptcha } from '../../lib/recaptcha-check.js';
+import {
+  isPhoneRegistrationLimited,
+  registrationPhone,
+  verificationResendRetryAfter,
+} from '../../lib/signup-limits.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import {
   createRefreshToken,
@@ -128,7 +134,7 @@ const registerBody = z.object({
   firstName: z.string().min(1).max(100),
   lastName: z.string().min(1).max(100),
   email: z.string().email(),
-  password: z.string().min(12),
+  password: z.string().min(PASSWORD_MIN_LENGTH),
   phone: z.string().max(50).optional(),
   recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
 });
@@ -233,7 +239,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         tags: ['Portal Auth'],
         summary: 'Register a new driver account',
         description:
-          'Creates a driver row with registrationSource=portal, hashes the password with argon2, sends a verification email, and sets portal session and refresh cookies. Verifies the reCAPTCHA token when enabled. Returns 409 on duplicate email and 403 if portal registration is disabled by settings.',
+          'Creates a driver row with registrationSource=portal, hashes the password with argon2, sends a verification email, and sets portal session and refresh cookies. Verifies the reCAPTCHA token when enabled. Returns 409 on duplicate email, 429 PHONE_REGISTRATION_LIMITED when the phone number was used in three portal registrations in the last 24 hours, and 403 if portal registration is disabled by settings. The verification email goes to the email address only.',
         operationId: 'portalRegister',
         security: [],
         body: zodSchema(registerBody),
@@ -242,6 +248,9 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
           403: errorWith('Forbidden', [ERROR_CODES.PORTAL_REGISTRATION_DISABLED]),
           409: errorWith('Email exists', [ERROR_CODES.EMAIL_EXISTS]),
+          429: errorWith('Too many registrations with this phone number', [
+            ERROR_CODES.PHONE_REGISTRATION_LIMITED,
+          ]),
           500: errorWith('Internal server error', [ERROR_CODES.INTERNAL_ERROR]),
         },
       },
@@ -298,6 +307,17 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Per-contact cap on top of the per-IP rate limit, so one phone number cannot seed many
+      // accounts. Stored normalized so formatting variants count as the same number.
+      const phone = registrationPhone(body.phone);
+      if (phone != null && (await isPhoneRegistrationLimited(phone))) {
+        await reply.status(429).send({
+          error: 'Too many accounts were registered with this phone number. Try again later.',
+          code: 'PHONE_REGISTRATION_LIMITED',
+        });
+        return;
+      }
+
       const passwordHash = await argon2.hash(body.password);
 
       let rows;
@@ -308,7 +328,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
             firstName: body.firstName,
             lastName: body.lastName,
             email: body.email,
-            phone: body.phone,
+            phone,
             passwordHash,
             registrationSource: 'portal',
           })
@@ -351,8 +371,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         client,
         'driver.AccountVerification',
         {
+          // Email only: the link verifies the email address, and the phone is unverified.
           email: driver.email ?? undefined,
-          phone: driver.phone ?? undefined,
           firstName: driver.firstName,
           language: driver.language,
         },
@@ -991,7 +1011,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
 
   const activateBody = z.object({
     token: z.string().min(1).describe('Invitation token from the portal invite email link'),
-    password: z.string().min(12).describe('New portal password'),
+    password: z.string().min(PASSWORD_MIN_LENGTH).describe('New portal password'),
   });
 
   app.post(
@@ -1030,7 +1050,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
   // Reset password with token
   const resetPasswordBody = z.object({
     token: z.string().min(1),
-    password: z.string().min(12),
+    password: z.string().min(PASSWORD_MIN_LENGTH),
+    recaptchaToken: z.string().optional().describe('reCAPTCHA v3 token'),
   });
 
   app.post(
@@ -1040,11 +1061,21 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         tags: ['Portal Auth'],
         summary: 'Reset driver password using a token from the reset email',
         operationId: 'portalResetPassword',
+        description:
+          'Sets a new password with the single-use token from the reset email and revokes every refresh token. Verifies the reCAPTCHA token when enabled (web), or the device attestation (mobile apps).',
         security: [],
         body: zodSchema(resetPasswordBody),
         response: {
           200: successResponse,
-          400: errorWith('Weak password', [ERROR_CODES.WEAK_PASSWORD]),
+          400: errorWith('Bad request', [
+            ERROR_CODES.WEAK_PASSWORD,
+            ERROR_CODES.INVALID_TOKEN,
+            ERROR_CODES.RECAPTCHA_REQUIRED,
+          ]),
+          403: errorWith('Forbidden', [
+            ERROR_CODES.RECAPTCHA_FAILED,
+            ERROR_CODES.ATTESTATION_FAILED,
+          ]),
         },
       },
       config: {
@@ -1055,12 +1086,27 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { token, password } = request.body as z.infer<typeof resetPasswordBody>;
+      const { token, password, recaptchaToken } = request.body as z.infer<typeof resetPasswordBody>;
 
       const complexityError = validatePasswordComplexity(password);
       if (complexityError != null) {
         await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
         return;
+      }
+
+      // Same bot check as login, register and forgot-password: reCAPTCHA on the web, device
+      // attestation for the native apps (which cannot produce a reCAPTCHA token).
+      if (isMobileClient(request)) {
+        const attested = await verifyDeviceAttestation(request);
+        if (!attested) {
+          await reply
+            .status(403)
+            .send({ error: 'Device attestation failed', code: 'ATTESTATION_FAILED' });
+          return;
+        }
+      } else {
+        const recaptchaOk = await checkRecaptcha(recaptchaToken, reply);
+        if (!recaptchaOk) return;
       }
 
       const tokenHash = hashUserToken(token);
@@ -1210,6 +1256,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Portal Auth'],
         summary: 'Resend email verification link',
+        description:
+          'Revokes the open verification link and emails a new one (email only, never SMS). Besides the per-IP rate limit, a driver gets at most one verification email a minute and five in 24 hours, the sign-up email included. Over the limit it returns 429 VERIFICATION_RESEND_LIMITED with a Retry-After header and retryAfterSeconds in the body.',
         operationId: 'portalResendVerification',
         security: [{ bearerAuth: [] }],
         response: {
@@ -1218,6 +1266,7 @@ export function portalAuthRoutes(app: FastifyInstance): void {
             ERROR_CODES.ALREADY_VERIFIED,
             ERROR_CODES.DRIVER_NOT_FOUND,
           ]),
+          429: errorWith('Too many verification emails', [ERROR_CODES.VERIFICATION_RESEND_LIMITED]),
         },
       },
       config: {
@@ -1236,7 +1285,6 @@ export function portalAuthRoutes(app: FastifyInstance): void {
           firstName: drivers.firstName,
           lastName: drivers.lastName,
           email: drivers.email,
-          phone: drivers.phone,
           language: drivers.language,
           emailVerified: drivers.emailVerified,
         })
@@ -1250,6 +1298,17 @@ export function portalAuthRoutes(app: FastifyInstance): void {
 
       if (driver.emailVerified) {
         await reply.status(400).send({ error: 'Email already verified', code: 'ALREADY_VERIFIED' });
+        return;
+      }
+
+      // Per-account cap on top of the per-IP rate limit: one email a minute, five a day.
+      const retryAfterSeconds = await verificationResendRetryAfter(driverId);
+      if (retryAfterSeconds != null) {
+        await reply.header('Retry-After', String(retryAfterSeconds)).status(429).send({
+          error: 'Too many verification emails. Wait before you request another one.',
+          code: 'VERIFICATION_RESEND_LIMITED',
+          retryAfterSeconds,
+        });
         return;
       }
 
@@ -1282,8 +1341,8 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         client,
         'driver.AccountVerification',
         {
+          // Email only: the link verifies the email address, and the phone is unverified.
           email: driver.email ?? undefined,
-          phone: driver.phone ?? undefined,
           firstName: driver.firstName,
           language: driver.language,
         },

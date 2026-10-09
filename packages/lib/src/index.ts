@@ -160,6 +160,13 @@ export {
   toAuthorizationKeyHex,
 } from './station-password.js';
 export type { StationOcppProtocol, StationPasswordError } from './station-password.js';
+export {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_RULES,
+  passwordRuleResults,
+  missingPasswordRules,
+} from './password-policy.js';
+export type { PasswordRule } from './password-policy.js';
 export { UI_LANGUAGES, isUiLanguage, toUiLanguage } from './languages.js';
 export type { UiLanguage } from './languages.js';
 export {

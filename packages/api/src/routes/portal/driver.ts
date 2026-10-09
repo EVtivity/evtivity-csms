@@ -21,6 +21,7 @@ import {
 import QRCode from 'qrcode';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { validatePasswordComplexity } from '../../lib/password-validation.js';
+import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
@@ -97,7 +98,7 @@ const updateProfileBody = z.object({
 
 const changePasswordBody = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(12),
+  newPassword: z.string().min(PASSWORD_MIN_LENGTH),
 });
 
 export function portalDriverRoutes(app: FastifyInstance): void {

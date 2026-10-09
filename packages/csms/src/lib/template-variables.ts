@@ -46,6 +46,9 @@ export const DRIVER_ACCOUNT_EVENTS = [
   'driver.PortalInvite',
 ] as const;
 
+/** Driver events sent by email only. The verification link proves the email address, so it never goes to an unverified phone. */
+export const EMAIL_ONLY_DRIVER_EVENTS: readonly string[] = ['driver.AccountVerification'];
+
 export const DRIVER_PAYMENT_EVENTS = [
   'payment.Complete',
   'payment.Refunded',

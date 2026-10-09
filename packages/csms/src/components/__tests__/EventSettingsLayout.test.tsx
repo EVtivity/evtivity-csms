@@ -113,3 +113,29 @@ describe('EventSettingsLayout event switch', () => {
     expect(screen.queryByRole('switch')).toBeNull();
   });
 });
+
+describe('EventSettingsLayout channels per event', () => {
+  it('offers only the channels an event type is sent on', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <EventSettingsLayout
+          sidebarTitle="Driver"
+          emptyMessage="Pick one"
+          sections={[
+            { title: 'Account', events: ['driver.AccountVerification', 'driver.Welcome'] },
+          ]}
+          channels={['email', 'sms']}
+          channelsFor={(et) => (et === 'driver.AccountVerification' ? ['email'] : ['email', 'sms'])}
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByText('driver.Welcome'));
+    fireEvent.click(screen.getByRole('button', { name: 'SMS' }));
+    expect(screen.getByRole('button', { name: 'SMS' }).className).toContain('bg-primary');
+
+    fireEvent.click(screen.getByText('driver.AccountVerification'));
+    expect(screen.getByRole('button', { name: 'Email' }).className).toContain('bg-primary');
+    expect(screen.queryByRole('button', { name: 'SMS' })).toBeNull();
+  });
+});

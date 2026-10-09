@@ -8,16 +8,21 @@ import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Select } from '@/components/ui/select';
-import { api } from '@/lib/api';
+import { api, getApiErrorCode } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { passwordRulesMessage } from '@/lib/password-rules';
+import { PasswordRequirements } from '@/components/PasswordRequirements';
 
 export function AccountSecurity(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [passwordMsg, setPasswordMsg] = useState('');
   const [passwordLoading, setPasswordLoading] = useState(false);
+  const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
+  // The API refused the new password (WEAK_PASSWORD). Translated at render, cleared on edit.
+  const [serverWeakPassword, setServerWeakPassword] = useState(false);
 
   const [mfaEnabled, setMfaEnabled] = useState(false);
   const [mfaMethod, setMfaMethod] = useState<string | null>(null);
@@ -48,9 +53,25 @@ export function AccountSecurity(): React.JSX.Element {
       });
   }, []);
 
+  function getPasswordErrors(): Record<string, string> {
+    const errors: Record<string, string> = {};
+    if (currentPassword === '') errors.currentPassword = t('validation.required');
+    if (newPassword === '') errors.newPassword = t('validation.required');
+    else {
+      const rulesError = passwordRulesMessage(newPassword, t, i18n.language);
+      if (rulesError != null) errors.newPassword = rulesError;
+      else if (serverWeakPassword) errors.newPassword = t('errors.WEAK_PASSWORD');
+    }
+    return errors;
+  }
+
+  const passwordErrors = getPasswordErrors();
+
   // eslint-disable-next-line @typescript-eslint/no-deprecated
   async function handlePasswordChange(e: React.FormEvent): Promise<void> {
     e.preventDefault();
+    setHasSubmittedPassword(true);
+    if (Object.keys(passwordErrors).length > 0) return;
     setPasswordMsg('');
     setPasswordLoading(true);
     try {
@@ -58,8 +79,10 @@ export function AccountSecurity(): React.JSX.Element {
       setPasswordMsg(t('profile.passwordChanged'));
       setCurrentPassword('');
       setNewPassword('');
+      setHasSubmittedPassword(false);
     } catch (err) {
-      setPasswordMsg(getErrorMessage(err, t, 'profile.passwordChangeFailed'));
+      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerWeakPassword(true);
+      else setPasswordMsg(getErrorMessage(err, t, 'profile.passwordChangeFailed'));
     } finally {
       setPasswordLoading(false);
     }
@@ -125,7 +148,7 @@ export function AccountSecurity(): React.JSX.Element {
   return (
     <div className="space-y-6">
       {/* Password change */}
-      <form onSubmit={(e) => void handlePasswordChange(e)} className="space-y-4">
+      <form onSubmit={(e) => void handlePasswordChange(e)} noValidate className="space-y-4">
         <h3 className="text-sm font-semibold">{t('profile.changePassword')}</h3>
         {passwordMsg !== '' && <p className="text-sm text-muted-foreground">{passwordMsg}</p>}
         <div className="space-y-2">
@@ -138,8 +161,13 @@ export function AccountSecurity(): React.JSX.Element {
             onChange={(e) => {
               setCurrentPassword(e.target.value);
             }}
-            required
+            className={
+              hasSubmittedPassword && passwordErrors.currentPassword ? 'border-destructive' : ''
+            }
           />
+          {hasSubmittedPassword && passwordErrors.currentPassword && (
+            <p className="text-sm text-destructive">{passwordErrors.currentPassword}</p>
+          )}
         </div>
         <div className="space-y-2">
           <label htmlFor="secNewPw" className="block text-sm font-medium leading-6">
@@ -148,11 +176,22 @@ export function AccountSecurity(): React.JSX.Element {
           <PasswordInput
             id="secNewPw"
             value={newPassword}
+            aria-describedby="sec-password-requirements"
             onChange={(e) => {
               setNewPassword(e.target.value);
+              setServerWeakPassword(false);
             }}
-            required
-            minLength={8}
+            className={
+              hasSubmittedPassword && passwordErrors.newPassword ? 'border-destructive' : ''
+            }
+          />
+          {hasSubmittedPassword && passwordErrors.newPassword && (
+            <p className="text-sm text-destructive">{passwordErrors.newPassword}</p>
+          )}
+          <PasswordRequirements
+            id="sec-password-requirements"
+            password={newPassword}
+            showUnmet={hasSubmittedPassword}
           />
         </div>
         <Button type="submit" className="w-full" disabled={passwordLoading}>

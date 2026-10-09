@@ -324,7 +324,6 @@
     "contactAdminForInvite": "Comuníquese con su administrador para enviar una nueva invitación.",
     "setPasswordTitle": "Establecer nueva contraseña",
     "setPasswordSubtitle": "Su cuenta requiere un cambio de contraseña antes de continuar.",
-    "passwordRequirements": "Mínimo 12 caracteres",
     "setPasswordButton": "Establecer contraseña",
     "settingPassword": "Estableciendo contraseña...",
     "setPasswordSuccess": "Contraseña actualizada. Iniciando sesión...",
@@ -2068,6 +2067,7 @@
     "recaptcha": "reCAPTCHA",
     "recaptchaDescription": "reCAPTCHA v3 protege las páginas de inicio de sesión de bots automatizados. Los usuarios son evaluados de forma invisible.",
     "recaptchaEnabled": "Habilitar reCAPTCHA v3",
+    "recaptchaOffWarning": "reCAPTCHA está desactivado. El registro, el inicio de sesión y el restablecimiento de contraseña del portal del conductor solo están protegidos por límites de frecuencia por IP. Actívelo cuando cualquiera pueda registrarse.",
     "recaptchaSiteKey": "Clave del sitio",
     "recaptchaSecretKey": "Clave secreta",
     "recaptchaSecretHint": "Se almacena cifrada en el servidor. Deje en blanco para mantener el valor actual.",
@@ -2970,7 +2970,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "Configure primero el código de país y el ID de proveedor del eMAID",
     "LOCAL_CA_EXISTS": "Ya existe una CA de contratos local",
     "LOCAL_CA_NOT_CONFIGURED": "Cree primero la CA de contratos local",
-    "PNC_CONTRACT_NOT_FOUND": "Contrato de Plug & Charge no encontrado"
+    "PNC_CONTRACT_NOT_FOUND": "Contrato de Plug & Charge no encontrado",
+    "PHONE_REGISTRATION_LIMITED": "Se registraron demasiadas cuentas con este número de teléfono. Vuelva a intentarlo más tarde.",
+    "VERIFICATION_RESEND_LIMITED": "Demasiados correos de verificación. Espere antes de solicitar otro."
   },
   "logs": {
     "title": "Registros",
@@ -3433,7 +3435,17 @@
     "min": "Debe ser al menos {{min}}",
     "max": "Debe ser como máximo {{max}}",
     "invalidNumber": "Ingrese un número válido",
-    "invalidValue": "Valor inválido"
+    "invalidValue": "Valor inválido",
+    "passwordNeeds": "La contraseña necesita:",
+    "passwordMissing": "La contraseña necesita {{rules}}.",
+    "passwordRuleMet": "cumplido",
+    "passwordRuleNotMet": "no cumplido",
+    "passwordRule": {
+      "minLength": "al menos {{min}} caracteres",
+      "uppercase": "una letra mayúscula",
+      "lowercase": "una letra minúscula",
+      "number": "un número"
+    }
   },
   "simulate": {
     "tab": "Simular",

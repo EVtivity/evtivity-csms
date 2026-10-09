@@ -764,12 +764,24 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "请先设置 eMAID 国家代码和提供商 ID",
     "LOCAL_CA_EXISTS": "本地合同 CA 已存在",
     "LOCAL_CA_NOT_CONFIGURED": "请先创建本地合同 CA",
-    "PNC_CONTRACT_NOT_FOUND": "未找到 Plug & Charge 合同"
+    "PNC_CONTRACT_NOT_FOUND": "未找到 Plug & Charge 合同",
+    "PHONE_REGISTRATION_LIMITED": "使用此电话号码注册的账户过多。请稍后再试。",
+    "VERIFICATION_RESEND_LIMITED": "验证邮件请求过多。请稍后再请求。"
   },
   "validation": {
     "required": "此字段为必填项",
     "email": "请输入有效的邮箱地址",
-    "minLength": "至少需要 {{min}} 个字符"
+    "minLength": "至少需要 {{min}} 个字符",
+    "passwordNeeds": "密码要求：",
+    "passwordMissing": "密码不符合以下要求：{{rules}}",
+    "passwordRuleMet": "已满足",
+    "passwordRuleNotMet": "未满足",
+    "passwordRule": {
+      "minLength": "至少 {{min}} 个字符",
+      "uppercase": "至少一个大写字母",
+      "lowercase": "至少一个小写字母",
+      "number": "至少一个数字"
+    }
   },
   "activity": {
     "title": "动态",

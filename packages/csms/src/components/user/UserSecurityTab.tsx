@@ -9,23 +9,33 @@ import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { api } from '@/lib/api';
+import { missingPasswordRules } from '@evtivity/lib/password-policy';
+import { api, getApiErrorCode } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
+import { passwordRulesMessage } from '@/lib/password-rules';
+import { PasswordRequirements } from '@/components/PasswordRequirements';
 
 export interface UserSecurityTabProps {
   userId: string;
 }
 
+// Draws until the password meets every rule of the API (`@evtivity/lib/password-policy`).
 function generateRandomPassword(): string {
   const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*';
-  const array = new Uint8Array(16);
-  crypto.getRandomValues(array);
-  return Array.from(array, (b) => chars[b % chars.length]).join('');
+  for (;;) {
+    const array = new Uint8Array(16);
+    crypto.getRandomValues(array);
+    const password = Array.from(array, (b) => chars[b % chars.length]).join('');
+    if (missingPasswordRules(password).length === 0) return password;
+  }
 }
 
 export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [newPassword, setNewPassword] = useState('');
   const [hasSubmittedPassword, setHasSubmittedPassword] = useState(false);
+  // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
+  const [serverWeakPassword, setServerWeakPassword] = useState(false);
 
   const resetPasswordMutation = useMutation({
     mutationFn: (body: { password: string }) =>
@@ -34,14 +44,19 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
       setNewPassword('');
       setHasSubmittedPassword(false);
     },
+    onError: (err: unknown) => {
+      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerWeakPassword(true);
+    },
   });
 
   function getPasswordValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (newPassword.trim() === '') {
       errors.newPassword = t('validation.required');
-    } else if (newPassword.length < 8) {
-      errors.newPassword = t('validation.minLength', { min: 8 });
+    } else {
+      const rulesError = passwordRulesMessage(newPassword, t, i18n.language);
+      if (rulesError != null) errors.newPassword = rulesError;
+      else if (serverWeakPassword) errors.newPassword = t('errors.WEAK_PASSWORD');
     }
     return errors;
   }
@@ -71,8 +86,10 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
               <PasswordInput
                 id="new-password"
                 value={newPassword}
+                aria-describedby="new-password-requirements"
                 onChange={(e) => {
                   setNewPassword(e.target.value);
+                  setServerWeakPassword(false);
                 }}
                 className={
                   hasSubmittedPassword && passwordErrors.newPassword ? 'border-destructive' : ''
@@ -83,6 +100,7 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
                 variant="outline"
                 onClick={() => {
                   setNewPassword(generateRandomPassword());
+                  setServerWeakPassword(false);
                 }}
               >
                 <RefreshCw className="h-4 w-4" />
@@ -92,10 +110,21 @@ export function UserSecurityTab({ userId }: UserSecurityTabProps): React.JSX.Ele
             {hasSubmittedPassword && passwordErrors.newPassword && (
               <p className="text-sm text-destructive">{passwordErrors.newPassword}</p>
             )}
+            <PasswordRequirements
+              id="new-password-requirements"
+              password={newPassword}
+              showUnmet={hasSubmittedPassword}
+            />
           </div>
           <Button type="submit" className="w-fit" disabled={resetPasswordMutation.isPending}>
             {t('users.resetPassword')}
           </Button>
+          {resetPasswordMutation.isError &&
+            getApiErrorCode(resetPasswordMutation.error) !== 'WEAK_PASSWORD' && (
+              <p className="text-sm text-destructive">
+                {getErrorMessage(resetPasswordMutation.error, t)}
+              </p>
+            )}
           {resetPasswordMutation.isSuccess && (
             <p className="text-sm text-success">{t('users.passwordResetSuccess')}</p>
           )}

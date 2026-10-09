@@ -764,12 +764,24 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "Legen Sie zuerst Ländercode und Provider-ID der eMAID fest",
     "LOCAL_CA_EXISTS": "Eine lokale Vertrags-CA ist bereits vorhanden",
     "LOCAL_CA_NOT_CONFIGURED": "Erstellen Sie zuerst die lokale Vertrags-CA",
-    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge-Vertrag nicht gefunden"
+    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge-Vertrag nicht gefunden",
+    "PHONE_REGISTRATION_LIMITED": "Mit dieser Telefonnummer wurden zu viele Konten registriert. Versuchen Sie es später erneut.",
+    "VERIFICATION_RESEND_LIMITED": "Zu viele Bestätigungs-E-Mails. Warten Sie, bevor Sie eine weitere anfordern."
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
     "email": "Gib eine gültige E-Mail-Adresse ein",
-    "minLength": "Muss mindestens {{min}} Zeichen lang sein"
+    "minLength": "Muss mindestens {{min}} Zeichen lang sein",
+    "passwordNeeds": "Das Passwort braucht:",
+    "passwordMissing": "Das Passwort braucht {{rules}}.",
+    "passwordRuleMet": "erfüllt",
+    "passwordRuleNotMet": "nicht erfüllt",
+    "passwordRule": {
+      "minLength": "mindestens {{min}} Zeichen",
+      "uppercase": "einen Großbuchstaben",
+      "lowercase": "einen Kleinbuchstaben",
+      "number": "eine Ziffer"
+    }
   },
   "activity": {
     "title": "Aktivität",

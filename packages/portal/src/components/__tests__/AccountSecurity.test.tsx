@@ -23,6 +23,8 @@ vi.mock('@/lib/api', () => {
       delete: vi.fn(),
     },
     ApiError,
+    getApiErrorCode: (err: unknown) =>
+      err instanceof ApiError ? ((err.body as { code?: string } | null)?.code ?? null) : null,
   };
 });
 
@@ -37,12 +39,12 @@ vi.mock('react-i18next', () => ({
 import { ApiError } from '@/lib/api';
 import { AccountSecurity } from '../account/AccountSecurity';
 
-function submitPasswordChange(): void {
+function submitPasswordChange(newPassword = 'New-Password-123'): void {
   fireEvent.change(screen.getByLabelText('profile.currentPassword'), {
     target: { value: 'old-password' },
   });
   fireEvent.change(screen.getByLabelText('profile.newPassword'), {
-    target: { value: 'New-Password-123' },
+    target: { value: newPassword },
   });
   fireEvent.click(screen.getByRole('button', { name: 'profile.changePassword' }));
 }
@@ -58,6 +60,21 @@ describe('AccountSecurity password change', () => {
     render(<AccountSecurity />);
     submitPasswordChange();
     expect(await screen.findByText('translated:errors.INVALID_PASSWORD')).toBeTruthy();
+  });
+
+  it('shows the password requirements and names the missing rules before calling the API', () => {
+    render(<AccountSecurity />);
+    expect(screen.getByTestId('password-requirements')).toBeTruthy();
+    submitPasswordChange('lowercaseonly');
+    expect(screen.getByText('validation.passwordMissing')).toBeTruthy();
+    expect(patchMock).not.toHaveBeenCalled();
+  });
+
+  it('explains a WEAK_PASSWORD reply at the field', async () => {
+    patchMock.mockRejectedValue(new ApiError(400, { error: 'x', code: 'WEAK_PASSWORD' }));
+    render(<AccountSecurity />);
+    submitPasswordChange();
+    expect(await screen.findByText('translated:errors.WEAK_PASSWORD')).toBeTruthy();
   });
 
   it('falls back to the generic text when the request does not reach the API', async () => {

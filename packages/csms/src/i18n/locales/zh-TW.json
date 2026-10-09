@@ -324,7 +324,6 @@
     "contactAdminForInvite": "請聯絡您的管理員傳送新的邀請。",
     "setPasswordTitle": "設定新密碼",
     "setPasswordSubtitle": "您的帳戶需要更改密碼才能繼續。",
-    "passwordRequirements": "至少12個字元",
     "setPasswordButton": "設定密碼",
     "settingPassword": "正在設定密碼...",
     "setPasswordSuccess": "密碼已更新。正在登入...",
@@ -2068,6 +2067,7 @@
     "recaptcha": "reCAPTCHA",
     "recaptchaDescription": "reCAPTCHA v3 保護登入頁面免受自動化機器人攻擊。使用者會被隱形評分，無需解決驗證碼。",
     "recaptchaEnabled": "啟用 reCAPTCHA v3",
+    "recaptchaOffWarning": "reCAPTCHA 已關閉。駕駛員入口網站的註冊、登入和密碼重設僅受 IP 速率限制保護。任何人都可以註冊時，請將其開啟。",
     "recaptchaSiteKey": "網站金鑰",
     "recaptchaSecretKey": "秘密金鑰",
     "recaptchaSecretHint": "在伺服器上加密儲存。留空以保留當前值。",
@@ -2970,7 +2970,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "請先設定 eMAID 國家代碼和供應商 ID",
     "LOCAL_CA_EXISTS": "本機合約 CA 已存在",
     "LOCAL_CA_NOT_CONFIGURED": "請先建立本機合約 CA",
-    "PNC_CONTRACT_NOT_FOUND": "找不到 Plug & Charge 合約"
+    "PNC_CONTRACT_NOT_FOUND": "找不到 Plug & Charge 合約",
+    "PHONE_REGISTRATION_LIMITED": "使用此電話號碼註冊的帳號過多。請稍後再試。",
+    "VERIFICATION_RESEND_LIMITED": "驗證電子郵件請求過多。請稍後再請求。"
   },
   "logs": {
     "title": "日誌",
@@ -3433,7 +3435,17 @@
     "min": "必須至少為 {{min}}",
     "max": "必須最多為 {{max}}",
     "invalidNumber": "請輸入有效數字",
-    "invalidValue": "無效值"
+    "invalidValue": "無效值",
+    "passwordNeeds": "密碼要求：",
+    "passwordMissing": "密碼不符合以下要求：{{rules}}",
+    "passwordRuleMet": "已符合",
+    "passwordRuleNotMet": "未符合",
+    "passwordRule": {
+      "minLength": "至少 {{min}} 個字元",
+      "uppercase": "至少一個大寫字母",
+      "lowercase": "至少一個小寫字母",
+      "number": "至少一個數字"
+    }
   },
   "simulate": {
     "tab": "模擬",

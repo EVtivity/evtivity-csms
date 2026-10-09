@@ -764,12 +764,24 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "請先設定 eMAID 國家代碼和供應商 ID",
     "LOCAL_CA_EXISTS": "本機合約 CA 已存在",
     "LOCAL_CA_NOT_CONFIGURED": "請先建立本機合約 CA",
-    "PNC_CONTRACT_NOT_FOUND": "找不到 Plug & Charge 合約"
+    "PNC_CONTRACT_NOT_FOUND": "找不到 Plug & Charge 合約",
+    "PHONE_REGISTRATION_LIMITED": "使用此電話號碼註冊的帳號過多。請稍後再試。",
+    "VERIFICATION_RESEND_LIMITED": "驗證電子郵件請求過多。請稍後再請求。"
   },
   "validation": {
     "required": "此欄位為必填項",
     "email": "請輸入有效的電子郵件",
-    "minLength": "至少需要 {{min}} 個字元"
+    "minLength": "至少需要 {{min}} 個字元",
+    "passwordNeeds": "密碼要求：",
+    "passwordMissing": "密碼不符合以下要求：{{rules}}",
+    "passwordRuleMet": "已符合",
+    "passwordRuleNotMet": "未符合",
+    "passwordRule": {
+      "minLength": "至少 {{min}} 個字元",
+      "uppercase": "至少一個大寫字母",
+      "lowercase": "至少一個小寫字母",
+      "number": "至少一個數字"
+    }
   },
   "activity": {
     "title": "動態",

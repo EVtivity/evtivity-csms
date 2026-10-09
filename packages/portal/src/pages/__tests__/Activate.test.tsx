@@ -73,7 +73,7 @@ describe('Activate', () => {
   it('validates the password locally before calling the API', () => {
     renderPage();
     submit('short', 'different');
-    expect(screen.getByText('validation.minLength')).toBeTruthy();
+    expect(screen.getByText('validation.passwordMissing')).toBeTruthy();
     expect(screen.getByText('auth.passwordsMustMatch')).toBeTruthy();
     expect(postMock).not.toHaveBeenCalled();
   });

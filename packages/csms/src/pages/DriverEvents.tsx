@@ -20,9 +20,15 @@ import {
   DRIVER_WATCH_EVENTS,
   DRIVER_PREPAID_EVENTS,
   DRIVER_FLEET_EVENTS,
+  EMAIL_ONLY_DRIVER_EVENTS,
 } from '@/lib/template-variables';
 
 const CHANNELS = ['email', 'sms'] as const;
+const EMAIL_ONLY = ['email'] as const;
+
+function channelsFor(eventType: string): readonly string[] {
+  return EMAIL_ONLY_DRIVER_EVENTS.includes(eventType) ? EMAIL_ONLY : CHANNELS;
+}
 
 interface DriverEventSetting {
   eventType: string;
@@ -64,6 +70,7 @@ export function DriverEvents(): React.JSX.Element {
         { title: t('notifications.fleetEvents'), events: DRIVER_FLEET_EVENTS },
       ]}
       channels={CHANNELS}
+      channelsFor={channelsFor}
       channelTooltip={t('notifications.channelTooltipDriver')}
       eventSwitch={{
         enabledMap,

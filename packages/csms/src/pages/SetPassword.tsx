@@ -11,6 +11,8 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api, ApiError } from '@/lib/api';
 import { rateLimitedMessage } from '@/lib/error-message';
+import { passwordRulesMessage } from '@/lib/password-rules';
+import { PasswordRequirements } from '@/components/PasswordRequirements';
 import { useAuth } from '@/lib/auth';
 
 interface ForceChangePasswordUserResponse {
@@ -37,7 +39,7 @@ interface ForceChangePasswordMfaResponse {
 type ForceChangePasswordResponse = ForceChangePasswordUserResponse | ForceChangePasswordMfaResponse;
 
 export function SetPassword(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const completeMfaLogin = useAuth((s) => s.completeMfaLogin);
@@ -52,6 +54,8 @@ export function SetPassword(): React.JSX.Element {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
+  const [serverWeakPassword, setServerWeakPassword] = useState(false);
 
   const { companyName, companyLogo } = useAuthBranding();
 
@@ -62,7 +66,9 @@ export function SetPassword(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (currentPassword === '') errors.currentPassword = t('validation.required');
-    if (newPassword.length < 12) errors.newPassword = t('validation.minLength', { min: 12 });
+    const rulesError = passwordRulesMessage(newPassword, t, i18n.language);
+    if (rulesError != null) errors.newPassword = rulesError;
+    else if (serverWeakPassword) errors.newPassword = t('errors.WEAK_PASSWORD');
     if (confirmPassword !== newPassword) errors.confirmPassword = t('auth.passwordsMustMatch');
     return errors;
   }
@@ -109,6 +115,8 @@ export function SetPassword(): React.JSX.Element {
         const body = err.body as { error?: string; code?: string } | null;
         if (body?.code === 'INVALID_CREDENTIALS') {
           setError(t('auth.invalidCredentials'));
+        } else if (body?.code === 'WEAK_PASSWORD') {
+          setServerWeakPassword(true);
         } else if (body?.code === 'RESET_NOT_REQUIRED') {
           setError(t('auth.mustSetPassword'));
           setTimeout(() => {
@@ -177,17 +185,23 @@ export function SetPassword(): React.JSX.Element {
                 <PasswordInput
                   id="newPassword"
                   value={newPassword}
+                  aria-describedby="password-requirements"
                   onChange={(e) => {
                     setNewPassword(e.target.value);
+                    setServerWeakPassword(false);
                   }}
                   className={
                     hasSubmitted && validationErrors.newPassword ? 'border-destructive' : ''
                   }
                 />
-                <p className="text-xs text-muted-foreground">{t('auth.passwordRequirements')}</p>
                 {hasSubmitted && validationErrors.newPassword && (
                   <p className="text-sm text-destructive">{validationErrors.newPassword}</p>
                 )}
+                <PasswordRequirements
+                  id="password-requirements"
+                  password={newPassword}
+                  showUnmet={hasSubmitted}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="confirmPassword" className="leading-6">

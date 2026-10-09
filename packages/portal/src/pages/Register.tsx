@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -11,9 +12,18 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { useAuth } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { api, getApiErrorCode } from '@/lib/api';
+import { executeRecaptcha } from '@/lib/recaptcha';
+import { passwordRulesMessage } from '@/lib/password-rules';
+import { PasswordRequirements } from '@/components/PasswordRequirements';
+
+interface SecurityPublic {
+  recaptchaEnabled: boolean;
+  recaptchaSiteKey: string;
+}
 
 export function Register(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const register = useAuth((s) => s.register);
   const [firstName, setFirstName] = useState('');
@@ -24,8 +34,15 @@ export function Register(): React.JSX.Element {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
+  const [serverWeakPassword, setServerWeakPassword] = useState(false);
 
   const { companyName, companyLogo, branding } = useAuthBranding();
+
+  const { data: securityPublic } = useQuery({
+    queryKey: ['security-public'],
+    queryFn: () => api.get<SecurityPublic>('/v1/security/public'),
+  });
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
@@ -34,7 +51,11 @@ export function Register(): React.JSX.Element {
     if (email.trim() === '') errors['email'] = t('validation.required');
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors['email'] = t('validation.email');
     if (password === '') errors['password'] = t('validation.required');
-    else if (password.length < 12) errors['password'] = t('validation.minLength', { min: 12 });
+    else {
+      const rulesError = passwordRulesMessage(password, t, i18n.language);
+      if (rulesError != null) errors['password'] = rulesError;
+      else if (serverWeakPassword) errors['password'] = t('errors.WEAK_PASSWORD');
+    }
     return errors;
   }
 
@@ -49,16 +70,22 @@ export function Register(): React.JSX.Element {
     setError('');
     setLoading(true);
     try {
+      let recaptchaToken: string | undefined;
+      if (securityPublic?.recaptchaEnabled && securityPublic.recaptchaSiteKey !== '') {
+        recaptchaToken = await executeRecaptcha(securityPublic.recaptchaSiteKey, 'register');
+      }
       await register({
         firstName,
         lastName,
         email,
         password,
         ...(phone !== '' ? { phone } : {}),
+        ...(recaptchaToken != null ? { recaptchaToken } : {}),
       });
       void navigate('/verify-email');
     } catch (err: unknown) {
-      setError(getErrorMessage(err, t, 'auth.registrationFailed'));
+      if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerWeakPassword(true);
+      else setError(getErrorMessage(err, t, 'auth.registrationFailed'));
     } finally {
       setLoading(false);
     }
@@ -154,14 +181,21 @@ export function Register(): React.JSX.Element {
                 id="password"
                 autoComplete="off"
                 value={password}
+                aria-describedby="password-requirements"
                 onChange={(e) => {
                   setPassword(e.target.value);
+                  setServerWeakPassword(false);
                 }}
                 className={hasSubmitted && validationErrors['password'] ? 'border-destructive' : ''}
               />
               {hasSubmitted && validationErrors['password'] && (
                 <p className="text-xs text-destructive">{validationErrors['password']}</p>
               )}
+              <PasswordRequirements
+                id="password-requirements"
+                password={password}
+                showUnmet={hasSubmitted}
+              />
             </div>
             <Button type="submit" className="w-full" size="lg" disabled={loading}>
               {loading ? t('auth.creatingAccount') : t('auth.createAccount')}

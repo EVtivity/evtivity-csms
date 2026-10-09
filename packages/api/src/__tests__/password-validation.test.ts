@@ -21,11 +21,17 @@ describe('validatePasswordComplexity', () => {
     expect(validatePasswordComplexity('Abcdefg')).toBe('Password must contain a number');
   });
 
-  it('checks uppercase before lowercase before number (priority order)', () => {
-    // Missing all three: uppercase check fires first.
-    expect(validatePasswordComplexity('!!!!!!!')).toBe('Password must contain an uppercase letter');
-    // Has uppercase, missing lowercase and number: lowercase fires next.
-    expect(validatePasswordComplexity('ABC!!!!')).toBe('Password must contain a lowercase letter');
+  it('names every missing character class in rule order', () => {
+    expect(validatePasswordComplexity('!!!!!!!')).toBe(
+      'Password must contain an uppercase letter, a lowercase letter and a number',
+    );
+    expect(validatePasswordComplexity('abcdefghijkl')).toBe(
+      'Password must contain an uppercase letter and a number',
+    );
+  });
+
+  it('leaves the length to the Zod schema', () => {
+    expect(validatePasswordComplexity('Ab1')).toBeNull();
   });
 
   it('accepts complex passwords with symbols', () => {

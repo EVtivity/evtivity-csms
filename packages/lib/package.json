@@ -32,6 +32,9 @@
     "./station-password": {
       "import": "./src/station-password.ts"
     },
+    "./password-policy": {
+      "import": "./src/password-policy.ts"
+    },
     "./firmware-signature": {
       "import": "./src/firmware-signature.ts"
     },

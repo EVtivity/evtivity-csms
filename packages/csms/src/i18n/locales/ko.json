@@ -324,7 +324,6 @@
     "contactAdminForInvite": "새 초대장을 받으려면 관리자에게 문의하세요.",
     "setPasswordTitle": "새 비밀번호 설정",
     "setPasswordSubtitle": "계속하려면 비밀번호를 변경해야 합니다.",
-    "passwordRequirements": "최소 12자",
     "setPasswordButton": "비밀번호 설정",
     "settingPassword": "비밀번호 설정 중...",
     "setPasswordSuccess": "비밀번호가 업데이트되었습니다. 로그인 중...",
@@ -2068,6 +2067,7 @@
     "recaptcha": "reCAPTCHA",
     "recaptchaDescription": "reCAPTCHA v3는 자동 봇으로부터 로그인 페이지를 보호합니다. 사용자는 퍼즐을 풀지 않고 보이지 않게 점수가 매겨집니다.",
     "recaptchaEnabled": "reCAPTCHA v3 활성화",
+    "recaptchaOffWarning": "reCAPTCHA가 꺼져 있습니다. 드라이버 포털 가입, 로그인 및 비밀번호 재설정은 IP 속도 제한으로만 보호됩니다. 누구나 가입할 수 있다면 켜세요.",
     "recaptchaSiteKey": "Site Key",
     "recaptchaSecretKey": "Secret Key",
     "recaptchaSecretHint": "서버에 암호화되어 저장됩니다. 현재 값을 유지하려면 비워두세요.",
@@ -2970,7 +2970,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "먼저 eMAID 국가 코드와 공급자 ID를 설정하세요",
     "LOCAL_CA_EXISTS": "로컬 계약 CA가 이미 있습니다",
     "LOCAL_CA_NOT_CONFIGURED": "먼저 로컬 계약 CA를 만드세요",
-    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge 계약을 찾을 수 없습니다"
+    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge 계약을 찾을 수 없습니다",
+    "PHONE_REGISTRATION_LIMITED": "이 전화번호로 등록된 계정이 너무 많습니다. 나중에 다시 시도하세요.",
+    "VERIFICATION_RESEND_LIMITED": "인증 이메일 요청이 너무 많습니다. 잠시 후 다시 요청하세요."
   },
   "logs": {
     "title": "로그",
@@ -3433,7 +3435,17 @@
     "min": "{{min}} 이상이어야 합니다",
     "max": "{{max}} 이하여야 합니다",
     "invalidNumber": "유효한 숫자를 입력하세요",
-    "invalidValue": "유효하지 않은 값"
+    "invalidValue": "유효하지 않은 값",
+    "passwordNeeds": "비밀번호 요구 사항:",
+    "passwordMissing": "비밀번호가 요구 사항을 충족하지 않습니다: {{rules}}",
+    "passwordRuleMet": "충족",
+    "passwordRuleNotMet": "미충족",
+    "passwordRule": {
+      "minLength": "{{min}}자 이상",
+      "uppercase": "영문 대문자 1개 이상",
+      "lowercase": "영문 소문자 1개 이상",
+      "number": "숫자 1개 이상"
+    }
   },
   "simulate": {
     "tab": "시뮬레이션",

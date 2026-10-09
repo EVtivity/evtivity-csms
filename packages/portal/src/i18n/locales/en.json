@@ -764,12 +764,24 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "Set the eMAID country code and provider ID first",
     "LOCAL_CA_EXISTS": "A local contract CA already exists",
     "LOCAL_CA_NOT_CONFIGURED": "Create the local contract CA first",
-    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge contract not found"
+    "PNC_CONTRACT_NOT_FOUND": "Plug & Charge contract not found",
+    "PHONE_REGISTRATION_LIMITED": "Too many accounts were registered with this phone number. Try again later.",
+    "VERIFICATION_RESEND_LIMITED": "Too many verification emails. Wait before you request another one."
   },
   "validation": {
     "required": "This field is required",
     "email": "Enter a valid email address",
-    "minLength": "Must be at least {{min}} characters"
+    "minLength": "Must be at least {{min}} characters",
+    "passwordNeeds": "Password needs:",
+    "passwordMissing": "Password needs {{rules}}.",
+    "passwordRuleMet": "met",
+    "passwordRuleNotMet": "not met",
+    "passwordRule": {
+      "minLength": "at least {{min}} characters",
+      "uppercase": "an uppercase letter",
+      "lowercase": "a lowercase letter",
+      "number": "a number"
+    }
   },
   "activity": {
     "title": "Activity",

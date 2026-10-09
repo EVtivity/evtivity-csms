@@ -4,7 +4,9 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
@@ -38,6 +40,9 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
     if (typeof th === 'number') setThreshold(String(th));
   }, [settings]);
 
+  // The stored state, not the unsaved toggle: the warning says what protects sign-up now.
+  const savedEnabled = settings?.['security.recaptcha.enabled'] === true;
+
   const hasSavedSecret =
     typeof settings?.['security.recaptcha.secretKeyEnc'] === 'string' &&
     settings['security.recaptcha.secretKeyEnc'] !== '';
@@ -70,6 +75,12 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
         <CardTitle>{t('settings.recaptcha')}</CardTitle>
       </CardHeader>
       <CardContent>
+        {settings != null && !savedEnabled && (
+          <Alert variant="warning" className="mb-4" data-testid="recaptcha-off-warning">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>{t('settings.recaptchaOffWarning')}</AlertDescription>
+          </Alert>
+        )}
         <form
           onSubmit={(e) => {
             e.preventDefault();

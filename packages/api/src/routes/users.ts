@@ -72,6 +72,7 @@ import { invalidateUserActiveCache } from '../plugins/auth.js';
 import { invalidateSiteAccessCache } from '../lib/site-access.js';
 import { permissionCatalog } from '@evtivity/lib';
 import { validatePasswordComplexity } from '../lib/password-validation.js';
+import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
 import { config as apiConfig } from '../lib/config.js';
 import {
   isMfaChallengeExhausted,
@@ -163,12 +164,12 @@ const updateMeBody = z.object({
 });
 
 const resetPasswordBody = z.object({
-  password: z.string().min(12),
+  password: z.string().min(PASSWORD_MIN_LENGTH),
 });
 
 const changePasswordBody = z.object({
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(12),
+  newPassword: z.string().min(PASSWORD_MIN_LENGTH),
 });
 
 const forgotPasswordBody = z.object({
@@ -178,13 +179,13 @@ const forgotPasswordBody = z.object({
 
 const resetPasswordWithTokenBody = z.object({
   token: z.string().min(1).describe('Password reset token from email link'),
-  password: z.string().min(12),
+  password: z.string().min(PASSWORD_MIN_LENGTH),
 });
 
 const forceChangePasswordBody = z.object({
   email: z.string().email(),
   currentPassword: z.string().min(1),
-  newPassword: z.string().min(12),
+  newPassword: z.string().min(PASSWORD_MIN_LENGTH),
 });
 
 const userSelect = {
