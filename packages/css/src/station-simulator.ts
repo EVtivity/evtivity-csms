@@ -2371,6 +2371,11 @@ export class StationSimulator {
       return;
     }
     this.offlineFlag = false;
+    // The self-heal watchdog skips a deliberately offline station, but the
+    // not-ready clock kept running through the offline period, so the station
+    // counted as stuck the moment it came back and was restarted in the middle
+    // of its queue replay (finding JB-5). The grace period starts again now.
+    if (!this.ready) this.notReadySince = Date.now();
     if (this.destroyed || !this.initialBootDone) {
       await this.start();
       return;

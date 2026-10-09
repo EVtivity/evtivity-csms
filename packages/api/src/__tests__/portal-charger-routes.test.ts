@@ -1219,6 +1219,143 @@ describe('Portal charger routes - handler logic', () => {
       expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
     });
 
+    describe('a cable-first transaction waiting for its authorization (F01)', () => {
+      const WAITING_ID = 'ses_waiting00001';
+
+      /** The EVSE has the station's waiting session, which this start takes over. */
+      function setupTakeoverRows(...rest: unknown[][]): void {
+        setupDbResults(
+          [stationRow],
+          [{ id: 'evs_000000000001' }],
+          [{ status: 'ev_connected' }],
+          [], // active reservation gate
+          [{ id: WAITING_ID }], // EVSE active-session check
+          [{ id: WAITING_ID }], // the session waits for its authorization
+          [], // driver active-session check
+          ...rest,
+        );
+      }
+
+      function stopCommands(): unknown[] {
+        return mockPublish.mock.calls
+          .filter(([channel]) => channel === 'ocpp_commands')
+          .map(([, message]) => JSON.parse(message as string) as Record<string, unknown>)
+          .filter((command) => command['action'] === 'RequestStopTransaction');
+      }
+
+      it('takes over the waiting session: driver, remote start id, hold on it', async () => {
+        setupTakeoverRows([{ id: 7 }], [{ id: WAITING_ID, transactionId: 'tx-station' }]);
+        mockAuthorizeSessionHold.mockResolvedValueOnce({
+          outcome: 'authorized',
+          paymentRecordId: 3,
+          paymentId: 'pi_test_123',
+        });
+
+        const response = await startWithCard();
+
+        expect(response.statusCode).toBe(200);
+        expect(response.json().chargingSessionId).toBe(WAITING_ID);
+        expect(sessionInsertValues()).toHaveLength(0);
+        const takeover = sessionUpdateSets()[0] as Record<string, unknown>;
+        expect(takeover).toMatchObject({ driverId: DRIVER_ID, billingMode: 'card' });
+        expect(typeof takeover['remoteStartId']).toBe('number');
+        expect(mockAuthorizeSessionHold).toHaveBeenCalledWith(
+          expect.objectContaining({ sessionId: WAITING_ID, methodRowId: 7 }),
+          expect.anything(),
+        );
+        expect(sendOcppCommandAndWait).toHaveBeenCalledWith(
+          'CS-001',
+          'RequestStartTransaction',
+          expect.objectContaining({ remoteStartId: takeover['remoteStartId'] }),
+        );
+        expect(stopCommands()).toHaveLength(0);
+      });
+
+      it('answers EVSE_IN_USE when the session stopped waiting before the takeover', async () => {
+        setupTakeoverRows([{ id: 7 }], []);
+
+        const response = await startWithCard();
+
+        expect(response.statusCode).toBe(409);
+        expect(response.json().code).toBe('EVSE_IN_USE');
+        expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+        expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
+      });
+
+      it('answers EVSE_IN_USE for an active session that does not wait', async () => {
+        setupDbResults(
+          [stationRow],
+          [{ id: 'evs_000000000001' }],
+          [{ status: 'ev_connected' }],
+          [],
+          [{ id: WAITING_ID }],
+          [], // not waiting: a driver, token or idToken already
+        );
+
+        const response = await startWithCard();
+
+        expect(response.statusCode).toBe(409);
+        expect(response.json().code).toBe('EVSE_IN_USE');
+      });
+
+      it('fails the taken-over session and stops its transaction when the card is declined', async () => {
+        setupTakeoverRows([{ id: 7 }], [{ id: WAITING_ID, transactionId: 'tx-station' }]);
+        mockAuthorizeSessionHold.mockResolvedValueOnce({
+          outcome: 'declined',
+          reason: 'Your card was declined.',
+          paymentRecordId: 3,
+          failure: 'declined',
+        });
+
+        const response = await startWithCard();
+
+        expect(response.statusCode).toBe(402);
+        expect(sessionUpdateSets()).toContainEqual(
+          expect.objectContaining({ status: 'failed', stoppedReason: 'PreAuthDeclined' }),
+        );
+        expect(stopCommands()).toEqual([
+          expect.objectContaining({
+            stationId: 'CS-001',
+            payload: { transactionId: 'tx-station' },
+          }),
+        ]);
+        expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
+      });
+
+      it('stops the taken-over transaction, not as a ghost, when the station rejects', async () => {
+        setupTakeoverRows([{ id: 7 }], [{ id: WAITING_ID, transactionId: 'tx-station' }]);
+        mockAuthorizeSessionHold.mockResolvedValueOnce({
+          outcome: 'authorized',
+          paymentRecordId: 3,
+          paymentId: 'pi_test_123',
+        });
+        mockCancelOpenSessionHold.mockResolvedValueOnce({
+          status: 'cancelled',
+          paymentRecordId: 3,
+        });
+        vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
+          response: {
+            status: 'Rejected',
+            statusInfo: { reasonCode: 'TxInProgress', additionalInfo: 'tx-station' },
+          },
+          error: null,
+        } as never);
+
+        const response = await startWithCard();
+
+        expect(response.statusCode).toBe(502);
+        // No ghost recovery: one RequestStartTransaction, no RequestStop wait.
+        expect(sendOcppCommandAndWait).toHaveBeenCalledTimes(1);
+        expect(sessionUpdateSets()).toContainEqual(expect.objectContaining({ status: 'faulted' }));
+        expect(mockCancelOpenSessionHold).toHaveBeenCalledWith(
+          WAITING_ID,
+          expect.any(String),
+          expect.anything(),
+        );
+        expect(stopCommands()).toHaveLength(1);
+      });
+    });
+
     it('returns 500 and fails the session when the hold could not be recorded', async () => {
       setupStartRows([{ id: 7 }], [{ id: VALID_SESSION_ID }]);
       mockAuthorizeSessionHold.mockResolvedValueOnce({

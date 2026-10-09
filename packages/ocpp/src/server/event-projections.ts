@@ -1308,14 +1308,17 @@ export function registerProjections(
       const meterValues = payload.meterValues as Array<Record<string, unknown>> | undefined;
       if (meterValues == null) return;
 
+      // Readings whose session effects ran in this delivery (see below).
+      let projectedReadings = 0;
       for (const [reading, mv] of meterValues.entries()) {
         const mvTimestamp = mv.timestamp as string;
         const sampledValues = mv.sampledValue as Array<Record<string, unknown>> | undefined;
         if (sampledValues == null) continue;
         const energySamples: PhaseSample[] = [];
         const powerSamples: PhaseSample[] = [];
+        let storedSamples = 0;
 
-        for (const sv of sampledValues) {
+        for (const [sample, sv] of sampledValues.entries()) {
           const measurand = getString(sv, 'measurand') ?? DEFAULT_MEASURAND;
           // 2.1: sv.unitOfMeasure.unit, 1.6: sv.unit
           const unitOfMeasure = sv.unitOfMeasure as Record<string, unknown> | undefined;
@@ -1331,13 +1334,19 @@ export function registerProjections(
           const context = getString(sv, 'context');
           const signedMeterValue = sv.signedMeterValue ?? null;
 
-          const mvInserted = await sql`
+          // Memoized per sample: a projection retry keeps the first run's
+          // answer, although that run's rows now conflict.
+          const knownStationUuid = stationUuid;
+          const stored = await attempt.memo(
+            `mv:${String(reading)}:${String(sample)}:stored`,
+            async (): Promise<{ stationUuid: string; count: number } | null> => {
+              const mvInserted = await sql`
           INSERT INTO meter_values (
             station_id, evse_id, session_id, timestamp, measurand, value, unit,
             phase, location, context, signed_data, source
           )
           SELECT
-            ${stationUuid},
+            ${knownStationUuid},
             (SELECT id FROM evses WHERE id = ${evseUuid} LIMIT 1),
             ${sessionId},
             ${mvTimestamp},
@@ -1349,20 +1358,22 @@ export function registerProjections(
             ${context},
             ${signedMeterValue != null ? sql.json(asJson(signedMeterValue)) : null},
             ${source}
-          WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${stationUuid})
+          WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${knownStationUuid})
           ON CONFLICT (session_id, evse_id, timestamp, measurand, phase, location) DO NOTHING
         `;
-          if (mvInserted.count === 0) {
-            lookups.invalidateStationCache(stationId);
-            stationUuid = await lookups.resolveStationUuid(stationId);
-            if (stationUuid == null) return;
-            await sql`
+              if (mvInserted.count !== 0) {
+                return { stationUuid: knownStationUuid, count: mvInserted.count };
+              }
+              lookups.invalidateStationCache(stationId);
+              const resolved = await lookups.resolveStationUuid(stationId);
+              if (resolved == null) return null;
+              const retried = await sql`
             INSERT INTO meter_values (
               station_id, evse_id, session_id, timestamp, measurand, value, unit,
               phase, location, context, signed_data, source
             )
             VALUES (
-              ${stationUuid},
+              ${resolved},
               (SELECT id FROM evses WHERE id = ${evseUuid} LIMIT 1),
               ${sessionId},
               ${mvTimestamp},
@@ -1377,7 +1388,12 @@ export function registerProjections(
             )
             ON CONFLICT (session_id, evse_id, timestamp, measurand, phase, location) DO NOTHING
           `;
-          }
+              return { stationUuid: resolved, count: retried.count };
+            },
+          );
+          if (stored == null) return;
+          stationUuid = stored.stationUuid;
+          storedSamples += stored.count;
 
           // Session energy and idle state use the overall Outlet value of each
           // MeterValue, collected here and applied once after the loop, so
@@ -1399,6 +1415,15 @@ export function registerProjections(
             }
           }
         }
+
+        // A reading of a session that stored no new sample is one the
+        // station sent again (a resent MeterValues or TransactionEvent after
+        // a reconnect, finding JB-6): the meter_values unique key already
+        // holds it, so its energy, idle and notice effects ran with the first
+        // delivery. Applying them again would set the energy back to an
+        // older register reading.
+        if (sessionId != null && storedSamples === 0) continue;
+        projectedReadings++;
 
         // An idle period open for IDLE_NOTICE_MIN_SECONDS at this reading
         // notifies first, before this reading can end it (JB-2). Readings a
@@ -1631,10 +1656,14 @@ export function registerProjections(
       // price snapshots. JOIN to charging_stations so the CostUpdated dispatch
       // path below has the transactionId and ocpp_protocol without a second SQL
       // round-trip per cost-change event.
-      const activeSessions = appliesToSession
-        ? await attempt.memo(
-            'mv:active-sessions',
-            () => sql`
+      // Every reading was a resend: the running cost was updated when they
+      // first arrived.
+      const resent = sessionId != null && projectedReadings === 0;
+      const activeSessions =
+        appliesToSession && !resent
+          ? await attempt.memo(
+              'mv:active-sessions',
+              () => sql`
           SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id, cs.token_id,
                  cs.energy_delivered_wh, cs.current_cost_cents, cs.cost_ceiling_cents,
                  cs.idle_started_at, cs.idle_minutes, st.ocpp_protocol,
@@ -1646,8 +1675,8 @@ export function registerProjections(
           WHERE cs.station_id = ${stationUuid} AND cs.status = 'active' AND cs.tariff_id IS NOT NULL
             AND (cs.id = ${sessionId} OR (${sessionId}::text IS NULL AND cs.evse_id = ${evseUuid}))
         `,
-          )
-        : [];
+            )
+          : [];
 
       const splitBillingEnabled = await isSplitBillingEnabled();
       for (const session of activeSessions) {

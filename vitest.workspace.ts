@@ -162,6 +162,13 @@ export default defineConfig({
         },
       },
       {
+        test: {
+          name: '@evtivity/ocpi-simulator',
+          root: 'packages/ocpi-simulator',
+          include: ['src/**/*.test.ts'],
+        },
+      },
+      {
         resolve: {
           alias: [
             {

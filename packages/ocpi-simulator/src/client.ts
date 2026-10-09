@@ -3,6 +3,7 @@
 
 import crypto from 'node:crypto';
 import { state } from './state.js';
+import { rewriteTargetUrl } from './target-url.js';
 
 function buildHeaders(token: string): Record<string, string> {
   const tokenBase64 = Buffer.from(token).toString('base64');
@@ -50,7 +51,10 @@ async function fetchWithTimeout(url: string, init: RequestInit): Promise<Respons
     controller.abort();
   }, OUTBOUND_TIMEOUT_MS);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    return await fetch(rewriteTargetUrl(url, process.env['OCPI_SIM_TARGET_ORIGIN']), {
+      ...init,
+      signal: controller.signal,
+    });
   } finally {
     clearTimeout(timer);
   }

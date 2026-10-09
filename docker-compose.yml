@@ -311,6 +311,9 @@ services:
       OCPI_SIM_PORT: ${OCPI_SIM_PORT:-7105}
       OCPI_SIM_ROLE: emsp
       OCPI_SIM_BASE_URL: http://ocpi-simulator:${OCPI_SIM_PORT:-7105}
+      # The CSMS advertises OCPI_BASE_URL (localhost), which is this container:
+      # call the ocpi service instead.
+      OCPI_SIM_TARGET_ORIGIN: http://ocpi:${OCPI_PORT:-7104}
       OCPI_SIM_COUNTRY_CODE: NL
       OCPI_SIM_PARTY_ID: SIM
       OCPI_SIM_NAME: OCPI Simulator
@@ -331,6 +334,9 @@ services:
       OCPI_SIM_PORT: ${OCPI_SIM_CPO_PORT:-7106}
       OCPI_SIM_ROLE: cpo
       OCPI_SIM_BASE_URL: http://ocpi-cpo-sim:${OCPI_SIM_CPO_PORT:-7106}
+      # The CSMS advertises OCPI_BASE_URL (localhost), which is this container:
+      # call the ocpi service instead.
+      OCPI_SIM_TARGET_ORIGIN: http://ocpi:${OCPI_PORT:-7104}
       OCPI_SIM_COUNTRY_CODE: DE
       OCPI_SIM_PARTY_ID: CPO
       OCPI_SIM_NAME: OCPI CPO Simulator

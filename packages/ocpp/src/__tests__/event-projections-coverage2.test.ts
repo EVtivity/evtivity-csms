@@ -20,6 +20,11 @@ const EMPTY = Object.assign([] as unknown[], { __zeroCount: true });
 function createSqlMock() {
   const sqlFn = (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]> => {
     sqlCalls.push({ strings: [...strings], values });
+    // The resend check (TransactionProjector.isResentEvent) answers by text,
+    // outside the queued results: no event is a resend unless a test says so.
+    if (strings.join('?').includes('AND te.seq_no = ?')) {
+      return Promise.resolve(Object.assign([], { count: 0 }));
+    }
     const idx = sqlCallIndex;
     sqlCallIndex++;
     const error = sqlErrors.get(idx);

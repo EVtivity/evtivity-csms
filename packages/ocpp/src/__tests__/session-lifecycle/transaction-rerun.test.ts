@@ -35,13 +35,31 @@ const db = {
   reservedCents: 0,
   // The anonymous stop claim of a session charging without authorization.
   unauthorizedClaimOpen: false,
+  // The transaction_events rows the session holds (eventRowKey): the resend
+  // check (finding JB-6) finds the row a first run wrote.
+  eventRows: new Set<string>(),
 };
 
 function connectionError(code: string): Error {
   return Object.assign(new Error(`write ${code} localhost:5433`), { code });
 }
 
-function route(text: string): unknown[] {
+function eventRowKey(eventType: string, seqNo: number, timestamp: string): string {
+  return `${eventType}:${String(seqNo)}:${timestamp}`;
+}
+
+function route(text: string, values: unknown[]): unknown[] {
+  // The resend check of TransactionProjector (event type is its third value).
+  // Values: station, transaction, event type, seqNo, timestamp, triggerReason.
+  if (text.includes('AND te.seq_no = ?')) {
+    const key = eventRowKey(values[2] as string, values[3] as number, values[4] as string);
+    return db.eventRows.has(key) ? [{ session_id: 'session-1' }] : [];
+  }
+  // Values: session, seqNo, timestamp, triggerReason, payload.
+  const eventRow = /INSERT INTO transaction_events[\s\S]*VALUES \(\?, '(\w+)'/.exec(text);
+  if (eventRow != null) {
+    db.eventRows.add(eventRowKey(eventRow[1] as string, values[1] as number, values[2] as string));
+  }
   if (text.includes('SELECT cs.reservation_id, cs.started_at')) {
     return db.firstToken != null ? [db.firstToken] : [];
   }
@@ -214,7 +232,7 @@ const sql = ((strings: TemplateStringsArray, ...values: unknown[]): Promise<unkn
     failOn.left--;
     return Promise.reject(connectionError(failOn.code));
   }
-  return Promise.resolve(route(text));
+  return Promise.resolve(route(text, values));
 }) as unknown as postgres.Sql;
 (sql as unknown as { json: (v: unknown) => unknown }).json = (v) => v;
 (sql as unknown as { begin: (fn: (tx: unknown) => unknown) => unknown }).begin = (fn) => fn(sql);
@@ -237,6 +255,7 @@ vi.mock('../../../../database/src/lib/pricing-settings.js', () => ({
 }));
 
 const mockWriteReservationAudit = vi.fn().mockResolvedValue(undefined);
+const mockReprice = vi.fn().mockResolvedValue(false);
 const mockFreeVend = vi.fn().mockResolvedValue(false);
 const mockElectricityPeriods = vi.fn().mockResolvedValue([]);
 vi.mock('@evtivity/database', async () => ({
@@ -252,6 +271,7 @@ vi.mock('@evtivity/database', async () => ({
   )),
   ...(await vi.importActual<Record<string, unknown>>('../../../../database/src/lib/pg-errors.js')),
   resolveStationTariff: vi.fn(() => Promise.resolve(TARIFF)),
+  repriceSessionForDriver: (...args: unknown[]) => mockReprice(...args) as unknown,
   // Every ended session costs 15.00 (net, no tax).
   priceSessionAt: vi.fn(() =>
     Promise.resolve({
@@ -420,6 +440,7 @@ beforeEach(() => {
   db.firstToken = null;
   db.reservedCents = 0;
   db.unauthorizedClaimOpen = false;
+  db.eventRows.clear();
   vi.clearAllMocks();
   mockFreeVend.mockResolvedValue(false);
   mockElectricityPeriods.mockResolvedValue([]);
@@ -624,6 +645,66 @@ describe('TransactionEvent Started run again after a lost connection', () => {
     expect(countCalls('FROM ocpi_external_tokens')).toBe(3);
     expect(countCalls('INSERT INTO charging_sessions')).toBe(1);
     expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Finding JB-6: a station resends an event under a new message id (after a
+// reconnect, or for a lost response). The first delivery wrote its
+// transaction_events row; the resend is skipped. A rerun of the first
+// delivery keeps the first answer of the check (memo), although its own row
+// now exists.
+describe('A resent TransactionEvent (finding JB-6)', () => {
+  it('skips a resent Started and still signals the handler', async () => {
+    db.tokenRow = { id: 'tok-1', driver_id: 'drv-1', prepaid_balance_cents: null };
+    await projectWithRetry(startedEvent());
+    expect(countCalls('INSERT INTO transaction_events')).toBe(1);
+    sqlCalls.length = 0;
+    vi.clearAllMocks();
+
+    const projector = createProjector();
+    await runProjectionWithRetry((attempt) => projector.project(startedEvent(), attempt), {
+      maxAttempts: 3,
+      baseDelayMs: 0,
+      maxDelayMs: 0,
+    });
+
+    expect(countCalls('INSERT INTO transaction_events')).toBe(0);
+    expect(countCalls('INSERT INTO session_tariff_segments')).toBe(0);
+    expect(gateSpy).not.toHaveBeenCalled();
+    expect(driverNotifications('session.Started')).toHaveLength(0);
+    const state = (projector as unknown as { state: { projectionQueue: { signal: unknown } } })
+      .state;
+    expect(state.projectionQueue.signal).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips a resent Updated: no row, idle change or notice', async () => {
+    db.eventRows.add(eventRowKey('updated', 1, '2026-10-07T10:00:00.000Z'));
+    await projectWithRetry(transactionEvent('Updated', { chargingState: 'SuspendedEV' }));
+
+    expect(countCalls('INSERT INTO transaction_events')).toBe(0);
+    expect(countCalls('UPDATE charging_sessions')).toBe(0);
+    expect(countCalls('SET last_update_notified_at = now()')).toBe(0);
+  });
+
+  it('skips a resent Ended: no row, end update or final cost', async () => {
+    db.eventRows.add(eventRowKey('ended', 2, '2026-10-07T10:00:00.000Z'));
+    await projectWithRetry(transactionEvent('Ended'));
+
+    expect(countCalls('INSERT INTO transaction_events')).toBe(0);
+    expect(countCalls('ended_at =')).toBe(0);
+    expect(countCalls('final_cost_cents')).toBe(0);
+  });
+
+  it('projects the first delivery fully when its rerun finds its own row', async () => {
+    // The throttle claim after the row insert fails once: the rerun's check
+    // would find the row the first run wrote, but keeps the first answer.
+    failOn = { match: 'SET last_update_notified_at', code: 'CONNECT_TIMEOUT', left: 1 };
+    await projectWithRetry(transactionEvent('Updated', { chargingState: 'SuspendedEV' }));
+
+    expect(countCalls('AND te.seq_no = ?')).toBe(1);
+    expect(countCalls('INSERT INTO transaction_events')).toBe(1);
+    expect(countCalls('SET last_update_notified_at')).toBe(2);
+    expect(countCalls('SET idle_started_at')).toBe(2);
   });
 });
 
@@ -1031,7 +1112,16 @@ describe('An idToken first presented after the transaction started (E02, E03)', 
     });
 
     await projectWithRetry(charging);
-    await projectWithRetry(charging);
+    // The next Charging report is a new event (a resend of the first is skipped).
+    await projectWithRetry(
+      transactionEvent('Updated', {
+        idToken: undefined,
+        triggerReason: 'ChargingStateChanged',
+        chargingState: 'Charging',
+        seqNo: 2,
+        timestamp: '2026-10-07T10:05:00.000Z',
+      }),
+    );
 
     expect(countCalls("SET stopped_reason = 'AnonymousSession'")).toBe(2);
     expect(gateSpy).toHaveBeenCalledTimes(1);
@@ -1097,11 +1187,95 @@ describe('An idToken first presented after the transaction started (E02, E03)', 
     await projectWithRetry(transactionEvent('Updated', { idToken: 'CARD-1' }));
 
     expect(countCalls('SET token_id =')).toBe(1);
-    expect(countCalls('FOR UPDATE')).toBe(0);
+    expect(countCalls('SELECT prepaid_balance_cents FROM driver_tokens')).toBe(0);
     expect(gateSpy).toHaveBeenCalledWith(
       expect.objectContaining({ driverId: 'drv-1', prepaidBalanceCents: null }),
     );
     expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
+  });
+
+  it('reprices the session for the linked driver before the gate', async () => {
+    db.firstToken = { ...prepaidToken, token_id: 'tok-c', prepaid: false };
+    let repricedBeforeGate = false;
+    mockReprice.mockImplementationOnce(() => {
+      repricedBeforeGate = gateSpy.mock.calls.length === 0;
+      return Promise.resolve(true);
+    });
+
+    await projectWithRetry(transactionEvent('Updated', { idToken: 'CARD-1' }));
+
+    expect(mockReprice).toHaveBeenCalledWith(expect.anything(), {
+      sessionId: 'session-1',
+      stationUuid: 'sta-1',
+      driverUuid: 'drv-1',
+      basis: 'net',
+    });
+    expect(repricedBeforeGate).toBe(true);
+  });
+
+  it('does not reprice a guest session', async () => {
+    db.firstToken = { ...prepaidToken, token_id: null, token_driver_id: null, prepaid: false };
+
+    await projectWithRetry(transactionEvent('Updated', { idToken: 'GUEST-1' }));
+
+    expect(mockReprice).not.toHaveBeenCalled();
+  });
+
+  it('links a portal remote start that took over the waiting transaction (F01)', async () => {
+    db.firstToken = {
+      ...prepaidToken,
+      remote_start_driver_id: 'drv-portal',
+      token_id: null,
+      token_driver_id: null,
+      prepaid: false,
+    };
+
+    await projectWithRetry(
+      transactionEvent('Updated', {
+        idToken: 'drv-portal',
+        tokenType: 'Central',
+        triggerReason: 'RemoteStart',
+        remoteStartId: 42,
+      }),
+    );
+
+    // The eligibility read matches the remote start by its id.
+    const readIndex = sqlCalls.findIndex((t) =>
+      t.includes('SELECT cs.reservation_id, cs.started_at'),
+    );
+    expect(sqlValues[readIndex]).toContain(42);
+    // The driver comes from the remote start: no token or driver write.
+    expect(countCalls('SET token_id =')).toBe(0);
+    expect(countCalls('UPDATE charging_sessions SET driver_id')).toBe(0);
+    expect(driverNotifications('session.Started')).toHaveLength(1);
+    expect(mockReprice).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ driverUuid: 'drv-portal' }),
+    );
+    expect(gateSpy).toHaveBeenCalledTimes(1);
+    expect(gateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ driverId: 'drv-portal', idToken: 'drv-portal' }),
+    );
+  });
+
+  it('links a remote start by its remoteStartId on an Ended without an idToken', async () => {
+    db.firstToken = {
+      ...prepaidToken,
+      remote_start_driver_id: 'drv-portal',
+      token_id: null,
+      token_driver_id: null,
+      prepaid: false,
+    };
+
+    await projectWithRetry(transactionEvent('Ended', { idToken: undefined, remoteStartId: 42 }));
+
+    expect(gateSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driverId: 'drv-portal',
+        idToken: undefined,
+        transactionEnded: true,
+      }),
+    );
   });
 
   it('changes nothing for a session that already has its token', async () => {

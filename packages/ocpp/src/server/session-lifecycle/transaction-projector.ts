@@ -12,6 +12,7 @@ import {
   getCompanyTaxBasis,
   snapshotSessionTariff,
   openFirstTariffSegment,
+  repriceSessionForDriver,
   resolveStationTariff,
   priceSessionAt,
   loadSessionPricing,
@@ -175,6 +176,58 @@ export class TransactionProjector {
     }
   }
 
+  /**
+   * True when the station already sent this event: the transaction's session
+   * has a transaction_events row with the same event type, seqNo, timestamp and
+   * triggerReason. A station resends an event it got no response to (OCPP
+   * 2.1 E13.FR.02, 1.6 section 3.7.1 for StartTransaction and
+   * StopTransaction) and replays its offline queue after a reconnect
+   * (E04.FR.02), under a new message id (finding JB-6). A resent event is
+   * answered normally and its projection is skipped: no second row, and no
+   * second idle, cost, settlement or notice. seqNo alone would do for a
+   * station that follows E 1.3.2.1 (seqNo increases by 1 per event); the
+   * full identity keeps a different event of a station that reuses a seqNo,
+   * and the CSMS end (`csms-session-end.ts`, MAX(seq_no) + 1) never matches
+   * the station's own Ended.
+   *
+   * Race-safe without a unique key on the large table: every event of one
+   * transaction projects on its transaction lane, one at a time, so the
+   * first delivery wrote its row before the resend is checked. Memoized: a
+   * projection retry keeps the first answer although the first run has
+   * since written this event's row.
+   */
+  private isResentEvent(
+    tx: TransactionEventContext,
+    eventType: 'started' | 'updated' | 'ended',
+  ): Promise<boolean> {
+    return tx.attempt.memo(`${eventType}:resent`, async () => {
+      const rows = await this.deps.sql`
+        SELECT te.session_id FROM transaction_events te
+        JOIN charging_sessions cs ON cs.id = te.session_id
+        WHERE cs.station_id = ${tx.stationUuid}
+          AND cs.transaction_id = ${tx.transactionId}
+          AND te.event_type = ${eventType}
+          AND te.seq_no = ${tx.seqNo}
+          AND te.timestamp = ${tx.timestamp}::timestamptz
+          AND te.trigger_reason = ${tx.triggerReason}
+        LIMIT 1
+      `;
+      const sessionId = rows[0]?.session_id as string | undefined;
+      if (sessionId == null) return false;
+      this.deps.logger.info(
+        {
+          stationId: tx.stationId,
+          transactionId: tx.transactionId,
+          sessionId,
+          eventType,
+          seqNo: tx.seqNo,
+        },
+        'Resent TransactionEvent already projected; skipped',
+      );
+      return true;
+    });
+  }
+
   private async projectStarted(tx: TransactionEventContext): Promise<void> {
     const { event, payload, stationId, stationUuid, transactionId, triggerReason, timestamp } = tx;
     // For remote starts, link back to the session created by the portal/API
@@ -314,6 +367,14 @@ export class TransactionProjector {
       sessionId = getSessionId(inserted);
     }
     let gateFailure: { err: unknown } | null = null;
+    if (sessionId != null && (await this.isResentEvent(tx, 'started'))) {
+      // The first delivery ran the Started step: the session has its tariff
+      // snapshot and gate decision, so a handler waiting to answer this
+      // resend with the running cost or the ceiling goes on.
+      this.state.projectionQueue.signal(sessionPricedKey(stationId, transactionId));
+      this.state.projectionQueue.signal(sessionGatedKey(stationId, transactionId));
+      return;
+    }
     if (sessionId != null) {
       // A rerun reuses what the first run resolved: the reservation it moved
       // to in_use and a guest it saw before TransactionStarted moved the guest
@@ -829,11 +890,17 @@ export class TransactionProjector {
    * session's OCPI link, a guest's ceiling and guest link, and the payment
    * gate for the token (an unknown token is stopped as anonymous, as at
    * Started). Runs only for the sessions the Started gate left waiting: an
-   * active, unclaimed, non-free-vend session without a driver, token or
-   * roaming flag none of whose earlier events carried an idToken. So a session
-   * started with a token (every OCPP 1.6 session: StartTransaction requires
-   * the idTag, and StopTransaction's idTag is who stopped it) and a repeated
-   * idToken change nothing. The read is memoized and comes before this event's
+   * active, unclaimed, non-free-vend session without a token or roaming flag
+   * none of whose earlier events carried an idToken or a remoteStartId or was
+   * a RemoteStart, either without a driver (resolved from the idToken) or
+   * taken over by a portal remote start (F01: driver and remote_start_id set
+   * by the portal start route, linked by the idToken or the matching
+   * remoteStartId of the event after the RequestStartTransaction). So a
+   * session started with a token (every OCPP 1.6 session: StartTransaction
+   * requires the idTag, and StopTransaction's idTag is who stopped it), a
+   * remote start linked at Started, and a repeated idToken change nothing. A
+   * linked driver's own tariff reprices the session from its start before the
+   * gate (repriceSessionForDriver). The read is memoized and comes before this event's
    * transaction_events row, so a rerun links the same token again (each write
    * repeats safely) and keeps the first gate decision. Returns the gate
    * failure for the caller to rethrow.
@@ -844,28 +911,47 @@ export class TransactionProjector {
     stage: 'updated' | 'ended',
   ): Promise<{ err: unknown } | null> {
     const idTokenValue = getString(tx.payload, 'idToken');
-    if (idTokenValue == null) return null;
+    const remoteStartId =
+      typeof tx.payload.remoteStartId === 'number' ? tx.payload.remoteStartId : null;
+    if (idTokenValue == null && remoteStartId == null) return null;
     const pending = await tx.attempt.memo(`${stage}:first-token`, async () => {
+      // Two kinds of waiting session: one the station started without any
+      // driver (resolved from the idToken), and one a portal remote start
+      // took over while it waited (driver and remote_start_id set by the
+      // portal start route, F01: linked by the idToken or the remoteStartId
+      // of the event after the RequestStartTransaction). A session whose
+      // Started was a remote start, and every session an earlier event
+      // carried an idToken or a remoteStartId for, is never linked here.
       const [row] = await this.deps.sql`
         SELECT cs.reservation_id, cs.started_at,
+               cs.driver_id AS remote_start_driver_id,
                dt.id AS token_id, dt.driver_id AS token_driver_id,
                dt.prepaid_balance_cents IS NOT NULL AS prepaid,
-               EXISTS (
+               cs.driver_id IS NULL AND EXISTS (
                  SELECT 1 FROM ocpi_external_tokens ot
                  WHERE ot.uid = ${idTokenValue} AND ot.is_valid = true
                ) AS roaming
         FROM charging_sessions cs
-        LEFT JOIN driver_tokens dt ON dt.id_token = ${idTokenValue} AND dt.is_active = true
+        LEFT JOIN driver_tokens dt
+          ON cs.driver_id IS NULL AND dt.id_token = ${idTokenValue} AND dt.is_active = true
         WHERE cs.id = ${sessionId}
           AND cs.status = 'active'
           AND cs.stopped_reason IS NULL
           AND cs.token_id IS NULL
-          AND cs.driver_id IS NULL
           AND NOT cs.free_vend
           AND NOT cs.is_roaming
+          AND (
+            (cs.driver_id IS NULL AND cs.remote_start_id IS NULL
+              AND ${idTokenValue}::text IS NOT NULL)
+            OR (cs.driver_id IS NOT NULL AND cs.remote_start_id IS NOT NULL
+              AND (${remoteStartId}::integer IS NULL OR cs.remote_start_id = ${remoteStartId}))
+          )
           AND NOT EXISTS (
             SELECT 1 FROM transaction_events te
-            WHERE te.session_id = cs.id AND te.payload->>'idToken' IS NOT NULL
+            WHERE te.session_id = cs.id
+              AND (te.payload->>'idToken' IS NOT NULL
+                OR te.payload->>'remoteStartId' IS NOT NULL
+                OR te.trigger_reason = 'RemoteStart')
           )
         LIMIT 1
       `;
@@ -873,6 +959,7 @@ export class TransactionProjector {
       return {
         reserved: row.reservation_id != null,
         startedAt: new Date(row.started_at as string | Date).toISOString(),
+        remoteStartDriverId: (row.remote_start_driver_id as string | null) ?? null,
         token:
           row.token_id != null
             ? {
@@ -888,12 +975,15 @@ export class TransactionProjector {
 
     const { stationId, stationUuid, transactionId } = tx;
     // The resolution chain of the Started step: driver_tokens ->
-    // ocpi_external_tokens -> guest_sessions.
+    // ocpi_external_tokens -> guest_sessions. A portal remote start already
+    // names its driver (its idToken is the Central driver id).
     let tokenLookup: StartedContext['tokenLookup'] = null;
     let driverUuid: string | null = null;
     let isRoaming = false;
     let guest: { status: string; email: string | null } | null = null;
-    if (pending.token != null) {
+    if (pending.remoteStartDriverId != null) {
+      driverUuid = pending.remoteStartDriverId;
+    } else if (pending.token != null) {
       tokenLookup = await this.linkDriverToken(sessionId, pending.token);
       if (tokenLookup.driverId != null) {
         driverUuid = tokenLookup.driverId;
@@ -902,26 +992,42 @@ export class TransactionProjector {
           WHERE id = ${sessionId}
         `;
       }
-    } else if (pending.roaming) {
+    } else if (pending.roaming && idTokenValue != null) {
       isRoaming = true;
       await this.deps.sql`
         UPDATE charging_sessions SET is_roaming = true, updated_at = now()
         WHERE id = ${sessionId}
       `;
       await this.deps.notify.linkCpoRoamingSession(sessionId, idTokenValue);
-    } else {
+    } else if (idTokenValue != null) {
       guest = await this.linkGuestSession(sessionId, idTokenValue);
     }
-    if (driverUuid == null && !isRoaming) {
+    if (driverUuid == null && !isRoaming && idTokenValue != null) {
       await this.publishGuestTransactionStarted(tx, sessionId, idTokenValue, stage);
     }
     this.deps.logger.info(
-      { sessionId, stationId, transactionId, tokenId: tokenLookup?.id ?? null, stage },
+      {
+        sessionId,
+        stationId,
+        transactionId,
+        tokenId: tokenLookup?.id ?? null,
+        remoteStart: pending.remoteStartDriverId != null,
+        stage,
+      },
       'Linked the idToken first presented after the transaction started',
     );
 
     const siteId = await this.deps.lookups.resolveSiteId(stationUuid);
     if (driverUuid != null) {
+      // The session was snapshotted at Started without a driver: the tariff
+      // of the driver (driver or fleet pricing group) prices it from its
+      // start, before the gate decides free or paid from it. Repeats safely.
+      await repriceSessionForDriver(this.deps.sql, {
+        sessionId,
+        stationUuid,
+        driverUuid,
+        basis: await getCompanyTaxBasis(),
+      });
       await this.linkLastVehicle(sessionId, driverUuid);
       await this.clearStationWatch(stationUuid, sessionId);
       if (stage === 'updated') {
@@ -945,7 +1051,8 @@ export class TransactionProjector {
       }
     }
 
-    // The gate decides from the tariff snapshotted at Started.
+    // The gate decides from the session's tariff snapshot (the driver's, when
+    // repriced above).
     const pricing = await loadSessionPricing(this.deps.sql, sessionId);
     const sessionTariff: TariffPriceSnapshot | null =
       pricing?.tariffId != null ? { id: pricing.tariffId, ...pricing.tariff } : null;
@@ -959,7 +1066,7 @@ export class TransactionProjector {
           ocppStationId: stationId,
           siteId: siteId ?? null,
           isRoaming,
-          idToken: idTokenValue,
+          idToken: idTokenValue ?? undefined,
           guestStatus: guest?.status ?? null,
           guestEmail: guest?.email ?? null,
           prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
@@ -1335,6 +1442,7 @@ export class TransactionProjector {
     // A queued Updated delivered after the Ended changes neither the idle
     // state nor the connector of the ended session (P5).
     const sessionActive = updatedRow != null && updatedRow.status === 'active';
+    if (sessionId != null && (await this.isResentEvent(tx, 'updated'))) return;
     if (sessionId != null) {
       // An idToken first presented after the transaction started (cable
       // plugged in first, E02.FR.01, E03.FR.01): link it and run its gate as
@@ -1512,12 +1620,15 @@ export class TransactionProjector {
     } = tx;
     const stoppedReason = getString(payload, 'stoppedReason');
 
-    // An idToken first presented in the Ended event (E03.FR.01: the event
-    // after authorization can be the last one): link it and run its gate
+    if (await this.isResentEvent(tx, 'ended')) return;
+
+    // An idToken (or a portal remote start's remoteStartId) first presented
+    // in the Ended event (E03.FR.01: the event after authorization can be
+    // the last one): link it and run its gate
     // while the session is still active, so the settlement debits a prepaid
     // token or captures the card hold. A gate failure is rethrown at the end.
     let gateFailure: { err: unknown } | null = null;
-    if (payload.idToken != null) {
+    if (payload.idToken != null || payload.remoteStartId != null) {
       const [activeSession] = await this.deps.sql`
         SELECT id FROM charging_sessions
         WHERE station_id = ${stationUuid} AND transaction_id = ${transactionId}

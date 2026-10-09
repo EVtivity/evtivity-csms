@@ -3,6 +3,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { StationSimulator } from '../station-simulator.js';
+import { isStationStuck, STUCK_GRACE_MS } from '../simulator-heal.js';
 import { noopSql, makeConfig } from './sim-test-helpers.js';
 
 // Readiness is driven from the lifecycle chokepoint updateStationStatus, which
@@ -67,6 +68,49 @@ describe('StationSimulator readiness signal', () => {
       // Counts only the latest 5s stretch, not the earlier 40s.
       expect(sim.getNotReadyMs()).toBeGreaterThanOrEqual(5_000);
       expect(sim.getNotReadyMs()).toBeLessThan(40_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Finding JB-5: the clock ran through a deliberate offline period, so the
+  // watchdog healed (restarted) a station right after comeOnline, in the
+  // middle of its offline queue replay.
+  it('restarts the not-ready clock when a deliberately offline station comes back', async () => {
+    vi.useFakeTimers();
+    try {
+      const sim = new StationSimulator(makeConfig(), noopSql());
+      Object.defineProperty(sim.client, 'disconnect', { value: vi.fn(), writable: true });
+      Object.defineProperty(sim.client, 'connect', {
+        value: vi.fn().mockResolvedValue(undefined),
+        writable: true,
+      });
+      const internals = sim as unknown as {
+        initialBootDone: boolean;
+        onReconnect: () => Promise<void>;
+      };
+      internals.initialBootDone = true;
+      // The replay and status sweep are still running: not ready yet.
+      internals.onReconnect = vi.fn().mockResolvedValue(undefined);
+      await setStatus(sim, 'available');
+      await sim.goOffline();
+      await setStatus(sim, 'disconnected');
+      vi.advanceTimersByTime(111_000);
+
+      await sim.comeOnline();
+      vi.advanceTimersByTime(5_000);
+
+      expect(sim.isReady()).toBe(false);
+      expect(sim.getNotReadyMs()).toBeLessThan(STUCK_GRACE_MS);
+      expect(
+        isStationStuck({
+          ready: sim.isReady(),
+          notReadyMs: sim.getNotReadyMs(),
+          bootStatus: 'Accepted',
+          healAttempts: 0,
+          offline: sim.isOffline(),
+        }),
+      ).toBe(false);
     } finally {
       vi.useRealTimers();
     }

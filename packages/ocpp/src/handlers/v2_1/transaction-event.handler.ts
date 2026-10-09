@@ -107,6 +107,12 @@ export async function handleTransactionEvent(
       evseId: request.evse?.id ?? 0,
       connectorId: request.evse?.connectorId,
       reservationId: request.reservationId,
+      // F01.FR.25, F02.FR.01: the first event after a RequestStartTransaction
+      // carries its remoteStartId (a cable-first transaction the driver
+      // started from the portal links to its remote start by it).
+      ...(request.transactionInfo.remoteStartId != null
+        ? { remoteStartId: request.transactionInfo.remoteStartId }
+        : {}),
       ...(meterStopWh != null ? { meterStop: meterStopWh } : {}),
       ...(request.eventType === 'Ended' && cost?.calculated === true
         ? { finalCostCents: cost.totalCostCents }

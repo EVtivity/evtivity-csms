@@ -8,6 +8,8 @@ const graceMock = vi.fn();
 const splitMock = vi.fn();
 vi.mock('../lib/idling-setting.js', () => ({ getIdlingGracePeriodMinutes: graceMock }));
 vi.mock('../lib/pricing-settings.js', () => ({ isSplitBillingEnabled: splitMock }));
+const resolveTariffMock = vi.fn();
+vi.mock('../lib/tariff-resolution.js', () => ({ resolveStationTariff: resolveTariffMock }));
 
 const {
   loadSessionPricing,
@@ -22,6 +24,7 @@ const {
   closeOpenSegment,
   openSegmentTariffId,
   switchTariffSegment,
+  repriceSessionForDriver,
   zeroCostBreakdown,
   faultUnbilledSession,
 } = await import('../lib/session-pricing.js');
@@ -505,5 +508,106 @@ describe('segment writes', () => {
       ),
     ).toBe('trf_9');
     expect(await openSegmentTariffId(makeSql().sql, 'ses_1')).toBeNull();
+  });
+});
+
+describe('repriceSessionForDriver', () => {
+  const fleetTariff = {
+    id: 'trf_fleet',
+    pricePerKwh: '0.20',
+    pricePerMinute: null,
+    pricePerSession: null,
+    idleFeePricePerMinute: null,
+    reservationFeePerMinute: null,
+    taxRate: '0.10',
+  };
+  const params = { sessionId: 'ses_1', stationUuid: 'sta_1', driverUuid: 'drv_1', basis: 'net' };
+  const lockedSession: [string, Record<string, unknown>[]] = [
+    'FOR UPDATE',
+    [{ started_at: '2026-06-04T00:00:00Z', tariff_id: 'trf_1', tax_basis: 'gross' }],
+  ];
+
+  beforeEach(() => {
+    resolveTariffMock.mockReset();
+  });
+
+  it('replaces the snapshot and re-prices the segments from the tariff of the driver', async () => {
+    const { sql, calls } = makeSql([
+      lockedSession,
+      [
+        'SELECT id, started_at, energy_wh_start FROM session_tariff_segments',
+        [
+          { id: 1, started_at: '2026-06-04T00:00:00Z', energy_wh_start: 0 },
+          { id: 2, started_at: '2026-06-04T01:00:00Z', energy_wh_start: 4000 },
+        ],
+      ],
+    ]);
+    resolveTariffMock
+      .mockResolvedValueOnce(fleetTariff)
+      .mockResolvedValueOnce({ ...fleetTariff, id: 'trf_fleet_peak' });
+
+    expect(await repriceSessionForDriver(sql, params as never)).toBe(true);
+
+    // Resolved for the driver at the session start, then at the second
+    // segment's start and energy.
+    expect(resolveTariffMock).toHaveBeenNthCalledWith(
+      1,
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', at: new Date('2026-06-04T00:00:00Z') },
+      sql,
+    );
+    expect(resolveTariffMock).toHaveBeenNthCalledWith(
+      2,
+      {
+        stationUuid: 'sta_1',
+        driverUuid: 'drv_1',
+        at: new Date('2026-06-04T01:00:00Z'),
+        sessionEnergyKwh: 4,
+      },
+      sql,
+    );
+    const snapshot = calls.find((c) => c.text.includes('UPDATE charging_sessions'));
+    // The tax basis stamped at Started stays.
+    expect(snapshot?.values).toEqual([
+      'trf_fleet',
+      '0.20',
+      null,
+      null,
+      null,
+      null,
+      '0.10',
+      'gross',
+      'ses_1',
+    ]);
+    const segments = calls.filter((c) => c.text.includes('UPDATE session_tariff_segments'));
+    expect(segments.map((c) => [c.values[0], c.values.at(-1)])).toEqual([
+      ['trf_fleet', 1],
+      ['trf_fleet_peak', 2],
+    ]);
+  });
+
+  it('changes nothing when the driver resolves the tariff the session has', async () => {
+    const { sql, calls } = makeSql([lockedSession]);
+    resolveTariffMock.mockResolvedValueOnce({ ...fleetTariff, id: 'trf_1' });
+
+    expect(await repriceSessionForDriver(sql, params as never)).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('opens the first segment of a session that had no tariff', async () => {
+    const { sql, calls } = makeSql([
+      ['FOR UPDATE', [{ started_at: '2026-06-04T00:00:00Z', tariff_id: null, tax_basis: null }]],
+    ]);
+    resolveTariffMock.mockResolvedValueOnce(fleetTariff);
+
+    expect(await repriceSessionForDriver(sql, params as never)).toBe(true);
+    const snapshot = calls.find((c) => c.text.includes('UPDATE charging_sessions'));
+    expect(snapshot?.values.at(-2)).toBe('net');
+    const insert = calls.find((c) => c.text.includes('INSERT INTO session_tariff_segments'));
+    expect(insert?.values.slice(0, 4)).toEqual([
+      'ses_1',
+      'trf_fleet',
+      '2026-06-04T00:00:00.000Z',
+      0,
+    ]);
   });
 });

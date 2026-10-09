@@ -25,6 +25,7 @@ import type {
 } from '@evtivity/lib';
 import { getIdlingGracePeriodMinutes } from './idling-setting.js';
 import { isSplitBillingEnabled } from './pricing-settings.js';
+import { resolveStationTariff } from './tariff-resolution.js';
 
 /** The tariff columns copied onto a session or a tariff segment. */
 export interface TariffPriceSnapshot {
@@ -349,6 +350,81 @@ async function insertSegment(
       ${tariff.idleFeePricePerMinute}, ${tariff.reservationFeePerMinute}, ${tariff.taxRate}
     )
   `;
+}
+
+/**
+ * Prices a session from the tariff of its driver when the driver is linked
+ * after the start: a 2.1 transaction started at plug-in without an idToken
+ * (E02, TxStartPoint EVConnected) is snapshotted at Started without a driver,
+ * so a driver-specific tariff (driver or fleet pricing group) was not applied.
+ * The session belongs to that driver from its start, so the tariff the driver
+ * resolves at the session start replaces the session snapshot, and every
+ * tariff segment is re-priced from the tariff the driver resolves at that
+ * segment's start and energy (one segment unless split billing switched
+ * already). A session without segments gets its first one. Nothing changes
+ * when the driver resolves the tariff the session already has. One
+ * transaction under the session row lock; safe to run again (the second run
+ * finds the driver's tariff). Returns whether the snapshot was replaced.
+ */
+export async function repriceSessionForDriver(
+  sql: postgres.Sql,
+  params: { sessionId: string; stationUuid: string; driverUuid: string; basis: TaxBasis },
+): Promise<boolean> {
+  return sql.begin(async (tx) => {
+    const txSql = tx as unknown as postgres.Sql;
+    const [session] = await txSql`
+      SELECT started_at, tariff_id, tax_basis FROM charging_sessions
+      WHERE id = ${params.sessionId}
+      FOR UPDATE
+    `;
+    if (session == null) return false;
+    const startedAt = new Date(session.started_at as string | Date);
+    const tariff = await resolveStationTariff(
+      { stationUuid: params.stationUuid, driverUuid: params.driverUuid, at: startedAt },
+      txSql,
+    );
+    if (tariff == null || tariff.id === (session.tariff_id as string | null)) return false;
+    // The tax basis stays the one stamped at Started.
+    const basis = (session.tax_basis as TaxBasis | null) ?? params.basis;
+    await snapshotSessionTariff(txSql, params.sessionId, tariff, basis);
+    const segments = await txSql`
+      SELECT id, started_at, energy_wh_start FROM session_tariff_segments
+      WHERE session_id = ${params.sessionId}
+      ORDER BY started_at, id
+    `;
+    if (segments.length === 0) {
+      await insertSegment(txSql, params.sessionId, tariff, startedAt.toISOString(), 0);
+      return true;
+    }
+    for (const [index, segment] of segments.entries()) {
+      const segmentTariff =
+        index === 0
+          ? tariff
+          : await resolveStationTariff(
+              {
+                stationUuid: params.stationUuid,
+                driverUuid: params.driverUuid,
+                at: new Date(segment.started_at as string | Date),
+                sessionEnergyKwh: Number(segment.energy_wh_start ?? 0) / 1000,
+              },
+              txSql,
+            );
+      if (segmentTariff == null) continue;
+      await txSql`
+        UPDATE session_tariff_segments
+        SET tariff_id = ${segmentTariff.id},
+            price_snapshot = true,
+            price_per_kwh = ${segmentTariff.pricePerKwh},
+            price_per_minute = ${segmentTariff.pricePerMinute},
+            price_per_session = ${segmentTariff.pricePerSession},
+            idle_fee_price_per_minute = ${segmentTariff.idleFeePricePerMinute},
+            reservation_fee_per_minute = ${segmentTariff.reservationFeePerMinute},
+            tax_rate = ${segmentTariff.taxRate}
+        WHERE id = ${segment.id as number}
+      `;
+    }
+    return true;
+  });
 }
 
 /**

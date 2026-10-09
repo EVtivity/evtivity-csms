@@ -29,6 +29,11 @@ function createSqlMock() {
     if (/SET (completed_notified_at|receipt_notified_at) = now\(\)/.test(strings.join('?'))) {
       return Promise.resolve(Object.assign([{ id: 'session-claimed' }], { count: 1 }));
     }
+    // The resend check (TransactionProjector.isResentEvent) answers by text,
+    // outside the queued results: no event is a resend unless a test says so.
+    if (strings.join('?').includes('AND te.seq_no = ?')) {
+      return Promise.resolve(Object.assign([], { count: 0 }));
+    }
     const idx = sqlCallIndex;
     sqlCallIndex++;
     const error = sqlErrors.get(idx);

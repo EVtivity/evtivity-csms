@@ -181,6 +181,24 @@ describe('v2_1 TransactionEvent handler', () => {
     });
   });
 
+  it('passes the remoteStartId of the event after a remote start (F01.FR.25)', async () => {
+    const { handleTransactionEvent } = transactionEventHandlerModule;
+    const { ctx, publishMock } = makeCtx({
+      eventType: 'Updated',
+      timestamp: '2026-06-04T00:00:00Z',
+      triggerReason: 'RemoteStart',
+      seqNo: 1,
+      transactionInfo: { transactionId: 'tx-3', chargingState: 'EVConnected', remoteStartId: 42 },
+    });
+    await handleTransactionEvent(ctx);
+
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ remoteStartId: 42 }) as unknown,
+      }),
+    );
+  });
+
   it('defaults evseId to 0 when no evse is present', async () => {
     const { handleTransactionEvent } = transactionEventHandlerModule;
     const { ctx, publishMock } = makeCtx({

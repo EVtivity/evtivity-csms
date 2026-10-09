@@ -504,6 +504,38 @@ async function getMaintenancePayloadForStation(
   return { active: true, plannedEndAt: event.plannedEndAt, message };
 }
 
+/**
+ * An OCPP 2.1 session the station started at plug-in (cable first,
+ * TxStartPoint EVConnected) that still waits for its authorization: active,
+ * started by the station (a Started event, no remote start), with no driver,
+ * token, guest, roaming flag, free vend, billing stamp or stop claim, and no
+ * event that carried an idToken. The payment gate waits for it
+ * (`linkFirstPresentedToken` in the OCPP projection), so a portal start may
+ * take it over.
+ */
+function awaitingAuthorization() {
+  return and(
+    eq(chargingSessions.status, 'active'),
+    isNull(chargingSessions.stoppedReason),
+    isNull(chargingSessions.driverId),
+    isNull(chargingSessions.tokenId),
+    isNull(chargingSessions.remoteStartId),
+    isNull(chargingSessions.billingMode),
+    eq(chargingSessions.isRoaming, false),
+    eq(chargingSessions.freeVend, false),
+    sql`EXISTS (
+      SELECT 1 FROM transaction_events te
+      WHERE te.session_id = ${chargingSessions.id} AND te.event_type = 'started'
+    )`,
+    sql`NOT EXISTS (
+      SELECT 1 FROM transaction_events te
+      WHERE te.session_id = ${chargingSessions.id} AND te.payload->>'idToken' IS NOT NULL
+    )`,
+    sql`NOT EXISTS (
+      SELECT 1 FROM guest_sessions g WHERE g.charging_session_id = ${chargingSessions.id}
+    )`,
+  );
+}
 export function portalChargerRoutes(app: FastifyInstance): void {
   app.get(
     '/portal/chargers/:stationId/evse/:evseId',
@@ -1802,12 +1834,24 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // can be momentarily out of sync with the chargingState (e.g. after a manual
       // StatusNotification refresh during a transaction), and we must never allow two
       // concurrent sessions on the same EVSE.
+      // One exception: an OCPP 2.1 transaction the station started at plug-in
+      // (cable first, TxStartPoint EVConnected) that still waits for its
+      // authorization. This start takes it over (F01: the station answers
+      // with that transaction and links it by the remoteStartId).
       const [evseActiveSession] = await db
         .select({ id: chargingSessions.id })
         .from(chargingSessions)
         .where(and(eq(chargingSessions.evseId, evse.id), eq(chargingSessions.status, 'active')))
         .limit(1);
-      if (evseActiveSession != null) {
+      let waitingSessionId: string | null = null;
+      if (evseActiveSession != null && station.ocppProtocol !== 'ocpp1.6') {
+        const [waiting] = await db
+          .select({ id: chargingSessions.id })
+          .from(chargingSessions)
+          .where(and(eq(chargingSessions.id, evseActiveSession.id), awaitingAuthorization()));
+        waitingSessionId = waiting?.id ?? null;
+      }
+      if (evseActiveSession != null && waitingSessionId == null) {
         await reply.status(409).send({
           error: 'Another session is already active on this connector',
           code: 'EVSE_IN_USE',
@@ -1932,8 +1976,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
 
       // Create session first so event projection can match via remote_start_id
       const remoteStartId = Math.floor(Math.random() * 2_147_483_647);
-      let transactionId: string;
-      if (station.ocppProtocol === 'ocpp1.6') {
+      // A taken-over transaction keeps its id (see the takeover below).
+      let transactionId = '';
+      if (waitingSessionId == null && station.ocppProtocol === 'ocpp1.6') {
         // The sequence is the only source of 1.6 transaction ids: a made-up id
         // could collide with another session, so a failed read fails the start
         // before any session or hold exists.
@@ -1957,35 +2002,87 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           return;
         }
         transactionId = nextval;
-      } else {
+      } else if (waitingSessionId == null) {
         transactionId = crypto.randomUUID();
       }
 
       // One currency for the session row, the pre-auth, and its payment record.
       const sessionCurrency = await getCompanyCurrency();
-      const sessionRows = await db
-        .insert(chargingSessions)
-        .values({
-          stationId: station.id,
-          evseId: evse.id,
-          driverId,
-          transactionId,
-          status: 'active',
-          startedAt: new Date(),
-          remoteStartId,
-          currency: sessionCurrency,
-          // Write-once billing stamp (the gate keeps it): card or account.
-          ...(freeVend ? {} : sessionBillingColumns(accountBilling)),
-        })
-        .returning({ id: chargingSessions.id });
+      // A waiting cable-first transaction is taken over: the driver, the
+      // remote start id and the billing stamp go on its session, only while
+      // it still waits (a concurrent start or an idToken presented at the
+      // station wins), so the hold and the link land on the session that
+      // charges. Its transaction, currency and tariff snapshot stay; the
+      // projection links the driver and reprices it for the driver when the
+      // station reports the remote start (linkFirstPresentedToken).
+      const sessionRows =
+        waitingSessionId != null
+          ? await db
+              .update(chargingSessions)
+              .set({
+                driverId,
+                remoteStartId,
+                ...(freeVend ? {} : sessionBillingColumns(accountBilling)),
+                updatedAt: new Date(),
+              })
+              .where(and(eq(chargingSessions.id, waitingSessionId), awaitingAuthorization()))
+              .returning({ id: chargingSessions.id, transactionId: chargingSessions.transactionId })
+          : await db
+              .insert(chargingSessions)
+              .values({
+                stationId: station.id,
+                evseId: evse.id,
+                driverId,
+                transactionId,
+                status: 'active',
+                startedAt: new Date(),
+                remoteStartId,
+                currency: sessionCurrency,
+                // Write-once billing stamp (the gate keeps it): card or account.
+                ...(freeVend ? {} : sessionBillingColumns(accountBilling)),
+              })
+              .returning({
+                id: chargingSessions.id,
+                transactionId: chargingSessions.transactionId,
+              });
 
       const session = sessionRows[0];
+      if (session == null && waitingSessionId != null) {
+        await reply.status(409).send({
+          error: 'Another session is already active on this connector',
+          code: 'EVSE_IN_USE',
+        });
+        return;
+      }
       if (session == null) {
         await reply
           .status(500)
           .send({ error: 'Failed to create session', code: 'SESSION_CREATE_FAILED' });
         return;
       }
+
+      // A start that fails after taking over a waiting transaction ends it the
+      // way the payment gate ends a session it stops: the session row is
+      // closed first (above each call, P4), then the station is asked to stop
+      // the transaction (fire-and-forget, a lost publish is logged, P9). The
+      // session's payment record keys to it, so it cannot wait for another
+      // driver.
+      const tookOver = waitingSessionId != null;
+      const stopTakenOverTransaction = async (): Promise<void> => {
+        if (!tookOver) return;
+        try {
+          await publishOcppCommand(getPubSub(), {
+            stationId: station.stationId,
+            action: 'RequestStopTransaction',
+            payload: { transactionId: session.transactionId },
+          });
+        } catch (err) {
+          request.log.warn(
+            { err, sessionId: session.id },
+            'Failed to request the stop of a taken-over transaction',
+          );
+        }
+      };
 
       // Fail-fast pre-auth: hold the card BEFORE telling the station to start
       // so a decline shortcuts to 402 without leaving a ghost session. Skipped
@@ -2014,6 +2111,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
               updatedAt: new Date(),
             })
             .where(eq(chargingSessions.id, session.id));
+          await stopTakenOverTransaction();
           if (declined) {
             await reply.status(402).send({
               error: `Payment authorization declined: ${hold.reason}`,
@@ -2049,6 +2147,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           .update(chargingSessions)
           .set({ status: 'faulted', updatedAt: new Date() })
           .where(eq(chargingSessions.id, session.id));
+        await stopTakenOverTransaction();
         void dispatchDriverNotification(
           client,
           'session.Faulted',
@@ -2067,7 +2166,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         const statusInfo = cmdResult.response?.['statusInfo'] as
           | { reasonCode?: string; additionalInfo?: string }
           | undefined;
-        const isTxInProgress = statusInfo?.reasonCode === 'TxInProgress';
+        // A taken-over transaction is the one in progress, never a ghost.
+        const isTxInProgress = !tookOver && statusInfo?.reasonCode === 'TxInProgress';
 
         if (isTxInProgress) {
           const ghostTxId =
@@ -2135,6 +2235,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           .update(chargingSessions)
           .set({ status: 'faulted', updatedAt: new Date() })
           .where(eq(chargingSessions.id, session.id));
+        await stopTakenOverTransaction();
         // The station will not start: the hold placed above is released now
         // instead of staying open until the provider expires it (P4).
         // Best effort (P9): the start already failed for the driver.

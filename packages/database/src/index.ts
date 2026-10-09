@@ -70,6 +70,7 @@ export {
   closeOpenSegment,
   openSegmentTariffId,
   switchTariffSegment,
+  repriceSessionForDriver,
 } from './lib/session-pricing.js';
 export type { SessionPricingRow, TariffPriceSnapshot } from './lib/session-pricing.js';
 export {

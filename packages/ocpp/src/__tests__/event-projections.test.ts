@@ -23,6 +23,9 @@ function createSqlMock() {
     sqlCalls.push({ strings: [...strings], values });
     const routed = sqlRoute?.(strings.join('?'));
     if (routed !== undefined) return Promise.resolve(routed);
+    // The resend check (TransactionProjector.isResentEvent) answers by text,
+    // outside the queued results: no event is a resend unless a test says so.
+    if (strings.join('?').includes('AND te.seq_no = ?')) return Promise.resolve([]);
     const result = sqlResults[sqlCallIndex] ?? [];
     sqlCallIndex++;
     const failure = sqlFailOn?.(strings.join(''));
@@ -4791,9 +4794,10 @@ describe('Event projections', () => {
       expect(mockPriceSessionAt).not.toHaveBeenCalled();
 
       // Every Ended statement that names the transaction also names the station
-      // (the projection by its id, the settlement subscriber by its OCPP id).
+      // (the projection by its id, the settlement subscriber by its OCPP id,
+      // the resend check by its id).
       const byTransaction = sqlCalls.filter((c) => c.values.includes('tx-ooo-3'));
-      expect(byTransaction).toHaveLength(5);
+      expect(byTransaction).toHaveLength(6);
       for (const call of byTransaction) {
         expect(call.strings.join('')).toContain('station_id');
         expect(call.values.includes('sta_000000000001') || call.values.includes('CS-001')).toBe(
