@@ -298,6 +298,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   downloadInvoicePdf: N,
   getInvoice: R,
   getInvoiceNeighbors: N,
+  getInvoicePrintLogo: N,
   listInvoices: R,
   markInvoicePaid: N,
   sendInvoice: N,
