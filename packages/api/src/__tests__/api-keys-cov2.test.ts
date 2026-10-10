@@ -93,7 +93,12 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(),
 }));
 
+// The request's effective permissions (user permissions within the API key
+// scope): what POST and PATCH /api-keys compare the new scope with.
+const effectivePermissions = vi.hoisted(() => ({ value: ['stations:read'] as string[] }));
+
 vi.mock('../middleware/rbac.js', () => ({
+  getEffectivePermissions: () => Promise.resolve(effectivePermissions.value),
   authorize:
     () =>
     async (
@@ -139,6 +144,7 @@ describe('API key routes: validation and update paths', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setupDbResults();
+    effectivePermissions.value = ['stations:read'];
   });
 
   function post(payload: Record<string, unknown>) {
@@ -174,7 +180,7 @@ describe('API key routes: validation and update paths', () => {
     });
 
     it('returns 409 when an active key with the same name exists', async () => {
-      setupDbResults([{ id: 7 }], [{ permission: 'stations:read' }]);
+      setupDbResults([{ id: 7 }]);
       const res = await post({ name: 'Dup', permissions: ['stations:read'] });
       expect(res.statusCode).toBe(409);
       expect(res.json().code).toBe('DUPLICATE_API_KEY_NAME');
@@ -182,7 +188,7 @@ describe('API key routes: validation and update paths', () => {
     });
 
     it('returns 400 listing every permission missing from the catalog', async () => {
-      setupDbResults([], [{ permission: 'stations:read' }]);
+      setupDbResults([]);
       const res = await post({
         name: 'Bad',
         permissions: ['stations:read', 'bogus:perm', 'other:thing'],
@@ -195,8 +201,18 @@ describe('API key routes: validation and update paths', () => {
       expect(mockApiKeyService.createApiKey).not.toHaveBeenCalled();
     });
 
+    it('refuses a narrow key minting a wider key: the request scope, not the owner, decides', async () => {
+      // The owner holds drivers:write, the calling key only stations:read.
+      effectivePermissions.value = ['stations:read'];
+      setupDbResults([]);
+      const res = await post({ name: 'Wider', permissions: ['drivers:write'] });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('PERMISSIONS_EXCEED_OWN');
+      expect(mockApiKeyService.createApiKey).not.toHaveBeenCalled();
+    });
+
     it('returns 403 when requested permissions exceed the creator', async () => {
-      setupDbResults([], [{ permission: 'stations:read' }]);
+      setupDbResults([]);
       const res = await post({ name: 'Wide', permissions: ['stations:read', 'drivers:write'] });
       expect(res.statusCode).toBe(403);
       expect(res.json().code).toBe('PERMISSIONS_EXCEED_OWN');
@@ -225,10 +241,7 @@ describe('API key routes: validation and update paths', () => {
     });
 
     it('returns 403 when the new scope exceeds the owner permissions', async () => {
-      setupDbResults(
-        [{ id: 5, permissions: ['stations:read'] }],
-        [{ permission: 'stations:read' }],
-      );
+      setupDbResults([{ id: 5, permissions: ['stations:read'] }]);
       const res = await patch('5', { permissions: ['drivers:write'] });
       expect(res.statusCode).toBe(403);
       expect(res.json().code).toBe('PERMISSIONS_EXCEED_OWN');
@@ -236,11 +249,8 @@ describe('API key routes: validation and update paths', () => {
     });
 
     it('updates permissions and audits before and after', async () => {
-      setupDbResults(
-        [{ id: 5, permissions: ['stations:read'] }],
-        [{ permission: 'stations:read' }, { permission: 'drivers:read' }],
-        [],
-      );
+      effectivePermissions.value = ['stations:read', 'drivers:read'];
+      setupDbResults([{ id: 5, permissions: ['stations:read'] }], []);
       const res = await patch('5', { permissions: ['drivers:read'] });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });

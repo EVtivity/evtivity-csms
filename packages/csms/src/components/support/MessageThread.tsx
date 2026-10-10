@@ -3,16 +3,25 @@
 
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Sparkles, X } from 'lucide-react';
+import { Download, Sparkles, Square, X } from 'lucide-react';
 import { FileUploadButton } from '@/components/ui/file-upload-button';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { api } from '@/lib/api';
+import { api, getApiErrorCode } from '@/lib/api';
+import { ToolSteps } from '@/components/ai/ToolSteps';
+import { aiErrorText } from '@/components/ai/MessageList';
+import { useAiStream } from '@/components/ai/use-ai-stream';
+import { useAiStatus } from '@/components/ai/use-ai-status';
+import type { AiToolStepView } from '@/components/ai/ai-turn';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { formatNumber } from '@/lib/formatting';
+
+// The attachment allowlist of the API upload pipeline (images, PDF, text).
+const ATTACHMENT_ACCEPT =
+  'image/jpeg,image/png,image/webp,image/gif,application/pdf,text/csv,text/plain,application/json,.log,.jsonl,.ndjson';
 
 interface Attachment {
   id: number;
@@ -52,6 +61,9 @@ export function MessageThread({
 }: MessageThreadProps): React.JSX.Element {
   const { t } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Set by a tool step that follows draft text: the next text is a new paragraph.
+  const aiTextBreak = useRef(false);
+  const aiDraftHasText = useRef(false);
 
   const [messageBody, setMessageBody] = useState('');
   const [isInternal, setIsInternal] = useState(false);
@@ -62,8 +74,13 @@ export function MessageThread({
     current: number;
     total: number;
   } | null>(null);
-  const [aiAssistLoading, setAiAssistLoading] = useState(false);
   const [confirmAiOverwrite, setConfirmAiOverwrite] = useState(false);
+  const aiStream = useAiStream();
+  // The setting alone is not enough: the status also needs a provider with a key.
+  const aiStatus = useAiStatus();
+  const showAiAssist = supportAiEnabled && aiStatus.support;
+  const [aiSteps, setAiSteps] = useState<AiToolStepView[]>([]);
+  const [aiErrorCode, setAiErrorCode] = useState<string | null>(null);
 
   async function handleSendMessage(e: React.SyntheticEvent): Promise<void> {
     e.preventDefault();
@@ -82,31 +99,30 @@ export function MessageThread({
         if (file == null) continue;
         setUploadProgress({ current: fileIdx + 1, total: pendingFiles.length });
 
-        const { uploadUrl, s3Key, s3Bucket } = await api.post<{
+        // The server picks the type (the browser gives none for .log and
+        // .jsonl) and S3 enforces the size and type of the presigned POST.
+        const { uploadUrl, fields, s3Key } = await api.post<{
           uploadUrl: string;
+          fields: Record<string, string>;
           s3Key: string;
-          s3Bucket: string;
         }>(`/v1/support-cases/${caseId}/messages/${String(message.id)}/attachments/upload-url`, {
           fileName: file.name,
-          contentType: file.type || 'application/octet-stream',
+          contentType: file.type,
           fileSize: file.size,
         });
 
-        const uploadRes = await fetch(uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': file.type || 'application/octet-stream' },
-          body: file,
-        });
+        const form = new FormData();
+        for (const [name, value] of Object.entries(fields)) {
+          form.append(name, value);
+        }
+        form.append('file', file);
+        const uploadRes = await fetch(uploadUrl, { method: 'POST', body: form });
         if (!uploadRes.ok) {
           throw new Error(t('supportCases.attachmentUploadFailed'));
         }
 
         await api.post(`/v1/support-cases/${caseId}/messages/${String(message.id)}/attachments`, {
-          fileName: file.name,
-          fileSize: file.size,
-          contentType: file.type || 'application/octet-stream',
           s3Key,
-          s3Bucket,
         });
       }
 
@@ -126,18 +142,48 @@ export function MessageThread({
     setPendingFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
+  // The draft streams into the message box; the operator reviews it before sending.
   async function handleAiAssist(): Promise<void> {
-    setAiAssistLoading(true);
     setSendError(null);
-    try {
-      const res = await api.post<{ draft: string }>(`/v1/support-cases/${caseId}/ai-assist`, {
-        isInternalNote: isInternal,
-      });
-      setMessageBody(res.draft);
-    } catch (err) {
-      setSendError(err instanceof Error ? err.message : t('supportCases.aiAssistError'));
-    } finally {
-      setAiAssistLoading(false);
+    setAiErrorCode(null);
+    setAiSteps([]);
+    aiTextBreak.current = false;
+    aiDraftHasText.current = false;
+    setMessageBody('');
+    const outcome = await aiStream.run(
+      `/v1/support-cases/${encodeURIComponent(caseId)}/ai-assist`,
+      { isInternalNote: isInternal },
+      (event) => {
+        if (event.type === 'text_delta') {
+          const textBreak = aiTextBreak.current;
+          aiTextBreak.current = false;
+          aiDraftHasText.current = true;
+          setMessageBody((prev) =>
+            textBreak && prev !== '' && !prev.endsWith('\n')
+              ? `${prev}\n\n${event.text}`
+              : prev + event.text,
+          );
+        } else if (event.type === 'tool_step') {
+          aiTextBreak.current = aiDraftHasText.current;
+          setAiSteps((prev) => {
+            const step: AiToolStepView = {
+              toolCallId: event.toolCallId,
+              name: event.name,
+              status: event.status,
+              ...(event.summary !== undefined ? { summary: event.summary } : {}),
+              ...(event.reason !== undefined ? { reason: event.reason } : {}),
+              ...(event.durationMs !== undefined ? { durationMs: event.durationMs } : {}),
+            };
+            const index = prev.findIndex((s) => s.toolCallId === event.toolCallId);
+            return index === -1 ? [...prev, step] : prev.map((s, i) => (i === index ? step : s));
+          });
+        } else if (event.type === 'error') {
+          setAiErrorCode(event.code);
+        }
+      },
+    );
+    if (outcome.kind === 'failed') {
+      setAiErrorCode(getApiErrorCode(outcome.error) ?? 'AI_ERROR');
     }
   }
 
@@ -190,6 +236,9 @@ export function MessageThread({
             onChange={(e) => {
               setMessageBody(e.target.value);
             }}
+            readOnly={aiStream.streaming}
+            aria-busy={aiStream.streaming}
+            aria-label={t('supportCases.messagePlaceholder')}
             placeholder={t('supportCases.messagePlaceholder')}
             className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             rows={3}
@@ -234,7 +283,7 @@ export function MessageThread({
             </div>
           )}
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 md:gap-4">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
@@ -250,6 +299,7 @@ export function MessageThread({
                 variant="outline"
                 size="sm"
                 multiple
+                accept={ATTACHMENT_ACCEPT}
                 disabled={!s3Configured}
                 onFiles={(files) => {
                   setPendingFiles((prev) => [...prev, ...files]);
@@ -257,32 +307,47 @@ export function MessageThread({
               >
                 {t('supportCases.uploadAttachment')}
               </FileUploadButton>
-              {supportAiEnabled && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={aiAssistLoading}
-                  onClick={onAiAssistClick}
-                  title={t('supportCases.aiAssistTooltip')}
-                >
-                  {aiAssistLoading ? (
+              {showAiAssist &&
+                (aiStream.streaming ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={aiStream.stop}
+                    data-testid="support-ai-stop"
+                  >
                     <Spinner className="h-4 w-4" />
-                  ) : (
+                    <Square className="ml-1 h-3 w-3" />
+                    <span className="ml-1">{t('supportCases.aiAssistStop')}</span>
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isSending}
+                    onClick={onAiAssistClick}
+                    title={t('supportCases.aiAssistTooltip')}
+                  >
                     <Sparkles className="h-4 w-4" />
-                  )}
-                  <span className="ml-1">
-                    {aiAssistLoading
-                      ? t('supportCases.aiAssistLoading')
-                      : t('supportCases.aiAssist')}
-                  </span>
-                </Button>
-              )}
+                    <span className="ml-1">{t('supportCases.aiAssist')}</span>
+                  </Button>
+                ))}
             </div>
-            <Button type="submit" size="sm" disabled={isSending || messageBody.trim() === ''}>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isSending || aiStream.streaming || messageBody.trim() === ''}
+            >
               {isSending ? t('supportCases.uploading') : t('supportCases.sendMessage')}
             </Button>
           </div>
+          {aiSteps.length > 0 && <ToolSteps steps={aiSteps} label="ai.sources" />}
+          {aiErrorCode != null && (
+            <p role="alert" className="text-sm text-destructive">
+              {aiErrorText(aiErrorCode, t)}
+            </p>
+          )}
           {sendError != null && <p className="text-sm text-destructive">{sendError}</p>}
         </form>
         <ConfirmDialog

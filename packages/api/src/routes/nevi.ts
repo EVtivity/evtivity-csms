@@ -17,7 +17,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
-import { getUserSiteIds } from '../lib/site-access.js';
+import { getUserSiteIds, userCanAccessSite } from '../lib/site-access.js';
 
 const neviStationDataItem = z
   .object({
@@ -222,8 +222,7 @@ export function neviRoutes(app: FastifyInstance): void {
       }
 
       const { userId } = request.user as { userId: string };
-      const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!(await userCanAccessSite(userId, station.siteId))) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -361,8 +360,7 @@ export function neviRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const siteIds = await getUserSiteIds(user.userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!(await userCanAccessSite(user.userId, station.siteId))) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -397,7 +395,10 @@ export function neviRoutes(app: FastifyInstance): void {
         body: zodSchema(updateExcludedDowntimeBody),
         response: {
           200: itemResponse(neviExcludedDowntimeItem),
-          404: errorWith('Downtime not found', [ERROR_CODES.DOWNTIME_NOT_FOUND]),
+          404: errorWith('Downtime or station not found', [
+            ERROR_CODES.DOWNTIME_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -424,13 +425,25 @@ export function neviRoutes(app: FastifyInstance): void {
       }
 
       const { userId } = request.user as { userId: string };
-      const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && existing.siteId != null && !siteIds.includes(existing.siteId)) {
+      if (!(await userCanAccessSite(userId, existing.siteId))) {
         await reply.status(404).send({
           error: 'Excluded downtime record not found',
           code: 'DOWNTIME_NOT_FOUND',
         });
         return;
+      }
+
+      // Moving the record to another station: the target must exist and be
+      // within the caller's sites, like the create route.
+      if (body.stationId != null && body.stationId !== existing.stationId) {
+        const [target] = await db
+          .select({ siteId: chargingStations.siteId })
+          .from(chargingStations)
+          .where(eq(chargingStations.id, body.stationId));
+        if (target == null || !(await userCanAccessSite(userId, target.siteId))) {
+          await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+          return;
+        }
       }
 
       const updates: Record<string, unknown> = { updatedAt: sql`now()` };
@@ -489,8 +502,7 @@ export function neviRoutes(app: FastifyInstance): void {
       }
 
       const { userId } = request.user as { userId: string };
-      const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && existing.siteId != null && !siteIds.includes(existing.siteId)) {
+      if (!(await userCanAccessSite(userId, existing.siteId))) {
         await reply.status(404).send({
           error: 'Excluded downtime record not found',
           code: 'DOWNTIME_NOT_FOUND',

@@ -5,6 +5,7 @@ import type { Logger } from 'pino';
 import { db, chargingStations } from '@evtivity/database';
 import { createId } from '@evtivity/database/src/lib/id.js';
 import { hash } from 'argon2';
+import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
 import type { TestCase, TestCaseResult, RunConfig, TriggerCommandFn, CallApiFn } from './types.js';
 import { createTestClient, generateStationId } from './client.js';
 import { generateTestTokens, provisionTestTokens } from './test-tokens.js';
@@ -36,7 +37,11 @@ export async function executeTest(
         stationId,
         securityProfile: provision.securityProfile,
         ...(provision.password != null
-          ? { basicAuthPasswordHash: await hash(provision.password) }
+          ? {
+              basicAuthPasswordHash: await hash(provision.password, {
+                ...STATION_PASSWORD_HASH_OPTIONS,
+              }),
+            }
           : {}),
         availability: 'available',
         onboardingStatus: testCase.onboardingStatus ?? 'accepted',

@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { PgTable } from 'drizzle-orm/pg-core';
 import { db as defaultDb } from '../config.js';
 
@@ -22,6 +23,31 @@ export interface WriteAuditArgs {
   before?: unknown;
   after?: unknown;
   notes?: string | null;
+  /** Defaults to the AI tool call the code runs in (`runWithAuditViaAi`). */
+  viaAi?: AuditViaAi | null;
+}
+
+/** The AI assistant tool call a change came from. */
+export interface AuditViaAi {
+  conversationId: string;
+  /** The `ai_tool_calls` row id. */
+  toolCallId: string;
+}
+
+const viaAiStorage = new AsyncLocalStorage<AuditViaAi>();
+
+/**
+ * Runs `fn` as an AI assistant tool call: every audit row written inside it
+ * (by the route the tool injects) records `via_ai`. The API's tool executor
+ * is the only caller.
+ */
+export function runWithAuditViaAi<T>(viaAi: AuditViaAi, fn: () => T): T {
+  return viaAiStorage.run(viaAi, fn);
+}
+
+/** The AI tool call the current code runs in, if any. */
+export function currentAuditViaAi(): AuditViaAi | undefined {
+  return viaAiStorage.getStore();
 }
 
 type AuditDb = Pick<typeof defaultDb, 'insert'>;
@@ -109,6 +135,7 @@ export async function writeAudit(
       before: args.before == null ? null : redactAuditPayload(args.before),
       after: args.after == null ? null : redactAuditPayload(args.after),
       notes: args.notes ?? null,
+      viaAi: args.viaAi ?? viaAiStorage.getStore() ?? null,
     };
     // Drizzle insert accepts a values object keyed by camelCase JS field names.
     // We type the helper input loosely so callers don't have to import the

@@ -24,9 +24,9 @@
   <a href="README.zh-TW.md">繁體中文</a>
 </p>
 
-Ein OCPP-1.6- und 2.1-konformes Charging Station Management System zur Verwaltung von EV-Ladeinfrastruktur. Es übernimmt die Echtzeit-WebSocket-Kommunikation mit Ladestationen, OCPI-2.2.1/2.3.0-Roaming, ISO-15118 Plug and Charge, eine REST-API für Betreiber sowie zwei React-Frontends für Betreiber und Fahrer.
+EVtivity ist eine KI-gestützte Plattform für das Laden von Elektrofahrzeugen. Ihr Kern ist ein OCPP-1.6- und 2.1-konformes Charging Station Management System (CSMS) für EV-Ladeinfrastruktur. Es übernimmt die Echtzeit-WebSocket-Kommunikation mit Ladestationen, OCPI-2.2.1/2.3.0-Roaming, ISO 15118 Plug and Charge, eine REST-API für Betreiber und zwei React-Frontends für Betreiber und Fahrer.
 
-EVtivity integriert KI in das gesamte Betreiber-Erlebnis. Ein Chatbot-Assistent beantwortet natürlichsprachliche Fragen zu Stationen, Sitzungen, Umsatz und Betrieb, indem er API-Endpunkte als Tools aufruft. Ein Support-KI-Assistent verfasst Antworten für Support-Tickets, indem er den gesamten Vorgangskontext erfasst. Beide unterstützen mehrere LLM-Anbieter (Anthropic, OpenAI, Gemini), erlauben Konfiguration auf System- und Benutzerebene, antworten in der bevorzugten Sprache des Betreibers und setzen Sicherheitsmechanismen durch, die das Offenlegen sensibler Daten verhindern.
+KI ist in das Betreiber-Dashboard integriert. Der KI-Assistent beantwortet Fragen zu Stationen, Ladevorgängen, Umsatz und Betrieb, liest Anhänge wie das Foto eines Ladestationsdisplays, eine PDF-Datei oder ein Log und schlägt Änderungen vor, die erst nach Bestätigung durch den Betreiber ausgeführt werden. Die Support-Unterstützung entwirft Antworten auf Supportfälle in der Sprache des Fahrers. Beide arbeiten mit Anthropic, OpenAI, Gemini oder DeepSeek, und Geheimnisse und personenbezogene Daten werden maskiert, bevor sie das Modell erreichen.
 
 ## Architektur
 
@@ -69,6 +69,19 @@ graph TB
 ```
 
 ## Funktionsübersicht
+
+### KI-gestützter Betrieb
+
+| Funktion                         | Beschreibung                                                                                                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| KI-Assistent                     | Fragen zu Stationen, Ladevorgängen, Umsatz und Betrieb in natürlicher Sprache. Antworten werden gestreamt, Unterhaltungen bleiben mit Suche, Umbenennen und Löschen erhalten                            |
+| Bild- und Dateianalyse           | Bilder (etwa das Foto eines Ladestationsdisplays), PDF-, CSV-, Text-, Log- und JSON-Dateien anhängen                                                                                                    |
+| Bestätigte Änderungen            | Der Assistent liest Daten über API-Tools. Eine vorgeschlagene Änderung zeigt eine Bestätigungskarte und läuft erst nach Bestätigung durch den Betreiber                                                 |
+| Support-Unterstützung            | Entwirft Antworten auf Supportfälle in der Sprache des Fahrers und interne Notizen in der des Betreibers, mit den gelesenen Quellen                                                                     |
+| Anbieterwahl                     | Anthropic, OpenAI, Google Gemini oder DeepSeek, pro Bereich oder pro Benutzer, mit einer Aufwandsstufe                                                                                                  |
+| Maskierung und Schutzmechanismen | Geheimnisse und personenbezogene Daten werden in Tool-Ergebnissen maskiert, bevor sie das Modell erreichen. Einstellungen, Geheimnisse, Benutzer, Zahlungen und Stationssicherheit bleiben unerreichbar |
+| Sechs Sprachen                   | Antwortet in der Sprache des Betreibers: Englisch, Deutsch, Spanisch, Koreanisch, vereinfachtes und traditionelles Chinesisch                                                                           |
+| Limits und Audit                 | Ratenlimits pro Benutzer und pro Standort, ein tägliches Token-Budget pro Benutzer und Audit-Einträge für Änderungen über den Assistenten                                                               |
 
 ### OCPP-Konformität
 
@@ -146,20 +159,6 @@ graph TB
 | In-App-Benachrichtigungen | Echtzeit-Glockensymbol mit Verlaufs-Drawer und Kanal-Präferenzen                       |
 | Support-Tickets           | Tickets mit Sitzungs-Verknüpfung, Erstattungsaktionen und S3-Dateianhängen             |
 | Benachrichtigungen        | E-Mail und SMS für Sitzungs-, Zahlungs-, Reservierungs- und Support-Ereignisse         |
-
-### KI-gestützter Betrieb
-
-| Funktion                     | Beschreibung                                                                                                                          |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Chatbot-Assistent            | Natürlichsprachlicher Betreiber-Assistent mit Zugriff auf alle API-Endpunkte über einen automatisch erzeugten Tool-Katalog            |
-| Zweistufige Tool-Auswahl     | Kategoriebasiertes Tool-Routing hält die Tool-Anzahl pro Anfrage unter dem Anbieter-Limit (128)                                       |
-| Support-Case-KI              | Entwürfe von Kundenantworten und internen Notizen aus dem gesamten Vorgangskontext (Nachrichten, Sitzungen, Station, Fahrer)          |
-| Multi-Provider-Unterstützung | Anthropic Claude, OpenAI GPT und Google Gemini mit Konfiguration auf System- und Benutzerebene                                        |
-| LLM-Parameter                | Konfigurierbare Temperatur, top-p, top-k, System-Prompt und Tonalität auf System- und Benutzerebene                                   |
-| Sprachsensible Antworten     | KI antwortet in der bevorzugten Sprache des Betreibers in allen 6 unterstützten Locales                                               |
-| Sicherheits-Guardrails       | Blockiert das Offenlegen von Passwörtern und API-Keys, verlangt Bestätigung vor Datenänderungen                                       |
-| Auto-generierte Tools        | OpenAPI-Spec-Codegen erzeugt typisierte Tool-Definitionen für alle 500+ Betreiber-Endpunkte                                           |
-| Editierbares Chat-UI         | Bearbeiten und erneutes Senden von Benutzernachrichten, Kopieren von Assistant-Antworten, Markdown-Rendering mit scrollbaren Tabellen |
 
 ### Nachhaltigkeit
 

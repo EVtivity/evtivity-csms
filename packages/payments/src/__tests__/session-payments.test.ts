@@ -374,6 +374,35 @@ describe('authorizeSessionHold', () => {
     });
   });
 
+  it('returns no_method for a method row of another driver, without a provider call or record', async () => {
+    h.results.push([]);
+    expect(
+      await authorizeSessionHold({ ...input, methodRowId: 42, trigger: 'operator' }, ctx),
+    ).toEqual({
+      outcome: 'no_method',
+    });
+    expect(h.selects[0]?.where).toEqual({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'm.id', value: 42 },
+        { op: 'eq', col: 'm.driver_id', value: 'd1' },
+      ],
+    });
+    expect(getPaymentProvider).not.toHaveBeenCalled();
+    expect(h.recordHold).not.toHaveBeenCalled();
+  });
+
+  it('returns no_method for a method row on a session without a driver and reads nothing', async () => {
+    expect(
+      await authorizeSessionHold(
+        { ...input, driverId: null, methodRowId: 5, trigger: 'operator' },
+        ctx,
+      ),
+    ).toEqual({ outcome: 'no_method' });
+    expect(h.selects).toHaveLength(0);
+    expect(getPaymentProvider).not.toHaveBeenCalled();
+  });
+
   it('returns no_method without a driver or method row and reads nothing', async () => {
     expect(await authorizeSessionHold({ ...input, driverId: null }, ctx)).toEqual({
       outcome: 'no_method',
@@ -441,7 +470,13 @@ describe('authorizeSessionHold', () => {
       ctx,
     );
     expect(outcome).toEqual({ outcome: 'authorized', paymentRecordId: 77, paymentId: 'pi_new' });
-    expect(h.selects[0]?.where).toEqual({ op: 'eq', col: 'm.id', value: 5 });
+    expect(h.selects[0]?.where).toEqual({
+      op: 'and',
+      args: [
+        { op: 'eq', col: 'm.id', value: 5 },
+        { op: 'eq', col: 'm.driver_id', value: 'd1' },
+      ],
+    });
     expect(getPaymentProvider).toHaveBeenCalledWith('simulated');
     expect(simulated.authorizeHold).toHaveBeenCalledWith({
       method: { kind: 'saved', customerId: 'cus_sim_1', methodId: 'pm_sim_1' },

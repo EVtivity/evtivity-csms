@@ -15,6 +15,8 @@ const { handlers, mocks } = vi.hoisted(() => ({
     clearSiteAccessCacheLocal: vi.fn(),
     clearUserActiveCacheLocal: vi.fn(),
     clearMaintenanceCheckCacheLocal: vi.fn(),
+    closeUserEventStreams: vi.fn(),
+    closeDriverEventStreams: vi.fn(),
   },
 }));
 
@@ -41,8 +43,14 @@ vi.mock('../middleware/rbac.js', () => ({
 vi.mock('../lib/site-access.js', () => ({
   clearSiteAccessCacheLocal: mocks.clearSiteAccessCacheLocal,
 }));
-vi.mock('../plugins/auth.js', () => ({
+vi.mock('../lib/user-active.js', () => ({
   clearUserActiveCacheLocal: mocks.clearUserActiveCacheLocal,
+}));
+vi.mock('../routes/events.js', () => ({
+  closeUserEventStreams: mocks.closeUserEventStreams,
+}));
+vi.mock('../routes/portal/events.js', () => ({
+  closeDriverEventStreams: mocks.closeDriverEventStreams,
 }));
 vi.mock('@evtivity/services/maintenance-check', () => ({
   clearMaintenanceCheckCacheLocal: mocks.clearMaintenanceCheckCacheLocal,
@@ -77,6 +85,34 @@ describe('startCacheInvalidateListener', () => {
 
     expect(mocks.clearPermissionCacheLocal).toHaveBeenCalledWith('usr_1');
     expect(mocks.clearStationMessageCache).not.toHaveBeenCalled();
+  });
+
+  it.each(['permission', 'site', 'active'])(
+    'ends the user event streams on a %s change',
+    async (kind) => {
+      await deliver({ kind, userId: 'usr_2' });
+
+      expect(mocks.closeUserEventStreams).toHaveBeenCalledWith('usr_2');
+    },
+  );
+
+  it('ends the driver portal streams on a driver deactivation', async () => {
+    await deliver({ kind: 'driver_active', driverId: 'drv_1' });
+
+    expect(mocks.closeDriverEventStreams).toHaveBeenCalledWith('drv_1');
+    expect(mocks.closeUserEventStreams).not.toHaveBeenCalled();
+  });
+
+  it('ignores a driver deactivation without a driver id', async () => {
+    await deliver({ kind: 'driver_active' });
+
+    expect(mocks.closeDriverEventStreams).not.toHaveBeenCalled();
+  });
+
+  it('ends no streams for a global kind', async () => {
+    await deliver({ kind: 'security_settings' });
+
+    expect(mocks.closeUserEventStreams).not.toHaveBeenCalled();
   });
 
   it('logs a warning for an invalid payload', async () => {

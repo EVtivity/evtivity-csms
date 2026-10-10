@@ -5,9 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type postgres from 'postgres';
 
 const graceMock = vi.fn();
-const splitMock = vi.fn();
 vi.mock('../lib/idling-setting.js', () => ({ getIdlingGracePeriodMinutes: graceMock }));
-vi.mock('../lib/pricing-settings.js', () => ({ isSplitBillingEnabled: splitMock }));
 const resolveTariffMock = vi.fn();
 vi.mock('../lib/tariff-resolution.js', () => ({ resolveStationTariff: resolveTariffMock }));
 
@@ -21,8 +19,9 @@ const {
   storeFinalCost,
   snapshotSessionTariff,
   openFirstTariffSegment,
-  closeOpenSegment,
-  openSegmentTariffId,
+  closeSegmentsAt,
+  segmentsAt,
+  eventTimeAtMostNow,
   switchTariffSegment,
   repriceSessionForDriver,
   zeroCostBreakdown,
@@ -70,7 +69,6 @@ const sessionRow = {
 
 beforeEach(() => {
   graceMock.mockResolvedValue(0);
-  splitMock.mockResolvedValue(false);
 });
 
 describe('loadSessionPricing', () => {
@@ -139,6 +137,13 @@ describe('sessionIdleMinutesAt and reservationHoldingMinutes', () => {
       ),
     ).toBe(12);
     expect(sessionIdleMinutesAt({ idleMinutes: 2, idleStartedAt: null }, new Date())).toBe(2);
+    // An idle period that opened after `at` adds nothing, never a negative amount (B11).
+    expect(
+      sessionIdleMinutesAt(
+        { idleMinutes: 2, idleStartedAt: new Date('2026-06-04T01:10:00Z') },
+        new Date('2026-06-04T01:00:00Z'),
+      ),
+    ).toBe(2);
     const session = {
       id: 'ses_1',
       startedAt: new Date('2026-06-04T00:00:00Z'),
@@ -209,46 +214,40 @@ describe('priceSessionAt', () => {
     expect(await priceSessionAt(sql, 'ses_1', end, 5000)).toBeNull();
   });
 
-  it('prices split segments from their snapshots only when split billing is on', async () => {
-    const segments = [
-      {
-        started_at: '2026-06-04T00:00:00Z',
-        ended_at: '2026-06-04T00:30:00Z',
-        energy_wh_start: '0',
-        energy_wh_end: '2000',
-        idle_minutes: '0',
-        price_per_kwh: '0.30',
-        price_per_minute: null,
-        price_per_session: '1.00',
-        idle_fee_price_per_minute: null,
-        reservation_fee_per_minute: null,
-        tax_rate: '0.19',
-      },
-      {
-        started_at: '2026-06-04T00:30:00Z',
-        ended_at: null,
-        energy_wh_start: '2000',
-        energy_wh_end: null,
-        idle_minutes: '0',
-        price_per_kwh: '0.50',
-        price_per_minute: null,
-        price_per_session: '1.00',
-        idle_fee_price_per_minute: null,
-        reservation_fee_per_minute: null,
-        tax_rate: '0.07',
-      },
-    ];
+  const twoSegments = [
+    {
+      started_at: '2026-06-04T00:00:00Z',
+      ended_at: '2026-06-04T00:30:00Z',
+      energy_wh_start: '0',
+      energy_wh_end: '2000',
+      idle_minutes: '0',
+      price_per_kwh: '0.30',
+      price_per_minute: null,
+      price_per_session: '1.00',
+      idle_fee_price_per_minute: null,
+      reservation_fee_per_minute: null,
+      tax_rate: '0.19',
+    },
+    {
+      started_at: '2026-06-04T00:30:00Z',
+      ended_at: null,
+      energy_wh_start: '2000',
+      energy_wh_end: null,
+      idle_minutes: '0',
+      price_per_kwh: '0.50',
+      price_per_minute: null,
+      price_per_session: '1.00',
+      idle_fee_price_per_minute: null,
+      reservation_fee_per_minute: null,
+      tax_rate: '0.07',
+    },
+  ];
+
+  it('prices a session with several segments from their snapshots whatever the split billing setting (B8)', async () => {
     const { sql, calls } = makeSql([
       ['FROM charging_sessions s', [sessionRow]],
-      ['FROM session_tariff_segments sts', segments],
+      ['FROM session_tariff_segments sts', twoSegments],
     ]);
-
-    const single = await priceSessionAt(sql, 'ses_1', end, 5000);
-    // Split billing off: the session snapshot prices it all. 150 + 100 = 250 at 19%.
-    expect(single?.grossCents).toBe(250 + 48);
-    expect(calls.some((c) => c.text.includes('FROM session_tariff_segments'))).toBe(false);
-
-    splitMock.mockResolvedValue(true);
     const split = await priceSessionAt(sql, 'ses_1', end, 5000);
     // Segment 1: 60 + 100 fee = 160 at 19% (30.4 -> 30). Segment 2: 3 kWh x 0.50 =
     // 150 at 7% (10.5 -> 11). The open segment runs to `end` with all 5 kWh.
@@ -269,8 +268,19 @@ describe('priceSessionAt', () => {
     );
   });
 
+  it('prices at `at` without the segments that start at or after it (B6)', async () => {
+    const { sql } = makeSql([
+      ['FROM charging_sessions s', [sessionRow]],
+      ['FROM session_tariff_segments sts', twoSegments],
+    ]);
+    // Priced at 00:25, before the second segment started: the first segment
+    // is open at 00:25 and the session snapshot prices it (150 + 100 at 19%).
+    const early = await priceSessionAt(sql, 'ses_1', new Date('2026-06-04T00:25:00Z'), 5000);
+    expect(early?.grossCents).toBe(250 + 48);
+    expect(early?.components?.map((g) => g.segment)).toEqual([null]);
+  });
+
   it('prices one segment from the session snapshot', async () => {
-    splitMock.mockResolvedValue(true);
     const { sql } = makeSql([
       ['FROM charging_sessions s', [sessionRow]],
       [
@@ -440,6 +450,10 @@ describe('segment writes', () => {
     await openFirstTariffSegment(sql, 'ses_1', tariff, '2026-06-04T00:00:00Z');
     expect(calls).toHaveLength(2);
     expect(calls[0]?.text).toContain('tariff_reservation_fee_per_minute = ?');
+    // The pricing group the tariff belongs to (B7, TC-T3-12).
+    expect(calls[0]?.text).toContain(
+      'pricing_group_id = (SELECT pricing_group_id FROM tariffs WHERE id = ?)',
+    );
     expect(calls[0]?.values).toEqual([
       'trf_2',
       '0.40',
@@ -448,10 +462,13 @@ describe('segment writes', () => {
       '0.05',
       '0.02',
       '0.07',
+      'trf_2',
       'gross',
       'ses_1',
     ]);
     expect(calls[1]?.text).toContain('INSERT INTO session_tariff_segments');
+    // A rerun keeps the open segment (one open segment per session, B1).
+    expect(calls[1]?.text).toContain('ON CONFLICT (session_id) WHERE ended_at IS NULL DO NOTHING');
     expect(calls[1]?.values).toEqual([
       'ses_1',
       'trf_2',
@@ -466,48 +483,331 @@ describe('segment writes', () => {
     ]);
   });
 
-  it('closes the open segment with the idle not attributed to closed segments', async () => {
-    const { sql, calls } = makeSql([['COALESCE(SUM(idle_minutes), 0)', [{ total: '4' }]]]);
-    const at = new Date('2026-06-04T01:00:00Z');
-    await closeOpenSegment(sql, 'ses_1', at, 5000, 10);
-    expect(calls[1]?.text).toContain('UPDATE session_tariff_segments');
-    expect(calls[1]?.values).toEqual([at.toISOString(), 5000, at.toISOString(), 6, 'ses_1']);
-
-    const over = makeSql([['COALESCE(SUM(idle_minutes), 0)', [{ total: '12' }]]]);
-    await closeOpenSegment(over.sql, 'ses_1', at, 5000, 10);
-    expect(over.calls[1]?.values[3]).toBe(0);
-  });
-
-  it('switches the tariff by closing and opening segments in one transaction', async () => {
-    const { sql, calls } = makeSql([['COALESCE(SUM(idle_minutes), 0)', [{ total: '0' }]]]);
-    const begin = vi.spyOn(sql as unknown as { begin: () => unknown }, 'begin');
-    const at = new Date('2026-06-04T00:30:00Z');
-    await switchTariffSegment(sql, {
-      sessionId: 'ses_1',
-      tariff,
-      at,
-      energyWh: 2000,
-      sessionIdleMinutes: 3,
+  describe('segmentsAt', () => {
+    const seg = (startedAt: string, endedAt: string | null, energyWhStart: number) => ({
+      tariff: {
+        pricePerKwh: null,
+        pricePerMinute: null,
+        pricePerSession: null,
+        idleFeePricePerMinute: null,
+        reservationFeePerMinute: null,
+        taxRate: null,
+      },
+      startedAt: new Date(startedAt),
+      endedAt: endedAt != null ? new Date(endedAt) : null,
+      energyWhStart,
+      energyWhEnd: endedAt != null ? energyWhStart + 1000 : null,
+      idleMinutes: endedAt != null ? 3 : 0,
     });
-    expect(begin).toHaveBeenCalledTimes(1);
-    expect(calls.map((c) => c.text.trim().split(/\s+/).slice(0, 2).join(' '))).toEqual([
-      'SELECT COALESCE(SUM(idle_minutes),',
-      'UPDATE session_tariff_segments',
-      'INSERT INTO',
-    ]);
-    expect(calls[2]?.values.slice(0, 4)).toEqual(['ses_1', 'trf_2', at.toISOString(), 2000]);
-    // No write to the session's own tariff snapshot (issue #33, N7).
-    expect(calls.some((c) => c.text.includes('UPDATE charging_sessions'))).toBe(false);
+    const segments = [
+      seg('2026-06-04T00:00:00Z', '2026-06-04T01:00:00Z', 0),
+      seg('2026-06-04T01:00:00Z', '2026-06-04T02:00:00Z', 1000),
+      seg('2026-06-04T02:00:00Z', null, 2000),
+    ];
+
+    it('keeps every segment at or after the open segment start', () => {
+      expect(segmentsAt(segments, new Date('2026-06-04T02:30:00Z'))).toEqual(segments);
+    });
+
+    it('drops later segments and reopens the one that ran past `at` (B6)', () => {
+      const view = segmentsAt(segments, new Date('2026-06-04T01:30:00Z'));
+      expect(view).toHaveLength(2);
+      expect(view[1]).toMatchObject({ endedAt: null, energyWhEnd: null, idleMinutes: 0 });
+      // A segment starting exactly at `at` does not exist yet.
+      expect(segmentsAt(segments, new Date('2026-06-04T01:00:00Z'))).toHaveLength(1);
+      // The first segment always stays.
+      expect(segmentsAt(segments, new Date('2026-06-03T23:00:00Z'))).toHaveLength(1);
+    });
   });
 
-  it('reads the tariff of the open segment', async () => {
-    expect(
-      await openSegmentTariffId(
-        makeSql([['FROM session_tariff_segments', [{ tariff_id: 'trf_9' }]]]).sql,
-        'ses_1',
-      ),
-    ).toBe('trf_9');
-    expect(await openSegmentTariffId(makeSql().sql, 'ses_1')).toBeNull();
+  it('eventTimeAtMostNow clamps a station timestamp to now (B5)', () => {
+    const now = new Date('2026-06-04T12:00:00Z');
+    expect(eventTimeAtMostNow('2026-06-04T11:00:00Z', now)).toEqual(
+      new Date('2026-06-04T11:00:00Z'),
+    );
+    expect(eventTimeAtMostNow('2026-06-04T13:00:00Z', now)).toBe(now);
+    expect(eventTimeAtMostNow('not a date', now)).toBe(now);
+    expect(eventTimeAtMostNow(null, now)).toBe(now);
+  });
+
+  describe('closeSegmentsAt', () => {
+    const at = new Date('2026-06-04T01:00:00Z');
+    const segmentList = 'ORDER BY started_at, id';
+
+    it('closes the latest segment with the idle not attributed to the others', async () => {
+      const { sql, calls } = makeSql([
+        [segmentList, [{ id: 1, started_at: '2026-06-04T00:00:00Z' }]],
+        ['COALESCE(SUM(idle_minutes), 0)', [{ total: '4' }]],
+      ]);
+      const begin = vi.spyOn(sql as unknown as { begin: () => unknown }, 'begin');
+      await closeSegmentsAt(sql, 'ses_1', at, 5000, 10);
+      expect(begin).toHaveBeenCalledTimes(1);
+      expect(calls[0]?.text).toContain('FOR UPDATE');
+      expect(calls.some((c) => c.text.includes('DELETE'))).toBe(false);
+      const update = calls.find((c) => c.text.includes('UPDATE session_tariff_segments'));
+      expect(update?.text).toContain('GREATEST(energy_wh_start, ?::numeric)');
+      expect(update?.text).toContain('GREATEST(0, EXTRACT(EPOCH');
+      expect(update?.values).toEqual([at.toISOString(), 5000, at.toISOString(), 6, 1]);
+
+      const over = makeSql([
+        [segmentList, [{ id: 1, started_at: '2026-06-04T00:00:00Z' }]],
+        ['COALESCE(SUM(idle_minutes), 0)', [{ total: '12' }]],
+      ]);
+      await closeSegmentsAt(over.sql, 'ses_1', at, 5000, 10);
+      const overUpdate = over.calls.find((c) => c.text.includes('UPDATE session_tariff_segments'));
+      expect(overUpdate?.values[3]).toBe(0);
+    });
+
+    it('removes segments that start at or after the end and closes the previous one (B6)', async () => {
+      const { sql, calls } = makeSql([
+        [
+          segmentList,
+          [
+            { id: 1, started_at: '2026-06-04T00:00:00Z' },
+            { id: 2, started_at: '2026-06-04T00:40:00Z' },
+            { id: 3, started_at: '2026-06-04T01:00:00Z' },
+            { id: 4, started_at: '2026-06-04T01:05:00Z' },
+          ],
+        ],
+        ['COALESCE(SUM(idle_minutes), 0)', [{ total: '0' }]],
+      ]);
+      await closeSegmentsAt(sql, 'ses_1', at, 5000, 0);
+      expect(calls.some((c) => c.text.includes('DELETE FROM session_tariff_segments'))).toBe(true);
+      const update = calls.find((c) => c.text.includes('UPDATE session_tariff_segments'));
+      expect(update?.values.at(-1)).toBe(2);
+    });
+
+    it('does nothing for a session without segments', async () => {
+      const { sql, calls } = makeSql();
+      await closeSegmentsAt(sql, 'ses_1', at, 5000, 0);
+      expect(calls.some((c) => c.text.includes('UPDATE session_tariff_segments'))).toBe(false);
+    });
+  });
+
+  describe('switchTariffSegment', () => {
+    const at = new Date('2026-06-04T00:30:00Z');
+    const openSegment = {
+      id: 7,
+      tariff_id: 'trf_1',
+      started_at: '2026-06-04T00:00:00Z',
+      energy_wh_start: '0',
+    };
+    const active = (overrides: Record<string, unknown> = {}) => ({
+      idle_started_at: null,
+      idle_minutes: '3',
+      ...overrides,
+    });
+    const openQuery = 'SELECT id, tariff_id, started_at, energy_wh_start';
+    // The read without the lock that skips the transaction when nothing changes.
+    const preRead = (tariffId = 'trf_1'): [string, Record<string, unknown>[]] => [
+      'SELECT tariff_id, started_at, energy_wh_start FROM session_tariff_segments',
+      [{ ...openSegment, tariff_id: tariffId }],
+    ];
+
+    it('locks the session, closes the open segment by id and opens the new one (B1)', async () => {
+      const { sql, calls } = makeSql([
+        preRead(),
+        ['FROM charging_sessions', [active()]],
+        [openQuery, [openSegment]],
+        ['COALESCE(SUM(idle_minutes), 0)', [{ total: '1' }]],
+        ['RETURNING id', [{ id: 7 }]],
+      ]);
+      const begin = vi.spyOn(sql as unknown as { begin: () => unknown }, 'begin');
+      expect(
+        await switchTariffSegment(sql, { sessionId: 'ses_1', tariff, at, energyWh: 2000 }),
+      ).toEqual({ fromTariffId: 'trf_1' });
+      expect(begin).toHaveBeenCalledTimes(1);
+      expect(calls[1]?.text).toContain("status = 'active'");
+      expect(calls[1]?.text).toContain('FOR UPDATE');
+      const close = calls.find((c) => c.text.includes('UPDATE session_tariff_segments'));
+      expect(close?.text).toContain('WHERE id = ? AND ended_at IS NULL');
+      // Idle 3 at the switch, 1 already on closed segments: 2 on the closing one.
+      expect(close?.values).toEqual([at.toISOString(), 2000, at.toISOString(), 2, 7]);
+      const insert = calls.find((c) => c.text.includes('INSERT INTO session_tariff_segments'));
+      expect(insert?.values.slice(0, 4)).toEqual(['ses_1', 'trf_2', at.toISOString(), 2000]);
+      // No write to the session's own tariff snapshot (issue #33, N7).
+      expect(calls.some((c) => c.text.includes('UPDATE charging_sessions'))).toBe(false);
+    });
+
+    it('counts an idle period still open at the switch', async () => {
+      const { sql, calls } = makeSql([
+        preRead(),
+        ['FROM charging_sessions', [active({ idle_started_at: '2026-06-04T00:20:00Z' })]],
+        [openQuery, [openSegment]],
+        ['COALESCE(SUM(idle_minutes), 0)', [{ total: '0' }]],
+        ['RETURNING id', [{ id: 7 }]],
+      ]);
+      await switchTariffSegment(sql, { sessionId: 'ses_1', tariff, at, energyWh: 2000 });
+      const close = calls.find((c) => c.text.includes('UPDATE session_tariff_segments'));
+      expect(close?.values[3]).toBe(13);
+    });
+
+    it('opens nothing when the compare-and-set close changed no row', async () => {
+      const { sql, calls } = makeSql([
+        preRead(),
+        ['FROM charging_sessions', [active()]],
+        [openQuery, [openSegment]],
+      ]);
+      expect(
+        await switchTariffSegment(sql, { sessionId: 'ses_1', tariff, at, energyWh: 2000 }),
+      ).toBeNull();
+      expect(calls.some((c) => c.text.includes('INSERT INTO'))).toBe(false);
+    });
+
+    it('changes nothing when the open segment has the tariff already', async () => {
+      // Seen without the lock: no transaction.
+      const quick = makeSql([preRead('trf_2')]);
+      const begin = vi.spyOn(quick.sql as unknown as { begin: () => unknown }, 'begin');
+      expect(
+        await switchTariffSegment(quick.sql, { sessionId: 'ses_1', tariff, at, energyWh: 2000 }),
+      ).toBeNull();
+      expect(begin).not.toHaveBeenCalled();
+      // Switched by another transaction between the read and the lock.
+      const { sql, calls } = makeSql([
+        preRead(),
+        ['FROM charging_sessions', [active()]],
+        [openQuery, [{ ...openSegment, tariff_id: 'trf_2' }]],
+      ]);
+      expect(
+        await switchTariffSegment(sql, { sessionId: 'ses_1', tariff, at, energyWh: 2000 }),
+      ).toBeNull();
+      expect(calls.some((c) => c.text.includes('UPDATE session_tariff_segments'))).toBe(false);
+    });
+
+    it('changes nothing for a time not after the open segment start (B5, B6)', async () => {
+      const { sql, calls } = makeSql([
+        preRead(),
+        ['FROM charging_sessions', [active()]],
+        [openQuery, [{ ...openSegment, started_at: '2026-06-04T00:30:00Z' }]],
+      ]);
+      expect(
+        await switchTariffSegment(sql, { sessionId: 'ses_1', tariff, at, energyWh: 2000 }),
+      ).toBeNull();
+      expect(calls.some((c) => c.text.includes('UPDATE session_tariff_segments'))).toBe(false);
+    });
+
+    it('moves the boundary energy up to a reading at or before the open segment start (TC-T2-06)', async () => {
+      // The boundary job opened trf_2 at 00:30:00.4 with 0 Wh; the reading
+      // taken at 00:30:00 (2000 Wh at it) arrives after the switch.
+      const jobOpen = {
+        id: 8,
+        tariff_id: 'trf_2',
+        started_at: '2026-06-04T00:30:00.400Z',
+        energy_wh_start: '0',
+      };
+      const { sql, calls } = makeSql([
+        ['SELECT tariff_id, started_at, energy_wh_start FROM session_tariff_segments', [jobOpen]],
+        ['FROM charging_sessions', [active()]],
+        [openQuery, [jobOpen]],
+        ['SET energy_wh_end = ?', [{ id: 7 }]],
+      ]);
+      expect(
+        await switchTariffSegment(sql, {
+          sessionId: 'ses_1',
+          tariff,
+          at,
+          energyWh: 2000,
+          readingEnergyWh: 2000,
+        }),
+      ).toBeNull();
+      const end = calls.find((c) => c.text.includes('SET energy_wh_end = ?'));
+      // Only the segment that ends where the open one starts, and only upward.
+      expect(end?.text).toContain('ended_at = (SELECT started_at FROM session_tariff_segments');
+      expect(end?.text).toContain('energy_wh_end < ?');
+      expect(end?.values).toEqual([2000, 'ses_1', 8, 8, 2000]);
+      const start = calls.find((c) => c.text.includes('SET energy_wh_start = ?'));
+      expect(start?.values).toEqual([2000, 8]);
+      expect(calls.some((c) => c.text.includes('INSERT INTO'))).toBe(false);
+    });
+
+    it('moves no boundary energy for the first segment, a lower reading, or a later one', async () => {
+      const jobOpen = {
+        id: 8,
+        tariff_id: 'trf_2',
+        started_at: '2026-06-04T00:30:00.400Z',
+        energy_wh_start: '2500',
+      };
+      const pre: [string, Record<string, unknown>[]] = [
+        'SELECT tariff_id, started_at, energy_wh_start FROM session_tariff_segments',
+        [jobOpen],
+      ];
+      // Below the boundary energy: no transaction.
+      const lower = makeSql([pre]);
+      const begin = vi.spyOn(lower.sql as unknown as { begin: () => unknown }, 'begin');
+      await switchTariffSegment(lower.sql, {
+        sessionId: 'ses_1',
+        tariff,
+        at,
+        energyWh: 2000,
+        readingEnergyWh: 2000,
+      });
+      expect(begin).not.toHaveBeenCalled();
+      // After the open segment's start: nothing to move.
+      const later = makeSql([pre]);
+      await switchTariffSegment(later.sql, {
+        sessionId: 'ses_1',
+        tariff,
+        at: new Date('2026-06-04T00:31:00Z'),
+        energyWh: 3000,
+        readingEnergyWh: 3000,
+      });
+      expect(later.calls.some((c) => c.text.includes('energy_wh_end = ?'))).toBe(false);
+      // The first segment: no previous segment ends at its start.
+      const first = makeSql([pre, ['FROM charging_sessions', [active()]], [openQuery, [jobOpen]]]);
+      await switchTariffSegment(first.sql, {
+        sessionId: 'ses_1',
+        tariff,
+        at,
+        energyWh: 3000,
+        readingEnergyWh: 3000,
+      });
+      expect(first.calls.some((c) => c.text.includes('SET energy_wh_start = ?'))).toBe(false);
+    });
+
+    it('changes nothing for a session that is not active or has no open segment', async () => {
+      // No open segment.
+      expect(
+        await switchTariffSegment(makeSql().sql, {
+          sessionId: 'ses_1',
+          tariff,
+          at,
+          energyWh: 2000,
+        }),
+      ).toBeNull();
+      // Not active under the lock.
+      expect(
+        await switchTariffSegment(makeSql([preRead()]).sql, {
+          sessionId: 'ses_1',
+          tariff,
+          at,
+          energyWh: 2000,
+        }),
+      ).toBeNull();
+      expect(
+        await switchTariffSegment(
+          makeSql([preRead(), ['FROM charging_sessions', [active()]]]).sql,
+          {
+            sessionId: 'ses_1',
+            tariff,
+            at,
+            energyWh: 2000,
+          },
+        ),
+      ).toBeNull();
+    });
+
+    it('never starts the new segment below the open segment starting energy', async () => {
+      const { sql, calls } = makeSql([
+        preRead(),
+        ['FROM charging_sessions', [active()]],
+        [openQuery, [{ ...openSegment, energy_wh_start: '2500' }]],
+        ['COALESCE(SUM(idle_minutes), 0)', [{ total: '0' }]],
+        ['RETURNING id', [{ id: 7 }]],
+      ]);
+      await switchTariffSegment(sql, { sessionId: 'ses_1', tariff, at, energyWh: 2000 });
+      const insert = calls.find((c) => c.text.includes('INSERT INTO session_tariff_segments'));
+      expect(insert?.values[3]).toBe(2500);
+    });
   });
 });
 
@@ -520,6 +820,7 @@ describe('repriceSessionForDriver', () => {
     idleFeePricePerMinute: null,
     reservationFeePerMinute: null,
     taxRate: '0.10',
+    pricingGroup: { id: 'pgr_fleet', name: 'Fleet', source: 'fleet' },
   };
   const params = { sessionId: 'ses_1', stationUuid: 'sta_1', driverUuid: 'drv_1', basis: 'net' };
   const lockedSession: [string, Record<string, unknown>[]] = [
@@ -562,6 +863,8 @@ describe('repriceSessionForDriver', () => {
         driverUuid: 'drv_1',
         at: new Date('2026-06-04T01:00:00Z'),
         sessionEnergyKwh: 4,
+        // Later segments resolve within the driver's group (B7).
+        pricingGroupId: 'pgr_fleet',
       },
       sql,
     );
@@ -575,6 +878,7 @@ describe('repriceSessionForDriver', () => {
       null,
       null,
       '0.10',
+      'trf_fleet',
       'gross',
       'ses_1',
     ]);

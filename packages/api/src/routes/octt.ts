@@ -7,10 +7,18 @@ import { eq, desc, and, sql, inArray } from 'drizzle-orm';
 import { db, octtRuns, octtTestResults } from '@evtivity/database';
 import { itemResponse, paginatedResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
+
+// Company-wide configuration: a site-restricted user gets this 404 before any
+// read or write (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_OCTT_RUN_NOT_FOUND = {
+  error: 'Conformance run not found',
+  code: 'OCTT_RUN_NOT_FOUND',
+} as const;
 
 const TEST_STATUSES = ['passed', 'failed', 'skipped', 'error', 'notApplicable'] as const;
 type OcttTestStatus = (typeof TEST_STATUSES)[number];
@@ -109,10 +117,14 @@ export function octtRoutes(app: FastifyInstance): void {
           201: itemResponse(runResponseSchema),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           500: errorWith('Insert failed', [ERROR_CODES.INSERT_FAILED]),
+          404: errorWith('Conformance run not found, or the user is restricted to some sites', [
+            ERROR_CODES.OCTT_RUN_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_OCTT_RUN_NOT_FOUND))) return;
       const { userId } = request.user as JwtPayload;
       const body = request.body as { ocppVersion: string; sutType: string };
 

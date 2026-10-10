@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
-import { isTariffFree, resolveActiveTariff } from '@evtivity/lib';
+import { DEFAULT_TIMEZONE, isTariffFree, resolveActiveTariff } from '@evtivity/lib';
 import type { TariffRestrictions, TariffWithRestrictions } from '@evtivity/lib';
 import type { TariffPriceSnapshot } from './session-pricing.js';
+import { isSplitBillingEnabled } from './pricing-settings.js';
 
 /**
  * The one tariff resolver. OCPP (session pricing, the 2.1 Authorize tariff),
@@ -17,12 +18,17 @@ import type { TariffPriceSnapshot } from './session-pricing.js';
  * @evtivity/database in production), like session-pricing.
  *
  * Group order: driver > fleet (oldest membership) > station > site > default.
- * Within the group, the active tariff whose restrictions match at the given
+ * Within a group, the active tariff whose restrictions match at the given
  * time in the site's timezone wins, else the group's default tariff
- * (resolveActiveTariff in @evtivity/lib).
+ * (resolveActiveTariff in @evtivity/lib). A group without a tariff that
+ * applies passes to the next group.
  */
 
-export type PricingGroupSource = 'driver' | 'fleet' | 'station' | 'site' | 'default';
+/**
+ * Where the pricing group came from: an assignment step of the chain, or
+ * `session`, the group a running session snapshotted at its start.
+ */
+export type PricingGroupSource = 'driver' | 'fleet' | 'station' | 'site' | 'default' | 'session';
 
 export interface ResolvedPricingGroup {
   id: string;
@@ -40,14 +46,21 @@ export interface StationTariff extends TariffPriceSnapshot {
   priority: number;
   isDefault: boolean;
   pricingGroup: ResolvedPricingGroup;
-  /** Site timezone the restrictions were evaluated in (null = server local time). */
-  timezone: string | null;
+  /**
+   * Timezone the restrictions were evaluated in: the site's, or the
+   * system.timezone setting for a station without a site (finding B22).
+   */
+  timezone: string;
 }
 
-/** A station's pricing group, its active tariffs and the site timezone. */
+/**
+ * A station's pricing group, its active tariffs and the timezone its time
+ * restrictions are evaluated in: the site's, else the system.timezone
+ * setting (a station without a site), as the pricing schedule endpoint does.
+ */
 export interface StationPricing {
   group: ResolvedPricingGroup;
-  timezone: string | null;
+  timezone: string;
   tariffs: GroupTariff[];
 }
 
@@ -61,6 +74,11 @@ export interface TariffQuery {
    * restrictions. Default 0.
    */
   sessionEnergyKwh?: number;
+  /**
+   * Resolve only within this pricing group (the group a running session
+   * snapshotted at its start, charging_sessions.pricing_group_id).
+   */
+  pricingGroupId?: string | null;
 }
 
 const SOURCES: Record<number, PricingGroupSource> = {
@@ -75,7 +93,7 @@ interface PricingRow {
   group_id: string;
   group_name: string;
   group_priority: number;
-  timezone: string | null;
+  timezone: string;
   id: string | null;
   name: string | null;
   price_per_kwh: string | null;
@@ -118,18 +136,21 @@ function toGroupTariff(r: {
 }
 
 /**
- * The station's pricing group (for the driver, when given), its active
- * tariffs and the site timezone, in one round trip. Null when no group
- * applies. A group without active tariffs has `tariffs: []`.
+ * The pricing groups that apply to the driver at the station, in resolution
+ * order (driver > fleet > station > site > default), each with its active
+ * tariffs, and the timezone (the site's, else system.timezone), in one round
+ * trip. A group that appears at
+ * two steps is listed once, at the first. A group without active tariffs is
+ * listed with `tariffs: []`.
  *
  * fleet_drivers has no unique constraint on driver_id (a driver can belong to
  * several fleets): the oldest membership wins, so the same driver and station
  * always resolve to the same group.
  */
-export async function loadStationPricing(
+export async function loadStationPricingChain(
   q: Pick<TariffQuery, 'stationUuid' | 'driverUuid'>,
   sql: postgres.Sql,
-): Promise<StationPricing | null> {
+): Promise<StationPricing[]> {
   const driverUuid = q.driverUuid ?? '';
   const rows = await sql<PricingRow[]>`
     WITH driver_group AS (
@@ -165,24 +186,20 @@ export async function loadStationPricing(
       WHERE pg.is_default = true
       LIMIT 1
     ),
-    winner AS (
-      SELECT id, priority FROM (
-        SELECT id, priority FROM driver_group
-        UNION ALL SELECT id, priority FROM fleet_group
-        UNION ALL SELECT id, priority FROM station_group
-        UNION ALL SELECT id, priority FROM site_group
-        UNION ALL SELECT id, priority FROM default_group
-      ) groups
-      ORDER BY priority
-      LIMIT 1
+    chain AS (
+      SELECT id, priority FROM driver_group
+      UNION ALL SELECT id, priority FROM fleet_group
+      UNION ALL SELECT id, priority FROM station_group
+      UNION ALL SELECT id, priority FROM site_group
+      UNION ALL SELECT id, priority FROM default_group
     )
-    SELECT pg.id AS group_id, pg.name AS group_name, w.priority AS group_priority,
-           tz.timezone,
+    SELECT pg.id AS group_id, pg.name AS group_name, c.priority AS group_priority,
+           COALESCE(tz.timezone, sys_tz.timezone, ${DEFAULT_TIMEZONE}) AS timezone,
            t.id, t.name, t.price_per_kwh, t.price_per_minute, t.price_per_session,
            t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
            t.restrictions, t.priority, t.is_default
-    FROM winner w
-    JOIN pricing_groups pg ON pg.id = w.id
+    FROM chain c
+    JOIN pricing_groups pg ON pg.id = c.id
     LEFT JOIN LATERAL (
       SELECT s.timezone
       FROM charging_stations cs
@@ -190,43 +207,114 @@ export async function loadStationPricing(
       WHERE cs.id = ${q.stationUuid}
       LIMIT 1
     ) tz ON true
+    LEFT JOIN LATERAL (
+      SELECT value #>> '{}' AS timezone
+      FROM settings
+      WHERE key = 'system.timezone' AND jsonb_typeof(value) = 'string'
+    ) sys_tz ON true
     LEFT JOIN tariffs t ON t.pricing_group_id = pg.id AND t.is_active = true
+    ORDER BY c.priority, t.id
   `;
-  const first = rows[0];
-  if (first == null) return null;
-  return {
-    group: {
-      id: first.group_id,
-      name: first.group_name,
-      source: SOURCES[first.group_priority] ?? 'default',
-    },
-    timezone: first.timezone ?? null,
-    tariffs: rows.flatMap((r) => (r.id != null ? [toGroupTariff({ ...r, id: r.id })] : [])),
-  };
+  return groupRows(rows);
+}
+
+/** Rows of loadStationPricingChain (ordered by step) as one entry per group. */
+function groupRows(rows: PricingRow[]): StationPricing[] {
+  const chain: StationPricing[] = [];
+  const stepOf = new Map<string, number>();
+  for (const r of rows) {
+    const step = stepOf.get(r.group_id);
+    if (step != null && step !== r.group_priority) continue;
+    let entry = chain.find((p) => p.group.id === r.group_id);
+    if (entry == null) {
+      stepOf.set(r.group_id, r.group_priority);
+      entry = {
+        group: {
+          id: r.group_id,
+          name: r.group_name,
+          source: SOURCES[r.group_priority] ?? 'default',
+        },
+        timezone: r.timezone,
+        tariffs: [],
+      };
+      chain.push(entry);
+    }
+    if (r.id != null) entry.tariffs.push(toGroupTariff({ ...r, id: r.id }));
+  }
+  return chain;
 }
 
 /**
- * The tariff that applies to the driver at the station at `at` (default now),
- * evaluated in the site timezone. Null when no group applies, the group has no
- * active tariff, or no tariff matches and the group has no default.
+ * The first pricing group of the chain with active tariffs (null when none
+ * has one). Callers that list a group's tariffs (OCPI connector tariffs, the
+ * station's active tariff page) use it; billing resolves through the whole
+ * chain (resolveStationTariff).
  */
-export async function resolveStationTariff(
-  q: TariffQuery,
+export async function loadStationPricing(
+  q: Pick<TariffQuery, 'stationUuid' | 'driverUuid'>,
   sql: postgres.Sql,
-): Promise<StationTariff | null> {
-  const pricing = await loadStationPricing(q, sql);
-  if (pricing == null || pricing.tariffs.length === 0) return null;
-  const holidays = await getPricingHolidays(sql);
-  const current = resolveActiveTariff(
-    pricing.tariffs,
-    q.at ?? new Date(),
-    holidays,
-    q.sessionEnergyKwh ?? 0,
-    pricing.timezone ?? undefined,
-  );
-  if (current == null) return null;
-  const match = pricing.tariffs.find((t) => t.id === current.id);
-  if (match == null) return null;
+): Promise<StationPricing | null> {
+  const chain = await loadStationPricingChain(q, sql);
+  return chain.find((p) => p.tariffs.length > 0) ?? null;
+}
+
+/**
+ * One pricing group with its active tariffs and the station's timezone (the
+ * site's, else system.timezone):
+ * the group a session snapshotted at its start (charging_sessions.
+ * pricing_group_id). Null when the group no longer exists.
+ */
+export async function loadGroupPricingAtStation(
+  groupId: string,
+  stationUuid: string,
+  sql: postgres.Sql,
+): Promise<StationPricing | null> {
+  const rows = await sql<PricingRow[]>`
+    SELECT pg.id AS group_id, pg.name AS group_name, 0 AS group_priority,
+           COALESCE(tz.timezone, sys_tz.timezone, ${DEFAULT_TIMEZONE}) AS timezone,
+           t.id, t.name, t.price_per_kwh, t.price_per_minute, t.price_per_session,
+           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate,
+           t.restrictions, t.priority, t.is_default
+    FROM pricing_groups pg
+    LEFT JOIN LATERAL (
+      SELECT s.timezone
+      FROM charging_stations cs
+      LEFT JOIN sites s ON s.id = cs.site_id
+      WHERE cs.id = ${stationUuid}
+      LIMIT 1
+    ) tz ON true
+    LEFT JOIN LATERAL (
+      SELECT value #>> '{}' AS timezone
+      FROM settings
+      WHERE key = 'system.timezone' AND jsonb_typeof(value) = 'string'
+    ) sys_tz ON true
+    LEFT JOIN tariffs t ON t.pricing_group_id = pg.id AND t.is_active = true
+    WHERE pg.id = ${groupId}
+    ORDER BY t.id
+  `;
+  const [pricing] = groupRows(rows);
+  if (pricing == null) return null;
+  return { ...pricing, group: { ...pricing.group, source: 'session' } };
+}
+
+/** The first group of `chain` with a tariff that applies, and that tariff. */
+export function pickFromChain(
+  chain: StationPricing[],
+  opts: { at: Date; sessionEnergyKwh?: number },
+  holidays: Date[],
+): { pricing: StationPricing; tariff: GroupTariff } | null {
+  for (const pricing of chain) {
+    const tariff = pickTariff(
+      pricing.tariffs,
+      { at: opts.at, timezone: pricing.timezone, sessionEnergyKwh: opts.sessionEnergyKwh ?? 0 },
+      holidays,
+    );
+    if (tariff != null) return { pricing, tariff };
+  }
+  return null;
+}
+
+function toStationTariff(pricing: StationPricing, match: GroupTariff): StationTariff {
   return {
     id: match.id,
     name: match.name,
@@ -242,6 +330,64 @@ export async function resolveStationTariff(
     pricingGroup: pricing.group,
     timezone: pricing.timezone,
   };
+}
+
+/**
+ * The tariff that applies to the driver at the station at `at` (default now),
+ * evaluated in the site timezone. The groups are tried in order (driver >
+ * fleet > station > site > default): a group without active tariffs, or
+ * without one that matches (a group without a default tariff, written before
+ * the API required one), passes to the next group. Null when no group has a
+ * tariff that applies.
+ *
+ * With `pricingGroupId` (the group a session snapshotted at its start), only
+ * that group is tried: an assignment or fleet membership change applies to
+ * the next session, never to a running one.
+ */
+export async function resolveStationTariff(
+  q: TariffQuery,
+  sql: postgres.Sql,
+): Promise<StationTariff | null> {
+  const resolved = await resolveWithPricing(q, sql);
+  return resolved == null ? null : toStationTariff(resolved.pricing, resolved.tariff);
+}
+
+/**
+ * resolveStationTariff with every active tariff of the group it resolved in
+ * (the portal pricing page tells the driver whether the price can change
+ * during the session).
+ */
+export async function resolveStationPricing(
+  q: TariffQuery,
+  sql: postgres.Sql,
+): Promise<{ tariff: StationTariff; groupTariffs: GroupTariff[] } | null> {
+  const resolved = await resolveWithPricing(q, sql);
+  if (resolved == null) return null;
+  return {
+    tariff: toStationTariff(resolved.pricing, resolved.tariff),
+    groupTariffs: resolved.pricing.tariffs,
+  };
+}
+
+/** resolveStationTariff with the group it resolved in. */
+async function resolveWithPricing(
+  q: TariffQuery,
+  sql: postgres.Sql,
+): Promise<{ pricing: StationPricing; tariff: GroupTariff } | null> {
+  let chain: StationPricing[];
+  if (q.pricingGroupId != null) {
+    const pricing = await loadGroupPricingAtStation(q.pricingGroupId, q.stationUuid, sql);
+    chain = pricing != null ? [pricing] : [];
+  } else {
+    chain = await loadStationPricingChain(q, sql);
+  }
+  if (!chain.some((p) => p.tariffs.length > 0)) return null;
+  const holidays = await getPricingHolidays(sql);
+  return pickFromChain(
+    chain,
+    { at: q.at ?? new Date(), sessionEnergyKwh: q.sessionEnergyKwh ?? 0 },
+    holidays,
+  );
 }
 
 /**
@@ -301,13 +447,94 @@ export function pickTariff(
  * vend (checked first, no tariff lookup), or no tariff applies, or every
  * price component of the tariff is zero. The reservation holding fee counts
  * only for the holder of the reservation (`reserved`).
+ *
+ * With split billing on, a session moves to the tariff that applies as time
+ * and energy go on, within the pricing group it started in, so charging is
+ * free only when every active tariff of that group is free (owner decision
+ * 2026-10-09: the start decides from whether any reachable tariff is paid).
+ * The holding fee is billed at the first segment's rate only, so the other
+ * tariffs are checked without it.
  */
 export async function isStationChargingFree(
   q: TariffQuery & { reserved: boolean; freeVend: boolean },
   sql: postgres.Sql,
 ): Promise<boolean> {
   if (q.freeVend) return true;
-  return isTariffFree(await resolveStationTariff(q, sql), { reserved: q.reserved });
+  const resolved = await resolveWithPricing(q, sql);
+  if (!isTariffFree(resolved?.tariff ?? null, { reserved: q.reserved })) return false;
+  if (resolved == null || !(await isSplitBillingEnabled())) return true;
+  return !hasPaidTariff(resolved.pricing.tariffs);
+}
+
+/** True when any of the tariffs has a price above zero (holding fee aside). */
+export function hasPaidTariff(tariffs: TariffPriceSnapshot[]): boolean {
+  return tariffs.some((t) => !isTariffFree(t));
+}
+
+/**
+ * True when split billing is on and the pricing group the session started in
+ * (charging_sessions.pricing_group_id) has an active tariff with a price
+ * above zero: the session can move to a paid tariff while it charges. The
+ * payment gate treats such a session as paid at its start (B3).
+ */
+export async function sessionGroupHasPaidTariff(
+  sql: postgres.Sql,
+  sessionId: string,
+): Promise<boolean> {
+  if (!(await isSplitBillingEnabled())) return false;
+  const rows = await sql<
+    Array<{
+      id: string;
+      price_per_kwh: string | null;
+      price_per_minute: string | null;
+      price_per_session: string | null;
+      idle_fee_price_per_minute: string | null;
+      reservation_fee_per_minute: string | null;
+      tax_rate: string | null;
+    }>
+  >`
+    SELECT t.id, t.price_per_kwh, t.price_per_minute, t.price_per_session,
+           t.idle_fee_price_per_minute, t.reservation_fee_per_minute, t.tax_rate
+    FROM charging_sessions cs
+    JOIN tariffs t ON t.pricing_group_id = cs.pricing_group_id AND t.is_active = true
+    WHERE cs.id = ${sessionId}
+  `;
+  return hasPaidTariff(
+    rows.map((r) => ({
+      id: r.id,
+      pricePerKwh: r.price_per_kwh,
+      pricePerMinute: r.price_per_minute,
+      pricePerSession: r.price_per_session,
+      idleFeePricePerMinute: r.idle_fee_price_per_minute,
+      reservationFeePerMinute: r.reservation_fee_per_minute,
+      taxRate: r.tax_rate,
+    })),
+  );
+}
+
+/**
+ * Pricing groups that break the default rule: active tariffs but no active
+ * default tariff without restrictions (groups written before the API required
+ * one, and that migration 0340 could not give a default). The resolver passes
+ * such a group to the next one whenever none of its tariffs matches. The API
+ * logs them at startup so the operator adds a default.
+ */
+export async function listPricingGroupsWithoutDefault(
+  sql: postgres.Sql,
+): Promise<Array<{ id: string; name: string }>> {
+  return sql<Array<{ id: string; name: string }>>`
+    SELECT pg.id, pg.name
+    FROM pricing_groups pg
+    WHERE EXISTS (
+        SELECT 1 FROM tariffs t WHERE t.pricing_group_id = pg.id AND t.is_active = true
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM tariffs d
+        WHERE d.pricing_group_id = pg.id AND d.is_active = true
+          AND d.is_default = true AND d.priority = 0
+      )
+    ORDER BY pg.name, pg.id
+  `;
 }
 
 /** What prices a driver at every station, for display next to the billing fleet. */

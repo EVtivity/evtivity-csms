@@ -5,7 +5,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import { userPermissions } from '@evtivity/database';
-import { hasPermission } from '@evtivity/lib';
+import { createLogger, hasPermission } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 const permissionCache = new Map<string, { permissions: string[]; expiresAt: number }>();
@@ -41,8 +41,9 @@ export function invalidatePermissionCache(userId: string): void {
   clearPermissionCacheLocal(userId);
   void getPubSub()
     .publish('cache_invalidate', JSON.stringify({ kind: 'permission', userId }))
-    .catch(() => {
-      // Best-effort; the local cache still expires via TTL on other pods.
+    .catch((err: unknown) => {
+      // fail-open: the local cache still expires via TTL on other pods (P9).
+      createLogger('rbac').warn({ err, userId }, 'cache_invalidate publish for permissions failed');
     });
 }
 
@@ -51,7 +52,7 @@ export function invalidatePermissionCache(userId: string): void {
  * with the API key's scope when the request uses an API key. Null for a
  * token without a userId (driver tokens). Call after authentication.
  */
-async function getEffectivePermissions(request: FastifyRequest): Promise<string[] | null> {
+export async function getEffectivePermissions(request: FastifyRequest): Promise<string[] | null> {
   const user = request.user;
   if (!('userId' in user)) return null;
 

@@ -48,7 +48,8 @@
       "electricityCost": "电费成本",
       "profit": "利润",
       "billedOnAccount": "车队挂账（未付）",
-      "paymentStatus": "付款状态"
+      "paymentStatus": "付款状态",
+      "sessionsWithoutElectricityCost": "无电费成本的会话（不计入利润）"
     },
     "summary": {
       "totalRevenueInclTax": "总收入（含税）",
@@ -57,7 +58,8 @@
       "totalElectricityCost": "总电费成本",
       "totalProfit": "总利润",
       "totalBilledOnAccount": "车队挂账总额（未付）",
-      "totalSessions": "会话总数"
+      "totalSessions": "会话总数",
+      "totalSessionsWithoutElectricityCost": "无电费成本的会话总数（不计入利润）"
     }
   },
   "energy": {

@@ -1,7 +1,6 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, sql, count, inArray } from 'drizzle-orm';
@@ -116,9 +115,16 @@ const portalMessageResponse = z
 
 const uploadUrlResponse = z
   .object({
-    uploadUrl: z.string().describe('Presigned S3 PUT URL valid for a short time'),
-    s3Key: z.string().describe('S3 object key the client must upload to'),
-    s3Bucket: z.string().describe('S3 bucket name the client must upload to'),
+    uploadUrl: z
+      .string()
+      .describe(
+        'Presigned S3 POST URL. Send a multipart/form-data POST with every entry of fields, then the file as the last field named file. S3 enforces the size limit and the Content-Type.',
+      ),
+    fields: z.record(z.string()).describe('Form fields to send unchanged before the file field'),
+    s3Key: z
+      .string()
+      .describe('Quarantine key of the upload. Pass it to the confirm endpoint after the POST.'),
+    expiresAt: z.coerce.date().describe('Time after which S3 refuses the POST'),
   })
   .passthrough();
 
@@ -128,11 +134,10 @@ const downloadUrlResponse = z
   })
   .passthrough();
 import {
-  getS3Config,
-  generateUploadUrl,
-  generateDownloadUrl,
-  buildS3Key,
-} from '../../services/s3.service.js';
+  confirmSupportAttachment,
+  requestSupportAttachmentUpload,
+  supportAttachmentDownloadUrl,
+} from '../../services/ai/attachments/support-attachments.js';
 import { dispatchOperatorNotification } from '../../services/support-notification.service.js';
 
 const caseIdParams = z.object({ id: ID_PARAMS.supportCaseId.describe('Support case ID') });
@@ -175,30 +180,42 @@ const createMessageBody = z.object({
 
 const requestUploadUrlBody = z.object({
   fileName: z.string().min(1).max(255),
-  contentType: z.string().min(1).max(100),
+  contentType: z
+    .string()
+    .max(100)
+    .describe(
+      'MIME type of the file: JPEG, PNG, WebP, GIF, PDF, CSV, plain text or log, JSON or JSONL. Empty or application/octet-stream falls back to the file extension.',
+    ),
   fileSize: z
     .number()
     .int()
     .min(1)
-    .max(10 * 1024 * 1024),
+    .describe('File size in bytes, at most the ai.attachments.maxBytes setting (default 10 MB)'),
 });
 
 const confirmAttachmentBody = z.object({
-  fileName: z.string().min(1).max(255),
-  fileSize: z
-    .number()
-    .int()
+  s3Key: z
+    .string()
     .min(1)
-    .max(10 * 1024 * 1024),
-  contentType: z.string().min(1).max(100),
-  s3Key: z.string().min(1),
-  s3Bucket: z.string().min(1),
+    .max(1024)
+    .describe('Quarantine key returned by the upload URL request for this message'),
 });
 
 async function getNextCaseNumber(): Promise<string> {
   const result = await db.execute(sql`SELECT nextval('support_case_number_seq') as val`);
   const seq = Number((result as unknown as Array<{ val: string }>)[0]?.val ?? 1);
   return `CASE-${String(seq).padStart(5, '0')}`;
+}
+
+/** SQL: the message is the driver's own, non-internal message on the case. */
+function driverOwnMessageCondition(caseId: string, messageId: number, driverId: string) {
+  return and(
+    eq(supportCaseMessages.id, messageId),
+    eq(supportCaseMessages.caseId, caseId),
+    eq(supportCaseMessages.senderType, 'driver'),
+    eq(supportCaseMessages.senderId, driverId),
+    eq(supportCaseMessages.isInternal, false),
+  );
 }
 
 export function portalSupportCaseRoutes(app: FastifyInstance): void {
@@ -313,7 +330,9 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
           })
           .from(supportCaseSessions)
           .innerJoin(chargingSessions, eq(supportCaseSessions.sessionId, chargingSessions.id))
-          .where(eq(supportCaseSessions.caseId, id)),
+          // Only the driver's own sessions: an operator could have linked a
+          // session of another driver before linking checked the driver.
+          .where(and(eq(supportCaseSessions.caseId, id), eq(chargingSessions.driverId, driverId))),
         // Exclude internal messages — drivers must not see operator notes.
         db
           .select({
@@ -420,6 +439,13 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
           .from(chargingStations)
           .where(eq(chargingStations.stationId, body.stationId));
         if (station == null) {
+          await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+          return;
+        }
+        // The case is scoped to its station's site on the operator side: a
+        // station that differs from the session's station would show the
+        // session's case to the operators of another site.
+        if (sessionStationId != null && station.id !== sessionStationId) {
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
         }
@@ -548,12 +574,18 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         tags: ['Portal Support'],
         summary: 'Request a presigned S3 upload URL for an attachment',
         operationId: 'portalRequestAttachmentUploadUrl',
+        description:
+          'Returns a presigned S3 POST into quarantine for an attachment on one of your own messages. The type must be allowlisted and the size within the limit; S3 enforces both. Confirm the upload afterwards.',
         security: [{ bearerAuth: [] }],
         params: zodSchema(messageIdParams),
         body: zodSchema(requestUploadUrlBody),
         response: {
           200: itemResponse(uploadUrlResponse),
-          400: errorWith('S3 not configured', [ERROR_CODES.STORAGE_NOT_CONFIGURED]),
+          400: errorWith('Storage not configured, or the file type or size is not allowed', [
+            ERROR_CODES.STORAGE_NOT_CONFIGURED,
+            ERROR_CODES.AI_ATTACHMENT_TYPE_NOT_ALLOWED,
+            ERROR_CODES.AI_ATTACHMENT_TOO_LARGE,
+          ]),
           404: errorWith('Not found', [
             ERROR_CODES.SUPPORT_CASE_NOT_FOUND,
             ERROR_CODES.MESSAGE_NOT_FOUND,
@@ -579,29 +611,19 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A driver attaches files only to its own messages on the case, never
+      // to an operator message or an internal note.
       const [message] = await db
         .select({ id: supportCaseMessages.id })
         .from(supportCaseMessages)
-        .where(and(eq(supportCaseMessages.id, messageId), eq(supportCaseMessages.caseId, id)));
+        .where(driverOwnMessageCondition(id, messageId, driverId));
 
       if (message == null) {
         await reply.status(404).send({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' });
         return;
       }
 
-      const s3 = await getS3Config();
-      if (s3 == null) {
-        await reply
-          .status(400)
-          .send({ error: 'Attachment storage not configured', code: 'STORAGE_NOT_CONFIGURED' });
-        return;
-      }
-
-      const fileId = crypto.randomUUID();
-      const key = buildS3Key(id, messageId, fileId, body.fileName);
-      const uploadUrl = await generateUploadUrl(s3, key, body.contentType);
-
-      return { uploadUrl, s3Key: key, s3Bucket: s3.bucket };
+      return requestSupportAttachmentUpload(id, messageId, body);
     },
   );
 
@@ -614,12 +636,19 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         tags: ['Portal Support'],
         summary: 'Confirm an attachment after S3 upload',
         operationId: 'portalConfirmAttachment',
+        description:
+          'Reads the uploaded file, checks its bytes against the declared type, re-encodes images (metadata stripped), checks PDFs and text, stores the clean file and records it on the message. Confirming the same key again returns the stored attachment.',
         security: [{ bearerAuth: [] }],
         params: zodSchema(messageIdParams),
         body: zodSchema(confirmAttachmentBody),
         response: {
           200: itemResponse(attachmentItem),
-          400: errorWith('Attachment metadata invalid', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith('Upload key invalid, or the file was refused', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.AI_ATTACHMENT_REJECTED,
+            ERROR_CODES.AI_ATTACHMENT_TOO_LARGE,
+            ERROR_CODES.STORAGE_NOT_CONFIGURED,
+          ]),
           404: errorWith('Support case or message not found', [
             ERROR_CODES.SUPPORT_CASE_NOT_FOUND,
             ERROR_CODES.MESSAGE_NOT_FOUND,
@@ -645,43 +674,22 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A driver attaches files only to its own messages on the case, never
+      // to an operator message or an internal note.
       const [message] = await db
         .select({ id: supportCaseMessages.id })
         .from(supportCaseMessages)
-        .where(and(eq(supportCaseMessages.id, messageId), eq(supportCaseMessages.caseId, id)));
+        .where(driverOwnMessageCondition(id, messageId, driverId));
 
       if (message == null) {
         await reply.status(404).send({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' });
         return;
       }
 
-      // Reject s3Key values that do not belong to this case+message. The
-      // download endpoint hands back a presigned GET against the stored s3Key
-      // verbatim, so trusting an arbitrary client-supplied key here would let
-      // a driver insert a row whose s3Key points at another driver's file
-      // path and then retrieve it via the matching download URL.
-      const expectedPrefix = `support-cases/${id}/${String(messageId)}/`;
-      const s3 = await getS3Config();
-      if (!body.s3Key.startsWith(expectedPrefix) || s3 == null || body.s3Bucket !== s3.bucket) {
-        await reply.status(400).send({
-          error: 'Attachment metadata does not match issued upload URL',
-          code: 'VALIDATION_ERROR',
-        });
-        return;
-      }
-
-      const [attachment] = await db
-        .insert(supportCaseAttachments)
-        .values({
-          messageId,
-          fileName: body.fileName,
-          fileSize: body.fileSize,
-          contentType: body.contentType,
-          s3Key: body.s3Key,
-          s3Bucket: body.s3Bucket,
-        })
-        .returning();
-
+      // The service accepts only a quarantine key issued for this case and
+      // message, so a driver cannot register another driver's object and then
+      // download it through this case.
+      const { attachment } = await confirmSupportAttachment(id, messageId, body.s3Key, request.log);
       return attachment;
     },
   );
@@ -755,16 +763,7 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const s3 = await getS3Config();
-      if (s3 == null) {
-        await reply
-          .status(400)
-          .send({ error: 'Attachment storage not configured', code: 'STORAGE_NOT_CONFIGURED' });
-        return;
-      }
-
-      const downloadUrl = await generateDownloadUrl(s3, attachment.s3Bucket, attachment.s3Key);
-      return { downloadUrl };
+      return { downloadUrl: await supportAttachmentDownloadUrl(attachment) };
     },
   );
 }

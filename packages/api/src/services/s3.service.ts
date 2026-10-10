@@ -2,72 +2,28 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import {
-  S3Client,
   PutObjectCommand,
   GetObjectCommand,
-  DeleteObjectCommand,
+  HeadObjectCommand,
+  NoSuchKey,
+  NotFound,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { like } from 'drizzle-orm';
-import { db } from '@evtivity/database';
-import { settings } from '@evtivity/database';
-import { decryptSettingOrNull } from '@evtivity/lib';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
+import { loadS3Config } from '@evtivity/services/s3-storage';
+import type { S3Config } from '@evtivity/services/s3-storage';
 import { config as apiConfig } from '../lib/config.js';
 
-export interface S3Config {
-  client: S3Client;
-  bucket: string;
-}
+export { clearS3ConfigCache, deleteObject } from '@evtivity/services/s3-storage';
+export type { S3Config } from '@evtivity/services/s3-storage';
 
-interface CachedConfig {
-  config: S3Config;
-  expiresAt: number;
-}
+/** Presigned upload and download URLs expire after these many seconds. */
+export const UPLOAD_URL_EXPIRES_SECONDS = 300;
+const DOWNLOAD_URL_EXPIRES_SECONDS = 3600;
 
-const CACHE_TTL_MS = 5 * 60 * 1000;
-let cachedConfig: CachedConfig | null = null;
-
-export function clearS3ConfigCache(): void {
-  cachedConfig = null;
-}
-
+/** S3 configuration of this process (5-minute cache), or null when not configured. */
 export async function getS3Config(): Promise<S3Config | null> {
-  if (cachedConfig != null && cachedConfig.expiresAt > Date.now()) {
-    return cachedConfig.config;
-  }
-
-  // Push the s3.* prefix filter to Postgres instead of selecting every
-  // settings row and discarding most of them in JS.
-  const rows = await db.select().from(settings).where(like(settings.key, 's3.%'));
-  const map = new Map<string, unknown>();
-  for (const row of rows) {
-    map.set(row.key, row.value);
-  }
-
-  const bucket = map.get('s3.bucket') as string | undefined;
-  const region = map.get('s3.region') as string | undefined;
-  // A cleared field is stored as an empty string: not configured.
-  if (bucket == null || bucket === '' || region == null || region === '') {
-    return null;
-  }
-  // No stored keys (no row, or the empty string the seed and a cleared field
-  // store) means use the default credential chain (the ECS task role). A single
-  // stored key is a half-finished configuration, so S3 stays disabled.
-  const encryptionKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
-  const accessKeyId = decryptSettingOrNull(map.get('s3.accessKeyIdEnc'), encryptionKey);
-  const secretAccessKey = decryptSettingOrNull(map.get('s3.secretAccessKeyEnc'), encryptionKey);
-  if ((accessKeyId == null) !== (secretAccessKey == null)) {
-    return null;
-  }
-
-  const client =
-    accessKeyId != null && secretAccessKey != null
-      ? new S3Client({ region, credentials: { accessKeyId, secretAccessKey } })
-      : new S3Client({ region });
-
-  const config: S3Config = { client, bucket };
-  cachedConfig = { config, expiresAt: Date.now() + CACHE_TTL_MS };
-  return config;
+  return loadS3Config(apiConfig.SETTINGS_ENCRYPTION_KEY);
 }
 
 export async function generateUploadUrl(
@@ -80,46 +36,151 @@ export async function generateUploadUrl(
     Key: key,
     ContentType: contentType,
   });
-  return getSignedUrl(s3.client, command, { expiresIn: 300 });
+  return getSignedUrl(s3.client, command, { expiresIn: UPLOAD_URL_EXPIRES_SECONDS });
 }
 
+export interface UploadPost {
+  /** Form POST target. */
+  url: string;
+  /** Form fields to send before the `file` field, unchanged. */
+  fields: Record<string, string>;
+}
+
+/**
+ * Presigned POST for one object (plan 3.8 step 1). Unlike a presigned PUT, S3
+ * itself enforces the policy: exactly this key, this Content-Type, and a body
+ * of 1 to `maxBytes` bytes.
+ */
+export async function generateUploadPost(
+  s3: S3Config,
+  key: string,
+  contentType: string,
+  maxBytes: number,
+): Promise<UploadPost> {
+  return createPresignedPost(s3.client, {
+    Bucket: s3.bucket,
+    Key: key,
+    Conditions: [
+      ['content-length-range', 1, maxBytes],
+      ['eq', '$Content-Type', contentType],
+    ],
+    Fields: { 'Content-Type': contentType },
+    Expires: UPLOAD_URL_EXPIRES_SECONDS,
+  });
+}
+
+export interface DownloadOptions {
+  /** Served as `Content-Disposition: attachment` with this file name. */
+  fileName: string;
+  /** Served as the response Content-Type. */
+  contentType: string;
+}
+
+/**
+ * Presigned GET. With `options`, S3 answers with `Content-Disposition:
+ * attachment` and the given type, so a browser saves the file instead of
+ * rendering it.
+ */
 export async function generateDownloadUrl(
   s3: S3Config,
   bucket: string,
   key: string,
+  options?: DownloadOptions,
 ): Promise<string> {
   const command = new GetObjectCommand({
     Bucket: bucket,
     Key: key,
+    ...(options != null
+      ? {
+          ResponseContentDisposition: contentDispositionAttachment(options.fileName),
+          ResponseContentType: options.contentType,
+        }
+      : {}),
   });
-  return getSignedUrl(s3.client, command, { expiresIn: 3600 });
+  return getSignedUrl(s3.client, command, { expiresIn: DOWNLOAD_URL_EXPIRES_SECONDS });
 }
 
-export async function deleteObject(s3: S3Config, bucket: string, key: string): Promise<void> {
-  const command = new DeleteObjectCommand({
-    Bucket: bucket,
-    Key: key,
-  });
-  await s3.client.send(command);
+/** RFC 6266 attachment header with an ASCII fallback and a UTF-8 name. */
+export function contentDispositionAttachment(fileName: string): string {
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
 
+export type ReadObjectResult =
+  | { status: 'ok'; bytes: Buffer; contentType: string | undefined }
+  | { status: 'missing' }
+  | { status: 'too_large'; size: number };
+
+/** Read a whole object, refusing one larger than `maxBytes` before downloading it. */
+export async function readObject(
+  s3: S3Config,
+  bucket: string,
+  key: string,
+  maxBytes: number,
+): Promise<ReadObjectResult> {
+  try {
+    const head = await s3.client.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    const size = head.ContentLength ?? 0;
+    if (size > maxBytes) return { status: 'too_large', size };
+    const res = await s3.client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    if (res.Body == null) return { status: 'missing' };
+    const bytes = Buffer.from(await res.Body.transformToByteArray());
+    if (bytes.length > maxBytes) return { status: 'too_large', size: bytes.length };
+    return { status: 'ok', bytes, contentType: res.ContentType };
+  } catch (err) {
+    // HeadObject reports a missing key as NotFound, GetObject as NoSuchKey.
+    if (err instanceof NoSuchKey || err instanceof NotFound) return { status: 'missing' };
+    throw err;
+  }
+}
+
+export async function putObject(
+  s3: S3Config,
+  bucket: string,
+  key: string,
+  body: Buffer,
+  contentType: string,
+): Promise<void> {
+  await s3.client.send(
+    new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }),
+  );
+}
+
+/**
+ * Make a client-supplied file name safe for an S3 key and for display:
+ * letters, digits, dot, dash and underscore only, at most 100 characters, no
+ * leading dots. S3 keys are opaque, but the name is echoed in API responses,
+ * logs and download headers.
+ */
+export function sanitizeFileName(fileName: string, fallback = 'file'): string {
+  const cleaned = fileName
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/^\.+/, '')
+    .slice(0, 100);
+  return cleaned === '' ? fallback : cleaned;
+}
+
+/** Key of a confirmed support case attachment. */
 export function buildS3Key(
   caseId: string,
   messageId: string | number,
   fileId: string,
   fileName: string,
 ): string {
-  return `support-cases/${caseId}/${String(messageId)}/${fileId}-${fileName}`;
+  return `support-cases/${caseId}/${String(messageId)}/${fileId}-${sanitizeFileName(fileName)}`;
 }
 
-// Strip any path separators or other shenanigans from the client-supplied
-// fileName before it becomes part of the S3 key. S3 treats keys as opaque
-// strings so a traversal attempt like '../../secret' is harmless to the
-// bucket itself, but the fileName is echoed back in API responses and
-// displayed in the portal UI - sanitising here keeps logs and stored
-// metadata clean.
-function sanitizeImageFileName(fileName: string): string {
-  return fileName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100) || 'image';
+/** Prefix under which uploads wait until confirm checks them (1-day S3 lifecycle rule). */
+export const QUARANTINE_PREFIX = 'ai-uploads/quarantine/';
+
+/** Quarantine key of a support case attachment upload. */
+export function buildSupportQuarantineKey(
+  caseId: string,
+  messageId: string | number,
+  fileId: string,
+  fileName: string,
+): string {
+  return `${QUARANTINE_PREFIX}support-cases/${caseId}/${String(messageId)}/${fileId}/${sanitizeFileName(fileName)}`;
 }
 
 export function buildStationImageS3Key(
@@ -127,5 +188,5 @@ export function buildStationImageS3Key(
   fileId: string,
   fileName: string,
 ): string {
-  return `stations/${stationId}/${fileId}-${sanitizeImageFileName(fileName)}`;
+  return `stations/${stationId}/${fileId}-${sanitizeFileName(fileName, 'image')}`;
 }

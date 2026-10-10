@@ -119,8 +119,8 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "http_active_requests",
-          "legendFormat": "active",
+          "expr": "sum(http_active_requests)",
+          "legendFormat": "Active requests",
           "refId": "A"
         }
       ],
@@ -225,7 +225,7 @@
       "targets": [
         {
           "expr": "topk(10, sum(rate(http_request_duration_seconds_sum[5m])) by (route) / sum(rate(http_request_duration_seconds_count[5m])) by (route))",
-          "legendFormat": "{{ route }}",
+          "legendFormat": "Avg · {{route}}",
           "refId": "A"
         }
       ],
@@ -270,7 +270,7 @@
       "targets": [
         {
           "expr": "sum(rate(http_requests_total[5m])) by (status_code)",
-          "legendFormat": "{{ status_code }}",
+          "legendFormat": "HTTP {{status_code}}",
           "refId": "A"
         }
       ],
@@ -374,12 +374,12 @@
       "targets": [
         {
           "expr": "nodejs_heap_size_used_bytes",
-          "legendFormat": "Heap Used",
+          "legendFormat": "Heap used · {{instance}}",
           "refId": "A"
         },
         {
           "expr": "nodejs_heap_size_total_bytes",
-          "legendFormat": "Heap Total",
+          "legendFormat": "Heap total · {{instance}}",
           "refId": "B"
         }
       ],
@@ -424,7 +424,7 @@
       "targets": [
         {
           "expr": "process_resident_memory_bytes",
-          "legendFormat": "RSS",
+          "legendFormat": "RSS · {{instance}}",
           "refId": "A"
         }
       ],
@@ -477,7 +477,7 @@
       "targets": [
         {
           "expr": "nodejs_eventloop_lag_seconds",
-          "legendFormat": "Event Loop Lag",
+          "legendFormat": "Event loop lag · {{instance}}",
           "refId": "A"
         }
       ],
@@ -530,7 +530,7 @@
       "targets": [
         {
           "expr": "rate(nodejs_gc_duration_seconds_sum[5m])",
-          "legendFormat": "{{ kind }}",
+          "legendFormat": "GC {{kind}} · {{instance}}",
           "refId": "A"
         }
       ],
@@ -575,12 +575,12 @@
       "targets": [
         {
           "expr": "nodejs_active_handles_total",
-          "legendFormat": "Active Handles",
+          "legendFormat": "Active handles · {{instance}}",
           "refId": "A"
         },
         {
           "expr": "nodejs_active_requests_total",
-          "legendFormat": "Active Requests",
+          "legendFormat": "Active requests · {{instance}}",
           "refId": "B"
         }
       ],
@@ -627,13 +627,13 @@
       "type": "timeseries",
       "title": "CPU Usage",
       "description": "Process CPU usage rate",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 34 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 34 },
       "id": 17,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "expr": "rate(process_cpu_seconds_total[5m])",
-          "legendFormat": "CPU Usage",
+          "legendFormat": "CPU · {{instance}}",
           "refId": "A"
         }
       ],
@@ -680,18 +680,18 @@
       "type": "timeseries",
       "title": "Open File Descriptors",
       "description": "Process open file descriptors",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 34 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 34 },
       "id": 18,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
           "expr": "process_open_fds",
-          "legendFormat": "Open FDs",
+          "legendFormat": "Open FDs · {{instance}}",
           "refId": "A"
         },
         {
           "expr": "process_max_fds",
-          "legendFormat": "Max FDs",
+          "legendFormat": "Max FDs · {{instance}}",
           "refId": "B"
         }
       ],
@@ -727,9 +727,54 @@
       }
     },
     {
+      "type": "timeseries",
+      "title": "Uptime",
+      "description": "Time since the process started. A drop to zero marks a restart.",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 34 },
+      "id": 19,
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "time() - process_start_time_seconds",
+          "legendFormat": "Uptime · {{instance}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "scaleDistribution": { "type": "linear" }
+          },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "type": "row",
       "title": "OCPP Health",
-      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 33 },
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 42 },
       "id": 30,
       "collapsed": false,
       "panels": []
@@ -737,13 +782,14 @@
     {
       "type": "stat",
       "title": "Connected Stations",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 34 },
+      "description": "Stations connected via WebSocket, summed over all OCPP servers. Every API task exports the same fleet value, so the query takes max() across tasks.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 43 },
       "id": 31,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_connected_stations",
-          "legendFormat": "",
+          "expr": "max(ocpp_connected_stations)",
+          "legendFormat": "Connected stations",
           "refId": "A",
           "instant": true
         }
@@ -772,13 +818,14 @@
     {
       "type": "stat",
       "title": "Avg Ping Latency",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 34 },
+      "description": "Average ping latency over all OCPP servers, weighted by connected stations. Every API task exports the same fleet value, so the query takes max() across tasks.",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 43 },
       "id": 32,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_latency_avg_ms",
-          "legendFormat": "",
+          "expr": "max(ocpp_ping_latency_avg_ms)",
+          "legendFormat": "Avg ping",
           "refId": "A",
           "instant": true
         }
@@ -807,13 +854,14 @@
     {
       "type": "stat",
       "title": "Max Ping Latency",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 34 },
+      "description": "Highest ping latency of any OCPP server. Every API task exports the same fleet value, so the query takes max() across tasks.",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 43 },
       "id": 33,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_latency_max_ms",
-          "legendFormat": "",
+          "expr": "max(ocpp_ping_latency_max_ms)",
+          "legendFormat": "Max ping",
           "refId": "A",
           "instant": true
         }
@@ -842,13 +890,14 @@
     {
       "type": "gauge",
       "title": "Ping Success Rate",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 34 },
+      "description": "Pongs received over pings sent, over all OCPP servers. Every API task exports the same fleet value, so the query takes max() across tasks.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 43 },
       "id": 34,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_success_rate",
-          "legendFormat": "",
+          "expr": "max(ocpp_ping_success_rate)",
+          "legendFormat": "Ping success rate",
           "refId": "A",
           "instant": true
         }
@@ -878,20 +927,26 @@
     {
       "type": "timeseries",
       "title": "Connected Stations Over Time",
-      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 38 },
+      "description": "All: stations summed over all OCPP servers. One series per OCPP server (pod name or ECS task). Every API task exports the same fleet value, so the query takes max() across tasks.",
+      "gridPos": { "h": 6, "w": 12, "x": 0, "y": 47 },
       "id": 35,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_connected_stations",
-          "legendFormat": "Connected",
+          "expr": "max(ocpp_connected_stations)",
+          "legendFormat": "All",
           "refId": "A"
+        },
+        {
+          "expr": "max by (ocpp_instance) (ocpp_instance_connected_stations)",
+          "legendFormat": "{{ocpp_instance}}",
+          "refId": "B"
         }
       ],
       "fieldConfig": {
         "defaults": {
           "unit": "none",
-          "color": { "mode": "fixed", "fixedColor": "green" },
+          "color": { "mode": "palette-classic" },
           "custom": {
             "drawStyle": "line",
             "lineWidth": 2,
@@ -910,17 +965,18 @@
     {
       "type": "timeseries",
       "title": "Ping Latency Over Time",
-      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 38 },
+      "description": "Average (weighted by connected stations) and highest ping latency over all OCPP servers. Every API task exports the same fleet value, so the query takes max() across tasks.",
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 47 },
       "id": 36,
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_latency_avg_ms",
+          "expr": "max(ocpp_ping_latency_avg_ms)",
           "legendFormat": "Avg",
           "refId": "A"
         },
         {
-          "expr": "ocpp_ping_latency_max_ms",
+          "expr": "max(ocpp_ping_latency_max_ms)",
           "legendFormat": "Max",
           "refId": "B"
         }

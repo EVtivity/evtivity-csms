@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { client } from '@evtivity/database';
-import { dispatchDriverNotification, receiptBilling, sessionReceiptVariables } from '@evtivity/lib';
+import {
+  dispatchDriverNotification,
+  receiptBilling,
+  receiptCapturedCents,
+  sessionReceiptVariables,
+} from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
 import { isReleasedBelowMinimum } from './session-payments.js';
 
@@ -47,15 +52,17 @@ export async function dispatchSessionReceiptIfDue(
   if (claimed == null) return false;
   const [row] = await client`
     SELECT cs.driver_id, cs.transaction_id, cs.energy_delivered_wh, cs.final_cost_cents,
-           cs.started_at, cs.ended_at, cs.tariff_tax_rate, UPPER(cs.currency) AS currency,
+           cs.started_at, cs.ended_at, cs.net_cents, cs.tax_cents, cs.cost_breakdown,
+           UPPER(cs.currency) AS currency,
            cs.billing_mode, f.name AS billing_fleet_name, st.station_id AS station_ocpp_id,
-           si.name AS site_name, pr.status AS record_status, pr.failure_reason
+           si.name AS site_name, pr.status AS record_status, pr.failure_reason,
+           pr.captured_amount_cents
     FROM charging_sessions cs
     JOIN charging_stations st ON st.id = cs.station_id
     LEFT JOIN sites si ON si.id = st.site_id
     LEFT JOIN fleets f ON f.id = cs.billing_fleet_id
     LEFT JOIN LATERAL (
-      SELECT status, failure_reason FROM payment_records
+      SELECT status, failure_reason, captured_amount_cents FROM payment_records
       WHERE session_id = cs.id ORDER BY id LIMIT 1
     ) pr ON true
     WHERE cs.id = ${sessionId}`;
@@ -71,10 +78,14 @@ export async function dispatchSessionReceiptIfDue(
       transactionId: (row.transaction_id as string | null) ?? '',
       energyDeliveredWh: Number(row.energy_delivered_wh ?? 0),
       finalCostCents: row.final_cost_cents != null ? Number(row.final_cost_cents) : null,
+      netCents: row.net_cents != null ? Number(row.net_cents) : null,
+      taxCents: row.tax_cents != null ? Number(row.tax_cents) : null,
+      costBreakdown: row.cost_breakdown,
+      capturedCents: receiptCapturedCents(row.record_status, row.captured_amount_cents),
       currency: row.currency as string,
-      tariffTaxRate: row.tariff_tax_rate as string | null,
-      startedAt: row.started_at as Date,
-      endedAt: (row.ended_at as Date | null) ?? new Date(),
+      // Raw rows carry postgres text timestamps; sessionReceiptVariables maps them.
+      startedAt: row.started_at as Date | string,
+      endedAt: (row.ended_at as Date | string | null) ?? new Date(),
       notCharged:
         hasRecord &&
         isReleasedBelowMinimum({

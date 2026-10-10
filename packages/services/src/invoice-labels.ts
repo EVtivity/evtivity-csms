@@ -34,6 +34,10 @@ export interface InvoiceLabels {
   period: string;
   /** Fleet invoice bill-to block: the VAT or tax ID; "{id}" is replaced. */
   taxId: string;
+  /** "From" block: the seller's tax ID when company.taxIdLabel is empty; "{id}" is replaced. */
+  sellerTaxId: string;
+  /** "From" block: the company registration number; "{id}" is replaced. */
+  registrationNumber: string;
   /** Fleet invoice: the subtotal row of a driver's sessions; "{driver}" is replaced. */
   driverSubtotal: string;
   /** Fleet invoice: the group of sessions whose driver was deleted. */
@@ -94,6 +98,8 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     creditNotePaidNote: 'The credited invoice was paid. The amount is refunded separately.',
     period: 'Period',
     taxId: 'VAT ID: {id}',
+    sellerTaxId: 'Tax ID: {id}',
+    registrationNumber: 'Registration no.: {id}',
     driverSubtotal: 'Subtotal {driver}',
     unknownDriver: 'Unknown driver',
     description: 'DESCRIPTION',
@@ -146,6 +152,8 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
       'Die stornierte Rechnung wurde bezahlt. Der Betrag wird gesondert erstattet.',
     period: 'Zeitraum',
     taxId: 'USt-IdNr.: {id}',
+    sellerTaxId: 'Steuernummer: {id}',
+    registrationNumber: 'Registernummer: {id}',
     driverSubtotal: 'Zwischensumme {driver}',
     unknownDriver: 'Unbekannter Fahrer',
     description: 'BESCHREIBUNG',
@@ -197,6 +205,8 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     creditNotePaidNote: 'La factura acreditada fue pagada. El importe se reembolsa por separado.',
     period: 'Periodo',
     taxId: 'NIF/CIF: {id}',
+    sellerTaxId: 'NIF: {id}',
+    registrationNumber: 'N.º de registro: {id}',
     driverSubtotal: 'Subtotal {driver}',
     unknownDriver: 'Conductor desconocido',
     description: 'DESCRIPCIÓN',
@@ -248,6 +258,8 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     creditNotePaidNote: '크레딧 처리된 청구서는 결제되었습니다. 금액은 별도로 환불됩니다.',
     period: '기간',
     taxId: '사업자등록번호: {id}',
+    sellerTaxId: '사업자등록번호: {id}',
+    registrationNumber: '법인등록번호: {id}',
     driverSubtotal: '{driver} 소계',
     unknownDriver: '알 수 없는 드라이버',
     description: '설명',
@@ -299,6 +311,8 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     creditNotePaidNote: '被贷记的发票已支付。款项将另行退还。',
     period: '账期',
     taxId: '税号：{id}',
+    sellerTaxId: '税号：{id}',
+    registrationNumber: '注册号：{id}',
     driverSubtotal: '{driver} 小计',
     unknownDriver: '未知驾驶员',
     description: '描述',
@@ -350,6 +364,8 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     creditNotePaidNote: '被貸記的發票已付款。款項將另行退還。',
     period: '帳期',
     taxId: '統一編號：{id}',
+    sellerTaxId: '統一編號：{id}',
+    registrationNumber: '登記字號：{id}',
     driverSubtotal: '{driver} 小計',
     unknownDriver: '未知駕駛員',
     description: '描述',

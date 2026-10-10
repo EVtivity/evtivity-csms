@@ -67,8 +67,10 @@ export const connectionLogs = pgTable(
   ],
 );
 
+// One row per OCPP process, keyed by its instance ID (see
+// lib/ocpp-server-health.ts). v0.1.42 processes write the row 'singleton'.
 export const ocppServerHealth = pgTable('ocpp_server_health', {
-  id: text('id').primaryKey().default('singleton'),
+  id: text('id').primaryKey(),
   connectedStations: integer('connected_stations').notNull().default(0),
   avgPingLatencyMs: doublePrecision('avg_ping_latency_ms').notNull().default(0),
   maxPingLatencyMs: doublePrecision('max_ping_latency_ms').notNull().default(0),

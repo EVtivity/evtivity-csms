@@ -87,8 +87,21 @@ const mocks = vi.hoisted(() => {
     generateDownloadUrl: vi.fn(),
     deleteObject: vi.fn(),
     buildS3Key: vi.fn(),
+    requestSupportAttachmentUpload: vi.fn(),
+    confirmSupportAttachment: vi.fn(),
+    supportAttachmentDownloadUrl: vi.fn(),
     refundPaymentRecord: vi.fn(),
-    handleSupportAiAssist: vi.fn(),
+    foreignCaseSessionRefs: vi.fn(),
+    sessionIdsInSites: vi.fn(),
+    manageableUsersCondition: vi.fn((siteIds: string[] | null) =>
+      siteIds == null ? undefined : { manageable: siteIds },
+    ),
+    surfaceConfigOrReply: vi.fn(),
+    limitsOrReply: vi.fn(),
+    claimTurnOrReply: vi.fn(),
+    streamTurn: vi.fn(),
+    runSupportAssistTurn: vi.fn(),
+    createConversation: vi.fn(),
     eq: vi.fn((a: unknown, b: unknown) => ({ eq: [a, b] })),
     ilike: vi.fn((a: unknown, b: unknown) => ({ ilike: [a, b] })),
     inArray: vi.fn((a: unknown, b: unknown) => ({ inArray: [a, b] })),
@@ -150,10 +163,17 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn((...args: unknown[]) => ({ and: args })),
   or: vi.fn((...args: unknown[]) => ({ or: args })),
   ilike: mocks.ilike,
-  sql: vi.fn(() => 'sql'),
+  sql: Object.assign(
+    vi.fn(() => 'sql'),
+    { join: vi.fn(() => 'sql') },
+  ),
   desc: vi.fn(),
   count: vi.fn(),
   inArray: mocks.inArray,
+}));
+
+vi.mock('../lib/access-scope.js', () => ({
+  requestAccessScope: vi.fn(() => Promise.resolve('scope_test')),
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -196,6 +216,12 @@ vi.mock('../services/s3.service.js', () => ({
   buildS3Key: mocks.buildS3Key,
 }));
 
+vi.mock('../services/ai/attachments/support-attachments.js', () => ({
+  requestSupportAttachmentUpload: mocks.requestSupportAttachmentUpload,
+  confirmSupportAttachment: mocks.confirmSupportAttachment,
+  supportAttachmentDownloadUrl: mocks.supportAttachmentDownloadUrl,
+}));
+
 vi.mock('@evtivity/payments', () => ({
   refundPaymentRecord: mocks.refundPaymentRecord,
 }));
@@ -209,11 +235,47 @@ vi.mock('../lib/site-access.js', () => ({
   invalidateSiteAccessCache: vi.fn(),
 }));
 
-vi.mock('../services/ai/support-assist.service.js', () => ({
-  handleSupportAiAssist: mocks.handleSupportAiAssist,
+vi.mock('../lib/support-case-redaction.js', () => ({
+  foreignCaseSessionRefs: mocks.foreignCaseSessionRefs,
+  sessionIdsInSites: mocks.sessionIdsInSites,
+  messageReferencesForeignSession: (m: { body: string }, refs: { sessionIds: Set<string> }) =>
+    [...refs.sessionIds].some((id) => m.body.includes(id)),
+}));
+
+vi.mock('../lib/user-management-scope.js', () => ({
+  manageableUsersCondition: mocks.manageableUsersCondition,
+}));
+
+vi.mock('../services/ai/engine/route-support.js', () => ({
+  callerAuthorization: (request: { headers: { authorization?: string } }) =>
+    request.headers.authorization ?? '',
+  surfaceConfigOrReply: mocks.surfaceConfigOrReply,
+  limitsOrReply: mocks.limitsOrReply,
+  claimTurnOrReply: mocks.claimTurnOrReply,
+  streamTurn: mocks.streamTurn,
+}));
+
+vi.mock('../services/ai/engine/turn.js', () => ({
+  runSupportAssistTurn: mocks.runSupportAssistTurn,
+}));
+
+vi.mock('../services/ai/conversation.service.js', () => ({
+  createConversation: mocks.createConversation,
 }));
 
 import { registerAuth } from '../plugins/auth.js';
+
+// Stand-in for the AppError the attachment services throw (@evtivity/lib is
+// mocked in this file).
+class AppError extends Error {
+  constructor(
+    message: string,
+    public readonly statusCode: number,
+    public readonly code: string,
+  ) {
+    super(message);
+  }
+}
 import { supportCaseRoutes } from '../routes/support-cases.js';
 
 const USER_ID = 'usr_000000000001';
@@ -276,6 +338,14 @@ function paymentRecord(overrides: Record<string, unknown> = {}): Record<string, 
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
+  // Same mapping as the app's error handler for service errors.
+  app.setErrorHandler((error: unknown, _request, reply) => {
+    if (error instanceof AppError) {
+      void reply.status(error.statusCode).send({ error: error.message, code: error.code });
+      return;
+    }
+    void reply.send(error);
+  });
   await registerAuth(app);
   await app.register(cookie);
   app.register(async (instance) => {
@@ -324,9 +394,25 @@ describe('support case routes', () => {
     mocks.notifySupportCaseEvent.mockReset().mockResolvedValue(undefined);
     mocks.db.execute.mockReset().mockResolvedValue([{ val: '42' }]);
     mocks.refundPaymentRecord.mockReset();
-    mocks.handleSupportAiAssist.mockReset();
+    mocks.foreignCaseSessionRefs
+      .mockReset()
+      .mockResolvedValue({ sessionIds: new Set(), transactionIds: new Set() });
+    mocks.surfaceConfigOrReply.mockReset();
+    mocks.limitsOrReply.mockReset();
+    mocks.claimTurnOrReply.mockReset();
+    mocks.streamTurn.mockReset();
+    mocks.runSupportAssistTurn.mockReset();
+    mocks.createConversation.mockReset();
     mocks.generateUploadUrl.mockReset().mockResolvedValue('https://s3/upload');
     mocks.generateDownloadUrl.mockReset().mockResolvedValue('https://s3/download');
+    mocks.requestSupportAttachmentUpload.mockReset().mockResolvedValue({
+      uploadUrl: 'https://s3/upload',
+      fields: { key: 'q', 'Content-Type': 'application/pdf' },
+      s3Key: 'q',
+      expiresAt: NOW,
+    });
+    mocks.confirmSupportAttachment.mockReset();
+    mocks.supportAttachmentDownloadUrl.mockReset().mockResolvedValue('https://s3/download');
     mocks.deleteObject.mockReset().mockResolvedValue(undefined);
     mocks.buildS3Key
       .mockReset()
@@ -388,11 +474,13 @@ describe('support case routes', () => {
       queue([], [{ count: 0 }]);
       const res = await inject('GET', '/support-cases');
       expect(res.statusCode).toBe(200);
-      expect(mocks.inArray).toHaveBeenCalledWith('sql', ['sit_a', 'sit_b']);
-      expect(firstArg(state.calls[0], 'where')).toBeDefined();
+      // The site condition is one SQL fragment over the case station and its
+      // linked sessions, built from the user's site list.
+      expect(firstArg(state.calls[0], 'where')).toEqual({ and: ['sql'] });
+      expect(firstArg(state.calls[1], 'where')).toEqual({ and: ['sql'] });
     });
 
-    it('limits to station-less cases when the operator has no sites', async () => {
+    it('returns no cases when the operator has no sites', async () => {
       mocks.getUserSiteIds.mockResolvedValue([]);
       queue([], [{ count: 0 }]);
       const res = await inject('GET', '/support-cases');
@@ -417,7 +505,8 @@ describe('support case routes', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ count: 4 });
       expect(mocks.eq).toHaveBeenCalledWith('supportCases.assignedTo', USER_ID);
-      expect(mocks.inArray).toHaveBeenCalledWith('sql', ['sit_a']);
+      const where = firstArg(state.calls[0], 'where') as { and: unknown[] };
+      expect(where.and).toHaveLength(4);
     });
 
     it('returns 0 for an operator with no sites and no rows', async () => {
@@ -466,11 +555,13 @@ describe('support case routes', () => {
 
     it('returns 404 when the case station is on a site the operator cannot access', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      queue([baseCase({ stationId: STATION_ID })], [{ siteId: 'sit_other' }]);
+      queue([baseCase({ stationId: STATION_ID })], []);
       const res = await inject('GET', `/support-cases/${CASE_ID}`);
       expect(res.statusCode).toBe(404);
       expect(res.json<{ code: string }>().code).toBe('SUPPORT_CASE_NOT_FOUND');
-      expect(mocks.eq).toHaveBeenCalledWith('chargingStations.id', STATION_ID);
+      // The access query looks the case up under the site condition.
+      expect(state.calls[1]?.table).toEqual(expect.objectContaining({ __table: 'supportCases' }));
+      expect(mocks.eq).toHaveBeenCalledWith('supportCases.id', CASE_ID);
       // No session/message queries after the access denial.
       expect(state.calls).toHaveLength(2);
     });
@@ -480,7 +571,7 @@ describe('support case routes', () => {
       queue([baseCase({ stationId: STATION_ID })]);
       const res = await inject('GET', `/support-cases/${CASE_ID}`);
       expect(res.statusCode).toBe(404);
-      expect(state.calls).toHaveLength(1);
+      expect(state.calls).toHaveLength(2);
     });
 
     it('returns the case with sessions and messages, grouping attachments per message', async () => {
@@ -497,7 +588,7 @@ describe('support case routes', () => {
             closedAt: null,
           },
         ],
-        [{ siteId: 'sit_a' }],
+        [{ id: CASE_ID }],
         [{ id: SESSION_ID, transactionId: 'tx-1', stationName: 'CS-1', driverName: 'Jane Doe' }],
         [
           {
@@ -551,6 +642,47 @@ describe('support case routes', () => {
       ]);
       expect(body.messages.map((m) => m.attachments.map((a) => a.id))).toEqual([[10, 11], []]);
       expect(mocks.inArray).toHaveBeenCalledWith('supportCaseAttachments.messageId', [1, 2]);
+      // Linked sessions are filtered to the operator's sites.
+      expect(mocks.inArray).toHaveBeenCalledWith('chargingStations.siteId', ['sit_a']);
+    });
+
+    it('hides the messages that name a session of another site from a restricted operator', async () => {
+      mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
+      mocks.foreignCaseSessionRefs.mockResolvedValue({
+        sessionIds: new Set([SESSION_ID_2]),
+        transactionIds: new Set(),
+      });
+      queue(
+        [detailCase()],
+        [{ id: CASE_ID }],
+        [],
+        [
+          {
+            id: 1,
+            senderType: 'driver',
+            senderId: DRIVER_ID,
+            body: 'help',
+            isInternal: false,
+            createdAt: NOW,
+          },
+          {
+            id: 2,
+            senderType: 'system',
+            senderId: USER_ID,
+            body: `Refund of $5.00 issued for session ${SESSION_ID_2}`,
+            isInternal: false,
+            createdAt: NOW,
+          },
+        ],
+        [],
+      );
+      const res = await inject('GET', `/support-cases/${CASE_ID}`);
+      expect(res.statusCode).toBe(200);
+      expect(res.json<{ messages: Array<{ id: number }> }>().messages.map((m) => m.id)).toEqual([
+        1,
+      ]);
+      expect(mocks.foreignCaseSessionRefs).toHaveBeenCalledWith(CASE_ID, ['sit_a']);
+      expect(mocks.inArray).toHaveBeenCalledWith('supportCaseAttachments.messageId', [1]);
     });
 
     it('skips the attachment query when the case has no messages', async () => {
@@ -561,18 +693,22 @@ describe('support case routes', () => {
       expect(state.calls).toHaveLength(3);
     });
 
-    it('treats a case whose station no longer exists as accessible', async () => {
+    it('returns 404 for a station-less case the site condition excludes', async () => {
+      // A case without a station is visible to a restricted operator only when
+      // all its linked sessions are in the operator's sites; an unsited
+      // station is out of scope. The DB answers both through the condition.
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      queue([detailCase({ stationId: STATION_ID })], [], [], []);
+      queue([detailCase()], []);
       const res = await inject('GET', `/support-cases/${CASE_ID}`);
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode).toBe(404);
+      expect(state.calls).toHaveLength(2);
     });
 
-    it('treats a station without a site as accessible', async () => {
-      mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      queue([detailCase({ stationId: STATION_ID })], [{ siteId: null }], [], []);
+    it('does not filter linked sessions for an all-site operator', async () => {
+      queue([detailCase()], [], []);
       const res = await inject('GET', `/support-cases/${CASE_ID}`);
       expect(res.statusCode).toBe(200);
+      expect(mocks.inArray).not.toHaveBeenCalledWith('chargingStations.siteId', expect.anything());
     });
 
     it('rejects a malformed case id', async () => {
@@ -593,7 +729,7 @@ describe('support case routes', () => {
 
     it('returns 404 when the case is on an inaccessible site', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      queue([{ stationId: STATION_ID }], [{ siteId: 'sit_b' }]);
+      queue([{ stationId: STATION_ID }], []);
       const res = await inject('POST', `/support-cases/${CASE_ID}/read`);
       expect(res.statusCode).toBe(404);
       expect(callsOf('insert')).toHaveLength(0);
@@ -624,6 +760,21 @@ describe('support case routes', () => {
       category: 'billing_dispute',
     };
 
+    it('refuses to link a session of another driver to a new driver case', async () => {
+      queue([]);
+      const res = await inject('POST', '/support-cases', {
+        ...validBody,
+        driverId: DRIVER_ID,
+        sessionIds: [SESSION_ID],
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'A linked session must belong to the case driver',
+        code: 'VALIDATION_ERROR',
+      });
+      expect(callsOf('insert')).toHaveLength(0);
+    });
+
     it('creates a case with linked sessions, notifies the driver and writes audits', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
       const created = baseCase({
@@ -635,6 +786,8 @@ describe('support case routes', () => {
       queue(
         [{ siteId: 'sit_a' }], // station access
         [{ sessionId: SESSION_ID, siteId: 'sit_a' }], // session sites
+        [{ id: SESSION_ID }], // sessions of the case driver
+        [{ firstName: 'Ann', lastName: 'Lee' }], // assignee visible to the actor
         [created], // insert case
         [], // insert sessions
         [], // insert message
@@ -721,7 +874,7 @@ describe('support case routes', () => {
 
     it('returns 404 STATION_NOT_FOUND for a station on an inaccessible site', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      queue([{ siteId: 'sit_b' }]);
+      queue([]);
       const res = await inject('POST', '/support-cases', { ...validBody, stationId: STATION_ID });
       expect(res.statusCode).toBe(404);
       expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -730,10 +883,9 @@ describe('support case routes', () => {
 
     it('returns 404 SESSION_NOT_FOUND when a linked session is on an inaccessible site', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      queue([
-        { sessionId: SESSION_ID, siteId: 'sit_a' },
-        { sessionId: SESSION_ID_2, siteId: 'sit_b' },
-      ]);
+      // Only one of the two sessions is in the operator's sites (the other is
+      // foreign, unsited or missing).
+      queue([{ id: SESSION_ID }]);
       const res = await inject('POST', '/support-cases', {
         ...validBody,
         sessionIds: [SESSION_ID, SESSION_ID_2],
@@ -902,14 +1054,21 @@ describe('support case routes', () => {
       );
     });
 
-    it('labels an unknown assignee and trims partial names', async () => {
-      queue([baseCase()], [], [baseCase({ assignedTo: ASSIGNEE_ID })], []);
-      await inject('PATCH', `/support-cases/${CASE_ID}`, { assignedTo: ASSIGNEE_ID });
-      const msgs = firstArg(callsOf('insert', 'supportCaseMessages')[0], 'values') as Array<{
-        body: string;
-      }>;
-      expect(msgs[0]?.body).toBe('Assigned to Unknown');
+    it('refuses an assignee the actor cannot see, before any write, and trims partial names', async () => {
+      mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
+      queue([baseCase()], [{ id: CASE_ID }], []);
+      const refused = await inject('PATCH', `/support-cases/${CASE_ID}`, {
+        assignedTo: ASSIGNEE_ID,
+        status: 'resolved',
+      });
+      expect(refused.statusCode).toBe(404);
+      expect(refused.json()).toEqual({ error: 'User not found', code: 'USER_NOT_FOUND' });
+      expect(mocks.manageableUsersCondition).toHaveBeenCalledWith(['sit_a']);
+      expect(callsOf('update')).toHaveLength(0);
+      expect(callsOf('insert')).toHaveLength(0);
+      expect(mocks.writeAudit).not.toHaveBeenCalled();
 
+      mocks.getUserSiteIds.mockResolvedValue(null);
       state.calls = [];
       queue([baseCase()], [{ firstName: 'Ann', lastName: null }], [baseCase()], []);
       await inject('PATCH', `/support-cases/${CASE_ID}`, { assignedTo: ASSIGNEE_ID });
@@ -936,10 +1095,10 @@ describe('support case routes', () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
       queue(
         [baseCase()],
-        [
-          { sessionId: SESSION_ID, siteId: 'sit_a' },
-          { sessionId: SESSION_ID_2, siteId: null },
-        ],
+        [{ id: CASE_ID }], // case access
+        [{ id: SESSION_ID }, { id: SESSION_ID_2 }], // added sessions in scope
+        [{ id: 'ses_000000000003' }], // removed session in scope
+        [{ id: SESSION_ID }, { id: SESSION_ID_2 }], // added sessions of the case driver
         [], // insert sessions
         [], // delete sessions
         [baseCase()],
@@ -966,18 +1125,43 @@ describe('support case routes', () => {
     });
 
     it('links sessions without a site check for an unrestricted operator', async () => {
-      queue([baseCase()], [], [baseCase()]);
+      queue([baseCase()], [{ id: SESSION_ID }], [], [baseCase()]);
       const res = await inject('PATCH', `/support-cases/${CASE_ID}`, {
         addSessionIds: [SESSION_ID],
       });
       expect(res.statusCode).toBe(200);
-      expect(callsOf('select')).toHaveLength(1);
+      // The case row and the case driver check, no site check.
+      expect(callsOf('select')).toHaveLength(2);
+      expect(callsOf('insert', 'supportCaseSessions')).toHaveLength(1);
+    });
+
+    it('refuses to link a session of another driver to a driver case', async () => {
+      queue([baseCase()], []);
+      const res = await inject('PATCH', `/support-cases/${CASE_ID}`, {
+        status: 'closed',
+        addSessionIds: [SESSION_ID],
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'A linked session must belong to the case driver',
+        code: 'VALIDATION_ERROR',
+      });
+      expect(callsOf('insert')).toHaveLength(0);
+      expect(callsOf('update')).toHaveLength(0);
+    });
+
+    it('links any session to a case without a driver', async () => {
+      queue([baseCase({ driverId: null })], [], [baseCase({ driverId: null })]);
+      const res = await inject('PATCH', `/support-cases/${CASE_ID}`, {
+        addSessionIds: [SESSION_ID],
+      });
+      expect(res.statusCode).toBe(200);
       expect(callsOf('insert', 'supportCaseSessions')).toHaveLength(1);
     });
 
     it('returns 404 SESSION_NOT_FOUND when adding a session from another site', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      queue([baseCase()], [{ sessionId: SESSION_ID, siteId: 'sit_b' }]);
+      queue([baseCase()], [{ id: CASE_ID }], []);
       const res = await inject('PATCH', `/support-cases/${CASE_ID}`, {
         status: 'closed',
         addSessionIds: [SESSION_ID],
@@ -987,6 +1171,18 @@ describe('support case routes', () => {
       expect(callsOf('insert')).toHaveLength(0);
       expect(callsOf('update')).toHaveLength(0);
       expect(mocks.writeAudit).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 SESSION_NOT_FOUND when removing a session from another site', async () => {
+      mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
+      queue([baseCase()], [{ id: CASE_ID }], []);
+      const res = await inject('PATCH', `/support-cases/${CASE_ID}`, {
+        removeSessionIds: [SESSION_ID],
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+      expect(callsOf('delete')).toHaveLength(0);
+      expect(callsOf('update')).toHaveLength(0);
     });
   });
 
@@ -1010,7 +1206,7 @@ describe('support case routes', () => {
 
     it('returns 404 when the case is on an inaccessible site', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      queue([baseCase({ stationId: STATION_ID })], [{ siteId: 'sit_b' }]);
+      queue([baseCase({ stationId: STATION_ID })], []);
       const res = await inject('POST', `/support-cases/${CASE_ID}/messages`, { body: 'x' });
       expect(res.statusCode).toBe(404);
       expect(callsOf('insert')).toHaveLength(0);
@@ -1087,7 +1283,7 @@ describe('support case routes', () => {
       queue([{ stationId: STATION_ID }]);
       const res = await inject('POST', url, body);
       expect(res.statusCode).toBe(404);
-      expect(mocks.generateUploadUrl).not.toHaveBeenCalled();
+      expect(mocks.requestSupportAttachmentUpload).not.toHaveBeenCalled();
     });
 
     it('returns 404 MESSAGE_NOT_FOUND when the message is not on this case', async () => {
@@ -1099,34 +1295,31 @@ describe('support case routes', () => {
       expect(mocks.eq).toHaveBeenCalledWith('supportCaseMessages.caseId', CASE_ID);
     });
 
-    it('returns 400 when S3 is not configured', async () => {
-      mocks.getS3Config.mockResolvedValue(null);
+    it('passes a refusal of the upload service through', async () => {
+      mocks.requestSupportAttachmentUpload.mockRejectedValue(
+        new AppError(
+          'The file type text/html is not allowed',
+          400,
+          'AI_ATTACHMENT_TYPE_NOT_ALLOWED',
+        ),
+      );
       queue([{ stationId: null }], [{ id: 5 }]);
-      const res = await inject('POST', url, body);
+      const res = await inject('POST', url, { ...body, contentType: 'text/html' });
       expect(res.statusCode).toBe(400);
-      expect(res.json()).toEqual({ error: 'S3 not configured', code: 'STORAGE_NOT_CONFIGURED' });
+      expect(res.json<{ code: string }>().code).toBe('AI_ATTACHMENT_TYPE_NOT_ALLOWED');
     });
 
-    it('returns a presigned URL scoped to the case and message', async () => {
+    it('returns a presigned POST scoped to the case and message', async () => {
       queue([{ stationId: null }], [{ id: 5 }]);
       const res = await inject('POST', url, body);
       expect(res.statusCode).toBe(200);
-      const fileId = mocks.buildS3Key.mock.calls[0]?.[2] as string;
-      expect(mocks.buildS3Key).toHaveBeenCalledWith(CASE_ID, 5, fileId, 'receipt.pdf');
-      expect(fileId).toMatch(/^[0-9a-f-]{36}$/);
-      const key = `support-cases/${CASE_ID}/5/${fileId}/receipt.pdf`;
-      expect(mocks.generateUploadUrl).toHaveBeenCalledWith(S3, key, 'application/pdf');
+      expect(mocks.requestSupportAttachmentUpload).toHaveBeenCalledWith(CASE_ID, 5, body);
       expect(res.json()).toEqual({
         uploadUrl: 'https://s3/upload',
-        s3Key: key,
-        s3Bucket: 'evtivity-bucket',
+        fields: { key: 'q', 'Content-Type': 'application/pdf' },
+        s3Key: 'q',
+        expiresAt: NOW,
       });
-    });
-
-    it('rejects files larger than 10 MB', async () => {
-      const res = await inject('POST', url, { ...body, fileSize: 10 * 1024 * 1024 + 1 });
-      expect(res.statusCode).toBe(400);
-      expect(state.calls).toHaveLength(0);
     });
   });
 
@@ -1134,11 +1327,7 @@ describe('support case routes', () => {
   describe('POST /support-cases/:id/messages/:messageId/attachments', () => {
     const url = `/support-cases/${CASE_ID}/messages/5/attachments`;
     const body = {
-      fileName: 'receipt.pdf',
-      fileSize: 1024,
-      contentType: 'application/pdf',
-      s3Key: `support-cases/${CASE_ID}/5/abc/receipt.pdf`,
-      s3Bucket: 'evtivity-bucket',
+      s3Key: `ai-uploads/quarantine/support-cases/${CASE_ID}/5/abc/receipt.pdf`,
     };
     const attachmentRow = {
       id: 9,
@@ -1170,66 +1359,59 @@ describe('support case routes', () => {
       expect(res.json<{ code: string }>().code).toBe('MESSAGE_NOT_FOUND');
     });
 
-    it('rejects an s3Key outside this case and message', async () => {
+    it('passes a refused file through without an audit entry', async () => {
+      mocks.confirmSupportAttachment.mockRejectedValue(
+        new AppError(
+          'The attachment was rejected: sniffed text/html',
+          400,
+          'AI_ATTACHMENT_REJECTED',
+        ),
+      );
       queue([{ stationId: null }], [{ id: 5 }]);
-      const res = await inject('POST', url, {
-        ...body,
-        s3Key: 'support-cases/cas_000000000099/5/abc/receipt.pdf',
-      });
+      const res = await inject('POST', url, body);
       expect(res.statusCode).toBe(400);
-      expect(res.json<{ code: string }>().code).toBe('VALIDATION_ERROR');
-      expect(callsOf('insert')).toHaveLength(0);
+      expect(res.json<{ code: string }>().code).toBe('AI_ATTACHMENT_REJECTED');
+      expect(mocks.writeAudit).not.toHaveBeenCalled();
     });
 
-    it('rejects an s3Key whose message id only shares a prefix', async () => {
-      queue([{ stationId: null }], [{ id: 5 }]);
-      const res = await inject('POST', url, {
-        ...body,
-        s3Key: `support-cases/${CASE_ID}/55/abc/receipt.pdf`,
+    it('records the attachment through the service and writes an audit entry', async () => {
+      mocks.confirmSupportAttachment.mockResolvedValue({
+        attachment: attachmentRow,
+        created: true,
       });
-      expect(res.statusCode).toBe(400);
-    });
-
-    it('rejects a bucket that differs from the configured one', async () => {
       queue([{ stationId: null }], [{ id: 5 }]);
-      const res = await inject('POST', url, { ...body, s3Bucket: 'other-bucket' });
-      expect(res.statusCode).toBe(400);
-      expect(res.json()).toEqual({
-        error: 'Attachment metadata does not match issued upload URL',
-        code: 'VALIDATION_ERROR',
-      });
-    });
-
-    it('records the attachment and writes an audit entry', async () => {
-      queue([{ stationId: null }], [{ id: 5 }], [attachmentRow]);
       const res = await inject('POST', url, body);
       expect(res.statusCode).toBe(200);
       expect(res.json<{ id: number }>().id).toBe(9);
-      expect(firstArg(callsOf('insert', 'supportCaseAttachments')[0], 'values')).toEqual({
-        messageId: 5,
-        fileName: 'receipt.pdf',
-        fileSize: 1024,
-        contentType: 'application/pdf',
-        s3Key: body.s3Key,
-        s3Bucket: 'evtivity-bucket',
-      });
+      expect(mocks.confirmSupportAttachment).toHaveBeenCalledWith(
+        CASE_ID,
+        5,
+        body.s3Key,
+        expect.anything(),
+      );
       expect(mocks.writeAudit.mock.calls[0]?.[1]).toEqual(
         expect.objectContaining({
           action: 'attachment_added',
           entityId: CASE_ID,
-          after: { messageId: 5, fileName: 'receipt.pdf', fileSize: 1024 },
+          after: {
+            messageId: 5,
+            fileName: 'receipt.pdf',
+            fileSize: 1024,
+            contentType: 'application/pdf',
+          },
         }),
       );
     });
 
-    it('accepts any bucket when S3 settings are absent but the key prefix matches', async () => {
-      mocks.getS3Config.mockResolvedValue(null);
-      queue([{ stationId: null }], [{ id: 5 }], [attachmentRow]);
-      const res = await inject('POST', url, { ...body, s3Bucket: 'other-bucket' });
+    it('does not audit a repeated confirm of the same upload', async () => {
+      mocks.confirmSupportAttachment.mockResolvedValue({
+        attachment: attachmentRow,
+        created: false,
+      });
+      queue([{ stationId: null }], [{ id: 5 }]);
+      const res = await inject('POST', url, body);
       expect(res.statusCode).toBe(200);
-      expect(firstArg(callsOf('insert', 'supportCaseAttachments')[0], 'values')).toEqual(
-        expect.objectContaining({ s3Bucket: 'other-bucket' }),
-      );
+      expect(mocks.writeAudit).not.toHaveBeenCalled();
     });
   });
 
@@ -1249,7 +1431,7 @@ describe('support case routes', () => {
       queue([{ stationId: STATION_ID }]);
       const res = await inject('GET', url);
       expect(res.statusCode).toBe(404);
-      expect(mocks.generateDownloadUrl).not.toHaveBeenCalled();
+      expect(mocks.supportAttachmentDownloadUrl).not.toHaveBeenCalled();
     });
 
     it('returns 404 ATTACHMENT_NOT_FOUND when the attachment is not on this case', async () => {
@@ -1263,23 +1445,80 @@ describe('support case routes', () => {
     });
 
     it('returns 400 when S3 is not configured', async () => {
-      mocks.getS3Config.mockResolvedValue(null);
+      mocks.supportAttachmentDownloadUrl.mockRejectedValue(
+        new AppError('S3 not configured', 400, 'STORAGE_NOT_CONFIGURED'),
+      );
       queue([{ stationId: null }], [{ s3Key: 'k', s3Bucket: 'b' }]);
       const res = await inject('GET', url);
       expect(res.statusCode).toBe(400);
       expect(res.json<{ code: string }>().code).toBe('STORAGE_NOT_CONFIGURED');
     });
 
-    it('returns a presigned download URL for the stored object', async () => {
-      queue([{ stationId: null }], [{ s3Key: 'stored-key', s3Bucket: 'stored-bucket' }]);
+    it('returns a presigned attachment download for the stored object', async () => {
+      const stored = {
+        s3Key: 'stored-key',
+        s3Bucket: 'stored-bucket',
+        fileName: 'scan.pdf',
+        contentType: 'application/pdf',
+      };
+      queue([{ stationId: null }], [stored]);
       const res = await inject('GET', url);
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ downloadUrl: 'https://s3/download' });
-      expect(mocks.generateDownloadUrl).toHaveBeenCalledWith(S3, 'stored-bucket', 'stored-key');
+      expect(mocks.supportAttachmentDownloadUrl).toHaveBeenCalledWith(stored);
     });
   });
 
   // ---------------------------------------------------------------- delete
+  describe('attachments of a message naming a foreign session', () => {
+    const FOREIGN = 'ses_00000000000f';
+    const foreignBody = `Refunded session ${FOREIGN}`;
+    beforeEach(() => {
+      mocks.foreignCaseSessionRefs.mockResolvedValue({
+        sessionIds: new Set([FOREIGN]),
+        transactionIds: new Set(),
+      });
+    });
+
+    it.each([
+      [
+        'POST',
+        `/support-cases/${CASE_ID}/messages/5/attachments/upload-url`,
+        { fileName: 'r.pdf', contentType: 'application/pdf', fileSize: 10 },
+        'MESSAGE_NOT_FOUND',
+      ],
+      [
+        'POST',
+        `/support-cases/${CASE_ID}/messages/5/attachments`,
+        { s3Key: 'support-cases/x/5/k.pdf' },
+        'MESSAGE_NOT_FOUND',
+      ],
+      [
+        'GET',
+        `/support-cases/${CASE_ID}/messages/5/attachments/9/download-url`,
+        undefined,
+        'ATTACHMENT_NOT_FOUND',
+      ],
+      [
+        'DELETE',
+        `/support-cases/${CASE_ID}/messages/5/attachments/9`,
+        undefined,
+        'ATTACHMENT_NOT_FOUND',
+      ],
+    ] as const)('%s %s answers 404 like a missing one', async (method, url, payload, code) => {
+      queue(
+        [{ stationId: null }],
+        [{ id: 5, s3Key: 'k', s3Bucket: 'b', senderType: 'system', body: foreignBody }],
+      );
+      const res = await inject(method, url, payload);
+      expect(res.statusCode).toBe(404);
+      expect(res.json<{ code: string }>().code).toBe(code);
+      expect(mocks.requestSupportAttachmentUpload).not.toHaveBeenCalled();
+      expect(callsOf('insert')).toHaveLength(0);
+      expect(callsOf('delete')).toHaveLength(0);
+    });
+  });
+
   describe('DELETE .../attachments/:attachmentId', () => {
     const url = `/support-cases/${CASE_ID}/messages/5/attachments/9`;
 
@@ -1362,7 +1601,26 @@ describe('support case routes', () => {
 
     it('returns 400 SESSION_NOT_LINKED when the session station is on another site', async () => {
       mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
-      refundQueue([{ siteId: 'sit_b', transactionId: 'tx-9' }]);
+      queue(
+        [baseCase()],
+        [{ id: CASE_ID }],
+        [{ sessionId: SESSION_ID }],
+        [{ siteId: 'sit_b', transactionId: 'tx-9' }],
+      );
+      const res = await inject('POST', url, { sessionId: SESSION_ID });
+      expect(res.statusCode).toBe(400);
+      expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_LINKED');
+      expect(mocks.refundPaymentRecord).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 SESSION_NOT_LINKED when the session station has no site', async () => {
+      mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
+      queue(
+        [baseCase()],
+        [{ id: CASE_ID }],
+        [{ sessionId: SESSION_ID }],
+        [{ siteId: null, transactionId: 'tx-9' }],
+      );
       const res = await inject('POST', url, { sessionId: SESSION_ID });
       expect(res.statusCode).toBe(400);
       expect(res.json<{ code: string }>().code).toBe('SESSION_NOT_LINKED');
@@ -1539,36 +1797,118 @@ describe('support case routes', () => {
   // ---------------------------------------------------------------- ai assist
   describe('POST /support-cases/:id/ai-assist', () => {
     const url = `/support-cases/${CASE_ID}/ai-assist`;
+    const config = { surface: 'support', provider: 'anthropic', model: 'm' };
+    const caseRow = {
+      id: CASE_ID,
+      caseNumber: 'CASE-1',
+      stationId: STATION_ID,
+      driverId: 'drv_000000000001',
+      siteId: 'sit_000000000001',
+      driverLanguage: 'de',
+    };
 
-    it('returns 404 CASE_NOT_FOUND for a case on an inaccessible site', async () => {
+    function streamThroughTurn(): void {
+      mocks.surfaceConfigOrReply.mockResolvedValue(config);
+      mocks.limitsOrReply.mockResolvedValue({ maxToolCallsPerTurn: 20 });
+      mocks.claimTurnOrReply.mockResolvedValue(true);
+      mocks.createConversation.mockResolvedValue({ id: 'aic_000000000001' });
+      mocks.streamTurn.mockImplementation(
+        async (
+          _req: unknown,
+          reply: { status: (n: number) => { send: (b: unknown) => Promise<void> } },
+          _id: string,
+          _config: unknown,
+          turn: (stream: unknown) => Promise<unknown>,
+        ) => {
+          await turn({ signal: new AbortController().signal });
+          await reply.status(200).send({ streamed: true });
+        },
+      );
+    }
+
+    it('X-02 returns 404 CASE_NOT_FOUND for a case on an inaccessible site', async () => {
       mocks.getUserSiteIds.mockResolvedValue([]);
-      queue([{ id: CASE_ID, stationId: STATION_ID }]);
+      queue([caseRow]);
       const res = await inject('POST', url, {});
       expect(res.statusCode).toBe(404);
       expect(res.json()).toEqual({ error: 'Case not found', code: 'CASE_NOT_FOUND' });
-      expect(mocks.handleSupportAiAssist).not.toHaveBeenCalled();
+      expect(mocks.surfaceConfigOrReply).not.toHaveBeenCalled();
+      expect(mocks.runSupportAssistTurn).not.toHaveBeenCalled();
     });
 
-    it('forwards the bearer header and returns the draft', async () => {
-      queue([{ id: CASE_ID, stationId: null }]);
-      mocks.handleSupportAiAssist.mockResolvedValue({ draft: 'Hi', apiCallsMade: 2 });
+    it('stops when the support AI is not configured', async () => {
+      queue([caseRow]);
+      mocks.surfaceConfigOrReply.mockImplementation(
+        async (
+          _s: string,
+          _u: string,
+          reply: { status: (n: number) => { send: (b: unknown) => Promise<void> } },
+        ) => {
+          await reply.status(400).send({ error: 'x', code: 'SUPPORT_AI_NOT_CONFIGURED' });
+          return null;
+        },
+      );
+      const res = await inject('POST', url, {});
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('SUPPORT_AI_NOT_CONFIGURED');
+      expect(mocks.createConversation).not.toHaveBeenCalled();
+    });
+
+    it("counts the case's site against the AI limits and pins the turn to the case", async () => {
+      queue([caseRow], [{ sessionId: 'ses_000000000001' }]);
+      streamThroughTurn();
       const res = await inject('POST', url, { isInternalNote: true });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ draft: 'Hi', apiCallsMade: 2 });
-      expect(mocks.handleSupportAiAssist).toHaveBeenCalledWith(
-        expect.anything(),
+      expect(mocks.limitsOrReply).toHaveBeenCalledWith(
         USER_ID,
-        CASE_ID,
-        true,
-        auth,
+        'sit_000000000001',
+        expect.anything(),
+      );
+      expect(mocks.createConversation).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: USER_ID, surface: 'support', supportCaseId: CASE_ID }),
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(mocks.runSupportAssistTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isInternalNote: true,
+          caseNumber: 'CASE-1',
+          driverLanguage: 'de',
+          caseContext: {
+            caseId: CASE_ID,
+            stationId: STATION_ID,
+            driverId: 'drv_000000000001',
+            sessionIds: ['ses_000000000001'],
+          },
+          ctx: expect.objectContaining({
+            userId: USER_ID,
+            authorization: auth,
+            accessScope: 'scope_test',
+          }),
+        }),
       );
     });
 
-    it('returns 500 for an unexpected assist error', async () => {
-      queue([{ id: CASE_ID, stationId: null }]);
-      mocks.handleSupportAiAssist.mockRejectedValue(new Error('boom'));
+    it('gives a site-restricted operator only the linked sessions of its sites', async () => {
+      mocks.getUserSiteIds.mockResolvedValue(['sit_000000000001']);
+      mocks.sessionIdsInSites.mockResolvedValue(new Set(['ses_000000000001']));
+      queue(
+        [caseRow],
+        [{ id: CASE_ID }],
+        [{ sessionId: 'ses_000000000001' }, { sessionId: 'ses_000000000002' }],
+      );
+      streamThroughTurn();
       const res = await inject('POST', url, {});
-      expect(res.statusCode).toBe(500);
+      expect(res.statusCode).toBe(200);
+      expect(mocks.sessionIdsInSites).toHaveBeenCalledWith(
+        ['ses_000000000001', 'ses_000000000002'],
+        ['sit_000000000001'],
+      );
+      expect(mocks.runSupportAssistTurn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          caseContext: expect.objectContaining({ sessionIds: ['ses_000000000001'] }),
+        }),
+      );
     });
   });
 

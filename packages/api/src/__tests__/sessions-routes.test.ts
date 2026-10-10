@@ -550,6 +550,9 @@ describe('Session routes', () => {
         invoiceStatus: null,
         rebillStatus: null,
         rebillClaimedAt: null,
+        stationTariffId: 'evt-1',
+        stationCostCents: 1010,
+        stationCostDifferenceCents: 10,
         co2AvoidedKg: null,
         electricityCostCents: null,
         metadata: null,
@@ -592,6 +595,9 @@ describe('Session routes', () => {
       expect(body.transactionId).toBe('txn-001');
       expect(body.status).toBe('completed');
       expect(body.finalCostCents).toBe(1000);
+      expect(body.stationTariffId).toBe('evt-1');
+      expect(body.stationCostCents).toBe(1010);
+      expect(body.stationCostDifferenceCents).toBe(10);
       expect(body.currency).toBe('USD');
       expect(body.paymentRecord).toBeNull();
       expect(body.rebillable).toBe(false);
@@ -627,6 +633,9 @@ describe('Session routes', () => {
         invoiceStatus: 'issued',
         rebillStatus: null,
         rebillClaimedAt: null,
+        stationTariffId: null,
+        stationCostCents: null,
+        stationCostDifferenceCents: null,
         co2AvoidedKg: null,
         electricityCostCents: null,
         metadata: null,
@@ -701,6 +710,9 @@ describe('Session routes', () => {
         invoiceStatus: null,
         rebillStatus: null,
         rebillClaimedAt: null,
+        stationTariffId: null,
+        stationCostCents: null,
+        stationCostDifferenceCents: null,
         co2AvoidedKg: null,
         electricityCostCents: null,
         metadata: null,
@@ -782,6 +794,9 @@ describe('Session routes', () => {
         invoiceStatus: null,
         rebillStatus: null,
         rebillClaimedAt: null,
+        stationTariffId: null,
+        stationCostCents: null,
+        stationCostDifferenceCents: null,
         co2AvoidedKg: null,
         electricityCostCents: null,
         metadata: null,
@@ -897,6 +912,9 @@ describe('Session routes', () => {
         invoiceStatus: null,
         rebillStatus: null,
         rebillClaimedAt: null,
+        stationTariffId: null,
+        stationCostCents: null,
+        stationCostDifferenceCents: null,
         co2AvoidedKg: null,
         electricityCostCents: null,
         metadata: null,
@@ -972,6 +990,9 @@ describe('Session routes', () => {
         invoiceStatus: null,
         rebillStatus: null,
         rebillClaimedAt: null,
+        stationTariffId: null,
+        stationCostCents: null,
+        stationCostDifferenceCents: null,
         co2AvoidedKg: null,
         electricityCostCents: null,
         metadata: null,

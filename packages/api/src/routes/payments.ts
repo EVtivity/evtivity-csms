@@ -72,7 +72,7 @@ import { paginationQuery } from '../lib/pagination.js';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { JwtPayload } from '../plugins/auth.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
-import { getUserSiteIds } from '../lib/site-access.js';
+import { getUserSiteIds, requireAllSiteAccess, userCanAccessSite } from '../lib/site-access.js';
 import { paymentRecordsAtSites } from '../lib/payment-site-scope.js';
 import { revokePayoutInvites } from '../services/payout-onboarding.service.js';
 import { config as apiConfig } from '../lib/config.js';
@@ -413,6 +413,18 @@ import {
   splitWebhookEndpoints,
 } from '../lib/payment-webhook-url.js';
 import { decryptForRead, SECRET_SETTINGS_READ_PERMISSION } from '../lib/settings-crypto.js';
+import { siteInScope } from '../lib/site-scope.js';
+
+// Company-wide configuration: a site-restricted user gets this 404 before any
+// read or write (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_PAYMENT_NOT_FOUND = {
+  error: 'Payment not found',
+  code: 'PAYMENT_NOT_FOUND',
+} as const;
+const ALL_SITES_SETTING_NOT_FOUND = {
+  error: 'Setting not found',
+  code: 'SETTING_NOT_FOUND',
+} as const;
 
 const siteIdParams = z.object({ id: ID_PARAMS.siteId.describe('Site ID') });
 const driverIdParams = z.object({ id: ID_PARAMS.driverId.describe('Driver ID') });
@@ -777,7 +789,7 @@ export function paymentRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({
           error: 'No payment config for this site',
           code: 'PAYMENT_CONFIG_NOT_FOUND',
@@ -851,6 +863,37 @@ export function paymentRoutes(app: FastifyInstance): void {
     }
   }
 
+  /**
+   * Whether a site-restricted operator may link this account to the site:
+   * the site holds it now, or the site's audit history shows it on the site
+   * (`payment_config_changed`: the create flow or an earlier link), and no
+   * site outside the operator's sites uses it.
+   */
+  async function payoutAccountOfSite(
+    siteId: string,
+    accountId: string,
+    siteIds: string[],
+  ): Promise<boolean> {
+    const linked = await db
+      .select({ siteId: sitePaymentConfigs.siteId })
+      .from(sitePaymentConfigs)
+      .where(eq(sitePaymentConfigs.payoutAccountId, accountId));
+    if (linked.some((row) => !siteIds.includes(row.siteId))) return false;
+    if (linked.some((row) => row.siteId === siteId)) return true;
+    const [history] = await db
+      .select({ id: siteAuditLog.id })
+      .from(siteAuditLog)
+      .where(
+        and(
+          eq(siteAuditLog.siteId, siteId),
+          eq(siteAuditLog.action, 'payment_config_changed'),
+          sql`${siteAuditLog.after}->>'payoutAccountId' = ${accountId}`,
+        ),
+      )
+      .limit(1);
+    return history != null;
+  }
+
   app.put(
     '/sites/:id/payment-config',
     {
@@ -866,9 +909,10 @@ export function paymentRoutes(app: FastifyInstance): void {
         body: zodSchema(upsertSitePaymentConfigBody),
         response: {
           200: itemResponse(sitePaymentConfigSaveItem),
-          400: errorWith('The body contains the removed stripeConnectedAccountId', [
-            ERROR_CODES.VALIDATION_ERROR,
-          ]),
+          400: errorWith(
+            'The body contains the removed stripeConnectedAccountId, or a site-restricted user sent a payoutAccountId that is not an account of this site (one the create flow or an earlier link put on the site) or that a site outside its access uses',
+            [ERROR_CODES.VALIDATION_ERROR],
+          ),
           404: errorWith('Site or payment config not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.PAYMENT_CONFIG_NOT_FOUND,
@@ -902,10 +946,30 @@ export function paymentRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({
           error: 'No payment config for this site',
           code: 'PAYMENT_CONFIG_NOT_FOUND',
+        });
+        return;
+      }
+
+      // A site-restricted operator may only link a connected account the
+      // payout account flows produced for this site (the create flow, or an
+      // id an operator linked to it before: the site's own account history)
+      // and that no site outside its access uses. Otherwise it could route
+      // this site's payments to, or read the status of, another account
+      // (P11). Every refused id gets the same answer.
+      const requestedAccountId = normalizedAccountId(accountId);
+      if (
+        siteIds != null &&
+        requestedAccountId != null &&
+        !(await payoutAccountOfSite(id, requestedAccountId, siteIds))
+      ) {
+        await reply.status(400).send({
+          error: 'The payout account is not a payout account of this site',
+          code: ERROR_CODES.VALIDATION_ERROR,
+          details: { payoutAccountId: 'Not a payout account of this site' },
         });
         return;
       }
@@ -1014,7 +1078,7 @@ export function paymentRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({
           error: 'No payment config for this site',
           code: 'PAYMENT_CONFIG_NOT_FOUND',
@@ -1071,10 +1135,16 @@ export function paymentRoutes(app: FastifyInstance): void {
           'Returns the Stripe settings and whether each secret is stored. The secret key and the webhook signing secrets are returned decrypted only when the caller also holds settings.system:read (for an API key, when its scope includes it), like the generic settings GET; otherwise they are null.',
         operationId: 'getStripeSettings',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(stripeSettingsResponse) },
+        response: {
+          200: itemResponse(stripeSettingsResponse),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       // Push the stripe.* prefix filter to Postgres so the admin Settings
       // page doesn't drag the entire settings table over the wire just to
       // pick a few keys. Stored secrets are readable only with the permission
@@ -1119,10 +1189,16 @@ export function paymentRoutes(app: FastifyInstance): void {
         operationId: 'updateStripeSettings',
         security: [{ bearerAuth: [] }],
         body: zodSchema(updateStripeSettingsBody),
-        response: { 200: successResponse },
+        response: {
+          200: successResponse,
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof updateStripeSettingsBody>;
       const encryptionKey = getEncryptionKey();
 
@@ -1169,10 +1245,14 @@ export function paymentRoutes(app: FastifyInstance): void {
             ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
             ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
           ]),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
         },
       },
     },
-    async (_request, reply) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       try {
         const provider = await paymentRegistry.getPaymentProvider('stripe');
         await provider.testConnection();
@@ -1217,10 +1297,14 @@ export function paymentRoutes(app: FastifyInstance): void {
             ERROR_CODES.PAYMENT_PROVIDER_PERMISSION_MISSING,
             ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
           ]),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const query = request.query as z.infer<typeof stripeWebhookSetupQuery>;
       let url: string | undefined;
       if (query.url !== undefined) {
@@ -1282,10 +1366,14 @@ export function paymentRoutes(app: FastifyInstance): void {
             ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
           ]),
           409: itemResponse(webhookExistsResponse),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof createStripeWebhookBody>;
       const checked = checkPaymentWebhookUrl(body.url, 'stripe');
       if (!checked.ok) {
@@ -1654,6 +1742,22 @@ export function paymentRoutes(app: FastifyInstance): void {
 
   // ---- Session Payments ----
 
+  /**
+   * Whether the operator may act on the session's payment: the session's
+   * station is at a site the operator has access to. An unknown session is
+   * not accessible, so a foreign and an unknown session get the same answer
+   * (the route's own not-found code, before any payment state).
+   */
+  async function sessionAccessible(userId: string, sessionId: string): Promise<boolean> {
+    const [row] = await db
+      .select({ siteId: chargingStations.siteId })
+      .from(chargingSessions)
+      .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
+      .where(eq(chargingSessions.id, sessionId));
+    if (row == null) return false;
+    return userCanAccessSite(userId, row.siteId);
+  }
+
   app.post(
     '/sessions/:id/pre-authorize',
     {
@@ -1693,7 +1797,10 @@ export function paymentRoutes(app: FastifyInstance): void {
         .from(chargingSessions)
         .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
         .where(eq(chargingSessions.id, id));
-      if (session == null) {
+      // A session at a site outside the operator's access answers like a
+      // missing one, before any payment state (P11).
+      const { userId } = request.user as JwtPayload;
+      if (session == null || !(await userCanAccessSite(userId, session.siteId))) {
         await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
         return;
       }
@@ -1800,6 +1907,16 @@ export function paymentRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof sessionIdParams>;
       const body = request.body as z.infer<typeof captureBody>;
+      const { userId } = request.user as JwtPayload;
+      // Site access first, before any payment-state answer: a session at a
+      // site outside the operator's access answers like one with no hold.
+      if (!(await sessionAccessible(userId, id))) {
+        await reply.status(404).send({
+          error: 'No pre-authorized payment for this session',
+          code: 'NO_PRE_AUTH',
+        });
+        return;
+      }
       // The session's final cost when no amount is given; a 0 amount cancels
       // the hold. The platform fee is a percent of the net amount captured.
       const outcome = await captureSessionHold(
@@ -1871,13 +1988,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       // Site access first, before any payment-state answer: otherwise an
       // operator without access could probe a restricted site's sessions
       // through the response codes.
-      const [station] = await db
-        .select({ siteId: chargingStations.siteId })
-        .from(chargingStations)
-        .innerJoin(chargingSessions, eq(chargingSessions.stationId, chargingStations.id))
-        .where(eq(chargingSessions.id, id));
-      const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station?.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!(await sessionAccessible(userId, id))) {
         await reply.status(404).send({ error: 'Payment not found', code: 'PAYMENT_NOT_FOUND' });
         return;
       }
@@ -1942,8 +2053,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       .innerJoin(chargingStations, eq(chargingStations.id, reservations.stationId))
       .where(eq(reservations.id, reservationId));
     if (row == null) return false;
-    const siteIds = await getUserSiteIds(userId);
-    return siteIds == null || row.siteId == null || siteIds.includes(row.siteId);
+    return userCanAccessSite(userId, row.siteId);
   }
 
   app.get(
@@ -2084,14 +2194,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof sessionIdParams>;
       const { userId } = request.user as JwtPayload;
 
-      const [sessionRow] = await db
-        .select({ siteId: chargingStations.siteId })
-        .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
-        .where(eq(chargingSessions.id, id));
-
-      const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && sessionRow?.siteId != null && !siteIds.includes(sessionRow.siteId)) {
+      if (!(await sessionAccessible(userId, id))) {
         await reply.status(404).send({
           error: 'No payment record for this session',
           code: 'PAYMENT_NOT_FOUND',
@@ -2145,17 +2248,17 @@ export function paymentRoutes(app: FastifyInstance): void {
       const { userId } = request.user as JwtPayload;
 
       // Site access: operators with restricted site access can only retry
-      // payments of sessions on their sites.
-      const [row] = await db
-        .select({ siteId: chargingStations.siteId })
-        .from(paymentRecords)
-        .innerJoin(chargingSessions, eq(chargingSessions.id, paymentRecords.sessionId))
-        .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
-        .where(eq(paymentRecords.id, id));
+      // payments made at their sites (a session's or a reservation's station).
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && row?.siteId != null && !siteIds.includes(row.siteId)) {
-        await reply.status(404).send({ error: 'Payment not found', code: 'PAYMENT_NOT_FOUND' });
-        return;
+      if (siteIds != null) {
+        const [row] = await db
+          .select({ id: paymentRecords.id })
+          .from(paymentRecords)
+          .where(and(eq(paymentRecords.id, id), paymentRecordsAtSites(siteIds)));
+        if (row == null) {
+          await reply.status(404).send({ error: 'Payment not found', code: 'PAYMENT_NOT_FOUND' });
+          return;
+        }
       }
 
       // Same card and payout account, the platform fee of the increment, key
@@ -2204,10 +2307,16 @@ export function paymentRoutes(app: FastifyInstance): void {
         operationId: 'listReconciliationRuns',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(paginationQuery),
-        response: { 200: paginatedResponse(reconciliationRunItem) },
+        response: {
+          200: paginatedResponse(reconciliationRunItem),
+          404: errorWith('Payment not found, or the user is restricted to some sites', [
+            ERROR_CODES.PAYMENT_NOT_FOUND,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PAYMENT_NOT_FOUND))) return;
       const { page, limit } = request.query as z.infer<typeof paginationQuery>;
       const offset = (page - 1) * limit;
 
@@ -2236,10 +2345,16 @@ export function paymentRoutes(app: FastifyInstance): void {
         summary: 'Run payment reconciliation against Stripe',
         operationId: 'runReconciliation',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(reconciliationResultItem) },
+        response: {
+          200: itemResponse(reconciliationResultItem),
+          404: errorWith('Payment not found, or the user is restricted to some sites', [
+            ERROR_CODES.PAYMENT_NOT_FOUND,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PAYMENT_NOT_FOUND))) return;
       return runPaymentReconciliation(paymentContext(request.log));
     },
   );

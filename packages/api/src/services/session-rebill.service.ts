@@ -8,6 +8,7 @@ import {
   reconcileCostBreakdown,
   sessionReceiptVariables,
 } from '@evtivity/lib';
+import type { SessionCostBreakdown } from '@evtivity/lib';
 import {
   SESSION_END_FAILED_REASON,
   SESSION_REBILL_LEASE_SECONDS,
@@ -31,6 +32,7 @@ import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import { paymentContext } from '../lib/payments.js';
+import { siteInScope } from '../lib/site-scope.js';
 
 // The one path that re-bills a session the CSMS gave up ending (stopped
 // reason EndRequestFailed: faulted, cost zeroed, hold cancelled). It claims
@@ -426,6 +428,7 @@ async function takePayment(
 async function notifyRebilled(
   session: RebillSession,
   response: RebillResponse,
+  breakdown: SessionCostBreakdown,
   ctx: SessionRebillContext,
 ): Promise<void> {
   try {
@@ -453,8 +456,15 @@ async function notifyRebilled(
         transactionId: session.transactionId,
         energyDeliveredWh: session.energyDeliveredWh,
         finalCostCents: response.finalCostCents,
+        // The split the session was completed with: the receipt labels tax
+        // from it and lists its tariff and tax lines.
+        netCents: breakdown.netCents,
+        taxCents: breakdown.taxCents,
+        costBreakdown: breakdown,
+        // The re-bill charges the whole cost or falls back to manual billing
+        // (no receipt), so nothing is left unpaid.
+        capturedCents: null,
         currency: response.currency,
-        tariffTaxRate: session.tariffTaxRate,
         startedAt: session.startedAt,
         endedAt: response.endedAt,
         notCharged: false,
@@ -485,7 +495,7 @@ export async function rebillSession(
 ): Promise<RebillResponse> {
   const session = await loadSession(sessionId);
   if (session == null) throw notFound();
-  if (ctx.siteIds != null && session.siteId != null && !ctx.siteIds.includes(session.siteId)) {
+  if (!siteInScope(ctx.siteIds, session.siteId)) {
     throw notFound();
   }
   const record = await loadRecord(sessionId);
@@ -574,6 +584,6 @@ export async function rebillSession(
     undefined,
     ctx.log,
   );
-  await notifyRebilled(session, response, ctx);
+  await notifyRebilled(session, response, breakdown, ctx);
   return response;
 }

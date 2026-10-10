@@ -11,7 +11,7 @@ const { getMock, postMock, putMock, toastMock, permission } = vi.hoisted(() => (
   postMock: vi.fn(),
   putMock: vi.fn(),
   toastMock: vi.fn(),
-  permission: { canWrite: true },
+  permission: { canWrite: true, hasAllSiteAccess: true },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -45,7 +45,10 @@ vi.mock('@/lib/api', () => {
 });
 
 vi.mock('@/lib/config', () => ({ API_BASE_URL: 'https://api.example.com' }));
-vi.mock('@/lib/auth', () => ({ useHasPermission: () => permission.canWrite }));
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: () => permission.canWrite,
+  useHasAllSiteAccess: () => permission.hasAllSiteAccess,
+}));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock('@/hooks/use-company-currency', () => ({
   useCompanyCurrency: () => ({ currency: 'USD', isError: false, refetch: vi.fn() }),
@@ -183,6 +186,7 @@ afterEach(() => {
   putMock.mockReset();
   toastMock.mockReset();
   permission.canWrite = true;
+  permission.hasAllSiteAccess = true;
   stripeSettings = STRIPE_SETTINGS_WITH_SECRETS;
 });
 
@@ -198,6 +202,19 @@ describe('PaymentSettings sub-tabs', () => {
       'settings.paymentSubTabAdyen',
       'settings.paymentSubTabSiteConfigs',
     ]);
+  });
+
+  it('hides the provider, Stripe and Adyen settings from a site-restricted user', async () => {
+    permission.hasAllSiteAccess = false;
+    mockGets();
+    renderSettings('/settings');
+    expect(await screen.findByText('settings.paymentSubTabSiteConfigs')).toBeTruthy();
+    const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent);
+    // The general tab stays for the prepaid and invoice settings (settings.system:write).
+    expect(tabs).toEqual(['paymentProviders.general.tab', 'settings.paymentSubTabSiteConfigs']);
+    expect(screen.queryByText('general-tab')).toBeNull();
+    expect(screen.queryByText('adyen-tab')).toBeNull();
+    expect(getMock).not.toHaveBeenCalledWith('/v1/settings/stripe');
   });
 
   it('has no pre-auth amount or platform fee on the Stripe tab', async () => {

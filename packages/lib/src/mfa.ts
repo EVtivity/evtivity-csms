@@ -57,8 +57,11 @@ export async function verifyMfaChallenge(
 ): Promise<boolean> {
   const codeHash = crypto.createHash('sha256').update(code).digest('hex');
 
+  // Expiry is decided in SQL: on the shared client (drizzle replaces its date
+  // parsers) a raw expires_at comes back as postgres text, and comparing a
+  // Date with that string is always false, which accepted expired codes.
   const rows = await client`
-    SELECT id, code_hash, expires_at, used_at, user_id, driver_id
+    SELECT id, code_hash, (expires_at <= now()) AS expired, used_at, user_id, driver_id
     FROM mfa_challenges
     WHERE id = ${challengeId}
   `;
@@ -67,8 +70,8 @@ export async function verifyMfaChallenge(
     | {
         id: number;
         code_hash: string;
-        expires_at: Date;
-        used_at: Date | null;
+        expired: boolean;
+        used_at: Date | string | null;
         user_id: string | null;
         driver_id: string | null;
       }
@@ -76,7 +79,7 @@ export async function verifyMfaChallenge(
 
   if (row == null) return false;
   if (row.used_at != null) return false;
-  if (new Date() > row.expires_at) return false;
+  if (row.expired) return false;
   // Bind the challenge to the principal in the mfaToken JWT. Without this
   // an attacker who knows victim A's password can complete login as A by
   // submitting their own MFA code from a challenge owned by attacker B:

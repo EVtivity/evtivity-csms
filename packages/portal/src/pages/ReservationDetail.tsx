@@ -13,7 +13,14 @@ import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorCard } from '@/components/ui/error-card';
 import { api } from '@/lib/api';
-import { formatCents, formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
+import {
+  cancellationFeeApplies,
+  reservationFeeLabel,
+  cancellationFeeWarning,
+  noShowFeeNote,
+} from '@/lib/reservation-fee';
+import type { ReservationFee } from '@/lib/reservation-fee';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -32,12 +39,15 @@ interface ReservationDetailData {
   createdAt: string;
   updatedAt: string;
   sessionId: string | null;
+  /** Null when the reservation is not open or has no cancellation fee. */
+  cancellationFee: ReservationFee | null;
+  /** Null when the reservation is not open or has no holding fee. */
+  noShowFee?: ReservationFee | null;
 }
 
 interface PortalFeatures {
   reservationEnabled: boolean;
   supportEnabled: boolean;
-  reservationCancellationFeeCents: number;
   reservationCancellationWindowMinutes: number;
   currency: string;
 }
@@ -104,16 +114,17 @@ export function ReservationDetail(): React.JSX.Element {
 
   const canCancel = reservation.status === 'active' || reservation.status === 'scheduled';
 
-  // Cancellation fee preview: matches the API's gate in reservations.ts so the
-  // user sees the same number we'd actually charge if they confirm.
-  const policyFeeCents = features?.reservationCancellationFeeCents ?? 0;
+  // Cancellation fee preview: the gross amount the server charges (priced on
+  // the terms snapshotted when the reservation was made) and the server's
+  // window gate, so the driver sees the number charged if they confirm. The
+  // fee is charged in the currency the features endpoint reports.
   const policyWindowMinutes = features?.reservationCancellationWindowMinutes ?? 0;
-  const policyActive = policyFeeCents > 0 && policyWindowMinutes > 0;
-  // The cancellation fee is charged in the currency the features endpoint reports.
-  const policyFee = features != null ? formatCents(policyFeeCents, features.currency) : '';
-  const referenceTime = new Date(reservation.startsAt ?? reservation.createdAt).getTime();
-  const minutesUntilStart = Math.floor((referenceTime - Date.now()) / 60_000);
-  const cancelFeeWillApply = policyActive && canCancel && minutesUntilStart < policyWindowMinutes;
+  const cancelFeeWillApply =
+    features != null && canCancel && cancellationFeeApplies(reservation, policyWindowMinutes);
+  const cancelFeeText =
+    cancelFeeWillApply && reservation.cancellationFee != null
+      ? cancellationFeeWarning(t, reservation.cancellationFee, features.currency)
+      : '';
 
   return (
     <div className="space-y-4">
@@ -177,17 +188,33 @@ export function ReservationDetail(): React.JSX.Element {
         </CardContent>
       </Card>
 
-      {policyActive && canCancel && (
+      {features != null &&
+        policyWindowMinutes > 0 &&
+        canCancel &&
+        reservation.cancellationFee != null && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">{t('reservations.cancellationPolicy')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground">
+                {t('reservations.cancellationPolicyText', {
+                  fee: reservationFeeLabel(t, reservation.cancellationFee, features.currency),
+                  minutes: policyWindowMinutes,
+                })}
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+      {features != null && reservation.noShowFee != null && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">{t('reservations.cancellationPolicy')}</CardTitle>
+            <CardTitle className="text-sm">{t('reservations.noShowFeeTitle')}</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
-              {t('reservations.cancellationPolicyText', {
-                fee: policyFee,
-                minutes: policyWindowMinutes,
-              })}
+              {noShowFeeNote(t, reservation.noShowFee, features.currency)}
             </p>
           </CardContent>
         </Card>
@@ -243,7 +270,7 @@ export function ReservationDetail(): React.JSX.Element {
                 station: reservation.stationOcppId,
                 time: formatDate(reservation.expiresAt, timezone),
               }),
-          cancelFeeWillApply ? t('reservations.cancellationFeeWarning', { fee: policyFee }) : '',
+          cancelFeeText,
         ]
           .filter(Boolean)
           .join(' ')}

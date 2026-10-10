@@ -77,6 +77,12 @@ vi.mock('@evtivity/database', () => {
   };
 });
 
+// An all-site operator: site scope is covered in pnc-certificates-cov2.test.ts.
+vi.mock('../lib/site-access.js', () => ({
+  getUserSiteIds: vi.fn().mockResolvedValue(null),
+  checkStationSiteAccess: vi.fn().mockResolvedValue(true),
+}));
+
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: publishMock }),
 }));

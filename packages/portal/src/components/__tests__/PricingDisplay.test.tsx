@@ -107,4 +107,55 @@ describe('PricingDisplay', () => {
     expect(screen.getByText('€0.49/charger.unitKwh')).toBeDefined();
     expect(screen.queryByText('charger.taxIncluded')).toBeNull();
   });
+
+  it('shows free when every price is zero, whatever the tax rate', () => {
+    render(
+      <PricingDisplay
+        pricing={{ ...pricing, pricePerKwh: '0', pricePerSession: null, taxRate: '0.19' }}
+        priceDisplay="gross"
+      />,
+    );
+    expect(screen.getByText('charger.pricingFree')).toBeDefined();
+  });
+
+  it('shows days without a time window as all day, with the site timezone', () => {
+    render(
+      <PricingDisplay
+        pricing={{
+          ...pricing,
+          restrictions: { daysOfWeek: [0, 6] },
+          timezone: 'America/Los_Angeles',
+        }}
+        priceDisplay="net"
+      />,
+    );
+    expect(
+      screen.getByText('charger.day.sun, charger.day.sat charger.restrictionAllDay'),
+    ).toBeDefined();
+    expect(screen.getByText('charger.restrictionTimezone')).toBeDefined();
+  });
+
+  it('shows no timezone label without a time or day restriction', () => {
+    render(
+      <PricingDisplay
+        pricing={{
+          ...pricing,
+          restrictions: { energyThresholdKwh: 50 },
+          timezone: 'Europe/Berlin',
+        }}
+        priceDisplay="net"
+      />,
+    );
+    expect(screen.queryByText('charger.restrictionTimezone')).toBeNull();
+  });
+
+  it('notes that the price can change during the session', () => {
+    render(
+      <PricingDisplay
+        pricing={{ ...pricing, priceChangesDuringSession: true }}
+        priceDisplay="net"
+      />,
+    );
+    expect(screen.getByText('charger.priceChangesDuringSession')).toBeDefined();
+  });
 });

@@ -244,6 +244,15 @@ export class CommandListener {
           aggregateId: stationId,
           payload: { request: payload, response },
         });
+      } else if (action === 'SetDisplayMessage' || action === 'ClearDisplayMessage') {
+        // A display message command queued for an offline station is sent on
+        // reconnect with no API caller waiting: the projection records the reply.
+        void this.eventBus.publish({
+          eventType: `command.${action}`,
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, response },
+        });
       }
 
       if (commandId != null) {

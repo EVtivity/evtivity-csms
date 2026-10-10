@@ -22,6 +22,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
+import { useHasAllSiteAccess } from '@/lib/auth';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 export interface CampaignDetail {
@@ -76,6 +77,7 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const hasAllSiteAccess = useHasAllSiteAccess();
 
   // Lookup options for resolving filter ids -> display names in the read view.
   const { data: filterOptions } = useQuery({
@@ -115,6 +117,11 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
       errors.editFirmwareUrl = t('validation.required');
     } else if (!URL.canParse(editFirmwareUrl)) {
       errors.editFirmwareUrl = t('validation.invalidUrl');
+    }
+    // A campaign without a site or station targets every site: only all-site
+    // users give it that reach (the API answers others 404).
+    if (!hasAllSiteAccess && editFilter.siteId == null && editFilter.stationId == null) {
+      errors.editTargetFilter = t('validation.selectRequired');
     }
     return errors;
   }
@@ -162,6 +169,12 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
       campaign.targetFilter.vendorId != null ||
       campaign.targetFilter.model != null ||
       campaign.targetFilter.stationId != null);
+  // A campaign without a site or station targets every site: only all-site
+  // users edit it (the API answers others 404).
+  const canEditCampaign =
+    hasAllSiteAccess ||
+    campaign.targetFilter?.siteId != null ||
+    campaign.targetFilter?.stationId != null;
 
   return (
     <>
@@ -169,7 +182,7 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
           <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-            {campaign.status === 'draft' && !editing && (
+            {campaign.status === 'draft' && !editing && canEditCampaign && (
               <EditButton label={t('common.edit')} onClick={startEdit} />
             )}
             {campaign.status === 'draft' && !editing && (
@@ -272,6 +285,9 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                 onChange={setEditFilter}
                 idPrefix="fw-edit-filter"
               />
+              {hasSubmitted && validationErrors.editTargetFilter && (
+                <p className="text-sm text-destructive">{validationErrors.editTargetFilter}</p>
+              )}
 
               <div className="flex justify-end gap-2">
                 <CancelButton

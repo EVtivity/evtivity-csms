@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table';
 import { TableSkeleton } from '@/components/TableSkeleton';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import type { PricingGroup } from '@/lib/types';
 
@@ -29,6 +30,8 @@ export function Pricing(): React.JSX.Element {
   const navigate = useNavigate();
   const timezone = useUserTimezone();
   const [search, setSearch] = useState('');
+  // Pricing writes are company-wide: the API answers 404 to a site-restricted user.
+  const canWrite = useHasCompanyWidePermission('pricing:write');
 
   const { data: groups, isLoading } = useQuery({
     queryKey: ['pricing-groups'],
@@ -62,12 +65,14 @@ export function Pricing(): React.JSX.Element {
             <Calendar className="h-4 w-4" />
             {t('pricing.manageHolidays')}
           </Button>
-          <CreateButton
-            label={t('pricing.createPricingGroup')}
-            onClick={() => {
-              void navigate('/pricing/new');
-            }}
-          />
+          {canWrite && (
+            <CreateButton
+              label={t('pricing.createPricingGroup')}
+              onClick={() => {
+                void navigate('/pricing/new');
+              }}
+            />
+          )}
         </div>
       </div>
 

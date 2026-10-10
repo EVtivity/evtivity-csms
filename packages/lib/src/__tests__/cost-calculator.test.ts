@@ -683,7 +683,7 @@ describe('tax lines', () => {
   it('split segments carry the grace-adjusted idle and the session fee only on the first', () => {
     const idle: TariffInput = { ...base, pricePerSession: '1.00', idleFeePricePerMinute: '0.50' };
     const result = calculateSplitSessionCost([seg(idle, 0, 8, true), seg(idle, 0, 12, false)], 15);
-    expect(result.segments.map((s) => s.idleFeeCents)).toEqual([250, 0]);
+    expect(result.segments.map((s) => s.idleFeeCents)).toEqual([0, 250]);
     expect(result.segments.map((s) => s.sessionFeeCents)).toEqual([100, 0]);
   });
 });
@@ -930,7 +930,8 @@ describe('billable idle minutes in the stored breakdown', () => {
       },
     ];
     const stored = toSessionCostBreakdown(calculateSplitSessionCost(segments, 30));
-    // Grace 30 is taken from the last segment: 20 and 10 minutes billed.
-    expect(stored.components?.map((g) => g.billableIdleMinutes)).toEqual([20, 10]);
+    // Grace 30 is the first 30 idle minutes: all 20 of segment 1 and 10 of
+    // segment 2, so segment 1 bills none and segment 2 bills 30.
+    expect(stored.components?.map((g) => g.billableIdleMinutes)).toEqual([undefined, 30]);
   });
 });

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, or, ilike, sql, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
@@ -11,6 +11,20 @@ import { successResponse, paginatedResponse } from '../lib/response-schemas.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+import { isAllSiteUser } from '../lib/site-access.js';
+
+// The route stays hidden from site-restricted users: operator-wide logs need
+// access to every site, so they get the same 404 as a route that does not
+// exist. Returns false after the reply was sent.
+async function allowAllSiteUsersOnly(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<boolean> {
+  const { userId } = request.user as { userId: string };
+  if (await isAllSiteUser(userId)) return true;
+  reply.callNotFound();
+  return false;
+}
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
 // Tell the CSMS so the Access Logs page reloads itself. The 'api' category is
@@ -142,10 +156,11 @@ export function accessLogRoutes(app: FastifyInstance): void {
         response: { 200: paginatedResponse(accessLogItem) },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { page, limit, search, category, method } = request.query as z.infer<
         typeof listLogsQuery
       >;
+      if (!(await allowAllSiteUsersOnly(request, reply))) return;
       const offset = (page - 1) * limit;
 
       const conditions = [];

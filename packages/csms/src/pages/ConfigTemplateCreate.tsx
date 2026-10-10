@@ -18,6 +18,7 @@ import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { OCPP_21_VARIABLES, OCPP_16_KEYS } from '@/lib/ocpp-variables';
+import { useHasAllSiteAccess } from '@/lib/auth';
 
 interface TemplateVariable {
   component: string;
@@ -39,6 +40,7 @@ type OcppVersion = '2.1' | '1.6';
 
 export function ConfigTemplateCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const hasAllSiteAccess = useHasAllSiteAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -66,6 +68,10 @@ export function ConfigTemplateCreate(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!name.trim()) errors.name = t('validation.required');
+    // A template without a site or station targets every site.
+    if (!hasAllSiteAccess && filter.siteId == null && filter.stationId == null) {
+      errors.targetFilter = t('validation.selectRequired');
+    }
     return errors;
   }
 
@@ -299,6 +305,9 @@ export function ConfigTemplateCreate(): React.JSX.Element {
               onChange={setFilter}
               idPrefix="ct-create-filter"
             />
+            {hasSubmitted && errors.targetFilter && (
+              <p className="text-sm text-destructive">{errors.targetFilter}</p>
+            )}
 
             <div className="flex justify-end gap-2">
               <CancelButton

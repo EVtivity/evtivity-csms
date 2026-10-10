@@ -166,15 +166,16 @@ export async function stationOfflineSweepHandler(log: Logger): Promise<void> {
       pubsub,
       heartbeatSeconds: await getHeartbeatIntervalSeconds(),
       roamingEnabled: isRoamingEnabled,
-      notifyDriver: (driverId, reservationId, stationId) =>
-        dispatchDriverNotification(
+      notifyDriver: async (driverId, reservationId, stationId) => {
+        await dispatchDriverNotification(
           client,
           'reservation.StationFaulted',
           driverId,
           { reservationId, stationId },
           ALL_TEMPLATES_DIRS,
           pubsub,
-        ),
+        );
+      },
     },
     log,
   );

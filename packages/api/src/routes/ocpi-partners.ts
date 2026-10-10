@@ -31,6 +31,7 @@ import { isPrivateUrl, encryptString, OCPI_PULL_MODULES } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { config as apiConfig } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
 
 const ocpiPartnerItem = z
   .object({
@@ -178,6 +179,9 @@ const syncLogQuery = paginationQuery.extend({
   partnerId: ID_PARAMS.ocpiPartnerId.optional().describe('Filter sync logs by partner ID'),
 });
 
+// OCPI partners are company-wide roaming configuration: site-restricted users get 404.
+const PARTNER_SCOPE_NOT_FOUND = { error: 'Partner not found', code: 'PARTNER_NOT_FOUND' } as const;
+
 export function ocpiPartnerRoutes(app: FastifyInstance): void {
   // GET /ocpi/partners - list partners
   app.get(
@@ -190,10 +194,14 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         operationId: 'listOcpiPartners',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(paginationQuery),
-        response: { 200: paginatedResponse(ocpiPartnerItem) },
+        response: {
+          200: paginatedResponse(ocpiPartnerItem),
+          404: errorWith('Partner not found', [ERROR_CODES.PARTNER_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
       const { page, limit, search } = request.query as z.infer<typeof paginationQuery>;
       const offset = (page - 1) * limit;
 
@@ -245,6 +253,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof partnerParams>;
 
       const [partner] = await db
@@ -281,12 +290,14 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(createPartnerResponse),
           400: errorWith('Private url', [ERROR_CODES.PRIVATE_URL]),
+          404: errorWith('Partner not found', [ERROR_CODES.PARTNER_NOT_FOUND]),
           409: errorWith('Duplicate partner', [ERROR_CODES.DUPLICATE_PARTNER]),
           500: errorWith('Internal error', [ERROR_CODES.INTERNAL_ERROR]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof createPartnerBody>;
 
       // Check for duplicate
@@ -397,6 +408,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof partnerParams>;
       const body = request.body as z.infer<typeof updatePartnerBody>;
 
@@ -477,6 +489,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof partnerParams>;
 
       const [existing] = await db
@@ -541,6 +554,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof partnerParams>;
 
       const [partner] = await db
@@ -607,6 +621,7 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
       const { id, module } = request.params as z.infer<typeof syncParams>;
 
       const [partner] = await db
@@ -660,10 +675,14 @@ export function ocpiPartnerRoutes(app: FastifyInstance): void {
         operationId: 'listOcpiSyncLog',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(syncLogQuery),
-        response: { 200: paginatedResponse(syncLogItem) },
+        response: {
+          200: paginatedResponse(syncLogItem),
+          404: errorWith('Partner not found', [ERROR_CODES.PARTNER_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, PARTNER_SCOPE_NOT_FOUND))) return;
       const { page, limit, partnerId } = request.query as z.infer<typeof syncLogQuery>;
       const offset = (page - 1) * limit;
 

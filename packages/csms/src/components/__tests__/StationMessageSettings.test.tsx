@@ -18,6 +18,9 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
+const access = vi.hoisted(() => ({ canWrite: true }));
+vi.mock('@/lib/auth', () => ({ useHasCompanyWidePermission: () => access.canWrite }));
+
 vi.mock('@/lib/api', () => ({
   api: { get: getMock, put: putMock, post: postMock, delete: deleteMock },
 }));
@@ -67,6 +70,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  access.canWrite = true;
 });
 
 describe('StationMessageSettings', () => {
@@ -125,6 +129,16 @@ describe('StationMessageSettings', () => {
         body: 'EN edited',
       });
     });
+  });
+
+  it('hides the template Save and Reset for a site-restricted user', async () => {
+    access.canWrite = false;
+    renderSettings({ 'stationMessage.language': 'en' });
+    await waitFor(() => {
+      expect(body().value).toBe('EN available');
+    });
+    expect(screen.getAllByRole('button', { name: /common.save|save/i })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /messages.resetToDefault/ })).toBeNull();
   });
 
   it('saves the display language setting', async () => {

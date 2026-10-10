@@ -1,16 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import {
-  client,
-  getCompanyCurrency,
-  getCompanyTaxBasis,
-  resolveStationTariff,
-} from '@evtivity/database';
+import { buildStationOcppTariff, client } from '@evtivity/database';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
 import type { AuthorizeResponse } from '../../generated/v2_1/types/messages/AuthorizeResponse.js';
-import { netUnitPrice, vatPercentFromFraction, type Logger } from '@evtivity/lib';
+import type { Logger } from '@evtivity/lib';
 import {
   applyContractCertificateVerdict,
   validateContractCertificate,
@@ -163,7 +158,9 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
 
 // The tariff the session would be priced with now (the same resolution as
 // session pricing: pricing group, then the tariff whose restrictions match in
-// the site's timezone), so the station shows the price the driver is billed.
+// the site's timezone), as the OCPP TariffType the station calculates the
+// local cost from (I08): conditions, idle grace and reservation fee included,
+// see buildStationOcppTariff.
 async function resolveDriverTariff(
   driverId: string | null,
   stationId: string,
@@ -179,70 +176,10 @@ async function resolveDriverTariff(
   }
   if (stationUuid == null) return undefined;
 
-  const resolved = await resolveStationTariff({ stationUuid, driverUuid: driverId }, client);
-  if (resolved == null) {
+  const tariff = await buildStationOcppTariff(client, { stationUuid, driverUuid: driverId });
+  if (tariff == null) {
     logger.debug({ stationId, driverId }, 'No tariff found for driver');
     return undefined;
   }
-  const rawRow: Record<string, unknown> = {
-    id: resolved.id,
-    price_per_kwh: resolved.pricePerKwh,
-    price_per_minute: resolved.pricePerMinute,
-    price_per_session: resolved.pricePerSession,
-    idle_fee_price_per_minute: resolved.idleFeePricePerMinute,
-    tax_rate: resolved.taxRate,
-  };
-
-  const toNum = (v: unknown): number | null => (v != null ? Number(v) : null);
-  const taxRate = toNum(rawRow['tax_rate']);
-  // TariffType prices are excluding tax: prices entered on the gross tax
-  // basis are sent with the tax rate taken out, in 4 decimals.
-  const taxBasis = await getCompanyTaxBasis();
-  const netPrice = (v: unknown): number | null => {
-    const price = toNum(v);
-    if (price == null || taxBasis === 'net') return price;
-    return Math.round(netUnitPrice(price, taxRate ?? 0, taxBasis) * 10_000) / 10_000;
-  };
-  const pricePerKwh = netPrice(rawRow['price_per_kwh']);
-  const pricePerMinute = netPrice(rawRow['price_per_minute']);
-  const pricePerSession = netPrice(rawRow['price_per_session']);
-  const idleFeePerMinute = netPrice(rawRow['idle_fee_price_per_minute']);
-
-  const tariff: Record<string, unknown> = {
-    tariffId: rawRow['id'],
-    currency: await getCompanyCurrency(),
-  };
-
-  // TaxRateType.tax is a percentage (19 for a stored rate of 0.19).
-  const taxRates =
-    taxRate != null && taxRate > 0
-      ? [{ type: 'VAT', tax: vatPercentFromFraction(taxRate) }]
-      : undefined;
-
-  if (pricePerKwh != null && pricePerKwh > 0) {
-    tariff['energy'] = {
-      prices: [{ priceKwh: pricePerKwh }],
-      ...(taxRates != null ? { taxRates } : {}),
-    };
-  }
-  if (pricePerMinute != null && pricePerMinute > 0) {
-    tariff['chargingTime'] = {
-      prices: [{ priceMinute: pricePerMinute }],
-      ...(taxRates != null ? { taxRates } : {}),
-    };
-  }
-  if (idleFeePerMinute != null && idleFeePerMinute > 0) {
-    tariff['idleTime'] = {
-      prices: [{ priceMinute: idleFeePerMinute }],
-      ...(taxRates != null ? { taxRates } : {}),
-    };
-  }
-  if (pricePerSession != null && pricePerSession > 0) {
-    tariff['fixedFee'] = {
-      prices: [{ priceFixed: pricePerSession }],
-      ...(taxRates != null ? { taxRates } : {}),
-    };
-  }
-
-  return tariff;
+  return tariff as unknown as Record<string, unknown>;
 }

@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { Worker, type Queue, type ConnectionOptions } from 'bullmq';
+import type { Redis } from 'ioredis';
 import { client } from '@evtivity/database';
 import type { PubSubClient } from '@evtivity/lib';
-import { createLogger } from '@evtivity/lib';
+import { createLogger, withLock } from '@evtivity/lib';
 import {
   FLEET_BILLING_FANOUT_CHANNEL,
   fleetBillingFanoutJobId,
@@ -64,12 +65,24 @@ export async function startFleetBillingFanoutBridge(
   };
 }
 
+/** Redis key of the per-fleet fan-out lock (ACL prefix `wkl:`). */
+export function fleetBillingFanoutLockKey(fleetId: string): string {
+  return `wkl:fleet-billing:${fleetId}`;
+}
+
 /**
  * Runs a fleet switch fan-out: fleet.AccountBillingChanged to each member
  * whose billing the change moved. Each member is fail-open (logged), so the
  * job fails only when the member list cannot be read.
+ *
+ * `concurrency` is per worker instance. A per-fleet Redis lock serializes the
+ * fan-outs of one fleet across worker replicas, so an on and a quick off
+ * reach the members in order. Different fleets run in parallel.
  */
-export function createFleetBillingFanoutWorker(connection: ConnectionOptions): Worker {
+export function createFleetBillingFanoutWorker(
+  connection: ConnectionOptions,
+  lockRedis: Redis,
+): Worker {
   const worker = new Worker(
     QUEUE_NAMES.FLEET_BILLING_FANOUT,
     async (job) => {
@@ -77,7 +90,9 @@ export function createFleetBillingFanoutWorker(connection: ConnectionOptions): W
       const startTime = Date.now();
       try {
         const data = job.data as FleetBillingFanoutJob;
-        const result = await runFleetBillingFanout(client, data, log);
+        const { result } = await withLock(lockRedis, fleetBillingFanoutLockKey(data.fleetId), () =>
+          runFleetBillingFanout(client, data, log),
+        );
         log.info({ fleetId: data.fleetId, ...result }, 'Fleet billing fan-out done');
         await logJobCompleted(logId, Date.now() - startTime);
       } catch (err) {

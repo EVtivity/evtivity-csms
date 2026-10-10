@@ -18,6 +18,22 @@ export const STATION_PASSWORD_CHARSET =
 
 export type StationPasswordError = 'tooShort' | 'tooLong' | 'invalidCharacters';
 
+/**
+ * argon2id parameters for station Basic Auth password hashes: the OWASP
+ * Password Storage Cheat Sheet minimum for argon2id (19 MiB, 2 iterations, 1
+ * lane). Every station connection verifies one, so the argon2 default (64 MiB,
+ * 3 iterations, 4 lanes, about 5 times the work) limited how many stations an
+ * OCPP process admits per second. The OCPP server rehashes a stored hash with
+ * other parameters after the station's next successful connection.
+ * `type: 2` is argon2id.
+ */
+export const STATION_PASSWORD_HASH_OPTIONS = {
+  type: 2,
+  memoryCost: 19456,
+  timeCost: 2,
+  parallelism: 1,
+} as const;
+
 const PASSWORD_PATTERN = /^[a-zA-Z0-9*\-_=:+|@.]*$/;
 
 export function stationPasswordRules(protocol: StationOcppProtocol): { min: number; max: number } {

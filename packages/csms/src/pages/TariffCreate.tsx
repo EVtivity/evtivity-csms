@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { Navigate, useParams, useNavigate } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
@@ -19,6 +19,13 @@ import { Select } from '@/components/ui/select';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, ApiError, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import {
+  buildRestrictions,
+  isRestrictionType,
+  type RestrictionType,
+  type TariffRestrictions,
+} from '@/lib/tariff-restrictions';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 
 interface Tariff {
   id: string;
@@ -31,7 +38,7 @@ interface Tariff {
   idleFeePricePerMinute: string | null;
   reservationFeePerMinute: string | null;
   taxRate: string | null;
-  restrictions: Record<string, unknown> | null;
+  restrictions: TariffRestrictions | null;
   priority: number;
   isDefault: boolean;
 }
@@ -41,6 +48,7 @@ export function TariffCreate(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const canWrite = useHasCompanyWidePermission('pricing:write');
   // Price labels say whether prices are entered excluding or including tax.
   const taxBasis = useCompanyTaxBasis() ?? DEFAULT_TAX_BASIS;
 
@@ -54,9 +62,10 @@ export function TariffCreate(): React.JSX.Element {
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   // Restriction state
-  const [restrictionType, setRestrictionType] = useState('default');
+  const [restrictionType, setRestrictionType] = useState<RestrictionType>('default');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
+  const [allDay, setAllDay] = useState(false);
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -81,8 +90,7 @@ export function TariffCreate(): React.JSX.Element {
       idleFeePricePerMinute?: string;
       reservationFeePerMinute?: string;
       taxRate?: string;
-      restrictions?: Record<string, unknown> | null;
-      isDefault?: boolean;
+      restrictions?: TariffRestrictions | null;
     }) => api.post<Tariff>(`/v1/pricing-groups/${id ?? ''}/tariffs`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['pricing-groups', id ?? ''] });
@@ -94,36 +102,6 @@ export function TariffCreate(): React.JSX.Element {
     setSelectedDays((prev) =>
       prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day],
     );
-  }
-
-  function buildRestrictions(): {
-    restrictions: Record<string, unknown> | null;
-    isDefault: boolean;
-  } {
-    if (restrictionType === 'default') {
-      return { restrictions: null, isDefault: true };
-    }
-    if (restrictionType === 'time') {
-      return { restrictions: { timeRange: { startTime, endTime } }, isDefault: false };
-    }
-    if (restrictionType === 'dayTime') {
-      const r: Record<string, unknown> = { daysOfWeek: selectedDays };
-      if (startTime !== '' && endTime !== '') r.timeRange = { startTime, endTime };
-      return { restrictions: r, isDefault: false };
-    }
-    if (restrictionType === 'seasonal') {
-      return { restrictions: { dateRange: { startDate, endDate } }, isDefault: false };
-    }
-    if (restrictionType === 'holiday') {
-      return { restrictions: { holidays: true }, isDefault: false };
-    }
-    if (restrictionType === 'energy') {
-      return {
-        restrictions: { energyThresholdKwh: parseFloat(thresholdKwh) },
-        isDefault: false,
-      };
-    }
-    return { restrictions: null, isDefault: false };
   }
 
   function getValidationErrors(): Record<string, string> {
@@ -163,8 +141,7 @@ export function TariffCreate(): React.JSX.Element {
       idleFeePricePerMinute?: string;
       reservationFeePerMinute?: string;
       taxRate?: string;
-      restrictions?: Record<string, unknown> | null;
-      isDefault?: boolean;
+      restrictions?: TariffRestrictions | null;
     } = { name };
     if (pricePerKwh.trim() !== '') body.pricePerKwh = pricePerKwh;
     if (pricePerMinute.trim() !== '') body.pricePerMinute = pricePerMinute;
@@ -173,9 +150,15 @@ export function TariffCreate(): React.JSX.Element {
     if (reservationFeePerMinute.trim() !== '')
       body.reservationFeePerMinute = reservationFeePerMinute;
     if (taxRate.trim() !== '') body.taxRate = taxRate;
-    const { restrictions, isDefault } = buildRestrictions();
-    body.restrictions = restrictions;
-    body.isDefault = isDefault;
+    body.restrictions = buildRestrictions(restrictionType, {
+      startTime,
+      endTime,
+      allDay,
+      days: selectedDays,
+      startDate,
+      endDate,
+      thresholdKwh,
+    });
     createMutation.mutate(body);
   }
 
@@ -183,6 +166,9 @@ export function TariffCreate(): React.JSX.Element {
     createMutation.error instanceof ApiError && createMutation.error.status === 409
       ? getErrorMessage(createMutation.error, t)
       : null;
+
+  // Pricing writes are company-wide: the API answers 404 to a site-restricted user.
+  if (!canWrite) return <Navigate to={`/pricing/${id ?? ''}?tab=tariffs`} replace />;
 
   return (
     <div className="space-y-6">
@@ -324,7 +310,7 @@ export function TariffCreate(): React.JSX.Element {
                   id="tariff-restriction-type"
                   value={restrictionType}
                   onChange={(e) => {
-                    setRestrictionType(e.target.value);
+                    if (isRestrictionType(e.target.value)) setRestrictionType(e.target.value);
                   }}
                 >
                   <option value="default">{t('pricing.noRestrictions')}</option>
@@ -334,9 +320,22 @@ export function TariffCreate(): React.JSX.Element {
                   <option value="holiday">{t('pricing.holiday')}</option>
                   <option value="energy">{t('pricing.energyThreshold')}</option>
                 </Select>
+                <p className="text-xs text-muted-foreground">{t('pricing.defaultTariffHelper')}</p>
               </div>
 
-              {(restrictionType === 'time' || restrictionType === 'dayTime') && (
+              {restrictionType === 'dayTime' && (
+                <label className="flex items-center gap-1.5 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={allDay}
+                    onChange={() => {
+                      setAllDay((prev) => !prev);
+                    }}
+                  />
+                  {t('pricing.allDay')}
+                </label>
+              )}
+
+              {(restrictionType === 'time' || (restrictionType === 'dayTime' && !allDay)) && (
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="tariff-start-time" className="leading-6">
@@ -364,6 +363,9 @@ export function TariffCreate(): React.JSX.Element {
                       }}
                     />
                   </div>
+                  <p className="col-span-full text-xs text-muted-foreground">
+                    {t('pricing.timeRangeHelper')}
+                  </p>
                 </div>
               )}
 
@@ -383,6 +385,7 @@ export function TariffCreate(): React.JSX.Element {
                       </label>
                     ))}
                   </div>
+                  <p className="text-xs text-muted-foreground">{t('pricing.dayWindowHint')}</p>
                 </div>
               )}
 
@@ -414,6 +417,9 @@ export function TariffCreate(): React.JSX.Element {
                       placeholder="MM-DD"
                     />
                   </div>
+                  <p className="col-span-full text-xs text-muted-foreground">
+                    {t('pricing.dateRangeHelper')}
+                  </p>
                 </div>
               )}
 

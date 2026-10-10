@@ -29,6 +29,8 @@ import {
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Pagination } from '@/components/ui/pagination';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
+import { useToast } from '@/components/ui/toast';
 import { Select } from '@/components/ui/select';
 import { formatDateTime } from '@/lib/timezone';
 
@@ -59,6 +61,21 @@ const PRIORITIES = ['AlwaysFront', 'InFront', 'NormalCycle'] as const;
 const FORMATS = ['ASCII', 'HTML', 'URI', 'UTF8', 'QRCODE'] as const;
 const STATES = ['Charging', 'Faulted', 'Idle', 'Unavailable', 'Suspended', 'Discharging'] as const;
 
+// 202 body when the station is offline: the OCPP server queued the command
+// and sends it on reconnect (same shape as /v1/ocpp/commands).
+interface QueuedCommand {
+  status: 'queued';
+  code: 'COMMAND_QUEUED';
+}
+
+function isQueued(result: unknown): result is QueuedCommand {
+  return (
+    result != null &&
+    typeof result === 'object' &&
+    (result as { status?: unknown }).status === 'queued'
+  );
+}
+
 const STATUS_VARIANTS: Record<string, 'default' | 'outline' | 'destructive' | 'secondary'> = {
   pending: 'outline',
   accepted: 'default',
@@ -74,6 +91,7 @@ export function StationDisplayMessages({
 }: StationDisplayMessagesProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [clearTarget, setClearTarget] = useState<DisplayMessage | null>(null);
@@ -105,12 +123,17 @@ export function StationDisplayMessages({
 
   const createMutation = useMutation({
     mutationFn: (body: Record<string, unknown>) =>
-      api.post<DisplayMessage>(`/v1/stations/${stationId}/display-messages`, body),
-    onSuccess: () => {
+      api.post<DisplayMessage | QueuedCommand>(`/v1/stations/${stationId}/display-messages`, body),
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['display-messages', stationId] });
       setCreateOpen(false);
       resetForm();
       setHasSubmitted(false);
+      if (isQueued(result))
+        toast({ title: t('stations.messageCommandQueued'), variant: 'warning' });
+    },
+    onError: (err: unknown) => {
+      toast({ title: getErrorMessage(err, t), variant: 'destructive' });
     },
   });
 
@@ -119,16 +142,26 @@ export function StationDisplayMessages({
       api.delete<{ status: string }>(
         `/v1/stations/${stationId}/display-messages/${String(messageId)}`,
       ),
-    onSuccess: () => {
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['display-messages', stationId] });
+      if (isQueued(result))
+        toast({ title: t('stations.messageCommandQueued'), variant: 'warning' });
+    },
+    onError: (err: unknown) => {
+      toast({ title: getErrorMessage(err, t), variant: 'destructive' });
     },
   });
 
   const refreshMutation = useMutation({
     mutationFn: () =>
       api.post<{ status: string }>(`/v1/stations/${stationId}/display-messages/refresh`, {}),
-    onSuccess: () => {
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['display-messages', stationId] });
+      if (isQueued(result))
+        toast({ title: t('stations.messageCommandQueued'), variant: 'warning' });
+    },
+    onError: (err: unknown) => {
+      toast({ title: getErrorMessage(err, t), variant: 'destructive' });
     },
   });
 
@@ -236,10 +269,13 @@ export function StationDisplayMessages({
                     <TableCell>{formatDateTime(msg.createdAt, timezone)}</TableCell>
                     <TableCell>
                       {msg.status === 'accepted' && (
+                        // Enabled offline too: the OCPP server queues the clear
+                        // and sends it when the station reconnects.
                         <Button
                           variant="ghost"
                           size="sm"
-                          disabled={!isOnline || clearMutation.isPending}
+                          aria-label={t('stations.clearMessage')}
+                          disabled={clearMutation.isPending}
                           onClick={() => {
                             setClearTarget(msg);
                           }}

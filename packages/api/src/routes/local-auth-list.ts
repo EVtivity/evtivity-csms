@@ -21,6 +21,7 @@ import { paginatedResponse, itemResponse, errorWith } from '../lib/response-sche
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { siteInScope } from '../lib/site-scope.js';
 import { authorize } from '../middleware/rbac.js';
 
 const stationIdParams = z.object({
@@ -176,7 +177,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -269,7 +270,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -373,7 +374,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -542,7 +543,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -641,7 +642,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }

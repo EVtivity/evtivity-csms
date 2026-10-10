@@ -10,7 +10,9 @@ const {
   writeReservationAuditMock,
   chargeCancellationFeeMock,
   alertStationWatchersMock,
+  feeTermsMock,
 } = vi.hoisted(() => ({
+  feeTermsMock: vi.fn(),
   alertStationWatchersMock: vi.fn(async (..._args: unknown[]) => false),
   executeMock: vi.fn(),
   updateMock: vi.fn(),
@@ -36,6 +38,7 @@ vi.mock('@evtivity/database', () => ({
   },
   reservations: { id: 'id' },
   getReservationSettings: getReservationSettingsMock,
+  resolveReservationFeeTerms: feeTermsMock,
   writeReservationAudit: writeReservationAuditMock,
   alertStationWatchersIfAvailable: alertStationWatchersMock,
   client: { tag: 'client' },
@@ -87,6 +90,12 @@ beforeEach(() => {
   getReservationSettingsMock.mockResolvedValue({
     cancellationFeeCents: 500,
     cancellationWindowMinutes: 30,
+  });
+  feeTermsMock.mockResolvedValue({
+    basis: 'net',
+    taxRate: '0.19',
+    feePerMinute: null,
+    cancellationFeeCents: 500,
   });
 });
 
@@ -181,10 +190,12 @@ describe('applyReservationCancellation', () => {
     expect(chargeCancellationFeeMock).not.toHaveBeenCalled();
   });
 
-  it('does not charge a fee when cancellationFeeCents is 0', async () => {
-    getReservationSettingsMock.mockResolvedValue({
+  it('does not charge a fee when the reservation terms have no cancellation fee', async () => {
+    feeTermsMock.mockResolvedValue({
+      basis: 'net',
+      taxRate: '0.19',
+      feePerMinute: null,
       cancellationFeeCents: 0,
-      cancellationWindowMinutes: 30,
     });
     executeMock.mockResolvedValueOnce([{ id: 'rsv_1', status_before: 'active' }]);
     const result = await applyReservationCancellation(
@@ -223,16 +234,17 @@ describe('applyReservationCancellation', () => {
       baseInput({ startsAt: new Date(Date.now() + 5 * 60_000) }),
     );
 
-    // The fee setting (500) is net; the charge adds the station tariff's tax.
-    // The charge runs with the caller's payment context.
+    // The fee (500) is in the terms' basis (net); the charge prices it with
+    // the engine. The charge runs with the caller's payment context.
     expect(chargeCancellationFeeMock).toHaveBeenCalledWith(
       {
         type: 'reservation_cancellation',
         reservationId: 'rsv_1',
         driverId: 'drv_1',
-        stationId: 'sta_1',
         siteId: 'sit_1',
-        netCents: 500,
+        fee: { amountCents: 500 },
+        basis: 'net',
+        taxRate: '0.19',
       },
       payments,
     );
@@ -246,6 +258,88 @@ describe('applyReservationCancellation', () => {
     expect(updateChain.set).toHaveBeenCalledWith(
       expect.objectContaining({ cancellationFeeCents: 595 }),
     );
+  });
+
+  for (const [id, basis, gross] of [
+    ['TC-T3-22', 'net', 357],
+    ['TC-T3-23', 'gross', 300],
+  ] as const) {
+    it(`${id} charges the cancellation fee on the ${basis} basis from the snapshot at creation`, async () => {
+      executeMock.mockResolvedValueOnce([
+        {
+          id: 'rsv_1',
+          status_before: 'active',
+          station_id: 'sta_1',
+          fee_tax_basis: basis,
+          fee_tax_rate: '0.19',
+          fee_per_minute: '0.10',
+          fee_cancellation_cents: 300,
+        },
+      ]);
+      // The setting changed since the reservation was made; the snapshot wins.
+      getReservationSettingsMock.mockResolvedValue({
+        cancellationFeeCents: 900,
+        cancellationWindowMinutes: 30,
+      });
+      feeTermsMock.mockResolvedValue({
+        basis,
+        taxRate: '0.19',
+        feePerMinute: '0.10',
+        cancellationFeeCents: 300,
+      });
+      chargeCancellationFeeMock.mockResolvedValueOnce({
+        status: 'charged',
+        paymentRecordId: 1,
+        grossCents: gross,
+        netCents: basis === 'net' ? 300 : 252,
+        taxCents: basis === 'net' ? 57 : 48,
+        taxRate: 0.19,
+        currency: 'EUR',
+      });
+      const updateChain = makeUpdateChain();
+      updateMock.mockReturnValue(updateChain);
+
+      const result = await applyReservationCancellation(
+        baseInput({ startsAt: new Date(Date.now() + 5 * 60_000) }),
+      );
+
+      expect(feeTermsMock).toHaveBeenCalledWith({
+        stationId: 'sta_1',
+        driverId: 'drv_1',
+        feeTaxBasis: basis,
+        feeTaxRate: '0.19',
+        feePerMinute: '0.10',
+        feeCancellationCents: 300,
+      });
+      expect(chargeCancellationFeeMock).toHaveBeenCalledWith(
+        expect.objectContaining({ fee: { amountCents: 300 }, basis, taxRate: '0.19' }),
+        payments,
+      );
+      expect(result.feeChargedCents).toBe(gross);
+      expect(updateChain.set).toHaveBeenCalledWith(
+        expect.objectContaining({ cancellationFeeCents: gross }),
+      );
+    });
+  }
+
+  it('reports the fee failed when the fee terms cannot be resolved', async () => {
+    executeMock.mockResolvedValueOnce([
+      { id: 'rsv_1', status_before: 'active', station_id: 'sta_1' },
+    ]);
+    feeTermsMock.mockRejectedValueOnce(new Error('db down'));
+    const errorLog = vi.fn();
+
+    const result = await applyReservationCancellation(
+      baseInput({ startsAt: new Date(Date.now() + 5 * 60_000), logger: { error: errorLog } }),
+    );
+
+    expect(result).toEqual({
+      feeChargedCents: 0,
+      cancelled: true,
+      feeChargeFailed: true,
+      feeCurrency: null,
+    });
+    expect(chargeCancellationFeeMock).not.toHaveBeenCalled();
   });
 
   it('reports no fee when the charge is skipped for lack of a payment method', async () => {

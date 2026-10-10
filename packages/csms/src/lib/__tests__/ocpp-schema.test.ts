@@ -7,6 +7,8 @@ import {
   formValuesToPayload,
   resolveFields,
   generateJsonStub,
+  formToPayloadJson,
+  payloadToFormValues,
 } from '../ocpp-schema';
 import type { ResolvedField, CommandSchema } from '../ocpp-schema';
 
@@ -211,9 +213,10 @@ describe('resolveFields', () => {
     ]);
   });
 
-  it('generateJsonStub pretty-prints the example', () => {
-    expect(generateJsonStub(schema)).toBe(JSON.stringify(schema.example, null, 2));
-    expect(JSON.parse(generateJsonStub(schema))).toEqual(schema.example);
+  it('generateJsonStub pretty-prints the minimal payload of the fields', () => {
+    expect(generateJsonStub(schema)).toBe(
+      JSON.stringify({ evseId: 0, profile: { id: 0 } }, null, 2),
+    );
   });
 });
 
@@ -353,5 +356,148 @@ describe('formValuesToPayload conversions', () => {
   it('ignores a non-array value for an array field and a non-object for an object field', () => {
     const payload = formValuesToPayload({ tags: 'a', evse: 'x', mustAgree: true }, fields);
     expect(payload).toEqual({ mustAgree: true });
+  });
+
+  it('converts primitive array items by their kind and drops empty ones', () => {
+    const ids: ResolvedField[] = [
+      {
+        name: 'id',
+        kind: 'array',
+        required: false,
+        arrayItem: { name: 'id', kind: 'integer', required: true },
+      },
+    ];
+    expect(formValuesToPayload({ id: ['3', '', 4] }, ids)).toEqual({ id: [3, 4] });
+  });
+
+  it('keeps an unparseable datetime as typed so validation reports it', () => {
+    expect(formValuesToPayload({ at: 'soon', mustAgree: false }, fields)).toEqual({
+      at: 'soon',
+      mustAgree: false,
+    });
+  });
+});
+
+describe('schema constraints', () => {
+  it('enforces multipleOf', () => {
+    const fields: ResolvedField[] = [
+      { name: 'limit', kind: 'number', required: true, multipleOf: 0.1 },
+    ];
+    expect(validatePayload({ limit: 7.3 }, fields)).toEqual({});
+    expect(validatePayload({ limit: 7.35 }, fields)['limit']).toEqual({
+      key: 'validation.invalidNumber',
+    });
+  });
+
+  it('checks uri strings', () => {
+    const fields: ResolvedField[] = [
+      { name: 'location', kind: 'string', required: true, format: 'uri' },
+    ];
+    expect(validatePayload({ location: 'ftp://host/fw.bin' }, fields)).toEqual({});
+    expect(validatePayload({ location: 'fw.bin' }, fields)['location']).toEqual({
+      key: 'validation.invalidUrl',
+    });
+  });
+
+  it('enforces minItems and maxItems', () => {
+    const fields: ResolvedField[] = [
+      {
+        name: 'keys',
+        kind: 'array',
+        required: false,
+        minItems: 2,
+        maxItems: 3,
+        arrayItem: { name: 'keys', kind: 'string', required: true, maxLength: 3 },
+      },
+    ];
+    expect(validatePayload({ keys: ['a'] }, fields)['keys']).toEqual({
+      key: 'validation.minItems',
+      params: { min: 2 },
+    });
+    expect(validatePayload({ keys: ['a', 'b', 'c', 'd'] }, fields)['keys']).toEqual({
+      key: 'validation.maxItems',
+      params: { max: 3 },
+    });
+    expect(validatePayload({ keys: ['a', 'long'] }, fields)['keys.1']).toEqual({
+      key: 'validation.maxLength',
+      params: { max: 3 },
+    });
+  });
+
+  it('flags properties that are not fields of the command, except customData', () => {
+    const fields: ResolvedField[] = [
+      {
+        name: 'evse',
+        kind: 'object',
+        required: true,
+        objectFields: [{ name: 'id', kind: 'integer', required: true }],
+      },
+    ];
+    const errors = validatePayload(
+      { evse: { id: 1, connector: 2 }, extra: true, customData: { vendorId: 'v' } },
+      fields,
+    );
+    expect(errors).toEqual({
+      'evse.connector': { key: 'validation.unknownField' },
+      extra: { key: 'validation.unknownField' },
+    });
+  });
+});
+
+describe('form and advanced mode sync', () => {
+  const now = new Date('2026-03-04T05:06:07.890Z');
+  const schema: CommandSchema = {
+    action: 'ReserveNow',
+    version: 'ocpp2.1',
+    example: {},
+    fields: [
+      { name: 'id', type: 'integer', required: true, description: '', minimum: 1 },
+      { name: 'expiryDateTime', type: 'datetime', required: true, description: '' },
+      { name: 'connectorType', type: 'enum', required: false, description: '', values: ['cCCS1'] },
+      {
+        name: 'idToken',
+        type: 'object',
+        required: true,
+        description: '',
+        fields: [
+          { name: 'idToken', type: 'string', required: true, description: '' },
+          { name: 'type', type: 'enum', required: true, description: '', values: ['Central'] },
+        ],
+      },
+    ],
+  };
+
+  it('shows the minimal payload while the form is empty', () => {
+    expect(JSON.parse(formToPayloadJson({}, schema, now))).toEqual({
+      id: 1,
+      expiryDateTime: '2026-03-04T05:06:07.000Z',
+      idToken: { idToken: '', type: 'Central' },
+    });
+  });
+
+  it('shows the payload the form would send once it has values', () => {
+    expect(JSON.parse(formToPayloadJson({ id: '7', connectorType: 'cCCS1' }, schema, now))).toEqual(
+      { id: 7, connectorType: 'cCCS1' },
+    );
+  });
+
+  it('round-trips a payload through the form values', () => {
+    const fields = resolveFields(schema);
+    const payload = {
+      id: 3,
+      expiryDateTime: '2026-03-04T05:06:07.000Z',
+      idToken: { idToken: 'TAG1', type: 'Central' },
+    };
+    const values = payloadToFormValues({ ...payload, unknown: 1 }, fields);
+    expect(values['expiryDateTime']).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+    expect(values).not.toHaveProperty('unknown');
+    expect(formValuesToPayload(values, fields)).toEqual(payload);
+  });
+
+  it('keeps values it cannot convert', () => {
+    const fields = resolveFields(schema);
+    expect(
+      payloadToFormValues({ expiryDateTime: 'later', idToken: 'x', id: null }, fields),
+    ).toEqual({ expiryDateTime: 'later', idToken: 'x' });
   });
 });

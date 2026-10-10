@@ -49,6 +49,10 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+
 vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain()),
@@ -567,6 +571,163 @@ describe('Settings routes', () => {
       expect(clearInvoiceSettingsCache).toHaveBeenCalled();
     },
   );
+
+  it('PUT /v1/settings/pdf.logo stores an SVG sanitized as a base64 data URI', async () => {
+    vi.mocked(db.insert).mockClear();
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><script>alert(1)</script><rect width="4" height="2" fill="url(https://x.test/p)"/><circle r="1"/></svg>';
+    const stored = `data:image/svg+xml;base64,${Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><rect width="4" height="2"/><circle r="1"/></svg>',
+    ).toString('base64')}`;
+    setupDbResults([], [{ key: 'pdf.logo', value: stored }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/pdf.logo',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: `data:image/svg+xml,${encodeURIComponent(svg)}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({ key: 'pdf.logo', value: stored });
+  });
+
+  it.each([
+    ['an empty string (the default logo)', '', ''],
+    [
+      'a PNG',
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    ],
+  ])('PUT /v1/settings/pdf.logo stores %s', async (_label, value, stored) => {
+    vi.mocked(db.insert).mockClear();
+    setupDbResults([], [{ key: 'pdf.logo', value: stored }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/pdf.logo',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({ key: 'pdf.logo', value: stored });
+  });
+
+  it.each([
+    ['a GIF', `data:image/gif;base64,${Buffer.from('GIF89a').toString('base64')}`],
+    ['a JPEG', `data:image/jpeg;base64,${Buffer.from([0xff, 0xd8, 0xff]).toString('base64')}`],
+    ['a URL', 'https://example.com/logo.png'],
+    ['an HTML page', `data:image/svg+xml,${encodeURIComponent('<html><body/></html>')}`],
+    [
+      'an SVG with an entity declaration',
+      `data:image/svg+xml,${encodeURIComponent('<!DOCTYPE svg [<!ENTITY a "b">]><svg xmlns="http://www.w3.org/2000/svg"/>')}`,
+    ],
+    [
+      'a PNG over 512 KB',
+      `data:image/png;base64,${Buffer.alloc(512 * 1024 + 1).toString('base64')}`,
+    ],
+    ['a number', 5],
+  ])('PUT /v1/settings/pdf.logo rejects %s', async (_label, value) => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/pdf.logo',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(response.json().error).toContain('pdf.logo');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/pdf.footer stores the normalized footer', async () => {
+    vi.mocked(db.insert).mockClear();
+    setupDbResults([], [{ key: 'pdf.footer', value: 'Acme GmbH\nMain St 1' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/pdf.footer',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: '\r\nAcme GmbH  \r\nMain St 1\n\n' },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({
+      key: 'pdf.footer',
+      value: 'Acme GmbH\nMain St 1',
+    });
+  });
+
+  it.each([
+    ['over 500 characters', 'x'.repeat(501)],
+    ['over 5 lines', 'a\nb\nc\nd\ne\nf'],
+    ['a non-string', 42],
+  ])('PUT /v1/settings/pdf.footer rejects %s', async (_label, value) => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/pdf.footer',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toContain('pdf.footer');
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it('PUT /v1/settings/company.taxId stores the trimmed tax ID', async () => {
+    vi.mocked(db.insert).mockClear();
+    setupDbResults([], [{ key: 'company.taxId', value: 'DE123456789' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.taxId',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: '  DE123456789 ' },
+    });
+    expect(response.statusCode).toBe(200);
+    const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(insertChain.values).toHaveBeenCalledWith({ key: 'company.taxId', value: 'DE123456789' });
+  });
+
+  it('PUT /v1/settings/company.invoiceEmail accepts an empty value', async () => {
+    vi.mocked(db.insert).mockClear();
+    setupDbResults([], [{ key: 'company.invoiceEmail', value: '' }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/company.invoiceEmail',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: ' ' },
+    });
+    expect(response.statusCode).toBe(200);
+  });
+
+  it.each([
+    ['company.taxId', 'x'.repeat(65)],
+    ['company.taxId', 'DE1\nDE2'],
+    ['company.taxIdLabel', 'x'.repeat(41)],
+    ['company.registrationNumber', 42],
+    ['company.invoiceEmail', 'billing'],
+    ['company.invoicePhone', 'x'.repeat(41)],
+  ])('PUT /v1/settings/%s rejects an invalid value', async (key, value) => {
+    vi.mocked(db.insert).mockClear();
+    const response = await app.inject({
+      method: 'PUT',
+      url: `/settings/${key}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.json().code).toBe('VALIDATION_ERROR');
+    expect(response.json().error).toContain(key);
+    expect(db.insert).not.toHaveBeenCalled();
+  });
 
   it.each([0, -1, 1.5, '5000', 100_000_001, null])(
     'PUT /v1/settings/fleet.creditReservationCents rejects %s',

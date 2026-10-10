@@ -10,6 +10,7 @@ import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { siteInScope } from '../lib/site-scope.js';
 
 // --- Schemas ---
 
@@ -94,6 +95,20 @@ async function verifyCircuitInSite(circuitId: string, siteId: string): Promise<b
   return circuit != null;
 }
 
+/**
+ * True when the load hangs off a panel of the site, directly or through one of
+ * the panel's circuits. A load of another site answers 404 under this URL
+ * site, so a site-restricted user cannot reach it through one of their sites.
+ */
+async function loadBelongsToSite(
+  load: { panelId: string | null; circuitId: string | null },
+  siteId: string,
+): Promise<boolean> {
+  if (load.panelId != null && (await verifyPanelInSite(load.panelId, siteId))) return true;
+  if (load.circuitId != null && (await verifyCircuitInSite(load.circuitId, siteId))) return true;
+  return false;
+}
+
 // --- Routes ---
 
 export function unmanagedLoadRoutes(app: FastifyInstance): void {
@@ -127,7 +142,7 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -187,16 +202,18 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
         params: zodSchema(siteIdParam),
         response: {
           200: arrayResponse(loadItem),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { siteId } = request.params as z.infer<typeof siteIdParam>;
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
-        return [];
+      if (!siteInScope(siteIds, siteId)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
       }
 
       // Get all unmanaged loads where panelId or circuitId belongs to panels in this site
@@ -279,7 +296,7 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Load not found', code: 'LOAD_NOT_FOUND' });
         return;
       }
@@ -290,7 +307,7 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
         .from(unmanagedLoads)
         .where(eq(unmanagedLoads.id, loadId));
 
-      if (existing == null) {
+      if (existing == null || !(await loadBelongsToSite(existing, siteId))) {
         await reply.status(404).send({ error: 'Load not found', code: 'LOAD_NOT_FOUND' });
         return;
       }
@@ -361,18 +378,22 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Load not found', code: 'LOAD_NOT_FOUND' });
         return;
       }
 
       const loadId = Number(id);
       const [existing] = await db
-        .select({ id: unmanagedLoads.id })
+        .select({
+          id: unmanagedLoads.id,
+          panelId: unmanagedLoads.panelId,
+          circuitId: unmanagedLoads.circuitId,
+        })
         .from(unmanagedLoads)
         .where(eq(unmanagedLoads.id, loadId));
 
-      if (existing == null) {
+      if (existing == null || !(await loadBelongsToSite(existing, siteId))) {
         await reply.status(404).send({ error: 'Load not found', code: 'LOAD_NOT_FOUND' });
         return;
       }

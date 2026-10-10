@@ -214,14 +214,14 @@ describe('Station image routes (site scope and edge cases)', () => {
       vi.mocked(checkStationSiteAccess).mockResolvedValue(false);
     });
 
-    it('list returns an empty array without querying images', async () => {
+    it('list answers 404 without querying images', async () => {
       const res = await app.inject({
         method: 'GET',
         url: `/stations/${VALID_STATION_ID}/images`,
         headers: headers(),
       });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual([]);
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ code: 'STATION_NOT_FOUND' });
       expect(db.select).not.toHaveBeenCalled();
     });
 
@@ -253,7 +253,63 @@ describe('Station image routes (site scope and edge cases)', () => {
     });
   });
 
+  describe('confirm upload object checks', () => {
+    beforeEach(() => {
+      mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
+    });
+
+    it('returns 400 STORAGE_NOT_CONFIGURED without a configured bucket', async () => {
+      mockGetS3Config.mockResolvedValue(null);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/images`,
+        headers: headers(),
+        payload: confirmBody,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('STORAGE_NOT_CONFIGURED');
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['another bucket', { s3Bucket: 'bucket-b' }],
+      ['another station key', { s3Key: 'stations/sta_000000000002/k.jpg' }],
+      ['a key outside stations/', { s3Key: 'invoices/k.pdf' }],
+      ['a nested key', { s3Key: 'stations/sta_000000000001/x/k.jpg' }],
+      ['a bare prefix', { s3Key: 'stations/sta_000000000001/' }],
+    ])('rejects %s with 400 and stores nothing', async (_label, override) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/images`,
+        headers: headers(),
+        payload: { ...confirmBody, ...override },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('stores the configured bucket', async () => {
+      setupDbResults([{ maxOrder: 0 }], [IMAGE]);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/images`,
+        headers: headers(),
+        payload: confirmBody,
+      });
+      expect(res.statusCode).toBe(201);
+      const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ s3Bucket: 'bucket-a', s3Key: confirmBody.s3Key }),
+      );
+    });
+  });
+
   it('confirm upload maps a foreign key violation to 404 STATION_NOT_FOUND', async () => {
+    mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
     const fk = Object.assign(new Error('fk'), { code: '23503' });
     setupDbResults([{ maxOrder: 2 }], fk);
     const res = await app.inject({
@@ -268,6 +324,7 @@ describe('Station image routes (site scope and edge cases)', () => {
   });
 
   it('confirm upload rethrows other insert errors as 500', async () => {
+    mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
     const other = Object.assign(new Error('deadlock'), { code: '40P01' });
     setupDbResults([{ maxOrder: 2 }], other);
     const res = await app.inject({
@@ -281,6 +338,7 @@ describe('Station image routes (site scope and edge cases)', () => {
   });
 
   it('confirm upload with isMainImage clears the previous main image first', async () => {
+    mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'bucket-a' });
     // update (clear main), select max sort, insert
     setupDbResults([], [{ maxOrder: 4 }], [{ ...IMAGE, isMainImage: true, sortOrder: 5 }]);
     const res = await app.inject({

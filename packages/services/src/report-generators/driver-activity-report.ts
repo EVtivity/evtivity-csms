@@ -2,25 +2,36 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql, and, gte, lte, eq, count, type SQL } from 'drizzle-orm';
-import { db, chargingSessions, drivers, getCompanyCurrency } from '@evtivity/database';
+import {
+  db,
+  chargingSessions,
+  chargingStations,
+  drivers,
+  getCompanyCurrency,
+} from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
+import { loadPdfBranding } from '../pdf-branding.js';
 import { queryRevenue, revenueItem } from '../session-revenue.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { csvRows, moneyCell, pdfRows, type MoneyCell } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
 import type { ReportGeneratorResult } from '../report-registry.js';
+import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 
 interface Filters {
   dateFrom?: string | undefined;
   dateTo?: string | undefined;
+  /** The report's site scope (report-scope.ts). */
+  scope: ReportSiteScope;
 }
 
-function parseFilters(raw: Record<string, unknown>): Filters {
+function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
   return {
     dateFrom: typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined,
     dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
+    scope,
   };
 }
 
@@ -34,9 +45,9 @@ function dateBounds(filters: Filters): { from: Date | null; to: Date | null } {
   return { from, to };
 }
 
-function buildDateConditions(filters: Filters) {
+function buildDateConditions(filters: Filters): SQL[] {
   const { from, to } = dateBounds(filters);
-  const conditions = [];
+  const conditions: SQL[] = [];
   if (from != null) conditions.push(gte(chargingSessions.startedAt, from));
   if (to != null) conditions.push(lte(chargingSessions.startedAt, to));
   return conditions;
@@ -58,6 +69,9 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
     ...buildDateConditions(filters),
     sql`${chargingSessions.driverId} IS NOT NULL`,
   ];
+  // Only sessions at stations in the report's site scope count.
+  const sessionInScope = stationSiteInScope(chargingStations.siteId, filters.scope);
+  if (sessionInScope != null) conditions.push(sessionInScope);
 
   const rows = await db
     .select({
@@ -73,6 +87,7 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
     })
     .from(chargingSessions)
     .innerJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
     .where(and(...conditions))
     .groupBy(drivers.id, drivers.firstName, drivers.lastName, drivers.email)
     .orderBy(sql`5 desc`)
@@ -90,6 +105,8 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
   if (from != null)
     where.push(sql`${revenueItem.occurredAt} >= ${from.toISOString()}::timestamptz`);
   if (to != null) where.push(sql`${revenueItem.occurredAt} <= ${to.toISOString()}::timestamptz`);
+  const revenueInScope = stationSiteInScope(revenueItem.siteId, filters.scope);
+  if (revenueInScope != null) where.push(revenueInScope);
   const spend = await queryRevenue({ companyCurrency: currency, key: revenueItem.driverId, where });
 
   return rows.map((r) => ({
@@ -107,9 +124,10 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
 export async function generateDriverActivityReport(
   rawFilters: Record<string, unknown>,
   format: string,
-  language: UiLanguage = 'en',
+  language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters);
+  const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.driverActivity;
@@ -153,7 +171,7 @@ export async function generateDriverActivityReport(
     return { data, fileName: `driver-activity-${String(Date.now())}.xlsx` };
   }
 
-  const pdf = new PdfReportBuilder(rl.language);
+  const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
   pdf.addTitle(l.title);
   pdf.addSubtitle(rl.period(filters.dateFrom, filters.dateTo, common.allTime));
   pdf.addSummaryRow(rl.summary(l.summary.activeDrivers), rl.number(totalDrivers));

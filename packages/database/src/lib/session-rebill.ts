@@ -12,12 +12,14 @@
 import type postgres from 'postgres';
 import type { SessionCostBreakdown } from '@evtivity/lib';
 import {
-  closeOpenSegment,
+  closeSegmentsAt,
   loadSessionPricing,
   priceSession,
   sessionIdleMinutesAt,
 } from './session-pricing.js';
 import { SESSION_END_FAILED_REASON } from './session-end-request.js';
+import { toDateOrNull } from './raw-timestamp.js';
+import type { RawTimestamp } from './raw-timestamp.js';
 
 /** How long a re-bill claim holds before another request may take it over (a request that died). */
 export const SESSION_REBILL_LEASE_SECONDS = 300;
@@ -61,22 +63,16 @@ export interface RebillPricing {
   energyWh: number;
 }
 
-function toDate(value: unknown): Date | null {
-  if (value == null) return null;
-  return value instanceof Date ? value : new Date(value as string);
-}
-
 /**
  * Prices a session the CSMS gave up ending, as the Ended projection prices a
  * CSMS end: at its last update (the last meter value of the session, at most
- * the time it was faulted; its start without meter values; never before the
- * start of its latest tariff segment) with the energy metered so far. The
- * give-up closed the open tariff segment at the fault time without an end
- * reading, which the calculator counts as no energy, so that segment is
- * reopened and closed at the billed end with the energy, as the Ended
- * projection closes it. A retry finds the segment closed with its
- * reading and leaves it alone. Null for an unknown or unstarted session, or
- * one without a tariff snapshot.
+ * the time it was faulted; its start without meter values) with the energy
+ * metered so far. Its segments end there as the Ended projection ends them
+ * (closeSegmentsAt, finding B6): a segment a switch opened at or after the
+ * billed end is removed, and the latest remaining segment, which the give-up
+ * closed at the fault time without an end reading, is closed at the billed
+ * end with the energy. A retry closes it again with the same values. Null
+ * for an unknown or unstarted session, or one without a tariff snapshot.
  */
 export async function priceRebill(
   sql: postgres.Sql,
@@ -86,41 +82,20 @@ export async function priceRebill(
   if (session?.tariffId == null) return null;
   const [row] = await sql`
     SELECT s.ended_at, s.energy_delivered_wh,
-           (SELECT max(mv.timestamp) FROM meter_values mv WHERE mv.session_id = s.id) AS last_reading_at,
-           (SELECT max(seg.started_at) FROM session_tariff_segments seg
-            WHERE seg.session_id = s.id) AS last_segment_started_at
+           (SELECT max(mv.timestamp) FROM meter_values mv WHERE mv.session_id = s.id) AS last_reading_at
     FROM charging_sessions s
     WHERE s.id = ${sessionId}
   `;
   if (row == null) return null;
-  const faultedAt = toDate(row.ended_at);
-  let endedAt = toDate(row.last_reading_at) ?? session.startedAt;
+  const faultedAt = toDateOrNull(row.ended_at as RawTimestamp);
+  let endedAt = toDateOrNull(row.last_reading_at as RawTimestamp) ?? session.startedAt;
   if (faultedAt != null && endedAt > faultedAt) endedAt = faultedAt;
   if (endedAt < session.startedAt) endedAt = session.startedAt;
-  // The billed end closes the latest segment, so it is never before that
-  // segment's start (a tariff switch after the last meter value): the segment
-  // gets a duration of 0, never a negative one.
-  const lastSegmentStartedAt = toDate(row.last_segment_started_at);
-  if (lastSegmentStartedAt != null && endedAt < lastSegmentStartedAt) {
-    endedAt = lastSegmentStartedAt;
-  }
   const energyWh = Number(row.energy_delivered_wh ?? 0);
+  // Never negative: an idle period opened after the billed end adds nothing.
   const idleMinutes = sessionIdleMinutesAt(session, endedAt);
 
-  await sql.begin(async (tx) => {
-    const txSql = tx as unknown as postgres.Sql;
-    await txSql`
-      UPDATE session_tariff_segments
-      SET ended_at = NULL, duration_minutes = NULL
-      WHERE id = (
-        SELECT id FROM session_tariff_segments
-        WHERE session_id = ${sessionId}
-        ORDER BY started_at DESC, id DESC
-        LIMIT 1
-      ) AND energy_wh_end IS NULL
-    `;
-    await closeOpenSegment(txSql, sessionId, endedAt, energyWh, idleMinutes);
-  });
+  await closeSegmentsAt(sql, sessionId, endedAt, energyWh, idleMinutes);
 
   const breakdown = await priceSession(sql, session, endedAt, energyWh);
   return breakdown == null ? null : { breakdown, endedAt, energyWh };

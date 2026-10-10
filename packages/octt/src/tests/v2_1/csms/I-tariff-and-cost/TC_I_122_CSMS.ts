@@ -4,6 +4,7 @@
 import type { StepResult, TestCase } from '../../../../types.js';
 import { pushSendAckStep, newTransactionId } from '../../../../csms-test-helpers.js';
 import { defaultReply } from '../../../../default-replies.js';
+import { waitForSession } from '../../../../tariff-test-helpers.js';
 
 /**
  * TC_I_122_CSMS: Local Cost Calculation - Cost Details of Transaction
@@ -14,6 +15,10 @@ import { defaultReply } from '../../../../default-replies.js';
  *   3. EnergyTransferStarted
  *   4. TransactionEvent Updated with costDetails
  *   5. CSMS responds with TransactionEventResponse
+ * Post scenario (EVtivity): the transaction runs on the driver tariff of the
+ * AuthorizeResponse (transactionInfo.tariffId, I08.FR.22) and ends with the
+ * station's cost details; the CSMS records the station's tariffId and total
+ * on the session and compares the total with the billed final cost.
  */
 export const TC_I_122_CSMS: TestCase = {
   id: 'TC_I_122_CSMS',
@@ -179,7 +184,16 @@ export const TC_I_122_CSMS: TestCase = {
       await new Promise((resolve) => setTimeout(resolve, 15000));
     }
 
-    // Step 3: EnergyTransferStarted
+    // Step 3: EnergyTransferStarted, on the driver tariff the CSMS returned
+    // in the AuthorizeResponse (I08).
+    const authRes = await ctx.client.sendCall('Authorize', {
+      idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
+    });
+    const driverTariff = authRes['tariff'] as Record<string, unknown> | undefined;
+    const driverTariffId =
+      typeof driverTariff?.['tariffId'] === 'string' ? driverTariff['tariffId'] : undefined;
+    const currency =
+      typeof driverTariff?.['currency'] === 'string' ? driverTariff['currency'] : 'EUR';
     const txId = newTransactionId('OCTT-TX');
     const txStartTime = new Date().toISOString();
     await ctx.client.sendCall('TransactionEvent', {
@@ -187,7 +201,11 @@ export const TC_I_122_CSMS: TestCase = {
       timestamp: txStartTime,
       triggerReason: 'Authorized',
       seqNo: 0,
-      transactionInfo: { transactionId: txId, chargingState: 'Charging' },
+      transactionInfo: {
+        transactionId: txId,
+        chargingState: 'Charging',
+        ...(driverTariffId != null ? { tariffId: driverTariffId } : {}),
+      },
       evse: { id: 1, connectorId: 1 },
       idToken: { idToken: ctx.tokens.valid, type: 'ISO14443' },
     });
@@ -234,8 +252,80 @@ export const TC_I_122_CSMS: TestCase = {
       `Response keys: ${Object.keys(txRes).join(', ')}`,
     );
 
+    // Post scenario: the station ends the transaction with its cost details
+    // (I12.FR.01); the CSMS records them and compares with its own cost.
+    const endRes = await ctx.client.sendCall('TransactionEvent', {
+      eventType: 'Ended',
+      timestamp: new Date().toISOString(),
+      triggerReason: 'StopAuthorized',
+      seqNo: 2,
+      transactionInfo: {
+        transactionId: txId,
+        chargingState: 'EVConnected',
+        stoppedReason: 'Local',
+      },
+      costDetails: {
+        totalCost: {
+          currency,
+          typeOfCost: 'NormalCost',
+          total: { exclTax: 1, inclTax: 1.2 },
+        },
+        totalUsage: { energy: 0, chargingTime: 60, idleTime: 0 },
+      },
+    });
+    steps.push({
+      step: 8,
+      description: 'TransactionEvent Ended with costDetails: CSMS omits totalCost',
+      status: endRes['totalCost'] == null ? 'passed' : 'failed',
+      expected: 'totalCost omitted (the station calculated the cost)',
+      actual: `totalCost = ${String(endRes['totalCost'])}`,
+    });
+
+    if (ctx.callApi == null) {
+      steps.push({
+        step: 9,
+        description: 'CSMS records the station cost on the session',
+        status: 'skipped',
+        expected: 'session stationTariffId, stationCostCents, stationCostDifferenceCents',
+        actual: 'No API client for the run',
+      });
+    } else {
+      const session = await waitForSession(
+        ctx,
+        txId,
+        (s) => s['stationCostDifferenceCents'] != null,
+      );
+      const finalCost = session?.['finalCostCents'];
+      const difference = session?.['stationCostDifferenceCents'];
+      steps.push({
+        step: 9,
+        description: 'CSMS records the station tariffId and total on the session',
+        status:
+          session != null &&
+          session['stationTariffId'] === (driverTariffId ?? null) &&
+          session['stationCostCents'] === 120
+            ? 'passed'
+            : 'failed',
+        expected: `stationTariffId = ${String(driverTariffId ?? null)}, stationCostCents = 120`,
+        actual:
+          session != null
+            ? `stationTariffId = ${String(session['stationTariffId'])}, stationCostCents = ${String(session['stationCostCents'])}`
+            : 'session not completed with station cost in time',
+      });
+      steps.push({
+        step: 10,
+        description: 'CSMS compares the station total with the billed final cost',
+        status:
+          typeof finalCost === 'number' && difference === 120 - finalCost ? 'passed' : 'failed',
+        expected: 'stationCostDifferenceCents = 120 - finalCostCents',
+        actual: `finalCostCents = ${String(finalCost)}, stationCostDifferenceCents = ${String(difference)}`,
+      });
+    }
+
     return {
-      status: steps.every((s) => s.status === 'passed') ? 'passed' : 'failed',
+      status: steps.every((s) => s.status === 'passed' || s.status === 'skipped')
+        ? 'passed'
+        : 'failed',
       durationMs: 0,
       steps,
     };

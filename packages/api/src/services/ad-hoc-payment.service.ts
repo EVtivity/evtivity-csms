@@ -16,6 +16,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
+import { siteInScope } from '../lib/site-scope.js';
 
 /** How long an authorized payment waits for the station to start the transaction. */
 const PAYMENT_TTL_MS = 15 * 60 * 1000;
@@ -72,10 +73,7 @@ export async function startAdHocPayment(
     .where(eq(chargingStations.stationId, input.stationId));
 
   const siteIds = await getUserSiteIds(userId);
-  if (
-    station == null ||
-    (siteIds != null && (station.siteId == null || !siteIds.includes(station.siteId)))
-  ) {
+  if (station == null || !siteInScope(siteIds, station.siteId)) {
     return { ok: false, status: 404, code: 'STATION_NOT_FOUND', error: 'Station not found' };
   }
   if (!station.isOnline) {

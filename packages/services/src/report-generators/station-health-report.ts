@@ -1,13 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, eq } from 'drizzle-orm';
+import { sql, eq, type SQL } from 'drizzle-orm';
 import { db, settings } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
+import { loadPdfBranding } from '../pdf-branding.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import type { ReportGeneratorResult } from '../report-registry.js';
+import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 import { csvRows, dateCell, pdfRows, percentCell } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
 
@@ -15,14 +17,27 @@ interface Filters {
   dateFrom?: string | undefined;
   dateTo?: string | undefined;
   siteId?: string | undefined;
+  /** The report's site scope (report-scope.ts). */
+  scope: ReportSiteScope;
 }
 
-function parseFilters(raw: Record<string, unknown>): Filters {
+function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
   return {
     dateFrom: typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined,
     dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
+    scope,
   };
+}
+
+/**
+ * `AND ...` conditions on the station alias `cs`: the site filter and the
+ * report's site scope.
+ */
+function stationSiteCondition(filters: Filters): SQL {
+  const siteFilter = filters.siteId ? sql`AND cs.site_id = ${filters.siteId}` : sql``;
+  const inScope = stationSiteInScope(sql.raw('cs.site_id'), filters.scope);
+  return inScope != null ? sql`${siteFilter} AND ${inScope}` : siteFilter;
 }
 
 function getDateRange(filters: Filters): { since: Date; sinceIso: string } {
@@ -58,7 +73,7 @@ async function queryStationUptime(filters: Filters): Promise<StationUptime[]> {
   const periodMinutes = Math.floor((Date.now() - since.getTime()) / 60000);
   const periodMinutesStr = String(periodMinutes);
 
-  const siteCondition = filters.siteId ? sql`AND cs.site_id = ${filters.siteId}` : sql``;
+  const siteCondition = stationSiteCondition(filters);
 
   const rows = await db.execute(sql`
     WITH all_ports AS (
@@ -151,7 +166,7 @@ async function queryStationUptime(filters: Filters): Promise<StationUptime[]> {
 async function queryFaultFrequency(filters: Filters): Promise<FaultFrequency[]> {
   const { sinceIso } = getDateRange(filters);
 
-  const siteCondition = filters.siteId ? sql`AND cs.site_id = ${filters.siteId}` : sql``;
+  const siteCondition = stationSiteCondition(filters);
 
   const rows = await db.execute(sql`
     SELECT
@@ -176,7 +191,7 @@ async function queryFaultFrequency(filters: Filters): Promise<FaultFrequency[]> 
 async function queryDowntimeIncidents(filters: Filters): Promise<DowntimeIncident[]> {
   const { sinceIso } = getDateRange(filters);
 
-  const siteCondition = filters.siteId ? sql`AND cs.site_id = ${filters.siteId}` : sql``;
+  const siteCondition = stationSiteCondition(filters);
 
   const [tzRow] = await db
     .select({ value: settings.value })
@@ -223,9 +238,10 @@ async function queryDowntimeIncidents(filters: Filters): Promise<DowntimeInciden
 export async function generateStationHealthReport(
   rawFilters: Record<string, unknown>,
   format: string,
-  language: UiLanguage = 'en',
+  language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters);
+  const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.stationHealth;
@@ -308,7 +324,7 @@ export async function generateStationHealthReport(
     return { data, fileName: `station-health-${String(Date.now())}.xlsx` };
   }
 
-  const pdf = new PdfReportBuilder(rl.language);
+  const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
   pdf.addTitle(l.title);
   pdf.addSubtitle(rl.period(filters.dateFrom, filters.dateTo, common.last30Days));
   pdf.addSummaryRow(rl.summary(l.summary.averageUptime), rl.percent(avgUptime));

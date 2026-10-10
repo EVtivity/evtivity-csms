@@ -13,7 +13,9 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
-import { formatCents, formatDate } from '@/lib/utils';
+import { formatDate } from '@/lib/utils';
+import { cancellationFeeApplies, cancellationFeeWarning } from '@/lib/reservation-fee';
+import type { ReservationFee } from '@/lib/reservation-fee';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -25,6 +27,8 @@ interface Reservation {
   startsAt: string | null;
   expiresAt: string;
   createdAt: string;
+  /** Null when the reservation is not open or has no cancellation fee. */
+  cancellationFee: ReservationFee | null;
 }
 
 interface ReservationsResponse {
@@ -34,7 +38,6 @@ interface ReservationsResponse {
 interface PortalFeatures {
   reservationEnabled: boolean;
   supportEnabled: boolean;
-  reservationCancellationFeeCents: number;
   reservationCancellationWindowMinutes: number;
   currency: string;
 }
@@ -87,13 +90,13 @@ export function Reservations(): React.JSX.Element {
     staleTime: 5 * 60_000,
   });
 
+  // The fee amount comes with each reservation (gross, on the terms
+  // snapshotted when it was made); the window comes from the features.
   function feeWillApply(reservation: Reservation): boolean {
-    if (features == null) return false;
-    if (features.reservationCancellationFeeCents <= 0) return false;
-    if (features.reservationCancellationWindowMinutes <= 0) return false;
-    const referenceTime = new Date(reservation.startsAt ?? reservation.createdAt).getTime();
-    const minutesUntilStart = Math.floor((referenceTime - Date.now()) / 60_000);
-    return minutesUntilStart < features.reservationCancellationWindowMinutes;
+    return (
+      features != null &&
+      cancellationFeeApplies(reservation, features.reservationCancellationWindowMinutes)
+    );
   }
 
   const cancelMutation = useMutation({
@@ -225,10 +228,10 @@ export function Reservations(): React.JSX.Element {
                       station: pendingCancel.stationOcppId,
                       time: formatDate(pendingCancel.expiresAt, timezone),
                     }),
-                feeWillApply(pendingCancel) && features != null
-                  ? t('reservations.cancellationFeeWarning', {
-                      fee: formatCents(features.reservationCancellationFeeCents, features.currency),
-                    })
+                feeWillApply(pendingCancel) &&
+                features != null &&
+                pendingCancel.cancellationFee != null
+                  ? cancellationFeeWarning(t, pendingCancel.cancellationFee, features.currency)
                   : '',
               ]
                 .filter(Boolean)

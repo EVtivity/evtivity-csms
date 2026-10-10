@@ -28,10 +28,12 @@ import { useOcppSchema } from '@/hooks/use-ocpp-schema';
 import {
   resolveFields,
   formValuesToPayload,
-  generateJsonStub,
+  formToPayloadJson,
+  payloadToFormValues,
   validatePayload,
 } from '@/lib/ocpp-schema';
 import type { ValidationErrors } from '@/lib/ocpp-schema';
+import { CSMS_ACTIONS, CSMS_ACTIONS_16 } from '@/lib/ocpp-command-actions';
 import { SchemaForm } from '@/components/SchemaForm';
 import { OCPP_21_VARIABLES, OCPP_16_KEYS } from '@/lib/ocpp-variables';
 import { LoadingLogo } from '@/components/loading-logo';
@@ -87,87 +89,6 @@ const TRIGGER_MESSAGE_TYPES_16 = [
   'Heartbeat',
   'MeterValues',
   'StatusNotification',
-] as const;
-
-const CSMS_ACTIONS = [
-  'AdjustPeriodicEventStream',
-  'AFRRSignal',
-  'CancelReservation',
-  'CertificateSigned',
-  'ChangeAvailability',
-  'ChangeTransactionTariff',
-  'ClearCache',
-  'ClearChargingProfile',
-  'ClearDERControl',
-  'ClearDisplayMessage',
-  'ClearTariffs',
-  'ClearVariableMonitoring',
-  'ClosePeriodicEventStream',
-  'CostUpdated',
-  'CustomerInformation',
-  'DataTransfer',
-  'DeleteCertificate',
-  'Get15118EVCertificate',
-  'GetBaseReport',
-  'GetCertificateChainStatus',
-  'GetChargingProfiles',
-  'GetCompositeSchedule',
-  'GetDERControl',
-  'GetDisplayMessages',
-  'GetInstalledCertificateIds',
-  'GetLocalListVersion',
-  'GetLog',
-  'GetMonitoringReport',
-  'GetPeriodicEventStream',
-  'GetReport',
-  'GetTariffs',
-  'GetVariables',
-  'InstallCertificate',
-  'OpenPeriodicEventStream',
-  'PublishFirmware',
-  'RequestBatterySwap',
-  'RequestStartTransaction',
-  'RequestStopTransaction',
-  'ReserveNow',
-  'Reset',
-  'SendLocalList',
-  'SetChargingProfile',
-  'SetDERControl',
-  'SetDefaultTariff',
-  'SetDisplayMessage',
-  'SetMonitoringBase',
-  'SetMonitoringLevel',
-  'SetNetworkProfile',
-  'SetVariableMonitoring',
-  'SetVariables',
-  'TriggerMessage',
-  'UnlockConnector',
-  'UnpublishFirmware',
-  'UpdateDynamicSchedule',
-  'UpdateFirmware',
-  'UsePriorityCharging',
-] as const;
-
-const CSMS_ACTIONS_16 = [
-  'CancelReservation',
-  'ChangeAvailability',
-  'ChangeConfiguration',
-  'ClearCache',
-  'ClearChargingProfile',
-  'DataTransfer',
-  'GetCompositeSchedule',
-  'GetConfiguration',
-  'GetDiagnostics',
-  'GetLocalListVersion',
-  'RemoteStartTransaction',
-  'RemoteStopTransaction',
-  'ReserveNow',
-  'Reset',
-  'SendLocalList',
-  'SetChargingProfile',
-  'TriggerMessage',
-  'UnlockConnector',
-  'UpdateFirmware',
 ] as const;
 
 interface CommandResponse {
@@ -1226,25 +1147,21 @@ export function StationCommands({
   } = useOcppSchema(advancedAction, schemaVersion);
   const resolvedFields = schemaData != null ? resolveFields(schemaData) : [];
 
+  // Form to JSON: the payload the form would send, or the schema's minimal
+  // payload while the form is empty.
   const syncFormToJson = useCallback(() => {
-    if (resolvedFields.length > 0) {
-      const hasValues = Object.keys(schemaFormValues).length > 0;
-      if (hasValues) {
-        const payload = formValuesToPayload(schemaFormValues, resolvedFields);
-        setAdvancedPayload(JSON.stringify(payload, null, 2));
-      } else if (schemaData != null) {
-        setAdvancedPayload(generateJsonStub(schemaData));
-      }
+    if (schemaData != null) {
+      setAdvancedPayload(formToPayloadJson(schemaFormValues, schemaData));
     }
-  }, [schemaFormValues, resolvedFields, schemaData]);
+  }, [schemaFormValues, schemaData]);
 
   const syncJsonToForm = useCallback(() => {
     // Keep the current form values when the JSON is invalid.
     const parsed = tryParseJson(advancedPayload);
     if (parsed != null && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      setSchemaFormValues(parsed as Record<string, unknown>);
+      setSchemaFormValues(payloadToFormValues(parsed as Record<string, unknown>, resolvedFields));
     }
-  }, [advancedPayload]);
+  }, [advancedPayload, resolvedFields]);
 
   const mutation = useMutation({
     mutationFn: (params: { action: string; payload: Record<string, unknown> }) => {

@@ -85,6 +85,7 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
+  userCanAccessSite: vi.fn().mockResolvedValue(true),
   invalidateSiteAccessCache: vi.fn(),
 }));
 

@@ -189,10 +189,10 @@ export function StationDetail(): React.JSX.Element {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 *:w-full sm:flex-row sm:items-start sm:justify-between sm:*:w-auto">
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
           <BackButton to="/stations" />
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">{station.stationId}</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{station.stationId}</h1>
             <CopyableId id={station.id} />
           </div>
           <Badge variant={station.isOnline ? 'success' : 'destructive'}>

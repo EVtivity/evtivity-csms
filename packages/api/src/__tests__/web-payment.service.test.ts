@@ -51,6 +51,7 @@ vi.mock('@evtivity/database', () => ({
   chargingStations: {},
   evses: {},
   stationAuditLog: {},
+  stationConfigurations: {},
   stationWebPaymentConfigs: {},
   writeAudit: (...args: unknown[]) => {
     writeAudit(...args);
@@ -58,7 +59,7 @@ vi.mock('@evtivity/database', () => ({
   },
 }));
 
-vi.mock('drizzle-orm', () => ({ eq: vi.fn(), and: vi.fn() }));
+vi.mock('drizzle-orm', () => ({ eq: vi.fn(), and: vi.fn(), gte: vi.fn(), isNull: vi.fn() }));
 
 const sendOcppCommandAndWait = vi.fn();
 vi.mock('@evtivity/services/ocpp-command', () => ({
@@ -70,6 +71,7 @@ import {
   disableWebPayments,
   validateQrCodeUrl,
   qrUrlTemplate,
+  checkWebPaymentSupport,
 } from '../services/web-payment.service.js';
 
 const ctx = {
@@ -117,6 +119,7 @@ describe('enableWebPayments', () => {
     sendOcppCommandAndWait.mockResolvedValue(accepted(ALL_VARIABLES));
     dbResults = [
       [STATION], // loadStation
+      [], // stored support (none reported)
       [], // upsert
       [STATION], // getWebPaymentConfig: loadStation
       [
@@ -168,6 +171,30 @@ describe('enableWebPayments', () => {
     await expect(
       enableWebPayments('sta_1', { validitySeconds: 30, totpLength: 8 }, ctx),
     ).rejects.toMatchObject({ code: 'STATION_SECURITY_CHANGE_REJECTED', statusCode: 502 });
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it('refuses with WEB_PAYMENTS_NOT_SUPPORTED when the last report shows Available false', async () => {
+    dbResults = [[STATION], [{ variable: 'Available', value: 'false', updatedAt: new Date() }]];
+
+    await expect(
+      enableWebPayments('sta_1', { validitySeconds: 30, totpLength: 8 }, ctx),
+    ).rejects.toMatchObject({ code: 'WEB_PAYMENTS_NOT_SUPPORTED', statusCode: 409 });
+    expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
+    expect(insertValues).not.toHaveBeenCalled();
+  });
+
+  it('refuses with WEB_PAYMENTS_NOT_SUPPORTED when the station lacks the component', async () => {
+    const response = accepted(ALL_VARIABLES);
+    for (const r of response.response.setVariableResult) {
+      (r as { attributeStatus: string }).attributeStatus = 'UnknownComponent';
+    }
+    sendOcppCommandAndWait.mockResolvedValue(response);
+    dbResults = [[STATION]];
+
+    await expect(
+      enableWebPayments('sta_1', { validitySeconds: 30, totpLength: 8 }, ctx),
+    ).rejects.toMatchObject({ code: 'WEB_PAYMENTS_NOT_SUPPORTED', statusCode: 409 });
     expect(insertValues).not.toHaveBeenCalled();
   });
 
@@ -309,5 +336,172 @@ describe('validateQrCodeUrl', () => {
       valid: false,
       reason: 'missing_parameter',
     });
+  });
+});
+
+describe('checkWebPaymentSupport', () => {
+  const NOW = Date.parse('2026-10-09T12:00:00Z');
+  function getResult(statuses: Record<string, [string, string?]>) {
+    return {
+      commandId: 'c',
+      response: {
+        getVariableResult: Object.entries(statuses).map(([name, [status, value]]) => ({
+          attributeStatus: status,
+          ...(value != null ? { attributeValue: value } : {}),
+          component: { name: 'WebPaymentsCtrlr' },
+          variable: { name },
+        })),
+      },
+    };
+  }
+  const live = { live: true, log: ctx.log };
+  const stored = { live: false, log: ctx.log };
+
+  it('asks an online station with GetVariables and reports support', async () => {
+    dbResults = [[STATION]];
+    sendOcppCommandAndWait.mockResolvedValue(
+      getResult({
+        TOTPVersion: ['Accepted', 'v1'],
+        Enabled: ['Accepted', 'false'],
+        Available: ['UnknownVariable'],
+      }),
+    );
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toEqual({
+      status: 'supported',
+      reason: 'reported',
+      source: 'station',
+      stationEnabled: false,
+      checkedAt: '2026-10-09T12:00:00.000Z',
+    });
+    const [stationId, action, payload] = sendOcppCommandAndWait.mock.calls[0] as [
+      string,
+      string,
+      { getVariableData: { component: { name: string }; variable: { name: string } }[] },
+    ];
+    expect(stationId).toBe('CS-1');
+    expect(action).toBe('GetVariables');
+    expect(payload.getVariableData.map((d) => d.variable.name)).toEqual([
+      'TOTPVersion',
+      'Enabled',
+      'Available',
+    ]);
+  });
+
+  it('reports not supported for UnknownComponent, UnknownVariable and Available false', async () => {
+    dbResults = [[STATION]];
+    sendOcppCommandAndWait.mockResolvedValue(
+      getResult({
+        TOTPVersion: ['UnknownComponent'],
+        Enabled: ['UnknownComponent'],
+        Available: ['UnknownComponent'],
+      }),
+    );
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toMatchObject({
+      status: 'not_supported',
+      reason: 'unknown_component',
+    });
+
+    dbResults = [[STATION]];
+    dbCallIndex = 0;
+    sendOcppCommandAndWait.mockResolvedValue(
+      getResult({ TOTPVersion: ['UnknownVariable'], Enabled: ['Accepted', 'true'] }),
+    );
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toMatchObject({
+      status: 'not_supported',
+      reason: 'unknown_variable',
+      stationEnabled: true,
+    });
+
+    dbResults = [[STATION]];
+    dbCallIndex = 0;
+    sendOcppCommandAndWait.mockResolvedValue(
+      getResult({ TOTPVersion: ['Accepted', 'v1'], Available: ['Accepted', 'false'] }),
+    );
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toMatchObject({
+      status: 'not_supported',
+      reason: 'not_available',
+    });
+  });
+
+  it('reports unknown on a timeout, a failed command or an unclear answer', async () => {
+    dbResults = [[STATION]];
+    sendOcppCommandAndWait.mockResolvedValue({ commandId: 'c', error: 'No response within 35s' });
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toMatchObject({
+      status: 'unknown',
+      reason: 'timeout',
+      source: 'station',
+    });
+    expect(ctx.log.warn).toHaveBeenCalled();
+
+    dbResults = [[STATION]];
+    dbCallIndex = 0;
+    sendOcppCommandAndWait.mockResolvedValue({ commandId: 'c', error: 'NotImplemented' });
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toMatchObject({
+      reason: 'command_failed',
+    });
+
+    dbResults = [[STATION]];
+    dbCallIndex = 0;
+    sendOcppCommandAndWait.mockResolvedValue(getResult({ TOTPVersion: ['Rejected'] }));
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toMatchObject({
+      status: 'unknown',
+      reason: 'unexpected_response',
+    });
+  });
+
+  it('answers OCPP 1.6 stations without asking them', async () => {
+    dbResults = [[{ ...STATION, ocppProtocol: 'ocpp1.6' }]];
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toEqual({
+      status: 'not_supported',
+      reason: 'ocpp_version',
+      source: 'none',
+      stationEnabled: null,
+      checkedAt: null,
+    });
+    expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
+  });
+
+  it('answers from a stored device model report without contacting the station', async () => {
+    const reportedAt = new Date(NOW - 60_000);
+    dbResults = [
+      [STATION],
+      [
+        { variable: 'TOTPVersion', value: 'v1', updatedAt: new Date(NOW - 120_000) },
+        { variable: 'Enabled', value: 'true', updatedAt: reportedAt },
+      ],
+    ];
+    expect(await checkWebPaymentSupport('sta_1', stored, NOW)).toEqual({
+      status: 'supported',
+      reason: 'reported',
+      source: 'device_model',
+      stationEnabled: true,
+      checkedAt: reportedAt.toISOString(),
+    });
+
+    dbResults = [[STATION], [{ variable: 'Available', value: 'false', updatedAt: reportedAt }]];
+    dbCallIndex = 0;
+    expect(await checkWebPaymentSupport('sta_1', stored, NOW)).toMatchObject({
+      status: 'not_supported',
+      reason: 'not_available',
+    });
+    expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
+  });
+
+  it('reports not checked or offline when no recent report exists', async () => {
+    dbResults = [[STATION], []];
+    expect(await checkWebPaymentSupport('sta_1', stored, NOW)).toMatchObject({
+      status: 'unknown',
+      reason: 'not_checked',
+      source: 'none',
+    });
+
+    // A live check of an offline station falls back to the stored report.
+    dbResults = [[{ ...STATION, isOnline: false }], []];
+    dbCallIndex = 0;
+    expect(await checkWebPaymentSupport('sta_1', live, NOW)).toMatchObject({
+      status: 'unknown',
+      reason: 'offline',
+    });
+    expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
   });
 });

@@ -201,7 +201,17 @@ describe('rebillSession', () => {
       m.client,
       'session.Receipt',
       'drv_1',
-      expect.objectContaining({ finalCostCents: 1190, stationId: 'CS-1', notCharged: false }),
+      // TC-T3-30: the tax label and amount come from the split the session
+      // was completed with, and nothing is left unpaid.
+      expect.objectContaining({
+        finalCostCents: 1190,
+        stationId: 'CS-1',
+        notCharged: false,
+        costIncludesTax: true,
+        taxCents: 190,
+        partiallyPaid: false,
+        unpaidCents: 0,
+      }),
       ['templates'],
       expect.anything(),
     );

@@ -11,6 +11,7 @@ import * as chargingProfileReconciliationModule from '../../handlers/charging-pr
 //   1. selectDistinct stationsWithProfiles
 //   2. select csmsRows
 //   3. select reportedRows
+//   4. select station sites (for the SSE event's siteId)
 let queryResults: unknown[][] = [];
 let queryIndex = 0;
 function setupQueries(...results: unknown[][]): void {
@@ -48,6 +49,7 @@ vi.mock('@evtivity/database', () => ({
     sentAt: 'chargingProfiles.sentAt',
     reportedAt: 'chargingProfiles.reportedAt',
   },
+  chargingStations: { id: 'chargingStations.id', siteId: 'chargingStations.siteId' },
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -93,6 +95,7 @@ describe('chargingProfileReconciliationHandler', () => {
       [{ stationId: 'sta_1' }], // stationsWithProfiles
       [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }], // csmsRows
       [], // reportedRows: nothing reported
+      [{ id: 'sta_1', siteId: 'sit_1' }], // station sites
     );
     const log = makeLog();
     const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
@@ -106,7 +109,7 @@ describe('chargingProfileReconciliationHandler', () => {
         eventType: 'station.profileMismatch',
         stationId: 'sta_1',
         sessionId: null,
-        siteId: null,
+        siteId: 'sit_1',
       }),
     );
     expect(log.info).toHaveBeenCalledWith(

@@ -33,9 +33,10 @@ import {
   resolveStationTariff,
   priceSessionAt,
   storeRunningCost,
-  openSegmentTariffId,
   switchTariffSegment,
-  sessionIdleMinutesAt,
+  applySessionEnergyReading,
+  eventTimeAtMostNow,
+  sendSessionTariffChange,
   pgConstraintName,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
@@ -57,6 +58,12 @@ import {
 import { projectNotifySettlement, settleTransactionEnded } from './session-lifecycle/settlement.js';
 import { CostUpdatedThrottle, FleetCreditThrottle } from './session-lifecycle/state.js';
 import { growAccountCeiling } from './session-lifecycle/account-ceiling.js';
+import {
+  isFreeToPaidSwitch,
+  runDuePaymentGate,
+  runSegmentPaymentGate,
+  sessionStartTariff,
+} from './session-lifecycle/segment-payment-gate.js';
 import type { SessionLifecycleState } from './session-lifecycle/state.js';
 import { TransactionProjector } from './session-lifecycle/transaction-projector.js';
 import { getString } from './projection-support/payload.js';
@@ -1310,6 +1317,13 @@ export function registerProjections(
 
       // Readings whose session effects ran in this delivery (see below).
       let projectedReadings = 0;
+      // The newest timestamp among the readings projected in this delivery:
+      // the time a split billing segment switch applies at (finding B5).
+      let latestReadingMs: number | null = null;
+      // The session energy at that newest reading, when it was the session's
+      // newest projected register reading (not stale): a reading at or before
+      // a switch the boundary job made moves the boundary energy up to it.
+      let latestReadingEnergy: { sessionId: string; energyWh: number } | null = null;
       for (const [reading, mv] of meterValues.entries()) {
         const mvTimestamp = mv.timestamp as string;
         const sampledValues = mv.sampledValue as Array<Record<string, unknown>> | undefined;
@@ -1424,6 +1438,11 @@ export function registerProjections(
         // older register reading.
         if (sessionId != null && storedSamples === 0) continue;
         projectedReadings++;
+        const readingMs = new Date(mvTimestamp).getTime();
+        if (!Number.isNaN(readingMs) && (latestReadingMs == null || readingMs > latestReadingMs)) {
+          latestReadingMs = readingMs;
+          latestReadingEnergy = null;
+        }
 
         // An idle period open for IDLE_NOTICE_MIN_SECONDS at this reading
         // notifies first, before this reading can end it (JB-2). Readings a
@@ -1439,52 +1458,61 @@ export function registerProjections(
         }
 
         // Update energy_delivered_wh on the session when we get an energy reading.
-        // Energy registers are cumulative, so we compute: currentValue - meterStart.
-        // If meterStart is not yet set (OCPP 2.1 sessions), capture the first reading as meterStart.
         // Transaction-scoped readings (TransactionEvent, 1.6 MeterValues with transactionId)
         // update their own session while it is active. Standalone 2.1 MeterValues on an
         // EVSE update the active session on that EVSE.
         const meterValue = overallValue(energySamples);
         if (appliesToSession && meterValue != null) {
-          // Capture previous energy and meter_start for flat-reading idle detection
+          // The target session and when its energy last rose, for flat-reading idle detection
           const prevRows = await attempt.memo(
             `mv:${String(reading)}:prev`,
             () => sql`
-          SELECT energy_delivered_wh, meter_start, COALESCE(energy_rose_at, started_at) AS last_rise_at
+          SELECT id, COALESCE(energy_rose_at, started_at) AS last_rise_at
           FROM charging_sessions
           WHERE station_id = ${stationUuid} AND status = 'active'
             AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
         `,
           );
-          const prevEnergyWh = Number(prevRows[0]?.energy_delivered_wh ?? -1);
-          const existingMeterStart = prevRows[0]?.meter_start as string | null | undefined;
+          const targetSessionId = prevRows[0]?.id as string | undefined;
           const lastRiseAt = prevRows[0]?.last_rise_at as Date | string | null | undefined;
 
-          // Set meter_start from the first energy reading if not already set (OCPP 2.1 path)
-          await sql`
-          UPDATE charging_sessions
-          SET meter_start = ${Math.round(meterValue)}, updated_at = now()
-          WHERE station_id = ${stationUuid} AND status = 'active'
-            AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
-            AND meter_start IS NULL
-        `;
-          // Compute energy as delta: currentReading - meterStart (clamp to 0 if meter resets).
-          // The cast is required: untyped, Postgres infers integer from meter_start and rejects decimals.
-          // energy_rose_at records the reading that raised the energy by 1 Wh or more
-          // (the flat-energy fallback below measures the flat time from it).
-          await sql`
-          UPDATE charging_sessions
-          SET energy_delivered_wh = GREATEST(0, ${meterValue}::numeric - meter_start),
-              energy_rose_at = CASE
-                WHEN GREATEST(0, ${meterValue}::numeric - meter_start) - COALESCE(energy_delivered_wh, 0) >= 1
-                THEN GREATEST(COALESCE(energy_rose_at, ${mvTimestamp}::timestamptz), ${mvTimestamp}::timestamptz)
-                ELSE energy_rose_at
-              END,
-              updated_at = now()
-          WHERE station_id = ${stationUuid} AND status = 'active'
-            AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
-            AND meter_start IS NOT NULL
-        `;
+          // Registers are cumulative: energy = register + offset - meter_start
+          // (applySessionEnergyReading, finding B10). The first reading of a
+          // 2.1 transaction sets meter_start. A reading older than the newest
+          // projected one never changes the energy, and a newer reading below
+          // it (a meter reset or replacement, J02.FR.16) adds the drop to the
+          // offset, so the energy never goes down. energy_rose_at records the
+          // reading that raised the energy by 1 Wh or more (the flat-energy
+          // fallback below measures the flat time from it). Memoized: a rerun
+          // sees the result of the first run, with its previous energy.
+          const energy =
+            targetSessionId == null
+              ? null
+              : await attempt.memo(`mv:${String(reading)}:energy`, () =>
+                  applySessionEnergyReading(sql, {
+                    sessionId: targetSessionId,
+                    registerWh: meterValue,
+                    at: new Date(mvTimestamp),
+                  }),
+                );
+          if (energy != null && targetSessionId != null && readingMs === latestReadingMs) {
+            latestReadingEnergy =
+              energy.kind === 'stale'
+                ? null
+                : { sessionId: targetSessionId, energyWh: energy.energyWh };
+          }
+          if (energy?.kind === 'drop') {
+            logger.warn(
+              {
+                stationId,
+                sessionId: targetSessionId,
+                registerWh: meterValue,
+                offsetWh: energy.offsetWh,
+              },
+              'Energy register dropped during the transaction (meter reset or replacement); rebased',
+            );
+          }
+          const prevEnergyWh = energy?.previousEnergyWh ?? -1;
 
           // Flat energy reading idle detection (Priority 3 fallback).
           // If energy_delivered_wh did not change after this reading and has not
@@ -1501,8 +1529,19 @@ export function registerProjections(
           // for the session's EVSE, or the event's EVSE for a session without
           // one (connectors.status_reported_at): a reading replayed from an
           // offline queue after a live status is stale.
-          if (eventChargingState == null && existingMeterStart != null && prevEnergyWh >= 0) {
-            const newEnergyWh = meterValue - Number(existingMeterStart);
+          // A stale (older) reading or the first reading opens and closes
+          // nothing, nor does a register drop (meter reset or replacement):
+          // its energy is the energy kept from before the drop, not a flat
+          // reading (TC-T2-07).
+          if (
+            eventChargingState == null &&
+            energy != null &&
+            energy.kind !== 'first' &&
+            energy.kind !== 'stale' &&
+            energy.kind !== 'drop' &&
+            prevEnergyWh >= 0
+          ) {
+            const newEnergyWh = energy.energyWh;
             if (Math.abs(newEnergyWh - prevEnergyWh) < 1) {
               const flat =
                 lastRiseAt != null &&
@@ -1547,11 +1586,12 @@ export function registerProjections(
                 `mv:${String(reading)}:energy-idle-close`,
                 () => sql`
               UPDATE charging_sessions
-              SET idle_minutes = idle_minutes + EXTRACT(EPOCH FROM (${mvTimestamp}::timestamptz - idle_started_at)) / 60,
+              SET idle_minutes = idle_minutes + GREATEST(0, EXTRACT(EPOCH FROM (${mvTimestamp}::timestamptz - idle_started_at)) / 60),
                   idle_started_at = NULL,
                   updated_at = now()
               WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
                 AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+                AND idle_started_at <= ${mvTimestamp}::timestamptz
                 AND NOT EXISTS (
                   SELECT 1 FROM transaction_events te
                   WHERE te.session_id = charging_sessions.id
@@ -1578,6 +1618,9 @@ export function registerProjections(
         // that never report chargingState: a reading carried by an event with
         // chargingState, or of a session whose events carried one, changes
         // nothing, JB-1). Only transaction-scoped readings update idle state.
+        // A reading older than the newest projected register reading (an
+        // offline replay) opens and closes nothing, and a close never ends a
+        // period that opened after the reading (finding B11).
         const powerValue = overallValue(powerSamples);
         if (
           eventChargingState == null &&
@@ -1594,6 +1637,7 @@ export function registerProjections(
             SET idle_started_at = ${mvTimestamp}, updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NULL
               AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+              AND (meter_last_register_at IS NULL OR meter_last_register_at <= ${mvTimestamp}::timestamptz)
               AND NOT EXISTS (
                 SELECT 1 FROM transaction_events te
                 WHERE te.session_id = charging_sessions.id
@@ -1622,11 +1666,13 @@ export function registerProjections(
               `mv:${String(reading)}:power-idle-close`,
               () => sql`
             UPDATE charging_sessions
-            SET idle_minutes = idle_minutes + EXTRACT(EPOCH FROM (${mvTimestamp}::timestamptz - idle_started_at)) / 60,
+            SET idle_minutes = idle_minutes + GREATEST(0, EXTRACT(EPOCH FROM (${mvTimestamp}::timestamptz - idle_started_at)) / 60),
                 idle_started_at = NULL,
                 updated_at = now()
             WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
               AND (id = ${sessionId} OR (${sessionId}::text IS NULL AND evse_id = ${evseUuid}))
+              AND idle_started_at <= ${mvTimestamp}::timestamptz
+              AND (meter_last_register_at IS NULL OR meter_last_register_at <= ${mvTimestamp}::timestamptz)
               AND NOT EXISTS (
                 SELECT 1 FROM transaction_events te
                 WHERE te.session_id = charging_sessions.id
@@ -1665,6 +1711,13 @@ export function registerProjections(
               'mv:active-sessions',
               () => sql`
           SELECT cs.id, cs.transaction_id, cs.tariff_id, cs.driver_id, cs.token_id,
+                 COALESCE(cs.pricing_group_id,
+                   (SELECT t.pricing_group_id FROM tariffs t WHERE t.id = cs.tariff_id)
+                 ) AS pricing_group_id,
+                 cs.payment_gate_due_at,
+                 cs.tariff_price_per_kwh, cs.tariff_price_per_minute, cs.tariff_price_per_session,
+                 cs.tariff_idle_fee_price_per_minute, cs.tariff_reservation_fee_per_minute,
+                 cs.tariff_tax_rate,
                  cs.energy_delivered_wh, cs.current_cost_cents, cs.cost_ceiling_cents,
                  cs.idle_started_at, cs.idle_minutes, st.ocpp_protocol,
                  cs.billing_mode, cs.billing_fleet_id, cs.stopped_reason,
@@ -1684,41 +1737,60 @@ export function registerProjections(
         const now = new Date();
         const energyWh = Number(session.energy_delivered_wh ?? 0);
 
-        // Split billing: when the tariff that applies now differs from the one
-        // of the open segment, close that segment and open one priced from the
-        // new tariff. The session keeps the tariff snapshot it started with.
-        // The session's energy so far selects an energy-threshold tariff once
-        // the threshold is crossed.
+        // Split billing: when the tariff that applies at the newest reading
+        // (its timestamp, at most now; finding B5) differs from the one of the
+        // open segment, close that segment and open one priced from the new
+        // tariff at that reading. The session's energy so far selects an
+        // energy-threshold tariff once the threshold is crossed. Under the
+        // session row lock, with a compare-and-set close, so a concurrent
+        // boundary job switch never opens a second segment (finding B1); a
+        // reading not after the open segment's start switches nothing. The
+        // session keeps the tariff snapshot it started with.
         if (splitBillingEnabled) {
+          // Only within the pricing group the session started in (B7): an
+          // assignment or fleet membership change applies to the next session.
+          const switchAt = eventTimeAtMostNow(
+            latestReadingMs != null ? new Date(latestReadingMs) : null,
+            now,
+          );
           const currentTariff = await resolveStationTariff(
             {
               stationUuid,
               driverUuid: session.driver_id as string | null,
-              at: now,
+              at: switchAt,
               sessionEnergyKwh: energyWh / 1000,
+              pricingGroupId: session.pricing_group_id as string | null,
             },
             sql,
           );
-          const openTariffId =
-            (await openSegmentTariffId(sql, sessionId)) ?? (session.tariff_id as string);
-          if (currentTariff != null && currentTariff.id !== openTariffId) {
-            await switchTariffSegment(sql, {
+          if (currentTariff != null) {
+            const switched = await switchTariffSegment(sql, {
               sessionId,
               tariff: currentTariff,
-              at: now,
+              at: switchAt,
               energyWh,
-              sessionIdleMinutes: sessionIdleMinutesAt(
-                {
-                  idleStartedAt:
-                    session.idle_started_at != null
-                      ? new Date(session.idle_started_at as string)
-                      : null,
-                  idleMinutes: Number(session.idle_minutes ?? 0),
-                },
-                now,
-              ),
+              readingEnergyWh:
+                latestReadingEnergy?.sessionId === sessionId ? latestReadingEnergy.energyWh : null,
             });
+            if (switched != null) {
+              // A station that calculates the cost locally gets the tariff
+              // that applies from now, unless its tariff already describes it
+              // (I11). Fail-open inside: billing follows the segments.
+              await sendSessionTariffChange(sql, pubsub, { sessionId, at: now, energyWh });
+              // A session that started free and moved to a paid tariff runs
+              // the payment gate now (B3): a card hold, or a stop by the gate
+              // rules.
+              if (isFreeToPaidSwitch(sessionStartTariff(session), currentTariff)) {
+                await runSegmentPaymentGate(deps, sessionId, currentTariff);
+              }
+            }
           }
+        }
+
+        // The worker's tariff boundary job moved this session from a free to
+        // a paid tariff: the gate runs here, once per mark (claimed below).
+        if (session.payment_gate_due_at != null) {
+          await runDuePaymentGate(deps, sessionId);
         }
 
         // The running cost, from the one cost assembly the final cost uses
@@ -2016,13 +2088,23 @@ export function registerProjections(
         // Notify the UI so the campaign detail header refreshes immediately.
         // Always publish on a station-status change, plus a separate
         // event when the campaign itself flipped to completed.
-        await notify.notifyChange('firmwareCampaign.stationUpdated', stationUuid, null, null, {
-          campaignId: linkedCampaignId,
-        });
+        // The station's site scopes the event on the operator SSE stream.
+        const campaignStationSiteId = await lookups.resolveSiteId(stationUuid);
+        await notify.notifyChange(
+          'firmwareCampaign.stationUpdated',
+          stationUuid,
+          campaignStationSiteId,
+          null,
+          { campaignId: linkedCampaignId },
+        );
         if (completed.count > 0) {
-          await notify.notifyChange('firmwareCampaign.completed', stationUuid, null, null, {
-            campaignId: linkedCampaignId,
-          });
+          await notify.notifyChange(
+            'firmwareCampaign.completed',
+            stationUuid,
+            campaignStationSiteId,
+            null,
+            { campaignId: linkedCampaignId },
+          );
           // Audit the auto-complete transition so operators can see when (and
           // by what signal) the campaign closed. Manual cancel writes audit at
           // the route layer; without this entry the completion is invisible to
@@ -2158,7 +2240,11 @@ export function registerProjections(
           undefined,
           logger,
         );
-        await notify.notifyChange('reservation.changed', null, null);
+        await notify.notifyChange(
+          'reservation.changed',
+          expiredRow.station_id,
+          await lookups.resolveSiteId(expiredRow.station_id),
+        );
         await checkStationWatches(expiredRow.station_id);
       }
       return;
@@ -2201,7 +2287,11 @@ export function registerProjections(
           undefined,
           logger,
         );
-        await notify.notifyChange('reservation.changed', stationUuid, null);
+        await notify.notifyChange(
+          'reservation.changed',
+          stationUuid,
+          await lookups.resolveSiteId(stationUuid),
+        );
         await checkStationWatches(stationUuid);
       }
 
@@ -2377,6 +2467,59 @@ export function registerProjections(
         return;
       }
     }
+
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('displayMessage.updated', stationUuid, siteId);
+  });
+
+  // The command listener publishes these with the station's reply for every
+  // SetDisplayMessage and ClearDisplayMessage it sends, including commands queued
+  // while the station was offline and sent on reconnect, where no API caller is
+  // waiting for the reply. Station message slots (9000+) have no display_messages
+  // row and match nothing.
+  safeSubscribe('command.SetDisplayMessage', async (event: DomainEvent) => {
+    const request = event.payload.request as Record<string, unknown> | undefined;
+    const message = request?.['message'] as Record<string, unknown> | undefined;
+    const messageId = message?.['id'];
+    const response = event.payload.response as Record<string, unknown> | undefined;
+    const status = response?.['status'];
+    if (typeof messageId !== 'number' || typeof status !== 'string') return;
+
+    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+
+    // Only a pending row takes the reply, so a late reply cannot revive a
+    // cleared row or overwrite one the station already reported.
+    const newStatus = status === 'Accepted' ? 'accepted' : 'rejected';
+    const updated = await sql`
+      UPDATE display_messages
+      SET status = ${newStatus}, ocpp_response = ${sql.json(asJson(response))}, updated_at = now()
+      WHERE station_id = ${stationUuid} AND ocpp_message_id = ${messageId} AND status = 'pending'
+    `;
+    if (updated.count === 0) return;
+
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('displayMessage.updated', stationUuid, siteId);
+  });
+
+  safeSubscribe('command.ClearDisplayMessage', async (event: DomainEvent) => {
+    const request = event.payload.request as Record<string, unknown> | undefined;
+    const messageId = request?.['id'];
+    const response = event.payload.response as Record<string, unknown> | undefined;
+    // Unknown or Rejected leaves the row as it is.
+    if (typeof messageId !== 'number' || response?.['status'] !== 'Accepted') return;
+
+    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+
+    // cleared is terminal: rejected, expired and cleared rows stay as they are.
+    const updated = await sql`
+      UPDATE display_messages
+      SET status = 'cleared', ocpp_response = ${sql.json(asJson(response))}, updated_at = now()
+      WHERE station_id = ${stationUuid} AND ocpp_message_id = ${messageId}
+        AND status IN ('pending', 'accepted')
+    `;
+    if (updated.count === 0) return;
 
     const siteId = await lookups.resolveSiteId(stationUuid);
     await notify.notifyChange('displayMessage.updated', stationUuid, siteId);

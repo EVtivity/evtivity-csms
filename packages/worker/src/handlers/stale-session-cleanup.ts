@@ -9,7 +9,7 @@ import {
   chargingStations,
   getStaleSessionTimeoutHours,
   writeReservationAudit,
-  closeOpenSegment,
+  closeSegmentsAt,
   faultUnbilledSession,
   sessionIdleMinutesAt,
 } from '@evtivity/database';
@@ -70,16 +70,6 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
       const endedAt = session.updatedAt;
       const energyWh = Number(session.energyDeliveredWh ?? 0);
 
-      // Close the open tariff segment at the last update, so the segment
-      // trail shows how long the session ran.
-      if (session.tariffId != null && session.startedAt != null) {
-        const idleMinutes = sessionIdleMinutesAt(
-          { idleStartedAt: session.idleStartedAt, idleMinutes: Number(session.idleMinutes) },
-          endedAt,
-        );
-        await closeOpenSegment(client, session.id, endedAt, energyWh, idleMinutes);
-      }
-
       // A stale session is faulted and not billed (owner decision, audit
       // N6): its cost is zeroed with the status, like the payment gate's stop
       // (P4). A session that ended meanwhile keeps its own end and cost (P5).
@@ -89,6 +79,17 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
         reason: 'StaleSession',
         endedAt,
       });
+
+      // The tariff segments end at the last update, so the segment trail
+      // shows how long the session ran. Only when this run faulted it: a
+      // session that ended meanwhile keeps the segments its end closed.
+      if (faulted && session.tariffId != null && session.startedAt != null) {
+        const idleMinutes = sessionIdleMinutesAt(
+          { idleStartedAt: session.idleStartedAt, idleMinutes: Number(session.idleMinutes) },
+          endedAt,
+        );
+        await closeSegmentsAt(client, session.id, endedAt, energyWh, idleMinutes);
+      }
 
       // Its open hold (a portal start whose 1.6 ConnectionTimeOut expired, a
       // session the station lost) is cancelled now instead of staying held

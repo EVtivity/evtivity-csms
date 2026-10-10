@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, isNotNull, asc, inArray, ne, max } from 'drizzle-orm';
+import { eq, and, desc, count, isNotNull, asc, inArray, ne, max, exists, sql } from 'drizzle-orm';
 import {
   db,
   chargingProfileTemplates,
@@ -34,6 +34,15 @@ import {
   processChargingProfileClear,
 } from '../lib/charging-profile-push.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import {
+  chargingProfileTemplateInScopeSql,
+  findScopedChargingProfileTemplate,
+  stationInSitesSql,
+  targetFilterNotFound,
+  targetFilterOutOfScope,
+  isRestrictedCompanyWideWrite,
+  TEMPLATE_NOT_FOUND,
+} from '../lib/fleet-operation-scope.js';
 import { authorize } from '../middleware/rbac.js';
 
 // OCPP 2.1 ChargingProfilePurposeEnumType minus the two purposes excluded from
@@ -360,7 +369,14 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         db
           .selectDistinct({ model: chargingStations.model })
           .from(chargingStations)
-          .where(isNotNull(chargingStations.model))
+          .where(
+            accessibleSiteIds != null
+              ? and(
+                  isNotNull(chargingStations.model),
+                  inArray(chargingStations.siteId, accessibleSiteIds),
+                )
+              : isNotNull(chargingStations.model),
+          )
           .orderBy(asc(chargingStations.model)),
       ]);
 
@@ -392,18 +408,24 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
+      // A restricted user does not see templates that target another site.
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const scope =
+        accessibleSiteIds != null
+          ? chargingProfileTemplateInScopeSql(accessibleSiteIds)
+          : undefined;
+
       const [rows, countResult] = await Promise.all([
         db
           .select()
           .from(chargingProfileTemplates)
+          .where(scope)
           .orderBy(desc(chargingProfileTemplates.createdAt), desc(chargingProfileTemplates.id))
           .limit(limit)
           .offset(offset),
-        db.select({ total: count() }).from(chargingProfileTemplates),
+        db.select({ total: count() }).from(chargingProfileTemplates).where(scope),
       ]);
-
-      const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
 
       const data = await Promise.all(
         rows.map(async (template) => {
@@ -450,10 +472,9 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [template] = await db
-        .select()
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedChargingProfileTemplate(id, accessibleSiteIds);
       if (template == null) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
@@ -477,12 +498,27 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(templateItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Site or template not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.TEMPLATE_NOT_FOUND,
+          ]),
           409: errorWith('Profile id in use', [ERROR_CODES.PROFILE_ID_IN_USE]),
         },
       },
     },
     async (request, reply) => {
       const body = parseZodRequest(createTemplateBody, request.body);
+      const { userId } = request.user as { userId: string };
+      const createSiteIds = await getUserSiteIds(userId);
+      if (isRestrictedCompanyWideWrite(createSiteIds, body.targetFilter)) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
+        return;
+      }
+      const outOfScope = await targetFilterOutOfScope(body.targetFilter, createSiteIds);
+      if (outOfScope != null) {
+        await reply.status(404).send(targetFilterNotFound(outOfScope));
+        return;
+      }
 
       // profilePurpose is now constrained to TEMPLATE_PROFILE_PURPOSES at the
       // schema layer; the prior runtime guard against TxProfile and
@@ -583,7 +619,10 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(templateItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
-          404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
+          404: errorWith('Template or site not found', [
+            ERROR_CODES.TEMPLATE_NOT_FOUND,
+            ERROR_CODES.SITE_NOT_FOUND,
+          ]),
           409: errorWith('Profile id in use', [ERROR_CODES.PROFILE_ID_IN_USE]),
         },
       },
@@ -592,12 +631,21 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof templateParams>;
       const body = parseZodRequest(updateTemplateBody, request.body);
 
-      const [existing] = await db
-        .select()
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, id));
-      if (existing == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const existing = await findScopedChargingProfileTemplate(id, accessibleSiteIds);
+      if (
+        existing == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, existing.targetFilter) ||
+        (body.targetFilter !== undefined &&
+          isRestrictedCompanyWideWrite(accessibleSiteIds, body.targetFilter))
+      ) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
+        return;
+      }
+      const outOfScope = await targetFilterOutOfScope(body.targetFilter, accessibleSiteIds);
+      if (outOfScope != null) {
+        await reply.status(404).send(targetFilterNotFound(outOfScope));
         return;
       }
 
@@ -747,11 +795,13 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [original] = await db
-        .select()
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, id));
-      if (original == null) {
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const original = await findScopedChargingProfileTemplate(id, accessibleSiteIds);
+      if (
+        original == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, original.targetFilter)
+      ) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
       }
@@ -844,12 +894,14 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [existing] = await db
-        .select()
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, id));
-      if (existing == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const existing = await findScopedChargingProfileTemplate(id, accessibleSiteIds);
+      if (
+        existing == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, existing.targetFilter)
+      ) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
         return;
       }
 
@@ -898,10 +950,9 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
-      const [template] = await db
-        .select()
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedChargingProfileTemplate(id, accessibleSiteIds);
       if (template == null) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
@@ -919,8 +970,6 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
       if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
 
-      const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
       if (accessibleSiteIds != null && accessibleSiteIds.length === 0)
         return { data: [], total: 0 };
       if (accessibleSiteIds != null)
@@ -973,12 +1022,16 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [template] = await db
-        .select()
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, id));
-      if (template == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedChargingProfileTemplate(id, accessibleSiteIds);
+      // A company-wide template reaches every site: pushing it needs access
+      // to every site (owner decision 2026-10-09).
+      if (
+        template == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, template.targetFilter)
+      ) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
         return;
       }
 
@@ -989,7 +1042,6 @@ export function smartChargingRoutes(app: FastifyInstance): void {
 
       const ocppVersion = template.ocppVersion;
 
-      const { userId } = request.user as { userId: string };
       const targetStations = await resolveTemplateTargetStations(template, userId);
       if (targetStations.length === 0) {
         return { success: true, pushId: '' };
@@ -1067,18 +1119,20 @@ export function smartChargingRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [template] = await db
-        .select()
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, id));
-      if (template == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedChargingProfileTemplate(id, accessibleSiteIds);
+      // Clearing a company-wide template reaches every site as well.
+      if (
+        template == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, template.targetFilter)
+      ) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
         return;
       }
 
       const ocppVersion = template.ocppVersion;
 
-      const { userId } = request.user as { userId: string };
       const targetStations = await resolveTemplateTargetStations(template, userId);
       if (targetStations.length === 0) {
         return { success: true, pushId: '' };
@@ -1167,27 +1221,47 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
-      const [template] = await db
-        .select({ id: chargingProfileTemplates.id })
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedChargingProfileTemplate(id, accessibleSiteIds);
       if (template == null) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
       }
 
+      // A restricted user sees only the pushes that reached its stations, with
+      // the counts of those stations only.
+      const stationScope =
+        accessibleSiteIds != null
+          ? stationInSitesSql(chargingProfilePushStations.stationId, accessibleSiteIds)
+          : undefined;
+      const pushWhere =
+        stationScope == null
+          ? eq(chargingProfilePushes.templateId, id)
+          : and(
+              eq(chargingProfilePushes.templateId, id),
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(chargingProfilePushStations)
+                  .where(
+                    and(
+                      eq(chargingProfilePushStations.pushId, chargingProfilePushes.id),
+                      stationScope,
+                    ),
+                  ),
+              ),
+            );
+
       const [pushes, countResult] = await Promise.all([
         db
           .select()
           .from(chargingProfilePushes)
-          .where(eq(chargingProfilePushes.templateId, id))
+          .where(pushWhere)
           .orderBy(desc(chargingProfilePushes.createdAt), desc(chargingProfilePushes.id))
           .limit(limit)
           .offset(offset),
-        db
-          .select({ total: count() })
-          .from(chargingProfilePushes)
-          .where(eq(chargingProfilePushes.templateId, id)),
+        db.select({ total: count() }).from(chargingProfilePushes).where(pushWhere),
       ]);
 
       // One grouped query for all push IDs on this page replaces N parallel
@@ -1206,7 +1280,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
                 count: count(),
               })
               .from(chargingProfilePushStations)
-              .where(inArray(chargingProfilePushStations.pushId, pushIds))
+              .where(and(inArray(chargingProfilePushStations.pushId, pushIds), stationScope))
               .groupBy(chargingProfilePushStations.pushId, chargingProfilePushStations.status)
           : [];
 
@@ -1223,10 +1297,14 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         countsByPush.set(row.pushId, entry);
       }
 
-      const data = pushes.map((push) => ({
-        ...push,
-        ...(countsByPush.get(push.id) ?? emptyCounts()),
-      }));
+      const data = pushes.map((push) => {
+        const counts = countsByPush.get(push.id) ?? emptyCounts();
+        const stationCount =
+          stationScope == null
+            ? push.stationCount
+            : Object.values(counts).reduce((sum, n) => sum + n, 0);
+        return { ...push, ...counts, stationCount };
+      });
 
       return { data, total: countResult[0]?.total ?? 0 } satisfies PaginatedResponse<
         (typeof data)[number]
@@ -1268,6 +1346,18 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A restricted user sees only its own stations of the push, and a push
+      // that reached none of them does not exist for it.
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const stationWhere =
+        accessibleSiteIds == null
+          ? eq(chargingProfilePushStations.pushId, pushId)
+          : and(
+              eq(chargingProfilePushStations.pushId, pushId),
+              stationInSitesSql(chargingProfilePushStations.stationId, accessibleSiteIds),
+            );
+
       // Status counts and per-station rows hit the same table with no
       // inter-dependency - fetch in parallel to halve the wall-clock on
       // this detail view (polled every 3s while a push is active).
@@ -1278,7 +1368,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
             count: count(),
           })
           .from(chargingProfilePushStations)
-          .where(eq(chargingProfilePushStations.pushId, pushId))
+          .where(stationWhere)
           .groupBy(chargingProfilePushStations.status),
         db
           .select({
@@ -1294,7 +1384,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
             chargingStations,
             eq(chargingProfilePushStations.stationId, chargingStations.id),
           )
-          .where(eq(chargingProfilePushStations.pushId, pushId))
+          .where(stationWhere)
           .orderBy(asc(chargingStations.stationId))
           .limit(limit)
           .offset(offset),
@@ -1310,7 +1400,20 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         counts[`${row.status}Count`] = row.count;
       }
 
-      return { ...push, ...counts, stations: stationRows, stationsTotal: push.stationCount };
+      const visibleTotal = statusCounts.reduce((sum, row) => sum + row.count, 0);
+      if (accessibleSiteIds != null && visibleTotal === 0) {
+        await reply.status(404).send({ error: 'Push not found', code: 'PUSH_NOT_FOUND' });
+        return;
+      }
+
+      const stationCount = accessibleSiteIds == null ? push.stationCount : visibleTotal;
+      return {
+        ...push,
+        ...counts,
+        stationCount,
+        stations: stationRows,
+        stationsTotal: stationCount,
+      };
     },
   );
 }

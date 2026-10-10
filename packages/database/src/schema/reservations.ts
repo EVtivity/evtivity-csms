@@ -1,7 +1,16 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { pgTable, pgEnum, text, integer, timestamp, index } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  pgEnum,
+  text,
+  integer,
+  numeric,
+  timestamp,
+  varchar,
+  index,
+} from 'drizzle-orm/pg-core';
 import { createId } from '../lib/id.js';
 import { chargingStations, evses, connectors } from './assets.js';
 import { drivers, driverTokens } from './drivers.js';
@@ -64,6 +73,15 @@ export const reservations = pgTable(
     cancelReason: reservationCancelReasonEnum('cancel_reason'),
     cancelNote: text('cancel_note'),
     cancellationFeeCents: integer('cancellation_fee_cents').notNull().default(0),
+    // Fee terms snapshotted at creation (migration 0341): the tax basis the
+    // fee amounts are entered in, the tax rate and holding fee per minute of
+    // the tariff the driver resolved at the station, and the cancellation fee
+    // setting. feeTaxBasis null: created before 0341, charged on the terms
+    // current at the charge (resolveReservationFeeTerms).
+    feeTaxBasis: varchar('fee_tax_basis', { length: 5 }),
+    feeTaxRate: numeric('fee_tax_rate'),
+    feePerMinute: numeric('fee_per_minute'),
+    feeCancellationCents: integer('fee_cancellation_cents'),
   },
   (table) => [
     index('idx_reservations_station_id').on(table.stationId),

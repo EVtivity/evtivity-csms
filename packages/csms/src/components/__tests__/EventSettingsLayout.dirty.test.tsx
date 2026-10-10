@@ -19,6 +19,8 @@ vi.mock('@/components/ui/language-select', () => ({
   LanguageSelect: (): null => null,
 }));
 
+vi.mock('@/lib/auth', () => ({ useHasCompanyWidePermission: () => true }));
+
 vi.mock('@/lib/api', () => ({
   api: { get: getMock, put: putMock, delete: deleteMock, post: vi.fn() },
 }));

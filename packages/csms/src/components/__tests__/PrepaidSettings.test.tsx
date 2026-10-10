@@ -17,11 +17,11 @@ vi.mock('@/hooks/use-company-currency', () => ({
 
 import { PrepaidSettings } from '../settings/PrepaidSettings';
 
-function renderSettings(settings: Record<string, unknown> | undefined): void {
+function renderSettings(settings: Record<string, unknown> | undefined, readOnly = false): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <PrepaidSettings settings={settings} />
+      <PrepaidSettings settings={settings} readOnly={readOnly} />
     </QueryClientProvider>,
   );
 }
@@ -94,5 +94,13 @@ describe('PrepaidSettings', () => {
     renderSettings({ 'prepaid.lowCreditThresholdCents': 500 });
     fireEvent.click(screen.getByRole('button', { name: /save/i }));
     expect(await screen.findByText('settings.prepaidSettingsSaveFailed')).toBeTruthy();
+  });
+
+  it('shows the settings read-only without a save button for a site-restricted user', () => {
+    renderSettings({}, true);
+    expect(thresholdInput().disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: /save/i })).toBeNull();
+    expect(screen.getByText('settings.companyWideSettingsReadOnly')).toBeTruthy();
+    expect(putMock).not.toHaveBeenCalled();
   });
 });

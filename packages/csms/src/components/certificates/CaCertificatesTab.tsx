@@ -34,6 +34,7 @@ import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { FilterPopover } from '@/components/FilterBar';
 import { certificateStatusVariant } from '@/lib/status-variants';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 
 interface CaCertificate {
   id: number;
@@ -58,6 +59,8 @@ export function CaCertificatesTab(): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
   const queryClient = useQueryClient();
+  // The trust store serves every station: its writes need access to every site.
+  const canManageTrustStore = useHasCompanyWidePermission('certificates:write');
 
   const [caStatusFilter, setCaStatusFilter] = useState('');
 
@@ -107,28 +110,32 @@ export function CaCertificatesTab(): React.JSX.Element {
             <div className="flex flex-row items-center justify-between gap-2">
               <CardTitle>{t('pnc.caCertificates')}</CardTitle>
               <div className="flex flex-col gap-2 *:w-full sm:flex-row sm:items-center sm:*:w-auto">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    refreshRootsMutation.mutate();
-                  }}
-                  disabled={refreshRootsMutation.isPending}
-                >
-                  {refreshRootsMutation.isPending ? (
-                    <Spinner className="h-4 w-4" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
-                  {t('pnc.refreshRootCerts')}
-                </Button>
-                <Button
-                  onClick={() => {
-                    setUploadOpen(true);
-                  }}
-                >
-                  <Upload className="h-4 w-4" />
-                  {t('pnc.uploadCaCert')}
-                </Button>
+                {canManageTrustStore && (
+                  <>
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        refreshRootsMutation.mutate();
+                      }}
+                      disabled={refreshRootsMutation.isPending}
+                    >
+                      {refreshRootsMutation.isPending ? (
+                        <Spinner className="h-4 w-4" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      {t('pnc.refreshRootCerts')}
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        setUploadOpen(true);
+                      }}
+                    >
+                      <Upload className="h-4 w-4" />
+                      {t('pnc.uploadCaCert')}
+                    </Button>
+                  </>
+                )}
                 <Select
                   aria-label={t('common.status')}
                   value={caStatusFilter}
@@ -215,17 +222,19 @@ export function CaCertificatesTab(): React.JSX.Element {
                         </TableCell>
                         <TableCell>{cert.source ?? '-'}</TableCell>
                         <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={t('common.delete')}
-                            onClick={() => {
-                              deleteCaMutation.mutate(cert.id);
-                            }}
-                            disabled={deleteCaMutation.isPending}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                          {canManageTrustStore && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              aria-label={t('common.delete')}
+                              onClick={() => {
+                                deleteCaMutation.mutate(cert.id);
+                              }}
+                              disabled={deleteCaMutation.isPending}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
                     ))}

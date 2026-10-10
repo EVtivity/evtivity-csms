@@ -8478,7 +8478,13 @@ exports[`authorize decision matrix > A21 | active with a tariff | roaming off 1`
       "idleTime": {
         "prices": [
           {
-            "priceMinute": 0.1,
+            "conditions": {
+              "minIdleTime": 300,
+            },
+            "priceMinute": 0.15,
+          },
+          {
+            "priceMinute": 0.05,
           },
         ],
         "taxRates": [
@@ -8488,7 +8494,7 @@ exports[`authorize decision matrix > A21 | active with a tariff | roaming off 1`
           },
         ],
       },
-      "tariffId": "trf-1",
+      "tariffId": "evt-22c9b3b7b39aacb208011d3e27c1525599f3ab3f",
     },
   },
   "tariffResolvedFor": [
@@ -8587,7 +8593,13 @@ exports[`authorize decision matrix > A21 | active with a tariff | roaming on 1`]
       "idleTime": {
         "prices": [
           {
-            "priceMinute": 0.1,
+            "conditions": {
+              "minIdleTime": 300,
+            },
+            "priceMinute": 0.15,
+          },
+          {
+            "priceMinute": 0.05,
           },
         ],
         "taxRates": [
@@ -8597,7 +8609,7 @@ exports[`authorize decision matrix > A21 | active with a tariff | roaming on 1`]
           },
         ],
       },
-      "tariffId": "trf-1",
+      "tariffId": "evt-22c9b3b7b39aacb208011d3e27c1525599f3ab3f",
     },
   },
   "tariffResolvedFor": [
@@ -8661,7 +8673,7 @@ exports[`authorize decision matrix > A21 | active with a tariff, no station row 
           },
         ],
       },
-      "tariffId": "trf-1",
+      "tariffId": "evt-24fe8fdd83683513eccd300b3c3e44a347927a92",
     },
   },
   "tariffResolvedFor": [
@@ -8726,7 +8738,7 @@ exports[`authorize decision matrix > A21 | active with a tariff, no station row 
           },
         ],
       },
-      "tariffId": "trf-1",
+      "tariffId": "evt-24fe8fdd83683513eccd300b3c3e44a347927a92",
     },
   },
   "tariffResolvedFor": [

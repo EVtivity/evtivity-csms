@@ -12,6 +12,7 @@ import argon2 from 'argon2';
 import { eq } from 'drizzle-orm';
 import { db, client } from './config.js';
 import { acceptPendingFixtureStations } from './lib/fixture-stations.js';
+import { ensureSiteElectricityRates } from './seed-electricity-rates.js';
 import {
   sites,
   vendors,
@@ -46,6 +47,13 @@ const siteId =
   site?.id ??
   (await db.select({ id: sites.id }).from(sites).where(eq(sites.name, 'Dev Site')))[0]?.id;
 if (siteId == null) throw new Error('Failed to upsert dev site');
+
+// The dev site gets the seeded electricity rates when it has none, so session
+// end records an electricity cost. An operator's rates are never replaced.
+const devSiteRates = await ensureSiteElectricityRates(db, siteId);
+if (devSiteRates > 0) {
+  console.log(`  ${String(devSiteRates)} electricity rate periods added to Dev Site.`);
+}
 
 // Look up first to avoid creating duplicate vendor rows on repeat runs.
 // vendors.name has no unique constraint, so onConflictDoNothing() cannot

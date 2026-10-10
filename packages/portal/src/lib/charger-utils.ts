@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { centsFromMajorUnits } from '@evtivity/lib/pricing-engine';
 import { ApiError } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
 
@@ -43,7 +44,7 @@ export function qrTransactionLimits(params: URLSearchParams): QrTransactionLimit
   return {
     ...(maxEnergy != null ? { maxEnergyWh: Math.round(maxEnergy) } : {}),
     ...(maxTime != null ? { maxTimeSeconds: Math.round(maxTime) } : {}),
-    ...(maxCost != null ? { maxCostCents: Math.round(maxCost * 100) } : {}),
+    ...(maxCost != null ? { maxCostCents: centsFromMajorUnits(maxCost) } : {}),
   };
 }
 

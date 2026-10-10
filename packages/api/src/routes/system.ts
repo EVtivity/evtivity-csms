@@ -6,7 +6,9 @@ import { z } from 'zod';
 import { inArray } from 'drizzle-orm';
 import { db, settings } from '@evtivity/database';
 import { authorize } from '../middleware/rbac.js';
-import { itemResponse } from '../lib/response-schemas.js';
+import { itemResponse, errorWith } from '../lib/response-schemas.js';
+import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
 import { APP_VERSION } from '../lib/app-version.js';
 import { activePaymentProvider } from '../lib/payments.js';
 
@@ -58,7 +60,12 @@ const systemInfoResponse = z
     logLevel: z.string().describe('Pino log level in use'),
     network: z
       .object({
-        bindIp: z.string().nullable().describe('Bind IP override, when set'),
+        bindIp: z
+          .string()
+          .nullable()
+          .describe(
+            'Docker Compose host address the user-facing ports bind to (BIND_IP); null outside Docker Compose',
+          ),
         apiPort: z.string().describe('REST API listening port'),
         apiHost: z.string().describe('REST API listening host'),
         ocppPort: z.string().describe('OCPP WebSocket listening port'),
@@ -185,10 +192,22 @@ export function systemRoutes(app: FastifyInstance): void {
         summary: 'Runtime version and environment configuration (no secret values)',
         operationId: 'getSystemInfo',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(systemInfoResponse) },
+        response: {
+          200: itemResponse(systemInfoResponse),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      // Company-wide configuration (payment provider, integrations, URLs,
+      // CORS, rate limits): all-site access only (features/site-access-control.md).
+      if (
+        !(await requireAllSiteAccess(request, reply, {
+          error: 'Setting not found',
+          code: 'SETTING_NOT_FOUND',
+        }))
+      )
+        return;
       const integration = await loadIntegrationSettings();
       const selected = integration.get('payments.provider');
       return {

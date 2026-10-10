@@ -92,7 +92,7 @@ beforeEach(() => {
 });
 
 describe('enqueueLoadManagementJobs', () => {
-  it('enqueues one job per enabled site with deduplication jobId', async () => {
+  it('enqueues one job per enabled site, deduplicated while queued and removed once finished', async () => {
     const { enqueueLoadManagementJobs } = loadManagementWorkerModule;
     const add = vi.fn().mockResolvedValue(undefined);
     await enqueueLoadManagementJobs({ add } as never);
@@ -101,12 +101,22 @@ describe('enqueueLoadManagementJobs', () => {
     expect(add).toHaveBeenCalledWith(
       'load-management',
       { siteId: 'site-1' },
-      expect.objectContaining({ jobId: 'load-management-site-1', attempts: 1 }),
+      expect.objectContaining({
+        jobId: 'load-management-site-1',
+        attempts: 1,
+        removeOnComplete: true,
+        removeOnFail: true,
+      }),
     );
     expect(add).toHaveBeenCalledWith(
       'load-management',
       { siteId: 'site-2' },
-      expect.objectContaining({ jobId: 'load-management-site-2', attempts: 1 }),
+      expect.objectContaining({
+        jobId: 'load-management-site-2',
+        attempts: 1,
+        removeOnComplete: true,
+        removeOnFail: true,
+      }),
     );
   });
 

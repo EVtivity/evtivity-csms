@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
+import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
+import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
 import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
 
 interface Props {
@@ -23,6 +25,8 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
   const [bufferMinutes, setBufferMinutes] = useState('15');
   const [cancellationWindowMinutes, setCancellationWindowMinutes] = useState('5');
   const { currency } = useCompanyCurrency();
+  // The fee is entered in the company tax basis, like tariff prices.
+  const taxBasis = useCompanyTaxBasis() ?? DEFAULT_TAX_BASIS;
   // Typed in the currency (major units), stored in cents. The fee is net: the
   // station tariff's tax rate is added when it is charged.
   const [cancellationFee, setCancellationFee] = useState(centsToMajorInput(0));
@@ -153,7 +157,10 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
 
             <div className="space-y-2">
               <Label htmlFor="reservation-cancellation-fee" className="leading-6">
-                {t('settings.reservationCancellationFee', { currency: currency ?? '...' })}
+                {t('settings.reservationCancellationFee', {
+                  currency: currency ?? '...',
+                  context: taxBasis,
+                })}
               </Label>
               <Input
                 id="reservation-cancellation-fee"
@@ -166,7 +173,7 @@ export function ReservationSettings({ settings }: Props): React.JSX.Element {
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                {t('settings.reservationCancellationFeeHelp')}
+                {t('settings.reservationCancellationFeeHelp', { context: taxBasis })}
               </p>
             </div>
 

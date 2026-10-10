@@ -6,7 +6,12 @@
 // those of the frozen legacy calculator, but tax is rounded once per tax rate
 // over the summed net amounts of the segments (and the reservation holding
 // fee, at the first segment's rate) instead of once per segment. Net basis.
+// Tax is computed with exact decimals (BigInt, exactTaxOnNet of the
+// independent pricing oracle), so a float rounding error in the calculator
+// (bug B12) fails the comparison. The grace is the session's first idle
+// minutes (owner decision 2026-10-09).
 
+import { exactTaxOnNet } from '../../testing/pricing-oracle.js';
 import { legacySessionCostTotal } from './legacy-cost-reference.js';
 import type { LegacyStoredSegment, LegacyTariff } from './legacy-cost-reference.js';
 
@@ -22,8 +27,8 @@ function dollarsToCents(dollars: number): number {
   return Math.round(Number((dollars * 100).toPrecision(12)));
 }
 
-function rateOf(tariff: LegacyTariff | undefined): number {
-  return tariff?.taxRate != null ? Number(tariff.taxRate) : 0;
+function rateOf(tariff: LegacyTariff | undefined): string {
+  return tariff?.taxRate != null ? String(Number(tariff.taxRate)) : '0';
 }
 
 export function perRateSplitSessionCostTotal(
@@ -32,19 +37,15 @@ export function perRateSplitSessionCostTotal(
   reservationHoldingMinutes = 0,
 ): { subtotalCents: number; taxCents: number; totalCents: number } {
   if (segments.length === 0) return { subtotalCents: 0, taxCents: 0, totalCents: 0 };
-  const totalIdleMinutes = segments.reduce((sum, s) => sum + s.idleMinutes, 0);
-  let remainingReduction = Math.min(totalIdleMinutes, gracePeriodMinutes);
-  const adjusted = [...segments]
-    .reverse()
-    .map((seg) => {
-      const deduct = Math.min(seg.idleMinutes, remainingReduction);
-      remainingReduction -= deduct;
-      return { ...seg, idleMinutes: seg.idleMinutes - deduct };
-    })
-    .reverse();
+  let remainingGrace = gracePeriodMinutes;
+  const adjusted = segments.map((seg) => {
+    const deduct = Math.min(seg.idleMinutes, remainingGrace);
+    remainingGrace -= deduct;
+    return { ...seg, idleMinutes: seg.idleMinutes - deduct };
+  });
 
-  const netByRate = new Map<number, number>();
-  const add = (rate: number, net: number): void => {
+  const netByRate = new Map<string, number>();
+  const add = (rate: string, net: number): void => {
     netByRate.set(rate, (netByRate.get(rate) ?? 0) + net);
   };
   for (const segment of adjusted) {
@@ -66,7 +67,7 @@ export function perRateSplitSessionCostTotal(
   let taxCents = 0;
   for (const [rate, net] of netByRate) {
     subtotalCents += net;
-    taxCents += Math.round(net * rate);
+    taxCents += exactTaxOnNet(net, rate);
   }
   return { subtotalCents, taxCents, totalCents: subtotalCents + taxCents };
 }

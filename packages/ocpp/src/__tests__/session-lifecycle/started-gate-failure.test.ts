@@ -59,6 +59,10 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../../database/src/lib/session-pricing.js',
   )),
+  // The real register energy rule (session-energy), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../../database/src/lib/session-energy.js',
+  )),
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../../database/src/lib/tariff-resolution.js',
   )),

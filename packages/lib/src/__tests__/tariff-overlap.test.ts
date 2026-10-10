@@ -266,6 +266,42 @@ describe('validateNoOverlap', () => {
       const result = validateNoOverlap(existing, { energyThresholdKwh: 150 }, 50);
       expect(result.valid).toBe(true);
     });
+
+    it('refuses a second tariff at the same threshold (TC-T3-11)', () => {
+      const existing = [makeTariff('trf_1', 50, { energyThresholdKwh: 20 })];
+      const result = validateNoOverlap(existing, { energyThresholdKwh: 20 }, 50);
+      expect(result).toEqual({
+        valid: false,
+        conflictingTariffId: 'trf_1',
+        message: 'An energy threshold tariff with the same threshold already exists',
+      });
+      // The tariff being edited is left out.
+      expect(validateNoOverlap(existing, { energyThresholdKwh: 20 }, 50, 'trf_1').valid).toBe(true);
+    });
+  });
+
+  describe('priority 20 days without a time window (the whole day)', () => {
+    it('conflicts with any window on a shared day', () => {
+      const existing = [
+        makeTariff('trf_1', 20, {
+          daysOfWeek: [6],
+          timeRange: { startTime: '22:00', endTime: '23:00' },
+        }),
+      ];
+      expect(validateNoOverlap(existing, { daysOfWeek: [0, 6] }, 20).valid).toBe(false);
+      expect(validateNoOverlap(existing, { daysOfWeek: [0] }, 20).valid).toBe(true);
+    });
+
+    it('conflicts with another whole-day tariff on a shared day', () => {
+      const existing = [makeTariff('trf_1', 20, { daysOfWeek: [1, 2] })];
+      const result = validateNoOverlap(
+        existing,
+        { daysOfWeek: [2], timeRange: { startTime: '09:00', endTime: '10:00' } },
+        20,
+      );
+      expect(result.valid).toBe(false);
+      expect(result.conflictingTariffId).toBe('trf_1');
+    });
   });
 
   describe('cross-priority', () => {

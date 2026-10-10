@@ -5,10 +5,14 @@ import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import {
   alertStationWatchersIfAvailable,
   client,
-  resolveStationTariff,
+  resolveReservationFeeTerms,
   writeReservationAudit,
 } from '@evtivity/database';
-import { dispatchDriverNotification, publishOcppCommand } from '@evtivity/lib';
+import {
+  dispatchDriverNotification,
+  publishOcppCommand,
+  reservationHoldingMinutes,
+} from '@evtivity/lib';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { chargeReservationFee } from '@evtivity/payments';
@@ -31,6 +35,11 @@ interface ExpiredRow {
   expires_at: string;
   created_at: string;
   has_session: boolean;
+  // Fee terms snapshotted at creation (migration 0341); null before it.
+  fee_tax_basis: string | null;
+  fee_tax_rate: string | null;
+  fee_per_minute: string | null;
+  fee_cancellation_cents: number | null;
 }
 
 interface ExpiringRow {
@@ -61,7 +70,8 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
       ) pre
       WHERE r.id = pre.id
       RETURNING r.id, r.driver_id, pre.prior_status, r.reservation_id, r.station_id,
-                r.starts_at, r.expires_at, r.created_at
+                r.starts_at, r.expires_at, r.created_at, r.fee_tax_basis, r.fee_tax_rate,
+                r.fee_per_minute, r.fee_cancellation_cents
     )
     SELECT
       updated.id,
@@ -74,6 +84,10 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
       updated.starts_at,
       updated.expires_at,
       updated.created_at,
+      updated.fee_tax_basis,
+      updated.fee_tax_rate,
+      updated.fee_per_minute,
+      updated.fee_cancellation_cents,
       EXISTS (
         SELECT 1 FROM charging_sessions WHERE charging_sessions.reservation_id = updated.id
       ) AS has_session
@@ -140,45 +154,55 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
       );
     }
 
-    // No-show fee. Charge the holding rate * minutes the connector was held
-    // when the reservation expired without a linked session. Skip when:
+    // No-show fee. Charge the holding fee per minute times the minutes the
+    // connector was held when the reservation expired without a linked
+    // session, priced by the pricing engine in the tax basis the fee was
+    // entered in. The terms are the reservation's snapshot at creation; a
+    // reservation created before migration 0341 has none and is charged on
+    // the terms current now (resolveReservationFeeTerms). Skip when:
     //   - No driver attached (open / operator-comp reservation)
     //   - Prior status is 'scheduled' (the connector was never actually held;
     //     the worker activation never fired, so no-show is unjust)
     //   - The driver actually charged (has_session)
-    //   - The resolved tariff has no holding rate
+    //   - The terms have no holding fee (also a reservation at a free vend
+    //     site: its snapshot records no fees, and a reservation without a
+    //     snapshot gets none when the site is free vend now; a failed lookup
+    //     charges nothing, see the catch below)
     //   - The driver has no default payment method (charge helper no-ops)
     if (row.driver_id != null && row.prior_status === 'active' && !row.has_session) {
       try {
-        const tariff = await resolveStationTariff(
-          { stationUuid: row.station_uuid, driverUuid: row.driver_id },
-          client,
-        );
-        const ratePerMinute =
-          tariff?.reservationFeePerMinute != null ? Number(tariff.reservationFeePerMinute) : 0;
-        if (ratePerMinute > 0 && tariff != null) {
+        const terms = await resolveReservationFeeTerms({
+          stationId: row.station_uuid,
+          driverId: row.driver_id,
+          feeTaxBasis: row.fee_tax_basis,
+          feeTaxRate: row.fee_tax_rate,
+          feePerMinute: row.fee_per_minute,
+          feeCancellationCents: row.fee_cancellation_cents,
+        });
+        if (terms.feePerMinute != null && Number(terms.feePerMinute) > 0) {
           // Instant ReserveNow reservations have no starts_at; the spot was
           // claimed at row.created_at. Falling back to expires_at (the prior
           // behavior) made holdingMs = 0 and silently waived the no-show fee
           // for every instant reservation -- the more common case. Match the
           // session-end path in event-projections.ts which uses created_at as
           // the same fallback so both paths bill consistent hold durations.
-          const referenceStart = row.starts_at ?? row.created_at;
-          const holdingMs = new Date(row.expires_at).getTime() - new Date(referenceStart).getTime();
-          const holdingMinutes = Math.max(0, Math.ceil(holdingMs / 60_000));
-          const amountCents = Math.round(holdingMinutes * ratePerMinute * 100);
-          if (amountCents > 0) {
-            // amountCents is net (tariff prices are net); the fee is taxed at
-            // the tariff rate, recorded as a payment record, and charged
-            // through the site's Stripe Connect account.
+          const holdingMinutes = reservationHoldingMinutes({
+            startsAt: row.starts_at,
+            createdAt: row.created_at,
+            expiresAt: row.expires_at,
+          });
+          if (holdingMinutes > 0) {
+            // Recorded as a payment record and charged through the site's
+            // payout account; the helper skips a fee that prices to zero.
             const result = await chargeReservationFee(
               {
                 type: 'reservation_no_show',
                 reservationId: row.id,
                 driverId: row.driver_id,
-                stationId: row.station_uuid,
                 siteId: row.site_id,
-                netCents: amountCents,
+                fee: { pricePerMinute: terms.feePerMinute, minutes: holdingMinutes },
+                basis: terms.basis,
+                taxRate: terms.taxRate,
               },
               paymentContext(log),
             );
@@ -212,21 +236,25 @@ export async function reservationExpiryCheckHandler(log: Logger): Promise<void> 
 
   if (expired.length > 0) {
     log.info({ count: expired.length }, 'Expired reservations');
-    // Tell the CSMS so the Reservations page reloads itself. One per batch,
-    // best-effort.
-    void pubsub
-      .publish(
-        'csms_events',
-        JSON.stringify({
-          eventType: 'reservation.changed',
-          stationId: null,
-          siteId: null,
-          sessionId: null,
-        }),
-      )
-      .catch(() => {
-        /* best-effort */
-      });
+    // Tell the CSMS so the Reservations page reloads itself. One per site in
+    // the batch, so the operator SSE stream delivers it to operators of that
+    // site only. Best-effort.
+    for (const siteId of new Set(expired.map((row) => row.site_id))) {
+      void pubsub
+        .publish(
+          'csms_events',
+          JSON.stringify({
+            eventType: 'reservation.changed',
+            stationId: null,
+            siteId,
+            sessionId: null,
+          }),
+        )
+        .catch((err: unknown) => {
+          // fail-open: the Reservations page refreshes on its next fetch (P9).
+          log.warn({ err, siteId }, 'reservation.changed publish failed');
+        });
+    }
   }
 
   // Warn drivers about reservations expiring within the warning window.

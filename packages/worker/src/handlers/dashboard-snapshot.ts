@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { db, sites, getCompanyCurrency } from '@evtivity/database';
+import { client, db, sites, getCompanyCurrency, getOcppFleetHealth } from '@evtivity/database';
 import {
   queryRevenue,
   revenueItem,
@@ -19,21 +19,10 @@ export async function dashboardSnapshotHandler(log: Logger): Promise<void> {
     return;
   }
 
-  // ocpp_server_health is a singleton row that aggregates ping metrics
-  // globally; every site's snapshot records the same numbers. Read it
-  // once up front instead of N times inside the per-site fan-out.
-  const pingRows = await db.execute(sql`
-    SELECT
-      COALESCE(avg_ping_latency_ms, 0) AS avg_ping_latency_ms,
-      COALESCE(ping_success_rate, 100) AS ping_success_rate
-    FROM ocpp_server_health
-    WHERE id = 'singleton'
-  `);
-  const pingData = pingRows[0] as
-    | { avg_ping_latency_ms: string; ping_success_rate: string }
-    | undefined;
-  const avgPingLatencyMs = Math.round(Number(pingData?.avg_ping_latency_ms ?? 0) * 100) / 100;
-  const pingSuccessRate = Number(pingData?.ping_success_rate ?? 100);
+  // Ping metrics are global (the fresh ocpp_server_health row of every OCPP
+  // process, aggregated); every site's snapshot records the same numbers.
+  // Read them once up front instead of N times inside the per-site fan-out.
+  const { avgPingLatencyMs, pingSuccessRate } = await getOcppFleetHealth(client);
 
   const companyCurrency = await getCompanyCurrency();
 

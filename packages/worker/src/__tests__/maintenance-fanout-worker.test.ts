@@ -304,6 +304,35 @@ describe('startMaintenanceFanoutBridge', () => {
     );
   });
 
+  it('gives a re-add of the same stations its own jobId through the nonce', async () => {
+    const { startMaintenanceFanoutBridge } = mod;
+    const queue = makeQueue();
+    let handler: ((payload: string) => void) | undefined;
+    const subscribe = vi.fn((_ch: string, h: (p: string) => void) => {
+      handler = h;
+      return Promise.resolve({ unsubscribe: vi.fn() });
+    });
+    const pubsub = { subscribe, publish: vi.fn() } as never;
+
+    await startMaintenanceFanoutBridge(pubsub, queue as never);
+    // Add, remove, add again: the second add must not collapse into the first,
+    // which the queue still keeps as a completed job.
+    handler?.(
+      JSON.stringify({ eventId: 'mne_9', phase: 'add', stationDbIds: ['sta_1'], nonce: 'n1' }),
+    );
+    handler?.(
+      JSON.stringify({ eventId: 'mne_9', phase: 'add', stationDbIds: ['sta_1'], nonce: 'n2' }),
+    );
+    await Promise.resolve();
+
+    expect(queue.add).toHaveBeenNthCalledWith(1, 'maintenance-fanout', expect.anything(), {
+      jobId: 'mf.mne_9.add.sta_1.n1',
+    });
+    expect(queue.add).toHaveBeenNthCalledWith(2, 'maintenance-fanout', expect.anything(), {
+      jobId: 'mf.mne_9.add.sta_1.n2',
+    });
+  });
+
   it('warns and skips enqueue on a malformed payload', async () => {
     const { startMaintenanceFanoutBridge } = mod;
     const queue = makeQueue();

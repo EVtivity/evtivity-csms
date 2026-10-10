@@ -4,7 +4,16 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { sql, inArray } from 'drizzle-orm';
-import { db, AUDIT_TABLES, users, drivers, refreshTokens } from '@evtivity/database';
+import type { SQL } from 'drizzle-orm';
+import {
+  db,
+  AUDIT_TABLES,
+  users,
+  drivers,
+  refreshTokens,
+  supportCases,
+  toIsoOrNull,
+} from '@evtivity/database';
 import type { AuditEntityType } from '@evtivity/database';
 import { authorize } from '../middleware/rbac.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -12,6 +21,13 @@ import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { errorWith, paginatedResponse } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { getUserSiteIds } from '../lib/site-access.js';
+import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
+import {
+  redactSupportCaseAuditRows,
+  supportCaseAuditSessionCondition,
+} from '../lib/support-case-redaction.js';
+import type { JwtPayload } from '../plugins/auth.js';
 
 const auditEntityTypes = Object.keys(AUDIT_TABLES) as AuditEntityType[];
 
@@ -50,6 +66,14 @@ const auditItem = z
     before: z.unknown().nullable(),
     after: z.unknown().nullable(),
     notes: z.string().nullable(),
+    viaAi: z
+      .object({
+        conversationId: z.string().describe('AI conversation the change came from'),
+        toolCallId: z.string().describe('Tool call (ai_tool_calls id) that made the change'),
+      })
+      .passthrough()
+      .nullable()
+      .describe('Set when an AI assistant tool call made the change, after the user confirmed it'),
     createdAt: z.string().describe('ISO datetime'),
   })
   .passthrough();
@@ -72,6 +96,7 @@ interface NormalizedAuditRow {
   before: unknown;
   after: unknown;
   notes: string | null;
+  viaAi: unknown;
   createdAt: string;
 }
 
@@ -194,6 +219,69 @@ function idColumnFor(entityType: AuditEntityType): string {
   return `${entityType}_id`;
 }
 
+// The site an audit row's entity belongs to, as a scalar SQL subquery over the
+// row's live id column. Entity types with no site (company-wide settings,
+// drivers, pricing, users, ...) return null: their history is visible to
+// all-site users only. Deleted entities have a null live id and so no site.
+// Support cases are scoped by auditSiteCondition instead, so their history
+// follows the case's own visibility.
+function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
+  const id = auditIdSql(entityType, idCol);
+  switch (entityType) {
+    case 'site':
+      return sql`${id}`;
+    case 'station':
+    case 'local_auth_list':
+      return sql`(SELECT cs.site_id FROM charging_stations cs WHERE cs.id = ${id})`;
+    case 'station_image':
+      return sql`(SELECT cs.site_id FROM station_images si JOIN charging_stations cs ON cs.id = si.station_id WHERE si.id::text = ${id})`;
+    case 'reservation':
+      return sql`(SELECT cs.site_id FROM reservations r JOIN charging_stations cs ON cs.id = r.station_id WHERE r.id = ${id})`;
+    case 'session':
+      return sql`(SELECT cs.site_id FROM charging_sessions s JOIN charging_stations cs ON cs.id = s.station_id WHERE s.id = ${id})`;
+    case 'maintenance_event':
+      return sql`(SELECT m.site_id FROM maintenance_events m WHERE m.id = ${id})`;
+    default:
+      return null;
+  }
+}
+
+// The audit row's live entity id, qualified with the audit table: the joined
+// tables have columns of the same name (charging_stations.station_id is the
+// OCPP identity).
+function auditIdSql(entityType: AuditEntityType, idCol: string): SQL {
+  return sql`${sql.identifier(`${entityType}_audit_log`)}.${sql.identifier(idCol)}`;
+}
+
+/**
+ * Site scope condition for one audit table. Returns undefined for an all-site
+ * user (no filter), null when the table is invisible to the user (no site can
+ * be derived, or the user has no sites), else the WHERE fragment.
+ */
+function auditSiteCondition(
+  entityType: AuditEntityType,
+  idCol: string,
+  siteIds: string[] | null,
+): SQL | null | undefined {
+  if (siteIds == null) return undefined;
+  if (siteIds.length === 0) return null;
+  // A support case's history is visible exactly when the case is, without
+  // the rows about sessions of other sites (redactSupportCaseAuditRows trims
+  // the rest).
+  if (entityType === 'support_case') {
+    return sql`EXISTS (SELECT 1 FROM ${supportCases} WHERE ${supportCases.id} = ${auditIdSql(
+      entityType,
+      idCol,
+    )} AND ${supportCaseSiteCondition(siteIds)}) AND ${supportCaseAuditSessionCondition(siteIds)}`;
+  }
+  const siteExpr = entitySiteSql(entityType, idCol);
+  if (siteExpr == null) return null;
+  return sql`${siteExpr} IN (${sql.join(
+    siteIds.map((siteId) => sql`${siteId}`),
+    sql`, `,
+  )})`;
+}
+
 function asString(v: unknown): string {
   if (v == null) return '';
   if (typeof v === 'string') return v;
@@ -221,10 +309,9 @@ function normalizeRow(entityType: string, raw: Record<string, unknown>): Normali
     before: raw['before'] ?? null,
     after: raw['after'] ?? null,
     notes: (raw['notes'] as string | null) ?? null,
-    createdAt:
-      createdAt instanceof Date
-        ? createdAt.toISOString()
-        : asString(createdAt) || new Date().toISOString(),
+    viaAi: raw['via_ai'] ?? null,
+    // The shared client returns created_at as postgres text: map it to ISO.
+    createdAt: toIsoOrNull(createdAt as Date | string | null) ?? new Date().toISOString(),
   };
 }
 
@@ -276,22 +363,32 @@ export function auditRoutes(app: FastifyInstance): void {
       const idCol = idColumnFor(entityType as AuditEntityType);
       const snapshotCol = `${idCol}_snapshot`;
       const tableName = `${entityType}_audit_log`;
+      // A site-restricted user sees the history of entities in its sites only
+      // (an empty page otherwise, so the entity's existence does not leak).
+      const { userId } = request.user as JwtPayload;
+      const entitySiteIds = await getUserSiteIds(userId);
+      const siteCond = auditSiteCondition(entityType as AuditEntityType, idCol, entitySiteIds);
+      if (siteCond === null) return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
+      const scope = siteCond != null ? sql` AND ${siteCond}` : sql``;
       const [rowsRes, countRes] = await Promise.all([
         db.execute(sql`
           SELECT * FROM ${sql.identifier(tableName)}
-          WHERE ${sql.identifier(idCol)} = ${entityId}
-             OR ${sql.identifier(snapshotCol)} = ${entityId}
+          WHERE (${sql.identifier(idCol)} = ${entityId}
+             OR ${sql.identifier(snapshotCol)} = ${entityId})${scope}
           ORDER BY created_at DESC, id DESC
           LIMIT ${limit} OFFSET ${offset}
         `),
         db.execute(sql`
           SELECT COUNT(*)::int AS total FROM ${sql.identifier(tableName)}
-          WHERE ${sql.identifier(idCol)} = ${entityId}
-             OR ${sql.identifier(snapshotCol)} = ${entityId}
+          WHERE (${sql.identifier(idCol)} = ${entityId}
+             OR ${sql.identifier(snapshotCol)} = ${entityId})${scope}
         `),
       ]);
-      const rows = (rowsRes as unknown as Array<Record<string, unknown>>).map((r) =>
-        normalizeRow(entityType, r),
+      const rows = await redactSupportCaseAuditRows(
+        (rowsRes as unknown as Array<Record<string, unknown>>).map((r) =>
+          normalizeRow(entityType, r),
+        ),
+        entitySiteIds,
       );
       const total = (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0;
 
@@ -321,8 +418,14 @@ export function auditRoutes(app: FastifyInstance): void {
     async (request) => {
       const q = request.query as z.infer<typeof auditQuerystring>;
       const offset = (q.page - 1) * q.limit;
-      const types: AuditEntityType[] =
-        q.entityType != null ? [q.entityType as AuditEntityType] : auditEntityTypes;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      // A site-restricted user gets only the tables whose entities belong to
+      // a site, each filtered to the user's sites.
+      const types: AuditEntityType[] = (
+        q.entityType != null ? [q.entityType as AuditEntityType] : auditEntityTypes
+      ).filter((t) => auditSiteCondition(t, idColumnFor(t), siteIds) !== null);
+      if (types.length === 0) return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
 
       // Build per-table SELECT branches with shared filters. We project a
       // common shape: id, entity_type literal, idCol AS entity_id, snapshot
@@ -337,6 +440,8 @@ export function auditRoutes(app: FastifyInstance): void {
           const idCol = idColumnFor(t);
           const snapshotCol = `${idCol}_snapshot`;
           const conds: ReturnType<typeof sql>[] = [];
+          const siteCond = auditSiteCondition(t, idCol, siteIds);
+          if (siteCond != null) conds.push(siteCond);
           if (q.action != null) conds.push(sql`action::text = ${q.action}`);
           if (q.actor != null) conds.push(sql`actor::text = ${q.actor}`);
           if (q.actorUserId != null) conds.push(sql`actor_user_id = ${q.actorUserId}`);
@@ -366,6 +471,7 @@ export function auditRoutes(app: FastifyInstance): void {
                    before,
                    after,
                    notes,
+                   via_ai,
                    created_at
             FROM ${sql.identifier(tableName)}
             ${whereClause}
@@ -381,7 +487,7 @@ export function auditRoutes(app: FastifyInstance): void {
       const countSql = sql`SELECT COUNT(*)::int AS total FROM (${sql.join(buildBranches('count'), sql` UNION ALL `)}) sub`;
 
       const [rowsRes, countRes] = await Promise.all([db.execute(dataSql), db.execute(countSql)]);
-      const out = (rowsRes as unknown as Array<Record<string, unknown>>).map((r) => ({
+      const mapped = (rowsRes as unknown as Array<Record<string, unknown>>).map((r) => ({
         id: Number(r['id']),
         entityType: asString(r['entity_type']),
         entityId: (r['entity_id'] as string | null) ?? null,
@@ -396,11 +502,10 @@ export function auditRoutes(app: FastifyInstance): void {
         before: r['before'] ?? null,
         after: r['after'] ?? null,
         notes: (r['notes'] as string | null) ?? null,
-        createdAt:
-          r['created_at'] instanceof Date
-            ? r['created_at'].toISOString()
-            : asString(r['created_at']),
+        viaAi: r['via_ai'] ?? null,
+        createdAt: toIsoOrNull(r['created_at'] as Date | string | null) ?? '',
       }));
+      const out = await redactSupportCaseAuditRows(mapped, siteIds);
       const resolver = await resolveActorNames(out);
       for (const row of out) row.actorName = actorNameFor(row, resolver);
       const total = (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0;

@@ -19,6 +19,7 @@ import { Pagination } from '@/components/ui/pagination';
 import { Badge } from '@/components/ui/badge';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { auditActionLabel, auditActorLabel } from '@/lib/audit-labels';
 
 export interface AuditEntry {
   id: number;
@@ -75,23 +76,21 @@ interface Props {
   extraColumns?: AuditExtraColumn[];
   /** When provided, renders a CardHeader/CardTitle above the audit table. Use when the History card stands alone (not inside a Tabs panel that already labels it). */
   title?: string;
+  /** Extra classes for the outer Card, such as removing its border inside another container. */
+  className?: string;
 }
 
-function actorBadge(actor: AuditEntry['actor']): React.ReactNode {
-  switch (actor) {
-    case 'operator':
-      return <Badge variant="info">operator</Badge>;
-    case 'driver':
-      return <Badge variant="secondary">driver</Badge>;
-    case 'api_key':
-      return <Badge variant="warning">api key</Badge>;
-    case 'system':
-      return <Badge variant="outline">system</Badge>;
-    case 'ocpp':
-      return <Badge variant="outline">ocpp</Badge>;
-    default:
-      return <Badge variant="outline">{actor}</Badge>;
-  }
+const ACTOR_VARIANTS: Record<string, 'info' | 'secondary' | 'warning' | 'outline'> = {
+  operator: 'info',
+  driver: 'secondary',
+  api_key: 'warning',
+  system: 'outline',
+  ocpp: 'outline',
+};
+
+export function AuditActorBadge({ actor }: { actor: string }): React.JSX.Element {
+  const { t } = useTranslation();
+  return <Badge variant={ACTOR_VARIANTS[actor] ?? 'outline'}>{auditActorLabel(t, actor)}</Badge>;
 }
 
 function formatTimestamp(iso: string, timezone: string): string {
@@ -105,6 +104,7 @@ export function EntityHistoryTab({
   pageSize = 20,
   extraColumns = [],
   title,
+  className,
 }: Props): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
@@ -142,7 +142,7 @@ export function EntityHistoryTab({
   if (!canReadAudit) return <></>;
 
   return (
-    <Card>
+    <Card className={className}>
       {resolvedTitle !== '' && (
         <CardHeader>
           <CardTitle>{resolvedTitle}</CardTitle>
@@ -181,9 +181,13 @@ export function EntityHistoryTab({
                       {formatTimestamp(row.createdAt, timezone)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="secondary">{row.action}</Badge>
+                      <Badge variant="secondary" title={row.action}>
+                        {auditActionLabel(t, row.action)}
+                      </Badge>
                     </TableCell>
-                    <TableCell>{actorBadge(row.actor)}</TableCell>
+                    <TableCell>
+                      <AuditActorBadge actor={row.actor} />
+                    </TableCell>
                     <TableCell className="text-sm">{actorDisplay(row)}</TableCell>
                     {extraColumns.map((col) => (
                       <TableCell key={col.header} className={col.className ?? 'text-xs'}>

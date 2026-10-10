@@ -7,6 +7,7 @@ import { createLogger } from '@evtivity/lib';
 import { isUiLanguage, type UiLanguage } from '@evtivity/lib/languages';
 import { ReportGeneratorRegistry, REPORT_FORMATS } from './report-registry.js';
 import type { ReportFormat, ReportGeneratorResult } from './report-registry.js';
+import type { ReportSiteScope } from './report-scope.js';
 import { generateNeviReport, neviFiltersError } from './report-generators/nevi-report.js';
 import { generateRevenueReport } from './report-generators/revenue-report.js';
 import { generateEnergyReport } from './report-generators/energy-report.js';
@@ -159,20 +160,22 @@ export async function operatorReportLanguage(userId: string | null): Promise<UiL
 
 /**
  * Builds a report file without storing it. The scheduled report email uses it
- * for recipients whose language differs from the stored report's. Throws for
- * an unknown report type or a generator error.
+ * for recipients whose language differs from the stored report's, with the
+ * stored report's site scope. Throws for an unknown report type or a generator
+ * error.
  */
 export async function renderReport(
   reportType: string,
   filters: Record<string, unknown>,
   format: string,
   language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
   const descriptor = reportGenerators.get(reportType);
   if (descriptor == null) {
     throw new Error(`No generator registered for report type: ${reportType}`);
   }
-  return descriptor.generate(filters, format, language);
+  return descriptor.generate(filters, format, language, siteIds);
 }
 
 /**
@@ -207,7 +210,9 @@ export function reportFileFormat(reportType: string, format: string): string {
 /**
  * Stores a pending report and hands it to `dispatch`, which queues the
  * generation in the worker. A dispatch that fails is logged and the report
- * stays pending; the worker's report sweep queues it again.
+ * stays pending; the worker's report sweep queues it again. `siteScope` is
+ * stored with the report: the generator covers only those sites (null: all),
+ * and only users whose sites contain it see the report.
  */
 export async function queueReport(
   params: {
@@ -216,6 +221,7 @@ export async function queueReport(
     format: string;
     filters: Record<string, unknown>;
     userId: string | null;
+    siteScope: ReportSiteScope;
   },
   dispatch: (reportId: string) => Promise<void>,
 ): Promise<string> {
@@ -227,6 +233,7 @@ export async function queueReport(
       format: reportFileFormat(params.reportType, params.format),
       filters: params.filters,
       generatedById: params.userId,
+      siteScope: params.siteScope == null ? null : [...params.siteScope],
     })
     .returning({ id: reports.id });
 
@@ -258,6 +265,7 @@ export async function generateReport(reportId: string): Promise<void> {
       format: reports.format,
       filters: reports.filters,
       generatedById: reports.generatedById,
+      siteScope: reports.siteScope,
     });
 
   if (report == null) {
@@ -285,7 +293,8 @@ export async function generateReport(reportId: string): Promise<void> {
     // On-demand reports are in the requesting operator's language; a scheduled
     // report's stored file is in the schedule creator's language.
     const language = await operatorReportLanguage(report.generatedById);
-    const result = await generator(filters, report.format, language);
+    // The report covers the sites stored with it (null: all sites).
+    const result = await generator(filters, report.format, language, report.siteScope);
 
     await db
       .update(reports)

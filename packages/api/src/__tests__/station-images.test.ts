@@ -290,6 +290,10 @@ describe('Station image routes', () => {
       s3Bucket: 'my-bucket',
     };
 
+    beforeEach(() => {
+      mockGetS3Config.mockResolvedValue({ client: {}, bucket: 'my-bucket' });
+    });
+
     it('confirms upload and inserts row', async () => {
       const insertedImage = {
         id: 1,

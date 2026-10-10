@@ -7,10 +7,25 @@ const mockExecute = vi.fn();
 const mockGetCompanyCurrency = vi.fn();
 const mockQueryRevenueTotal = vi.fn();
 const mockLoggerError = vi.fn();
+const mockGetOcppFleetHealth = vi.fn();
+const EMPTY_FLEET = {
+  instanceCount: 0,
+  connectedStations: 0,
+  avgPingLatencyMs: 0,
+  maxPingLatencyMs: 0,
+  pingSuccessRate: 100,
+  totalPingsSent: 0,
+  totalPongsReceived: 0,
+  serverStartedAt: null,
+  updatedAt: null,
+  instances: [],
+};
 
 vi.mock('@evtivity/database', () => ({
+  client: {},
   db: { execute: mockExecute },
   getCompanyCurrency: mockGetCompanyCurrency,
+  getOcppFleetHealth: () => mockGetOcppFleetHealth(),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -81,22 +96,36 @@ function queueResults(): void {
     [{ count: 0 }], // firmware
     [{ trigger_reason: 'Authorized', count: 8 }], // tx events
     [{ status: 'captured', count: 11 }], // payments
-    [
-      {
-        connected_stations: 5,
-        avg_ping_latency_ms: '20.5',
-        max_ping_latency_ms: 90,
-        ping_success_rate: '0.98',
-      },
-    ], // ocpp health
     [{ count: 1440 }], // heartbeats
   ];
   for (const r of results) mockExecute.mockResolvedValueOnce(r);
+  const started = new Date('2026-10-09T00:00:00Z');
+  const instance = (instanceId: string, connectedStations: number) => ({
+    instanceId,
+    connectedStations,
+    avgPingLatencyMs: 20,
+    maxPingLatencyMs: 90,
+    pingSuccessRate: 98,
+    totalPingsSent: 100,
+    totalPongsReceived: 98,
+    serverStartedAt: started,
+    updatedAt: started,
+  });
+  mockGetOcppFleetHealth.mockResolvedValueOnce({
+    ...EMPTY_FLEET,
+    instanceCount: 2,
+    connectedStations: 5,
+    avgPingLatencyMs: 20.5,
+    maxPingLatencyMs: 90,
+    pingSuccessRate: 98,
+    instances: [instance('ocpp-a', 3), instance('ocpp-b', 2)],
+  });
 }
 
 describe('collectBusinessMetrics gauges', () => {
   beforeEach(() => {
     mockExecute.mockReset();
+    mockGetOcppFleetHealth.mockReset().mockResolvedValue(EMPTY_FLEET);
     mockGetCompanyCurrency.mockReset().mockResolvedValue('USD');
     mockQueryRevenueTotal.mockReset().mockResolvedValue({ grossCents: 500 });
   });
@@ -105,7 +134,8 @@ describe('collectBusinessMetrics gauges', () => {
     queueResults();
     await collectBusinessMetrics();
 
-    expect(mockExecute).toHaveBeenCalledTimes(20);
+    expect(mockExecute).toHaveBeenCalledTimes(19);
+    expect(mockGetOcppFleetHealth).toHaveBeenCalledTimes(1);
     expect(await single(m.driversTotal)).toBe(12);
     expect(await single(m.driversActive)).toBe(5);
     expect(await series(m.stationsTotal, 'is_online')).toEqual([
@@ -145,8 +175,26 @@ describe('collectBusinessMetrics gauges', () => {
     expect(await single(m.ocppConnectedStations)).toBe(5);
     expect(await single(m.ocppPingLatencyAvgMs)).toBe(20.5);
     expect(await single(m.ocppPingLatencyMaxMs)).toBe(90);
-    expect(await single(m.ocppPingSuccessRate)).toBe(0.98);
+    expect(await single(m.ocppPingSuccessRate)).toBe(98);
+    expect(await single(m.ocppInstances)).toBe(2);
+    expect(await series(m.ocppInstanceConnectedStations, 'ocpp_instance')).toEqual([
+      ['ocpp-a', 3],
+      ['ocpp-b', 2],
+    ]);
     expect(await single(m.ocppHeartbeatsTotal)).toBe(1440);
+  });
+
+  it('drops the series of a process that stopped reporting', async () => {
+    queueResults();
+    await collectBusinessMetrics();
+    mockExecute.mockResolvedValue([]);
+    mockGetOcppFleetHealth.mockResolvedValueOnce(EMPTY_FLEET);
+
+    await collectBusinessMetrics();
+
+    expect(await single(m.ocppInstances)).toBe(0);
+    expect(await single(m.ocppConnectedStations)).toBe(0);
+    expect(await series(m.ocppInstanceConnectedStations, 'ocpp_instance')).toEqual([]);
   });
 
   it('logs and keeps the previous values when a query fails', async () => {

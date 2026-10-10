@@ -3,6 +3,10 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import {
+  reservationCancellationFeeSchema,
+  reservationCancellationFeeView,
+} from '../lib/reservation-fee-view.js';
 import { eq, and, or, ilike, desc, sql, count, inArray, gt } from 'drizzle-orm';
 import { db, client } from '@evtivity/database';
 import {
@@ -21,6 +25,7 @@ import {
   getReservationSettings,
   writeReservationAudit,
   reservationDiffChanged,
+  snapshotReservationFeeTerms,
 } from '@evtivity/database';
 import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -29,6 +34,7 @@ import { paginationQuery } from '../lib/pagination.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { siteInScope } from '../lib/site-scope.js';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
@@ -184,6 +190,7 @@ const reservationDetailItem = z
       .nullable()
       .optional()
       .describe('Timestamp the linked session stopped charging'),
+    cancellationFee: reservationCancellationFeeSchema,
   })
   .passthrough();
 
@@ -476,6 +483,10 @@ export function reservationRoutes(app: FastifyInstance): void {
           cancelReason: reservations.cancelReason,
           cancelNote: reservations.cancelNote,
           cancellationFeeCents: reservations.cancellationFeeCents,
+          feeTaxBasis: reservations.feeTaxBasis,
+          feeTaxRate: reservations.feeTaxRate,
+          feePerMinute: reservations.feePerMinute,
+          feeCancellationCents: reservations.feeCancellationCents,
           sessionId: chargingSessions.id,
           sessionStatus: chargingSessions.status,
           sessionEnergyWh: chargingSessions.energyDeliveredWh,
@@ -502,14 +513,31 @@ export function reservationRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && reservation.siteId != null && !siteIds.includes(reservation.siteId)) {
+      if (!siteInScope(siteIds, reservation.siteId)) {
         await reply
           .status(404)
           .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
         return;
       }
 
-      return reservation;
+      // The fee terms columns stay internal; the response carries the priced fee.
+      const { feeTaxBasis, feeTaxRate, feePerMinute, feeCancellationCents, ...detail } =
+        reservation;
+      return {
+        ...detail,
+        cancellationFee: await reservationCancellationFeeView(
+          {
+            status: reservation.status,
+            stationId: reservation.stationId,
+            driverId: reservation.driverId,
+            feeTaxBasis,
+            feeTaxRate,
+            feePerMinute,
+            feeCancellationCents,
+          },
+          request.log,
+        ),
+      };
     },
   );
 
@@ -552,7 +580,7 @@ export function reservationRoutes(app: FastifyInstance): void {
       }
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && reservation.siteId != null && !siteIds.includes(reservation.siteId)) {
+      if (!siteInScope(siteIds, reservation.siteId)) {
         await reply
           .status(404)
           .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
@@ -700,7 +728,7 @@ export function reservationRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && reservation.siteId != null && !siteIds.includes(reservation.siteId)) {
+      if (!siteInScope(siteIds, reservation.siteId)) {
         await reply
           .status(404)
           .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
@@ -710,12 +738,16 @@ export function reservationRoutes(app: FastifyInstance): void {
       // Query OCPP message logs for ReserveNow and CancelReservation actions
       // First find CALL messages matching this reservation, then include their responses
 
-      // Step 1: Find CALL message IDs for this reservation (across ALL stations)
+      // Step 1: Find CALL message IDs for this reservation. The OCPP
+      // reservation id is an integer that other stations can also use, so
+      // only the reservation's own station is searched: a match on another
+      // station would expose that station's ReserveNow (idToken included).
       const callLogs = await db
         .select({ messageId: ocppMessageLogs.messageId })
         .from(ocppMessageLogs)
         .where(
           and(
+            eq(ocppMessageLogs.stationId, reservation.stationId),
             eq(ocppMessageLogs.messageType, 2),
             or(
               sql`${ocppMessageLogs.action} = 'ReserveNow'`,
@@ -734,8 +766,13 @@ export function reservationRoutes(app: FastifyInstance): void {
 
       const callMessageIds = callLogs.map((l) => l.messageId);
 
-      // Step 2: Fetch CALL + RESULT/ERROR messages matching those messageIds (across ALL stations)
-      const conditions = inArray(ocppMessageLogs.messageId, callMessageIds);
+      // Step 2: Fetch CALL + RESULT/ERROR messages of the same station. Message
+      // ids are unique per connection only, so a reply is paired with its call
+      // on (stationId, messageId).
+      const conditions = and(
+        eq(ocppMessageLogs.stationId, reservation.stationId),
+        inArray(ocppMessageLogs.messageId, callMessageIds),
+      );
 
       const [data, totalResult] = await Promise.all([
         db
@@ -762,17 +799,19 @@ export function reservationRoutes(app: FastifyInstance): void {
       ]);
 
       // Compute response times by pairing CALL messages with their RESULT/ERROR responses
+      const callKey = (log: { stationId: string; messageId: string }) =>
+        `${log.stationId}\u0000${log.messageId}`;
       const messageIdToTime = new Map<string, Date>();
       for (const log of data) {
         if (log.messageType === 2) {
-          messageIdToTime.set(log.messageId, log.createdAt);
+          messageIdToTime.set(callKey(log), log.createdAt);
         }
       }
 
       const enriched = data.map((log) => {
         let responseTimeMs: number | null = null;
         if (log.messageType === 3 || log.messageType === 4) {
-          const callTime = messageIdToTime.get(log.messageId);
+          const callTime = messageIdToTime.get(callKey(log));
           if (callTime != null) {
             responseTimeMs = log.createdAt.getTime() - callTime.getTime();
           }
@@ -855,7 +894,7 @@ export function reservationRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -1116,6 +1155,14 @@ export function reservationRoutes(app: FastifyInstance): void {
       // (e.g. unique-constraint races on reservation_id) bubble back as a
       // structured 500 with the actual message instead of the generic
       // "Internal server error" from the global Fastify handler.
+      // The cancellation and no-show fee terms in effect now (tariff the
+      // driver resolves at the station, fee setting, tax basis): a later edit
+      // does not change what this reservation is charged.
+      const feeTerms = await snapshotReservationFeeTerms({
+        stationUuid: station.id,
+        driverUuid: body.driverId ?? null,
+      });
+
       let reservation: typeof reservations.$inferSelect | undefined;
       try {
         const inserted = await db
@@ -1129,6 +1176,7 @@ export function reservationRoutes(app: FastifyInstance): void {
             status: isFutureScheduled ? 'scheduled' : 'active',
             expiresAt: new Date(body.expiresAt),
             ...(body.startsAt != null ? { startsAt: new Date(body.startsAt) } : {}),
+            ...feeTerms,
           })
           .returning();
         reservation = inserted[0];
@@ -1378,7 +1426,7 @@ export function reservationRoutes(app: FastifyInstance): void {
           .select({ siteId: chargingStations.siteId })
           .from(chargingStations)
           .where(eq(chargingStations.id, existing.stationId));
-        if (station?.siteId != null && !siteIds.includes(station.siteId)) {
+        if (!siteInScope(siteIds, station?.siteId)) {
           await reply
             .status(404)
             .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
@@ -1565,6 +1613,10 @@ export function reservationRoutes(app: FastifyInstance): void {
           cancelReason: reservations.cancelReason,
           cancelNote: reservations.cancelNote,
           cancellationFeeCents: reservations.cancellationFeeCents,
+          feeTaxBasis: reservations.feeTaxBasis,
+          feeTaxRate: reservations.feeTaxRate,
+          feePerMinute: reservations.feePerMinute,
+          feeCancellationCents: reservations.feeCancellationCents,
           sessionId: chargingSessions.id,
           sessionStatus: chargingSessions.status,
           sessionEnergyWh: chargingSessions.energyDeliveredWh,
@@ -1580,7 +1632,24 @@ export function reservationRoutes(app: FastifyInstance): void {
         .leftJoin(chargingSessions, eq(chargingSessions.reservationId, reservations.id))
         .where(eq(reservations.id, id));
 
-      return updated;
+      if (updated == null) return updated;
+      // The fee terms columns stay internal; the response carries the priced fee.
+      const { feeTaxBasis, feeTaxRate, feePerMinute, feeCancellationCents, ...detail } = updated;
+      return {
+        ...detail,
+        cancellationFee: await reservationCancellationFeeView(
+          {
+            status: updated.status,
+            stationId: updated.stationId,
+            driverId: updated.driverId,
+            feeTaxBasis,
+            feeTaxRate,
+            feePerMinute,
+            feeCancellationCents,
+          },
+          request.log,
+        ),
+      };
     },
   );
 
@@ -1656,7 +1725,7 @@ export function reservationRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && reservation.siteId != null && !siteIds.includes(reservation.siteId)) {
+      if (!siteInScope(siteIds, reservation.siteId)) {
         await reply
           .status(404)
           .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
@@ -1814,7 +1883,7 @@ export function reservationRoutes(app: FastifyInstance): void {
       // Site access control on old reservation's station
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && reservation.siteId != null && !siteIds.includes(reservation.siteId)) {
+      if (!siteInScope(siteIds, reservation.siteId)) {
         await reply
           .status(404)
           .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
@@ -1853,7 +1922,7 @@ export function reservationRoutes(app: FastifyInstance): void {
       }
 
       // Site access control on new station
-      if (siteIds != null && newStation.siteId != null && !siteIds.includes(newStation.siteId)) {
+      if (!siteInScope(siteIds, newStation.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }

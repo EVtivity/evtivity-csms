@@ -35,7 +35,13 @@ export type { EntityType } from './id.js';
 export { container, injectable, inject, singleton, resetContainer } from './container.js';
 export type { DependencyContainer } from './container.js';
 
-export { formatDateTime, formatDate, formatRelativeTime, isValidTimezone } from './timezone.js';
+export {
+  DEFAULT_TIMEZONE,
+  formatDateTime,
+  formatDate,
+  formatRelativeTime,
+  isValidTimezone,
+} from './timezone.js';
 
 export { encryptString, decryptString, decryptSettingOrNull } from './encryption.js';
 
@@ -63,6 +69,14 @@ export {
   OCPP_COMMAND_RESULTS_CHANNEL,
 } from './ocpp-command-publish.js';
 export type { OcppCommand } from './ocpp-command-publish.js';
+export { buildOcppTariff, ocppTariffConditions } from './ocpp-tariff.js';
+export type {
+  OcppTariff,
+  OcppTariffConditions,
+  OcppTariffInput,
+  OcppTariffSource,
+  OcppTariffStationSupport,
+} from './ocpp-tariff.js';
 export { awaitPubSubReply } from './pubsub-reply.js';
 export type { AwaitReplyOptions } from './pubsub-reply.js';
 export { PNC_COMMANDS_CHANNEL, PNC_COMMAND_RESULTS_CHANNEL } from './pnc-commands.js';
@@ -80,6 +94,7 @@ export {
   heartbeatTimeoutFor,
   offlineSweepThresholdMs,
   shouldMarkStationOffline,
+  isStationLiveForSegmentSwitch,
 } from './station-liveness.js';
 
 export {
@@ -111,10 +126,10 @@ export {
   taxRateFraction,
   tariffPriceView,
   formatTaxRatePercent,
-  costIncludesTax,
   costContainsTax,
   sessionCostTax,
   taxOnNet,
+  multiplyCents,
   taxLineFromNet,
   netFromGross,
   splitGrossByTaxRate,
@@ -158,7 +173,15 @@ export {
   validateStationPassword,
   generateStationPassword,
   toAuthorizationKeyHex,
+  STATION_PASSWORD_HASH_OPTIONS,
 } from './station-password.js';
+export {
+  CACHE_INVALIDATE_CHANNEL,
+  STATION_AUTH_INVALIDATION_KIND,
+  stationAuthInvalidationPayload,
+  parseStationAuthInvalidation,
+  publishStationAuthInvalidation,
+} from './station-auth-invalidation.js';
 export type { StationOcppProtocol, StationPasswordError } from './station-password.js';
 export {
   PASSWORD_MIN_LENGTH,
@@ -221,12 +244,17 @@ export {
   MoneyValue,
   UnitPriceValue,
   TaxRateValue,
+  TaxLinesValue,
   notificationMoney,
   notificationUnitPrice,
   notificationTaxRate,
   formatLocalizedVariables,
 } from './notification-values.js';
-export { receiptBilling, sessionReceiptVariables } from './session-receipt.js';
+export {
+  receiptBilling,
+  receiptCapturedCents,
+  sessionReceiptVariables,
+} from './session-receipt.js';
 export type { SessionReceiptInput } from './session-receipt.js';
 
 export {
@@ -237,8 +265,10 @@ export {
 export type { TariffRestrictions } from './tariff-restrictions.js';
 
 export { validateNoOverlap } from './tariff-overlap.js';
+export { checkGroupDefault, isUnrestrictedTariff } from './tariff-default.js';
+export type { GroupDefaultTariff, GroupDefaultCheck } from './tariff-default.js';
 
-export { resolveActiveTariff } from './tariff-resolver.js';
+export { resolveActiveTariff, compareTariffs } from './tariff-resolver.js';
 export type { TariffWithRestrictions } from './tariff-resolver.js';
 
 export {
@@ -274,13 +304,49 @@ export type {
   Recipient,
   RenderedTemplate,
   EmailAttachment,
+  NotificationDelivery,
+  NotificationDispatchResult,
 } from './notification-dispatch.js';
 
 export {
   isPrivateUrl,
   parseAllowedPrivateHosts,
   MAX_ALLOWED_PRIVATE_HOSTS,
+  validateAiBaseUrl,
 } from './url-validation.js';
+export {
+  AI_PROVIDER_IDS,
+  AI_EFFORTS,
+  DEFAULT_AI_EFFORT,
+  AI_SUPPORT_TONES,
+  DEFAULT_AI_SUPPORT_TONE,
+  AI_SURFACE_PREFIXES,
+  AI_LIMIT_SETTINGS,
+  REMOVED_AI_SETTING_KEYS,
+  isAiProviderId,
+  isAiEffort,
+  isAiSupportTone,
+  isAiSettingKey,
+  isAiBaseUrlSettingKey,
+  isAiLimitSettingKey,
+  parseAiLimitValue,
+  aiProviderApiKeySettingKey,
+  aiProviderBaseUrlSettingKey,
+  normalizeAiSettingValue,
+  buildAiSettings,
+} from './ai-config.js';
+export type {
+  AiProviderId,
+  AiEffort,
+  AiSupportTone,
+  AiSurface,
+  AiLimitSettingKey,
+  AiSettings,
+  AiSurfaceSettings,
+  AiSupportSurfaceSettings,
+  AiProviderSettings,
+  AiLimits,
+} from './ai-config.js';
 export {
   safeFetch,
   isNonPublicAddress,
@@ -410,8 +476,12 @@ export {
 } from './mobile-app.js';
 export type { MobileAppConfig } from './mobile-app.js';
 
-export { findTemplateTargetConfiguration } from './config-drift.js';
-export type { ReportedConfiguration } from './config-drift.js';
+export {
+  findTemplateTargetConfiguration,
+  configTemplateTarget,
+  configTemplateMatchesStation,
+} from './config-drift.js';
+export type { ReportedConfiguration, ConfigTemplateTarget } from './config-drift.js';
 
 export { storedCostBreakdown, storedSessionCostTax } from './session-tax.js';
 
@@ -423,3 +493,51 @@ export {
 export { OCTT_TEST_DRIVER_EMAIL } from './octt-test-driver.js';
 
 export { tryParseJson } from './safe-json.js';
+
+export { reservationHoldingMinutes } from './reservation-holding.js';
+
+export {
+  centsFromMajorUnits,
+  chargeSplit,
+  priceEnergyCents,
+  dimensionGrossCents,
+  priceFee,
+  priceSessionCost,
+  priceTimedFee,
+  pricedSessionFromBreakdown,
+  sessionCostDimensions,
+  sessionCostDimensionsByCharging,
+} from './pricing-engine.js';
+export type {
+  ComponentTime,
+  PricedAmount,
+  PricedSegment,
+  PricedSession,
+  SessionCostInput,
+} from './pricing-engine.js';
+export { CostInputError } from './cost-calculator.js';
+export {
+  PDF_LOGO_KEY,
+  PDF_FOOTER_KEY,
+  DEFAULT_PDF_FOOTER,
+  MAX_PDF_LOGO_BYTES,
+  MAX_PDF_FOOTER_LENGTH,
+  MAX_PDF_FOOTER_LINES,
+  DEFAULT_PDF_LOGO_SVG,
+  normalizePdfFooter,
+  defaultPdfLogoDataUri,
+} from './pdf-branding.js';
+export { sanitizeSvg, decodePdfLogo, normalizePdfLogo } from './pdf-logo.js';
+export {
+  COMPANY_TAX_ID_KEY,
+  COMPANY_TAX_ID_LABEL_KEY,
+  COMPANY_REGISTRATION_NUMBER_KEY,
+  COMPANY_INVOICE_EMAIL_KEY,
+  COMPANY_INVOICE_PHONE_KEY,
+  INVOICE_SELLER_MAX_LENGTHS,
+  INVOICE_SELLER_SETTING_KEYS,
+  isInvoiceSellerSettingKey,
+  normalizeInvoiceSellerSetting,
+} from './invoice-seller.js';
+export type { InvoiceSellerSettingKey } from './invoice-seller.js';
+export type { DecodedPdfLogo } from './pdf-logo.js';

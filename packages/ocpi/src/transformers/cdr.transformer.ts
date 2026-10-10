@@ -5,7 +5,13 @@ import { toOcpiPrice } from '../lib/ocpi-price.js';
 import type { OcpiCdrCost } from '../lib/ocpi-price.js';
 import { chargingPeriods, cdrToken, sessionTimes, whToKwh } from '../lib/charging-periods.js';
 import type { CdrTokenSource } from '../lib/charging-periods.js';
-import type { OcpiCdr, OcpiCdrLocation, OcpiTariff, OcpiVersion } from '../types/ocpi.js';
+import type {
+  OcpiCdr,
+  OcpiCdrLocation,
+  OcpiChargingPeriod,
+  OcpiTariff,
+  OcpiVersion,
+} from '../types/ocpi.js';
 import type { Ocpi230Tariff } from '../types/ocpi-2.3.0.js';
 
 interface CdrInput {
@@ -46,8 +52,13 @@ interface CdrTransformInput {
   partyId: string;
   cdrId: string;
   token: CdrTokenSource;
-  /** The published tariff the session was billed with, as the partner sees it. */
-  tariff?: OcpiTariff | Ocpi230Tariff;
+  /** The tariffs the session was billed with (its price snapshots), as the partner sees them. */
+  tariffs?: Array<OcpiTariff | Ocpi230Tariff>;
+  /**
+   * The charging periods per priced part (cdrChargingPeriods). Without them,
+   * one period with the session's energy and charging time, and its parking.
+   */
+  chargingPeriods?: OcpiChargingPeriod[];
 }
 
 function mapConnectorStandard(
@@ -129,15 +140,16 @@ export function transformCdr(input: CdrTransformInput, version: OcpiVersion): Oc
     auth_method: 'AUTH_REQUEST',
     cdr_location: cdrLocation,
     currency,
-    charging_periods: chargingPeriods(volumes),
+    charging_periods: input.chargingPeriods ?? chargingPeriods(volumes),
     total_cost: toOcpiPrice(input.cost.total, version),
     total_energy: totalEnergy,
     total_time: times.totalHours,
     last_updated: session.endedAt.toISOString(),
   };
 
-  // Dimension costs (all Price, optional): fixed is the session fee, parking
-  // the idle fee, reservation the reservation holding fee.
+  // Dimension costs (all Price, optional): fixed is the session fee, time the
+  // time price while charging, parking the time price while idle plus the
+  // idle fee, reservation the reservation holding fee.
   const { cost } = input;
   if (cost.fixed != null) cdr.total_fixed_cost = toOcpiPrice(cost.fixed, version);
   if (cost.energy != null) cdr.total_energy_cost = toOcpiPrice(cost.energy, version);
@@ -148,8 +160,8 @@ export function transformCdr(input: CdrTransformInput, version: OcpiVersion): Oc
     cdr.total_reservation_cost = toOcpiPrice(cost.reservation, version);
   }
 
-  if (input.tariff != null) {
-    cdr.tariffs = [input.tariff as OcpiTariff];
+  if (input.tariffs != null && input.tariffs.length > 0) {
+    cdr.tariffs = input.tariffs as OcpiTariff[];
   }
 
   return cdr;

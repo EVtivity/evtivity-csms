@@ -230,6 +230,7 @@ describe('queueReport', () => {
     format: 'csv',
     filters: { month: 1 },
     userId: 'user-1',
+    siteScope: ['site-a'],
   };
 
   it('stores the report, hands its id to dispatch and returns it', async () => {
@@ -240,6 +241,13 @@ describe('queueReport', () => {
 
     expect(result).toBe('report-123');
     expect(dispatch).toHaveBeenCalledWith('report-123');
+    const { db } = await import('@evtivity/database');
+    const chain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
+      values: ReturnType<typeof vi.fn>;
+    };
+    expect(chain.values).toHaveBeenCalledWith(
+      expect.objectContaining({ siteScope: ['site-a'], generatedById: 'user-1' }),
+    );
     for (const generator of Object.values(generatorMocks)) {
       expect(generator).not.toHaveBeenCalled();
     }
@@ -370,12 +378,34 @@ describe('generateReport', () => {
       reportType: 'revenue',
       format: 'csv',
       filters: { month: 1 },
+      siteScope: null,
     };
     setupDbResults([report], []);
 
     await generateReport('report-123');
 
-    expect(generatorMocks.revenue).toHaveBeenCalledWith({ month: 1 }, 'csv', 'en');
+    expect(generatorMocks.revenue).toHaveBeenCalledWith({ month: 1 }, 'csv', 'en', null);
+  });
+
+  it('generates the report with the site scope stored on it', async () => {
+    generatorMocks.energy.mockResolvedValue({ data: Buffer.from('e'), fileName: 'e.csv' });
+    setupDbResults(
+      [{ reportType: 'energy', format: 'csv', filters: {}, siteScope: ['site-a', 'site-b'] }],
+      [],
+    );
+
+    await generateReport('report-scoped');
+
+    expect(generatorMocks.energy).toHaveBeenCalledWith({}, 'csv', 'en', ['site-a', 'site-b']);
+  });
+
+  it('passes an empty site scope through unchanged (an empty report, never all sites)', async () => {
+    generatorMocks.energy.mockResolvedValue({ data: Buffer.from('e'), fileName: 'e.csv' });
+    setupDbResults([{ reportType: 'energy', format: 'csv', filters: {}, siteScope: [] }], []);
+
+    await generateReport('report-empty-scope');
+
+    expect(generatorMocks.energy).toHaveBeenCalledWith({}, 'csv', 'en', []);
   });
 
   it('does nothing when the report is no longer pending (a job delivered twice)', async () => {
@@ -391,27 +421,43 @@ describe('generateReport', () => {
   it("generates the file in the requesting operator's language", async () => {
     generatorMocks.sessions.mockResolvedValue({ data: Buffer.from('x'), fileName: 's.pdf' });
     setupDbResults(
-      [{ reportType: 'sessions', format: 'pdf', filters: {}, generatedById: 'usr_1' }],
+      [
+        {
+          reportType: 'sessions',
+          format: 'pdf',
+          filters: {},
+          generatedById: 'usr_1',
+          siteScope: null,
+        },
+      ],
       [{ language: 'ko' }],
       [],
     );
 
     await generateReport('report-ko');
 
-    expect(generatorMocks.sessions).toHaveBeenCalledWith({}, 'pdf', 'ko');
+    expect(generatorMocks.sessions).toHaveBeenCalledWith({}, 'pdf', 'ko', null);
   });
 
   it('falls back to English for a user language that is not a UI language', async () => {
     generatorMocks.sessions.mockResolvedValue({ data: Buffer.from('x'), fileName: 's.csv' });
     setupDbResults(
-      [{ reportType: 'sessions', format: 'csv', filters: {}, generatedById: 'usr_1' }],
+      [
+        {
+          reportType: 'sessions',
+          format: 'csv',
+          filters: {},
+          generatedById: 'usr_1',
+          siteScope: null,
+        },
+      ],
       [{ language: 'fr' }],
       [],
     );
 
     await generateReport('report-fr');
 
-    expect(generatorMocks.sessions).toHaveBeenCalledWith({}, 'csv', 'en');
+    expect(generatorMocks.sessions).toHaveBeenCalledWith({}, 'csv', 'en', null);
   });
 
   it('has a generator for every report type without startup registration', async () => {
@@ -422,11 +468,11 @@ describe('generateReport', () => {
         data: Buffer.from('x'),
         fileName: `${reportType}.csv`,
       });
-      setupDbResults([{ reportType, format: 'csv', filters: {} }], []);
+      setupDbResults([{ reportType, format: 'csv', filters: {}, siteScope: null }], []);
 
       await generateReport(`report-${reportType}`);
 
-      expect(generatorMocks[reportType]).toHaveBeenCalledWith({}, 'csv', 'en');
+      expect(generatorMocks[reportType]).toHaveBeenCalledWith({}, 'csv', 'en', null);
     }
     expect(mockLogError).not.toHaveBeenCalled();
   });
@@ -477,14 +523,17 @@ describe('renderReport', () => {
   it('builds the file in the given language without storing it', async () => {
     generatorMocks.energy.mockResolvedValue({ data: Buffer.from('e'), fileName: 'e.xlsx' });
 
-    const result = await renderReport('energy', { siteId: 's1' }, 'xlsx', 'de');
+    const result = await renderReport('energy', { siteId: 's1' }, 'xlsx', 'de', ['s1', 's2']);
 
     expect(result.fileName).toBe('e.xlsx');
-    expect(generatorMocks.energy).toHaveBeenCalledWith({ siteId: 's1' }, 'xlsx', 'de');
+    expect(generatorMocks.energy).toHaveBeenCalledWith({ siteId: 's1' }, 'xlsx', 'de', [
+      's1',
+      's2',
+    ]);
   });
 
   it('throws for an unknown report type', async () => {
-    await expect(renderReport('bogus', {}, 'csv', 'en')).rejects.toThrow(
+    await expect(renderReport('bogus', {}, 'csv', 'en', null)).rejects.toThrow(
       'No generator registered for report type: bogus',
     );
   });

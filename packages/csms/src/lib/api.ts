@@ -76,6 +76,16 @@ async function attemptRefresh(): Promise<boolean> {
   }
 }
 
+// One refresh at a time: concurrent 401s wait for the same refresh call.
+function refreshOnce(): Promise<boolean> {
+  if (refreshPromise == null) {
+    refreshPromise = attemptRefresh().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  return refreshPromise;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(init?.body != null ? { 'Content-Type': 'application/json' } : {}),
@@ -97,13 +107,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (res.status === 401 && !path.endsWith('/auth/login') && !path.endsWith('/auth/refresh')) {
-    if (refreshPromise == null) {
-      refreshPromise = attemptRefresh().finally(() => {
-        refreshPromise = null;
-      });
-    }
-
-    const refreshed = await refreshPromise;
+    const refreshed = await refreshOnce();
 
     if (refreshed) {
       const retryRes = await fetch(`${BASE_URL}${path}`, {
@@ -252,3 +256,39 @@ export const api = {
     return result;
   },
 };
+
+/**
+ * POSTs JSON to an endpoint that answers text/event-stream and returns the
+ * response body for `readAiStream`. Same cookie, CSRF and refresh handling as
+ * `api.post`. Errors before the stream opens are JSON and throw `ApiError`.
+ * Aborting `signal` cancels the request and the stream.
+ */
+export async function postStream(
+  path: string,
+  body: unknown,
+  signal: AbortSignal,
+): Promise<ReadableStream<Uint8Array>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+  };
+  const csrf = getCsrfToken();
+  if (csrf != null) headers['X-CSRF-Token'] = csrf;
+  const init: RequestInit = {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    credentials: 'include',
+    signal,
+  };
+  let res = await fetch(`${BASE_URL}${path}`, init);
+  if (res.status === 401 && (await refreshOnce())) {
+    res = await fetch(`${BASE_URL}${path}`, init);
+  }
+  if (!res.ok) {
+    const errorBody: unknown = await (res.json() as Promise<unknown>).catch(() => null);
+    throw new ApiError(res.status, errorBody);
+  }
+  if (res.body == null) throw new ApiError(res.status, null);
+  return res.body;
+}

@@ -6,6 +6,7 @@ import {
   createLogger,
   DEFAULT_CURRENCY,
   DEFAULT_PRICE_DISPLAY,
+  DEFAULT_TIMEZONE,
   DEFAULT_TAX_BASIS,
   isPriceDisplay,
   isSupportedCurrency,
@@ -18,7 +19,6 @@ import { settings } from '../schema/settings.js';
 
 const logger = createLogger('system-settings');
 
-const DEFAULT_TIMEZONE = 'America/New_York';
 const TTL_MS = 60_000;
 
 let cachedTimezone: string | undefined;

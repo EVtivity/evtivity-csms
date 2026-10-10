@@ -14,10 +14,16 @@ import {
   getCompanyCurrency,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
+  toDate,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
-import { queryRevenue, queryRevenueTotal, revenueItem } from '@evtivity/services/session-revenue';
+import {
+  profitCents,
+  queryRevenue,
+  queryRevenueTotal,
+  revenueItem,
+} from '@evtivity/services/session-revenue';
 import { siteNameEq } from '../lib/site-lookup.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
@@ -70,7 +76,7 @@ import {
   exportSitesTemplateCsv,
   importSitesCsv,
 } from '../services/site-import.service.js';
-import { getUserSiteIds } from '../lib/site-access.js';
+import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
@@ -78,6 +84,7 @@ import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+import { siteInScope } from '../lib/site-scope.js';
 
 const importSiteRow = z.object({
   siteName: z.string().min(1).max(255),
@@ -429,8 +436,20 @@ const siteMetricsResponse = z
       .number()
       .int()
       .describe(
-        'Total profit in cents (revenue excluding tax minus electricity cost); may be negative',
+        'Total profit in cents (revenue excluding tax minus electricity cost); may be negative. Sessions without an electricity cost (costMissingSessionCount) are left out.',
       ),
+    costMissingSessionCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Ended billed sessions in the period that delivered energy but have no electricity cost (no matching site rate period, or no site). Left out of profit.',
+      ),
+    costMissingRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Revenue of those sessions in cents, tax included. Left out of profit.'),
     periodMonths: z.number().describe('Number of months covered by this metrics report'),
     currency: z
       .string()
@@ -855,7 +874,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -886,11 +905,21 @@ export function siteRoutes(app: FastifyInstance): void {
         body: zodSchema(createSiteBody),
         response: {
           201: itemResponse(siteBase),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
           409: errorResponse,
         },
       },
     },
     async (request, reply) => {
+      // Creating a site is company-wide: a site-restricted user gets 404.
+      if (
+        !(await requireAllSiteAccess(request, reply, {
+          error: 'Site not found',
+          code: 'SITE_NOT_FOUND',
+        }))
+      ) {
+        return;
+      }
       const body = parseZodRequest(createSiteBody, request.body);
 
       // Pre-check the unique name constraint (case-insensitive) so duplicate
@@ -949,7 +978,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1028,7 +1057,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1100,7 +1129,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1273,7 +1302,9 @@ export function siteRoutes(app: FastifyInstance): void {
         totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
         totalNetRevenueCents: revenue.netCents,
         totalTaxCents: revenue.taxCents,
-        totalProfitCents: revenue.netCents - (financialStats?.totalElectricityCostCents ?? 0),
+        totalProfitCents: profitCents(revenue, financialStats?.totalElectricityCostCents ?? 0),
+        costMissingSessionCount: revenue.costMissingCount,
+        costMissingRevenueCents: revenue.costMissingGrossCents,
         periodMonths: months,
         currency,
       };
@@ -1306,7 +1337,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1384,7 +1415,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1440,7 +1471,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1522,7 +1553,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1592,7 +1623,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1606,7 +1637,8 @@ export function siteRoutes(app: FastifyInstance): void {
       if (measurand != null) {
         const bucketRows = await db
           .select({
-            timestamp: sql<Date>`date_trunc('minute', ${meterValues.timestamp})`,
+            // A sql field has no column mapper: postgres text, mapped below.
+            timestamp: sql<Date | string>`date_trunc('minute', ${meterValues.timestamp})`,
             value: sql<string>`sum(${meterValues.value}::numeric)::text`,
             unit: sql<string | null>`max(${meterValues.unit})`,
           })
@@ -1625,7 +1657,7 @@ export function siteRoutes(app: FastifyInstance): void {
           {
             measurand,
             unit: bucketRows[0]?.unit ?? null,
-            values: bucketRows.map((r) => ({ timestamp: r.timestamp, value: r.value })),
+            values: bucketRows.map((r) => ({ timestamp: toDate(r.timestamp), value: r.value })),
           },
         ];
       }
@@ -1693,7 +1725,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1773,7 +1805,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1950,7 +1982,10 @@ export function siteRoutes(app: FastifyInstance): void {
               })
               .passthrough(),
           ),
-          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+          404: errorWith('Site or station not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -1958,7 +1993,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1968,6 +2003,21 @@ export function siteRoutes(app: FastifyInstance): void {
       if (site == null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
+      }
+
+      // Every position must name a station of this site. The upsert keys on
+      // the station, so a foreign station would otherwise get a layout row
+      // pointing at this site.
+      const requested = [...new Set(positions.map((p) => p.stationId))];
+      if (requested.length > 0) {
+        const own = await db
+          .select({ id: chargingStations.id })
+          .from(chargingStations)
+          .where(and(inArray(chargingStations.id, requested), eq(chargingStations.siteId, id)));
+        if (own.length !== requested.length) {
+          await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+          return;
+        }
       }
 
       for (const pos of positions) {
@@ -2015,7 +2065,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -2059,7 +2109,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -2152,7 +2202,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id, pricingGroupId } = request.params as z.infer<typeof sitePricingGroupParams>;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -2235,7 +2285,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { userId } = request.user as JwtPayload;
 
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -2429,7 +2479,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const userSiteIds = await getUserSiteIds(userId);
-      if (userSiteIds != null && !userSiteIds.includes(id)) {
+      if (!siteInScope(userSiteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -2481,7 +2531,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { regionCode } = request.body as z.infer<typeof carbonRegionBody>;
       const { userId } = request.user as JwtPayload;
       const userSiteIds = await getUserSiteIds(userId);
-      if (userSiteIds != null && !userSiteIds.includes(id)) {
+      if (!siteInScope(userSiteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -2578,7 +2628,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof siteParams>;
       const { userId } = request.user as JwtPayload;
       const userSiteIds = await getUserSiteIds(userId);
-      if (userSiteIds != null && !userSiteIds.includes(id)) {
+      if (!siteInScope(userSiteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -2622,7 +2672,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof electricityRateBody>;
       const { userId } = request.user as JwtPayload;
       const userSiteIds = await getUserSiteIds(userId);
-      if (userSiteIds != null && !userSiteIds.includes(id)) {
+      if (!siteInScope(userSiteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -2691,7 +2741,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof electricityRateBody>;
       const { userId } = request.user as JwtPayload;
       const userSiteIds = await getUserSiteIds(userId);
-      if (userSiteIds != null && !userSiteIds.includes(id)) {
+      if (!siteInScope(userSiteIds, id)) {
         await reply
           .status(404)
           .send({ error: 'Electricity rate not found', code: 'ELECTRICITY_RATE_NOT_FOUND' });
@@ -2763,7 +2813,7 @@ export function siteRoutes(app: FastifyInstance): void {
       const { id, periodId } = request.params as z.infer<typeof electricityRateParams>;
       const { userId } = request.user as JwtPayload;
       const userSiteIds = await getUserSiteIds(userId);
-      if (userSiteIds != null && !userSiteIds.includes(id)) {
+      if (!siteInScope(userSiteIds, id)) {
         await reply
           .status(404)
           .send({ error: 'Electricity rate not found', code: 'ELECTRICITY_RATE_NOT_FOUND' });

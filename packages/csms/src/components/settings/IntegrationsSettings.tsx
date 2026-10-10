@@ -157,6 +157,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
     setStaleSessionTimeout(sst != null ? Number(sst).toString() : '24');
     const ect = settings['session.evConnectionTimeoutSeconds'];
     setEvConnectionTimeout(ect != null ? Number(ect).toString() : '180');
+    // On unless stored as false, as the server reads it (isSplitBillingEnabled).
     setSplitBillingEnabled(settings['pricing.splitBillingEnabled'] !== false);
     const mapsKey = settings['googleMaps.apiKeyEnc'];
     setGoogleMapsApiKey(typeof mapsKey === 'string' ? mapsKey : '');

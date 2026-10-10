@@ -77,6 +77,7 @@ const server = new OcppServer({
 });
 let commandListener: CommandListener | null = null;
 let cacheInvalidateSub: { unsubscribe: () => Promise<void> } | null = null;
+let stationAuthInvalidateSub: { unsubscribe: () => Promise<void> } | null = null;
 let pncCommandsSub: { unsubscribe: () => Promise<void> } | null = null;
 let sessionEndSub: { unsubscribe: () => Promise<void> } | null = null;
 let stopSessionEndSweep: (() => void) | null = null;
@@ -95,7 +96,7 @@ async function start(): Promise<void> {
     OCPP_TLS_CERT != null && OCPP_TLS_KEY != null
       ? { cert: OCPP_TLS_CERT, key: OCPP_TLS_KEY, ca: OCPP_TLS_CA, port: OCPP_TLS_PORT }
       : undefined;
-  await server.start({ port: OCPP_PORT, host: OCPP_HOST, tls });
+  await server.start({ port: OCPP_PORT, host: OCPP_HOST, tls, instanceId });
 
   pubsub = new RedisPubSubClient(REDIS_URL);
   setAuthorizeLogPubSub(pubsub);
@@ -126,6 +127,9 @@ async function start(): Promise<void> {
   // operator updates OCPP event settings. The subscription keeps each pod&#39;s
   // in-memory dispatcher cache fresh without waiting for the 60s TTL.
   cacheInvalidateSub = await subscribeOcppEventSettingsInvalidation(pubsub);
+  // The API publishes a station auth invalidation after a station's password
+  // or security profile changes; every pod evicts its cached password check.
+  stationAuthInvalidateSub = await server.subscribeStationAuthInvalidation(pubsub);
   pncCommandsSub = await subscribePncCommands(pubsub);
 
   // The API ends a ghost session (TxNotFound) here, through the normal
@@ -217,6 +221,9 @@ async function shutdown(): Promise<void> {
   }
   if (cacheInvalidateSub != null) {
     await cacheInvalidateSub.unsubscribe();
+  }
+  if (stationAuthInvalidateSub != null) {
+    await stationAuthInvalidateSub.unsubscribe();
   }
   if (pncCommandsSub != null) {
     await pncCommandsSub.unsubscribe();

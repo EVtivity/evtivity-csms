@@ -20,7 +20,7 @@ import { VehiclesTable, type Vehicle } from '@/components/VehiclesTable';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { api } from '@/lib/api';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
-import { useHasPermission } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { useUserTimezone } from '@/lib/timezone';
 import { DriverDetailsTab } from '@/components/driver/DriverDetailsTab';
 import type { PortalAccess } from '@/components/driver/DriverPortalAccessCard';
@@ -59,7 +59,10 @@ export function DriverDetail(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const canReadAudit = useHasPermission('audit:read');
+  // Invoices are company-wide: the API answers 404 to a site-restricted user.
   const canReadPayments = useHasPermission('payments:read');
+  const hasAllSiteAccess = useHasAllSiteAccess();
+  const canReadInvoices = canReadPayments && hasAllSiteAccess;
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
@@ -105,10 +108,10 @@ export function DriverDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/drivers" />
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">
             {driver.firstName} {driver.lastName}
           </h1>
           <CopyableId id={driver.id} />
@@ -126,7 +129,7 @@ export function DriverDetail(): React.JSX.Element {
           <TabsTrigger value="payment-methods">{t('payments.paymentMethods')}</TabsTrigger>
           <TabsTrigger value="vehicles">{t('vehicles.title')}</TabsTrigger>
           <TabsTrigger value="sessions">{t('sessions.title')}</TabsTrigger>
-          {canReadPayments && <TabsTrigger value="invoices">{t('invoices.title')}</TabsTrigger>}
+          {canReadInvoices && <TabsTrigger value="invoices">{t('invoices.title')}</TabsTrigger>}
           {reservationEnabled && (
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
@@ -212,7 +215,7 @@ export function DriverDetail(): React.JSX.Element {
           </Card>
         </TabsContent>
 
-        {canReadPayments && (
+        {canReadInvoices && (
           <TabsContent value="invoices">
             <DriverInvoicesTab driverId={id ?? ''} timezone={timezone} />
           </TabsContent>

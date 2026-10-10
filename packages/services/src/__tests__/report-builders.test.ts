@@ -5,6 +5,7 @@ import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi } from 'vitest';
 import ExcelJS from 'exceljs';
+import PDFDocument from 'pdfkit';
 
 // Noto Sans CJK subsets (OFL) with the collection layout and PostScript names
 // of the fonts-noto-cjk files, shared with the invoice PDF tests.
@@ -23,6 +24,17 @@ vi.mock('../pdf-fonts.js', async (importOriginal) => ({
 import { buildXlsx } from '../report-generators/xlsx-builder.js';
 import { PdfReportBuilder } from '../report-generators/pdf-builder.js';
 import { dateCell, fixedCell, moneyCell, percentCell } from '../report-generators/report-cells.js';
+import type { PdfBranding } from '../pdf-branding.js';
+
+// A 1x1 PNG logo and no footer: pdf-branding.test.ts covers the branding.
+const BRANDING: PdfBranding = {
+  logo: Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+    'base64',
+  ),
+  isDefaultLogo: false,
+  footer: '',
+};
 
 /** BaseFont names and inflated content streams of a PDF, as latin1 text. */
 function pdfParts(pdf: Buffer): { fonts: string[]; streams: string } {
@@ -108,7 +120,7 @@ describe('buildXlsx', () => {
 
 describe('PdfReportBuilder', () => {
   it('uses Helvetica for Latin languages and writes subscript digits as plain digits', async () => {
-    const pdf = await new PdfReportBuilder('de')
+    const pdf = await new PdfReportBuilder('de', BRANDING)
       .addTitle('Nachhaltigkeitsbericht')
       .addSummaryRow('Netto-THG-Reduktion:', '12,5 kg CO₂')
       .addTable(['THG-Reduktion (kg CO₂)'], [['1,00']])
@@ -126,7 +138,7 @@ describe('PdfReportBuilder', () => {
       'zh-TW': ['NotoSansCJKtc-Bold', 'NotoSansCJKtc-Regular'],
     };
     for (const [language, expected] of Object.entries(faces)) {
-      const pdf = await new PdfReportBuilder(language)
+      const pdf = await new PdfReportBuilder(language, BRANDING)
         .addTitle('Report')
         .addTable(['A'], [['1']])
         .build();
@@ -138,7 +150,7 @@ describe('PdfReportBuilder', () => {
     const pageCount = (pdf: Buffer): number =>
       [...pdf.toString('latin1').matchAll(/\/Type \/Page\b/g)].length;
 
-    const short = await new PdfReportBuilder('en')
+    const short = await new PdfReportBuilder('en', BRANDING)
       .addTitle('Sessions')
       .addSubtitle('2026-01-01 to 2026-01-31')
       .addTable(['Station', 'kWh'], [['CS-1', '1.0']])
@@ -147,7 +159,7 @@ describe('PdfReportBuilder', () => {
     expect(pdfParts(short).streams.toLowerCase()).toContain(hex('2026-01-01 to 2026-01-31'));
 
     const rows = Array.from({ length: 80 }, (_, i) => [`CS-${String(i)}`, String(i)]);
-    const long = await new PdfReportBuilder('en')
+    const long = await new PdfReportBuilder('en', BRANDING)
       .addTitle('Sessions')
       .addSubtitle('All stations')
       .addTable(['Station', 'kWh'], rows)
@@ -155,5 +167,105 @@ describe('PdfReportBuilder', () => {
     // A4 landscape fits about 25 rows of 18 pt per page.
     expect(pageCount(long)).toBeGreaterThanOrEqual(3);
     expect(pdfParts(long).streams.toLowerCase()).toContain(hex('CS-79'));
+  });
+  /** Where the builder drew a text, and its wrapped height in the font it used. */
+  function textCalls(spy: {
+    mock: { calls: unknown[][] };
+  }): Map<string, { y: number; width: number }> {
+    const drawn = new Map<string, { y: number; width: number }>();
+    for (const [label, , y, options] of spy.mock.calls) {
+      drawn.set(String(label), {
+        y: Number(y),
+        width: (options as { width?: number } | undefined)?.width ?? 0,
+      });
+    }
+    return drawn;
+  }
+  const measuring = new PDFDocument({ size: 'A4', layout: 'landscape' });
+  const measure = (font: string, label: string, width: number): number =>
+    measuring.fontSize(9).font(font).heightOfString(label, { width });
+
+  it('sizes wrapped header and data rows to their tallest cell and draws the divider below them', async () => {
+    const text = vi.spyOn(PDFDocument.prototype, 'text');
+    const moveTo = vi.spyOn(PDFDocument.prototype, 'moveTo');
+    try {
+      const headers = [
+        'Date',
+        'Billed on Account (unpaid) (incl. tax, EUR)',
+        'Sessions without Electricity Cost (not in profit)',
+      ];
+      const longCell = 'A data cell long enough to wrap onto several lines in a narrow column';
+      await new PdfReportBuilder('en', BRANDING)
+        .addTitle('Revenue Report')
+        .addTable(
+          headers,
+          [
+            ['2026-01-01', longCell, '3'],
+            ['2026-01-02', '1', '2'],
+          ],
+          [80, 90, 90],
+        )
+        .build();
+      const drawn = textCalls(text);
+      const at = (label: string): { y: number; width: number } => {
+        const call = drawn.get(label);
+        if (!call) throw new Error(`not drawn: ${label}`);
+        return call;
+      };
+
+      const header = headers.map(at);
+      const headerTop = header[0]?.y ?? 0;
+      // Every header cell starts on the same line.
+      expect(new Set(header.map((h) => h.y)).size).toBe(1);
+      const headerBottom = Math.max(
+        ...headers.map((h) => at(h).y + measure('Helvetica-Bold', h, at(h).width)),
+      );
+      // The long labels wrap onto more than one line.
+      expect(headerBottom - headerTop).toBeGreaterThan(18);
+
+      // The divider is drawn below the tallest header label, and the first row below it.
+      const dividerY = Number(moveTo.mock.calls.at(-1)?.[1]);
+      expect(dividerY).toBeGreaterThan(headerBottom);
+      const row1 = at('2026-01-01').y;
+      expect(row1).toBeGreaterThan(dividerY);
+
+      // The wrapped data cell makes its row taller, and the next row starts below it.
+      const longHeight = measure('Helvetica', longCell, at(longCell).width);
+      expect(longHeight).toBeGreaterThan(18);
+      expect(at(longCell).y).toBe(row1);
+      expect(at('2026-01-02').y).toBeGreaterThanOrEqual(row1 + longHeight);
+    } finally {
+      text.mockRestore();
+      moveTo.mockRestore();
+    }
+  });
+
+  it('moves a wrapped row that does not fit to the next page whole', async () => {
+    const text = vi.spyOn(PDFDocument.prototype, 'text');
+    try {
+      const tall = Array.from({ length: 6 }, (_, i) => `line ${String(i)} of a tall cell`).join(
+        '\n',
+      );
+      const rows = Array.from({ length: 30 }, (_, i) => [`R-${String(i)}`, tall]);
+      const pdf = await new PdfReportBuilder('en', BRANDING)
+        .addTitle('Sessions')
+        .addTable(['Station', 'Notes'], rows)
+        .build();
+      const drawn = textCalls(text);
+      const tallCall = drawn.get(tall);
+      const tallHeight = measure('Helvetica', tall, tallCall?.width ?? 0);
+      // A4 landscape height minus the 50 pt bottom margin.
+      const bottom = 595.28 - 50;
+      const ys = text.mock.calls.filter((c) => c[0] === tall).map((c) => Number(c[2]));
+      expect(ys).toHaveLength(30);
+      for (const y of ys) expect(y + tallHeight).toBeLessThanOrEqual(bottom);
+      for (const [label] of rows) {
+        // The station cell is on the same line as its tall cell (the row did not split).
+        expect(ys).toContain(drawn.get(String(label))?.y);
+      }
+      expect([...pdf.toString('latin1').matchAll(/\/Type \/Page\b/g)].length).toBeGreaterThan(1);
+    } finally {
+      text.mockRestore();
+    }
   });
 });

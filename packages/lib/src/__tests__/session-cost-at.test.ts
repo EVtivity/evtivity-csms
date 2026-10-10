@@ -250,12 +250,13 @@ describe('calculateSessionCostAt against the reference assembly (net basis)', ()
     };
     const before = calculateSessionCostAt(open);
     expect(calculateSessionCostAt(closed)).toEqual(before);
-    // Idle 4 + 16 = 20 minutes, 5 minutes grace taken from the last segment.
-    // Segment 1: 300 + 100 fee + 4 * 0.10 = 440 net at 19%.
-    // Segment 2: 500 + 11 * 0.10 = 610 net at 7%, tax 42.7 -> 43.
+    // Idle 4 + 16 = 20 minutes; the 5 grace minutes are the first idle
+    // minutes: all 4 of segment 1 and 1 of segment 2.
+    // Segment 1: 300 + 100 fee + 0 idle = 400 net at 19%.
+    // Segment 2: 500 + 15 * 0.10 = 650 net at 7%, tax 45.5 -> 46.
     // Holding: 10 min * 0.05 = 50 at 19%.
-    // 19% once on 440 + 50 = 490: 93.1 -> 93 (per part it was 84 + 10 = 94).
-    expect(before.totalCents).toBe(440 + 610 + 50 + 93 + 43);
+    // 19% once on 400 + 50 = 450: 85.5 -> 86.
+    expect(before.totalCents).toBe(400 + 650 + 50 + 86 + 46);
   });
 
   it('uses the session snapshot when there is one segment or none', () => {

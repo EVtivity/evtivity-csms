@@ -30,6 +30,7 @@ import {
 import { api } from '@/lib/api';
 import { OCPP_16_KEYS, OCPP_21_VARIABLES } from '@/lib/ocpp-variables';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { useHasAllSiteAccess } from '@/lib/auth';
 
 interface TemplateVariable {
   component: string;
@@ -44,6 +45,7 @@ export interface TemplateDetail {
   ocppVersion: string;
   variables: TemplateVariable[];
   targetFilter: Record<string, string> | null;
+  stationId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -63,6 +65,7 @@ interface Props {
 
 export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element {
   const { t } = useTranslation();
+  const hasAllSiteAccess = useHasAllSiteAccess();
   const timezone = useUserTimezone();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -223,6 +226,16 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
       template.targetFilter.model != null ||
       template.targetFilter.stationId != null);
   const componentNames = Object.keys(OCPP_21_VARIABLES).sort();
+  // A template bound to a station targets that station only: its target
+  // filter is not editable (the API refuses it).
+  const isStationTemplate = template.stationId != null;
+  // A template without a site or station targets every site: only all-site
+  // users manage it (the API answers others 404).
+  const canManageTemplate =
+    hasAllSiteAccess ||
+    isStationTemplate ||
+    template.targetFilter?.siteId != null ||
+    template.targetFilter?.stationId != null;
 
   return (
     <>
@@ -230,8 +243,10 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
           <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-            {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
-            {!editing && (
+            {!editing && canManageTemplate && (
+              <EditButton label={t('common.edit')} onClick={startEdit} />
+            )}
+            {!editing && canManageTemplate && (
               <Button
                 variant="outline"
                 className="gap-1.5"
@@ -244,7 +259,7 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                 {t('common.duplicate')}
               </Button>
             )}
-            {!editing && (
+            {!editing && canManageTemplate && (
               <PushButton
                 label={t('configTemplates.pushConfig')}
                 disabled={variables.length === 0 || (matchingOnline?.total ?? 0) === 0}
@@ -253,7 +268,7 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                 }}
               />
             )}
-            {!editing && (
+            {!editing && canManageTemplate && (
               <RemoveButton
                 label={t('common.delete')}
                 onClick={() => {
@@ -287,7 +302,9 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                       : editVariables.filter((v) => v.component && v.variable),
                 };
                 if (editDescription !== '') body.description = editDescription;
-                body.targetFilter = Object.keys(editFilter).length > 0 ? editFilter : null;
+                if (!isStationTemplate) {
+                  body.targetFilter = Object.keys(editFilter).length > 0 ? editFilter : null;
+                }
                 updateMutation.mutate(body);
               }}
             >
@@ -446,13 +463,15 @@ export function ConfigTemplateDetailsTab({ template }: Props): React.JSX.Element
                 )}
               </div>
 
-              <TargetFilterFields
-                endpoint="/v1/config-templates/filter-options"
-                queryKeyPrefix={['config-template-filter-options']}
-                value={editFilter}
-                onChange={setEditFilter}
-                idPrefix="ct-edit-filter"
-              />
+              {!isStationTemplate && (
+                <TargetFilterFields
+                  endpoint="/v1/config-templates/filter-options"
+                  queryKeyPrefix={['config-template-filter-options']}
+                  value={editFilter}
+                  onChange={setEditFilter}
+                  idPrefix="ct-edit-filter"
+                />
+              )}
 
               <div className="flex justify-end gap-2">
                 <CancelButton

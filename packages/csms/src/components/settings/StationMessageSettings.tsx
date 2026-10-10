@@ -17,6 +17,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { LANGUAGES, LanguageSelect } from '@/components/ui/language-select';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 
 type StationMessageState =
   | 'available'
@@ -190,6 +191,8 @@ export function StationMessageSettings({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  // Template writes are company-wide: the API answers 404 to a site-restricted user.
+  const canWriteTemplates = useHasCompanyWidePermission('settings.integrations:write');
 
   // Settings keys
   const [enabled, setEnabled] = useState(false);
@@ -606,31 +609,33 @@ export function StationMessageSettings({
                 <AlertDescription>{t('messages.description')}</AlertDescription>
               </Alert>
 
-              <div className="flex justify-end flex-wrap items-center gap-3">
-                <SaveButton
-                  isPending={saveMutation.isPending}
-                  type="button"
-                  disabled={bodyDraft === originalBody}
-                  onClick={() => {
-                    saveMutation.mutate({
-                      state: selectedState,
-                      language: templateLanguage,
-                      body: bodyDraft,
-                    });
-                  }}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setResetOpen(true);
-                  }}
-                  disabled={resetMutation.isPending}
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  {t('messages.resetToDefault')}
-                </Button>
-              </div>
+              {canWriteTemplates && (
+                <div className="flex justify-end flex-wrap items-center gap-3">
+                  <SaveButton
+                    isPending={saveMutation.isPending}
+                    type="button"
+                    disabled={bodyDraft === originalBody}
+                    onClick={() => {
+                      saveMutation.mutate({
+                        state: selectedState,
+                        language: templateLanguage,
+                        body: bodyDraft,
+                      });
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setResetOpen(true);
+                    }}
+                    disabled={resetMutation.isPending}
+                  >
+                    <RotateCcw className="h-4 w-4" />
+                    {t('messages.resetToDefault')}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>

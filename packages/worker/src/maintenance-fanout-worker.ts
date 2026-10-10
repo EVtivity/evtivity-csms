@@ -15,12 +15,13 @@ import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
 
 const log = createLogger('maintenance-fanout-worker');
 
-// Stable job id so duplicate publishes for the same logical fan-out dedup. For
-// add/remove the station set is part of the identity, so two distinct add
-// requests on the same event still enqueue separately while an exact-duplicate
-// publish collapses to one job. Reassert publishes carry a nonce because each
-// reconnect is a new logical fan-out: without it, a station that flaps twice
-// would have its second re-assert collapsed into the already-completed first.
+// Stable job id so duplicate publishes for the same logical fan-out dedup:
+// every worker replica receives each publish and adds the same id. For
+// add/remove the station set is part of the identity. Add, remove and reassert
+// publishes carry a per-request nonce because the queue keeps completed jobs
+// and BullMQ ignores an add whose id still exists: without it, the same
+// stations added again after a remove, or a station that flaps twice, would
+// collapse into the already-completed first job and never be commanded.
 // Segments join with '.' because BullMQ rejects custom job ids containing ':'
 // (it only tolerates exactly-3-segment ids for legacy repeatable-job compat,
 // which silently broke every add/remove enqueue when ':' was the separator).

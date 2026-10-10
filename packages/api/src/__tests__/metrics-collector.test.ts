@@ -8,8 +8,22 @@ const mockGetCompanyCurrency = vi.fn();
 const mockQueryRevenueTotal = vi.fn();
 
 vi.mock('@evtivity/database', () => ({
+  client: {},
   db: { execute: mockExecute },
   getCompanyCurrency: mockGetCompanyCurrency,
+  getOcppFleetHealth: () =>
+    Promise.resolve({
+      instanceCount: 0,
+      connectedStations: 0,
+      avgPingLatencyMs: 0,
+      maxPingLatencyMs: 0,
+      pingSuccessRate: 100,
+      totalPingsSent: 0,
+      totalPongsReceived: 0,
+      serverStartedAt: null,
+      updatedAt: null,
+      instances: [],
+    }),
 }));
 
 vi.mock('drizzle-orm', () => ({

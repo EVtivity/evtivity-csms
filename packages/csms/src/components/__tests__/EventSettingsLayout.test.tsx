@@ -10,6 +10,9 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
+const access = vi.hoisted(() => ({ canWrite: true }));
+vi.mock('@/lib/auth', () => ({ useHasCompanyWidePermission: () => access.canWrite }));
+
 vi.mock('@/components/TemplateEditPanel', () => ({
   TemplateEditPanel: (): null => null,
 }));
@@ -22,6 +25,7 @@ import { EventSettingsLayout, type EventSwitch } from '../EventSettingsLayout';
 
 afterEach(() => {
   cleanup();
+  access.canWrite = true;
 });
 
 function renderLayout(eventSwitch: EventSwitch): void {
@@ -95,6 +99,23 @@ describe('EventSettingsLayout event switch', () => {
     renderLayout(makeSwitch({ canEdit: false }));
     fireEvent.click(screen.getByText('driver.Welcome'));
     expect(screen.getByRole<HTMLButtonElement>('switch').disabled).toBe(true);
+  });
+
+  it('disables the switch and hides Save and Reset for a site-restricted user', () => {
+    access.canWrite = false;
+    renderLayout(makeSwitch());
+    fireEvent.click(screen.getByText('driver.Welcome'));
+    expect(screen.getByRole<HTMLButtonElement>('switch').disabled).toBe(true);
+    expect(screen.queryByText('notifications.save')).toBeNull();
+    expect(screen.queryByText('notifications.resetToDefault')).toBeNull();
+    expect(screen.getByText('notifications.preview')).toBeTruthy();
+  });
+
+  it('shows Save and Reset to a user with company-wide notification write access', () => {
+    renderLayout(makeSwitch());
+    fireEvent.click(screen.getByText('driver.Welcome'));
+    expect(screen.getByText('notifications.save')).toBeTruthy();
+    expect(screen.getByText('notifications.resetToDefault')).toBeTruthy();
   });
 
   it('shows no switch without eventSwitch', () => {

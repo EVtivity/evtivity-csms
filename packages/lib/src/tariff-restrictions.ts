@@ -47,20 +47,6 @@ export const tariffRestrictionsSchema = z
   })
   .refine(
     (r) => {
-      // daysOfWeek requires timeRange (daysOfWeek alone produces priority 0 which
-      // conflicts with the default tariff and is never matched by tariffMatchesNow)
-      if (r.daysOfWeek != null && r.timeRange == null) {
-        return false;
-      }
-      return true;
-    },
-    {
-      message:
-        'daysOfWeek requires timeRange. Use daysOfWeek with a timeRange to define when this tariff applies.',
-    },
-  )
-  .refine(
-    (r) => {
       const keys = [
         r.energyThresholdKwh != null,
         r.holidays === true,
@@ -87,7 +73,7 @@ export const tariffRestrictionsSchema = z
     },
     {
       message:
-        'Invalid restriction combination. energyThresholdKwh, holidays, and dateRange must stand alone. daysOfWeek can combine with timeRange.',
+        'Invalid restriction combination. energyThresholdKwh, holidays, and dateRange must stand alone. daysOfWeek can combine with timeRange (daysOfWeek without timeRange applies all day).',
     },
   );
 
@@ -96,7 +82,8 @@ export function derivePriority(restrictions: TariffRestrictions | null): number 
   if (restrictions.energyThresholdKwh != null) return 50;
   if (restrictions.holidays === true) return 40;
   if (restrictions.dateRange != null) return 30;
-  if (restrictions.daysOfWeek != null && restrictions.timeRange != null) return 20;
+  // Days of the week with a time window, or without one (the whole day).
+  if (restrictions.daysOfWeek != null) return 20;
   if (restrictions.timeRange != null) return 10;
   return 0;
 }
@@ -144,6 +131,8 @@ export function tariffMatchesNow(
     if (!restrictions.daysOfWeek.includes(zc.dayOfWeek)) {
       return false;
     }
+    // Days without a time window apply for the whole day (00:00-24:00).
+    if (restrictions.timeRange == null) return true;
   }
 
   if (restrictions.timeRange != null) {

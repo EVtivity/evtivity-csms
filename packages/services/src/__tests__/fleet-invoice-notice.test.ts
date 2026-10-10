@@ -31,7 +31,13 @@ vi.mock('@evtivity/database', () => ({
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/lib')>()),
-  dispatchSystemNotification: vi.fn(() => Promise.resolve()),
+  dispatchSystemNotification: vi.fn((_sql: unknown, _event: string, to: { email: string }) =>
+    Promise.resolve({ delivered: [{ channel: 'email', recipient: to.email }] }),
+  ),
+}));
+
+vi.mock('../invoice-audit.js', () => ({
+  writeInvoiceSentAudit: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../invoice.service.js', () => ({
@@ -45,6 +51,7 @@ vi.mock('../invoice-pdf.service.js', async (importOriginal) => ({
 
 import { dispatchSystemNotification } from '@evtivity/lib';
 import { generateInvoicePdf } from '../invoice-pdf.service.js';
+import { writeInvoiceSentAudit } from '../invoice-audit.js';
 import {
   FLEET_CREDIT_NOTE_EVENT,
   FLEET_INVOICE_EVENT,
@@ -80,6 +87,10 @@ function detail(overrides: Record<string, unknown> = {}): Record<string, unknown
 }
 
 const deps = { templatesDirs: ['/templates'] };
+const audit = {
+  actor: { actor: 'operator' as const, actorUserId: 'usr_1' },
+  log: { warn: vi.fn() },
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -125,7 +136,7 @@ describe('fleetInvoiceVariables', () => {
 
 describe('sendFleetInvoiceEmail', () => {
   it('emails each billing contact once with the PDF attached, in the invoice language', async () => {
-    const result = await sendFleetInvoiceEmail('inv_f1', 'once', deps);
+    const result = await sendFleetInvoiceEmail('inv_f1', 'once', deps, audit);
 
     expect(result).toEqual({ status: 'sent', recipients: 2 });
     expect(dispatchSystemNotification).toHaveBeenCalledTimes(2);
@@ -146,29 +157,54 @@ describe('sendFleetInvoiceEmail', () => {
     expect(h.statements[0]).toContain('sent_at IS NULL');
   });
 
+  it('audits the send as invoice_sent with the accepted deliveries', async () => {
+    await sendFleetInvoiceEmail('inv_f1', 'once', deps, audit);
+    expect(writeInvoiceSentAudit).toHaveBeenCalledWith(
+      {
+        invoiceId: 'inv_f1',
+        invoiceNumber: 'INV-202610-0007',
+        eventType: FLEET_INVOICE_EVENT,
+        delivered: [
+          { channel: 'email', recipient: 'ap@acme.test' },
+          { channel: 'email', recipient: 'cfo@acme.test' },
+        ],
+        resend: false,
+        actor: audit.actor,
+      },
+      audit.log,
+    );
+  });
+
+  it('audits a resend of an invoice emailed before', async () => {
+    h.detail = detail({ sentAt: issuedAt });
+    await sendFleetInvoiceEmail('inv_f1', 'resend', deps, audit);
+    expect(vi.mocked(writeInvoiceSentAudit).mock.calls[0]?.[0]).toMatchObject({ resend: true });
+  });
+
   it('sends nothing when the issue was emailed already', async () => {
     h.markRows = [];
-    expect(await sendFleetInvoiceEmail('inv_f1', 'once', deps)).toEqual({
+    expect(await sendFleetInvoiceEmail('inv_f1', 'once', deps, audit)).toEqual({
       status: 'already_sent',
     });
     expect(dispatchSystemNotification).not.toHaveBeenCalled();
+    expect(writeInvoiceSentAudit).not.toHaveBeenCalled();
   });
 
   it('resends without the once guard', async () => {
-    await sendFleetInvoiceEmail('inv_f1', 'resend', deps);
+    await sendFleetInvoiceEmail('inv_f1', 'resend', deps, audit);
     expect(h.statements[0]).not.toContain('sent_at IS NULL');
     expect(dispatchSystemNotification).toHaveBeenCalledTimes(2);
   });
 
   it('sends the credit note event for a credit note', async () => {
     h.detail = detail({ kind: 'credit_note', invoiceNumber: 'CN-202610-0001', totalCents: -4165 });
-    await sendFleetInvoiceEmail('inv_f1', 'once', deps);
+    await sendFleetInvoiceEmail('inv_f1', 'once', deps, audit);
     expect(vi.mocked(dispatchSystemNotification).mock.calls[0]?.[1]).toBe(FLEET_CREDIT_NOTE_EVENT);
   });
 
   it('marks nothing and sends nothing without billing contacts', async () => {
     h.contacts = { emails: [], language: 'en' };
-    expect(await sendFleetInvoiceEmail('inv_f1', 'once', deps)).toEqual({
+    expect(await sendFleetInvoiceEmail('inv_f1', 'once', deps, audit)).toEqual({
       status: 'no_contacts',
     });
     expect(generateInvoicePdf).not.toHaveBeenCalled();
@@ -177,14 +213,20 @@ describe('sendFleetInvoiceEmail', () => {
 
   it('skips a driver invoice and an unknown invoice', async () => {
     h.detail = detail({ fleetId: null });
-    expect(await sendFleetInvoiceEmail('inv_f1', 'once', deps)).toEqual({ status: 'not_fleet' });
+    expect(await sendFleetInvoiceEmail('inv_f1', 'once', deps, audit)).toEqual({
+      status: 'not_fleet',
+    });
     h.detail = null;
-    expect(await sendFleetInvoiceEmail('inv_x', 'once', deps)).toEqual({ status: 'not_found' });
+    expect(await sendFleetInvoiceEmail('inv_x', 'once', deps, audit)).toEqual({
+      status: 'not_found',
+    });
   });
 
   it('renders the PDF before it marks the invoice sent', async () => {
     vi.mocked(generateInvoicePdf).mockRejectedValueOnce(new Error('font missing'));
-    await expect(sendFleetInvoiceEmail('inv_f1', 'once', deps)).rejects.toThrow('font missing');
+    await expect(sendFleetInvoiceEmail('inv_f1', 'once', deps, audit)).rejects.toThrow(
+      'font missing',
+    );
     expect(h.statements).toHaveLength(0);
   });
 });

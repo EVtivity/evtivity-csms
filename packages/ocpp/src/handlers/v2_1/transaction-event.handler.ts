@@ -118,6 +118,13 @@ export async function handleTransactionEvent(
         ? { finalCostCents: cost.totalCostCents }
         : {}),
       ...(accountCeilingRaised ? { accountCeilingRaised: true } : {}),
+      // Local cost calculation (I08.FR.22, I11.FR.07, I12): the tariff the
+      // station applies and the cost it calculated, recorded on the session
+      // and compared with the CSMS cost (station-cost.ts).
+      ...(request.transactionInfo.tariffId != null
+        ? { stationTariffId: request.transactionInfo.tariffId }
+        : {}),
+      ...(request.costDetails != null ? { costDetails: request.costDetails } : {}),
     },
   });
 

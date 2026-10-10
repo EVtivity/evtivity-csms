@@ -38,6 +38,27 @@ interface MeResponse extends User {
   role: { id: string; name: string } | null;
   themePreference: Theme;
   permissions: string[];
+  hasAllSiteAccess: boolean;
+}
+
+interface AccessInfo {
+  permissions: string[];
+  hasAllSiteAccess: boolean;
+}
+
+/**
+ * Read the signed-in user's permissions and site scope from /v1/users/me.
+ * A failed call yields no permissions and no all-site access: the UI then
+ * hides controls, and the API stays the enforcing layer.
+ */
+async function fetchAccessInfo(): Promise<AccessInfo> {
+  try {
+    const me = await api.get<MeResponse>('/v1/users/me');
+    return { permissions: me.permissions, hasAllSiteAccess: me.hasAllSiteAccess };
+  } catch (err) {
+    console.warn('Could not load the current user access, signing in without it', err);
+    return { permissions: [], hasAllSiteAccess: false };
+  }
 }
 
 interface MfaPendingResponse {
@@ -58,6 +79,13 @@ interface AuthState {
   user: User | null;
   role: string | null;
   permissions: string[];
+  /**
+   * Whether the user can access every site (users.hasAllSiteAccess). Company-wide
+   * money and configuration routes answer 404 to a site-restricted user, so the
+   * UI hides their controls. Unknown (signed out, or /v1/users/me failed) means
+   * false: hiding a control is the safe side, and the API enforces access anyway.
+   */
+  hasAllSiteAccess: boolean;
   theme: Theme;
   isAuthenticated: boolean;
   isHydrating: boolean;
@@ -116,6 +144,25 @@ export function useHasPermission(perm: string): boolean {
 }
 
 /**
+ * Hook: returns true if the current user can access all sites. Combine it with
+ * useHasPermission for controls that call company-wide routes (invoices,
+ * payments, pricing writes, the notification log, notification settings writes).
+ */
+export function useHasAllSiteAccess(): boolean {
+  return useAuth((s) => s.hasAllSiteAccess);
+}
+
+/**
+ * Hook: returns true if the current user has the permission and access to all
+ * sites, which a company-wide route needs on top of the permission.
+ */
+export function useHasCompanyWidePermission(perm: string): boolean {
+  const permissions = useAuth((s) => s.permissions);
+  const hasAllSiteAccess = useAuth((s) => s.hasAllSiteAccess);
+  return hasAllSiteAccess && hasPermissionCheck(permissions, perm);
+}
+
+/**
  * Hook: returns true if the current user has any of the given permissions.
  */
 export function useHasAnyPermission(perms: string[]): boolean {
@@ -127,6 +174,7 @@ export const useAuth = create<AuthState>((set, get) => ({
   user: null,
   role: initial.role,
   permissions: [],
+  hasAllSiteAccess: false,
   theme: initial.theme,
   isAuthenticated: initial.isAuthenticated,
   isHydrating: true,
@@ -165,13 +213,13 @@ export const useAuth = create<AuthState>((set, get) => ({
     applyTheme(loginData.user.themePreference);
     await loadLanguage(loginData.user.language);
 
-    // Fetch permissions after login
-    const perms = await api.get<string[]>('/v1/users/me/permissions').catch(() => [] as string[]);
+    const access = await fetchAccessInfo();
 
     set({
       user: loginData.user,
       role: loginData.role?.name ?? null,
-      permissions: perms,
+      permissions: access.permissions,
+      hasAllSiteAccess: access.hasAllSiteAccess,
       theme: loginData.user.themePreference,
       isAuthenticated: true,
       mfaPending: null,
@@ -187,12 +235,13 @@ export const useAuth = create<AuthState>((set, get) => ({
     applyTheme(user.themePreference);
     await loadLanguage(user.language);
 
-    const perms = await api.get<string[]>('/v1/users/me/permissions').catch(() => [] as string[]);
+    const access = await fetchAccessInfo();
 
     set({
       user,
       role,
-      permissions: perms,
+      permissions: access.permissions,
+      hasAllSiteAccess: access.hasAllSiteAccess,
       theme: user.themePreference,
       isAuthenticated: true,
       mfaPending: null,
@@ -223,7 +272,13 @@ export const useAuth = create<AuthState>((set, get) => ({
     }
     localStorage.removeItem('role');
     sessionStorage.setItem('noAutoLogin', 'true');
-    set({ user: null, role: null, permissions: [], isAuthenticated: false });
+    set({
+      user: null,
+      role: null,
+      permissions: [],
+      hasAllSiteAccess: false,
+      isAuthenticated: false,
+    });
   },
 
   hydrate: () => {
@@ -250,6 +305,7 @@ export const useAuth = create<AuthState>((set, get) => ({
           theme: me.themePreference,
           role: me.role?.name ?? null,
           permissions: me.permissions,
+          hasAllSiteAccess: me.hasAllSiteAccess,
           isAuthenticated: true,
           isHydrating: false,
         });
@@ -266,6 +322,7 @@ export const useAuth = create<AuthState>((set, get) => ({
           user: null,
           role: null,
           permissions: [],
+          hasAllSiteAccess: false,
           isAuthenticated: false,
           isHydrating: false,
         });

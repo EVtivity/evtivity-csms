@@ -58,7 +58,11 @@ const {
   mockValidatePostResponseAsync,
   mockCreateRefreshToken,
   mockSetAuthCookies,
+  mockCreateMfaChallenge,
+  mockDispatchSystemNotification,
 } = vi.hoisted(() => ({
+  mockCreateMfaChallenge: vi.fn(),
+  mockDispatchSystemNotification: vi.fn(),
   mockGetSsoConfig: vi.fn(),
   mockGenerateId: vi.fn(),
   mockGetAuthorizeUrlAsync: vi.fn(),
@@ -78,6 +82,7 @@ vi.mock('@evtivity/database', () => ({
   users: {},
   roles: {},
   getSsoConfig: mockGetSsoConfig,
+  client: { name: 'sql-client' },
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -94,6 +99,8 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('@evtivity/lib', () => ({
   generateId: mockGenerateId,
+  createMfaChallenge: mockCreateMfaChallenge,
+  dispatchSystemNotification: mockDispatchSystemNotification,
 }));
 
 vi.mock('@node-saml/node-saml', () => ({
@@ -206,6 +213,72 @@ describe('SSO auth routes', () => {
       expect(mockSetAuthCookies).toHaveBeenCalled();
       expect(mockCreateRefreshToken).toHaveBeenCalledWith({ userId: 'usr_001' });
     });
+
+    it.each([
+      ['email', 7, 'ssoMfaToken=', '&ssoMfaMethod=email&ssoMfaChallengeId=7'],
+      ['totp', undefined, 'ssoMfaToken=', '&ssoMfaMethod=totp'],
+    ])(
+      'hands a user with %s MFA to the MFA challenge instead of a session',
+      async (method, challengeId, tokenPart, rest) => {
+        mockGetSsoConfig.mockResolvedValue(SSO_CONFIG);
+        mockValidatePostResponseAsync.mockResolvedValue({
+          profile: { email: 'admin@example.com' },
+        });
+        // An all-site admin with MFA: the assertion alone must not sign it in.
+        setupDbResults([
+          {
+            id: 'usr_001',
+            roleId: 'rol_001',
+            isActive: true,
+            email: 'admin@example.com',
+            phone: null,
+            firstName: 'Ada',
+            language: 'en',
+            mfaEnabled: true,
+            mfaMethod: method,
+          },
+        ]);
+        mockCreateMfaChallenge.mockResolvedValue({ challengeId, code: '123456' });
+
+        const res = await app.inject({
+          method: 'POST',
+          url: '/auth/sso/callback',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          payload: 'SAMLResponse=base64encodedresponse',
+        });
+
+        expect(res.statusCode).toBe(302);
+        const location = String(res.headers['location']);
+        expect(location.startsWith(`/login#${tokenPart}`)).toBe(true);
+        expect(location.endsWith(rest)).toBe(true);
+        expect(mockSetAuthCookies).not.toHaveBeenCalled();
+        expect(mockCreateRefreshToken).not.toHaveBeenCalled();
+
+        // The fragment carries an MFA pending token, not a session token.
+        const token = new URLSearchParams(location.slice('/login#'.length)).get('ssoMfaToken');
+        const payload = app.jwt.verify<{ userId: string; mfaPending?: boolean }>(token ?? '');
+        expect(payload).toMatchObject({ userId: 'usr_001', mfaPending: true });
+
+        if (method === 'email') {
+          expect(mockCreateMfaChallenge).toHaveBeenCalledWith(
+            { name: 'sql-client' },
+            {
+              userId: 'usr_001',
+              method: 'email',
+            },
+          );
+          expect(mockDispatchSystemNotification).toHaveBeenCalledWith(
+            { name: 'sql-client' },
+            'mfa.VerificationCode',
+            expect.objectContaining({ email: 'admin@example.com' }),
+            { code: '123456' },
+            expect.any(String),
+          );
+        } else {
+          expect(mockCreateMfaChallenge).not.toHaveBeenCalled();
+        }
+      },
+    );
 
     it('redirects with error when user not found and auto-provision disabled', async () => {
       mockGetSsoConfig.mockResolvedValue({

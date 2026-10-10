@@ -88,7 +88,11 @@ export interface SessionHoldInput {
   sessionId: string;
   /** The session's driver (null on an operator pre-auth of a session without one). */
   driverId: string | null;
-  /** A `driver_payment_methods` row; null takes the driver's default method. */
+  /**
+   * A `driver_payment_methods` row of `driverId`; null takes the driver's
+   * default method. Another driver's row, or any row on a session without a
+   * driver, answers `no_method`.
+   */
   methodRowId: number | null;
   siteId: string | null;
   /** Operator override; default the site or global hold amount. */
@@ -129,17 +133,20 @@ interface MethodRow {
 }
 
 async function sessionMethod(input: SessionHoldInput): Promise<MethodRow | null> {
-  // The given row, else the default method of the session's driver.
+  // The given row of the session's driver, else that driver's default method.
+  // A session without a driver has no method: a row id alone could name
+  // another driver's card (P11, the operator pre-authorize route).
+  if (input.driverId == null) return null;
   const condition =
     input.methodRowId != null
-      ? eq(driverPaymentMethods.id, input.methodRowId)
-      : input.driverId != null
-        ? and(
-            eq(driverPaymentMethods.driverId, input.driverId),
-            eq(driverPaymentMethods.isDefault, true),
-          )
-        : null;
-  if (condition == null) return null;
+      ? and(
+          eq(driverPaymentMethods.id, input.methodRowId),
+          eq(driverPaymentMethods.driverId, input.driverId),
+        )
+      : and(
+          eq(driverPaymentMethods.driverId, input.driverId),
+          eq(driverPaymentMethods.isDefault, true),
+        );
   const [row] = await db
     .select({
       id: driverPaymentMethods.id,

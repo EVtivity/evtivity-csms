@@ -78,19 +78,69 @@ describe('fleet billing fan-out bridge', () => {
   });
 });
 
+function makeLockRedis(setResults: Array<string | null> = []) {
+  const set = vi.fn();
+  for (const r of setResults) set.mockResolvedValueOnce(r);
+  set.mockResolvedValue('OK');
+  return { set, eval: vi.fn().mockResolvedValue(1) };
+}
+
 describe('fleet billing fan-out worker', () => {
-  it('runs the fan-out for the job', async () => {
+  it('runs the fan-out for the job under the per-fleet lock', async () => {
     mockRun.mockResolvedValue({ members: 2, notified: 1 });
-    createFleetBillingFanoutWorker({});
+    const lockRedis = makeLockRedis();
+    createFleetBillingFanoutWorker({}, lockRedis as never);
     await capturedProcessor?.({ name: 'fleet-billing-fanout', data: job } as unknown as Job);
     expect(mockRun).toHaveBeenCalledWith('client', job, mockLog);
+    expect(lockRedis.set).toHaveBeenCalledWith(
+      `wkl:fleet-billing:${job.fleetId}`,
+      expect.any(String),
+      'PX',
+      60000,
+      'NX',
+    );
+    // Released after the run, with the owner token.
+    const token = lockRedis.set.mock.calls[0]?.[1] as string;
+    expect(lockRedis.eval.mock.calls.at(-1)?.slice(1)).toEqual([
+      1,
+      `wkl:fleet-billing:${job.fleetId}`,
+      token,
+    ]);
   });
 
-  it('fails the job when the member list cannot be read', async () => {
+  it('waits while another replica runs a fan-out of the same fleet', async () => {
+    vi.useFakeTimers();
+    try {
+      mockRun.mockReset();
+      mockRun.mockResolvedValue({ members: 1, notified: 1 });
+      const lockRedis = makeLockRedis([null]);
+      createFleetBillingFanoutWorker({}, lockRedis as never);
+      const done = capturedProcessor?.({
+        name: 'fleet-billing-fanout',
+        data: job,
+      } as unknown as Job);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockRun).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await done;
+      expect(mockRun).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('fails the job when the member list cannot be read and releases the lock', async () => {
     mockRun.mockRejectedValue(new Error('db down'));
-    createFleetBillingFanoutWorker({});
+    const lockRedis = makeLockRedis();
+    createFleetBillingFanoutWorker({}, lockRedis as never);
     await expect(
       capturedProcessor?.({ name: 'fleet-billing-fanout', data: job } as unknown as Job),
     ).rejects.toThrow('db down');
+    expect(lockRedis.eval).toHaveBeenCalled();
+  });
+
+  it('builds the lock key from the fleet id', async () => {
+    const { fleetBillingFanoutLockKey } = await import('../fleet-billing-fanout-worker.js');
+    expect(fleetBillingFanoutLockKey('flt_abc')).toBe('wkl:fleet-billing:flt_abc');
   });
 });

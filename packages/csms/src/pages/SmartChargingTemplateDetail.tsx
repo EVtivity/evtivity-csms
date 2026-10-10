@@ -39,6 +39,7 @@ import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
 import { uiLocale } from '@/lib/formatting';
+import { useHasAllSiteAccess } from '@/lib/auth';
 
 type OcppVersion = '2.1' | '1.6';
 
@@ -144,6 +145,7 @@ function buildSetChargingProfilePayload(template: TemplateDetail): Record<string
 
 export function SmartChargingTemplateDetail(): React.JSX.Element {
   const { t } = useTranslation();
+  const hasAllSiteAccess = useHasAllSiteAccess();
   const timezone = useUserTimezone();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -322,6 +324,10 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
       template.targetFilter.vendorId != null ||
       template.targetFilter.model != null);
 
+  // A template without a site targets every site: only all-site users manage
+  // it (the API answers others 404).
+  const canManageTemplate = hasAllSiteAccess || template.targetFilter?.siteId != null;
+
   const editPurposes = editOcppVersion === '1.6' ? PURPOSES_16 : PURPOSES_21;
 
   return (
@@ -342,48 +348,50 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
-          <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-            {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
-            {!editing && (
+          {canManageTemplate && (
+            <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+              {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
+              {!editing && (
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  disabled={duplicateMutation.isPending}
+                  onClick={() => {
+                    setDuplicateOpen(true);
+                  }}
+                >
+                  <Copy className="h-4 w-4" />
+                  {t('common.duplicate')}
+                </Button>
+              )}
               <Button
                 variant="outline"
                 className="gap-1.5"
-                disabled={duplicateMutation.isPending}
                 onClick={() => {
-                  setDuplicateOpen(true);
+                  setPushOpen(true);
                 }}
               >
-                <Copy className="h-4 w-4" />
-                {t('common.duplicate')}
+                <Upload className="h-4 w-4" />
+                {t('smartCharging.push')}
               </Button>
-            )}
-            <Button
-              variant="outline"
-              className="gap-1.5"
-              onClick={() => {
-                setPushOpen(true);
-              }}
-            >
-              <Upload className="h-4 w-4" />
-              {t('smartCharging.push')}
-            </Button>
-            <Button
-              variant="outline"
-              className="gap-1.5 text-destructive hover:text-destructive"
-              onClick={() => {
-                setClearOpen(true);
-              }}
-            >
-              <Eraser className="h-4 w-4" />
-              {t('smartCharging.clearFromStations')}
-            </Button>
-            <RemoveButton
-              label={t('common.delete')}
-              onClick={() => {
-                setDeleteOpen(true);
-              }}
-            />
-          </div>
+              <Button
+                variant="outline"
+                className="gap-1.5 text-destructive hover:text-destructive"
+                onClick={() => {
+                  setClearOpen(true);
+                }}
+              >
+                <Eraser className="h-4 w-4" />
+                {t('smartCharging.clearFromStations')}
+              </Button>
+              <RemoveButton
+                label={t('common.delete')}
+                onClick={() => {
+                  setDeleteOpen(true);
+                }}
+              />
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           {editing ? (

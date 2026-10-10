@@ -34,6 +34,7 @@ import { SitePricingTab } from '@/components/site/SitePricingTab';
 import { SiteFreeVendTab } from '@/components/site/SiteFreeVendTab';
 import { SiteMaintenanceTab } from '@/components/SiteMaintenanceTab';
 import { SiteElectricityRatesTab } from '@/components/SiteElectricityRatesTab';
+import { SiteElectricityRatesNotice } from '@/components/ElectricityCostNotices';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface Site {
@@ -176,17 +177,26 @@ export function SiteDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/sites" />
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl md:text-3xl font-bold">{site.name}</h1>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{site.name}</h1>
             {underMaintenance && <Badge variant="warning">{t('nav.maintenance')}</Badge>}
           </div>
           <CopyableId id={site.id} />
         </div>
         <EntityNavButtons resource="sites" basePath="/sites" currentId={id} />
       </div>
+
+      {activeTab !== 'electricity-rates' && (
+        <SiteElectricityRatesNotice
+          siteId={id ?? ''}
+          onOpenRates={() => {
+            setActiveTab('electricity-rates');
+          }}
+        />
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>

@@ -22,7 +22,7 @@ import { api } from '@/lib/api';
 import { formatDateTime } from '@/lib/timezone';
 import { formatCents } from '@/lib/formatting';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
-import { centsToMajorInput } from '@evtivity/lib/currency';
+import { centsToMajorInput, parseMajorInputToCents } from '@evtivity/lib/currency';
 
 const TOKEN_TYPES = [
   'DirectPayment',
@@ -121,7 +121,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
     if (isPrepaid) {
       if (prepaidBalance.trim() === '') {
         errors.prepaidBalance = t('validation.required');
-      } else if (!Number.isFinite(Number(prepaidBalance))) {
+      } else if (parseMajorInputToCents(prepaidBalance) == null) {
         errors.prepaidBalance = t('validation.invalidNumber');
       }
     }
@@ -139,7 +139,7 @@ export function TokenDetailsTab({ token, timezone }: TokenDetailsTabProps): Reac
       tokenType,
       driverId: selectedDriver?.id ?? null,
       isActive,
-      prepaidBalanceCents: isPrepaid ? Math.round(Number(prepaidBalance) * 100) : null,
+      prepaidBalanceCents: isPrepaid ? parseMajorInputToCents(prepaidBalance) : null,
     });
   }
 

@@ -96,6 +96,18 @@ vi.mock('@evtivity/database', async () => ({
   stationImages: {},
   settings: {},
   driverTokens: {},
+  snapshotReservationFeeTerms: vi.fn().mockResolvedValue({
+    feeTaxBasis: 'gross',
+    feeTaxRate: '0.19',
+    feePerMinute: '0.10',
+    feeCancellationCents: 300,
+  }),
+  resolveReservationFeeTerms: vi.fn().mockResolvedValue({
+    basis: 'gross',
+    taxRate: '0.19',
+    feePerMinute: '0.10',
+    cancellationFeeCents: 300,
+  }),
   getReservationSettings: vi.fn().mockResolvedValue({
     enabled: true,
     bufferMinutes: 0,
@@ -397,7 +409,10 @@ describe('Portal charger routes - remaining branches', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.evse.reservationExpiresAt).toBe('2030-05-01T12:00:00.000Z');
-      expect(body.evse.reservationDriverId).toBe('drv_000000000002');
+      expect(body.evse.reserved).toBe(true);
+      // Anonymous caller: never the holder, and the holder's id is not returned.
+      expect(body.evse.reservedByMe).toBe(false);
+      expect(body.evse).not.toHaveProperty('reservationDriverId');
       expect(body.maintenance).toEqual({
         active: true,
         plannedEndAt: '2030-05-02T00:00:00.000Z',
@@ -410,6 +425,46 @@ describe('Portal charger routes - remaining branches', () => {
       );
     });
 
+    it('reports reservedByMe for the driver holding the reservation', async () => {
+      const expiresAt = new Date('2030-05-01T12:00:00.000Z');
+      setupDbResults(
+        [station],
+        [{ id: 'evs_000000000001', evseId: 1 }],
+        [],
+        [{ expiresAt, driverId: 'drv_000000000002' }],
+      );
+      const holderToken = app.jwt.sign({ driverId: 'drv_000000000002', type: 'driver' });
+      const holder = await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/CS-001/evse/1',
+        headers: { authorization: `Bearer ${holderToken}` },
+      });
+      expect(holder.statusCode).toBe(200);
+      expect(holder.json().evse).toMatchObject({ reserved: true, reservedByMe: true });
+
+      setupDbResults(
+        [station],
+        [{ id: 'evs_000000000001', evseId: 1 }],
+        [],
+        [{ expiresAt, driverId: 'drv_000000000002' }],
+      );
+      const other = await app.inject({
+        method: 'GET',
+        url: '/portal/chargers/CS-001/evse/1',
+        headers: auth(),
+      });
+      expect(other.json().evse).toMatchObject({ reserved: true, reservedByMe: false });
+    });
+
+    it('reports an unreserved EVSE', async () => {
+      setupDbResults([station], [{ id: 'evs_000000000001', evseId: 1 }], [], []);
+      const response = await app.inject({ method: 'GET', url: '/portal/chargers/CS-001/evse/1' });
+      expect(response.json().evse).toMatchObject({
+        reservationExpiresAt: null,
+        reserved: false,
+        reservedByMe: false,
+      });
+    });
     it('keeps the maintenance window without a message when rendering fails', async () => {
       vi.mocked(getActiveMaintenanceForStation).mockResolvedValue({
         siteId: 'sit_000000000001',
@@ -444,6 +499,9 @@ describe('Portal charger routes - remaining branches', () => {
         pricePerKwh: null,
         pricePerMinute: null,
         pricePerSession: null,
+        idleFeePricePerMinute: null,
+        // No holding fee, so the portal and the app show no no-show fee.
+        reservationFeePerMinute: null,
         taxBasis: 'net',
         isFreeVend: true,
         restrictions: null,
@@ -680,13 +738,15 @@ describe('Portal charger routes - remaining branches', () => {
             },
           ],
           reservationExpiresAt: '2030-01-01T10:00:00.000Z',
-          reservationDriverId: 'drv_000000000003',
+          reserved: true,
+          reservedByMe: false,
         },
         {
           evseId: 2,
           connectors: [],
           reservationExpiresAt: '2030-01-01T09:00:00.000Z',
-          reservationDriverId: 'drv_000000000002',
+          reserved: true,
+          reservedByMe: false,
         },
       ]);
     });

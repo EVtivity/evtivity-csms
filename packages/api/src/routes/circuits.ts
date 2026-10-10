@@ -10,6 +10,7 @@ import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { siteInScope } from '../lib/site-scope.js';
 
 // --- Schemas ---
 
@@ -124,7 +125,7 @@ export function circuitRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Panel not found', code: 'PANEL_NOT_FOUND' });
         return;
       }
@@ -184,16 +185,18 @@ export function circuitRoutes(app: FastifyInstance): void {
         params: zodSchema(panelParams),
         response: {
           200: arrayResponse(circuitItem),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { siteId, panelId } = request.params as z.infer<typeof panelParams>;
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
-        return [];
+      if (!siteInScope(siteIds, siteId)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
       }
 
       const rows = await db
@@ -207,10 +210,14 @@ export function circuitRoutes(app: FastifyInstance): void {
           sortOrder: circuits.sortOrder,
           createdAt: circuits.createdAt,
           updatedAt: circuits.updatedAt,
-          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.circuit_id = ${circuits.id})`,
+          // Only stations of this site count: a station keeps no circuit of
+          // another site (cleared on a site change), and the count never
+          // reads another site's rows.
+          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.circuit_id = ${circuits.id} AND charging_stations.site_id = ${siteId})`,
         })
         .from(circuits)
-        .where(eq(circuits.panelId, panelId))
+        .innerJoin(panels, eq(circuits.panelId, panels.id))
+        .where(and(eq(circuits.panelId, panelId), eq(panels.siteId, siteId)))
         .orderBy(circuits.sortOrder);
 
       return rows.map((row) => ({
@@ -244,7 +251,7 @@ export function circuitRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Circuit not found', code: 'CIRCUIT_NOT_FOUND' });
         return;
       }
@@ -301,7 +308,7 @@ export function circuitRoutes(app: FastifyInstance): void {
       const stationCount = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(chargingStations)
-        .where(eq(chargingStations.circuitId, circuitId));
+        .where(and(eq(chargingStations.circuitId, circuitId), eq(chargingStations.siteId, siteId)));
 
       return {
         ...updated,
@@ -333,26 +340,31 @@ export function circuitRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Circuit not found', code: 'CIRCUIT_NOT_FOUND' });
         return;
       }
 
+      // The circuit's panel must belong to the URL site: a site-restricted
+      // user cannot delete another site's circuit through one of their sites.
       const [existing] = await db
         .select({ id: circuits.id })
         .from(circuits)
-        .where(and(eq(circuits.id, circuitId), eq(circuits.panelId, panelId)));
+        .innerJoin(panels, eq(circuits.panelId, panels.id))
+        .where(
+          and(eq(circuits.id, circuitId), eq(circuits.panelId, panelId), eq(panels.siteId, siteId)),
+        );
 
       if (existing == null) {
         await reply.status(404).send({ error: 'Circuit not found', code: 'CIRCUIT_NOT_FOUND' });
         return;
       }
 
-      // Set circuitId = null on assigned stations
+      // Set circuitId = null on the site's stations assigned to it
       await db
         .update(chargingStations)
         .set({ circuitId: null, updatedAt: new Date() })
-        .where(eq(chargingStations.circuitId, circuitId));
+        .where(and(eq(chargingStations.circuitId, circuitId), eq(chargingStations.siteId, siteId)));
 
       // Delete the circuit (cascades unmanaged loads)
       await db.delete(circuits).where(eq(circuits.id, circuitId));
@@ -389,7 +401,7 @@ export function circuitRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -449,7 +461,10 @@ export function circuitRoutes(app: FastifyInstance): void {
           .from(chargingStations)
           .where(
             panelCircuitIds.length > 0
-              ? inArray(chargingStations.circuitId, panelCircuitIds)
+              ? and(
+                  inArray(chargingStations.circuitId, panelCircuitIds),
+                  eq(chargingStations.siteId, siteId),
+                )
               : sql`false`,
           );
         const stationDbIds = stationsOnPanel.map((s) => s.id);
@@ -491,7 +506,9 @@ export function circuitRoutes(app: FastifyInstance): void {
       const assignRows = await db
         .update(chargingStations)
         .set({ circuitId: body.circuitId, updatedAt: new Date() })
-        .where(eq(chargingStations.id, stationId))
+        // The site guard holds when the station moves between the check and
+        // the write.
+        .where(and(eq(chargingStations.id, stationId), eq(chargingStations.siteId, siteId)))
         .returning();
       const assignedStation = assignRows[0];
       if (assignedStation == null) {

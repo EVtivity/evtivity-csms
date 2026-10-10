@@ -28,6 +28,7 @@ import {
   sites,
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
+import { publicStationListed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -465,7 +466,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           ocppProtocol: chargingStations.ocppProtocol,
         })
         .from(chargingStations)
-        .where(eq(chargingStations.stationId, stationId));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -555,7 +556,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(eq(chargingStations.stationId, params.stationId));
+        .where(and(eq(chargingStations.stationId, params.stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -718,12 +719,16 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           onboardingStatus: chargingStations.onboardingStatus,
         })
         .from(chargingStations)
-        .where(eq(chargingStations.stationId, params.stationId));
+        // A pending or blocked station answers like an unknown one.
+        .where(and(eq(chargingStations.stationId, params.stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
+
+      // Second layer (P11): the onboarding gate runs before any other state.
+      if (!(await checkStationOnboarded(station, reply))) return;
 
       const guestActiveMaintenance = await getActiveMaintenanceForStation(station.id);
       if (guestActiveMaintenance != null) {
@@ -734,8 +739,6 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         });
         return;
       }
-
-      if (!(await checkStationOnboarded(station, reply))) return;
 
       if (!station.isOnline) {
         await reply.status(400).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });

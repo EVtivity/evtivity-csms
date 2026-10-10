@@ -103,14 +103,17 @@ vi.mock('@evtivity/database', () => {
         },
       },
     );
+  const db: Record<string, unknown> = {
+    select: vi.fn((arg?: unknown) => makeChain('select', arg)),
+    insert: vi.fn((arg: unknown) => makeChain('insert', arg)),
+    update: vi.fn((arg: unknown) => makeChain('update', arg)),
+    delete: vi.fn((arg: unknown) => makeChain('delete', arg)),
+    execute: vi.fn(() => Promise.resolve([])),
+  };
+  // A transaction runs its callback on the same recording mock.
+  db['transaction'] = vi.fn((fn: (tx: unknown) => Promise<unknown>) => fn(db));
   return {
-    db: {
-      select: vi.fn((arg?: unknown) => makeChain('select', arg)),
-      insert: vi.fn((arg: unknown) => makeChain('insert', arg)),
-      update: vi.fn((arg: unknown) => makeChain('update', arg)),
-      delete: vi.fn((arg: unknown) => makeChain('delete', arg)),
-      execute: vi.fn(() => Promise.resolve([])),
-    },
+    db,
     client: vi.fn(() => Promise.resolve([])),
     users: table('users'),
     roles: table('roles'),
@@ -139,10 +142,14 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn((...a: unknown[]) => ['and', ...a]),
   or: vi.fn((...a: unknown[]) => ['or', ...a]),
   isNull: vi.fn((a: unknown) => ['isNull', a]),
+  ne: vi.fn((a: unknown, b: unknown) => ['ne', a, b]),
   ilike: vi.fn((a: unknown, b: unknown) => ['ilike', a, b]),
   inArray: vi.fn((a: unknown, b: unknown) => ['inArray', a, b]),
   desc: vi.fn((a: unknown) => ['desc', a]),
   sql: vi.fn(() => 'sql'),
+  notExists: vi.fn((a: unknown) => ['notExists', a]),
+  exists: vi.fn((a: unknown) => ['exists', a]),
+  notInArray: vi.fn((a: unknown, b: unknown) => ['notInArray', a, b]),
 }));
 
 vi.mock('argon2', () => ({
@@ -168,6 +175,11 @@ vi.mock('@evtivity/lib', () => ({
   verifyRecaptcha: vi.fn().mockResolvedValue({ success: true }),
   redactSensitiveNotificationContent: vi.fn((s: string) => `redacted(${s})`),
   recordNotificationAttempt: vi.fn().mockResolvedValue(undefined),
+  isSubsetOf: (subset: string[], superset: string[]): boolean =>
+    subset.every((p) => superset.includes(p)),
+  AI_EFFORTS: ['low', 'medium', 'high'],
+  AI_PROVIDER_IDS: ['anthropic', 'openai', 'gemini', 'deepseek'],
+  isAiEffort: (v: unknown): boolean => v === 'low' || v === 'medium' || v === 'high',
   permissionCatalog: {
     defaultsFor: (role: string | undefined): string[] =>
       role === 'admin'
@@ -209,6 +221,11 @@ vi.mock('../services/refresh-token.service.js', () => ({
   revokeAllUserSessions: vi.fn().mockResolvedValue(undefined),
 }));
 
+const ALL_MOCK_PERMISSIONS = ['users:read', 'users:write', 'stations:read', 'stations:write'];
+const actorPermissions = vi.hoisted(() => ({
+  value: ['users:read', 'users:write', 'stations:read', 'stations:write'],
+}));
+
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>
@@ -223,11 +240,16 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  // The acting user's permissions: every actor grants only what it holds.
+  // All-site tests act with every permission of the mocked catalog; the
+  // site-restricted actor holds less (set in its describe block).
+  getEffectivePermissions: vi.fn(() => Promise.resolve(actorPermissions.value)),
 }));
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
   invalidateSiteAccessCache: vi.fn(),
+  assertSitesWithinScope: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../lib/rate-limiters.js', async (importOriginal) => {
@@ -270,7 +292,11 @@ import {
   revokeAllUserSessions,
 } from '../services/refresh-token.service.js';
 import { invalidatePermissionCache } from '../middleware/rbac.js';
-import { invalidateSiteAccessCache } from '../lib/site-access.js';
+import {
+  assertSitesWithinScope,
+  getUserSiteIds,
+  invalidateSiteAccessCache,
+} from '../lib/site-access.js';
 import {
   isMfaChallengeExhausted,
   recordMfaChallengeAttempt,
@@ -279,6 +305,7 @@ import {
 import { hashUserToken } from '../lib/user-token.js';
 import { registerAuth } from '../plugins/auth.js';
 import { userRoutes } from '../routes/users.js';
+import { defaultSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 
 // postgres.js Sql type is too deep for vi.mocked(); treat the tag function as a plain mock.
 const clientMock = client as unknown as Mock;
@@ -1372,7 +1399,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('returns 400 ROLE_NOT_FOUND for an unknown roleId', async () => {
-      setupDbResults([]);
+      setupDbResults([userRow()], []);
       const res = await app.inject({
         method: 'PATCH',
         url: `/users/${OTHER}`,
@@ -1384,8 +1411,8 @@ describe('User routes (extended coverage)', () => {
       expect(opsFor('update', 'users')).toHaveLength(0);
     });
 
-    it('returns 400 INVALID_SITE_IDS without replacing assignments', async () => {
-      setupDbResults([userRow()], [userRow()], []);
+    it('returns 400 INVALID_SITE_IDS before any write', async () => {
+      setupDbResults([userRow()], []);
       const res = await app.inject({
         method: 'PATCH',
         url: `/users/${OTHER}`,
@@ -1394,6 +1421,7 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('INVALID_SITE_IDS');
+      expect(opsFor('update', 'users')).toHaveLength(0);
       expect(opsFor('delete', 'userSiteAssignments')).toHaveLength(0);
       expect(writeAudit).not.toHaveBeenCalled();
     });
@@ -1401,8 +1429,9 @@ describe('User routes (extended coverage)', () => {
     it('replaces site assignments, invalidates site access and audits site_access_changed', async () => {
       setupDbResults(
         [userRow()],
-        [userRow()],
+        [], // the target's permissions (subset of the actor's)
         [{ id: 'site-a' }, { id: 'site-b' }],
+        [userRow()],
         [],
         [],
         [{ siteId: 'site-a' }, { siteId: 'site-b' }],
@@ -1441,7 +1470,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('clears all assignments for an empty siteIds list without a site lookup', async () => {
-      setupDbResults([userRow()], [userRow()], [], [], []);
+      setupDbResults([userRow()], [], [userRow()], [], [], []);
       const res = await app.inject({
         method: 'PATCH',
         url: `/users/${OTHER}`,
@@ -1455,7 +1484,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('deactivation revokes refresh tokens and broadcasts the isActive cache drop', async () => {
-      setupDbResults([userRow()], [userRow({ isActive: false })], [], []);
+      setupDbResults([userRow()], [], [userRow({ isActive: false })], [], []);
       const res = await app.inject({
         method: 'PATCH',
         url: `/users/${OTHER}`,
@@ -1478,10 +1507,10 @@ describe('User routes (extended coverage)', () => {
 
     it('a role change resets permissions to the new role defaults and revokes sessions', async () => {
       setupDbResults(
-        [{ id: ROLE2 }],
         [userRow({ roleId: ROLE })],
+        [],
+        [{ id: ROLE2, name: 'viewer' }],
         [userRow({ roleId: ROLE2 })],
-        [{ name: 'viewer' }],
         [],
         [],
         [],
@@ -1513,10 +1542,10 @@ describe('User routes (extended coverage)', () => {
 
     it('audits as updated when the roleId equals the current role', async () => {
       setupDbResults(
-        [{ id: ROLE }],
         [userRow({ roleId: ROLE })],
+        [],
+        [{ id: ROLE, name: 'admin' }],
         [userRow({ roleId: ROLE })],
-        [{ name: 'admin' }],
       );
       const res = await app.inject({
         method: 'PATCH',
@@ -1533,23 +1562,339 @@ describe('User routes (extended coverage)', () => {
       expect(auditCall()).toMatchObject({ action: 'updated' });
     });
 
-    it('records before as null when the pre-update read finds nothing', async () => {
-      setupDbResults([], [userRow()]);
+    it('returns 404 for an unknown user without a write', async () => {
+      setupDbResults([]);
       const res = await app.inject({
         method: 'PATCH',
         url: `/users/${OTHER}`,
         headers: auth,
-        payload: { lastName: 'Z', phone: '+49', timezone: 'Europe/Berlin', language: 'es' },
+        payload: { lastName: 'Z' },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('USER_NOT_FOUND');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('writes the user, sites and permissions in one transaction', async () => {
+      setupDbResults(
+        [userRow({ roleId: ROLE })],
+        [],
+        [{ id: ROLE2, name: 'viewer' }],
+        [{ id: 'site-a' }],
+        [userRow({ roleId: ROLE2 })],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { roleId: ROLE2, siteIds: ['site-a'], lastName: 'Z' },
       });
       expect(res.statusCode).toBe(200);
-      expect(argOf(opsFor('update', 'users')[0], 'set')).toEqual({
-        updatedAt: expect.any(Date),
-        lastName: 'Z',
-        phone: '+49',
-        timezone: 'Europe/Berlin',
-        language: 'es',
+      const { db } = await import('@evtivity/database');
+      expect(vi.mocked(db.transaction)).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ------------------------------------------- site-restricted user admin
+
+  describe('site-restricted actor', () => {
+    beforeEach(() => {
+      vi.mocked(getUserSiteIds).mockResolvedValue(['site-a']);
+      actorPermissions.value = ['users:read', 'users:write', 'stations:read'];
+    });
+    afterEach(() => {
+      vi.mocked(getUserSiteIds).mockResolvedValue(null);
+      actorPermissions.value = ALL_MOCK_PERMISSIONS;
+      vi.mocked(assertSitesWithinScope).mockResolvedValue(true);
+    });
+
+    it('lists only users within its sites', async () => {
+      setupDbResults([], [{ count: 0 }]);
+      const res = await app.inject({ method: 'GET', url: '/users', headers: auth });
+      expect(res.statusCode).toBe(200);
+      const where = argOf(opsFor('select', 'users')[0], 'where') as unknown[];
+      expect(JSON.stringify(where)).toContain('notExists');
+      // A user without any site is not the restricted actor's to manage.
+      expect(JSON.stringify(where)).toContain('"exists"');
+      expect(JSON.stringify(where)).toContain('["eq","users.hasAllSiteAccess",false]');
+    });
+
+    it('answers 404 for an all-site user', async () => {
+      setupDbResults([userRow({ hasAllSiteAccess: true })], [{ hasAllSiteAccess: true }]);
+      const res = await app.inject({ method: 'GET', url: `/users/${OTHER}`, headers: auth });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('USER_NOT_FOUND');
+    });
+
+    it.each([
+      ['GET', `/users/${OTHER}`, undefined],
+      ['DELETE', `/users/${OTHER}`, undefined],
+      ['POST', `/users/${OTHER}/reset-password`, { password: 'Str0ng!Passw0rd#1' }],
+      ['POST', `/users/${OTHER}/resend-invite`, undefined],
+      ['GET', `/users/${OTHER}/permissions`, undefined],
+      ['PUT', `/users/${OTHER}/permissions`, { permissions: ['stations:read'] }],
+      ['PATCH', `/users/${OTHER}`, { lastName: 'Z' }],
+    ])(
+      'refuses %s %s on a user without any site with 404 and no write',
+      async (method, url, payload) => {
+        setupDbResults([userRow()], [{ hasAllSiteAccess: false }], []);
+        const res = await app.inject({
+          method: method as 'GET',
+          url,
+          headers: auth,
+          ...(payload != null ? { payload } : {}),
+        });
+        expect(res.statusCode).toBe(404);
+        expect(res.json().code).toBe('USER_NOT_FOUND');
+        expect(state.ops.filter((o) => o.kind !== 'select')).toHaveLength(0);
+      },
+    );
+
+    it('answers 404 for a user with a site outside its own', async () => {
+      setupDbResults(
+        [userRow()],
+        [{ hasAllSiteAccess: false }],
+        [{ siteId: 'site-a' }, { siteId: 'site-b' }],
+      );
+      const res = await app.inject({ method: 'GET', url: `/users/${OTHER}`, headers: auth });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it.each([
+      ['DELETE', `/users/${OTHER}`, undefined],
+      ['POST', `/users/${OTHER}/reset-password`, { password: 'Str0ng!Passw0rd#1' }],
+      ['POST', `/users/${OTHER}/resend-invite`, undefined],
+      ['GET', `/users/${OTHER}/permissions`, undefined],
+      ['PUT', `/users/${OTHER}/permissions`, { permissions: ['stations:read'] }],
+      ['PATCH', `/users/${OTHER}`, { lastName: 'Z' }],
+    ])('refuses %s %s on an all-site user with 404 and no write', async (method, url, payload) => {
+      setupDbResults([userRow({ hasAllSiteAccess: true })], [{ hasAllSiteAccess: true }]);
+      const res = await app.inject({
+        method: method as 'GET',
+        url,
+        headers: auth,
+        ...(payload != null ? { payload } : {}),
       });
-      expect(auditCall()['before']).toBeNull();
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('USER_NOT_FOUND');
+      expect(state.ops.filter((o) => o.kind !== 'select')).toHaveLength(0);
+    });
+
+    it('cannot grant all-site access', async () => {
+      setupDbResults([userRow()], [{ hasAllSiteAccess: false }], [{ siteId: 'site-a' }], []);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { hasAllSiteAccess: true },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('FORBIDDEN');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('cannot assign a site outside its own', async () => {
+      vi.mocked(assertSitesWithinScope).mockResolvedValue(false);
+      setupDbResults(
+        [userRow()],
+        [{ hasAllSiteAccess: false }],
+        [{ siteId: 'site-a' }],
+        [],
+        [{ id: 'site-b' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { siteIds: ['site-b'] },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_SITE_IDS');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('cannot pick a role whose defaults exceed its own permissions', async () => {
+      setupDbResults(
+        [userRow()],
+        [{ hasAllSiteAccess: false }],
+        [{ siteId: 'site-a' }],
+        [],
+        [{ id: ROLE2, name: 'operator' }],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { roleId: ROLE2 },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('PERMISSIONS_EXCEED_OWN');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
+    it('cannot grant a permission it does not hold', async () => {
+      setupDbResults([{ id: OTHER }], [{ hasAllSiteAccess: false }], [{ siteId: 'site-a' }], []);
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/users/${OTHER}/permissions`,
+        headers: auth,
+        payload: { permissions: ['stations:read', 'stations:write'] },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('PERMISSIONS_EXCEED_OWN');
+      expect(opsFor('delete', 'userPermissions')).toHaveLength(0);
+    });
+
+    it('may grant permissions it holds to a user within its sites', async () => {
+      setupDbResults([{ id: OTHER }], [{ hasAllSiteAccess: false }], [{ siteId: 'site-a' }], []);
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/users/${OTHER}/permissions`,
+        headers: auth,
+        payload: { permissions: ['stations:read'] },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(opsFor('delete', 'userPermissions')).toHaveLength(1);
+    });
+
+    it('cannot create a user with all-site access', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: {
+          email: 'new@example.com',
+          firstName: 'N',
+          lastName: 'U',
+          roleId: ROLE,
+          hasAllSiteAccess: true,
+        },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('FORBIDDEN');
+      expect(opsFor('insert', 'users')).toHaveLength(0);
+    });
+
+    it.each([
+      ['without siteIds', {}],
+      ['with an empty siteIds', { siteIds: [] }],
+    ])('cannot create a user %s', async (_label, sitePart) => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        headers: auth,
+        payload: { email: 'new@example.com', roleId: ROLE, ...sitePart },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_SITE_IDS');
+      expect(state.ops.filter((o) => o.kind !== 'select')).toHaveLength(0);
+    });
+
+    it('cannot remove every site of a user', async () => {
+      setupDbResults([userRow()], [{ hasAllSiteAccess: false }], [{ siteId: 'site-a' }], []);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { siteIds: [] },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('INVALID_SITE_IDS');
+      expect(state.ops.filter((o) => o.kind !== 'select')).toHaveLength(0);
+    });
+  });
+
+  // ------------------------------------- owner subset rule (every actor)
+
+  describe('target with more permissions than the actor', () => {
+    beforeEach(() => {
+      // An all-site actor without settings permissions.
+      actorPermissions.value = ['users:read', 'users:write', 'stations:read'];
+    });
+    afterEach(() => {
+      actorPermissions.value = ALL_MOCK_PERMISSIONS;
+    });
+
+    const wider = [{ permission: 'users:write' }, { permission: 'settings.system:write' }];
+
+    it.each([
+      ['POST', `/users/${OTHER}/reset-password`, { password: 'Str0ng!Passw0rd#1' }, [wider]],
+      ['POST', `/users/${OTHER}/resend-invite`, undefined, [[userRow()], wider]],
+      ['DELETE', `/users/${OTHER}`, undefined, [[userRow()], wider]],
+      ['PATCH', `/users/${OTHER}`, { isActive: false }, [[userRow()], wider]],
+      ['PATCH', `/users/${OTHER}`, { roleId: ROLE2 }, [[userRow()], wider]],
+      ['PATCH', `/users/${OTHER}`, { siteIds: [] }, [[userRow()], wider]],
+      ['PATCH', `/users/${OTHER}`, { phone: '+15550100' }, [[userRow()], wider]],
+      ['PATCH', `/users/${OTHER}`, { email: 'takeover@example.com' }, [[userRow()], wider]],
+      ['PUT', `/users/${OTHER}/permissions`, { permissions: [] }, [[{ id: OTHER }], wider]],
+    ])('refuses %s %s with 404 and no write', async (method, url, payload, results) => {
+      setupDbResults(...(results as unknown[][]));
+      const res = await app.inject({
+        method: method as 'POST',
+        url,
+        headers: auth,
+        ...(payload != null ? { payload } : {}),
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('USER_NOT_FOUND');
+      expect(state.ops.filter((o) => o.kind !== 'select')).toHaveLength(0);
+      expect(revokeAllUserSessions).not.toHaveBeenCalled();
+    });
+
+    it('still lets the actor change the name of a user with more permissions', async () => {
+      setupDbResults([userRow()], [userRow({ lastName: 'Z' })]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { lastName: 'Z' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(opsFor('select', 'userPermissions')).toHaveLength(1);
+    });
+
+    it('changes the email of a user whose permissions it holds and revokes its reset links', async () => {
+      setupDbResults(
+        [userRow()],
+        [{ permission: 'stations:read' }],
+        [],
+        [userRow({ email: 'moved@example.com' })],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { email: 'Moved@Example.com' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(argOf(opsFor('update', 'users')[0], 'set')).toMatchObject({
+        email: 'moved@example.com',
+      });
+      expect(opsFor('update', 'userTokens')).toHaveLength(1);
+    });
+
+    it('refuses an email another user holds with 409 and no write', async () => {
+      setupDbResults([userRow()], [{ permission: 'stations:read' }], [{ id: 'someone-else' }]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/users/${OTHER}`,
+        headers: auth,
+        payload: { email: 'taken@example.com' },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('DUPLICATE_EMAIL');
+      expect(state.ops.filter((o) => o.kind !== 'select')).toHaveLength(0);
+    });
+
+    it('resets the password of a user whose permissions it holds', async () => {
+      setupDbResults([{ permission: 'stations:read' }], [{ id: OTHER }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/users/${OTHER}/reset-password`,
+        headers: auth,
+        payload: { password: 'TempPassword123' },
+      });
+      expect(res.statusCode).toBe(200);
     });
   });
 
@@ -1569,7 +1914,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('admin reset forces a reset, revokes sessions and audits', async () => {
-      setupDbResults([{ id: OTHER }]);
+      setupDbResults([], [{ id: OTHER }]);
       const res = await app.inject({
         method: 'POST',
         url: `/users/${OTHER}/reset-password`,
@@ -2323,9 +2668,7 @@ describe('User routes (extended coverage)', () => {
       provider: null,
       apiKey: null,
       model: null,
-      temperature: null,
-      topP: null,
-      topK: null,
+      effort: null,
       systemPrompt: null,
     };
 
@@ -2351,15 +2694,13 @@ describe('User routes (extended coverage)', () => {
       expect(decryptString).not.toHaveBeenCalled();
     });
 
-    it('GET decrypts the key and converts numeric strings', async () => {
+    it('GET decrypts the key and returns the effort', async () => {
       setupDbResults([
         {
           provider: 'anthropic',
           apiKeyEnc: 'cipher',
           model: 'claude-x',
-          temperature: '0.7',
-          topP: '0.9',
-          topK: 40,
+          effort: 'high',
           systemPrompt: 'Be brief',
         },
       ]);
@@ -2373,9 +2714,7 @@ describe('User routes (extended coverage)', () => {
         provider: 'anthropic',
         apiKey: 'dec(cipher)',
         model: 'claude-x',
-        temperature: 0.7,
-        topP: 0.9,
-        topK: 40,
+        effort: 'high',
         systemPrompt: 'Be brief',
       });
     });
@@ -2387,9 +2726,7 @@ describe('User routes (extended coverage)', () => {
           provider: 'openai',
           apiKeyEnc: 'cipher',
           model: null,
-          temperature: null,
-          topP: null,
-          topK: null,
+          effort: null,
           systemPrompt: null,
         },
       ]);
@@ -2411,9 +2748,7 @@ describe('User routes (extended coverage)', () => {
           provider: 'gemini',
           apiKey: 'sk-plain',
           model: 'g-1',
-          temperature: 1.5,
-          topP: 0.5,
-          topK: 10,
+          effort: 'low',
           systemPrompt: 'Hi',
         },
       });
@@ -2423,9 +2758,7 @@ describe('User routes (extended coverage)', () => {
         provider: 'gemini',
         apiKeyEnc: 'enc(sk-plain)',
         model: 'g-1',
-        temperature: '1.5',
-        topP: '0.5',
-        topK: 10,
+        effort: 'low',
         systemPrompt: 'Hi',
         updatedAt: expect.any(Date),
       };
@@ -2445,9 +2778,23 @@ describe('User routes (extended coverage)', () => {
       });
       expect(argOf(opsFor('insert', 'chatbotAiConfigs')[0], 'values')).toMatchObject({
         model: null,
-        temperature: null,
-        topP: null,
-        topK: null,
+        effort: null,
+        systemPrompt: null,
+      });
+    });
+
+    it('PUT stores no prompt for an unchanged built-in prompt of any language', async () => {
+      await app.inject({
+        method: 'PUT',
+        url: '/users/me/chatbot-ai-config',
+        headers: auth,
+        payload: {
+          provider: 'openai',
+          apiKey: 'k',
+          systemPrompt: `  ${defaultSystemPrompt('chatbot', 'ko')}\n`,
+        },
+      });
+      expect(argOf(opsFor('insert', 'chatbotAiConfigs')[0], 'values')).toMatchObject({
         systemPrompt: null,
       });
     });
@@ -2464,12 +2811,12 @@ describe('User routes (extended coverage)', () => {
       expect(state.ops).toHaveLength(0);
     });
 
-    it('PUT rejects a temperature above 2', async () => {
+    it('PUT rejects an unknown effort', async () => {
       const res = await app.inject({
         method: 'PUT',
         url: '/users/me/chatbot-ai-config',
         headers: auth,
-        payload: { provider: 'openai', apiKey: 'k', temperature: 2.5 },
+        payload: { provider: 'openai', apiKey: 'k', effort: 'max' },
       });
       expect(res.statusCode).toBe(400);
       expect(state.ops).toHaveLength(0);
@@ -2506,9 +2853,7 @@ describe('User routes (extended coverage)', () => {
         provider: '',
         apiKeyEnc: '',
         model: null,
-        temperature: null,
-        topP: null,
-        topK: null,
+        effort: null,
         systemPrompt: null,
         updatedAt: expect.any(Date),
       });
@@ -2523,9 +2868,7 @@ describe('User routes (extended coverage)', () => {
       provider: null,
       apiKey: null,
       model: null,
-      temperature: null,
-      topP: null,
-      topK: null,
+      effort: null,
       systemPrompt: null,
       tone: null,
     };
@@ -2556,9 +2899,7 @@ describe('User routes (extended coverage)', () => {
           supportAiProvider: 'anthropic',
           supportAiApiKeyEnc: 'scipher',
           supportAiModel: 'm',
-          supportAiTemperature: '0.2',
-          supportAiTopP: '1',
-          supportAiTopK: 5,
+          supportAiEffort: 'medium',
           supportAiSystemPrompt: 'sp',
           supportAiTone: 'formal',
         },
@@ -2573,9 +2914,7 @@ describe('User routes (extended coverage)', () => {
         provider: 'anthropic',
         apiKey: 'dec(scipher)',
         model: 'm',
-        temperature: 0.2,
-        topP: 1,
-        topK: 5,
+        effort: 'medium',
         systemPrompt: 'sp',
         tone: 'formal',
       });
@@ -2587,9 +2926,7 @@ describe('User routes (extended coverage)', () => {
           supportAiProvider: 'openai',
           supportAiApiKeyEnc: '',
           supportAiModel: null,
-          supportAiTemperature: null,
-          supportAiTopP: null,
-          supportAiTopK: null,
+          supportAiEffort: null,
           supportAiSystemPrompt: null,
           supportAiTone: null,
         },
@@ -2609,7 +2946,7 @@ describe('User routes (extended coverage)', () => {
         method: 'PUT',
         url: '/users/me/support-ai-config',
         headers: auth,
-        payload: { provider: 'openai', apiKey: 'sk', tone: 'friendly', temperature: 0 },
+        payload: { provider: 'openai', apiKey: 'sk', tone: 'friendly', effort: 'high' },
       });
       expect(res.statusCode).toBe(200);
       expect(opsFor('insert', 'chatbotAiConfigs')).toHaveLength(0);
@@ -2618,9 +2955,7 @@ describe('User routes (extended coverage)', () => {
         supportAiProvider: 'openai',
         supportAiApiKeyEnc: 'enc(sk)',
         supportAiModel: null,
-        supportAiTemperature: '0',
-        supportAiTopP: null,
-        supportAiTopK: null,
+        supportAiEffort: 'high',
         supportAiSystemPrompt: null,
         supportAiTone: 'friendly',
         updatedAt: expect.any(Date),
@@ -2635,24 +2970,20 @@ describe('User routes (extended coverage)', () => {
         url: '/users/me/support-ai-config',
         headers: auth,
         payload: {
-          provider: 'gemini',
+          provider: 'deepseek',
           apiKey: 'sk',
           model: 'gm',
-          topP: 0.3,
-          topK: 2,
           systemPrompt: 'x',
         },
       });
       expect(argOf(opsFor('insert', 'chatbotAiConfigs')[0], 'values')).toEqual({
         userId: ME,
-        provider: 'gemini',
+        provider: 'deepseek',
         apiKeyEnc: '',
-        supportAiProvider: 'gemini',
+        supportAiProvider: 'deepseek',
         supportAiApiKeyEnc: 'enc(sk)',
         supportAiModel: 'gm',
-        supportAiTemperature: null,
-        supportAiTopP: '0.3',
-        supportAiTopK: 2,
+        supportAiEffort: null,
         supportAiSystemPrompt: 'x',
         supportAiTone: null,
         updatedAt: expect.any(Date),
@@ -2708,9 +3039,7 @@ describe('User routes (extended coverage)', () => {
         supportAiProvider: null,
         supportAiApiKeyEnc: null,
         supportAiModel: null,
-        supportAiTemperature: null,
-        supportAiTopP: null,
-        supportAiTopK: null,
+        supportAiEffort: null,
         supportAiSystemPrompt: null,
         supportAiTone: null,
         updatedAt: expect.any(Date),
@@ -2815,7 +3144,11 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('PUT /users/:id/permissions replaces the set, clears the cache and audits', async () => {
-      setupDbResults([{ id: OTHER }], [{ permission: 'stations:read' }]);
+      setupDbResults(
+        [{ id: OTHER }],
+        [{ permission: 'stations:read' }],
+        [{ permission: 'stations:read' }],
+      );
       const res = await app.inject({
         method: 'PUT',
         url: `/users/${OTHER}/permissions`,
@@ -2840,6 +3173,24 @@ describe('User routes (extended coverage)', () => {
         before: { permissions: ['stations:read'] },
         after: { permissions: ['users:read', 'stations:write'] },
       });
+    });
+
+    it('PUT /users/:id/permissions refuses an all-site actor granting more than it holds', async () => {
+      actorPermissions.value = ['users:read', 'users:write', 'stations:read'];
+      try {
+        setupDbResults([{ id: OTHER }], []);
+        const res = await app.inject({
+          method: 'PUT',
+          url: `/users/${OTHER}/permissions`,
+          headers: auth,
+          payload: { permissions: ['stations:write'] },
+        });
+        expect(res.statusCode).toBe(403);
+        expect(res.json().code).toBe('PERMISSIONS_EXCEED_OWN');
+        expect(opsFor('delete', 'userPermissions')).toHaveLength(0);
+      } finally {
+        actorPermissions.value = ALL_MOCK_PERMISSIONS;
+      }
     });
 
     it('PUT /users/:id/permissions with an empty list deletes without inserting', async () => {

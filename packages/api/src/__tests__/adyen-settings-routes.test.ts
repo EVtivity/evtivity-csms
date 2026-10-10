@@ -48,6 +48,10 @@ vi.mock('../middleware/rbac.js', () => ({
   requestHasPermission: mockRequestHasPermission,
 }));
 
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+
 vi.mock('../lib/payments.js', () => ({
   paymentRegistry: { getPaymentProvider: mockGetPaymentProvider },
 }));
@@ -67,6 +71,7 @@ import {
 import { registerAuth } from '../plugins/auth.js';
 import { config } from '../lib/config.js';
 import { adyenSettingsRoutes } from '../routes/adyen-settings.js';
+import { resetSiteAccessMock, setMockUserSiteIds } from './helpers/site-access-mock.js';
 
 const ENCRYPTION_KEY = config.SETTINGS_ENCRYPTION_KEY;
 
@@ -131,8 +136,26 @@ describe('Adyen settings routes', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetSiteAccessMock();
     mockSettingsRows.rows = [];
     mockWritePaymentSettings.mockResolvedValue(undefined);
+  });
+
+  it('answers 404 SETTING_NOT_FOUND to a site-restricted user on every route', async () => {
+    setMockUserSiteIds(['sit_a']);
+    const responses = [
+      await call('GET', '/settings/adyen'),
+      await call('PUT', '/settings/adyen', {}),
+      await call('POST', '/settings/adyen/test', {}),
+      await call('GET', '/settings/adyen/webhook'),
+      await call('POST', '/settings/adyen/webhook', { url: 'https://example.com/hook' }),
+    ];
+    for (const res of responses) {
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ code: 'SETTING_NOT_FOUND' });
+    }
+    expect(mockWritePaymentSettings).not.toHaveBeenCalled();
+    expect(mockGetPaymentProvider).not.toHaveBeenCalled();
   });
 
   function call(method: 'GET' | 'PUT' | 'POST', url: string, payload?: unknown) {

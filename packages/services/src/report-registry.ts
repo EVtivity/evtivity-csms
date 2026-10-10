@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { UiLanguage } from '@evtivity/lib/languages';
+import type { ReportSiteScope } from './report-scope.js';
 
 /** File formats a report can be written in. */
 export const REPORT_FORMATS = ['csv', 'pdf', 'xlsx'] as const;
@@ -16,12 +17,16 @@ export interface ReportGeneratorResult {
 /**
  * Builds a report file. `language` sets its labels and PDF formatting
  * (report-generators/report-locale.ts). NEVI ignores it: the EV-ChART template
- * has fixed English field names.
+ * has fixed English field names. `siteIds` is the report's site scope
+ * (report-scope.ts): null covers every site, an array only stations at those
+ * sites (no unsited stations; an empty array yields an empty report). Every
+ * query of the generator honours it, on top of the filters.
  */
 export type ReportGenerator = (
   filters: Record<string, unknown>,
   format: string,
   language: UiLanguage,
+  siteIds: ReportSiteScope,
 ) => Promise<ReportGeneratorResult>;
 
 export interface ReportGeneratorDescriptor {

@@ -91,6 +91,18 @@ vi.mock('@evtivity/database', async () => ({
   driverTokens: {},
   users: {},
   reservationAuditLog: {},
+  snapshotReservationFeeTerms: vi.fn().mockResolvedValue({
+    feeTaxBasis: 'gross',
+    feeTaxRate: '0.19',
+    feePerMinute: '0.10',
+    feeCancellationCents: 300,
+  }),
+  resolveReservationFeeTerms: vi.fn().mockResolvedValue({
+    basis: 'gross',
+    taxRate: '0.19',
+    feePerMinute: '0.10',
+    cancellationFeeCents: 300,
+  }),
   getReservationSettings: vi.fn().mockResolvedValue({
     enabled: true,
     bufferMinutes: 0,
@@ -179,7 +191,12 @@ vi.mock('@evtivity/services/template-dirs', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { reservationRoutes } from '../routes/reservations.js';
-import { getReservationSettings } from '@evtivity/database';
+import {
+  db,
+  getReservationSettings,
+  resolveReservationFeeTerms,
+  snapshotReservationFeeTerms,
+} from '@evtivity/database';
 
 const VALID_RESERVATION_ID = 'rsv_000000000001';
 const VALID_DRIVER_ID = 'drv_000000000001';
@@ -368,6 +385,56 @@ describe('Reservation routes', () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.id).toBe(VALID_RESERVATION_ID);
+    });
+
+    it('TC-T3-27 returns the gross cancellation fee of the reservation terms', async () => {
+      const reservation = makeReservation({
+        status: 'active',
+        driverId: VALID_DRIVER_ID,
+        feeTaxBasis: 'net',
+        feeTaxRate: '0.19',
+        feePerMinute: null,
+        feeCancellationCents: 300,
+      });
+      setupDbResults([reservation]);
+      vi.mocked(resolveReservationFeeTerms).mockResolvedValueOnce({
+        basis: 'net',
+        taxRate: '0.19',
+        feePerMinute: null,
+        cancellationFeeCents: 300,
+      });
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/reservations/${VALID_RESERVATION_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      // 300 net at 19 %: the operator sees the 357 the driver is charged.
+      expect(body.cancellationFee).toEqual({ grossCents: 357, taxRate: 0.19 });
+      expect(body).not.toHaveProperty('feeCancellationCents');
+      expect(resolveReservationFeeTerms).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: 'active',
+          driverId: VALID_DRIVER_ID,
+          feeTaxBasis: 'net',
+          feeTaxRate: '0.19',
+          feeCancellationCents: 300,
+        }),
+      );
+    });
+
+    it('returns no cancellation fee for a closed reservation', async () => {
+      setupDbResults([makeReservation({ status: 'cancelled' })]);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/reservations/${VALID_RESERVATION_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().cancellationFee).toBeNull();
     });
 
     it('includes evseOcppId in detail response', async () => {
@@ -669,6 +736,25 @@ describe('Reservation routes', () => {
         headers: { authorization: `Bearer ${token}` },
       });
       expect(res.statusCode).toBe(200);
+      // TC-T3-24: the fee terms the driver resolves now are stored on the row,
+      // so a later tariff or setting edit does not change the fees.
+      expect(snapshotReservationFeeTerms).toHaveBeenCalledWith({
+        stationUuid: VALID_STATION_ID,
+        driverUuid: VALID_DRIVER_ID,
+      });
+      const insertChain = vi
+        .mocked(db.insert)
+        .mock.results.map((r) => r.value as { values: ReturnType<typeof vi.fn> })
+        .find((c) => c.values.mock.calls.length > 0);
+      expect(insertChain?.values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          driverId: VALID_DRIVER_ID,
+          feeTaxBasis: 'gross',
+          feeTaxRate: '0.19',
+          feePerMinute: '0.10',
+          feeCancellationCents: 300,
+        }),
+      );
     });
 
     it('returns 504 on timeout (error contains "No response within")', async () => {
@@ -1155,15 +1241,17 @@ describe('Reservation routes', () => {
           payload: { chargeCancellationFee: true },
         });
         expect(res.statusCode).toBe(200);
-        // The fee setting is net; chargeReservationFee adds the tariff tax.
-        // (stationId comes from the conditional UPDATE, covered in reservation-cancel.test.ts.)
+        // The fee comes from the reservation's terms (mocked: 300 on the gross
+        // basis at 19 %); chargeReservationFee prices it with the engine.
         expect(mockChargeReservationCancellationFee).toHaveBeenCalledWith(
           expect.objectContaining({
             type: 'reservation_cancellation',
             reservationId: VALID_RESERVATION_ID,
             driverId: VALID_DRIVER_ID,
             siteId: null,
-            netCents: 500,
+            fee: { amountCents: 300 },
+            basis: 'gross',
+            taxRate: '0.19',
           }),
           expect.objectContaining({ registry: 'registry' }),
         );
@@ -1251,7 +1339,13 @@ describe('Reservation routes', () => {
         expect(mockChargeReservationCancellationFee).not.toHaveBeenCalled();
       });
 
-      it('does not charge fee when cancellationFeeCents is 0 even with opt-in', async () => {
+      it('does not charge fee when the reservation cancellation fee is 0 even with opt-in', async () => {
+        vi.mocked(resolveReservationFeeTerms).mockResolvedValueOnce({
+          basis: 'net',
+          taxRate: '0.19',
+          feePerMinute: null,
+          cancellationFeeCents: 0,
+        });
         // Operator opts in but the configured fee is zero, so no charge fires.
         // Without the opt-in this test would short-circuit on the no-opt-in
         // default and never exercise the fee-cents gate.

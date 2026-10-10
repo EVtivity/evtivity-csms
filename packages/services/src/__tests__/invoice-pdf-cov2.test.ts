@@ -47,8 +47,33 @@ function pdfText(pdf: Buffer): string {
   return parts.join('');
 }
 
-const imageCount = (pdf: Buffer): number =>
-  (pdf.toString('latin1').match(/\/Subtype \/Image/g) ?? []).length;
+/** Images drawn on the pages (`Do` operators), not image objects (a PNG alpha channel is its own). */
+function imageCount(pdf: Buffer): number {
+  const raw = pdf.toString('latin1');
+  let count = 0;
+  // Read each stream by its /Length: binary image data can hold "endstream".
+  for (const m of raw.matchAll(/\/Length (\d+)[^>]*>>\s*stream\r?\n/g)) {
+    const start = m.index + m[0].length;
+    const data = Buffer.from(raw.slice(start, start + Number(m[1])), 'latin1');
+    let content: string;
+    try {
+      content = inflateSync(data).toString('latin1');
+    } catch {
+      content = data.toString('latin1');
+    }
+    count += (content.match(/\/I\d+ Do/g) ?? []).length;
+  }
+  return count;
+}
+
+/** Widths of the color images (a PNG alpha channel is a DeviceGray image of the same size). */
+const imageWidths = (pdf: Buffer): number[] => [
+  ...new Set(
+    [...pdf.toString('latin1').matchAll(/\/Subtype \/Image[\s\S]*?\/Width (\d+)/g)].map((m) =>
+      Number(m[1]),
+    ),
+  ),
+];
 const pageCount = (pdf: Buffer): number =>
   (pdf.toString('latin1').match(/\/Type \/Page\b/g) ?? []).length;
 
@@ -119,10 +144,12 @@ beforeEach(() => {
 });
 
 describe('generateInvoicePdf branding', () => {
-  it('uses the EVtivity wordmark when no company settings exist', async () => {
+  it('draws the default PDF logo when pdf.logo is unset', async () => {
     const pdf = await generateInvoicePdf(detail());
+    expect(imageCount(pdf)).toBe(1);
+    // The company name shows in the "from" block.
     expect(pdfText(pdf)).toContain('EVtivity');
-    expect(imageCount(pdf)).toBe(0);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it('ignores an empty company name and keeps the default', async () => {
@@ -130,75 +157,67 @@ describe('generateInvoicePdf branding', () => {
     expect(pdfText(await generateInvoicePdf(detail()))).toContain('EVtivity');
   });
 
-  it('embeds a base64 PNG logo', async () => {
+  it('does not use company.logo', async () => {
+    settingsRows.rows = [{ key: 'company.logo', value: `data:image/png;base64,${PNG_B64}` }];
+    const pdf = await generateInvoicePdf(detail());
+    expect(imageCount(pdf)).toBe(1);
+    // The default logo is rasterized 1000 pixels wide; the 1x1 PNG is not used.
+    expect(imageWidths(pdf)).toEqual([1000]);
+  });
+
+  it('embeds a base64 PNG pdf.logo', async () => {
     settingsRows.rows = [
       { key: 'company.name', value: 'Acme Charging' },
-      { key: 'company.logo', value: `data:image/png;base64,${PNG_B64}` },
+      { key: 'pdf.logo', value: `data:image/png;base64,${PNG_B64}` },
     ];
     const pdf = await generateInvoicePdf(detail());
-    expect(imageCount(pdf)).toBeGreaterThan(0);
-    // The company name still shows in the "from" block.
+    expect(imageWidths(pdf)).toEqual([1]);
     expect(pdfText(pdf)).toContain('Acme Charging');
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it('rasterizes a URL-encoded SVG logo', async () => {
+  it('rasterizes a URL-encoded or base64 SVG pdf.logo', async () => {
     settingsRows.rows = [
-      { key: 'company.logo', value: `data:image/svg+xml,${encodeURIComponent(SVG)}` },
+      { key: 'pdf.logo', value: `data:image/svg+xml,${encodeURIComponent(SVG)}` },
     ];
-    expect(imageCount(await generateInvoicePdf(detail()))).toBeGreaterThan(0);
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it('rasterizes a base64 SVG logo', async () => {
+    expect(imageCount(await generateInvoicePdf(detail()))).toBe(1);
     settingsRows.rows = [
       {
-        key: 'company.logo',
+        key: 'pdf.logo',
         value: `data:image/svg+xml;base64,${Buffer.from(SVG).toString('base64')}`,
       },
     ];
-    expect(imageCount(await generateInvoicePdf(detail()))).toBeGreaterThan(0);
+    expect(imageCount(await generateInvoicePdf(detail()))).toBe(1);
+    expect(warn).not.toHaveBeenCalled();
   });
 
   it.each([
     ['a non-base64 PNG', `data:image/png,${PNG_B64}`],
     ['an unsupported image type', `data:image/gif;base64,${PNG_B64}`],
     ['a value that is not a data URI', 'https://example.com/logo.png'],
-  ])('falls back to the wordmark for %s', async (_label, logo) => {
-    settingsRows.rows = [
-      { key: 'company.name', value: 'Acme Charging' },
-      { key: 'company.logo', value: logo },
-    ];
+    ['an SVG that does not parse', 'data:image/svg+xml,not-svg'],
+  ])('warns and draws the default logo for %s', async (_label, logo) => {
+    settingsRows.rows = [{ key: 'pdf.logo', value: logo }];
     const pdf = await generateInvoicePdf(detail());
-    expect(imageCount(pdf)).toBe(0);
-    expect(pdfText(pdf)).toContain('Acme Charging');
-    expect(warn).not.toHaveBeenCalled();
-  });
-
-  it('warns and uses the wordmark when the SVG cannot be rasterized', async () => {
-    settingsRows.rows = [{ key: 'company.logo', value: 'data:image/svg+xml,not-svg' }];
-    const pdf = await generateInvoicePdf(detail());
-    expect(imageCount(pdf)).toBe(0);
+    expect(imageCount(pdf)).toBe(1);
     expect(warn).toHaveBeenCalledWith(
-      expect.objectContaining({ err: expect.anything() as unknown }),
-      'Failed to decode invoice logo, falling back to wordmark',
+      'pdf.logo is not a valid PNG, JPEG or SVG data URI, using the default logo',
     );
   });
 
-  it('warns and uses the wordmark when pdfkit rejects the image bytes', async () => {
+  it('warns and draws the default logo when pdfkit rejects the image bytes', async () => {
+    const broken = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.from('not an image'),
+    ]);
     settingsRows.rows = [
-      { key: 'company.name', value: 'Acme Charging' },
-      {
-        key: 'company.logo',
-        value: `data:image/png;base64,${Buffer.from('not an image').toString('base64')}`,
-      },
+      { key: 'pdf.logo', value: `data:image/png;base64,${broken.toString('base64')}` },
     ];
     const pdf = await generateInvoicePdf(detail());
-    expect(imageCount(pdf)).toBe(0);
-    expect(pdfText(pdf)).toContain('Acme Charging');
+    expect(imageCount(pdf)).toBe(1);
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({ err: expect.anything() as unknown }),
-      'pdfkit rejected invoice logo, falling back to wordmark',
+      'pdfkit rejected the PDF logo, using the default logo',
     );
   });
 });

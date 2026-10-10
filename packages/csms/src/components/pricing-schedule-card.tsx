@@ -16,14 +16,11 @@ import {
 import { formatDecimal } from '@/lib/formatting';
 import { api } from '@/lib/api';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
-
-interface TariffRestrictions {
-  timeRange?: { startTime: string; endTime: string };
-  daysOfWeek?: number[];
-  dateRange?: { startDate: string; endDate: string };
-  holidays?: boolean;
-  energyThresholdKwh?: number;
-}
+import {
+  formatRestrictionSummary,
+  useRestrictionLabels,
+  type TariffRestrictions,
+} from '@/lib/tariff-restrictions';
 
 interface ScheduleItem {
   id: string;
@@ -37,34 +34,6 @@ interface ScheduleItem {
   priority: number;
   isDefault: boolean;
   isCurrent: boolean;
-}
-
-const SHORT_DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function formatRestrictionSummary(
-  restrictions: TariffRestrictions | null,
-  noRestrictionsLabel: string,
-  holidayLabel: string,
-): string {
-  if (restrictions == null) return noRestrictionsLabel;
-  if (restrictions.energyThresholdKwh != null) {
-    return `Above ${String(restrictions.energyThresholdKwh)} kWh`;
-  }
-  if (restrictions.holidays === true) return holidayLabel;
-  if (restrictions.dateRange != null) {
-    return `${restrictions.dateRange.startDate} - ${restrictions.dateRange.endDate}`;
-  }
-  const parts: string[] = [];
-  if (restrictions.daysOfWeek != null) {
-    const names = restrictions.daysOfWeek
-      .map((d) => SHORT_DAY_NAMES[d])
-      .filter((s): s is string => s != null);
-    parts.push(names.join(', '));
-  }
-  if (restrictions.timeRange != null) {
-    parts.push(`${restrictions.timeRange.startTime} - ${restrictions.timeRange.endTime}`);
-  }
-  return parts.join(' ') || 'n/a';
 }
 
 function formatCompactRates(
@@ -102,6 +71,7 @@ export function PricingScheduleCard({
 }: PricingScheduleCardProps): React.JSX.Element {
   const { t } = useTranslation();
   const { currency } = useCompanyCurrency();
+  const restrictionLabels = useRestrictionLabels();
 
   const { data: schedule } = useQuery({
     queryKey: ['pricing-schedule', groupId, timezone ?? null],
@@ -135,11 +105,7 @@ export function PricingScheduleCard({
                 <TableRow key={item.id} className={item.isCurrent ? 'bg-primary/5' : ''}>
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {formatRestrictionSummary(
-                      item.restrictions,
-                      t('pricing.noRestrictions'),
-                      t('pricing.holiday'),
-                    )}
+                    {formatRestrictionSummary(item.restrictions, restrictionLabels)}
                   </TableCell>
                   <TableCell>{item.priority}</TableCell>
                   <TableCell className="text-sm">

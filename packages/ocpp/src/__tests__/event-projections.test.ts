@@ -102,6 +102,10 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-pricing.js',
   )),
+  // The real register energy rule (session-energy), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-energy.js',
+  )),
   // The real tariff resolver, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
@@ -1798,7 +1802,7 @@ describe('Event projections', () => {
             driver_id: 'driver-1',
             energy_delivered_wh: 5000,
             current_cost_cents: 150,
-            tariff_tax_rate: null,
+            tax_cents: 0,
             currency: 'USD',
             started_at: '2024-01-01T00:00:00Z',
           },
@@ -1821,8 +1825,50 @@ describe('Event projections', () => {
         expect.anything(),
         'session.Updated',
         'driver-1',
-        // No tariff tax rate: the templates do not label the cost "incl. tax".
+        // TC-T3-34: no stored tax, so the templates do not label the cost "incl. tax".
         expect.objectContaining({ transactionId: 'tx-1', costIncludesTax: false }),
+        ['/mock/templates'],
+        expect.anything(),
+      );
+    });
+
+    it('labels the session.Updated cost from the stored running tax (TC-T3-34)', async () => {
+      await setup();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [{ id: 'session-1' }], // SELECT id FROM charging_sessions
+        [], // INSERT transaction_events
+        [{ site_id: null }], // resolveSiteId
+        [
+          {
+            driver_id: 'driver-1',
+            energy_delivered_wh: 5000,
+            current_cost_cents: 119,
+            tax_cents: 19,
+            currency: 'EUR',
+            started_at: '2024-01-01T00:00:00Z',
+          },
+        ],
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Updated',
+          stationId: 'CS-001',
+          transactionId: 'tx-1',
+          seqNo: 1,
+          triggerReason: 'MeterValuePeriodic',
+          timestamp: '2024-01-01T00:30:00Z',
+        }),
+      );
+
+      expect(mockDispatchDriver).toHaveBeenCalledWith(
+        expect.anything(),
+        'session.Updated',
+        'driver-1',
+        expect.objectContaining({ transactionId: 'tx-1', costIncludesTax: true }),
         ['/mock/templates'],
         expect.anything(),
       );
@@ -2420,6 +2466,16 @@ describe('Event projections', () => {
     it('includes idle_minutes in final cost calculation on Ended', async () => {
       await setup();
 
+      // closeSegmentsAt: the session lock, one segment, no idle on others.
+      sqlRoute = (text) => {
+        if (text.includes('SELECT id FROM charging_sessions WHERE id = ? FOR UPDATE')) return [];
+        if (text.includes('SELECT id, started_at FROM session_tariff_segments')) {
+          return [{ id: 1, started_at: '2024-01-01T00:00:00Z' }];
+        }
+        if (text.includes('AND id <> ?')) return [{ total: '0' }];
+        if (text.includes('UPDATE session_tariff_segments')) return [];
+        return undefined;
+      };
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // SELECT payment_records (no failed payment)
@@ -2444,7 +2500,6 @@ describe('Event projections', () => {
           },
         ], // SELECT session with idle columns
         [], // INSERT transaction_events
-        [], // UPDATE session_tariff_segments SET ended_at
         [], // UPDATE charging_sessions SET final_cost_cents
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify (session.ended)
@@ -2607,8 +2662,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 0, meter_start: 0 }], // SELECT prev energy for flat-reading check
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: 0, meter_start: 0 }], // SELECT prev energy for flat-reading check
+        [{ energy_delivered_wh: 0, meter_start: 0 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh (delta)
         [], // UPDATE idle (flat energy check)
         [], // SELECT active sessions
@@ -2646,8 +2701,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: null, meter_start: null }], // SELECT prev energy
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: null, meter_start: null }], // SELECT prev energy
+        [{ energy_delivered_wh: null, meter_start: null }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh (delta)
       );
 
@@ -2676,8 +2731,12 @@ describe('Event projections', () => {
       expect(insert?.values).toContain(2908.2475);
       const meterStart = sqlCalls.find((c) => c.strings.join('?').includes('SET meter_start'));
       expect(meterStart?.values[0]).toBe(2908248);
-      const energy = sqlCalls.find((c) => c.strings.join('?').includes('SET energy_delivered_wh'));
-      expect(energy?.values[0]).toBe(2908247.5);
+      // The register energy update (applySessionEnergyReading): values[2] is
+      // the newest register reading in Wh, values[4] the session energy.
+      const energy = sqlCalls.find((c) =>
+        c.strings.join('?').includes('meter_register_offset_wh = ?'),
+      );
+      expect(energy?.values[2]).toBe(2908247.5);
     });
 
     it('applies the OCPP 2.1 multiplier and defaults a missing measurand to the energy register', async () => {
@@ -2686,8 +2745,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: null, meter_start: null }], // SELECT prev energy
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: null, meter_start: null }], // SELECT prev energy
+        [{ energy_delivered_wh: null, meter_start: null }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh (delta)
       );
 
@@ -2709,8 +2768,12 @@ describe('Event projections', () => {
       const insert = sqlCalls.find((c) => c.strings.join('?').includes('INSERT INTO meter_values'));
       expect(insert?.values).toContain('Energy.Active.Import.Register');
       expect(insert?.values).toContain(5000);
-      const energy = sqlCalls.find((c) => c.strings.join('?').includes('SET energy_delivered_wh'));
-      expect(energy?.values[0]).toBe(5000);
+      // The register energy update (applySessionEnergyReading): values[2] is
+      // the newest register reading in Wh, values[4] the session energy.
+      const energy = sqlCalls.find((c) =>
+        c.strings.join('?').includes('meter_register_offset_wh = ?'),
+      );
+      expect(energy?.values[2]).toBe(5000);
     });
 
     it('does not update session energy for an energy register in a non-energy unit', async () => {
@@ -2742,7 +2805,7 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(sqlCalls.some((c) => c.strings.join('?').includes('SET energy_delivered_wh'))).toBe(
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('energy_delivered_wh = ?'))).toBe(
         false,
       );
       expect(sqlCalls.some((c) => c.strings.join('?').includes('SET meter_start'))).toBe(false);
@@ -2754,8 +2817,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 0, meter_start: 2909465 }], // SELECT prev energy
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: 0, meter_start: 2909465 }], // SELECT prev energy
+        [{ energy_delivered_wh: 0, meter_start: 2909465 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh (delta)
       );
 
@@ -2776,11 +2839,13 @@ describe('Event projections', () => {
         }),
       );
 
-      const meterStart = sqlCalls.find((c) => c.strings.join('?').includes('SET meter_start'));
-      expect(meterStart?.values[0]).toBe(2909560);
-      const energy = sqlCalls.find((c) => c.strings.join('?').includes('SET energy_delivered_wh'));
-      expect(energy?.strings.join('?')).toContain('?::numeric - meter_start');
-      expect(energy?.values[0]).toBe(2909560.3);
+      // meter_start stays; the decimal register and energy are passed as numbers.
+      const energy = sqlCalls.find((c) =>
+        c.strings.join('?').includes('meter_register_offset_wh = ?'),
+      );
+      expect(energy?.values[0]).toBe(2909465);
+      expect(energy?.values[2]).toBe(2909560.3);
+      expect(energy?.values[4]).toBeCloseTo(95.3, 6);
     });
 
     it('uses the total energy register, not a per-phase one, for session energy', async () => {
@@ -2791,8 +2856,8 @@ describe('Event projections', () => {
         [], // INSERT meter_values (total)
         [], // INSERT meter_values (L1)
         [], // INSERT meter_values (L3)
-        [{ energy_delivered_wh: null, meter_start: 0 }], // SELECT prev energy
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: null, meter_start: 0 }], // SELECT prev energy
+        [{ energy_delivered_wh: null, meter_start: 0 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh (delta)
       );
 
@@ -2816,10 +2881,10 @@ describe('Event projections', () => {
       );
 
       const energyUpdates = sqlCalls.filter((c) =>
-        c.strings.join('?').includes('SET energy_delivered_wh'),
+        c.strings.join('?').includes('meter_register_offset_wh = ?'),
       );
       expect(energyUpdates).toHaveLength(1);
-      expect(energyUpdates[0]?.values[0]).toBe(9000);
+      expect(energyUpdates[0]?.values[2]).toBe(9000);
     });
 
     it('sums per-phase energy registers when no total is reported', async () => {
@@ -2830,8 +2895,8 @@ describe('Event projections', () => {
         [], // INSERT meter_values (L1)
         [], // INSERT meter_values (L2)
         [], // INSERT meter_values (L3)
-        [{ energy_delivered_wh: null, meter_start: 0 }], // SELECT prev energy
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: null, meter_start: 0 }], // SELECT prev energy
+        [{ energy_delivered_wh: null, meter_start: 0 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh (delta)
       );
 
@@ -2854,8 +2919,12 @@ describe('Event projections', () => {
         }),
       );
 
-      const energy = sqlCalls.find((c) => c.strings.join('?').includes('SET energy_delivered_wh'));
-      expect(energy?.values[0]).toBe(6000);
+      // The register energy update (applySessionEnergyReading): values[2] is
+      // the newest register reading in Wh, values[4] the session energy.
+      const energy = sqlCalls.find((c) =>
+        c.strings.join('?').includes('meter_register_offset_wh = ?'),
+      );
+      expect(energy?.values[2]).toBe(6000);
     });
 
     it('ignores Inlet energy readings for session energy', async () => {
@@ -2883,7 +2952,7 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(sqlCalls.some((c) => c.strings.join('?').includes('SET energy_delivered_wh'))).toBe(
+      expect(sqlCalls.some((c) => c.strings.join('?').includes('energy_delivered_wh = ?'))).toBe(
         false,
       );
     });
@@ -2946,8 +3015,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 4000, meter_start: 0 }], // SELECT prev energy for flat-reading check
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: 4000, meter_start: 0 }], // SELECT prev energy for flat-reading check
+        [{ energy_delivered_wh: 4000, meter_start: 0 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh (delta)
         [], // UPDATE idle (flat energy, energy increased)
         [
@@ -3137,8 +3206,15 @@ describe('Event projections', () => {
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values (energy)
         [], // INSERT meter_values (power)
-        [{ energy_delivered_wh: 5000, meter_start: 1000, last_rise_at: '2024-01-01T00:59:00Z' }], // SELECT prev energy
-        [], // UPDATE meter_start (no-op, already set)
+        [
+          {
+            id: 'ses_mv',
+            energy_delivered_wh: 5000,
+            meter_start: 1000,
+            last_rise_at: '2024-01-01T00:59:00Z',
+          },
+        ], // SELECT prev energy
+        [{ energy_delivered_wh: 5000, meter_start: 1000, last_rise_at: '2024-01-01T00:59:00Z' }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle_started_at (flat energy)
         [], // UPDATE idle_started_at (power = 0)
@@ -3184,8 +3260,15 @@ describe('Event projections', () => {
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values (energy)
         [], // INSERT meter_values (power)
-        [{ energy_delivered_wh: 5000, meter_start: 1000, last_rise_at: '2024-01-01T00:59:00Z' }], // SELECT prev energy
-        [], // UPDATE meter_start (no-op, already set)
+        [
+          {
+            id: 'ses_mv',
+            energy_delivered_wh: 5000,
+            meter_start: 1000,
+            last_rise_at: '2024-01-01T00:59:00Z',
+          },
+        ], // SELECT prev energy
+        [{ energy_delivered_wh: 5000, meter_start: 1000, last_rise_at: '2024-01-01T00:59:00Z' }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // SELECT active sessions
       );
@@ -3215,7 +3298,7 @@ describe('Event projections', () => {
 
       const joined = sqlCalls.map((c) => c.strings.join(''));
       // The energy is still stored, but no idle period opens or closes.
-      expect(joined.some((t) => t.includes('SET energy_delivered_wh'))).toBe(true);
+      expect(joined.some((t) => t.includes('meter_register_offset_wh = '))).toBe(true);
       expect(joined.some((t) => t.includes('SET idle_started_at'))).toBe(false);
       expect(joined.some((t) => t.includes('idle_started_at = NULL'))).toBe(false);
     });
@@ -3230,8 +3313,15 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 5000, meter_start: 1000, last_rise_at: '2024-01-01T00:59:00Z' }], // SELECT prev energy
-        [], // UPDATE meter_start (no-op, already set)
+        [
+          {
+            id: 'ses_mv',
+            energy_delivered_wh: 5000,
+            meter_start: 1000,
+            last_rise_at: '2024-01-01T00:59:00Z',
+          },
+        ], // SELECT prev energy
+        [{ energy_delivered_wh: 5000, meter_start: 1000, last_rise_at: '2024-01-01T00:59:00Z' }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle_started_at (flat energy)
         [], // SELECT active sessions
@@ -3276,14 +3366,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [
-          {
-            energy_delivered_wh: 5000,
-            meter_start: 1000,
-            last_rise_at: '2024-01-01T00:59:59.600Z',
-          },
-        ], // SELECT prev energy (rose 0.4 s earlier)
-        [], // UPDATE meter_start (no-op, already set)
+        [{ id: 'ses_mv', last_rise_at: '2024-01-01T00:59:59.600Z' }], // SELECT prev (rose 0.4 s earlier)
+        [{ energy_delivered_wh: 5000, meter_start: 1000 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // SELECT active sessions
         [{ site_id: null }], // resolveSiteId
@@ -3327,8 +3411,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 5000, meter_start: 1000 }], // SELECT prev energy
-        [], // UPDATE meter_start (no-op)
+        [{ id: 'ses_mv', energy_delivered_wh: 5000, meter_start: 1000 }], // SELECT prev energy
+        [{ energy_delivered_wh: 5000, meter_start: 1000 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle_minutes (energy increased, clear idle)
         [], // SELECT active sessions
@@ -3376,8 +3460,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: null, meter_start: null }], // SELECT prev energy (no previous)
-        [], // UPDATE meter_start (sets it for first time)
+        [{ id: 'ses_mv', energy_delivered_wh: null, meter_start: null }], // SELECT prev energy (no previous)
+        [{ energy_delivered_wh: null, meter_start: null }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // SELECT active sessions
         [{ site_id: null }], // resolveSiteId
@@ -3420,8 +3504,8 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'ses_mv', evse_id: 'evs_mv' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 9000, meter_start: 0 }], // SELECT prev energy for flat-reading check
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: 9000, meter_start: 0 }], // SELECT prev energy for flat-reading check
+        [{ energy_delivered_wh: 9000, meter_start: 0 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh (delta)
         [], // UPDATE idle (flat energy, energy increased)
         [
@@ -3614,8 +3698,8 @@ describe('Event projections', () => {
         [{ id: 'evs_000000000001' }], // resolveEvseUuid
         [{ id: 'ses_000000000001' }], // resolveMeterValueSession
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 0, meter_start: 0 }], // SELECT prev energy for flat-reading check
-        [], // UPDATE meter_start (set if NULL)
+        [{ id: 'ses_mv', energy_delivered_wh: 0, meter_start: 0 }], // SELECT prev energy for flat-reading check
+        [{ energy_delivered_wh: 0, meter_start: 0 }], // SELECT register state FOR UPDATE
         [], // UPDATE energy (filtered by evse_id)
         [], // UPDATE idle (flat energy check)
         [], // SELECT active sessions
@@ -3662,9 +3746,7 @@ describe('Event projections', () => {
         [{ id: 'ses_old', evse_id: 'evs_000000000001' }], // resolveMeterValueSession (completed)
         [], // INSERT meter_values (energy)
         [], // INSERT meter_values (power)
-        [], // SELECT prev energy (session no longer active)
-        [], // UPDATE meter_start
-        [], // UPDATE energy
+        [], // SELECT prev energy (session no longer active: no energy update)
         [], // UPDATE idle (power)
         [], // SELECT active sessions
         [{ site_id: null }], // resolveSiteId
@@ -3697,8 +3779,8 @@ describe('Event projections', () => {
           !joined.includes('INSERT INTO meter_values')
         );
       });
-      // prev energy, meter_start, energy, idle, cost query
-      expect(sessionCalls.length).toBe(5);
+      // prev energy (no active match, so no energy update), idle, cost query
+      expect(sessionCalls.length).toBe(3);
       for (const call of sessionCalls) {
         const joined = call.strings.join('?');
         // Matched by session id, still only while active, never by EVSE alone.

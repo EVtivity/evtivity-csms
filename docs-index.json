@@ -52,7 +52,7 @@
   {
     "path": "/docs/csms/ai-assistant",
     "title": "AI Assistant",
-    "description": "Query your charging network data using natural language with the built-in AI assistant."
+    "description": "Ask questions about your charging network, review proposed changes, and draft support replies with the built-in AI assistant."
   },
   {
     "path": "/docs/csms/certificates",
@@ -232,7 +232,7 @@
   {
     "path": "/docs/getting-started/introduction",
     "title": "Introduction",
-    "description": "What EVtivity CSMS is, what it does, and how it is built."
+    "description": "What EVtivity CSMS is, the AI-powered EV charging platform, what it does, and how it is built."
   },
   {
     "path": "/docs/getting-started/project-structure",

@@ -10,7 +10,7 @@ const { patchMock, getMock, toastMock, permission } = vi.hoisted(() => ({
   patchMock: vi.fn(),
   getMock: vi.fn(),
   toastMock: vi.fn(),
-  permission: { canWrite: true },
+  permission: { canWrite: true, allSites: true },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -32,7 +32,10 @@ vi.mock('@/lib/api', () => {
   return { api: { patch: patchMock, get: getMock, delete: vi.fn() }, ApiError };
 });
 
-vi.mock('@/lib/auth', () => ({ useHasPermission: () => permission.canWrite }));
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: () => permission.canWrite,
+  useHasAllSiteAccess: () => permission.allSites,
+}));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: toastMock }) }));
 vi.mock('@/lib/timezone', () => ({
   useUserTimezone: () => 'UTC',
@@ -58,6 +61,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   permission.canWrite = true;
+  permission.allSites = true;
 });
 
 describe('FleetBillingTab', () => {
@@ -134,6 +138,17 @@ describe('FleetDriversTab member billing', () => {
     expect(screen.getByText('fleets.billing.memberNoteOff')).toBeTruthy();
     const toggle = await screen.findByTestId('member-billing-drv_1');
     expect(toggle.getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('hides member changes and disables the opt-out for a site-restricted user', async () => {
+    permission.allSites = false;
+    getMock.mockResolvedValue({ data: [member], total: 1 });
+    wrap(<FleetDriversTab fleetId="flt_1" accountBillingEnabled canManageMembers={false} />);
+
+    const toggle = await screen.findByTestId('member-billing-drv_1');
+    expect(toggle.hasAttribute('disabled')).toBe(true);
+    expect(screen.getByText('fleets.membersAllSitesOnly')).toBeTruthy();
+    expect(screen.queryByText('fleets.addDriver')).toBeNull();
   });
 });
 

@@ -73,6 +73,70 @@ export function chargingPeriods(volumes: SessionVolumes): OcpiChargingPeriod[] {
   return periods;
 }
 
+/** What a CDR reports for one priced part of a session: a tariff segment, or the whole session. */
+export interface CdrPeriodSource {
+  /** When the part started. */
+  startedAt: Date;
+  /** Energy delivered in the part, in kWh. */
+  kwh: number;
+  /** Minutes the EV charged in the part (its duration less its idle minutes). */
+  chargingMinutes: number;
+  /** Minutes the EV was connected without charging in the part. */
+  idleMinutes: number;
+  /**
+   * Idle minutes billed the idle fee in the part (after the session's idle
+   * grace). Null when the part has no idle fee: its parking is one period.
+   */
+  billableIdleMinutes: number | null;
+  /** The id of the tariff the CDR embeds for the part (ChargingPeriod.tariff_id). */
+  tariffId?: string;
+}
+
+function hours(minutes: number): number {
+  return round4(Math.max(0, minutes) / 60);
+}
+
+/**
+ * The charging periods of a CDR, per priced part (one per tariff segment of a
+ * split session): a period with the energy and the charging time (TIME), and
+ * the part's time not charging (PARKING_TIME) after it, split into the minutes
+ * the idle grace kept free of the idle fee and the billed minutes, each its
+ * own period, so the parking the idle fee applies to is visible. Only the
+ * accumulated idle minutes are stored, not when each idle stretch happened, so
+ * the parking periods follow the part's charging time.
+ */
+export function cdrChargingPeriods(parts: readonly CdrPeriodSource[]): OcpiChargingPeriod[] {
+  const periods: OcpiChargingPeriod[] = [];
+  for (const part of parts) {
+    const tariff = part.tariffId != null ? { tariff_id: part.tariffId } : {};
+    periods.push({
+      start_date_time: part.startedAt.toISOString(),
+      dimensions: [
+        { type: 'ENERGY', volume: round4(part.kwh) },
+        { type: 'TIME', volume: hours(part.chargingMinutes) },
+      ],
+      ...tariff,
+    });
+    const idle = Math.max(0, part.idleMinutes);
+    if (idle <= 0) continue;
+    const billed =
+      part.billableIdleMinutes != null
+        ? Math.min(idle, Math.max(0, part.billableIdleMinutes))
+        : idle;
+    let at = part.startedAt.getTime() + Math.max(0, part.chargingMinutes) * 60_000;
+    for (const minutes of [idle - billed, billed]) {
+      if (minutes <= 0) continue;
+      periods.push({
+        start_date_time: new Date(at).toISOString(),
+        dimensions: [{ type: 'PARKING_TIME', volume: hours(minutes) }],
+        ...tariff,
+      });
+      at += minutes * 60_000;
+    }
+  }
+  return periods;
+}
+
 const TOKEN_TYPES: ReadonlySet<string> = new Set<OcpiTokenType>([
   'AD_HOC_USER',
   'APP_USER',

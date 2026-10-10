@@ -98,6 +98,13 @@ vi.mock('@evtivity/services/report.service', () => ({
   renderReport: (...args: unknown[]) => mockRenderReport(...args),
 }));
 
+const mockScheduleRunScope = vi.fn().mockResolvedValue(['site_1']);
+const mockScheduleSkipReason = vi.fn().mockResolvedValue(null);
+vi.mock('@evtivity/services/report-scope', () => ({
+  scheduleRunScope: (...args: unknown[]) => mockScheduleRunScope(...args),
+  scheduleSkipReason: (...args: unknown[]) => mockScheduleSkipReason(...args),
+}));
+
 const mockEnqueueReport = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../report-worker.js', () => ({
   enqueueReport: (...args: unknown[]) => mockEnqueueReport(...args),
@@ -133,6 +140,7 @@ function makeSchedule(overrides: Record<string, unknown> = {}): Record<string, u
     format: 'csv',
     filters: { siteId: 'site_1' },
     createdById: 'usr_1',
+    siteScope: ['site_1', 'site_2'],
     frequency: 'daily',
     dayOfWeek: null,
     dayOfMonth: null,
@@ -163,6 +171,8 @@ describe('reportSchedulerHandler', () => {
     mockEnqueueReport.mockResolvedValue(undefined);
     mockComputeNextRunAt.mockResolvedValue(new Date('2026-01-02T06:00:00Z'));
     mockOperatorReportLanguage.mockResolvedValue('en');
+    mockScheduleRunScope.mockResolvedValue(['site_1']);
+    mockScheduleSkipReason.mockResolvedValue(null);
     mockClient.json.mockImplementation((v: unknown) => v);
   });
 
@@ -197,9 +207,10 @@ describe('reportSchedulerHandler', () => {
 
     expect(mockOperatorReportLanguage).toHaveBeenCalledWith('usr_1');
     // One file per missing language, with the schedule's type, filters and format.
+    // Each in-memory file covers the same sites as the stored report.
     expect(mockRenderReport.mock.calls).toEqual([
-      ['sessions', { siteId: 'site_1' }, 'pdf', 'ko'],
-      ['sessions', { siteId: 'site_1' }, 'pdf', 'en'],
+      ['sessions', { siteId: 'site_1' }, 'pdf', 'ko', ['site_1']],
+      ['sessions', { siteId: 'site_1' }, 'pdf', 'en', ['site_1']],
     ]);
     const attached = mockSendEmail.mock.calls.map((c) => {
       const files = c[5] as Array<{ filename: string; contentType: string }>;
@@ -371,8 +382,10 @@ describe('reportSchedulerHandler', () => {
     const log = makeLog();
     await reportSchedulerHandler(log);
 
-    // queueReport receives the schedule's identity and filters verbatim and
-    // queues the generation on the worker's report queue.
+    // queueReport receives the schedule's identity and filters verbatim, the
+    // schedule scope narrowed to the creator's current sites, and queues the
+    // generation on the worker's report queue.
+    expect(mockScheduleRunScope).toHaveBeenCalledWith(['site_1', 'site_2'], 'usr_1');
     expect(mockQueueReport).toHaveBeenCalledWith(
       {
         name: 'Daily Sessions',
@@ -380,6 +393,7 @@ describe('reportSchedulerHandler', () => {
         format: 'csv',
         filters: { siteId: 'site_1' },
         userId: 'usr_1',
+        siteScope: ['site_1'],
       },
       expect.any(Function),
     );
@@ -519,17 +533,28 @@ describe('reportSchedulerHandler', () => {
     );
   });
 
-  it('stores no user when the schedule has no creator', async () => {
-    setupDbResults([makeSchedule({ createdById: null, recipientEmails: null })]);
+  it.each(['no_creator', 'creator_missing', 'creator_inactive', 'creator_lacks_reports_read'])(
+    'skips the run with a warning and moves to the next run (%s)',
+    async (reason) => {
+      mockScheduleSkipReason.mockResolvedValue(reason);
+      setupDbResults([makeSchedule()], []);
+      const log = makeLog();
 
-    const { reportSchedulerHandler } = reportSchedulerModule;
-    await reportSchedulerHandler(makeLog());
+      const { reportSchedulerHandler } = reportSchedulerModule;
+      await reportSchedulerHandler(log);
 
-    expect(mockQueueReport).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: null }),
-      expect.any(Function),
-    );
-  });
+      expect(mockScheduleSkipReason).toHaveBeenCalledWith('usr_1');
+      expect(mockQueueReport).not.toHaveBeenCalled();
+      expect(mockScheduleRunScope).not.toHaveBeenCalled();
+      expect(mockSendEmail).not.toHaveBeenCalled();
+      expect(mockComputeNextRunAt).toHaveBeenCalledWith('daily', null, null);
+      expect(log.warn).toHaveBeenCalledWith(
+        { scheduleId: 'sch_1', createdById: 'usr_1', reason },
+        'Scheduled report skipped, its creator cannot read reports',
+      );
+      expect(log.error).not.toHaveBeenCalled();
+    },
+  );
 
   it('returns before emailing when the schedule has no recipients', async () => {
     setupDbResults([makeSchedule({ recipientEmails: [] })]);

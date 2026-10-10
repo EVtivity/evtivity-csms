@@ -91,6 +91,13 @@ vi.mock('drizzle-orm', () => ({
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: getUserSiteIdsMock,
+  // Restricted users reach only rows of their sites; unsited rows are out of
+  // scope for them (owner decision 2026-10-09).
+  userCanAccessSite: async (userId: string, siteId: string | null | undefined) => {
+    const ids = (await getUserSiteIdsMock(userId)) as string[] | null;
+    if (ids == null) return true;
+    return siteId != null && ids.includes(siteId);
+  },
   invalidateSiteAccessCache: vi.fn(),
 }));
 
@@ -292,7 +299,11 @@ describe('NEVI routes site access (cov2)', () => {
     });
 
     it('updates every given field and clears the end time on an empty value', async () => {
-      setupDbResults([{ id: 1, stationId: STATION_ID, siteId: 'sit_a' }], [downtime()]);
+      setupDbResults(
+        [{ id: 1, stationId: STATION_ID, siteId: 'sit_a' }],
+        [{ siteId: 'sit_a' }],
+        [downtime()],
+      );
       const res = await app.inject({
         method: 'PATCH',
         url: '/nevi/excluded-downtime/1',
@@ -318,8 +329,38 @@ describe('NEVI routes site access (cov2)', () => {
       });
     });
 
+    it.each([
+      ['a station at another site', [{ siteId: 'sit_other' }]],
+      ['an unsited station', [{ siteId: null }]],
+      ['a missing station', []],
+    ])('404s a move to %s and keeps the record', async (_label, target) => {
+      setupDbResults([{ id: 1, stationId: STATION_ID, siteId: 'sit_a' }], target);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/nevi/excluded-downtime/1',
+        headers: auth,
+        payload: { stationId: 'sta_000000000002' },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      expect(rec.set).toEqual([]);
+    });
+
+    it('404s a record on an unsited station for a site-restricted user', async () => {
+      setupDbResults([{ id: 1, stationId: STATION_ID, siteId: null }]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/nevi/excluded-downtime/1',
+        headers: auth,
+        payload: { reason: 'vandalism' },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual(DOWNTIME_NOT_FOUND);
+      expect(rec.set).toEqual([]);
+    });
+
     it('sets the end time when given', async () => {
-      setupDbResults([{ id: 1, stationId: STATION_ID, siteId: null }], [downtime()]);
+      setupDbResults([{ id: 1, stationId: STATION_ID, siteId: 'sit_a' }], [downtime()]);
       const res = await app.inject({
         method: 'PATCH',
         url: '/nevi/excluded-downtime/1',

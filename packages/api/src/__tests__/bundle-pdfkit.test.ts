@@ -51,10 +51,15 @@ describe('production bundle', () => {
     await expect(bundleAndRun(config.EXTERNAL, config.BANNER)).resolves.toBe('%PDF-');
   }, 30_000);
 
-  it('fails when pdfkit is bundled, because it reads its fonts through __dirname', async () => {
+  // pdfkit's Node build loads its standard font metrics through its package
+  // imports (`#standard-fonts/*`, resolved from its own import.meta.url) and
+  // declares its own createRequire, which the bundle banner declares again.
+  it('fails when pdfkit is bundled, so it must stay external', async () => {
     const config = (await import(buildScript)) as { EXTERNAL: string[]; BANNER: string };
     const withoutPdfkit = config.EXTERNAL.filter((name) => name !== 'pdfkit');
 
-    await expect(bundleAndRun(withoutPdfkit, config.BANNER)).rejects.toThrow(/__dirname/);
+    await expect(bundleAndRun(withoutPdfkit, config.BANNER)).rejects.toThrow(
+      /createRequire|standard-fonts/,
+    );
   }, 30_000);
 });

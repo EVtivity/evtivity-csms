@@ -48,7 +48,8 @@
       "electricityCost": "Stromkosten",
       "profit": "Gewinn",
       "billedOnAccount": "Auf Flottenrechnung (offen)",
-      "paymentStatus": "Zahlungsstatus"
+      "paymentStatus": "Zahlungsstatus",
+      "sessionsWithoutElectricityCost": "Ladevorgänge ohne Stromkosten (nicht im Gewinn)"
     },
     "summary": {
       "totalRevenueInclTax": "Gesamtumsatz (inkl. Steuer)",
@@ -57,7 +58,8 @@
       "totalElectricityCost": "Stromkosten gesamt",
       "totalProfit": "Gewinn gesamt",
       "totalBilledOnAccount": "Auf Flottenrechnung offen gesamt",
-      "totalSessions": "Ladevorgänge gesamt"
+      "totalSessions": "Ladevorgänge gesamt",
+      "totalSessionsWithoutElectricityCost": "Ladevorgänge ohne Stromkosten gesamt (nicht im Gewinn)"
     }
   },
   "energy": {

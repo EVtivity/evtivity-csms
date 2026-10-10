@@ -49,6 +49,10 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+
 vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain()),

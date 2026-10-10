@@ -20,6 +20,10 @@ function makeChain(): Record<string, unknown> {
   return chain;
 }
 
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>

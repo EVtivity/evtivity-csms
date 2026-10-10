@@ -31,8 +31,7 @@ export function resolveActiveTariff(
    */
   timezone?: string,
 ): TariffWithRestrictions | null {
-  // Sort by priority descending so highest-priority restrictions are checked first
-  const sorted = [...tariffs].sort((a, b) => b.priority - a.priority);
+  const sorted = [...tariffs].sort(compareTariffs);
 
   for (const tariff of sorted) {
     if (tariff.restrictions == null || tariff.priority === 0) {
@@ -43,7 +42,25 @@ export function resolveActiveTariff(
     }
   }
 
-  // Fall back to the default (priority 0) tariff
-  const defaultTariff = sorted.find((t) => t.isDefault && t.priority === 0);
-  return defaultTariff ?? null;
+  // Fall back to the default (priority 0) tariff. The API keeps exactly one
+  // active default per group with tariffs; a group written before that rule
+  // may have none, and the caller then tries the next pricing group.
+  return sorted.find((t) => t.isDefault && t.priority === 0) ?? null;
+}
+
+/**
+ * The order the resolver checks tariffs in: priority descending (highest
+ * first); among energy-threshold tariffs (priority 50) the highest threshold
+ * first, so the highest threshold the session reached wins; then by id, so
+ * the result never depends on the order the database returned the rows in.
+ */
+export function compareTariffs(
+  a: Pick<TariffWithRestrictions, 'id' | 'priority' | 'restrictions'>,
+  b: Pick<TariffWithRestrictions, 'id' | 'priority' | 'restrictions'>,
+): number {
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  const thresholdA = a.restrictions?.energyThresholdKwh ?? 0;
+  const thresholdB = b.restrictions?.energyThresholdKwh ?? 0;
+  if (thresholdA !== thresholdB) return thresholdB - thresholdA;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 }

@@ -38,6 +38,22 @@ const session: SessionCostSource = {
 };
 
 describe('ocpiCdrCost', () => {
+  it('reports time while charging as time and time while idle with the idle fee as parking (B16)', () => {
+    // 60 minutes at 0.02 (120), 15 idle with 30 grace -> no idle fee billed;
+    // with a 5 minute grace, 10 billed at 0.10 (100). Energy 10 kWh x 0.30.
+    const timed: TariffInput = { ...tariff, pricePerMinute: '0.02', idleFeePricePerMinute: '0.10' };
+    const breakdown = toSessionCostBreakdown(calculateSessionCost(timed, 10_000, 60, 15, 5));
+    const gross = breakdown.grossCents;
+    const cost = ocpiCdrCost(
+      { ...session, finalCostCents: gross, costBreakdown: JSON.parse(JSON.stringify(breakdown)) },
+      [{ segment: null, chargingMinutes: 45, idleMinutes: 15 }],
+    );
+    expect(taxTotals(cost.time ?? []).netCents).toBe(90);
+    expect(taxTotals(cost.parking ?? []).netCents).toBe(30 + 100);
+    const dims = [cost.energy, cost.time, cost.fixed, cost.parking].flatMap((d) => d ?? []);
+    expect(taxTotals(dims)).toEqual(taxTotals(cost.total));
+  });
+
   it('reads the stored breakdown: total and per-dimension costs per rate', () => {
     const cost = ocpiCdrCost(session);
     expect(cost.total).toEqual([{ taxRate: 0.19, netCents: 400, taxCents: 76 }]);

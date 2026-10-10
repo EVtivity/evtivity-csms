@@ -33,6 +33,7 @@ export * from './dashboard.js';
 export * from './css.js';
 export * from './smart-charging.js';
 export * from './ai.js';
+export * from './ai-attachments.js';
 export * from './carbon.js';
 export * from './octt.js';
 export * from './audit.js';

@@ -336,7 +336,8 @@ describe('Transaction routes', () => {
         makeEvent({ id: 1, sessionId: VALID_SESSION_ID, seqNo: 1, triggerReason: 'Authorized' }),
         makeEvent({ id: 2, sessionId: VALID_SESSION_ID, seqNo: 2, triggerReason: 'EVConnected' }),
       ];
-      setupDbResults(events);
+      // The session lookup (site check), then the events.
+      setupDbResults([{ siteId: 'sit_000000000001' }], events);
 
       const res = await app.inject({
         method: 'GET',
@@ -348,8 +349,20 @@ describe('Transaction routes', () => {
       expect(body).toEqual(events);
     });
 
-    it('returns empty array when session has no events', async () => {
+    it('returns 404 SESSION_NOT_FOUND for an unknown session', async () => {
       setupDbResults([]);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/transactions/by-session/${VALID_SESSION_ID}`,
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+    });
+
+    it('returns empty array when session has no events', async () => {
+      setupDbResults([{ siteId: 'sit_000000000001' }], []);
 
       const res = await app.inject({
         method: 'GET',

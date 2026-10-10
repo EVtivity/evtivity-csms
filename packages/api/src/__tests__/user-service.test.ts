@@ -78,14 +78,7 @@ vi.mock('argon2', () => ({
   },
 }));
 
-import {
-  listUsers,
-  getUser,
-  createUser,
-  updateUser,
-  deleteUser,
-  changePassword,
-} from '../services/user.service.js';
+import { listUsers, getUser, createUser } from '../services/user.service.js';
 import argon2 from 'argon2';
 
 beforeEach(() => {
@@ -147,48 +140,6 @@ describe('createUser', () => {
     });
 
     expect(argon2.hash).toHaveBeenCalledWith('TestPassword1');
-    expect(result).toEqual(user);
-  });
-});
-
-describe('updateUser', () => {
-  it('returns updated user when found', async () => {
-    const user = { id: 'u1', email: 'updated@test.com', firstName: 'Updated' };
-    setupDbResults([user]);
-
-    const result = await updateUser('u1', { email: 'updated@test.com', firstName: 'Updated' });
-
-    expect(result).toEqual(user);
-  });
-
-  it('returns null when not found', async () => {
-    setupDbResults([]);
-
-    const result = await updateUser('nonexistent', { email: 'x@test.com' });
-
-    expect(result).toBeNull();
-  });
-});
-
-describe('deleteUser', () => {
-  it('sets isActive to false and returns user', async () => {
-    const user = { id: 'u1', email: 'deleted@test.com' };
-    setupDbResults([user]);
-
-    const result = await deleteUser('u1');
-
-    expect(result).toEqual(user);
-  });
-});
-
-describe('changePassword', () => {
-  it('hashes new password and updates user', async () => {
-    const user = { id: 'u1' };
-    setupDbResults([user]);
-
-    const result = await changePassword('u1', 'NewPassword1');
-
-    expect(argon2.hash).toHaveBeenCalledWith('NewPassword1');
     expect(result).toEqual(user);
   });
 });

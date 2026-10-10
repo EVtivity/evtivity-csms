@@ -1,19 +1,20 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import { eq, and, ne, count, sql, desc } from 'drizzle-orm';
 import {
   db,
   client,
   getPricingHolidays,
-  loadStationPricing,
-  pickTariff,
+  loadStationPricingChain,
+  pickFromChain,
   resolveGroupTariffs,
   getSystemTimezone,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
+  PG_UNIQUE_VIOLATION,
 } from '@evtivity/database';
 import {
   pricingGroups,
@@ -29,7 +30,9 @@ import {
   derivePriority,
   validateNoOverlap,
   isValidTimezone,
+  checkGroupDefault,
 } from '@evtivity/lib';
+import type { GroupDefaultTariff } from '@evtivity/lib';
 import type { TariffRestrictions } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -42,8 +45,21 @@ import {
 import { paginationQuery } from '../lib/pagination.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
+import { checkStationSiteAccess, requireAllSiteAccess } from '../lib/site-access.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+
+// Company-wide configuration: a site-restricted user gets this 404 before any
+// read or write (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_PRICING_GROUP_NOT_FOUND = {
+  error: 'Pricing group not found',
+  code: 'PRICING_GROUP_NOT_FOUND',
+} as const;
+const ALL_SITES_PRICING_NOT_FOUND = {
+  error: 'No pricing found',
+  code: 'PRICING_NOT_FOUND',
+} as const;
+const ALL_SITES_TARIFF_NOT_FOUND = { error: 'Tariff not found', code: 'TARIFF_NOT_FOUND' } as const;
 
 const pricingGroupItem = z
   .object({
@@ -265,6 +281,37 @@ const updateTariffBody = z.object({
   isDefault: z.boolean().optional().describe('Whether this is the default tariff for the group'),
 });
 
+const DEFAULT_REQUIRED_MESSAGE =
+  'A pricing group with tariffs needs one active default tariff without restrictions';
+
+/** Why the requested isDefault flag breaks the default rule. */
+function defaultFlagMessage(priority: number, isActive: boolean): string {
+  if (priority !== 0) return 'A tariff with restrictions cannot be the default tariff';
+  if (!isActive) return 'An inactive tariff cannot be the default tariff';
+  return 'An active tariff without restrictions is the default tariff of its group';
+}
+
+async function sendDefaultRequired(reply: FastifyReply, error: string): Promise<void> {
+  await reply.status(409).send({ error, code: 'TARIFF_DEFAULT_REQUIRED' });
+}
+
+/** Every tariff of the group (active or not), as the default rule reads it. */
+async function loadGroupDefaultTariffs(
+  groupId: string,
+): Promise<Array<GroupDefaultTariff & { priority: number }>> {
+  const rows = await db
+    .select({
+      id: tariffs.id,
+      restrictions: tariffs.restrictions,
+      priority: tariffs.priority,
+      isDefault: tariffs.isDefault,
+      isActive: tariffs.isActive,
+    })
+    .from(tariffs)
+    .where(eq(tariffs.pricingGroupId, groupId));
+  return rows.map((t) => ({ ...t, restrictions: t.restrictions as TariffRestrictions | null }));
+}
+
 export function pricingRoutes(app: FastifyInstance): void {
   // Pricing Groups CRUD
   app.get(
@@ -326,12 +373,50 @@ export function pricingRoutes(app: FastifyInstance): void {
         operationId: 'createPricingGroup',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createGroupBody),
-        response: { 201: itemResponse(pricingGroupItem) },
+        response: {
+          201: itemResponse(pricingGroupItem),
+          404: errorWith('Pricing group not found, or the user is restricted to some sites', [
+            ERROR_CODES.PRICING_GROUP_NOT_FOUND,
+          ]),
+          409: errorWith('Another pricing group is already the default', [
+            ERROR_CODES.PRICING_GROUP_DEFAULT_EXISTS,
+          ]),
+        },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PRICING_GROUP_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof createGroupBody>;
-      const [group] = await db.insert(pricingGroups).values(body).returning();
+      // One default pricing group (uq_pricing_groups_one_default). A second
+      // one is refused, not swapped: the default group prices every station
+      // without an assignment.
+      const sendDefaultExists = async (): Promise<void> => {
+        await reply.status(409).send({
+          error: 'Another pricing group is already the default',
+          code: 'PRICING_GROUP_DEFAULT_EXISTS',
+        });
+      };
+      if (body.isDefault === true) {
+        const [current] = await db
+          .select({ id: pricingGroups.id })
+          .from(pricingGroups)
+          .where(eq(pricingGroups.isDefault, true));
+        if (current != null) {
+          await sendDefaultExists();
+          return;
+        }
+      }
+      let group: typeof pricingGroups.$inferSelect | undefined;
+      try {
+        [group] = await db.insert(pricingGroups).values(body).returning();
+      } catch (err) {
+        // A concurrent create took the default between the check and the insert.
+        if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
+          await sendDefaultExists();
+          return;
+        }
+        throw err;
+      }
       if (group != null) {
         await writeAudit(
           { table: pricingGroupAuditLog, idColumn: 'pricing_group_id' },
@@ -369,6 +454,7 @@ export function pricingRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PRICING_GROUP_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof groupParams>;
       const body = request.body as z.infer<typeof updateGroupBody>;
 
@@ -423,6 +509,7 @@ export function pricingRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PRICING_GROUP_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof groupParams>;
 
       const [group] = await db.select().from(pricingGroups).where(eq(pricingGroups.id, id));
@@ -602,11 +689,18 @@ export function pricingRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(tariffItem),
           400: errorWith('Invalid restrictions', [ERROR_CODES.INVALID_RESTRICTIONS]),
-          409: errorWith('Tariff conflict', [ERROR_CODES.TARIFF_OVERLAP]),
+          409: errorWith('Tariff conflict', [
+            ERROR_CODES.TARIFF_OVERLAP,
+            ERROR_CODES.TARIFF_DEFAULT_REQUIRED,
+          ]),
+          404: errorWith('Tariff not found, or the user is restricted to some sites', [
+            ERROR_CODES.TARIFF_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TARIFF_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof groupParams>;
       const body = request.body as z.infer<typeof createTariffBody>;
 
@@ -624,26 +718,20 @@ export function pricingRoutes(app: FastifyInstance): void {
       }
 
       const priority = derivePriority(restrictions ?? null);
-      const isDefault = body.isDefault ?? priority === 0;
+      // The default rule (owner decision 2026-10-09): an active tariff without
+      // restrictions is the group's default, and only it can be.
+      const isDefault = priority === 0 && body.isActive;
+      if (body.isDefault !== undefined && body.isDefault !== isDefault) {
+        await sendDefaultRequired(reply, defaultFlagMessage(priority, body.isActive));
+        return;
+      }
 
-      // Overlap detection only considers active tariffs: resolution skips
-      // inactive ones, so they cannot collide.
-      const existingTariffs = await db
-        .select({
-          id: tariffs.id,
-          restrictions: tariffs.restrictions,
-          priority: tariffs.priority,
-          isDefault: tariffs.isDefault,
-        })
-        .from(tariffs)
-        .where(and(eq(tariffs.pricingGroupId, id), eq(tariffs.isActive, true)));
+      const groupTariffs = await loadGroupDefaultTariffs(id);
 
       const overlapCheck = validateNoOverlap(
-        existingTariffs.map((t) => ({
-          id: t.id,
-          restrictions: t.restrictions as TariffRestrictions | null,
-          priority: t.priority,
-        })),
+        groupTariffs
+          .filter((t) => t.isActive)
+          .map((t) => ({ id: t.id, restrictions: t.restrictions, priority: t.priority })),
         restrictions ?? null,
         priority,
       );
@@ -657,35 +745,45 @@ export function pricingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // If setting as default, unset any other default in the group
-      if (isDefault) {
-        await db
-          .update(tariffs)
-          .set({ isDefault: false, updatedAt: new Date() })
-          .where(and(eq(tariffs.pricingGroupId, id), eq(tariffs.isDefault, true)));
+      // A restricted tariff needs the group's default first, so a time or
+      // energy the restrictions leave out never bills zero.
+      const after: GroupDefaultTariff[] = [
+        ...groupTariffs.map((t) => ({ ...t, isDefault: isDefault ? false : t.isDefault })),
+        { id: '', restrictions: restrictions ?? null, isDefault, isActive: body.isActive },
+      ];
+      if (!checkGroupDefault(after).valid) {
+        await sendDefaultRequired(reply, DEFAULT_REQUIRED_MESSAGE);
+        return;
       }
 
-      // Auto-set isDefault if this is the first tariff in the group
-      const hasDefault = existingTariffs.some((t) => t.isDefault);
-      const finalIsDefault = isDefault || !hasDefault;
-
-      const [tariff] = await db
-        .insert(tariffs)
-        .values({
-          pricingGroupId: id,
-          name: body.name,
-          pricePerKwh: body.pricePerKwh,
-          pricePerMinute: body.pricePerMinute,
-          pricePerSession: body.pricePerSession,
-          isActive: body.isActive,
-          idleFeePricePerMinute: body.idleFeePricePerMinute,
-          reservationFeePerMinute: body.reservationFeePerMinute,
-          taxRate: body.taxRate,
-          restrictions: restrictions ?? null,
-          priority,
-          isDefault: finalIsDefault,
-        })
-        .returning();
+      // The default swap and the insert in one transaction
+      // (uq_tariffs_one_default_per_group).
+      const tariff = await db.transaction(async (tx) => {
+        if (isDefault) {
+          await tx
+            .update(tariffs)
+            .set({ isDefault: false, updatedAt: new Date() })
+            .where(and(eq(tariffs.pricingGroupId, id), eq(tariffs.isDefault, true)));
+        }
+        const [inserted] = await tx
+          .insert(tariffs)
+          .values({
+            pricingGroupId: id,
+            name: body.name,
+            pricePerKwh: body.pricePerKwh,
+            pricePerMinute: body.pricePerMinute,
+            pricePerSession: body.pricePerSession,
+            isActive: body.isActive,
+            idleFeePricePerMinute: body.idleFeePricePerMinute,
+            reservationFeePerMinute: body.reservationFeePerMinute,
+            taxRate: body.taxRate,
+            restrictions: restrictions ?? null,
+            priority,
+            isDefault,
+          })
+          .returning();
+        return inserted;
+      });
       if (tariff != null) {
         await writeAudit(
           { table: tariffAuditLog, idColumn: 'tariff_id' },
@@ -724,11 +822,15 @@ export function pricingRoutes(app: FastifyInstance): void {
           200: itemResponse(tariffItem),
           400: errorWith('Invalid restrictions', [ERROR_CODES.INVALID_RESTRICTIONS]),
           404: errorWith('Tariff not found', [ERROR_CODES.TARIFF_NOT_FOUND]),
-          409: errorWith('Tariff overlap', [ERROR_CODES.TARIFF_OVERLAP]),
+          409: errorWith('Tariff conflict', [
+            ERROR_CODES.TARIFF_OVERLAP,
+            ERROR_CODES.TARIFF_DEFAULT_REQUIRED,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TARIFF_NOT_FOUND))) return;
       const { id, tariffId } = request.params as z.infer<typeof tariffParams>;
       const body = request.body as z.infer<typeof updateTariffBody>;
 
@@ -756,23 +858,26 @@ export function pricingRoutes(app: FastifyInstance): void {
       }
 
       const priority = derivePriority(restrictions);
+      const isActive = body.isActive ?? existing.isActive;
+      // The default follows the rule only when the edit touches it (activity,
+      // restrictions, the flag); a price edit keeps the flag as it is.
+      const touchesDefault =
+        body.isActive !== undefined ||
+        body.restrictions !== undefined ||
+        body.isDefault !== undefined;
+      const isDefault = touchesDefault ? priority === 0 && isActive : existing.isDefault;
+      if (body.isDefault !== undefined && body.isDefault !== isDefault) {
+        await sendDefaultRequired(reply, defaultFlagMessage(priority, isActive));
+        return;
+      }
+
+      const groupTariffs = await loadGroupDefaultTariffs(existing.pricingGroupId);
 
       // Overlap validation
-      const existingTariffs = await db
-        .select({
-          id: tariffs.id,
-          restrictions: tariffs.restrictions,
-          priority: tariffs.priority,
-        })
-        .from(tariffs)
-        .where(and(eq(tariffs.pricingGroupId, id), eq(tariffs.isActive, true)));
-
       const overlapCheck = validateNoOverlap(
-        existingTariffs.map((t) => ({
-          id: t.id,
-          restrictions: t.restrictions as TariffRestrictions | null,
-          priority: t.priority,
-        })),
+        groupTariffs
+          .filter((t) => t.isActive)
+          .map((t) => ({ id: t.id, restrictions: t.restrictions, priority: t.priority })),
         restrictions,
         priority,
         tariffId,
@@ -787,19 +892,17 @@ export function pricingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Handle isDefault flag
-      const isDefault = body.isDefault ?? existing.isDefault;
-      if (isDefault && !existing.isDefault) {
-        await db
-          .update(tariffs)
-          .set({ isDefault: false, updatedAt: new Date() })
-          .where(
-            and(
-              eq(tariffs.pricingGroupId, existing.pricingGroupId),
-              eq(tariffs.isDefault, true),
-              ne(tariffs.id, tariffId),
-            ),
-          );
+      const takesDefault = isDefault && !existing.isDefault;
+      if (touchesDefault) {
+        const after: GroupDefaultTariff[] = groupTariffs.map((t) =>
+          t.id === tariffId
+            ? { id: t.id, restrictions, isDefault, isActive }
+            : { ...t, isDefault: takesDefault ? false : t.isDefault },
+        );
+        if (!checkGroupDefault(after).valid) {
+          await sendDefaultRequired(reply, DEFAULT_REQUIRED_MESSAGE);
+          return;
+        }
       }
 
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
@@ -817,18 +920,34 @@ export function pricingRoutes(app: FastifyInstance): void {
         updateData['restrictions'] = body.restrictions;
         updateData['priority'] = priority;
       }
-      // Only persist isDefault when the operator explicitly toggled it.
-      // Setting it on every PATCH would clobber the value on unrelated edits
-      // and write spurious "isDefault: true -> true" rows to the audit log.
-      if (body.isDefault !== undefined) {
-        updateData['isDefault'] = body.isDefault;
+      // Only persist isDefault when it changes, so an unrelated edit writes no
+      // spurious "isDefault: true -> true" audit rows.
+      if (isDefault !== existing.isDefault) {
+        updateData['isDefault'] = isDefault;
       }
 
-      const [updated] = await db
-        .update(tariffs)
-        .set(updateData)
-        .where(eq(tariffs.id, tariffId))
-        .returning();
+      // The default swap and the update in one transaction
+      // (uq_tariffs_one_default_per_group).
+      const updated = await db.transaction(async (tx) => {
+        if (takesDefault) {
+          await tx
+            .update(tariffs)
+            .set({ isDefault: false, updatedAt: new Date() })
+            .where(
+              and(
+                eq(tariffs.pricingGroupId, existing.pricingGroupId),
+                eq(tariffs.isDefault, true),
+                ne(tariffs.id, tariffId),
+              ),
+            );
+        }
+        const [row] = await tx
+          .update(tariffs)
+          .set(updateData)
+          .where(eq(tariffs.id, tariffId))
+          .returning();
+        return row;
+      });
       await writeAudit(
         { table: tariffAuditLog, idColumn: 'tariff_id' },
         {
@@ -864,11 +983,15 @@ export function pricingRoutes(app: FastifyInstance): void {
         response: {
           204: { type: 'null' as const },
           404: errorWith('Tariff not found', [ERROR_CODES.TARIFF_NOT_FOUND]),
-          409: errorWith('Tariff in use', [ERROR_CODES.TARIFF_IN_USE]),
+          409: errorWith('Tariff in use or the group default', [
+            ERROR_CODES.TARIFF_IN_USE,
+            ERROR_CODES.TARIFF_DEFAULT_REQUIRED,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TARIFF_NOT_FOUND))) return;
       const { tariffId } = request.params as z.infer<typeof tariffParams>;
 
       const [tariff] = await db.select().from(tariffs).where(eq(tariffs.id, tariffId));
@@ -901,6 +1024,17 @@ export function pricingRoutes(app: FastifyInstance): void {
           code: 'TARIFF_IN_USE',
         });
         return;
+      }
+
+      // The default stays while the group has other active tariffs.
+      if (tariff.isDefault) {
+        const rest = (await loadGroupDefaultTariffs(tariff.pricingGroupId)).filter(
+          (t) => t.id !== tariffId,
+        );
+        if (!checkGroupDefault(rest).valid) {
+          await sendDefaultRequired(reply, DEFAULT_REQUIRED_MESSAGE);
+          return;
+        }
       }
 
       await db.delete(tariffs).where(eq(tariffs.id, tariffId));
@@ -1003,7 +1137,8 @@ export function pricingRoutes(app: FastifyInstance): void {
         params: zodSchema(stationParams),
         response: {
           200: itemResponse(activeTariffItem),
-          404: errorWith('No pricing for the station', [
+          404: errorWith('Station not found, or no pricing for the station', [
+            ERROR_CODES.STATION_NOT_FOUND,
             ERROR_CODES.NO_PRICING_GROUP,
             ERROR_CODES.NO_TARIFFS,
             ERROR_CODES.NO_MATCHING_TARIFF,
@@ -1013,33 +1148,38 @@ export function pricingRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof stationParams>;
+      const { userId } = request.user as { userId: string };
+      // A station outside the user's sites answers like a missing one (P11).
+      if (!(await checkStationSiteAccess(id, userId))) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
 
-      // The station's pricing group, its active tariffs and the site timezone
-      // (off-peak and holiday boundaries fire at the operator's local clock).
-      const pricing = await loadStationPricing({ stationUuid: id, driverUuid: null }, client);
-      if (pricing == null) {
+      // The station's pricing groups in resolution order, their active tariffs
+      // and the site timezone (off-peak and holiday boundaries fire at the
+      // operator's local clock). A group without a tariff that applies passes
+      // to the next one, as billing does.
+      const chain = await loadStationPricingChain({ stationUuid: id, driverUuid: null }, client);
+      if (chain.length === 0) {
         await reply
           .status(404)
           .send({ error: 'No pricing group found for station', code: 'NO_PRICING_GROUP' });
         return;
       }
 
-      if (pricing.tariffs.length === 0) {
+      if (!chain.some((p) => p.tariffs.length > 0)) {
         await reply.status(404).send({ error: 'No active tariffs found', code: 'NO_TARIFFS' });
         return;
       }
 
-      const current = pickTariff(
-        pricing.tariffs,
-        { at: new Date(), timezone: pricing.timezone },
-        await getPricingHolidays(client),
-      );
-      if (current == null) {
+      const picked = pickFromChain(chain, { at: new Date() }, await getPricingHolidays(client));
+      if (picked == null) {
         await reply
           .status(404)
           .send({ error: 'No matching tariff for current time', code: 'NO_MATCHING_TARIFF' });
         return;
       }
+      const { pricing, tariff: current } = picked;
 
       const { name, ...tariff } = current;
       return {
@@ -1093,10 +1233,16 @@ export function pricingRoutes(app: FastifyInstance): void {
         operationId: 'listPricingAudit',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(auditQuery),
-        response: { 200: paginatedResponse(auditItem) },
+        response: {
+          200: paginatedResponse(auditItem),
+          404: errorWith('No pricing found, or the user is restricted to some sites', [
+            ERROR_CODES.PRICING_NOT_FOUND,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PRICING_NOT_FOUND))) return;
       const { page, limit, entityType, entityId, pricingGroupId } = request.query as z.infer<
         typeof auditQuery
       >;

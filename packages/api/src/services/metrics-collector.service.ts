@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { sql } from 'drizzle-orm';
-import { db, getCompanyCurrency } from '@evtivity/database';
+import { client, db, getCompanyCurrency, getOcppFleetHealth } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import {
   driversTotal,
@@ -29,6 +29,8 @@ import {
   ocppPingLatencyAvgMs,
   ocppPingLatencyMaxMs,
   ocppPingSuccessRate,
+  ocppInstances,
+  ocppInstanceConnectedStations,
   ocppHeartbeatsTotal,
 } from '../plugins/metrics.js';
 import { queryRevenueTotal } from '@evtivity/services/session-revenue';
@@ -60,7 +62,7 @@ export async function collectBusinessMetrics(): Promise<void> {
       firmwareRows,
       txEventRows,
       paymentRows,
-      ocppHealthRows,
+      ocppHealth,
       heartbeatRows,
     ] = await Promise.all([
       // Total drivers
@@ -194,13 +196,8 @@ export async function collectBusinessMetrics(): Promise<void> {
         GROUP BY status
       `),
 
-      // OCPP server health (ping monitor snapshot)
-      db.execute(sql`
-        SELECT connected_stations, avg_ping_latency_ms, max_ping_latency_ms,
-               ping_success_rate, total_pings_sent, total_pongs_received
-        FROM ocpp_server_health
-        WHERE id = 'singleton'
-      `),
+      // OCPP server health: the fresh rows of every OCPP process, aggregated
+      getOcppFleetHealth(client),
 
       // Total heartbeats received (last 24h)
       // ocpp.Heartbeat events are no longer archived in domain_events
@@ -278,12 +275,18 @@ export async function collectBusinessMetrics(): Promise<void> {
     }
 
     // OCPP server health
-    const healthRow = asRows(ocppHealthRows)[0];
-    if (healthRow != null) {
-      ocppConnectedStations.set(asNum(healthRow, 'connected_stations'));
-      ocppPingLatencyAvgMs.set(asFloat(healthRow, 'avg_ping_latency_ms'));
-      ocppPingLatencyMaxMs.set(asFloat(healthRow, 'max_ping_latency_ms'));
-      ocppPingSuccessRate.set(asFloat(healthRow, 'ping_success_rate'));
+    ocppConnectedStations.set(ocppHealth.connectedStations);
+    ocppPingLatencyAvgMs.set(ocppHealth.avgPingLatencyMs);
+    ocppPingLatencyMaxMs.set(ocppHealth.maxPingLatencyMs);
+    ocppPingSuccessRate.set(ocppHealth.pingSuccessRate);
+    ocppInstances.set(ocppHealth.instanceCount);
+    // Reset first so a stopped process's series disappears.
+    ocppInstanceConnectedStations.reset();
+    for (const instance of ocppHealth.instances) {
+      ocppInstanceConnectedStations.set(
+        { ocpp_instance: instance.instanceId },
+        instance.connectedStations,
+      );
     }
 
     ocppHeartbeatsTotal.set(asInt(heartbeatRows, 'count'));

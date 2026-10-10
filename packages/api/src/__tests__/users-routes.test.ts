@@ -103,6 +103,7 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn(),
   or: vi.fn(),
   isNull: vi.fn(),
+  ne: vi.fn(),
   ilike: vi.fn(),
   sql: vi.fn(),
   desc: vi.fn(),
@@ -149,6 +150,9 @@ vi.mock('@evtivity/lib', () => ({
   verifyTotpCode: vi.fn().mockReturnValue(true),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 1, code: '123456' }),
   verifyMfaChallenge: vi.fn().mockResolvedValue(true),
+  AI_EFFORTS: ['low', 'medium', 'high'],
+  AI_PROVIDER_IDS: ['anthropic', 'openai', 'gemini', 'deepseek'],
+  isAiEffort: (v: unknown): boolean => v === 'low' || v === 'medium' || v === 'high',
   permissionCatalog: {
     defaultsFor: (role: string | undefined): string[] =>
       role === 'admin' ? ['stations:read', 'stations:write'] : ['stations:read'],
@@ -182,6 +186,8 @@ vi.mock('../middleware/rbac.js', () => ({
         await reply.status(401).send({ error: 'Unauthorized' });
       }
     },
+  invalidatePermissionCache: vi.fn(),
+  getEffectivePermissions: vi.fn().mockResolvedValue(['stations:read', 'stations:write']),
 }));
 
 vi.mock('../lib/site-access.js', () => ({
@@ -637,7 +643,8 @@ describe('User routes', () => {
   });
 
   it('POST /v1/users/:id/reset-password resets password', async () => {
-    setupDbResults([{ id: VALID_USER_ID }]);
+    // The target's permissions (within the actor's), then the update.
+    setupDbResults([{ permission: 'stations:read' }], [{ id: VALID_USER_ID }]);
     const response = await app.inject({
       method: 'POST',
       url: `/users/${VALID_USER_ID}/reset-password`,

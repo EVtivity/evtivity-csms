@@ -306,6 +306,41 @@ async function loadRolloutSummaries(eventIds: string[]): Promise<Map<string, Rol
   return summaries;
 }
 
+interface AffectedStationsEvent {
+  siteId: string;
+  affectedStationIds: string[] | null;
+}
+
+/**
+ * The events with `affectedStationIds` limited to stations still in each
+ * event's site. A station that moved to another site after the event was
+ * created stays in the stored list (the fan-outs skip it), but its id belongs
+ * to the other site and is never returned. The caller has access to the
+ * event's site, so every station in it is in the caller's scope.
+ */
+async function withSiteStations<T extends AffectedStationsEvent>(events: T[]): Promise<T[]> {
+  const ids = [...new Set(events.flatMap((e) => e.affectedStationIds ?? []))];
+  if (ids.length === 0) return events;
+  const rows = await db
+    .select({ id: chargingStations.id, siteId: chargingStations.siteId })
+    .from(chargingStations)
+    .where(inArray(chargingStations.id, ids));
+  const siteOf = new Map(rows.map((r) => [r.id, r.siteId]));
+  return events.map((e) =>
+    e.affectedStationIds == null
+      ? e
+      : {
+          ...e,
+          affectedStationIds: e.affectedStationIds.filter((id) => siteOf.get(id) === e.siteId),
+        },
+  );
+}
+
+async function withSiteStationsOne<T extends AffectedStationsEvent>(event: T): Promise<T> {
+  const [scoped] = await withSiteStations([event]);
+  return scoped ?? event;
+}
+
 async function checkSiteAccess(siteId: string, userId: string): Promise<boolean> {
   const siteIds = await getUserSiteIds(userId);
   if (siteIds == null) return true;
@@ -375,9 +410,12 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           .from(maintenanceEvents)
           .where(and(...conditions)),
       ]);
-      const rolloutByEvent = await loadRolloutSummaries(data.map((e) => e.id));
+      const [rolloutByEvent, scoped] = await Promise.all([
+        loadRolloutSummaries(data.map((e) => e.id)),
+        withSiteStations(data),
+      ]);
       return {
-        data: data.map((e) => ({
+        data: scoped.map((e) => ({
           ...e,
           rollout: rolloutByEvent.get(e.id) ?? { offline: null, reasserted: null, restored: null },
         })),
@@ -394,7 +432,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
         tags: ['Maintenance'],
         summary: 'Per-station fan-out results for a maintenance event',
         description:
-          'Lists the OCPP command outcome recorded for every station in every fan-out phase of the event (enter, exit, cancel, add, remove-stations, reassert), including the derived station status before and after each run.',
+          'Lists the OCPP command outcome recorded for every station in every fan-out phase of the event (enter, exit, cancel, add, remove-stations, reassert), including the derived station status before and after each run. Rows of a station that has since moved to another site are left out.',
         operationId: 'listMaintenanceEventStations',
         security: [{ bearerAuth: [] }],
         params: zodSchema(eventIdParams),
@@ -422,7 +460,13 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           .send({ error: 'Maintenance event not found', code: 'MAINTENANCE_NOT_FOUND' });
         return;
       }
-      const conditions = [eq(maintenanceEventStations.eventId, id)];
+      // A station that moved to another site since the fan-out belongs to
+      // that site now: its rows are left out. Rows of a deleted station keep
+      // their snapshot.
+      const conditions = [
+        eq(maintenanceEventStations.eventId, id),
+        or(isNull(chargingStations.id), eq(chargingStations.siteId, siteId)),
+      ];
       if (q.phase != null) conditions.push(eq(maintenanceEventStations.phase, q.phase));
       const offset = (q.page - 1) * q.limit;
       // currentStatus is the live derived status: the stored statusAfter is a
@@ -457,6 +501,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
         db
           .select({ c: sql<number>`count(*)` })
           .from(maintenanceEventStations)
+          .leftJoin(chargingStations, eq(chargingStations.id, maintenanceEventStations.stationId))
           .where(and(...conditions)),
       ]);
       return { data, total: totalRow[0]?.c ?? 0 };
@@ -540,7 +585,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           },
           { detachSideEffects: true },
         );
-        return created;
+        return await withSiteStationsOne(created);
       } catch (err) {
         if (err instanceof AppError) {
           if (err.statusCode === 400) {
@@ -597,7 +642,7 @@ export function maintenanceRoutes(app: FastifyInstance): void {
           .send({ error: 'Maintenance event not found', code: 'MAINTENANCE_NOT_FOUND' });
         return;
       }
-      return row;
+      return await withSiteStationsOne(row);
     },
   );
 
@@ -668,22 +713,24 @@ export function maintenanceRoutes(app: FastifyInstance): void {
       }
 
       try {
-        return await updateEvent(
-          id,
-          {
-            ...(body.plannedStartAt !== undefined ? { plannedStartAt: body.plannedStartAt } : {}),
-            ...(body.plannedEndAt !== undefined ? { plannedEndAt: body.plannedEndAt } : {}),
-            ...(body.affectedStationIds !== undefined
-              ? { affectedStationIds: body.affectedStationIds }
-              : {}),
-            ...(body.activeSessionPolicy !== undefined
-              ? { activeSessionPolicy: body.activeSessionPolicy }
-              : {}),
-            ...(body.customMessage !== undefined ? { customMessage: body.customMessage } : {}),
-            ...(body.reason !== undefined ? { reason: body.reason } : {}),
-          },
-          { type: 'operator', userId },
-          request.log,
+        return await withSiteStationsOne(
+          await updateEvent(
+            id,
+            {
+              ...(body.plannedStartAt !== undefined ? { plannedStartAt: body.plannedStartAt } : {}),
+              ...(body.plannedEndAt !== undefined ? { plannedEndAt: body.plannedEndAt } : {}),
+              ...(body.affectedStationIds !== undefined
+                ? { affectedStationIds: body.affectedStationIds }
+                : {}),
+              ...(body.activeSessionPolicy !== undefined
+                ? { activeSessionPolicy: body.activeSessionPolicy }
+                : {}),
+              ...(body.customMessage !== undefined ? { customMessage: body.customMessage } : {}),
+              ...(body.reason !== undefined ? { reason: body.reason } : {}),
+            },
+            { type: 'operator', userId },
+            request.log,
+          ),
         );
       } catch (err) {
         if (err instanceof AppError) {
@@ -738,9 +785,11 @@ export function maintenanceRoutes(app: FastifyInstance): void {
         return;
       }
       try {
-        return await cancelEvent(id, { type: 'operator', userId }, request.log, {
-          detachSideEffects: true,
-        });
+        return await withSiteStationsOne(
+          await cancelEvent(id, { type: 'operator', userId }, request.log, {
+            detachSideEffects: true,
+          }),
+        );
       } catch (err) {
         if (err instanceof AppError && err.statusCode === 404) {
           await reply.status(404).send({ error: err.message, code: err.code });
@@ -795,12 +844,14 @@ export function maintenanceRoutes(app: FastifyInstance): void {
         return;
       }
       try {
-        return await addStationsToMaintenance(
-          id,
-          body.stationIds,
-          { type: 'operator', userId },
-          request.log,
-          { detachSideEffects: true },
+        return await withSiteStationsOne(
+          await addStationsToMaintenance(
+            id,
+            body.stationIds,
+            { type: 'operator', userId },
+            request.log,
+            { detachSideEffects: true },
+          ),
         );
       } catch (err) {
         if (err instanceof AppError) {
@@ -866,12 +917,14 @@ export function maintenanceRoutes(app: FastifyInstance): void {
         return;
       }
       try {
-        return await removeStationsFromMaintenance(
-          id,
-          body.stationIds,
-          { type: 'operator', userId },
-          request.log,
-          { detachSideEffects: true },
+        return await withSiteStationsOne(
+          await removeStationsFromMaintenance(
+            id,
+            body.stationIds,
+            { type: 'operator', userId },
+            request.log,
+            { detachSideEffects: true },
+          ),
         );
       } catch (err) {
         if (err instanceof AppError) {

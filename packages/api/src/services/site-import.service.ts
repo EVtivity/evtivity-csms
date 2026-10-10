@@ -19,6 +19,8 @@ import { csvEscape } from '@evtivity/lib';
 import { sendAvailabilityCommand } from '@evtivity/services/availability-command';
 import { publishStationStatusChanged } from '../lib/station-status-events.js';
 import { publishOcpiStationSiteMove } from '../lib/ocpi-location-push.js';
+import { siteInScope } from '../lib/site-scope.js';
+import { circuitIdAfterSiteChange } from '../lib/station-circuit.js';
 
 interface ImportActor {
   actor: 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -220,22 +222,14 @@ export async function importSitesCsv(
       // Restricted operators (allowedSiteIds is an array, not null) cannot
       // create new sites and cannot mutate sites they don't have access to.
       // Reject the whole site group up front so a single CSV upload can't be
-      // used to escalate beyond the user's site assignments.
-      if (allowedSiteIds != null) {
-        if (existing == null) {
-          for (const entry of siteRows) {
-            result.errors.push(
-              `Row ${String(entry.index + 1)}: insufficient site access to create new site "${siteName}"`,
-            );
-          }
-          continue;
+      // used to escalate beyond the user's site assignments. A missing site
+      // and another site's name get the same message, so the import does not
+      // tell which site names exist.
+      if (allowedSiteIds != null && (existing == null || !allowedSiteIds.includes(existing.id))) {
+        for (const entry of siteRows) {
+          result.errors.push(`Row ${String(entry.index + 1)}: no access to site "${siteName}"`);
         }
-        if (!allowedSiteIds.includes(existing.id)) {
-          for (const entry of siteRows) {
-            result.errors.push(`Row ${String(entry.index + 1)}: no access to site "${siteName}"`);
-          }
-          continue;
-        }
+        continue;
       }
 
       if (existing != null) {
@@ -350,17 +344,36 @@ export async function importSitesCsv(
         }
         const requestedStatus = firstStationRow.row.stationStatus;
 
+        // A station ID is unique across sites. For a restricted operator an
+        // existing station outside its sites (or an unsited one) is refused
+        // in both paths, so the import can neither move it nor add EVSEs
+        // and connectors to it. The message is the same whatever the reason,
+        // so it does not say where the station is.
+        const [previous] = await tx
+          .select({ id: chargingStations.id, siteId: chargingStations.siteId })
+          .from(chargingStations)
+          .where(eq(chargingStations.stationId, stationId));
+        if (previous != null && !siteInScope(allowedSiteIds ?? null, previous.siteId)) {
+          for (const entry of stationRows) {
+            result.errors.push(
+              `Row ${String(entry.index + 1)}: station "${stationId}" cannot be imported`,
+            );
+          }
+          continue;
+        }
+
         if (updateExisting) {
-          const [previous] = await tx
-            .select({ siteId: chargingStations.siteId })
-            .from(chargingStations)
-            .where(eq(chargingStations.stationId, stationId));
           const [station] = await tx
             .insert(chargingStations)
             .values(stationValues)
             .onConflictDoUpdate({
               target: chargingStations.stationId,
-              set: { ...stationValues, updatedAt: new Date() },
+              // A station that moves to another site leaves its circuit.
+              set: {
+                ...stationValues,
+                circuitId: circuitIdAfterSiteChange(siteId),
+                updatedAt: new Date(),
+              },
             })
             .returning({
               id: chargingStations.id,
@@ -386,12 +399,8 @@ export async function importSitesCsv(
             }
           }
         } else {
-          const [existing] = await tx
-            .select({ id: chargingStations.id })
-            .from(chargingStations)
-            .where(eq(chargingStations.stationId, stationId));
-          if (existing != null) {
-            stationUuidByStationId.set(stationId, existing.id);
+          if (previous != null) {
+            stationUuidByStationId.set(stationId, previous.id);
             result.errors.push(`Station "${stationId}" already exists, skipped`);
           } else {
             const [station] = await tx

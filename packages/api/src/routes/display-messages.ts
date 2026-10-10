@@ -14,7 +14,9 @@ import { paginatedResponse, itemResponse, errorWith } from '../lib/response-sche
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { getUserSiteIds, checkStationSiteAccess } from '../lib/site-access.js';
+import { siteInScope } from '../lib/site-scope.js';
 import { authorize } from '../middleware/rbac.js';
+import { ocppCommandQueued, ocppCommandQueuedBody } from '../lib/ocpp-command-queued.js';
 
 const displayMessageItem = z
   .object({
@@ -113,16 +115,20 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
         querystring: zodSchema(listMessagesQuery),
-        response: { 200: paginatedResponse(displayMessageItem) },
+        response: {
+          200: paginatedResponse(displayMessageItem),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { stationId } = request.params as z.infer<typeof stationIdParams>;
       const query = request.query as z.infer<typeof listMessagesQuery>;
 
       const { userId } = request.user as { userId: string };
       if (!(await checkStationSiteAccess(stationId, userId))) {
-        return { data: [], total: 0 };
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
       }
 
       const page = query.page;
@@ -162,13 +168,14 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         tags: ['Display Messages'],
         summary: 'Create and send a display message to a station',
         description:
-          'Inserts a display_messages row with a freshly allocated ocppMessageId, then dispatches SetDisplayMessage and waits synchronously for the station response. The row status flips to accepted or rejected based on the station reply. Returns 504 on timeout, 502 on station rejection, and 400 if the station is offline.',
+          'Inserts a display_messages row with a freshly allocated ocppMessageId, then dispatches SetDisplayMessage and waits synchronously for the station response. The row status flips to accepted or rejected based on the station reply. Returns 504 on timeout, 502 on station rejection, and 400 if the station is offline. Returns 202 with status queued when the station disconnected before the command reached it: the OCPP server sends it on reconnect and the row stays pending.',
         operationId: 'createDisplayMessage',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
         body: zodSchema(createMessageBody),
         response: {
           200: itemResponse(displayMessageItem),
+          202: itemResponse(ocppCommandQueued),
           400: errorWith('Bad request', [ERROR_CODES.STATION_OFFLINE, ERROR_CODES.NOT_SUPPORTED]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
           500: errorWith('Internal server error', [ERROR_CODES.MESSAGE_CREATE_FAILED]),
@@ -200,7 +207,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -279,6 +286,13 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         message: messageInfo,
       });
 
+      if (result.queued === true) {
+        await reply
+          .status(202)
+          .send(ocppCommandQueuedBody(station.stationId, 'SetDisplayMessage', result.error));
+        return;
+      }
+
       if (result.error != null) {
         const isTimeout = result.error.includes('No response within');
         await reply.status(isTimeout ? 504 : 502).send({
@@ -312,12 +326,13 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         tags: ['Display Messages'],
         summary: 'Clear a display message from a station',
         description:
-          'Dispatches ClearDisplayMessage to the station for the given OCPP message slot and marks the row cleared on Accepted. Returns 400 if the message is not in accepted state, 502 on station rejection, and 504 on timeout.',
+          'Dispatches ClearDisplayMessage to the station for the given OCPP message slot and marks the row cleared on Accepted. Returns 400 if the message is not in accepted state, 502 on station rejection, and 504 on timeout. Returns 202 with status queued when the station is offline: the OCPP server sends the clear on reconnect and the row stays accepted until then.',
         operationId: 'clearDisplayMessage',
         security: [{ bearerAuth: [] }],
         params: zodSchema(messageIdParams),
         response: {
           200: itemResponse(clearMessageResponse),
+          202: itemResponse(ocppCommandQueued),
           400: errorWith('Bad request', [
             ERROR_CODES.MESSAGE_CLEAR_REJECTED,
             ERROR_CODES.MESSAGE_NOT_CLEARABLE,
@@ -350,7 +365,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && message.siteId != null && !siteIds.includes(message.siteId)) {
+      if (!siteInScope(siteIds, message.siteId)) {
         await reply.status(404).send({ error: 'Message not found', code: 'MESSAGE_NOT_FOUND' });
         return;
       }
@@ -366,6 +381,13 @@ export function displayMessageRoutes(app: FastifyInstance): void {
       const result = await sendOcppCommandAndWait(message.stationOcppId, 'ClearDisplayMessage', {
         id: message.ocppMessageId,
       });
+
+      if (result.queued === true) {
+        await reply
+          .status(202)
+          .send(ocppCommandQueuedBody(message.stationOcppId, 'ClearDisplayMessage', result.error));
+        return;
+      }
 
       if (result.error != null) {
         const isTimeout = result.error.includes('No response within');
@@ -403,16 +425,17 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         tags: ['Display Messages'],
         summary: 'Refresh display messages from a station',
         description:
-          'Dispatches GetDisplayMessages to the station. Message data arrives asynchronously via the NotifyDisplayMessages event projection, which upserts rows into display_messages. Returns the synchronous Accepted/Rejected status from the trigger call.',
+          'Dispatches GetDisplayMessages to the station. Message data arrives asynchronously via the NotifyDisplayMessages event projection, which upserts rows into display_messages. Returns the synchronous Accepted/Rejected status from the trigger call. Returns 202 with status queued when the station disconnected before the command reached it: the OCPP server sends it on reconnect.',
         operationId: 'refreshDisplayMessages',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
         response: {
           200: itemResponse(refreshMessageResponse),
+          202: itemResponse(ocppCommandQueued),
           400: errorWith('Station offline', [ERROR_CODES.STATION_OFFLINE]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
-          502: errorWith('Station rejected the command', [ERROR_CODES.STATION_REJECTED]),
-          504: errorWith('Station did not respond within timeout', [ERROR_CODES.STATION_TIMEOUT]),
+          502: errorWith('Station rejected the command', [ERROR_CODES.MESSAGE_REFRESH_FAILED]),
+          504: errorWith('Station did not respond within timeout', [ERROR_CODES.MESSAGE_TIMEOUT]),
         },
       },
     },
@@ -436,7 +459,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -451,6 +474,13 @@ export function displayMessageRoutes(app: FastifyInstance): void {
       const result = await sendOcppCommandAndWait(station.stationId, 'GetDisplayMessages', {
         requestId,
       });
+
+      if (result.queued === true) {
+        await reply
+          .status(202)
+          .send(ocppCommandQueuedBody(station.stationId, 'GetDisplayMessages', result.error));
+        return;
+      }
 
       if (result.error != null) {
         const isTimeout = result.error.includes('No response within');

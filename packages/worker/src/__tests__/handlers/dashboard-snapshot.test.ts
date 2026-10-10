@@ -10,7 +10,7 @@ import type { Logger } from 'pino';
 // site's four read blocks run via Promise.all and up to five sites run
 // concurrently, so a call-order queue interleaves unpredictably. Instead we
 // route results by inspecting the sql template: the joined `strings` identify
-// the query kind (ping / yesterday / dayBoundaries / stations / uptime /
+// the query kind (yesterday / dayBoundaries / stations / uptime /
 // sessions / revenue / upsert) and the bound `values` carry the siteId. Per-
 // site overrides are keyed by siteId so concurrency is irrelevant.
 
@@ -71,13 +71,16 @@ const DEFAULT_SITE_DATA: Required<Omit<SiteData, 'uptime'>> & Pick<SiteData, 'up
   ],
 };
 
-let pingRow: Record<string, string> | undefined;
+// Fleet ping health (getOcppFleetHealth aggregates the per-process rows; its
+// aggregation is covered in the database package tests).
+let fleetPing: { avgPingLatencyMs: number; pingSuccessRate: number };
+const mockGetOcppFleetHealth = vi.fn(() => Promise.resolve(fleetPing));
 let siteDataById: Record<string, SiteData> = {};
 // Per-site forced rejections, optionally limited to a query kind.
 let siteRejects: Record<string, { kind?: string }> = {};
 
 function resetExecute(): void {
-  pingRow = { avg_ping_latency_ms: '0', ping_success_rate: '100' };
+  fleetPing = { avgPingLatencyMs: 0, pingSuccessRate: 100 };
   siteDataById = {};
   siteRejects = {};
   upsertCalls.length = 0;
@@ -87,7 +90,6 @@ const upsertCalls: Array<{ siteId: string; values: unknown[] }> = [];
 
 function classify(strings: readonly string[]): string {
   const joined = strings.join('?');
-  if (joined.includes('ocpp_server_health')) return 'ping';
   if (joined.includes('INSERT INTO dashboard_snapshots')) return 'upsert';
   if (joined.includes('AS yesterday')) return 'yesterday';
   if (joined.includes('AS day_start')) return 'dayBoundaries';
@@ -104,10 +106,6 @@ function dataFor(siteId: string): SiteData {
 const mockExecute = vi.fn((arg: unknown) => {
   const { strings, values } = arg as { strings: readonly string[]; values: unknown[] };
   const kind = classify(strings);
-
-  if (kind === 'ping') {
-    return Promise.resolve(pingRow ? [pingRow] : []);
-  }
 
   // siteId is the first bound value for every per-site query except
   // yesterday/dayBoundaries (which bind the timezone). For those two the
@@ -147,6 +145,8 @@ const mockExecute = vi.fn((arg: unknown) => {
 });
 
 vi.mock('@evtivity/database', () => ({
+  client: {},
+  getOcppFleetHealth: () => mockGetOcppFleetHealth(),
   db: {
     select: mockSelect,
     execute: mockExecute,
@@ -243,22 +243,24 @@ describe('dashboardSnapshotHandler', () => {
     await dashboardSnapshotHandler(log);
 
     expect(log.info).toHaveBeenCalledWith('No sites found, skipping dashboard snapshot');
-    // No execute() ran: ping read is skipped when there are no sites.
+    // No query ran: the ping read is skipped when there are no sites.
     expect(mockExecute).not.toHaveBeenCalled();
+    expect(mockGetOcppFleetHealth).not.toHaveBeenCalled();
   });
 
-  it('reads the ping singleton, snapshots a single site, and upserts the computed row', async () => {
+  it('reads the fleet ping health, snapshots a single site, and upserts the computed row', async () => {
     setSites([{ id: 'sit_1', timezone: 'America/Los_Angeles' }]);
-    pingRow = { avg_ping_latency_ms: '12.345', ping_success_rate: '99.1' };
+    fleetPing = { avgPingLatencyMs: 12.35, pingSuccessRate: 99.1 };
     siteDataById = { sit_1: {} }; // all defaults
     const log = makeLog();
 
     const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(log);
 
-    // ping + 6 per-site queries (yesterday, dayBoundaries, 3 reads, upsert) =
-    // 7 execute calls; revenue goes through queryRevenue.
-    expect(mockExecute).toHaveBeenCalledTimes(7);
+    // 6 per-site queries (yesterday, dayBoundaries, 3 reads, upsert); the
+    // fleet ping health is read once; revenue goes through queryRevenue.
+    expect(mockExecute).toHaveBeenCalledTimes(6);
+    expect(mockGetOcppFleetHealth).toHaveBeenCalledTimes(1);
     expect(mockQueryRevenue).toHaveBeenCalledTimes(1);
 
     // INSERT VALUES(...) bound params in source column order.
@@ -284,7 +286,7 @@ describe('dashboardSnapshotHandler', () => {
       11, // dayTransactions
       20, // totalPorts
       1, // stationsBelowThreshold
-      12.35, // avgPingLatencyMs rounded to 2dp
+      12.35, // avgPingLatencyMs
       99.1, // pingSuccessRate
       'EUR', // currency
     ]);
@@ -296,9 +298,9 @@ describe('dashboardSnapshotHandler', () => {
     expect(log.info).toHaveBeenCalledWith({ siteCount: 1 }, 'Dashboard snapshot complete');
   });
 
-  it('defaults ping metrics to 0 latency and 100 success when the singleton row is missing', async () => {
+  it('records the empty fleet values (0 latency, 100 success) when no OCPP process reports', async () => {
     setSites([{ id: 'sit_1', timezone: 'UTC' }]);
-    pingRow = undefined; // no ping singleton row
+    fleetPing = { avgPingLatencyMs: 0, pingSuccessRate: 100 }; // no fresh process row
     siteDataById = { sit_1: {} };
     const log = makeLog();
 
@@ -355,8 +357,8 @@ describe('dashboardSnapshotHandler', () => {
     const { dashboardSnapshotHandler } = mod;
     await dashboardSnapshotHandler(log);
 
-    // 1 ping + 6 sites * 6 queries = 37 execute calls, plus one revenue query per site
-    expect(mockExecute).toHaveBeenCalledTimes(1 + 6 * 6);
+    // 6 sites * 6 queries = 36 execute calls, plus one revenue query per site
+    expect(mockExecute).toHaveBeenCalledTimes(6 * 6);
     expect(mockQueryRevenue).toHaveBeenCalledTimes(6);
     // One upsert per site.
     expect(upsertCalls).toHaveLength(6);

@@ -13,6 +13,7 @@ interface SystemInfo {
   nodeEnv: string;
   logLevel: string;
   network: {
+    /** Docker Compose host bind address; null outside Compose. */
     bindIp: string | null;
     apiPort: string;
     apiHost: string;
@@ -140,7 +141,8 @@ export function SystemInfoDialog({ open, onOpenChange }: Props): React.JSX.Eleme
             </Section>
 
             <Section title={t('systemInfo.network')}>
-              <Row label="BIND_IP" value={nullable(data.network.bindIp)} />
+              {/* Only Docker Compose sets BIND_IP. Helm and CDK have no bind address. */}
+              {data.network.bindIp != null && <Row label="BIND_IP" value={data.network.bindIp} />}
               <Row label="API_HOST" value={data.network.apiHost} />
               <Row label="API_PORT" value={data.network.apiPort} />
               <Row label="OCPP_HOST" value={data.network.ocppHost} />

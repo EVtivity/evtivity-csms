@@ -3,15 +3,14 @@
 
 import { and, eq } from 'drizzle-orm';
 import {
-  client,
   db,
   driverPaymentMethods,
   getCompanyCurrency,
   getPlatformFeePercent,
-  resolveStationTariff,
 } from '@evtivity/database';
 import type { PaymentChargeType } from '@evtivity/database';
-import { taxLineFromNet } from '@evtivity/lib';
+import { priceFee, priceTimedFee } from '@evtivity/lib';
+import type { PricedAmount, TaxBasis } from '@evtivity/lib';
 import type { PaymentContext } from './context.js';
 import { errorMessage } from './context.js';
 import { PaymentProviderNotConfiguredError } from './errors.js';
@@ -28,9 +27,13 @@ import { getSitePaymentConfig } from './settings.js';
 import type { PaymentProvider } from './types.js';
 
 /**
- * Reservation cancellation and no-show fees. The fee is priced net, like
- * tariff prices, and taxed at the tax rate of the station's tariff for the
- * driver (taxLineFromNet). Each charge is a payment record (`charge_type`,
+ * Reservation cancellation and no-show fees. The fee is entered in the
+ * company tax basis, like tariff prices (net: tax is added; gross: tax is
+ * included), and priced by the pricing engine (priceFee, priceTimedFee) at
+ * the tax rate of the station's tariff for the driver. The caller passes the
+ * reservation's fee terms (resolveReservationFeeTerms in @evtivity/database:
+ * the snapshot taken at creation, or the current terms for an older
+ * reservation). Each charge is a payment record (`charge_type`,
  * `reservation_id`, `tax_rate`), charged on the driver's default card through
  * the provider the card is saved with and the site's payout account, with the
  * platform fee of its net amount, and counted in revenue.
@@ -45,11 +48,31 @@ export interface ReservationFeeInput {
   /** Internal reservation row id. */
   reservationId: string;
   driverId: string;
-  /** Station row id, for the tariff tax rate. */
-  stationId: string;
   siteId: string | null;
-  /** The fee before tax, in cents of the company currency. */
-  netCents: number;
+  /**
+   * The fee in the tax basis: a flat amount in cents of the company currency
+   * (cancellation fee), or a price per minute in major units times the
+   * minutes held (no-show fee).
+   */
+  fee: { amountCents: number } | { pricePerMinute: string | number | null; minutes: number };
+  /** The tax basis the fee is entered in. */
+  basis: TaxBasis;
+  /** Tax rate as a fraction (0.19); null for none. */
+  taxRate: string | number | null;
+}
+
+/** The fee of a charge, net, tax, and gross, from the pricing engine. */
+export function priceReservationFee(
+  input: Pick<ReservationFeeInput, 'fee' | 'basis' | 'taxRate'>,
+): PricedAmount {
+  return 'amountCents' in input.fee
+    ? priceFee({ amountCents: input.fee.amountCents, taxRate: input.taxRate, basis: input.basis })
+    : priceTimedFee({
+        pricePerMinute: input.fee.pricePerMinute,
+        minutes: input.fee.minutes,
+        taxRate: input.taxRate,
+        basis: input.basis,
+      });
 }
 
 export type ReservationFeeResult =
@@ -85,7 +108,9 @@ export async function chargeReservationFee(
   input: ReservationFeeInput,
   ctx: PaymentContext,
 ): Promise<ReservationFeeResult> {
-  if (input.netCents <= 0) return { status: 'skipped', reason: 'no_amount' };
+  const charge = priceReservationFee(input);
+  if (charge.grossCents <= 0) return { status: 'skipped', reason: 'no_amount' };
+  const taxRate = charge.taxRate;
 
   const [method] = await db
     .select({
@@ -117,13 +142,10 @@ export async function chargeReservationFee(
     throw err;
   }
 
-  const [currency, site, tariff] = await Promise.all([
+  const [currency, site] = await Promise.all([
     getCompanyCurrency(),
     input.siteId != null ? getSitePaymentConfig(input.siteId) : Promise.resolve(null),
-    resolveStationTariff({ stationUuid: input.stationId, driverUuid: input.driverId }, client),
   ]);
-  const taxRate = Number(tariff?.taxRate ?? 0);
-  const charge = taxLineFromNet(input.netCents, taxRate);
 
   const recordId = await recordPendingCharge({
     chargeType: input.type,

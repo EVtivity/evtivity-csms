@@ -10,6 +10,7 @@ import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { siteInScope } from '../lib/site-scope.js';
 
 // --- Schemas ---
 
@@ -194,7 +195,7 @@ export function panelRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -266,16 +267,18 @@ export function panelRoutes(app: FastifyInstance): void {
         params: zodSchema(siteIdParam),
         response: {
           200: arrayResponse(panelItem),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { siteId } = request.params as z.infer<typeof siteIdParam>;
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
-        return [];
+      if (!siteInScope(siteIds, siteId)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
       }
 
       const rows = await db
@@ -293,7 +296,9 @@ export function panelRoutes(app: FastifyInstance): void {
           sortOrder: panels.sortOrder,
           createdAt: panels.createdAt,
           updatedAt: panels.updatedAt,
-          circuitCount: sql<number>`(SELECT count(*)::int FROM circuits WHERE circuits.panel_id = ${panels.id})`,
+          // "panels"."id" written out: a single-table select renders the
+          // column unqualified, which inside the subquery names circuits.id.
+          circuitCount: sql<number>`(SELECT count(*)::int FROM circuits WHERE circuits.panel_id = "panels"."id")`,
         })
         .from(panels)
         .where(eq(panels.siteId, siteId))
@@ -330,7 +335,7 @@ export function panelRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Panel not found', code: 'PANEL_NOT_FOUND' });
         return;
       }
@@ -356,7 +361,10 @@ export function panelRoutes(app: FastifyInstance): void {
           sortOrder: circuits.sortOrder,
           createdAt: circuits.createdAt,
           updatedAt: circuits.updatedAt,
-          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.circuit_id = ${circuits.id})`,
+          // "circuits"."id" written out: a single-table select renders
+          // the circuits.id column unqualified, which inside the subquery would
+          // name charging_stations.id.
+          stationCount: sql<number>`(SELECT count(*)::int FROM charging_stations WHERE charging_stations.circuit_id = "circuits"."id" AND charging_stations.site_id = ${siteId})`,
         })
         .from(circuits)
         .where(eq(circuits.panelId, panelId))
@@ -408,7 +416,7 @@ export function panelRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Panel not found', code: 'PANEL_NOT_FOUND' });
         return;
       }
@@ -507,7 +515,7 @@ export function panelRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(siteId)) {
+      if (!siteInScope(siteIds, siteId)) {
         await reply.status(404).send({ error: 'Panel not found', code: 'PANEL_NOT_FOUND' });
         return;
       }
@@ -532,7 +540,9 @@ export function panelRoutes(app: FastifyInstance): void {
         await db
           .update(chargingStations)
           .set({ circuitId: null, updatedAt: new Date() })
-          .where(eq(chargingStations.circuitId, circuit.id));
+          .where(
+            and(eq(chargingStations.circuitId, circuit.id), eq(chargingStations.siteId, siteId)),
+          );
       }
 
       // Delete the panel (cascades to circuits and unmanaged loads)

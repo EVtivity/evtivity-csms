@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { PricingScheduleCard } from '@/components/pricing-schedule-card';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 import type { PricingGroup } from '@/lib/types';
 
 type ResourceType = 'station' | 'site' | 'driver' | 'fleet';
@@ -72,6 +73,10 @@ export function PricingAssignmentTab({
 
   const plural = RESOURCE_PLURAL[resourceType];
   const keys = I18N_KEYS[resourceType];
+  // A driver's or fleet's pricing group bills them at every site, so the API
+  // lets only a user with access to all sites change it.
+  const companyWideWrite = useHasCompanyWidePermission(`${plural}:write`);
+  const canEdit = resourceType === 'driver' || resourceType === 'fleet' ? companyWideWrite : true;
 
   const { data: pricingGroup } = useQuery({
     queryKey: [plural, resourceId, 'pricing-group'],
@@ -112,20 +117,22 @@ export function PricingAssignmentTab({
                     <CardDescription>{pricingGroup.description}</CardDescription>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-                  <EditButton
-                    label={t(keys.change)}
-                    onClick={() => {
-                      void navigate(assignUrl);
-                    }}
-                  />
-                  <RemoveButton
-                    label={t('common.remove')}
-                    onClick={() => {
-                      setRemovePricingOpen(true);
-                    }}
-                  />
-                </div>
+                {canEdit && (
+                  <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
+                    <EditButton
+                      label={t(keys.change)}
+                      onClick={() => {
+                        void navigate(assignUrl);
+                      }}
+                    />
+                    <RemoveButton
+                      label={t('common.remove')}
+                      onClick={() => {
+                        setRemovePricingOpen(true);
+                      }}
+                    />
+                  </div>
+                )}
               </div>
             </CardHeader>
           </Card>
@@ -136,14 +143,16 @@ export function PricingAssignmentTab({
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12 gap-4">
             <p className="text-center text-sm text-muted-foreground">{t(keys.empty)}</p>
-            <Button
-              onClick={() => {
-                void navigate(assignUrl);
-              }}
-            >
-              <Plus className="h-4 w-4" />
-              {t(keys.assign)}
-            </Button>
+            {canEdit && (
+              <Button
+                onClick={() => {
+                  void navigate(assignUrl);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+                {t(keys.assign)}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}

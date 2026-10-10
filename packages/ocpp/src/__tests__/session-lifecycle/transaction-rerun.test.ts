@@ -38,6 +38,8 @@ const db = {
   // The transaction_events rows the session holds (eventRowKey): the resend
   // check (finding JB-6) finds the row a first run wrote.
   eventRows: new Set<string>(),
+  // The site of the station (null: a station without a site).
+  stationSiteId: 'site-1' as string | null,
 };
 
 function connectionError(code: string): Error {
@@ -49,6 +51,10 @@ function eventRowKey(eventType: string, seqNo: number, timestamp: string): strin
 }
 
 function route(text: string, values: unknown[]): unknown[] {
+  // The session's one tariff segment (closeSegmentsAt on Ended).
+  if (text.includes('SELECT id, started_at FROM session_tariff_segments')) {
+    return [{ id: 1, started_at: '2026-10-07T09:00:00.000Z' }];
+  }
   // The resend check of TransactionProjector (event type is its third value).
   // Values: station, transaction, event type, seqNo, timestamp, triggerReason.
   if (text.includes('AND te.seq_no = ?')) {
@@ -106,7 +112,9 @@ function route(text: string, values: unknown[]): unknown[] {
     return [{ id: 'session-1' }];
   }
   if (text.includes('SELECT id FROM charging_stations WHERE station_id')) return [{ id: 'sta-1' }];
-  if (text.includes('SELECT site_id FROM charging_stations')) return [{ site_id: 'site-1' }];
+  if (text.includes('SELECT site_id FROM charging_stations')) {
+    return [{ site_id: db.stationSiteId }];
+  }
   if (text.includes('SELECT s.name FROM sites')) return [{ name: 'Site 1' }];
   if (text.includes('ocpp_protocol FROM charging_stations')) return [{ ocpp_protocol: 'ocpp2.1' }];
   if (text.includes('INSERT INTO charging_sessions')) return [{ id: 'session-1' }];
@@ -269,8 +277,13 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../../database/src/lib/session-pricing.js',
   )),
+  // The real register energy rule (session-energy), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../../database/src/lib/session-energy.js',
+  )),
   ...(await vi.importActual<Record<string, unknown>>('../../../../database/src/lib/pg-errors.js')),
   resolveStationTariff: vi.fn(() => Promise.resolve(TARIFF)),
+  sessionGroupHasPaidTariff: vi.fn(() => Promise.resolve(false)),
   repriceSessionForDriver: (...args: unknown[]) => mockReprice(...args) as unknown,
   // Every ended session costs 15.00 (net, no tax).
   priceSessionAt: vi.fn(() =>
@@ -441,6 +454,7 @@ beforeEach(() => {
   db.reservedCents = 0;
   db.unauthorizedClaimOpen = false;
   db.eventRows.clear();
+  db.stationSiteId = 'site-1';
   vi.clearAllMocks();
   mockFreeVend.mockResolvedValue(false);
   mockElectricityPeriods.mockResolvedValue([]);
@@ -448,6 +462,33 @@ beforeEach(() => {
     outcome: 'authorized',
     paymentRecordId: 1,
     paymentId: 'pi_test',
+  });
+});
+
+describe('TransactionEvent Started tariff time (B5)', () => {
+  it('resolves the tariff at the Started timestamp, once across a rerun', async () => {
+    const { resolveStationTariff } = await import('@evtivity/database');
+    failOn = { match: 'SELECT token_id FROM charging_sessions', code: 'CONNECT_TIMEOUT', left: 1 };
+
+    await projectWithRetry(startedEvent({ timestamp: '2026-10-07T09:30:00.000Z' }));
+
+    expect(resolveStationTariff).toHaveBeenCalledTimes(1);
+    expect(resolveStationTariff).toHaveBeenCalledWith(
+      expect.objectContaining({ at: new Date('2026-10-07T09:30:00.000Z') }),
+      expect.anything(),
+    );
+  });
+
+  it('resolves a Started timestamp ahead of the CSMS clock at now', async () => {
+    const { resolveStationTariff } = await import('@evtivity/database');
+    const before = Date.now();
+
+    await projectWithRetry(startedEvent({ timestamp: '2099-01-01T00:00:00.000Z' }));
+
+    const [query] = vi.mocked(resolveStationTariff).mock.calls[0] ?? [];
+    const at = query?.at ?? new Date(0);
+    expect(at.getTime()).toBeGreaterThanOrEqual(before);
+    expect(at.getTime()).toBeLessThanOrEqual(Date.now());
   });
 });
 
@@ -855,7 +896,7 @@ describe('TransactionEvent Ended run again after a lost connection', () => {
 
     expect(finalCosts()).toEqual([1500, 1500]);
     expect(countCalls('INSERT INTO transaction_events')).toBe(1);
-    // Closing the open segment again is a no-op (ended_at IS NULL guard).
+    // Closing the segments again at the same end writes the same values.
     expect(countCalls('UPDATE session_tariff_segments')).toBe(2);
     expect(csmsEvents('TransactionEnded')).toHaveLength(1);
     expect(countCalls("UPDATE reservations SET status = 'used'")).toBe(1);
@@ -916,6 +957,64 @@ describe('TransactionEvent Ended run again after a lost connection', () => {
     expect(mockElectricityPeriods).toHaveBeenCalledTimes(2);
     expect(countCalls('INSERT INTO transaction_events')).toBe(1);
     expect(csmsEvents('TransactionEnded')).toHaveLength(1);
+  });
+
+  describe('a session left without an electricity cost', () => {
+    const period = (restrictions: Record<string, unknown> | null) => ({
+      id: 1,
+      siteId: 'site-1',
+      name: 'Rate',
+      ratePerKwh: '0.200000',
+      restrictions,
+      priority: restrictions == null ? 0 : 20,
+      isDefault: restrictions == null,
+    });
+
+    function noCostLogs(): unknown[][] {
+      return vi
+        .mocked(logger.info)
+        .mock.calls.filter((call) => call[1] === 'Electricity cost not recorded');
+    }
+
+    it.each([
+      ['no_periods', () => mockElectricityPeriods.mockResolvedValue([])],
+      [
+        'no_matching_period',
+        () =>
+          mockElectricityPeriods.mockResolvedValue([
+            period({ timeRange: { startTime: '00:00', endTime: '23:59' }, daysOfWeek: [] }),
+          ]),
+      ],
+      [
+        'zero_energy',
+        () => {
+          db.endedEnergyWh = 0;
+          mockElectricityPeriods.mockResolvedValue([period(null)]);
+        },
+      ],
+      ['no_site', () => (db.stationSiteId = null)],
+    ])('logs the reason %s once at info and writes no cost', async (reason, arrange) => {
+      arrange();
+
+      await projectWithRetry(transactionEvent('Ended'));
+
+      expect(noCostLogs()).toEqual([
+        [
+          expect.objectContaining({ sessionId: 'session-1', stationId: 'CS-1', reason }),
+          'Electricity cost not recorded',
+        ],
+      ]);
+      expect(countCalls('SET electricity_cost_cents')).toBe(0);
+    });
+
+    it('writes the cost without a log when the default period applies', async () => {
+      mockElectricityPeriods.mockResolvedValue([period(null)]);
+
+      await projectWithRetry(transactionEvent('Ended'));
+
+      expect(noCostLogs()).toEqual([]);
+      expect(countCalls('SET electricity_cost_cents')).toBe(1);
+    });
   });
 
   it('finishes the end on the last run when a fail-open step keeps failing', async () => {

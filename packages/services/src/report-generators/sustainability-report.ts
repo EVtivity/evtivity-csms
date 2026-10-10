@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, eq, count, inArray } from 'drizzle-orm';
+import { sql, and, eq, count, inArray, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -13,8 +13,10 @@ import {
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
+import { loadPdfBranding } from '../pdf-branding.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import type { ReportGeneratorResult } from '../report-registry.js';
+import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 import { csvRows, dateCell, fixedCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
 
@@ -30,16 +32,28 @@ interface Filters {
   dateFrom?: string | undefined;
   dateTo?: string | undefined;
   siteId?: string | undefined;
+  /** The report's site scope (report-scope.ts). */
+  scope: ReportSiteScope;
 }
 
-function parseFilters(raw: Record<string, unknown>): Filters {
+function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
   const dateFromRaw = typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined;
   const dateToRaw = typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined;
   return {
     dateFrom: dateFromRaw != null && ISO_DATE.test(dateFromRaw) ? dateFromRaw : undefined,
     dateTo: dateToRaw != null && ISO_DATE.test(dateToRaw) ? dateToRaw : undefined,
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
+    scope,
   };
+}
+
+/** Conditions on the joined station: the site filter and the report's site scope. */
+function stationConditions(filters: Filters): SQL[] {
+  const conditions: SQL[] = [];
+  if (filters.siteId != null) conditions.push(eq(chargingStations.siteId, filters.siteId));
+  const inScope = stationSiteInScope(chargingStations.siteId, filters.scope);
+  if (inScope != null) conditions.push(inScope);
+  return conditions;
 }
 
 interface SustainabilitySettings {
@@ -85,8 +99,8 @@ interface EnergyByDay {
   energyKwh: number;
 }
 
-function buildDateConditions(filters: Filters, tz: string) {
-  const conditions = [];
+function buildDateConditions(filters: Filters, tz: string): SQL[] {
+  const conditions: SQL[] = [];
   // Compare startedAt projected into the system timezone so YYYY-MM-DD
   // filters mean "the operator's local day" instead of UTC midnight.
   if (filters.dateFrom != null) {
@@ -107,10 +121,7 @@ async function queryEnergyBySite(
   tz: string,
   noSite: string,
 ): Promise<EnergyBySite[]> {
-  const conditions = buildDateConditions(filters, tz);
-  if (filters.siteId != null) {
-    conditions.push(eq(chargingStations.siteId, filters.siteId));
-  }
+  const conditions = [...buildDateConditions(filters, tz), ...stationConditions(filters)];
 
   const rows = await db
     .select({
@@ -130,10 +141,11 @@ async function queryEnergyBySite(
 
 async function queryEnergyByDay(filters: Filters, tz: string): Promise<EnergyByDay[]> {
   const conditions = buildDateConditions(filters, tz);
-  // Honour the same siteId filter the per-site section uses, otherwise the
-  // daily breakdown shows cross-site totals while the per-site table only
-  // shows one site.
-  if (filters.siteId != null) {
+  // Honour the same site filter and site scope the per-site section uses,
+  // otherwise the daily breakdown shows cross-site totals while the per-site
+  // table only shows one site.
+  const atStations = stationConditions(filters);
+  if (atStations.length > 0) {
     const rows = await db
       .select({
         date: sql<string>`date_trunc('day', ${chargingSessions.startedAt} AT TIME ZONE ${tz})::date::text`,
@@ -141,7 +153,7 @@ async function queryEnergyByDay(filters: Filters, tz: string): Promise<EnergyByD
       })
       .from(chargingSessions)
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-      .where(and(...conditions, eq(chargingStations.siteId, filters.siteId)))
+      .where(and(...conditions, ...atStations))
       .groupBy(sql`1`)
       .orderBy(sql`1`);
     return rows;
@@ -198,9 +210,10 @@ function computeSustainability(energyKwh: number, cfg: SustainabilitySettings) {
 export async function generateSustainabilityReport(
   rawFilters: Record<string, unknown>,
   format: string,
-  language: UiLanguage = 'en',
+  language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters);
+  const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.sustainability;
@@ -271,7 +284,7 @@ export async function generateSustainabilityReport(
     return { data, fileName: `sustainability-report-${String(Date.now())}.xlsx` };
   }
 
-  const pdf = new PdfReportBuilder(rl.language);
+  const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
   pdf.addTitle(l.title);
   pdf.addSubtitle(rl.period(filters.dateFrom, filters.dateTo, common.allTime));
   pdf.addSummaryRow(

@@ -109,6 +109,7 @@ function FieldRenderer({
         <FieldWrapper field={field} error={error}>
           <Input
             type="datetime-local"
+            step="1"
             value={asString(value)}
             className={errorClass}
             onChange={(e) => {
@@ -311,7 +312,9 @@ function ArrayFieldRenderer({
   const error = errors[path];
 
   function addItem(): void {
-    onChange([...value, {}]);
+    const { arrayItem } = field;
+    if (arrayItem == null) onChange([...value, {}]);
+    else onChange([...value, arrayItem.kind === 'boolean' ? false : '']);
   }
 
   function removeItem(index: number): void {
@@ -351,7 +354,17 @@ function ArrayFieldRenderer({
               {t('commands.removeItem')}
             </Button>
           </div>
-          {field.arrayItemFields != null && field.arrayItemFields.length > 0 ? (
+          {field.arrayItem != null ? (
+            <FieldRenderer
+              field={field.arrayItem}
+              value={item}
+              path={`${path}.${String(index)}`}
+              errors={errors}
+              onChange={(val) => {
+                updateItem(index, val);
+              }}
+            />
+          ) : field.arrayItemFields != null && field.arrayItemFields.length > 0 ? (
             field.arrayItemFields.map((subField) => (
               <FieldRenderer
                 key={subField.name}

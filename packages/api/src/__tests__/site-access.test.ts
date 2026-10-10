@@ -88,7 +88,12 @@ import {
   clearSiteAccessCacheLocal,
   userCanAccessSite,
   checkStationSiteAccess,
+  isAllSiteUser,
+  requireAllSiteAccess,
+  assertSitesWithinScope,
 } from '../lib/site-access.js';
+import { refuseSiteRestrictedFleetBilling } from '../lib/fleet-billing-access.js';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import * as databaseModule from '@evtivity/database';
 
 beforeEach(() => {
@@ -221,12 +226,19 @@ describe('clearSiteAccessCacheLocal', () => {
 });
 
 describe('userCanAccessSite', () => {
-  it('returns true when siteId is null (unsited stations visible to all)', async () => {
-    expect(await userCanAccessSite('user-1', null)).toBe(true);
+  it('returns false for no site (unsited) when the user is site-restricted', async () => {
+    const userId = 'user-unsited-restricted';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: false }], [{ siteId: 'site-1' }]);
+    expect(await userCanAccessSite(userId, null)).toBe(false);
+    expect(await userCanAccessSite(userId, undefined)).toBe(false);
   });
 
-  it('returns true when siteId is undefined', async () => {
-    expect(await userCanAccessSite('user-1', undefined)).toBe(true);
+  it('returns true for no site (unsited) when the user has all-site access', async () => {
+    const userId = 'user-unsited-all';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: true }]);
+    expect(await userCanAccessSite(userId, null)).toBe(true);
   });
 
   it('returns true when the user has all-site access', async () => {
@@ -266,11 +278,11 @@ describe('checkStationSiteAccess', () => {
     expect(await checkStationSiteAccess('sta_missing', userId)).toBe(false);
   });
 
-  it('returns true when the station has no site (unsited)', async () => {
+  it('returns false when the station has no site (unsited) for a site-restricted user', async () => {
     const userId = 'user-station-nosite';
     clearCache(userId);
     setupDbResults([{ hasAllSiteAccess: false }], [{ siteId: 'site-1' }], [{ siteId: null }]);
-    expect(await checkStationSiteAccess('sta_nosite', userId)).toBe(true);
+    expect(await checkStationSiteAccess('sta_nosite', userId)).toBe(false);
   });
 
   it('returns true when the station site is in the allowed list', async () => {
@@ -285,5 +297,109 @@ describe('checkStationSiteAccess', () => {
     clearCache(userId);
     setupDbResults([{ hasAllSiteAccess: false }], [{ siteId: 'site-1' }], [{ siteId: 'site-2' }]);
     expect(await checkStationSiteAccess('sta_denied', userId)).toBe(false);
+  });
+});
+
+function fakeReply(): {
+  reply: FastifyReply;
+  status: ReturnType<typeof vi.fn>;
+  send: ReturnType<typeof vi.fn>;
+} {
+  const send = vi.fn(async () => undefined);
+  const status = vi.fn(() => ({ send }));
+  return { reply: { status } as unknown as FastifyReply, status, send };
+}
+
+function fakeRequest(userId: string): FastifyRequest {
+  return { user: { userId } } as unknown as FastifyRequest;
+}
+
+describe('isAllSiteUser', () => {
+  it('returns true for a user with all-site access', async () => {
+    const userId = 'user-is-all';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: true }]);
+    expect(await isAllSiteUser(userId)).toBe(true);
+  });
+
+  it('returns false for a site-restricted user, even with no sites', async () => {
+    const userId = 'user-is-restricted';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: false }], []);
+    expect(await isAllSiteUser(userId)).toBe(false);
+  });
+});
+
+describe('requireAllSiteAccess', () => {
+  it('lets an all-site user through without replying', async () => {
+    const userId = 'user-require-all';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: true }]);
+    const { reply, status } = fakeReply();
+    const ok = await requireAllSiteAccess(fakeRequest(userId), reply, {
+      error: 'Site not found',
+      code: 'SITE_NOT_FOUND',
+    });
+    expect(ok).toBe(true);
+    expect(status).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 with the given body for a site-restricted user', async () => {
+    const userId = 'user-require-restricted';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: false }], [{ siteId: 'site-1' }]);
+    const { reply, status, send } = fakeReply();
+    const ok = await requireAllSiteAccess(fakeRequest(userId), reply, {
+      error: 'Invoice not found',
+      code: 'INVOICE_NOT_FOUND',
+    });
+    expect(ok).toBe(false);
+    expect(status).toHaveBeenCalledWith(404);
+    expect(send).toHaveBeenCalledWith({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
+  });
+});
+
+describe('refuseSiteRestrictedFleetBilling', () => {
+  it('returns false for an all-site user', async () => {
+    const userId = 'user-fleet-all';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: true }]);
+    const { reply, status } = fakeReply();
+    expect(await refuseSiteRestrictedFleetBilling(fakeRequest(userId), reply)).toBe(false);
+    expect(status).not.toHaveBeenCalled();
+  });
+
+  it('sends 404 FLEET_NOT_FOUND and returns true for a site-restricted user', async () => {
+    const userId = 'user-fleet-restricted';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: false }], [{ siteId: 'site-1' }]);
+    const { reply, status, send } = fakeReply();
+    expect(await refuseSiteRestrictedFleetBilling(fakeRequest(userId), reply)).toBe(true);
+    expect(status).toHaveBeenCalledWith(404);
+    expect(send).toHaveBeenCalledWith({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
+  });
+});
+
+describe('assertSitesWithinScope', () => {
+  it('allows any site ids for an all-site user', async () => {
+    const userId = 'user-scope-all';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: true }]);
+    expect(await assertSitesWithinScope(userId, ['site-1', 'site-9'])).toBe(true);
+  });
+
+  it('allows ids within the user sites, duplicates and an empty list', async () => {
+    const userId = 'user-scope-within';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: false }], [{ siteId: 'site-1' }, { siteId: 'site-2' }]);
+    expect(await assertSitesWithinScope(userId, ['site-1', 'site-2', 'site-1'])).toBe(true);
+    expect(await assertSitesWithinScope(userId, [])).toBe(true);
+  });
+
+  it('refuses when any id is outside the user sites', async () => {
+    const userId = 'user-scope-outside';
+    clearCache(userId);
+    setupDbResults([{ hasAllSiteAccess: false }], [{ siteId: 'site-1' }]);
+    expect(await assertSitesWithinScope(userId, ['site-1', 'site-2'])).toBe(false);
   });
 });

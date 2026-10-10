@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/table';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 import { formatNumber } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
@@ -76,6 +77,8 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  // Starting a run is company-wide: the API answers 404 to a site-restricted user.
+  const canRun = useHasCompanyWidePermission('conformance:write');
   const [selectedVersion, setSelectedVersion] = useState('all');
 
   const { data, isLoading } = useQuery({
@@ -116,43 +119,45 @@ export function Conformance({ embedded }: { embedded?: boolean } = {}): React.JS
           </div>
         )}
 
-        <div className="flex items-center gap-2 ml-auto">
-          <Select
-            aria-label={t('conformance.ocppVersion')}
-            className="w-[140px]"
-            value={selectedVersion}
-            onChange={(e) => {
-              setSelectedVersion(e.target.value);
-            }}
-          >
-            <option value="all">{t('conformance.runAll')}</option>
-            <option value="ocpp2.1">OCPP 2.1</option>
-            <option value="ocpp1.6">OCPP 1.6</option>
-          </Select>
-          <Button
-            disabled={hasRunningRun === true || triggerRun.isPending}
-            onClick={() => {
-              triggerRun.mutate({ ocppVersion: selectedVersion, sutType: 'csms' });
-            }}
-            className="relative"
-          >
-            {triggerRun.isPending && (
-              <div className="absolute inset-0 flex items-center justify-center">
-                <Spinner className="h-4 w-4" />
-              </div>
-            )}
-            <span
-              className={
-                triggerRun.isPending
-                  ? 'invisible flex items-center gap-2'
-                  : 'flex items-center gap-2'
-              }
+        {canRun && (
+          <div className="flex items-center gap-2 ml-auto">
+            <Select
+              aria-label={t('conformance.ocppVersion')}
+              className="w-[140px]"
+              value={selectedVersion}
+              onChange={(e) => {
+                setSelectedVersion(e.target.value);
+              }}
             >
-              <Play className="h-4 w-4" />
-              {t('conformance.runTests')}
-            </span>
-          </Button>
-        </div>
+              <option value="all">{t('conformance.runAll')}</option>
+              <option value="ocpp2.1">OCPP 2.1</option>
+              <option value="ocpp1.6">OCPP 1.6</option>
+            </Select>
+            <Button
+              disabled={hasRunningRun === true || triggerRun.isPending}
+              onClick={() => {
+                triggerRun.mutate({ ocppVersion: selectedVersion, sutType: 'csms' });
+              }}
+              className="relative"
+            >
+              {triggerRun.isPending && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Spinner className="h-4 w-4" />
+                </div>
+              )}
+              <span
+                className={
+                  triggerRun.isPending
+                    ? 'invisible flex items-center gap-2'
+                    : 'flex items-center gap-2'
+                }
+              >
+                <Play className="h-4 w-4" />
+                {t('conformance.runTests')}
+              </span>
+            </Button>
+          </div>
+        )}
       </div>
 
       <Card>

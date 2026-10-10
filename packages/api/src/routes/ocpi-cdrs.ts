@@ -12,6 +12,9 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
+import { getUserSiteIds } from '../lib/site-access.js';
+import { sessionInSites } from '../lib/ocpi-site-scope.js';
+import type { JwtPayload } from '../plugins/auth.js';
 
 const cdrListItem = z
   .object({
@@ -83,8 +86,14 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
     async (request) => {
       const { page, limit, partnerId, pushStatus } = request.query as z.infer<typeof cdrQuery>;
       const offset = (page - 1) * limit;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && siteIds.length === 0) return { data: [], total: 0 };
 
       const conditions = [];
+      if (siteIds != null) {
+        conditions.push(sessionInSites(ocpiCdrs.chargingSessionId, siteIds));
+      }
       if (partnerId != null) {
         conditions.push(eq(ocpiCdrs.partnerId, partnerId));
       }
@@ -150,6 +159,29 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof creditCdrBody>;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null) {
+        // A site-restricted user credits only CDRs of sessions at its own
+        // sites. Any other CDR answers like an unknown one.
+        const [inScope] =
+          siteIds.length === 0
+            ? []
+            : await db
+                .select({ id: ocpiCdrs.id })
+                .from(ocpiCdrs)
+                .where(
+                  and(
+                    eq(ocpiCdrs.ocpiCdrId, body.originalCdrId),
+                    sessionInSites(ocpiCdrs.chargingSessionId, siteIds),
+                  ),
+                )
+                .limit(1);
+        if (inScope == null) {
+          await reply.status(404).send({ error: 'CDR not found', code: 'CDR_NOT_FOUND' });
+          return;
+        }
+      }
 
       // One credit CDR builder for the API and the OCPI server (OCPI 10.1.1:
       // only total_cost is negated, in the Price shape of the CDR's version).

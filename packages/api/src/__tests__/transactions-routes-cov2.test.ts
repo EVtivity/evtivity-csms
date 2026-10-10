@@ -180,18 +180,22 @@ describe('transaction routes site access (cov2)', () => {
       expect(svc.getTransactionEventsBySession).toHaveBeenCalledWith(SESSION_ID);
     });
 
-    it('allows a session whose station has no site', async () => {
+    it('404s a session whose station has no site for a site-restricted operator', async () => {
       setupDbResults([{ siteId: null }]);
       const res = await get(`/transactions/by-session/${SESSION_ID}`);
-      expect(res.statusCode).toBe(200);
-      expect(svc.getTransactionEventsBySession).toHaveBeenCalledWith(SESSION_ID);
+      expect(res.statusCode).toBe(404);
+      expect(svc.getTransactionEventsBySession).not.toHaveBeenCalled();
     });
 
-    it('lets the service answer an unknown session', async () => {
+    it('answers an unknown session exactly like a foreign one', async () => {
+      setupDbResults([{ siteId: 'sit_other' }]);
+      const foreign = await get(`/transactions/by-session/${SESSION_ID}`);
       setupDbResults([]);
-      const res = await get(`/transactions/by-session/${SESSION_ID}`);
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual([]);
+      const unknown = await get(`/transactions/by-session/${SESSION_ID}`);
+      expect(unknown.statusCode).toBe(404);
+      expect(unknown.statusCode).toBe(foreign.statusCode);
+      expect(unknown.json()).toEqual(foreign.json());
+      expect(svc.getTransactionEventsBySession).not.toHaveBeenCalled();
     });
   });
 
@@ -214,11 +218,11 @@ describe('transaction routes site access (cov2)', () => {
       expect(svc.getSessionByTransactionId).toHaveBeenCalledWith('CS-1', 'txn-001');
     });
 
-    it('returns a transaction whose station has no site', async () => {
+    it('404s a transaction whose station has no site for a site-restricted operator', async () => {
       svc.getSessionByTransactionId.mockResolvedValue(makeSession());
       setupDbResults([{ siteId: null }]);
       const res = await get('/transactions/by-transaction-id/txn-001?stationId=CS-1');
-      expect(res.statusCode).toBe(200);
+      expect(res.statusCode).toBe(404);
     });
   });
 });

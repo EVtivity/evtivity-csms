@@ -32,7 +32,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "drivers_total",
+          "expr": "max(drivers_total)",
           "legendFormat": "Drivers",
           "refId": "A"
         }
@@ -70,7 +70,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "drivers_active",
+          "expr": "max(drivers_active)",
           "legendFormat": "Active",
           "refId": "A"
         }
@@ -107,7 +107,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sites_total",
+          "expr": "max(sites_total)",
           "legendFormat": "Sites",
           "refId": "A"
         }
@@ -144,7 +144,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(stations_total)",
+          "expr": "sum(max by (is_online) (stations_total))",
           "legendFormat": "Stations",
           "refId": "A"
         }
@@ -181,7 +181,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sessions_active",
+          "expr": "max(sessions_active)",
           "legendFormat": "Active",
           "refId": "A"
         }
@@ -218,7 +218,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "support_cases_open",
+          "expr": "max(support_cases_open)",
           "legendFormat": "Open",
           "refId": "A"
         }
@@ -267,12 +267,12 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "stations_total{is_online=\"true\"}",
+          "expr": "max by (is_online) (stations_total{is_online=\"true\"})",
           "legendFormat": "Online",
           "refId": "A"
         },
         {
-          "expr": "stations_total{is_online=\"false\"}",
+          "expr": "max by (is_online) (stations_total{is_online=\"false\"})",
           "legendFormat": "Offline",
           "refId": "B"
         }
@@ -318,7 +318,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "connectors_total",
+          "expr": "max by (status) (connectors_total)",
           "legendFormat": "{{ status }}",
           "refId": "A"
         }
@@ -355,7 +355,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "firmware_updates_pending",
+          "expr": "max(firmware_updates_pending)",
           "legendFormat": "Pending",
           "refId": "A"
         }
@@ -404,7 +404,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sessions_by_status",
+          "expr": "max by (status) (sessions_by_status)",
           "legendFormat": "{{ status }}",
           "refId": "A"
         }
@@ -441,7 +441,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sessions_active",
+          "expr": "max(sessions_active)",
           "legendFormat": "Active Sessions",
           "refId": "A"
         }
@@ -486,7 +486,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "idle_sessions_active",
+          "expr": "max(idle_sessions_active)",
           "legendFormat": "Idle",
           "refId": "A"
         }
@@ -535,7 +535,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "energy_delivered_wh_total / 1000",
+          "expr": "max(energy_delivered_wh_total) / 1000",
           "legendFormat": "kWh",
           "refId": "A"
         }
@@ -574,7 +574,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum by (currency) (revenue_cents_total) / 100",
+          "expr": "max by (currency) (revenue_cents_total) / 100",
           "legendFormat": "{{currency}}",
           "refId": "A"
         }
@@ -613,7 +613,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "avg_session_kwh",
+          "expr": "max(avg_session_kwh)",
           "legendFormat": "Avg kWh",
           "refId": "A"
         }
@@ -652,7 +652,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "avg_session_duration_seconds",
+          "expr": "max(avg_session_duration_seconds)",
           "legendFormat": "Avg Duration",
           "refId": "A"
         }
@@ -699,7 +699,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sort_desc(sessions_by_hour)",
+          "expr": "sort_desc(max by (hour) (sessions_by_hour))",
           "legendFormat": "{{hour}}:00",
           "refId": "A",
           "instant": true
@@ -745,7 +745,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "reservations_by_status",
+          "expr": "max by (status) (reservations_by_status)",
           "legendFormat": "{{ status }}",
           "refId": "A"
         }
@@ -782,7 +782,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "payments_by_status",
+          "expr": "max by (status) (payments_by_status)",
           "legendFormat": "{{ status }}",
           "refId": "A"
         }
@@ -819,7 +819,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "fleets_total",
+          "expr": "max(fleets_total)",
           "legendFormat": "Fleets",
           "refId": "A"
         }
@@ -856,7 +856,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "tariffs_active",
+          "expr": "max(tariffs_active)",
           "legendFormat": "Tariffs",
           "refId": "A"
         }
@@ -894,7 +894,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sort_desc(ocpp_transactions_by_trigger)",
+          "expr": "sort_desc(max by (trigger_reason) (ocpp_transactions_by_trigger))",
           "legendFormat": "{{trigger_reason}}",
           "refId": "A",
           "instant": true

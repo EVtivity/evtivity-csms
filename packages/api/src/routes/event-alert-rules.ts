@@ -13,9 +13,14 @@ import {
   errorWith,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+
+// Company-wide configuration: a site-restricted user gets this 404 before any
+// read or write (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_RULE_NOT_FOUND = { error: 'Rule not found', code: 'RULE_NOT_FOUND' } as const;
 
 const ruleItem = z
   .object({
@@ -94,11 +99,29 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
       response: {
         201: itemResponse(ruleItem),
         400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+        404: errorWith('Rule not found, or the user is restricted to some sites', [
+          ERROR_CODES.RULE_NOT_FOUND,
+        ]),
+        409: errorWith('A rule for this component and variable exists', [
+          ERROR_CODES.DUPLICATE_ALERT_RULE,
+        ]),
       },
     },
     handler: async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_RULE_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof createRuleBody>;
-      const [rule] = await db.insert(eventAlertRules).values(body).returning();
+      // One rule per component and variable (uq_event_alert_rules_component_variable).
+      const [rule] = await db
+        .insert(eventAlertRules)
+        .values(body)
+        .onConflictDoNothing({ target: [eventAlertRules.component, eventAlertRules.variable] })
+        .returning();
+      if (rule == null) {
+        return reply.status(409).send({
+          error: 'An alert rule for this component and variable already exists',
+          code: 'DUPLICATE_ALERT_RULE',
+        });
+      }
       return reply.status(201).send(rule);
     },
   });
@@ -118,6 +141,7 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
       },
     },
     handler: async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_RULE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof ruleIdParams>;
       const body = request.body as z.infer<typeof updateRuleBody>;
 
@@ -148,6 +172,7 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
       },
     },
     handler: async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_RULE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof ruleIdParams>;
 
       const [deleted] = await db

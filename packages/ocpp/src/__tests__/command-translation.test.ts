@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { translateCommand, translateResponse } from '../server/command-translation.js';
 
@@ -104,26 +106,74 @@ describe('command-translation', () => {
     });
 
     describe('ChangeAvailability', () => {
-      it('maps evse.connectorId and operationalStatus for ocpp1.6', () => {
+      it('maps evse.id to connectorId and keeps Operative for ocpp1.6', () => {
         const result = translateCommand('ChangeAvailability', 'ocpp1.6', {
-          evse: { connectorId: 2 },
+          evse: { id: 2 },
           operationalStatus: 'Operative',
         });
         expect(result).toEqual({
           action: 'ChangeAvailability',
-          payload: { connectorId: 2, type: 'Available' },
+          payload: { connectorId: 2, type: 'Operative' },
         });
       });
 
-      it('maps Inoperative to Unavailable for ocpp1.6', () => {
+      it('keeps Inoperative for ocpp1.6', () => {
         const result = translateCommand('ChangeAvailability', 'ocpp1.6', {
-          evse: { connectorId: 1 },
+          evse: { id: 1 },
           operationalStatus: 'Inoperative',
         });
         expect(result).toEqual({
           action: 'ChangeAvailability',
-          payload: { connectorId: 1, type: 'Unavailable' },
+          payload: { connectorId: 1, type: 'Inoperative' },
         });
+      });
+
+      it('reads the EVSE id, not the connector on the EVSE, for ocpp1.6', () => {
+        const result = translateCommand('ChangeAvailability', 'ocpp1.6', {
+          evse: { id: 3, connectorId: 1 },
+          operationalStatus: 'Inoperative',
+        });
+        expect(result?.payload).toEqual({ connectorId: 3, type: 'Inoperative' });
+      });
+
+      it('targets the whole station (connectorId 0) without an EVSE for ocpp1.6', () => {
+        for (const operationalStatus of ['Operative', 'Inoperative']) {
+          const result = translateCommand('ChangeAvailability', 'ocpp1.6', { operationalStatus });
+          expect(result?.payload).toEqual({ connectorId: 0, type: operationalStatus });
+        }
+      });
+
+      it('sends the payload unchanged for ocpp2.1', () => {
+        const payload = { evse: { id: 2 }, operationalStatus: 'Inoperative' };
+        expect(translateCommand('ChangeAvailability', 'ocpp2.1', payload)).toEqual({
+          action: 'ChangeAvailability',
+          payload,
+        });
+      });
+
+      it('returns the 1.6 response status unchanged (same enum in 2.1)', () => {
+        for (const status of ['Accepted', 'Rejected', 'Scheduled']) {
+          expect(translateResponse('ChangeAvailability', 'ocpp1.6', { status })).toEqual({
+            status,
+          });
+        }
+      });
+
+      it('produces a payload the OCPP 1.6 schema accepts', () => {
+        const schema = JSON.parse(
+          readFileSync(
+            resolve(import.meta.dirname, '../../../../schemas/ocpp-1.6/ChangeAvailability.json'),
+            'utf8',
+          ),
+        ) as { properties: { type: { enum: string[] } }; required: string[] };
+        for (const operationalStatus of ['Operative', 'Inoperative']) {
+          const payload = translateCommand('ChangeAvailability', 'ocpp1.6', {
+            evse: { id: 1 },
+            operationalStatus,
+          })?.payload as Record<string, unknown>;
+          expect(schema.properties.type.enum).toContain(payload.type);
+          expect(Object.keys(payload).sort()).toEqual([...schema.required].sort());
+        }
       });
     });
 
@@ -451,14 +501,7 @@ describe('command-translation', () => {
     });
 
     describe('ChangeAvailability edge cases', () => {
-      it('defaults connectorId to 0 when no evse for ocpp1.6', () => {
-        const result = translateCommand('ChangeAvailability', 'ocpp1.6', {
-          operationalStatus: 'Operative',
-        });
-        expect(result?.payload).toHaveProperty('connectorId', 0);
-      });
-
-      it('passes unknown operationalStatus through for ocpp1.6', () => {
+      it('passes an unknown operationalStatus through for ocpp1.6', () => {
         const result = translateCommand('ChangeAvailability', 'ocpp1.6', {
           operationalStatus: 'CustomStatus',
         });

@@ -1667,7 +1667,7 @@ describe('notification-dispatch (full coverage)', () => {
 
       await expect(
         dispatchDriverNotification(throwingSql as never, 'test.event', 'driver-err', {}, []),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ delivered: [] });
     });
 
     it('overrides enriched variables with caller-provided variables', async () => {

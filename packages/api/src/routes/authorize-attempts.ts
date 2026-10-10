@@ -3,12 +3,14 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, ilike, sql, desc, gte, lte } from 'drizzle-orm';
+import { eq, and, ilike, sql, desc, gte, lte, inArray } from 'drizzle-orm';
 import { db, authorizeAttempts, chargingStations, chargingSessions } from '@evtivity/database';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { paginatedResponse } from '../lib/response-schemas.js';
 import { authorize } from '../middleware/rbac.js';
+import { getUserSiteIds } from '../lib/site-access.js';
+import type { JwtPayload } from '../plugins/auth.js';
 
 const OUTCOMES = [
   'accepted',
@@ -95,8 +97,15 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
         to,
       } = parseZodRequest(listQuery, request.query);
       const offset = (page - 1) * limit;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      // A site-restricted user sees attempts at stations of its sites only.
+      // Attempts from an unknown or unsited station belong to no site and are
+      // visible to all-site users only.
+      if (siteIds != null && siteIds.length === 0) return { data: [], total: 0 };
 
       const conditions = [];
+      if (siteIds != null) conditions.push(inArray(chargingStations.siteId, siteIds));
       if (stationId != null) conditions.push(eq(authorizeAttempts.stationId, stationId));
       if (idToken != null && idToken.trim() !== '') {
         conditions.push(ilike(authorizeAttempts.idToken, `%${idToken}%`));
@@ -132,6 +141,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
               WHERE ${chargingSessions.tokenId} = ${authorizeAttempts.matchedTokenId}
                 AND ${chargingSessions.startedAt} >= ${authorizeAttempts.createdAt}
                 AND ${chargingSessions.startedAt} <= ${authorizeAttempts.createdAt} + interval '10 minutes'
+                ${siteIds != null ? sql`AND ${chargingSessions.stationId} = ${chargingStations.id}` : sql``}
               ORDER BY ${chargingSessions.startedAt} ASC
               LIMIT 1
             )`,
@@ -149,6 +159,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(authorizeAttempts)
+          .leftJoin(chargingStations, eq(chargingStations.stationId, authorizeAttempts.stationId))
           .where(where),
       ]);
 

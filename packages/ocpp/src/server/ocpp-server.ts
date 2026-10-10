@@ -7,9 +7,16 @@ import { WebSocketServer } from 'ws';
 import type WebSocket from 'ws';
 import type { IncomingMessage, OutgoingHttpHeaders } from 'node:http';
 import type postgres from 'postgres';
-import { createLogger, InMemoryEventBus, OcppError, tryParseJson } from '@evtivity/lib';
+import {
+  CACHE_INVALIDATE_CHANNEL,
+  createLogger,
+  InMemoryEventBus,
+  OcppError,
+  parseStationAuthInvalidation,
+  tryParseJson,
+} from '@evtivity/lib';
 import { getHeartbeatIntervalSeconds } from '@evtivity/database';
-import type { Logger, EventBus, EventPersistence } from '@evtivity/lib';
+import type { Logger, EventBus, EventPersistence, PubSubClient, Subscription } from '@evtivity/lib';
 import { ConnectionManager } from './connection-manager.js';
 import { createSessionState } from './session-state.js';
 import { selectOcppSubprotocol } from './subprotocol.js';
@@ -32,6 +39,11 @@ import {
   serviceUnavailable,
 } from './middleware/authenticate.js';
 import type { AuthResult } from './middleware/authenticate.js';
+import {
+  StationAuthCache,
+  StationPasswordVerifier,
+} from './middleware/station-password-verifier.js';
+import type { StationPasswordVerifierStats } from './middleware/station-password-verifier.js';
 import {
   ConnectionAuthBusyError,
   ConnectionAuthLimiter,
@@ -117,6 +129,12 @@ export interface OcppServerOptions {
   // Bounds on concurrent connection authentications. By default half the
   // database pool, 1000 queued, 10 s wait (see connection-auth-limiter.ts).
   connectionAuthLimits?: Partial<ConnectionAuthLimits> | undefined;
+  // This process's instance ID (the connection registry ID). Keys its
+  // ocpp_server_health row. Without one the ping monitor generates an ID.
+  instanceId?: string | undefined;
+  // Station password checks. By default a cache of successful checks and an
+  // argon2 concurrency gate (see station-password-verifier.ts).
+  passwordVerifier?: StationPasswordVerifier | undefined;
 }
 
 // Refused connection authentications are logged at most this often.
@@ -154,6 +172,7 @@ export class OcppServer {
   private readonly trustedProxies: ReturnType<typeof parseTrustedProxies>;
   private readonly fixedIdleTimeoutMs: number | null;
   private readonly authLimiter: ConnectionAuthLimiter;
+  private readonly passwordVerifier: StationPasswordVerifier;
   private authBusyLoggedAt = 0;
   private authBusySinceLog = 0;
   private idleTimeoutMs = MIN_IDLE_TIMEOUT_MS;
@@ -193,6 +212,8 @@ export class OcppServer {
       maxQueued: limits?.maxQueued ?? DEFAULT_CONNECTION_AUTH_MAX_QUEUED,
       maxWaitMs: limits?.maxWaitMs ?? DEFAULT_CONNECTION_AUTH_MAX_WAIT_MS,
     });
+    this.passwordVerifier =
+      options?.passwordVerifier ?? new StationPasswordVerifier({ cache: new StationAuthCache() });
 
     // Set up middleware pipeline
     this.pipeline = new MiddlewarePipeline();
@@ -295,7 +316,7 @@ export class OcppServer {
       );
     }
 
-    this.pingMonitor.start(this.sql);
+    this.pingMonitor.start(this.sql, null, options.instanceId);
 
     if (this.fixedIdleTimeoutMs == null && this.sql != null) {
       await this.refreshIdleTimeout();
@@ -371,6 +392,7 @@ export class OcppServer {
           this.sql,
           remoteIp === 'unknown' ? null : remoteIp,
           isTlsConnection(req, this.trustedProxies),
+          this.passwordVerifier,
         );
       })
       .then((auth) => {
@@ -419,6 +441,26 @@ export class OcppServer {
   /** Connection authentications running, queued, and refused (health endpoint). */
   getConnectionAuthStats(): ConnectionAuthStats {
     return this.authLimiter.stats();
+  }
+
+  /** Cached station password checks and argon2 computations running and queued. */
+  getStationPasswordStats(): StationPasswordVerifierStats {
+    return this.passwordVerifier.stats();
+  }
+
+  /**
+   * Evicts a station's cached password check in this process when the API
+   * publishes a station auth invalidation (password or security profile
+   * changed). The cache entry also binds the stored hash, so a lost message
+   * never lets an old password through; this evicts the entry at once.
+   */
+  subscribeStationAuthInvalidation(pubsub: PubSubClient): Promise<Subscription> {
+    return pubsub.subscribe(CACHE_INVALIDATE_CHANNEL, (payload: string) => {
+      const stationDbId = parseStationAuthInvalidation(tryParseJson(payload));
+      if (stationDbId == null) return;
+      this.passwordVerifier.invalidate(stationDbId);
+      this.logger.debug({ stationDbId }, 'Station auth cache entry invalidated');
+    });
   }
 
   // The CSMS sends a station queued commands and screen messages only once it

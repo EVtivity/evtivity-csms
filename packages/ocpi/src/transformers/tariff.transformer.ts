@@ -3,6 +3,7 @@
 
 import { netUnitPrice, vatPercentFromFraction } from '@evtivity/lib/price-display';
 import type { TaxBasis } from '@evtivity/lib/price-display';
+import { compareTariffs } from '@evtivity/lib';
 import type { TariffRestrictions } from '@evtivity/lib';
 import type {
   OcpiDayOfWeek,
@@ -47,6 +48,12 @@ export interface TariffTransformInput {
   currency: string;
   /** The company tax basis the tariff prices are entered in (company.taxBasis). */
   taxBasis: TaxBasis;
+  /**
+   * `idling.gracePeriodMinutes`: the first idle minutes of a session are free
+   * of the idle fee. Published as a PARKING_TIME element with min_duration
+   * (see transformTariff). Default 0.
+   */
+  graceMinutes?: number;
   countryCode: string;
   partyId: string;
   ocpiTariffId: string;
@@ -90,7 +97,8 @@ function netPrice(tariff: TariffSource, value: string | null, basis: TaxBasis): 
  * "defined in hours", so per-minute prices are multiplied by 60. The
  * calculator bills the time price for the whole session, charging or not, and
  * the idle fee on top while the EV is not charging: PARKING_TIME is the time
- * price plus the idle fee. The idle grace period has no OCPI equivalent.
+ * price plus the idle fee (the CDR splits its costs the same way). The idle
+ * grace is published with min_duration (transformTariff).
  */
 function dimensionPrices(
   tariff: TariffSource,
@@ -189,8 +197,10 @@ export function toOcpiRestrictions(
 }
 
 /**
- * The tariffs in the order the resolver picks them: restricted tariffs by
- * priority (highest first), then the default tariff without restrictions.
+ * The tariffs in the order the resolver picks them (compareTariffs):
+ * restricted tariffs by priority (highest first; energy thresholds highest
+ * threshold first, so the highest threshold reached matches first; then by
+ * id), then the default tariff without restrictions.
  * Inactive tariffs, and tariffs the resolver never picks (no restrictions or
  * priority 0, and not the default), are left out. A single-tariff mapping
  * publishes the mapped tariff's prices without its restrictions.
@@ -204,7 +214,7 @@ function orderedTariffs(
   const active = input.tariffs.filter((t) => t.isActive);
   const restricted = active
     .filter((t) => t.restrictions != null && t.priority > 0)
-    .sort((a, b) => b.priority - a.priority)
+    .sort(compareTariffs)
     .map((tariff) => ({
       tariff,
       restrictions: toOcpiRestrictions(
@@ -241,8 +251,9 @@ export function transformTariff(
   const priced = DIMENSIONS.filter((dimension) =>
     ordered.some(({ tariff }) => dimensionPrices(tariff, input.taxBasis)[dimension] > 0),
   );
-  const dimensions = priced.length > 0 ? priced : (['ENERGY'] as const);
+  const dimensions: readonly OcpiTariffDimensionType[] = priced.length > 0 ? priced : ['ENERGY'];
 
+  const graceSeconds = Math.max(0, Math.round((input.graceMinutes ?? 0) * 60));
   const elements: OcpiTariffElement[] = [];
   for (const { tariff, restrictions } of ordered) {
     const vat = vatOf(tariff);
@@ -257,13 +268,39 @@ export function transformTariff(
           restrictions: { ...restriction, reservation: 'RESERVATION' },
         });
       }
-      const element: OcpiTariffElement = {
-        price_components: dimensions.map((d) => component(d, prices[d], vat)),
+      const restrict = (
+        element: OcpiTariffElement,
+        extra: OcpiTariffRestrictions = {},
+      ): OcpiTariffElement => {
+        const merged = { ...restriction, ...extra };
+        if (Object.keys(merged).length > 0) element.restrictions = merged;
+        return element;
       };
-      if (restriction != null && Object.keys(restriction).length > 0) {
-        element.restrictions = restriction;
+      // The idle fee applies after the first graceMinutes idle minutes. OCPI
+      // has no idle-time restriction; min_duration (session duration) on the
+      // element with the idle fee states the grace, and the element after it
+      // prices parking at the time price. Exact when the EV idles from the
+      // start; the CDR carries the billed amounts either way.
+      if (
+        graceSeconds > 0 &&
+        dimensions.includes('PARKING_TIME') &&
+        prices.PARKING_TIME > prices.TIME
+      ) {
+        elements.push(
+          restrict(
+            { price_components: dimensions.map((d) => component(d, prices[d], vat)) },
+            { min_duration: graceSeconds },
+          ),
+        );
+        const withoutFee = { ...prices, PARKING_TIME: prices.TIME };
+        elements.push(
+          restrict({ price_components: dimensions.map((d) => component(d, withoutFee[d], vat)) }),
+        );
+        continue;
       }
-      elements.push(element);
+      elements.push(
+        restrict({ price_components: dimensions.map((d) => component(d, prices[d], vat)) }),
+      );
     }
   }
 

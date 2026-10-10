@@ -26,7 +26,16 @@ import { getAuditActor } from '../lib/audit-actor.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { config as apiConfig } from '../lib/config.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
 import * as contractService from '../services/pnc-contract.service.js';
+
+// Plug and Charge settings and the contract CA serve every site: company-wide,
+// so a site-restricted user gets this 404 before any read or write
+// (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_SETTING_NOT_FOUND = {
+  error: 'Setting not found',
+  code: 'SETTING_NOT_FOUND',
+} as const;
 
 const CA_KEY = 'pnc.local.caEnc';
 
@@ -113,10 +122,16 @@ export function pncLocalRoutes(app: FastifyInstance): void {
           'Certificates of the ISO 15118 contract CA the CSMS runs for pnc.provider = local. Private keys are never returned.',
         operationId: 'getPncLocalCa',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(localCaStatus) },
+        response: {
+          200: itemResponse(localCaStatus),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
       },
     },
-    async () => readCa(),
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
+      return readCa();
+    },
   );
 
   app.post(
@@ -132,11 +147,13 @@ export function pncLocalRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         response: {
           200: itemResponse(localCaStatus),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           409: errorWith('Local contract CA exists', [ERROR_CODES.LOCAL_CA_EXISTS]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const ca = await createLocalContractCa();
       const encrypted = encryptString(JSON.stringify(ca), encryptionKey());
       // Only an empty (or missing) setting is replaced, so two concurrent

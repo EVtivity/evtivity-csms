@@ -12,6 +12,7 @@ import {
   queryRevenue,
   queryRevenueTotal,
   EMPTY_REVENUE,
+  profitCents,
 } from '../session-revenue.js';
 
 describe('aggregateRevenueRows', () => {
@@ -31,6 +32,9 @@ describe('aggregateRevenueRows', () => {
       itemCount: 6,
       billedOnAccountCents: 0,
       billedOnAccountCount: 0,
+      costMissingCount: 0,
+      costMissingGrossCents: 0,
+      costMissingNetCents: 0,
     });
     expect(byKey.get(null)).toEqual({
       grossCents: 100,
@@ -41,6 +45,9 @@ describe('aggregateRevenueRows', () => {
       itemCount: 1,
       billedOnAccountCents: 0,
       billedOnAccountCount: 0,
+      costMissingCount: 0,
+      costMissingGrossCents: 0,
+      costMissingNetCents: 0,
     });
   });
 
@@ -66,6 +73,9 @@ describe('aggregateRevenueRows', () => {
       itemCount: 1,
       billedOnAccountCents: 4760,
       billedOnAccountCount: 2,
+      costMissingCount: 0,
+      costMissingGrossCents: 0,
+      costMissingNetCents: 0,
     });
   });
 
@@ -107,7 +117,89 @@ describe('aggregateRevenueRows with stored splits', () => {
       itemCount: 3,
       billedOnAccountCents: 0,
       billedOnAccountCount: 0,
+      costMissingCount: 0,
+      costMissingGrossCents: 0,
+      costMissingNetCents: 0,
     });
+  });
+});
+
+describe('sessions without an electricity cost', () => {
+  it('counts them apart, with their revenue tax included and excluded', () => {
+    const byKey = aggregateRevenueRows([
+      {
+        key: 'a',
+        taxRate: '0.19',
+        grossCents: '1190',
+        source: 'session',
+        costMissing: false,
+        count: '2',
+      },
+      {
+        key: 'a',
+        taxRate: '0.19',
+        grossCents: '595',
+        source: 'session',
+        costMissing: true,
+        count: '2',
+      },
+      // A stored split is used as is.
+      {
+        key: 'a',
+        taxRate: '0.2',
+        grossCents: 120,
+        netCents: 100,
+        taxCents: 20,
+        source: 'session',
+        costMissing: true,
+        count: 1,
+      },
+      // Fees and unpaid account sessions are never cost missing.
+      { key: 'a', taxRate: '0', grossCents: 300, source: 'fee', costMissing: false, count: 1 },
+      { key: 'a', taxRate: '0', grossCents: 900, source: 'account', costMissing: true, count: 1 },
+    ]);
+    const a = byKey.get('a');
+    expect(a).toMatchObject({
+      grossCents: 2 * 1190 + 2 * 595 + 120 + 300,
+      netCents: 2 * 1000 + 2 * 500 + 100 + 300,
+      sessionCount: 5,
+      costMissingCount: 3,
+      costMissingGrossCents: 2 * 595 + 120,
+      costMissingNetCents: 2 * 500 + 100,
+    });
+    // Profit: net revenue of the sessions with a cost (2000) plus the fee (300), minus the cost.
+    expect(profitCents(a ?? EMPTY_REVENUE, 700)).toBe(2000 + 300 - 700);
+  });
+
+  it('gives the plain net revenue minus cost when every session has a cost', () => {
+    const byKey = aggregateRevenueRows([
+      { key: null, taxRate: '0', grossCents: 500, source: 'session', costMissing: false, count: 2 },
+    ]);
+    const total = byKey.get(null) ?? EMPTY_REVENUE;
+    expect(total.costMissingCount).toBe(0);
+    expect(total.costMissingGrossCents).toBe(0);
+    expect(profitCents(total, 400)).toBe(600);
+  });
+
+  it('marks a session with energy and no electricity cost in the query', async () => {
+    mockExecute.mockReset();
+    mockExecute.mockResolvedValueOnce([
+      {
+        key: null,
+        tax_rate: '0',
+        gross_cents: 500,
+        source: 'session',
+        cost_missing: true,
+        count: 1,
+      },
+    ]);
+    const total = await queryRevenueTotal({ companyCurrency: 'EUR' });
+    expect(total.costMissingCount).toBe(1);
+    expect(total.costMissingGrossCents).toBe(500);
+    const text = JSON.stringify(mockExecute.mock.calls[0]?.[0]);
+    expect(text).toContain('cs.electricity_cost_cents IS NULL');
+    expect(text).toContain('coalesce(cs.energy_delivered_wh, 0) > 0');
+    expect(text).toContain('false AS cost_missing');
   });
 });
 
@@ -123,6 +215,9 @@ describe('sumRevenue', () => {
       itemCount: 1,
       billedOnAccountCents: 300,
       billedOnAccountCount: 1,
+      costMissingCount: 0,
+      costMissingGrossCents: 0,
+      costMissingNetCents: 0,
     };
     expect(sumRevenue([a, b])).toEqual({
       grossCents: 169,
@@ -133,6 +228,9 @@ describe('sumRevenue', () => {
       itemCount: 2,
       billedOnAccountCents: 300,
       billedOnAccountCount: 1,
+      costMissingCount: 0,
+      costMissingGrossCents: 0,
+      costMissingNetCents: 0,
     });
     expect(sumRevenue([])).toEqual(EMPTY_REVENUE);
   });

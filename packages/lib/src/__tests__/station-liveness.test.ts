@@ -6,7 +6,25 @@ import {
   heartbeatTimeoutFor,
   offlineSweepThresholdMs,
   shouldMarkStationOffline,
+  isStationLiveForSegmentSwitch,
 } from '../station-liveness.js';
+
+describe('isStationLiveForSegmentSwitch (B6)', () => {
+  const now = new Date('2026-06-04T12:00:00Z');
+  const ago = (seconds: number) => new Date(now.getTime() - seconds * 1000);
+  const live = (isOnline: boolean, lastActivityAt: Date | null) =>
+    isStationLiveForSegmentSwitch({ isOnline, lastActivityAt, now, heartbeatSeconds: 300 });
+
+  it('is live while online and heard from within one heartbeat interval plus the write interval', () => {
+    expect(live(true, ago(330))).toBe(true);
+    expect(live(true, ago(331))).toBe(false);
+  });
+
+  it('is not live while offline or never heard from', () => {
+    expect(live(false, now)).toBe(false);
+    expect(live(true, null)).toBe(false);
+  });
+});
 
 describe('heartbeatTimeoutFor', () => {
   it('is 3 heartbeat intervals and never less than 15 minutes', () => {

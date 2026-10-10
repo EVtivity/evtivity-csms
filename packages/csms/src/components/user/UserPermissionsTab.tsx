@@ -13,9 +13,14 @@ import { api } from '@/lib/api';
 
 export interface UserPermissionsTabProps {
   userId: string;
+  /** False when the user holds permissions the operator lacks: the API refuses the change. */
+  canEdit: boolean;
 }
 
-export function UserPermissionsTab({ userId }: UserPermissionsTabProps): React.JSX.Element {
+export function UserPermissionsTab({
+  userId,
+  canEdit,
+}: UserPermissionsTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
 
@@ -45,7 +50,7 @@ export function UserPermissionsTab({ userId }: UserPermissionsTabProps): React.J
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('users.permissions')}</CardTitle>
-        {!editingPermissions && (
+        {canEdit && !editingPermissions && (
           <EditButton label={t('common.edit')} onClick={startEditPermissions} />
         )}
       </CardHeader>

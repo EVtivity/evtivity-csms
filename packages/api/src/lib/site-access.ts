@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq } from 'drizzle-orm';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { db, users, userSiteAssignments, chargingStations } from '@evtivity/database';
+import { createLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import type { ErrorCode } from './error-codes.generated.js';
+import { siteInScope } from './site-scope.js';
 
 interface SiteAccessCache {
   siteIds: string[] | null;
@@ -65,16 +69,20 @@ export function invalidateSiteAccessCache(userId: string): void {
   clearSiteAccessCacheLocal(userId);
   void getPubSub()
     .publish('cache_invalidate', JSON.stringify({ kind: 'site', userId }))
-    .catch(() => {
-      // Best-effort; falls back to TTL on other pods.
+    .catch((err: unknown) => {
+      // fail-open: other pods fall back to the 60-second TTL (P9).
+      createLogger('site-access').warn(
+        { err, userId },
+        'cache_invalidate publish for site access failed',
+      );
     });
 }
 
 /**
- * Check whether a user can access a specific site. Returns true when:
- * - the user has all-site access (getUserSiteIds returned null)
- * - the siteId is null (unsited stations are visible to everyone)
- * - the siteId is in the user's allowed list.
+ * Check whether a user can access a specific site, or assign a row to it.
+ * Returns true when the user has all-site access, or the siteId is in the
+ * user's allowed list. A null or undefined siteId (no site: create or move a
+ * station without a site) is allowed for all-site users only.
  *
  * Use this when the caller already knows the target siteId (e.g., the
  * POST /v1/stations body or the before-state siteId on PATCH/DELETE);
@@ -85,15 +93,13 @@ export async function userCanAccessSite(
   userId: string,
   siteId: string | null | undefined,
 ): Promise<boolean> {
-  if (siteId == null) return true;
-  const siteIds = await getUserSiteIds(userId);
-  if (siteIds == null) return true;
-  return siteIds.includes(siteId);
+  return siteInScope(await getUserSiteIds(userId), siteId);
 }
 
 /**
  * Check if a user has access to a station based on its site assignment.
- * Returns true if the user has access, false if not (station not found or site not allowed).
+ * Returns false when the station does not exist, has no site and the user is
+ * site-restricted, or its site is not in the user's list.
  */
 export async function checkStationSiteAccess(stationId: string, userId: string): Promise<boolean> {
   const siteIds = await getUserSiteIds(userId);
@@ -103,6 +109,51 @@ export async function checkStationSiteAccess(stationId: string, userId: string):
     .from(chargingStations)
     .where(eq(chargingStations.id, stationId));
   if (station == null) return false;
-  if (station.siteId == null) return true;
-  return siteIds.includes(station.siteId);
+  return siteInScope(siteIds, station.siteId);
+}
+
+/** True when the user has access to every site (getUserSiteIds is null). */
+export async function isAllSiteUser(userId: string): Promise<boolean> {
+  return (await getUserSiteIds(userId)) === null;
+}
+
+/** The 404 body a route answers for a resource the user may not see. */
+export interface SiteScopeNotFound {
+  error: string;
+  code: ErrorCode;
+}
+
+/**
+ * Guard for company-wide features (money and configuration that span every
+ * site). Returns true when the caller may proceed, that is the user has access
+ * to every site. A site-restricted user gets 404 with the route's own
+ * not-found body (`notFound`), not 403, so the resource's existence does not
+ * leak (design principle P11, multi-tenant isolation). Returns false after the
+ * reply was sent.
+ */
+export async function requireAllSiteAccess(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  notFound: SiteScopeNotFound,
+): Promise<boolean> {
+  const { userId } = request.user as { userId: string };
+  if (await isAllSiteUser(userId)) return true;
+  await reply.status(404).send(notFound);
+  return false;
+}
+
+/**
+ * Check site ids supplied in a request body (assignments, filters, targets).
+ * Returns true when every id is within the user's sites, or the user has
+ * access to every site. Duplicates and an empty list are allowed. The caller
+ * answers 404 with its site not-found body when this returns false.
+ */
+export async function assertSitesWithinScope(
+  userId: string,
+  siteIds: readonly string[],
+): Promise<boolean> {
+  const allowed = await getUserSiteIds(userId);
+  if (allowed == null) return true;
+  const allowedSet = new Set(allowed);
+  return siteIds.every((id) => allowedSet.has(id));
 }

@@ -2,6 +2,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+import {
+  resetSiteAccessMock,
+  setMockStationSites,
+  setMockUserSiteIds,
+} from './helpers/site-access-mock.js';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -85,38 +94,44 @@ vi.mock('../lib/pricing-events.js', () => ({
   publishPricingChanged: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('@evtivity/database', () => ({
-  db: {
+vi.mock('@evtivity/database', () => {
+  const db: Record<string, unknown> = {
     select: vi.fn(() => makeChain('select')),
     insert: vi.fn(() => makeChain('insert')),
     update: vi.fn(() => makeChain('update')),
     delete: vi.fn(() => makeChain('delete')),
     execute: executeMock,
-  },
-  client: {},
-  pricingGroups: { id: 'id', pricingGroupId: 'pricingGroupId', isDefault: 'isDefault' },
-  tariffs: {
-    id: 'id',
-    pricingGroupId: 'pricingGroupId',
-    isActive: 'isActive',
-    priority: 'priority',
-    isDefault: 'isDefault',
-    restrictions: 'restrictions',
-    createdAt: 'createdAt',
-  },
-  chargingSessions: { tariffId: 'tariffId' },
-  sessionTariffSegments: { tariffId: 'tariffId' },
-  pricingGroupAuditLog: { name: 'pricingGroupAuditLog' },
-  tariffAuditLog: { name: 'tariffAuditLog' },
-  writeAudit: vi.fn().mockResolvedValue(undefined),
-  resolveGroupTariffs: vi.fn(),
-  getSystemTimezone: vi.fn(() => Promise.resolve('Europe/Berlin')),
-  loadStationPricing: vi.fn(),
-  pickTariff: vi.fn(),
-  getPricingHolidays: vi.fn(() => Promise.resolve([])),
-  pgErrorCode: (err: unknown) => (err as { code?: string }).code,
-  PG_FOREIGN_KEY_VIOLATION: '23503',
-}));
+  };
+  // The default swap runs in a transaction on the same mocked chains.
+  db['transaction'] = vi.fn((fn: (tx: unknown) => unknown) => fn(db));
+  return {
+    db,
+    client: {},
+    pricingGroups: { id: 'id', pricingGroupId: 'pricingGroupId', isDefault: 'isDefault' },
+    tariffs: {
+      id: 'id',
+      pricingGroupId: 'pricingGroupId',
+      isActive: 'isActive',
+      priority: 'priority',
+      isDefault: 'isDefault',
+      restrictions: 'restrictions',
+      createdAt: 'createdAt',
+    },
+    chargingSessions: { tariffId: 'tariffId' },
+    sessionTariffSegments: { tariffId: 'tariffId' },
+    pricingGroupAuditLog: { name: 'pricingGroupAuditLog' },
+    tariffAuditLog: { name: 'tariffAuditLog' },
+    writeAudit: vi.fn().mockResolvedValue(undefined),
+    resolveGroupTariffs: vi.fn(),
+    getSystemTimezone: vi.fn(() => Promise.resolve('Europe/Berlin')),
+    loadStationPricingChain: vi.fn(),
+    pickFromChain: vi.fn(),
+    getPricingHolidays: vi.fn(() => Promise.resolve([])),
+    pgErrorCode: (err: unknown) => (err as { code?: string }).code,
+    PG_FOREIGN_KEY_VIOLATION: '23503',
+    PG_UNIQUE_VIOLATION: '23505',
+  };
+});
 
 vi.mock('drizzle-orm', () => {
   const sql = (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -141,8 +156,8 @@ import { pricingRoutes } from '../routes/pricing.js';
 import {
   writeAudit,
   resolveGroupTariffs,
-  loadStationPricing,
-  pickTariff,
+  loadStationPricingChain,
+  pickFromChain,
   getSystemTimezone,
 } from '@evtivity/database';
 import { publishPricingChanged } from '../lib/pricing-events.js';
@@ -287,22 +302,37 @@ describe('pricing routes, uncovered paths', () => {
   });
 
   describe('POST /pricing-groups/:id/tariffs', () => {
-    it('returns 400 INVALID_RESTRICTIONS for daysOfWeek without a timeRange', async () => {
+    const defaultRow = {
+      id: TARIFF_ID,
+      restrictions: null,
+      priority: 0,
+      isDefault: true,
+      isActive: true,
+    };
+
+    it('creates a whole-day tariff from daysOfWeek without a timeRange', async () => {
+      const created = tariffRow({
+        id: 'trf_000000000002',
+        restrictions: { daysOfWeek: [0, 6] },
+        priority: 20,
+        isDefault: false,
+      });
+      setupDbResults([defaultRow], [created]);
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${GROUP_ID}/tariffs`,
         headers: auth,
-        payload: { name: 'Weekend', restrictions: { daysOfWeek: [0, 6] } },
+        payload: { name: 'Weekend', pricePerKwh: '0.20', restrictions: { daysOfWeek: [0, 6] } },
       });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('INVALID_RESTRICTIONS');
-      expect(res.json().error).toContain('daysOfWeek requires timeRange');
+      expect(res.statusCode).toBe(201);
+      const values = argsOf('insert', 'values')[0]?.[0] as Record<string, unknown>;
+      expect(values).toMatchObject({ priority: 20, isDefault: false });
+      // No default swap for a restricted tariff.
+      expect(argsOf('update', 'set')).toHaveLength(0);
     });
 
     it('returns 409 TARIFF_OVERLAP when a second default tariff is created', async () => {
-      setupDbResults([
-        { id: 'trf_000000000009', restrictions: null, priority: 0, isDefault: true },
-      ]);
+      setupDbResults([defaultRow]);
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${GROUP_ID}/tariffs`,
@@ -316,18 +346,27 @@ describe('pricing routes, uncovered paths', () => {
       });
     });
 
-    it('clears the existing default when a restricted tariff is created with isDefault', async () => {
-      const created = tariffRow({
-        id: 'trf_000000000002',
-        restrictions: { timeRange: { startTime: '22:00', endTime: '06:00' } },
-        priority: 10,
-        isDefault: true,
+    it('refuses a restricted tariff in a group without a default (B2, TC-T3-01)', async () => {
+      setupDbResults([]);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pricing-groups/${GROUP_ID}/tariffs`,
+        headers: auth,
+        payload: {
+          name: 'Peak',
+          pricePerKwh: '0.50',
+          restrictions: { timeRange: { startTime: '09:00', endTime: '17:00' } },
+        },
       });
-      setupDbResults(
-        [{ id: TARIFF_ID, restrictions: null, priority: 0, isDefault: true }],
-        [],
-        [created],
-      );
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({
+        code: 'TARIFF_DEFAULT_REQUIRED',
+        error: 'A pricing group with tariffs needs one active default tariff without restrictions',
+      });
+      expect(argsOf('insert', 'values')).toHaveLength(0);
+    });
+
+    it('refuses isDefault on a restricted tariff (B2, TC-T3-02)', async () => {
       const res = await app.inject({
         method: 'POST',
         url: `/pricing-groups/${GROUP_ID}/tariffs`,
@@ -339,11 +378,45 @@ describe('pricing routes, uncovered paths', () => {
           restrictions: { timeRange: { startTime: '22:00', endTime: '06:00' } },
         },
       });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({
+        code: 'TARIFF_DEFAULT_REQUIRED',
+        error: 'A tariff with restrictions cannot be the default tariff',
+      });
+    });
+
+    it('refuses isDefault false on an active tariff without restrictions', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pricing-groups/${GROUP_ID}/tariffs`,
+        headers: auth,
+        payload: { name: 'Base', pricePerKwh: '0.30', isDefault: false },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('TARIFF_DEFAULT_REQUIRED');
+    });
+
+    it('creates the default in one transaction, clearing a stale default flag (B20)', async () => {
+      const stale = {
+        id: 'trf_000000000007',
+        restrictions: { holidays: true },
+        priority: 40,
+        isDefault: true,
+        isActive: true,
+      };
+      const created = tariffRow({ id: 'trf_000000000002' });
+      setupDbResults([stale], [], [created]);
+      const res = await app.inject({
+        method: 'POST',
+        url: `/pricing-groups/${GROUP_ID}/tariffs`,
+        headers: auth,
+        payload: { name: 'Base', pricePerKwh: '0.30' },
+      });
       expect(res.statusCode).toBe(201);
       const sets = argsOf('update', 'set');
       expect(sets[0]?.[0]).toMatchObject({ isDefault: false });
       const values = argsOf('insert', 'values')[0]?.[0] as Record<string, unknown>;
-      expect(values).toMatchObject({ priority: 10, isDefault: true, pricingGroupId: GROUP_ID });
+      expect(values).toMatchObject({ priority: 0, isDefault: true, pricingGroupId: GROUP_ID });
       expect(publishPricingChanged).toHaveBeenCalledWith({
         pricingGroupId: GROUP_ID,
         tariffId: 'trf_000000000002',
@@ -368,10 +441,35 @@ describe('pricing routes, uncovered paths', () => {
       expect(res.json().error).toContain('HH:MM');
     });
 
+    const peakRow = {
+      id: 'trf_000000000005',
+      restrictions: { timeRange: { startTime: '09:00', endTime: '17:00' } },
+      priority: 10,
+      isDefault: false,
+      isActive: true,
+    };
+    const selfDefault = {
+      id: TARIFF_ID,
+      restrictions: null,
+      priority: 0,
+      isDefault: true,
+      isActive: true,
+    };
+
     it('returns 409 TARIFF_OVERLAP when the new restriction collides with a holiday tariff', async () => {
       setupDbResults(
         [tariffRow({ isDefault: false, priority: 10 })],
-        [{ id: 'trf_000000000005', restrictions: { holidays: true }, priority: 40 }],
+        [
+          { ...selfDefault, id: 'trf_000000000009' },
+          { id: TARIFF_ID, restrictions: null, priority: 10, isDefault: false, isActive: true },
+          {
+            id: 'trf_000000000005',
+            restrictions: { holidays: true },
+            priority: 40,
+            isDefault: false,
+            isActive: true,
+          },
+        ],
       );
       const res = await app.inject({
         method: 'PATCH',
@@ -386,15 +484,18 @@ describe('pricing routes, uncovered paths', () => {
       });
     });
 
-    it('promotes to default, writes every changed field, and recomputes priority', async () => {
-      const existing = tariffRow({ isDefault: false, priority: 10 });
-      const updated = tariffRow({
-        name: 'Renamed',
-        isDefault: true,
-        priority: 50,
-        restrictions: { energyThresholdKwh: 20 },
-      });
-      setupDbResults([existing], [], [], [updated]);
+    it('promotes an activated tariff without restrictions to default in one transaction (B20)', async () => {
+      const existing = tariffRow({ isDefault: false, isActive: false, priority: 0 });
+      const updated = tariffRow({ name: 'Renamed', isDefault: true });
+      setupDbResults(
+        [existing],
+        [
+          { id: TARIFF_ID, restrictions: null, priority: 0, isDefault: false, isActive: false },
+          { ...peakRow, isDefault: true },
+        ],
+        [],
+        [updated],
+      );
       const res = await app.inject({
         method: 'PATCH',
         url,
@@ -408,7 +509,7 @@ describe('pricing routes, uncovered paths', () => {
           idleFeePricePerMinute: '0.10',
           reservationFeePerMinute: '0.05',
           taxRate: '0.19',
-          restrictions: { energyThresholdKwh: 20 },
+          restrictions: null,
           isDefault: true,
         },
       });
@@ -425,8 +526,8 @@ describe('pricing routes, uncovered paths', () => {
         idleFeePricePerMinute: '0.10',
         reservationFeePerMinute: '0.05',
         taxRate: '0.19',
-        restrictions: { energyThresholdKwh: 20 },
-        priority: 50,
+        restrictions: null,
+        priority: 0,
         isDefault: true,
       });
       expect(vi.mocked(writeAudit).mock.calls[0]?.[1]).toMatchObject({
@@ -440,8 +541,53 @@ describe('pricing routes, uncovered paths', () => {
       });
     });
 
+    it.each([
+      ['deactivating', { isActive: false }],
+      ['restricting', { restrictions: { timeRange: { startTime: '18:00', endTime: '20:00' } } }],
+    ])('refuses %s the default while other tariffs are active (B2, TC-T3-04)', async (_n, body) => {
+      setupDbResults([tariffRow()], [selfDefault, peakRow]);
+      const res = await app.inject({ method: 'PATCH', url, headers: auth, payload: body });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('TARIFF_DEFAULT_REQUIRED');
+      expect(argsOf('update', 'set')).toHaveLength(0);
+    });
+
+    it('deactivates the last active tariff of a group', async () => {
+      setupDbResults(
+        [tariffRow()],
+        [selfDefault],
+        [tariffRow({ isActive: false, isDefault: false })],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url,
+        headers: auth,
+        payload: { isActive: false },
+      });
+      expect(res.statusCode).toBe(200);
+      const sets = argsOf('update', 'set').map((a) => a[0] as Record<string, unknown>);
+      expect(sets[0]).toMatchObject({ isActive: false, isDefault: false });
+    });
+
+    it('refuses isDefault on a restricted tariff', async () => {
+      setupDbResults([
+        tariffRow({ isDefault: false, priority: 10, restrictions: peakRow.restrictions }),
+      ]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url,
+        headers: auth,
+        payload: { isDefault: true },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({
+        code: 'TARIFF_DEFAULT_REQUIRED',
+        error: 'A tariff with restrictions cannot be the default tariff',
+      });
+    });
+
     it('does not write isDefault or priority on an unrelated edit', async () => {
-      setupDbResults([tariffRow()], [], [tariffRow({ name: 'X' })]);
+      setupDbResults([tariffRow()], [selfDefault], [tariffRow({ name: 'X' })]);
       const res = await app.inject({ method: 'PATCH', url, headers: auth, payload: { name: 'X' } });
       expect(res.statusCode).toBe(200);
       const sets = argsOf('update', 'set').map((a) => a[0] as Record<string, unknown>);
@@ -462,6 +608,79 @@ describe('pricing routes, uncovered paths', () => {
       expect(res.statusCode).toBe(409);
       expect(res.json().code).toBe('TARIFF_IN_USE');
       expect(argsOf('delete', 'where')).toHaveLength(0);
+    });
+
+    it('refuses deleting the default while other tariffs are active (B2)', async () => {
+      setupDbResults(
+        [tariffRow()],
+        [{ count: 0 }],
+        [{ count: 0 }],
+        [
+          { id: TARIFF_ID, restrictions: null, priority: 0, isDefault: true, isActive: true },
+          {
+            id: 'trf_000000000005',
+            restrictions: { holidays: true },
+            priority: 40,
+            isDefault: false,
+            isActive: true,
+          },
+        ],
+      );
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/pricing-groups/${GROUP_ID}/tariffs/${TARIFF_ID}`,
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('TARIFF_DEFAULT_REQUIRED');
+      expect(argsOf('delete', 'where')).toHaveLength(0);
+    });
+
+    it('deletes the default when it is the last active tariff', async () => {
+      setupDbResults(
+        [tariffRow()],
+        [{ count: 0 }],
+        [{ count: 0 }],
+        [{ id: TARIFF_ID, restrictions: null, priority: 0, isDefault: true, isActive: true }],
+        [],
+      );
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/pricing-groups/${GROUP_ID}/tariffs/${TARIFF_ID}`,
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(204);
+      expect(argsOf('delete', 'where')).toHaveLength(1);
+    });
+  });
+
+  describe('POST /pricing-groups default conflict (B20)', () => {
+    it('returns 409 PRICING_GROUP_DEFAULT_EXISTS when a default group exists', async () => {
+      setupDbResults([{ id: 'pgr_000000000009' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/pricing-groups',
+        headers: auth,
+        payload: { name: 'Second default', isDefault: true },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({
+        code: 'PRICING_GROUP_DEFAULT_EXISTS',
+        error: 'Another pricing group is already the default',
+      });
+      expect(argsOf('insert', 'values')).toHaveLength(0);
+    });
+
+    it('maps the unique violation of a concurrent default create to 409', async () => {
+      setupDbResults([], Object.assign(new Error('duplicate'), { code: '23505' }));
+      const res = await app.inject({
+        method: 'POST',
+        url: '/pricing-groups',
+        headers: auth,
+        payload: { name: 'Racing default', isDefault: true },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('PRICING_GROUP_DEFAULT_EXISTS');
     });
   });
 
@@ -506,44 +725,59 @@ describe('pricing routes, uncovered paths', () => {
   describe('GET /stations/:id/active-tariff', () => {
     const url = `/stations/${STATION_ID}/active-tariff`;
 
+    it.each([
+      ['another site', 'sit_000000000099'],
+      ['no site', null],
+    ])(
+      'returns 404 STATION_NOT_FOUND to a site-restricted user for a station at %s',
+      async (_label, siteId) => {
+        setMockUserSiteIds(['sit_000000000001']);
+        setMockStationSites({ [STATION_ID]: siteId });
+        try {
+          const res = await app.inject({ method: 'GET', url, headers: auth });
+          expect(res.statusCode).toBe(404);
+          expect(res.json().code).toBe('STATION_NOT_FOUND');
+          expect(loadStationPricingChain).not.toHaveBeenCalled();
+        } finally {
+          resetSiteAccessMock();
+        }
+      },
+    );
+
     it('returns 404 NO_PRICING_GROUP when the station has no pricing', async () => {
-      vi.mocked(loadStationPricing).mockResolvedValueOnce(null);
+      vi.mocked(loadStationPricingChain).mockResolvedValueOnce([]);
       const res = await app.inject({ method: 'GET', url, headers: auth });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('NO_PRICING_GROUP');
     });
 
-    it('returns 404 NO_TARIFFS when the group has no active tariffs', async () => {
-      vi.mocked(loadStationPricing).mockResolvedValueOnce({
-        group: { id: GROUP_ID, name: 'Default' },
-        tariffs: [],
-        timezone: 'UTC',
-      } as never);
+    it('returns 404 NO_TARIFFS when no group has active tariffs', async () => {
+      vi.mocked(loadStationPricingChain).mockResolvedValueOnce([
+        { group: { id: GROUP_ID, name: 'Default' }, tariffs: [], timezone: 'UTC' },
+      ] as never);
       const res = await app.inject({ method: 'GET', url, headers: auth });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('NO_TARIFFS');
     });
 
     it('returns 404 NO_MATCHING_TARIFF when no tariff applies now', async () => {
-      vi.mocked(loadStationPricing).mockResolvedValueOnce({
-        group: { id: GROUP_ID, name: 'Default' },
-        tariffs: [tariffRow()],
-        timezone: 'UTC',
-      } as never);
-      vi.mocked(pickTariff).mockReturnValueOnce(null);
+      vi.mocked(loadStationPricingChain).mockResolvedValueOnce([
+        { group: { id: GROUP_ID, name: 'Default' }, tariffs: [tariffRow()], timezone: 'UTC' },
+      ] as never);
+      vi.mocked(pickFromChain).mockReturnValueOnce(null);
       const res = await app.inject({ method: 'GET', url, headers: auth });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('NO_MATCHING_TARIFF');
     });
 
-    it('returns the picked tariff with its group, evaluated in the site timezone', async () => {
+    it('returns the tariff of the first group that has one, as billing (B2)', async () => {
       const t = tariffRow({ name: 'Peak' });
-      vi.mocked(loadStationPricing).mockResolvedValueOnce({
-        group: { id: GROUP_ID, name: 'Public' },
-        tariffs: [t],
-        timezone: 'America/New_York',
-      } as never);
-      vi.mocked(pickTariff).mockReturnValueOnce(t);
+      const chain = [
+        { group: { id: 'pgr_000000000002', name: 'Empty' }, tariffs: [], timezone: null },
+        { group: { id: GROUP_ID, name: 'Public' }, tariffs: [t], timezone: 'America/New_York' },
+      ];
+      vi.mocked(loadStationPricingChain).mockResolvedValueOnce(chain as never);
+      vi.mocked(pickFromChain).mockReturnValueOnce({ pricing: chain[1], tariff: t } as never);
       const res = await app.inject({ method: 'GET', url, headers: auth });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({
@@ -552,13 +786,11 @@ describe('pricing routes, uncovered paths', () => {
         pricingGroupId: GROUP_ID,
         pricingGroupName: 'Public',
       });
-      expect(vi.mocked(loadStationPricing).mock.calls[0]?.[0]).toEqual({
+      expect(vi.mocked(loadStationPricingChain).mock.calls[0]?.[0]).toEqual({
         stationUuid: STATION_ID,
         driverUuid: null,
       });
-      expect(vi.mocked(pickTariff).mock.calls[0]?.[1]).toMatchObject({
-        timezone: 'America/New_York',
-      });
+      expect(vi.mocked(pickFromChain).mock.calls[0]?.[0]).toBe(chain);
     });
   });
 

@@ -118,18 +118,28 @@ export const ocpiCredentialsTokens = pgTable(
   ],
 );
 
-export const ocpiLocationPublish = pgTable('ocpi_location_publish', {
-  id: serial('id').primaryKey(),
-  siteId: text('site_id')
-    .notNull()
-    .unique()
-    .references(() => sites.id, { onDelete: 'cascade' }),
-  isPublished: boolean('is_published').notNull().default(false),
-  publishToAll: boolean('publish_to_all').notNull().default(true),
-  ocpiLocationId: varchar('ocpi_location_id', { length: 36 }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const ocpiLocationPublish = pgTable(
+  'ocpi_location_publish',
+  {
+    id: serial('id').primaryKey(),
+    siteId: text('site_id')
+      .notNull()
+      .unique()
+      .references(() => sites.id, { onDelete: 'cascade' }),
+    isPublished: boolean('is_published').notNull().default(false),
+    publishToAll: boolean('publish_to_all').notNull().default(true),
+    // Custom OCPI location id; NULL means the site id is the location id.
+    ocpiLocationId: varchar('ocpi_location_id', { length: 36 }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // 0360_ocpi_location_id_unique.sql
+    uniqueIndex('uq_ocpi_location_publish_location_id')
+      .on(table.ocpiLocationId)
+      .where(sql`${table.ocpiLocationId} IS NOT NULL`),
+  ],
+);
 
 export const ocpiLocationPublishPartners = pgTable(
   'ocpi_location_publish_partners',

@@ -54,7 +54,9 @@ export async function pruneOldRows(args: {
           DELETE FROM ${sql.identifier(table)} WHERE id IN (SELECT id FROM batch)
         `,
       );
-      const deleted = (res as unknown as { rowCount?: number }).rowCount ?? 0;
+      // db.execute returns the postgres.js result list, whose affected-row
+      // count is `count` (there is no `rowCount`).
+      const deleted = res.count;
       total += deleted;
       if (deleted < batchSize) break;
     }

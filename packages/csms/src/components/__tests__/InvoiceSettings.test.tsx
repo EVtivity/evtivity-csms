@@ -18,11 +18,11 @@ vi.mock('@/lib/api', async (importOriginal) => ({
 import { ApiError } from '@/lib/api';
 import { InvoiceSettings } from '../settings/InvoiceSettings';
 
-function renderSettings(settings: Record<string, unknown> | undefined): void {
+function renderSettings(settings: Record<string, unknown> | undefined, readOnly = false): void {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <InvoiceSettings settings={settings} />
+      <InvoiceSettings settings={settings} readOnly={readOnly} />
     </QueryClientProvider>,
   );
 }
@@ -120,5 +120,14 @@ describe('InvoiceSettings', () => {
     renderSettings({ 'invoice.paymentTermsDays': 30 });
     save();
     expect(await screen.findByText('settings.invoiceSettingsSaveFailed')).toBeTruthy();
+  });
+
+  it('shows the settings read-only without a save button for a site-restricted user', () => {
+    renderSettings({}, true);
+    expect(daysInput().disabled).toBe(true);
+    expect(runDayInput().disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: /save/i })).toBeNull();
+    expect(screen.getByText('settings.companyWideSettingsReadOnly')).toBeTruthy();
+    expect(putMock).not.toHaveBeenCalled();
   });
 });

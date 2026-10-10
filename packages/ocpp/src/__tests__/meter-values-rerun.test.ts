@@ -17,6 +17,9 @@ let matches = 0;
 const db = {
   energyWh: 0,
   meterStart: 1000,
+  // The newest projected register reading (migration 0331).
+  lastRegisterWh: null as number | null,
+  lastRegisterAt: null as string | null,
   idleStartedAt: null as string | null,
   // The reading that last raised the energy (energy_rose_at).
   energyRoseAt: null as string | null,
@@ -34,18 +37,27 @@ function route(text: string, values: unknown[]): unknown[] {
   if (text.includes('SELECT id, evse_id, transaction_id FROM charging_sessions')) {
     return [{ id: 'session-1', evse_id: 'evse-1', transaction_id: 'tx-1' }];
   }
-  if (text.includes('SELECT energy_delivered_wh, meter_start')) {
+  if (text.includes('AS last_rise_at')) {
+    return [{ id: 'session-1', last_rise_at: db.energyRoseAt }];
+  }
+  // applySessionEnergyReading (the real one): the register state under the
+  // row lock, then the energy update.
+  if (text.includes('SELECT meter_start, meter_register_offset_wh')) {
     return [
       {
-        energy_delivered_wh: db.energyWh,
         meter_start: String(db.meterStart),
-        last_rise_at: db.energyRoseAt,
+        meter_register_offset_wh: '0',
+        meter_last_register_wh: db.lastRegisterWh,
+        meter_last_register_at: db.lastRegisterAt,
+        energy_delivered_wh: db.energyWh,
       },
     ];
   }
-  if (text.includes('SET energy_delivered_wh = GREATEST')) {
-    const energyWh = Math.max(0, Number(values[0]) - db.meterStart);
-    if (energyWh - db.energyWh >= 1) db.energyRoseAt = values[2] as string;
+  if (text.includes('meter_register_offset_wh = ?')) {
+    db.lastRegisterWh = values[2] as number;
+    db.lastRegisterAt = values[3] as string;
+    const energyWh = values[4] as number;
+    if (values[5] === true) db.energyRoseAt = values[3] as string;
     db.energyWh = energyWh;
     return [];
   }
@@ -130,6 +142,10 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/station-watch.js')),
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-pricing.js',
+  )),
+  // The real register energy rule (session-energy), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-energy.js',
   )),
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
@@ -266,6 +282,8 @@ describe('MeterValues run again after a lost connection', () => {
     // An idle period is open; the last reading put the session at 3000 Wh.
     db.energyWh = 3000;
     db.meterStart = 1000;
+    db.lastRegisterWh = null;
+    db.lastRegisterAt = null;
     db.idleStartedAt = '2026-10-07T09:50:00.000Z';
     db.energyRoseAt = '2026-10-07T09:40:00.000Z';
     db.costCents = 800;
@@ -295,7 +313,7 @@ describe('MeterValues run again after a lost connection', () => {
 
     // A rerun reading the energy the first run wrote would see reading 1 as
     // flat and keep the old idle period open.
-    expect(countCalls('SELECT energy_delivered_wh, meter_start')).toBe(2);
+    expect(countCalls('AS last_rise_at')).toBe(2);
     expect(countCalls(IDLE_CLOSE)).toBe(2);
     expect(countCalls(IDLE_OPEN, 'idle_started_at IS NULL')).toBe(1);
     expect(db.idleStartedAt).toBe('2026-10-07T10:01:00.000Z');
@@ -319,7 +337,7 @@ describe('MeterValues run again after a lost connection', () => {
     );
 
     expect(countCalls('SELECT site_id FROM charging_stations')).toBe(2);
-    expect(countCalls('SELECT energy_delivered_wh, meter_start')).toBe(2);
+    expect(countCalls('AS last_rise_at')).toBe(2);
     expect(countCalls(IDLE_CLOSE)).toBe(1);
     expect(countCalls(IDLE_OPEN, 'idle_started_at IS NULL')).toBe(1);
     expect(db.idleStartedAt).toBe('2026-10-07T10:01:00.000Z');

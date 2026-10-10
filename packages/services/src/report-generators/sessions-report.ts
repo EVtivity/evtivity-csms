@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, eq, count } from 'drizzle-orm';
+import { sql, and, eq, count, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -15,12 +15,14 @@ import { sessionCurrencySql } from '../company-currency.js';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
+import { loadPdfBranding } from '../pdf-branding.js';
 import { splitGrossByTaxRate, vatPercentFromFraction } from '@evtivity/lib';
 import { storedCostBreakdown } from '@evtivity/lib';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { csvRows, moneyCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
 import type { ReportGeneratorResult } from '../report-registry.js';
+import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 
 interface Filters {
   dateFrom?: string | undefined;
@@ -28,11 +30,13 @@ interface Filters {
   siteId?: string | undefined;
   stationId?: string | undefined;
   status?: string | undefined;
+  /** The report's site scope (report-scope.ts). */
+  scope: ReportSiteScope;
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-function parseFilters(raw: Record<string, unknown>): Filters {
+function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
   const dateFromRaw = typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined;
   const dateToRaw = typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined;
   return {
@@ -45,11 +49,21 @@ function parseFilters(raw: Record<string, unknown>): Filters {
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
     stationId: typeof raw['stationId'] === 'string' ? raw['stationId'] : undefined,
     status: typeof raw['status'] === 'string' ? raw['status'] : undefined,
+    scope,
   };
 }
 
-function buildConditions(filters: Filters, tz: string) {
-  const conditions = [];
+/** Conditions on the joined station: the site filter and the report's site scope. */
+function stationConditions(filters: Filters): SQL[] {
+  const conditions: SQL[] = [];
+  if (filters.siteId != null) conditions.push(eq(chargingStations.siteId, filters.siteId));
+  const inScope = stationSiteInScope(chargingStations.siteId, filters.scope);
+  if (inScope != null) conditions.push(inScope);
+  return conditions;
+}
+
+function buildConditions(filters: Filters, tz: string): SQL[] {
+  const conditions: SQL[] = [];
   // Compare startedAt projected into the system timezone so YYYY-MM-DD
   // filters mean "the operator's local day" instead of UTC midnight.
   if (filters.dateFrom != null) {
@@ -111,11 +125,7 @@ interface SessionLogResult {
 }
 
 async function querySessionLog(filters: Filters, tz: string): Promise<SessionLogResult> {
-  const conditions = buildConditions(filters, tz);
-
-  if (filters.siteId != null) {
-    conditions.push(eq(chargingStations.siteId, filters.siteId));
-  }
+  const conditions = [...buildConditions(filters, tz), ...stationConditions(filters)];
 
   // Pull the most-recent paymentRecord per session in a correlated subquery so
   // the main join is 1:1. A direct leftJoin duplicates sessions whenever the
@@ -215,10 +225,11 @@ async function queryFailedSessions(
   const conditions = buildConditions(filters, tz);
   conditions.push(sql`${chargingSessions.status} in ('faulted', 'invalid')`);
 
-  // The failed-session breakdown has to honour the same siteId filter the
-  // main session log applies; otherwise picking siteA filters the rows but
-  // leaves the summary cross-site.
-  if (filters.siteId != null) {
+  // The failed-session breakdown has to honour the same site filter and site
+  // scope the main session log applies; otherwise picking siteA filters the
+  // rows but leaves the summary cross-site.
+  const atStations = stationConditions(filters);
+  if (atStations.length > 0) {
     const rows = await db
       .select({
         reason: sql<string>`coalesce(${chargingSessions.stoppedReason}, ${unknown})`,
@@ -226,7 +237,7 @@ async function queryFailedSessions(
       })
       .from(chargingSessions)
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-      .where(and(...conditions, eq(chargingStations.siteId, filters.siteId)))
+      .where(and(...conditions, ...atStations))
       .groupBy(sql`1`)
       .orderBy(sql`2 desc`);
     return rows;
@@ -248,9 +259,10 @@ async function queryFailedSessions(
 export async function generateSessionsReport(
   rawFilters: Record<string, unknown>,
   format: string,
-  language: UiLanguage = 'en',
+  language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters);
+  const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.sessions;
@@ -361,7 +373,7 @@ export async function generateSessionsReport(
   }
 
   // PDF
-  const pdf = new PdfReportBuilder(rl.language);
+  const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
   pdf.addTitle(l.title);
   pdf.addSubtitle(rl.period(filters.dateFrom, filters.dateTo, common.allTime));
   pdf.addSummaryRow(rl.summary(l.summary.totalSessions), rl.number(sessions.length));

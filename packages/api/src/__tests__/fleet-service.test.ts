@@ -653,7 +653,7 @@ describe('getFleetStations', () => {
     ];
     setupDbResults(stations);
 
-    const result = await getFleetStations('f1');
+    const result = await getFleetStations('f1', null);
 
     expect(result).toEqual(stations);
   });
@@ -745,7 +745,7 @@ describe('getFleetSessions', () => {
     const sessions = [{ id: 'sess1', status: 'completed', energyDeliveredWh: 5000 }];
     setupDbResults(sessions, [{ count: 1 }]);
 
-    const result = await getFleetSessions('f1', 1, 10);
+    const result = await getFleetSessions('f1', 1, 10, null);
 
     expect(result.data).toEqual(sessions);
     expect(result.total).toBe(1);
@@ -766,7 +766,7 @@ describe('getFleetMetrics', () => {
     const vehicleStats = { totalVehicles: 4 };
     setupDbResults([sessionStats], [driverStats], [vehicleStats]);
 
-    const result = await getFleetMetrics('f1', 6);
+    const result = await getFleetMetrics('f1', 6, null);
 
     expect(result).toEqual({
       totalSessions: 10,
@@ -785,7 +785,7 @@ describe('getFleetMetrics', () => {
   it('returns defaults when no session data', async () => {
     setupDbResults([undefined], [undefined], [undefined]);
 
-    const result = await getFleetMetrics('f1', 3);
+    const result = await getFleetMetrics('f1', 3, null);
 
     expect(result.totalSessions).toBe(0);
     expect(result.sessionSuccessPercent).toBe(100);
@@ -804,7 +804,7 @@ describe('getFleetEnergyHistory', () => {
     ];
     setupDbResults(rows);
 
-    const result = await getFleetEnergyHistory('f1', 30);
+    const result = await getFleetEnergyHistory('f1', 30, null);
 
     expect(result).toEqual(rows);
   });

@@ -23,6 +23,8 @@ FROM deps AS build
 
 COPY tsconfig.base.json tsconfig.json ./
 COPY scripts/build.mjs scripts/build.mjs
+# The bundle embeds the OCPP request schemas (embedOcppSchemasPlugin).
+COPY schemas/ schemas/
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
 COPY packages/payments/ packages/payments/
@@ -62,7 +64,6 @@ COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
 
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild argon2
 
-COPY schemas/ schemas/
 COPY docs-index.json* ./
 COPY --from=build /app/dist/api.mjs dist/api.mjs
 COPY --from=build /app/dist/api.mjs.map dist/api.mjs.map

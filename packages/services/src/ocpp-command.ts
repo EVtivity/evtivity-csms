@@ -18,6 +18,12 @@ export interface CommandResult {
   commandId: string;
   response?: Record<string, unknown>;
   error?: string;
+  /**
+   * True when the station was not connected and the OCPP server held the
+   * command in the offline command queue (sent on reconnect). `error` then
+   * holds the queue note, not a failure.
+   */
+  queued?: boolean;
 }
 
 /**

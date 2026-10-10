@@ -48,14 +48,16 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain('update')),
     delete: vi.fn(() => makeChain('delete')),
   },
-  reports: { reportType: 'reports.reportType' },
-  reportSchedules: { id: 'rs.id' },
+  reports: { id: 'reports.id', reportType: 'reports.reportType', siteScope: 'reports.siteScope' },
+  reportSchedules: { id: 'rs.id', siteScope: 'rs.siteScope' },
+  chargingStations: { id: 'cs.id', siteId: 'cs.siteId' },
   reportStatusEnum: { enumValues: ['pending', 'generating', 'completed', 'failed'] as const },
   reportFrequencyEnum: { enumValues: ['daily', 'weekly', 'monthly'] as const },
 }));
 
 vi.mock('drizzle-orm', () => ({
   eq,
+  and: vi.fn((...conditions: unknown[]) => ({ and: conditions })),
   desc: vi.fn(),
   count: vi.fn(),
   sql: Object.assign(
@@ -70,6 +72,19 @@ vi.mock('@evtivity/services/report.service', () => ({
   reportFiltersError: () => null,
   REPORT_TYPES: ['revenue', 'energy', 'sessions'],
 }));
+
+// The real scope intersection; the visibility condition is recorded so tests
+// can see which scope a query was limited to.
+vi.mock('@evtivity/services/report-scope', async () => {
+  const actual = await vi.importActual<typeof import('@evtivity/services/report-scope')>(
+    '@evtivity/services/report-scope',
+  );
+  return {
+    intersectSiteScopes: actual.intersectSiteScopes,
+    siteScopeVisibleTo: (column: unknown, scope: readonly string[] | null) =>
+      scope == null ? undefined : { visibleTo: [column, scope] },
+  };
+});
 
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
@@ -88,6 +103,7 @@ vi.mock('../middleware/rbac.js', () => ({
 
 vi.mock('../lib/site-access.js', () => ({ getUserSiteIds }));
 
+import { sql } from 'drizzle-orm';
 import { registerAuth } from '../plugins/auth.js';
 import { reportRoutes } from '../routes/reports.js';
 
@@ -105,6 +121,7 @@ function scheduleRow(overrides: Record<string, unknown> = {}): Record<string, un
     filters: null,
     recipientEmails: [],
     isEnabled: true,
+    siteScope: ['sit_a'],
     nextRunAt: NEXT_RUN.toISOString(),
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -180,6 +197,7 @@ describe('report routes - filters, site guards, schedule updates', () => {
           format: 'csv',
           filters: { siteId: 'sit_a' },
           userId: 'usr_1',
+          siteScope: ['sit_a'],
         },
         expect.any(Function),
       );
@@ -229,7 +247,7 @@ describe('report routes - filters, site guards, schedule updates', () => {
     });
 
     it('returns 404 SITE_NOT_FOUND when new filters target another site', async () => {
-      results.push([{ id: '5' }]);
+      results.push([{ id: '5', siteScope: ['sit_a'] }]);
       const res = await app.inject({
         method: 'PATCH',
         url: '/report-schedules/5',
@@ -243,7 +261,7 @@ describe('report routes - filters, site guards, schedule updates', () => {
 
     it('updates every given field and recomputes the next run on a frequency change', async () => {
       const updated = scheduleRow({ name: 'Monthly', frequency: 'monthly', dayOfMonth: 3 });
-      results.push([{ id: '5' }], [updated]);
+      results.push([{ id: '5', siteScope: ['sit_a'] }], [updated]);
       const res = await app.inject({
         method: 'PATCH',
         url: '/report-schedules/5',
@@ -280,7 +298,7 @@ describe('report routes - filters, site guards, schedule updates', () => {
     });
 
     it('does not recompute the next run when the frequency is unchanged', async () => {
-      results.push([{ id: '5' }], [scheduleRow({ isEnabled: false })]);
+      results.push([{ id: '5', siteScope: ['sit_a'] }], [scheduleRow({ isEnabled: false })]);
       const res = await app.inject({
         method: 'PATCH',
         url: '/report-schedules/5',
@@ -325,9 +343,328 @@ describe('report routes - filters, site guards, schedule updates', () => {
           format: 'csv',
           filters: {},
           userId: 'usr_1',
+          siteScope: ['sit_a'],
         },
         expect.any(Function),
       );
+    });
+
+    it('queues the report with the sites both the schedule and the caller cover', async () => {
+      getUserSiteIds.mockResolvedValue(['sit_a', 'sit_b']);
+      results.push([scheduleRow({ siteScope: ['sit_a', 'sit_c'] })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/report-schedules/5/run-now',
+        headers,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(queueReport).toHaveBeenCalledWith(
+        expect.objectContaining({ siteScope: ['sit_a'] }),
+        expect.any(Function),
+      );
+    });
+
+    it('keeps an all-site schedule all-site for an all-site caller', async () => {
+      getUserSiteIds.mockResolvedValue(null);
+      results.push([scheduleRow({ siteScope: null })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/report-schedules/5/run-now',
+        headers,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(queueReport).toHaveBeenCalledWith(
+        expect.objectContaining({ siteScope: null }),
+        expect.any(Function),
+      );
+    });
+
+    it('returns 404 SCHEDULE_NOT_FOUND for a schedule outside the caller sites', async () => {
+      results.push([]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/report-schedules/5/run-now',
+        headers,
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('SCHEDULE_NOT_FOUND');
+      const where = ops.find((o) => o.op === 'select.where');
+      expect(JSON.stringify(where?.args[0])).toContain('"visibleTo":["rs.siteScope",["sit_a"]]');
+      expect(queueReport).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('site scope of reports', () => {
+    // POST /reports/generate allows 10 a minute per user: each test gets its own user.
+    let userCount = 0;
+    function freshHeaders(): { authorization: string } {
+      userCount += 1;
+      const userId = `usr_scope_${String(userCount)}`;
+      return { authorization: `Bearer ${app.jwt.sign({ userId, roleId: 'rol_1' })}` };
+    }
+
+    it('stores the restricted user sites as the scope of a generated report', async () => {
+      getUserSiteIds.mockResolvedValue(['sit_a', 'sit_b']);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: freshHeaders(),
+        payload: { name: 'R', reportType: 'energy', format: 'csv' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(queueReport).toHaveBeenCalledWith(
+        expect.objectContaining({ filters: {}, siteScope: ['sit_a', 'sit_b'] }),
+        expect.any(Function),
+      );
+    });
+
+    it('stores no scope (all sites) for an all-site user', async () => {
+      getUserSiteIds.mockResolvedValue(null);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: freshHeaders(),
+        payload: { name: 'R', reportType: 'energy', format: 'csv', filters: { siteId: 'sit_z' } },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(queueReport).toHaveBeenCalledWith(
+        expect.objectContaining({ siteScope: null }),
+        expect.any(Function),
+      );
+    });
+
+    it('returns 404 STATION_NOT_FOUND for a station at another site', async () => {
+      results.push([{ siteId: 'sit_b' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: freshHeaders(),
+        payload: {
+          name: 'R',
+          reportType: 'sessions',
+          format: 'csv',
+          filters: { stationId: 'sta_b' },
+        },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      expect(eq).toHaveBeenCalledWith('cs.id', 'sta_b');
+      expect(queueReport).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 STATION_NOT_FOUND for an unsited station to a restricted user', async () => {
+      results.push([{ siteId: null }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: freshHeaders(),
+        payload: {
+          name: 'R',
+          reportType: 'sessions',
+          format: 'csv',
+          filters: { stationId: 'sta_x' },
+        },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('STATION_NOT_FOUND');
+    });
+
+    it('returns 404 STATION_NOT_FOUND for an unknown station, even to an all-site user', async () => {
+      getUserSiteIds.mockResolvedValue(null);
+      results.push([]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: freshHeaders(),
+        payload: {
+          name: 'R',
+          reportType: 'sessions',
+          format: 'csv',
+          filters: { stationId: 'sta_none' },
+        },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('STATION_NOT_FOUND');
+    });
+
+    it('queues a report for a station at one of the user sites', async () => {
+      results.push([{ siteId: 'sit_a' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/reports/generate',
+        headers: freshHeaders(),
+        payload: {
+          name: 'R',
+          reportType: 'sessions',
+          format: 'csv',
+          filters: { stationId: 'sta_a' },
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(queueReport).toHaveBeenCalledWith(
+        expect.objectContaining({ filters: { stationId: 'sta_a' }, siteScope: ['sit_a'] }),
+        expect.any(Function),
+      );
+    });
+
+    it('limits the report list of a restricted user to reports within their sites', async () => {
+      results.push([], [{ count: 0 }]);
+      const res = await app.inject({ method: 'GET', url: '/reports', headers });
+      expect(res.statusCode).toBe(200);
+      expect(vi.mocked(sql.join).mock.calls.at(-1)?.[0]).toContainEqual({
+        visibleTo: ['reports.siteScope', ['sit_a']],
+      });
+    });
+
+    it('lists every report for an all-site user', async () => {
+      getUserSiteIds.mockResolvedValue(null);
+      vi.mocked(sql.join).mockClear();
+      results.push([], [{ count: 0 }]);
+      const res = await app.inject({ method: 'GET', url: '/reports', headers });
+      expect(res.statusCode).toBe(200);
+      expect(sql.join).not.toHaveBeenCalled();
+      const where = ops.find((o) => o.op === 'select.where');
+      expect(where?.args[0]).toBeUndefined();
+    });
+
+    it('returns 404 REPORT_NOT_FOUND for a report outside the user sites', async () => {
+      results.push([]);
+      const res = await app.inject({ method: 'GET', url: '/reports/rpt_b', headers });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('REPORT_NOT_FOUND');
+      const where = ops.find((o) => o.op === 'select.where');
+      expect(JSON.stringify(where?.args[0])).toContain(
+        '"visibleTo":["reports.siteScope",["sit_a"]]',
+      );
+    });
+
+    it('returns 404 REPORT_NOT_FOUND on download of a report outside the user sites', async () => {
+      results.push([]);
+      const res = await app.inject({ method: 'GET', url: '/reports/rpt_b/download', headers });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('REPORT_NOT_FOUND');
+    });
+
+    it('returns 404 REPORT_NOT_FOUND and removes nothing for a report outside the user sites', async () => {
+      results.push([]);
+      const res = await app.inject({ method: 'DELETE', url: '/reports/rpt_b', headers });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('REPORT_NOT_FOUND');
+      const where = ops.find((o) => o.op === 'delete.where');
+      expect(JSON.stringify(where?.args[0])).toContain(
+        '"visibleTo":["reports.siteScope",["sit_a"]]',
+      );
+    });
+
+    it('removes a report within the user sites', async () => {
+      results.push([{ id: 'rpt_a' }]);
+      const res = await app.inject({ method: 'DELETE', url: '/reports/rpt_a', headers });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ success: true });
+    });
+  });
+
+  describe('site scope of schedules', () => {
+    it('limits the schedule list of a restricted user to schedules within their sites', async () => {
+      results.push([scheduleRow()]);
+      const res = await app.inject({ method: 'GET', url: '/report-schedules', headers });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().data[0].siteScope).toEqual(['sit_a']);
+      const where = ops.find((o) => o.op === 'select.where');
+      expect(where?.args[0]).toEqual({ visibleTo: ['rs.siteScope', ['sit_a']] });
+    });
+
+    it('stores the creator sites as the schedule scope', async () => {
+      getUserSiteIds.mockResolvedValue(['sit_a', 'sit_b']);
+      results.push([scheduleRow({ siteScope: ['sit_a', 'sit_b'] })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/report-schedules',
+        headers,
+        payload: { name: 'S', reportType: 'revenue', format: 'csv', frequency: 'daily' },
+      });
+      expect(res.statusCode).toBe(200);
+      const values = ops.find((o) => o.op === 'insert.values');
+      expect(values?.args[0]).toMatchObject({
+        siteScope: ['sit_a', 'sit_b'],
+        createdById: 'usr_1',
+      });
+    });
+
+    it('refuses a schedule with a station filter outside the creator sites', async () => {
+      results.push([{ siteId: 'sit_b' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/report-schedules',
+        headers,
+        payload: {
+          name: 'S',
+          reportType: 'sessions',
+          format: 'csv',
+          frequency: 'daily',
+          filters: { stationId: 'sta_b' },
+        },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('STATION_NOT_FOUND');
+      expect(ops.some((o) => o.op.startsWith('insert'))).toBe(false);
+    });
+
+    it('checks new filters against the schedule scope as well as the caller sites', async () => {
+      getUserSiteIds.mockResolvedValue(['sit_a', 'sit_b']);
+      results.push([{ id: '5', reportType: 'revenue', filters: null, siteScope: ['sit_a'] }]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/report-schedules/5',
+        headers,
+        payload: { filters: { siteId: 'sit_b' } },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('SITE_NOT_FOUND');
+      expect(ops.some((o) => o.op.startsWith('update'))).toBe(false);
+    });
+
+    it('never changes the schedule scope on update', async () => {
+      results.push([{ id: '5', siteScope: ['sit_a'] }], [scheduleRow()]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/report-schedules/5',
+        headers,
+        payload: { recipientEmails: ['me@example.com'] },
+      });
+      expect(res.statusCode).toBe(200);
+      const set = ops.find((o) => o.op === 'update.set');
+      expect(set?.args[0]).not.toHaveProperty('siteScope');
+      const where = ops.find((o) => o.op === 'update.where');
+      expect(JSON.stringify(where?.args[0])).toContain('"visibleTo":["rs.siteScope",["sit_a"]]');
+    });
+
+    it('returns 404 SCHEDULE_NOT_FOUND when the update matches no visible schedule', async () => {
+      results.push([{ id: '5', siteScope: ['sit_a'] }], []);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/report-schedules/5',
+        headers,
+        payload: { name: 'Y' },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('SCHEDULE_NOT_FOUND');
+    });
+
+    it('returns 404 SCHEDULE_NOT_FOUND on delete of a schedule outside the caller sites', async () => {
+      results.push([]);
+      const res = await app.inject({ method: 'DELETE', url: '/report-schedules/9', headers });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('SCHEDULE_NOT_FOUND');
+      const where = ops.find((o) => o.op === 'delete.where');
+      expect(JSON.stringify(where?.args[0])).toContain('"visibleTo":["rs.siteScope",["sit_a"]]');
+    });
+
+    it('removes a schedule within the caller sites', async () => {
+      results.push([{ id: 5 }]);
+      const res = await app.inject({ method: 'DELETE', url: '/report-schedules/5', headers });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ success: true });
     });
   });
 });

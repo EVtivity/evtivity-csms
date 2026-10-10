@@ -30,6 +30,17 @@ const siteAccess = vi.hoisted(() => ({ siteIds: null as string[] | null }));
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn(() => Promise.resolve(siteAccess.siteIds)),
+  requireAllSiteAccess: vi.fn(
+    async (
+      _request: unknown,
+      reply: { status: (code: number) => { send: (body: unknown) => Promise<unknown> } },
+      notFound: unknown,
+    ) => {
+      if (siteAccess.siteIds === null) return true;
+      await reply.status(404).send(notFound);
+      return false;
+    },
+  ),
 }));
 
 vi.mock('@evtivity/database', () => {
@@ -58,11 +69,6 @@ vi.mock('@evtivity/database', () => {
   };
 });
 
-vi.mock('drizzle-orm', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('drizzle-orm')>();
-  return { ...actual, isNull: vi.fn(actual.isNull) };
-});
-
 vi.mock('@evtivity/services/fleet-invoice.service', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/services/fleet-invoice.service')>()),
   createFleetInvoice: vi.fn(),
@@ -83,9 +89,8 @@ vi.mock('@evtivity/services/invoice-pdf.service', () => ({ generateInvoicePdf: v
 vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: ['/t'] }));
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: vi.fn() }));
 
-import { isNull } from 'drizzle-orm';
 import { AppError } from '@evtivity/lib';
-import { invoices, writeAudit } from '@evtivity/database';
+import { writeAudit } from '@evtivity/database';
 import { createFleetInvoice, previewFleetInvoice } from '@evtivity/services/fleet-invoice.service';
 import { sendFleetInvoiceEmail } from '@evtivity/services/fleet-invoice-notice';
 import { getInvoice } from '@evtivity/services/invoice.service';
@@ -297,9 +302,16 @@ describe('POST /fleets/:id/invoices', () => {
       expect.anything(),
       expect.anything(),
     );
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith(INVOICE_ID, 'once', {
-      templatesDirs: ['/t'],
-    });
+    // The issue email is audited as invoice_sent by the operator who generated it.
+    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith(
+      INVOICE_ID,
+      'once',
+      { templatesDirs: ['/t'] },
+      {
+        actor: expect.objectContaining({ actor: 'operator' }),
+        log: expect.anything(),
+      },
+    );
   });
 
   it('reports emailed false without billing contacts and when the email fails', async () => {
@@ -353,10 +365,13 @@ describe('site-restricted users (a fleet invoice spans sites)', () => {
       const listed = await get(`/fleets/${FLEET_ID}/invoices`);
       const filtered = await get(`/invoices?fleetId=${FLEET_ID}`);
 
-      for (const res of [preview, generated, listed, filtered]) {
+      for (const res of [preview, generated, listed]) {
         expect(res.statusCode).toBe(404);
         expect(res.json()).toMatchObject({ code: 'FLEET_NOT_FOUND' });
       }
+      // The invoice list spans sites whatever the filter.
+      expect(filtered.statusCode).toBe(404);
+      expect(filtered.json()).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
       expect(previewFleetInvoice).not.toHaveBeenCalled();
       expect(createFleetInvoice).not.toHaveBeenCalled();
       expect(sendFleetInvoiceEmail).not.toHaveBeenCalled();
@@ -371,15 +386,15 @@ describe('GET /invoices without a fleetId filter', () => {
   it.each([
     ['assigned to some sites', ['sit_000000000001']],
     ['assigned to no site', []],
-  ])('leaves fleet invoices and credit notes out for a user %s', async (_label, ids) => {
+  ])('answers 404 INVOICE_NOT_FOUND for a user %s: invoices span sites', async (_label, ids) => {
     siteAccess.siteIds = ids;
-    listRows.rows = [];
-    listRows.total = 0;
+    listRows.rows = [{ ...invoiceRow(), fleetName: 'Acme Logistics' }];
+    listRows.total = 1;
 
     const res = await list();
 
-    expect(res.statusCode).toBe(200);
-    expect(isNull).toHaveBeenCalledWith(invoices.fleetId);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
   });
 
   it('lists every invoice for a user with access to every site', async () => {
@@ -390,7 +405,6 @@ describe('GET /invoices without a fleetId filter', () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ total: 1, data: [{ id: INVOICE_ID, fleetId: FLEET_ID }] });
-    expect(isNull).not.toHaveBeenCalledWith(invoices.fleetId);
   });
 });
 

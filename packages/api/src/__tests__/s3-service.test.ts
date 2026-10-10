@@ -50,8 +50,18 @@ function makeChain() {
 
 // -- Hoisted mocks --
 
-const { mockDecryptString, mockGetSignedUrl, mockS3Send, mockS3ClientCtor } = vi.hoisted(() => {
+const {
+  mockDecryptString,
+  mockGetSignedUrl,
+  mockS3Send,
+  mockS3ClientCtor,
+  mockCreatePresignedPost,
+} = vi.hoisted(() => {
   return {
+    mockCreatePresignedPost: vi.fn().mockResolvedValue({
+      url: 'https://bucket.s3.example.com/',
+      fields: { key: 'k', 'Content-Type': 'image/png', Policy: 'p' },
+    }),
     mockS3ClientCtor: vi.fn(),
     mockDecryptString: vi.fn().mockReturnValue('decrypted-access-key'),
     mockGetSignedUrl: vi.fn().mockResolvedValue('https://s3.example.com/signed-url'),
@@ -112,16 +122,31 @@ vi.mock('@aws-sdk/client-s3', () => {
       this.input = input;
     }
   }
+  class MockHeadObjectCommand {
+    input: Record<string, unknown>;
+    constructor(input: Record<string, unknown>) {
+      this.input = input;
+    }
+  }
+  class MockNoSuchKey extends Error {}
+  class MockNotFound extends Error {}
   return {
     S3Client: MockS3Client,
     PutObjectCommand: MockPutObjectCommand,
     GetObjectCommand: MockGetObjectCommand,
     DeleteObjectCommand: MockDeleteObjectCommand,
+    HeadObjectCommand: MockHeadObjectCommand,
+    NoSuchKey: MockNoSuchKey,
+    NotFound: MockNotFound,
   };
 });
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: mockGetSignedUrl,
+}));
+
+vi.mock('@aws-sdk/s3-presigned-post', () => ({
+  createPresignedPost: mockCreatePresignedPost,
 }));
 
 // -- Import under test (after mocks) --
@@ -134,7 +159,13 @@ import {
   deleteObject,
   buildS3Key,
   buildStationImageS3Key,
+  buildSupportQuarantineKey,
+  contentDispositionAttachment,
+  generateUploadPost,
+  readObject,
+  sanitizeFileName,
 } from '../services/s3.service.js';
+import { NoSuchKey, NotFound } from '@aws-sdk/client-s3';
 import type { S3Config } from '../services/s3.service.js';
 
 // -- Helpers --
@@ -368,9 +399,15 @@ describe('s3.service', () => {
       expect(key).toBe('support-cases/case-123/msg-456/file-789-document.pdf');
     });
 
-    it('handles special characters in fileName', () => {
+    it('TC-AI-U-16 sanitizes the file name in the key', () => {
       const key = buildS3Key('c1', 'm1', 'f1', 'my file (2).pdf');
-      expect(key).toBe('support-cases/c1/m1/f1-my file (2).pdf');
+      expect(key).toBe('support-cases/c1/m1/f1-my_file__2_.pdf');
+    });
+
+    it('TC-AI-U-16 strips path traversal from the file name', () => {
+      const key = buildS3Key('c1', 'm1', 'f1', '../../other-case/x.png');
+      expect(key).toBe('support-cases/c1/m1/f1-_.._other-case_x.png');
+      expect(key.split('/')).toHaveLength(4);
     });
 
     it('accepts a numeric messageId', () => {
@@ -388,7 +425,7 @@ describe('s3.service', () => {
     it('replaces path separators and unsafe characters with underscores', () => {
       // Dots, hyphens and underscores are preserved; slashes and spaces are not.
       const key = buildStationImageS3Key('sta_2', 'img_2', '../../etc/pa ss?wd');
-      expect(key).toBe('stations/sta_2/img_2-.._.._etc_pa_ss_wd');
+      expect(key).toBe('stations/sta_2/img_2-_.._etc_pa_ss_wd');
     });
 
     it('truncates long file names to 100 characters', () => {
@@ -407,6 +444,113 @@ describe('s3.service', () => {
     it('uses the "image" fallback for an empty fileName', () => {
       const key = buildStationImageS3Key('sta_5', 'img_5', '');
       expect(key).toBe('stations/sta_5/img_5-image');
+    });
+  });
+
+  describe('sanitizeFileName', () => {
+    it('TC-AI-U-16 keeps safe characters, drops leading dots, caps at 100', () => {
+      expect(sanitizeFileName('report.final-v2_ok.pdf')).toBe('report.final-v2_ok.pdf');
+      expect(sanitizeFileName('.htaccess')).toBe('htaccess');
+      expect(sanitizeFileName('a'.repeat(200))).toHaveLength(100);
+      expect(sanitizeFileName('')).toBe('file');
+      expect(sanitizeFileName('...', 'image')).toBe('image');
+    });
+  });
+
+  describe('buildSupportQuarantineKey', () => {
+    it('puts uploads under the quarantine prefix with a sanitized name', () => {
+      expect(buildSupportQuarantineKey('sc_1', 7, 'uuid-1', 'a b.png')).toBe(
+        'ai-uploads/quarantine/support-cases/sc_1/7/uuid-1/a_b.png',
+      );
+    });
+  });
+
+  describe('generateUploadPost', () => {
+    it('TC-AI-U-06 pins the key, the Content-Type and a 1..maxBytes length range', async () => {
+      const s3 = makeMockS3Config();
+      const post = await generateUploadPost(s3, 'ai-uploads/quarantine/x/y.png', 'image/png', 1234);
+
+      expect(post.url).toBe('https://bucket.s3.example.com/');
+      const [client, options] = mockCreatePresignedPost.mock.calls[0] as [
+        unknown,
+        Record<string, unknown>,
+      ];
+      expect(client).toBe(s3.client);
+      expect(options).toEqual({
+        Bucket: 'test-bucket',
+        Key: 'ai-uploads/quarantine/x/y.png',
+        Conditions: [
+          ['content-length-range', 1, 1234],
+          ['eq', '$Content-Type', 'image/png'],
+        ],
+        Fields: { 'Content-Type': 'image/png' },
+        Expires: 300,
+      });
+    });
+  });
+
+  describe('generateDownloadUrl with options', () => {
+    it('serves the file as an attachment with the given type', async () => {
+      const s3 = makeMockS3Config();
+      await generateDownloadUrl(s3, 'b', 'k', {
+        fileName: 'scan.pdf',
+        contentType: 'application/pdf',
+      });
+
+      const [, command] = mockGetSignedUrl.mock.calls[0] as [
+        unknown,
+        { input: Record<string, unknown> },
+      ];
+      expect(command.input).toMatchObject({
+        Bucket: 'b',
+        Key: 'k',
+        ResponseContentType: 'application/pdf',
+        ResponseContentDisposition: contentDispositionAttachment('scan.pdf'),
+      });
+    });
+
+    it('builds an RFC 6266 header with an ASCII fallback', () => {
+      expect(contentDispositionAttachment('résumé "1".pdf')).toBe(
+        'attachment; filename="r_sum_ _1_.pdf"; filename*=UTF-8\'\'r%C3%A9sum%C3%A9%20%221%22.pdf',
+      );
+    });
+  });
+
+  describe('readObject', () => {
+    it('returns the bytes and stored type', async () => {
+      const s3 = makeMockS3Config();
+      mockS3Send.mockResolvedValueOnce({ ContentLength: 3 }).mockResolvedValueOnce({
+        ContentType: 'text/plain',
+        Body: { transformToByteArray: () => Promise.resolve(new Uint8Array([97, 98, 99])) },
+      });
+      const res = await readObject(s3, 'b', 'k', 10);
+      expect(res).toEqual({ status: 'ok', bytes: Buffer.from('abc'), contentType: 'text/plain' });
+    });
+
+    it('refuses an object over the limit without downloading it', async () => {
+      const s3 = makeMockS3Config();
+      mockS3Send.mockResolvedValueOnce({ ContentLength: 11 });
+      await expect(readObject(s3, 'b', 'k', 10)).resolves.toEqual({
+        status: 'too_large',
+        size: 11,
+      });
+      expect(mockS3Send).toHaveBeenCalledTimes(1);
+    });
+
+    it('reports a missing object', async () => {
+      const s3 = makeMockS3Config();
+      mockS3Send.mockRejectedValueOnce(new NotFound({ message: 'nf', $metadata: {} }));
+      await expect(readObject(s3, 'b', 'k', 10)).resolves.toEqual({ status: 'missing' });
+      mockS3Send
+        .mockResolvedValueOnce({ ContentLength: 1 })
+        .mockRejectedValueOnce(new NoSuchKey({ message: 'nsk', $metadata: {} }));
+      await expect(readObject(s3, 'b', 'k', 10)).resolves.toEqual({ status: 'missing' });
+    });
+
+    it('rethrows other S3 errors', async () => {
+      const s3 = makeMockS3Config();
+      mockS3Send.mockRejectedValueOnce(new Error('AccessDenied'));
+      await expect(readObject(s3, 'b', 'k', 10)).rejects.toThrow('AccessDenied');
     });
   });
 });

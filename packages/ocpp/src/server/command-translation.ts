@@ -33,16 +33,17 @@ function mapResetType(payload: Record<string, unknown>): Record<string, unknown>
   return { ...payload, type: mapped };
 }
 
+/**
+ * 2.1 ChangeAvailability `{ evse?: { id }, operationalStatus }` to 1.6
+ * `{ connectorId, type }`. Both versions name the status Operative or
+ * Inoperative. A 1.6 connector is the 2.1 EVSE (`evse.id`); no EVSE means the
+ * whole station, connectorId 0.
+ */
 function mapAvailability16(payload: Record<string, unknown>): Record<string, unknown> {
   const evse = payload.evse as Record<string, unknown> | undefined;
-  const connectorId = evse?.connectorId ?? 0;
-  const typeMap: Record<string, string> = {
-    Operative: 'Available',
-    Inoperative: 'Unavailable',
-  };
   return {
-    connectorId,
-    type: typeMap[payload.operationalStatus as string] ?? payload.operationalStatus,
+    connectorId: evse?.id ?? 0,
+    type: payload.operationalStatus,
   };
 }
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import {
+  multiplyCents,
   netFromGross,
   parseSessionCostBreakdown,
   reconcileCostBreakdown,
@@ -53,7 +54,7 @@ export function netOfCharge(grossCents: number, tax: ChargeTax): number {
  */
 export function platformFeeCents(grossCents: number, tax: ChargeTax, feePercent: number): number {
   if (!(feePercent > 0) || !(grossCents > 0)) return 0;
-  const fee = Math.round((netOfCharge(grossCents, tax) * feePercent) / 100);
+  const fee = multiplyCents(netOfCharge(grossCents, tax), feePercent, 100);
   return Math.min(fee, grossCents);
 }
 

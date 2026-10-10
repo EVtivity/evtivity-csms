@@ -192,29 +192,44 @@ export const paymentsByStatus = new Gauge({
   registers: [register],
 });
 
-// --- OCPP server health (from ping monitor) ---
+// --- OCPP server health (from the ping monitor rows, one per OCPP process) ---
+// Fleet values over every live OCPP process. Each API task exports the same
+// values, so dashboards aggregate them across API tasks with max(), not sum().
 
 export const ocppConnectedStations = new Gauge({
   name: 'ocpp_connected_stations',
-  help: 'Number of stations connected via WebSocket',
+  help: 'Stations connected via WebSocket, summed over all OCPP processes',
   registers: [register],
 });
 
 export const ocppPingLatencyAvgMs = new Gauge({
   name: 'ocpp_ping_latency_avg_ms',
-  help: 'Average WebSocket ping latency in milliseconds',
+  help: 'Average WebSocket ping latency in milliseconds over all OCPP processes, weighted by connected stations',
   registers: [register],
 });
 
 export const ocppPingLatencyMaxMs = new Gauge({
   name: 'ocpp_ping_latency_max_ms',
-  help: 'Maximum WebSocket ping latency in milliseconds',
+  help: 'Maximum WebSocket ping latency in milliseconds over all OCPP processes',
   registers: [register],
 });
 
 export const ocppPingSuccessRate = new Gauge({
   name: 'ocpp_ping_success_rate',
-  help: 'WebSocket ping/pong success rate (percentage)',
+  help: 'WebSocket ping/pong success rate (percentage) over all OCPP processes',
+  registers: [register],
+});
+
+export const ocppInstances = new Gauge({
+  name: 'ocpp_instances',
+  help: 'OCPP processes with a fresh health row',
+  registers: [register],
+});
+
+export const ocppInstanceConnectedStations = new Gauge({
+  name: 'ocpp_instance_connected_stations',
+  help: 'Stations connected via WebSocket to one OCPP process',
+  labelNames: ['ocpp_instance'] as const,
   registers: [register],
 });
 

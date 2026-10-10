@@ -17,6 +17,9 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+const access = vi.hoisted(() => ({ canWrite: true }));
+vi.mock('@/lib/auth', () => ({ useHasCompanyWidePermission: () => access.canWrite }));
+
 vi.mock('@/lib/api', () => ({
   api: {
     get: vi.fn().mockResolvedValue([
@@ -58,7 +61,21 @@ describe('PricingGroupTariffsTab', () => {
 
   afterEach(async () => {
     cleanup();
+    access.canWrite = true;
     await i18next.changeLanguage('en');
+  });
+
+  it('shows Create tariff to a user who can write company-wide pricing', async () => {
+    renderTab();
+    await screen.findByText('19%');
+    expect(screen.getByText('pricing.createTariff')).toBeDefined();
+  });
+
+  it('hides Create tariff from a site-restricted user', async () => {
+    access.canWrite = false;
+    renderTab();
+    await screen.findByText('19%');
+    expect(screen.queryByText('pricing.createTariff')).toBeNull();
   });
 
   it('shows stored prices with the decimal separator of the UI language', async () => {

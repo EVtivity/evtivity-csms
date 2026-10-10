@@ -92,9 +92,9 @@ describe('hasAnySettingsPermission', () => {
 describe('built-in permission catalog', () => {
   const all = permissionCatalog.all();
 
-  it('holds 33 resources with read and write each', () => {
-    expect(permissionCatalog.groups()).toHaveLength(33);
-    expect(all).toHaveLength(66);
+  it('holds 34 resources with read and write each', () => {
+    expect(permissionCatalog.groups()).toHaveLength(34);
+    expect(all).toHaveLength(68);
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -131,7 +131,9 @@ describe('built-in permission catalog', () => {
 
   it('gives operator operational access without settings or users:write', () => {
     const operator = permissionCatalog.defaultsFor('operator');
-    expect(operator).toHaveLength(38);
+    expect(operator).toHaveLength(40);
+    expect(operator).toContain('aiAssistant:read');
+    expect(operator).toContain('aiAssistant:write');
     expect(operator).not.toContain('users:write');
     expect(operator.some((p) => p.startsWith('settings.'))).toBe(false);
     expect(operator).toContain('notifications:read');
@@ -148,6 +150,9 @@ describe('built-in permission catalog', () => {
       .filter((g) => g.kind === 'page')
       .map((g) => g.permissions[0]);
     expect([...viewer].sort()).toEqual([...pageReads].sort());
+    // A viewer can read AI conversations but not chat (aiAssistant:write).
+    expect(viewer).toContain('aiAssistant:read');
+    expect(viewer).not.toContain('aiAssistant:write');
   });
 
   it('gives any other role the operator defaults', () => {
@@ -164,8 +169,8 @@ describe('built-in permission catalog', () => {
     permissionCatalog.defaultsFor('operator').push('x:read');
     const [first] = permissionCatalog.groups();
     if (first != null) first.resource = 'changed';
-    expect(permissionCatalog.all()).toHaveLength(66);
-    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(38);
+    expect(permissionCatalog.all()).toHaveLength(68);
+    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(40);
     expect(permissionCatalog.groups()[0]?.resource).toBe('dashboard');
   });
 });

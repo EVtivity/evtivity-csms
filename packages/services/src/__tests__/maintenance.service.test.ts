@@ -977,16 +977,15 @@ describe('detached side effects', () => {
     });
 
     expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
-    expect(h.publish).toHaveBeenCalledWith(
-      'maintenance_fanout',
-      JSON.stringify({
-        eventId: 'mne_1',
-        siteId: 'sit_1',
-        phase: 'add',
-        stationDbIds: ['sta_2'],
-        actor: { type: 'operator', userId: 'usr_1', label: null },
-      }),
-    );
+    const call = h.publish.mock.calls.find((c) => c[0] === 'maintenance_fanout');
+    expect(JSON.parse(call?.[1] as string)).toEqual({
+      eventId: 'mne_1',
+      siteId: 'sit_1',
+      phase: 'add',
+      stationDbIds: ['sta_2'],
+      actor: { type: 'operator', userId: 'usr_1', label: null },
+      nonce: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
   });
 
   it('removeStationsFromMaintenance publishes a remove fan-out when detached', async () => {
@@ -1000,16 +999,15 @@ describe('detached side effects', () => {
     });
 
     expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
-    expect(h.publish).toHaveBeenCalledWith(
-      'maintenance_fanout',
-      JSON.stringify({
-        eventId: 'mne_1',
-        siteId: 'sit_1',
-        phase: 'remove',
-        stationDbIds: ['sta_2'],
-        actor: { type: 'operator', userId: 'usr_1', label: null },
-      }),
-    );
+    const call = h.publish.mock.calls.find((c) => c[0] === 'maintenance_fanout');
+    expect(JSON.parse(call?.[1] as string)).toEqual({
+      eventId: 'mne_1',
+      siteId: 'sit_1',
+      phase: 'remove',
+      stationDbIds: ['sta_2'],
+      actor: { type: 'operator', userId: 'usr_1', label: null },
+      nonce: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
   });
 
   it('logs at error when the fan-out publish fails but still returns', async () => {

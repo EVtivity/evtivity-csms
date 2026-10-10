@@ -3,6 +3,7 @@
 
 import { z } from 'zod';
 
+import { priceEnergyCents } from './pricing-engine.js';
 import { getZonedComponents, isInDateRange, isInTimeRange } from './time-window.js';
 
 export interface ElectricityRatePeriodRestrictions {
@@ -120,6 +121,5 @@ export function resolveElectricityRate(
  * stored on charging_sessions.energy_delivered_wh); rate is dollars per kWh.
  */
 export function calculateElectricityCostCents(energyWh: number, ratePerKwh: string): number {
-  const energyKwh = energyWh / 1000;
-  return Math.round(energyKwh * parseFloat(ratePerKwh) * 100);
+  return priceEnergyCents(energyWh, ratePerKwh);
 }

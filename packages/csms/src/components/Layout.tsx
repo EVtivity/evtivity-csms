@@ -8,10 +8,10 @@ import { useQuery } from '@tanstack/react-query';
 import { Menu, X, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { AiAssistant } from '@/components/AiAssistant';
+import { AiAssistantLauncher } from '@/components/ai/AiAssistantLauncher';
 import { SidebarNav } from '@/components/layout/SidebarNav';
 import { UserDropdown } from '@/components/layout/UserDropdown';
-import { useAuth } from '@/lib/auth';
+import { useAuth, useHasAllSiteAccess } from '@/lib/auth';
 import { cn } from '@/lib/utils';
 import { useEventStream } from '@/hooks/use-event-stream';
 import { api } from '@/lib/api';
@@ -133,7 +133,8 @@ export function Layout(): React.JSX.Element {
   }, [companyName, favicon]);
 
   const permissions = useAuth((s) => s.permissions);
-  const visibleNavItems = visibleNavEntries(permissions, featureFlags);
+  const hasAllSiteAccess = useHasAllSiteAccess();
+  const visibleNavItems = visibleNavEntries(permissions, featureFlags, hasAllSiteAccess);
 
   useEffect(() => {
     setMobileNavOpen(false);
@@ -223,7 +224,7 @@ export function Layout(): React.JSX.Element {
           <Outlet />
         </main>
       </div>
-      <AiAssistant />
+      <AiAssistantLauncher />
     </div>
   );
 }

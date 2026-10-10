@@ -6,17 +6,11 @@
 // session close prices a session here, from its price snapshots, and stores
 // the cost with its net amount, tax, and breakdown in one statement.
 // Invoices, OCPI, the portal, and reports read the stored breakdown and never
-// recompute a session. The math is calculateSessionCostAt in
-// @evtivity/lib/cost-calculator; the tax math is @evtivity/lib/price-display.
+// recompute a session. The math is the pricing engine (priceSessionCost in
+// @evtivity/lib/pricing-engine); this module only loads its inputs.
 
 import type postgres from 'postgres';
-import {
-  calculateSessionCostAt,
-  capCostBreakdown,
-  chargedCostBreakdown,
-  resolveTaxBasis,
-  toSessionCostBreakdown,
-} from '@evtivity/lib';
+import { chargedCostBreakdown, priceSessionCost, resolveTaxBasis } from '@evtivity/lib';
 import type {
   SessionCostBreakdown,
   SessionSegmentInput,
@@ -24,7 +18,8 @@ import type {
   TaxBasis,
 } from '@evtivity/lib';
 import { getIdlingGracePeriodMinutes } from './idling-setting.js';
-import { isSplitBillingEnabled } from './pricing-settings.js';
+import { toDate, toDateOrNull } from './raw-timestamp.js';
+import type { RawTimestamp } from './raw-timestamp.js';
 import { resolveStationTariff } from './tariff-resolution.js';
 
 /** The tariff columns copied onto a session or a tariff segment. */
@@ -51,11 +46,6 @@ export interface SessionPricingRow {
   reservationReferenceAt: Date | null;
   /** The most the session can be billed (a guest's card authorization), or null. */
   costCeilingCents: number | null;
-}
-
-function toDate(value: unknown): Date | null {
-  if (value == null) return null;
-  return value instanceof Date ? value : new Date(value as string);
 }
 
 /** A numeric column as postgres returns it (a string), or a number. */
@@ -88,7 +78,7 @@ export async function loadSessionPricing(
     WHERE s.id = ${sessionId}
   `;
   const row = rows[0];
-  const startedAt = toDate(row?.started_at);
+  const startedAt = toDateOrNull(row?.started_at as RawTimestamp);
   if (row == null || startedAt == null) return null;
   return {
     id: row.id as string,
@@ -103,20 +93,40 @@ export async function loadSessionPricing(
       reservationFeePerMinute: toPrice(row.reservation_fee_per_minute),
       taxRate: toPrice(row.tariff_tax_rate),
     },
-    idleStartedAt: toDate(row.idle_started_at),
+    idleStartedAt: toDateOrNull(row.idle_started_at as RawTimestamp),
     idleMinutes: Number(row.idle_minutes ?? 0),
-    reservationReferenceAt: toDate(row.reservation_reference_at),
+    reservationReferenceAt: toDateOrNull(row.reservation_reference_at as RawTimestamp),
     costCeilingCents: row.cost_ceiling_cents != null ? Number(row.cost_ceiling_cents) : null,
   };
 }
 
-/** Idle minutes of a session at `at`: the accumulated minutes plus an open idle period. */
+/**
+ * Idle minutes of a session at `at`: the accumulated minutes plus an open idle
+ * period. An idle period that opened after `at` adds nothing (never a negative
+ * amount, finding B11).
+ */
 export function sessionIdleMinutesAt(
   session: { idleStartedAt: Date | null; idleMinutes: number },
   at: Date,
 ): number {
   if (session.idleStartedAt == null) return session.idleMinutes;
-  return session.idleMinutes + (at.getTime() - session.idleStartedAt.getTime()) / 60000;
+  return (
+    session.idleMinutes + Math.max(0, (at.getTime() - session.idleStartedAt.getTime()) / 60000)
+  );
+}
+
+/**
+ * The time a station event applies at for tariff resolution and segment
+ * switches (finding B5): its own timestamp, at most `now` (a station clock
+ * ahead of the CSMS never selects a future tariff); `now` for a missing or
+ * invalid timestamp.
+ */
+export function eventTimeAtMostNow(
+  timestamp: string | Date | null | undefined,
+  now: Date = new Date(),
+): Date {
+  const ms = timestamp == null ? Number.NaN : new Date(timestamp).getTime();
+  return Number.isNaN(ms) || ms > now.getTime() ? now : new Date(ms);
 }
 
 /** Minutes a reservation held the EVSE before the session started (holding fee). */
@@ -155,8 +165,8 @@ async function loadSegments(sql: postgres.Sql, sessionId: string): Promise<Sessi
       reservationFeePerMinute: toPrice(seg.reservation_fee_per_minute),
       taxRate: toPrice(seg.tax_rate),
     },
-    startedAt: toDate(seg.started_at) as Date,
-    endedAt: toDate(seg.ended_at),
+    startedAt: toDate(seg.started_at as Date | string),
+    endedAt: toDateOrNull(seg.ended_at as RawTimestamp),
     energyWhStart: Number(seg.energy_wh_start ?? 0),
     energyWhEnd: seg.energy_wh_end != null ? Number(seg.energy_wh_end) : null,
     idleMinutes: Number(seg.idle_minutes ?? 0),
@@ -164,9 +174,26 @@ async function loadSegments(sql: postgres.Sql, sessionId: string): Promise<Sessi
 }
 
 /**
+ * A session's segments as they stand at `at` (findings B6 and B8): a segment
+ * other than the first that starts at or after `at` does not exist yet (a
+ * switch at wall clock after an end the station reports later), and the
+ * latest remaining segment is open at `at` when it ended after `at` or has
+ * not ended. The Ended projection stores the same view (closeSegmentsAt).
+ */
+export function segmentsAt(segments: SessionSegmentInput[], at: Date): SessionSegmentInput[] {
+  const atMs = at.getTime();
+  const kept = segments.filter((seg, index) => index === 0 || seg.startedAt.getTime() < atMs);
+  const last = kept[kept.length - 1];
+  if (last != null && last.endedAt != null && last.endedAt.getTime() > atMs) {
+    kept[kept.length - 1] = { ...last, endedAt: null, energyWhEnd: null, idleMinutes: 0 };
+  }
+  return kept;
+}
+
+/**
  * The cost of a session at `at` with `energyWh` delivered: its tariff
- * segments when split billing is on and the tariff changed during the
- * session, else its tariff snapshot, with the idle grace period and the
+ * segments when the session has more than one (whatever the split billing
+ * setting is now, finding B8), else its tariff snapshot, with the idle grace period and the
  * reservation holding fee, at most the session's cost ceiling (a guest's card
  * authorization or a prepaid token's credit: the tariff price above it is
  * kept in pricedGrossCents and not billed). Null for a session without a tariff snapshot (not billed, such
@@ -179,25 +206,23 @@ export async function priceSession(
   energyWh: number,
 ): Promise<SessionCostBreakdown | null> {
   if (session.tariffId == null) return null;
-  const [gracePeriodMinutes, splitEnabled] = await Promise.all([
+  const [gracePeriodMinutes, allSegments] = await Promise.all([
     getIdlingGracePeriodMinutes(),
-    isSplitBillingEnabled(),
+    loadSegments(sql, session.id),
   ]);
-  const segments = splitEnabled ? await loadSegments(sql, session.id) : [];
-  const priced = toSessionCostBreakdown(
-    calculateSessionCostAt({
-      basis: session.basis,
-      tariff: session.tariff,
-      startedAt: session.startedAt,
-      at,
-      energyWh,
-      idleMinutes: sessionIdleMinutesAt(session, at),
-      gracePeriodMinutes,
-      reservationHoldingMinutes: reservationHoldingMinutes(session),
-      segments,
-    }),
-  );
-  return capCostBreakdown(priced, session.costCeilingCents, Number(session.tariff.taxRate ?? 0));
+  const segments = segmentsAt(allSegments, at);
+  return priceSessionCost({
+    basis: session.basis,
+    tariff: session.tariff,
+    startedAt: session.startedAt,
+    at,
+    energyWh,
+    idleMinutes: sessionIdleMinutesAt(session, at),
+    gracePeriodMinutes,
+    reservationHoldingMinutes: reservationHoldingMinutes(session),
+    segments,
+    ceilingCents: session.costCeilingCents,
+  }).breakdown;
 }
 
 /** loadSessionPricing then priceSession. Null for an unknown, unstarted, or unpriced session. */
@@ -293,8 +318,9 @@ export async function storeFinalCost(
 }
 
 /**
- * Copy a tariff's prices and the company tax basis onto a session (the
- * snapshot it is priced from). One UPDATE, safe to run again. The session's
+ * Copy a tariff's prices, its pricing group and the company tax basis onto a
+ * session (the snapshot it is priced from; split billing switches resolve
+ * within that group). One UPDATE, safe to run again. The session's
  * first tariff segment is opened by openFirstTariffSegment.
  */
 export async function snapshotSessionTariff(
@@ -312,6 +338,7 @@ export async function snapshotSessionTariff(
         tariff_idle_fee_price_per_minute = ${tariff.idleFeePricePerMinute},
         tariff_reservation_fee_per_minute = ${tariff.reservationFeePerMinute},
         tariff_tax_rate = ${tariff.taxRate},
+        pricing_group_id = (SELECT pricing_group_id FROM tariffs WHERE id = ${tariff.id}),
         tax_basis = ${basis},
         updated_at = now()
     WHERE id = ${sessionId}
@@ -320,7 +347,8 @@ export async function snapshotSessionTariff(
 
 /**
  * Open a session's first tariff segment with the prices of its tariff. One
- * INSERT: running it twice opens two segments.
+ * INSERT; a session that already has an open segment keeps it (the partial
+ * unique index of migration 0330 allows one open segment per session).
  */
 export async function openFirstTariffSegment(
   sql: postgres.Sql,
@@ -349,6 +377,7 @@ async function insertSegment(
       ${tariff.pricePerKwh}, ${tariff.pricePerMinute}, ${tariff.pricePerSession},
       ${tariff.idleFeePricePerMinute}, ${tariff.reservationFeePerMinute}, ${tariff.taxRate}
     )
+    ON CONFLICT (session_id) WHERE ended_at IS NULL DO NOTHING
   `;
 }
 
@@ -406,6 +435,9 @@ export async function repriceSessionForDriver(
                 driverUuid: params.driverUuid,
                 at: new Date(segment.started_at as string | Date),
                 sessionEnergyKwh: Number(segment.energy_wh_start ?? 0) / 1000,
+                // The later segments resolve within the driver's group, as
+                // the split billing switches do from now on.
+                pricingGroupId: tariff.pricingGroup.id,
               },
               txSql,
             );
@@ -428,53 +460,87 @@ export async function repriceSessionForDriver(
 }
 
 /**
- * Close the open tariff segment of a session at `at`. idle_minutes on the
- * session is the whole-session accumulator, so the closing segment gets the
- * idle not yet attributed to closed segments.
+ * Ends a session's tariff segments at `at` (the Ended projection, the stale
+ * session cleanup, and the re-bill; findings B6 and B11): every segment other
+ * than the first that starts at or after `at` is removed (a switch the
+ * tariff boundary job made at wall clock after the end the station reports
+ * later), and the latest remaining segment is closed at `at` with `energyWh`
+ * and the session idle not attributed to the other segments. One transaction
+ * under the session row lock, so it never interleaves with a segment switch.
+ * Safe to run again with the same values.
  */
-export async function closeOpenSegment(
+export async function closeSegmentsAt(
   sql: postgres.Sql,
   sessionId: string,
   at: Date,
   energyWh: number,
   sessionIdleMinutes: number,
 ): Promise<void> {
-  const closedRows = await sql`
-    SELECT COALESCE(SUM(idle_minutes), 0)::text AS total
-    FROM session_tariff_segments
-    WHERE session_id = ${sessionId} AND ended_at IS NOT NULL
-  `;
-  const closedIdle = Number(closedRows[0]?.total ?? 0);
-  const segmentIdle = Math.max(0, sessionIdleMinutes - closedIdle);
   const atIso = at.toISOString();
-  await sql`
-    UPDATE session_tariff_segments
-    SET ended_at = ${atIso},
-        energy_wh_end = ${energyWh},
-        duration_minutes = EXTRACT(EPOCH FROM (${atIso}::timestamptz - started_at)) / 60,
-        idle_minutes = ${segmentIdle}
-    WHERE session_id = ${sessionId} AND ended_at IS NULL
-  `;
-}
-
-/** The tariff of a session's open segment, or null when no segment is open. */
-export async function openSegmentTariffId(
-  sql: postgres.Sql,
-  sessionId: string,
-): Promise<string | null> {
-  const rows = await sql`
-    SELECT tariff_id FROM session_tariff_segments
-    WHERE session_id = ${sessionId} AND ended_at IS NULL
-    ORDER BY started_at DESC
-    LIMIT 1
-  `;
-  return (rows[0]?.tariff_id as string | undefined) ?? null;
+  await sql.begin(async (tx) => {
+    const txSql = tx as unknown as postgres.Sql;
+    await txSql`SELECT id FROM charging_sessions WHERE id = ${sessionId} FOR UPDATE`;
+    const segments = await txSql`
+      SELECT id, started_at FROM session_tariff_segments
+      WHERE session_id = ${sessionId}
+      ORDER BY started_at, id
+    `;
+    const first = segments[0];
+    if (first == null) return;
+    const atMs = at.getTime();
+    const later = segments
+      .slice(1)
+      .filter((seg) => new Date(seg.started_at as string | Date).getTime() >= atMs)
+      .map((seg) => seg.id as number);
+    if (later.length > 0) {
+      await txSql`DELETE FROM session_tariff_segments WHERE id = ANY(${later}::int[])`;
+    }
+    const remaining = segments.filter((seg) => !later.includes(seg.id as number));
+    const last = remaining[remaining.length - 1] ?? first;
+    const [otherIdle] = await txSql`
+      SELECT COALESCE(SUM(idle_minutes), 0)::text AS total
+      FROM session_tariff_segments
+      WHERE session_id = ${sessionId} AND id <> ${last.id as number}
+    `;
+    const segmentIdle = Math.max(0, sessionIdleMinutes - Number(otherIdle?.total ?? 0));
+    await txSql`
+      UPDATE session_tariff_segments
+      SET ended_at = ${atIso},
+          energy_wh_end = GREATEST(energy_wh_start, ${energyWh}::numeric),
+          duration_minutes = GREATEST(0, EXTRACT(EPOCH FROM (${atIso}::timestamptz - started_at)) / 60),
+          idle_minutes = ${segmentIdle}
+      WHERE id = ${last.id as number}
+    `;
+  });
 }
 
 /**
- * Split billing: close the open segment at `at` and open one priced from
- * `tariff`, in one transaction. The session's own tariff snapshot (and its
- * tax rate) stays the one it started with; only segments change.
+ * Split billing: closes the open segment of an active session at `at` and
+ * opens one priced from `tariff` at `at` with `energyWh` (finding B1). One
+ * transaction under the session row lock (SELECT ... FOR UPDATE), so the
+ * tariff boundary job and a MeterValues projection never switch the same
+ * session at once: the second waits, then finds the new segment open with the
+ * tariff it resolved and does nothing. The close is a compare-and-set on the
+ * open segment's id, and the new segment is inserted only when that close
+ * changed a row. Nothing changes when the open segment already has `tariff`,
+ * when `at` is not after the open segment's start (an older reading after a
+ * newer switch, findings B5 and B6), or when the session is not active. The
+ * closing segment gets the session idle at `at` not yet attributed to closed
+ * segments. The session's own tariff snapshot stays the one it started with.
+ * Returns the tariff of the segment it closed, or null when it switched
+ * nothing.
+ *
+ * `readingEnergyWh` (MeterValues only): the session energy at the reading
+ * `at` is the time of, when that reading is the newest projected register
+ * reading (not stale). When it switches nothing because `at` is at or before
+ * the open segment's start, and the open segment is not the first, a reading
+ * above the open segment's starting energy moves the boundary energy up to it
+ * (the closed segment's end and the open segment's start): that energy was
+ * delivered before the boundary. This happens when the boundary job switched
+ * at wall clock with the energy of an older reading and the reading taken at
+ * the boundary arrives just after (TC-T2-06). A reading after the boundary
+ * cannot be known yet: the reading is the newest one and not after the
+ * boundary.
  */
 export async function switchTariffSegment(
   sql: postgres.Sql,
@@ -483,24 +549,89 @@ export async function switchTariffSegment(
     tariff: TariffPriceSnapshot;
     at: Date;
     energyWh: number;
-    sessionIdleMinutes: number;
+    readingEnergyWh?: number | null;
   },
-): Promise<void> {
-  await sql.begin(async (tx) => {
+): Promise<{ fromTariffId: string } | null> {
+  // Most calls find the open segment on the tariff already (every MeterValues
+  // with split billing on, every boundary job tick): a read without the lock
+  // skips the transaction then. The lock below decides the switch.
+  const [current] = await sql`
+    SELECT tariff_id, started_at, energy_wh_start FROM session_tariff_segments
+    WHERE session_id = ${params.sessionId} AND ended_at IS NULL
+  `;
+  if (current == null) return null;
+  const readingEnergyWh = params.readingEnergyWh ?? null;
+  const raisesBoundary = (open: Record<string, unknown>): boolean =>
+    readingEnergyWh != null &&
+    params.at.getTime() <= new Date(open.started_at as string | Date).getTime() &&
+    readingEnergyWh > Number(open.energy_wh_start ?? 0);
+  if (current.tariff_id === params.tariff.id && !raisesBoundary(current)) return null;
+  return sql.begin(async (tx) => {
     const txSql = tx as unknown as postgres.Sql;
-    await closeOpenSegment(
-      txSql,
-      params.sessionId,
+    const [session] = await txSql`
+      SELECT idle_started_at, idle_minutes FROM charging_sessions
+      WHERE id = ${params.sessionId} AND status = 'active'
+      FOR UPDATE
+    `;
+    if (session == null) return null;
+    const [open] = await txSql`
+      SELECT id, tariff_id, started_at, energy_wh_start FROM session_tariff_segments
+      WHERE session_id = ${params.sessionId} AND ended_at IS NULL
+    `;
+    if (open == null) return null;
+    const openStartedAt = new Date(open.started_at as string | Date);
+    if (open.tariff_id === params.tariff.id || params.at.getTime() <= openStartedAt.getTime()) {
+      if (readingEnergyWh != null && raisesBoundary(open)) {
+        // Not the first segment: the previous one ends where the open one
+        // starts, at the same energy (the switch wrote both).
+        const raised = await txSql`
+          UPDATE session_tariff_segments
+          SET energy_wh_end = ${readingEnergyWh}
+          WHERE session_id = ${params.sessionId} AND id <> ${open.id as number}
+            AND ended_at = (SELECT started_at FROM session_tariff_segments WHERE id = ${open.id as number})
+            AND energy_wh_end < ${readingEnergyWh}
+          RETURNING id
+        `;
+        if (raised.length > 0) {
+          await txSql`
+            UPDATE session_tariff_segments
+            SET energy_wh_start = ${readingEnergyWh}
+            WHERE id = ${open.id as number} AND ended_at IS NULL
+          `;
+        }
+      }
+      return null;
+    }
+    const [closedIdle] = await txSql`
+      SELECT COALESCE(SUM(idle_minutes), 0)::text AS total
+      FROM session_tariff_segments
+      WHERE session_id = ${params.sessionId} AND ended_at IS NOT NULL
+    `;
+    const sessionIdle = sessionIdleMinutesAt(
+      {
+        idleStartedAt:
+          session.idle_started_at != null
+            ? new Date(session.idle_started_at as string | Date)
+            : null,
+        idleMinutes: Number(session.idle_minutes ?? 0),
+      },
       params.at,
-      params.energyWh,
-      params.sessionIdleMinutes,
     );
-    await insertSegment(
-      txSql,
-      params.sessionId,
-      params.tariff,
-      params.at.toISOString(),
-      params.energyWh,
-    );
+    const segmentIdle = Math.max(0, sessionIdle - Number(closedIdle?.total ?? 0));
+    // The energy at the switch is never below the open segment's start.
+    const energyWh = Math.max(params.energyWh, Number(open.energy_wh_start ?? 0));
+    const atIso = params.at.toISOString();
+    const closed = await txSql`
+      UPDATE session_tariff_segments
+      SET ended_at = ${atIso},
+          energy_wh_end = ${energyWh},
+          duration_minutes = EXTRACT(EPOCH FROM (${atIso}::timestamptz - started_at)) / 60,
+          idle_minutes = ${segmentIdle}
+      WHERE id = ${open.id as number} AND ended_at IS NULL
+      RETURNING id
+    `;
+    if (closed.length === 0) return null;
+    await insertSegment(txSql, params.sessionId, params.tariff, atIso, energyWh);
+    return { fromTariffId: open.tariff_id as string };
   });
 }

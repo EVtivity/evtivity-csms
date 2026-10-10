@@ -1,20 +1,27 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import {
   db,
   sites,
+  ocpiPartners,
   ocpiLocationPublish,
   ocpiLocationPublishPartners,
   ocpiLocationAudience,
+  pgConstraintName,
+  pgErrorCode,
+  PG_UNIQUE_VIOLATION,
 } from '@evtivity/database';
+import { ID_PREFIXES } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { lostLocationAudience, publishOcpiLocationPush } from '../lib/ocpi-location-push.js';
 import { authorize } from '../middleware/rbac.js';
+import { getUserSiteIds, userCanAccessSite } from '../lib/site-access.js';
+import type { JwtPayload } from '../plugins/auth.js';
 import {
   successResponse,
   itemResponse,
@@ -54,7 +61,10 @@ const locationPublishDetail = z
     partnerIds: z
       .array(z.string())
       .max(500)
-      .describe('Partner IDs the site is visible to when publishToAll is false'),
+      .optional()
+      .describe(
+        'Partner IDs the site is visible to when publishToAll is false. Omitted for users without access to every site (roaming partners are company-wide)',
+      ),
   })
   .passthrough();
 
@@ -67,14 +77,76 @@ const publishBody = z.object({
   publishToAll: z
     .boolean()
     .optional()
-    .describe('If true, publish to all partners. If false, use partnerIds list'),
-  ocpiLocationId: z.string().max(36).optional().describe('Custom OCPI location identifier'),
+    .describe(
+      'If true, publish to all partners. If false, use partnerIds list. Ignored for users without access to every site: the stored value is kept',
+    ),
+  ocpiLocationId: z
+    .string()
+    .min(1)
+    .max(36)
+    .optional()
+    .describe(
+      'Custom OCPI location identifier. Must be unique and must not have the form of a site id (sit_ prefix) other than this site. Omit it to keep the stored one (the site id is the default)',
+    ),
   partnerIds: z
     .array(ID_PARAMS.ocpiPartnerId)
     .max(500)
     .optional()
-    .describe('Partner IDs to publish to when publishToAll is false'),
+    .describe(
+      'Partner IDs to publish to when publishToAll is false. Every id must name an existing partner. Ignored for users without access to every site: the stored list is kept',
+    ),
 });
+
+const LOCATION_ID_TAKEN = 'OCPI location id is already in use';
+
+async function sendValidationError(
+  reply: FastifyReply,
+  error: string,
+  details: Record<string, string>,
+): Promise<void> {
+  await reply.status(400).send({ error, code: 'VALIDATION_ERROR', details });
+}
+
+/**
+ * True when the OCPI location id is refused: another row already uses it, or
+ * it has the shape of a site id other than this site's own (a site without a
+ * custom id is published under its site id). Partners resolve a location_id
+ * by either form, so either collision would let the lookup pick the wrong
+ * site. Every site-id-shaped id is refused, whether that site exists or not,
+ * so the answer never tells the caller which site ids exist.
+ */
+async function ocpiLocationIdTaken(ocpiLocationId: string, siteId: string): Promise<boolean> {
+  if (ocpiLocationId !== siteId && ocpiLocationId.startsWith(`${ID_PREFIXES.site}_`)) return true;
+  const [other] = await db
+    .select({ id: ocpiLocationPublish.id })
+    .from(ocpiLocationPublish)
+    .where(
+      and(
+        eq(ocpiLocationPublish.ocpiLocationId, ocpiLocationId),
+        ne(ocpiLocationPublish.siteId, siteId),
+      ),
+    )
+    .limit(1);
+  return other != null;
+}
+
+/** The given partner ids that do not exist (the FK would fail with a 500). */
+async function unknownPartnerIds(partnerIds: string[]): Promise<string[]> {
+  if (partnerIds.length === 0) return [];
+  const rows = await db
+    .select({ id: ocpiPartners.id })
+    .from(ocpiPartners)
+    .where(inArray(ocpiPartners.id, partnerIds));
+  const known = new Set(rows.map((r) => r.id));
+  return partnerIds.filter((id) => !known.has(id));
+}
+
+function isLocationIdUniqueViolation(err: unknown): boolean {
+  return (
+    pgErrorCode(err) === PG_UNIQUE_VIOLATION &&
+    pgConstraintName(err) === 'uq_ocpi_location_publish_location_id'
+  );
+}
 
 export function ocpiLocationRoutes(app: FastifyInstance): void {
   // GET /ocpi/locations - list all sites with publish status
@@ -90,7 +162,10 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
         response: { 200: arrayResponse(locationPublishListItem) },
       },
     },
-    async () => {
+    async (request) => {
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && siteIds.length === 0) return [];
       const siteRows = await db
         .select({
           id: sites.id,
@@ -100,9 +175,13 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
           country: sites.country,
         })
         .from(sites)
+        .where(siteIds != null ? inArray(sites.id, siteIds) : undefined)
         .orderBy(sites.name);
 
-      const publishRows = await db.select().from(ocpiLocationPublish);
+      const publishRows = await db
+        .select()
+        .from(ocpiLocationPublish)
+        .where(siteIds != null ? inArray(ocpiLocationPublish.siteId, siteIds) : undefined);
 
       const publishMap = new Map<string, (typeof publishRows)[number]>();
       for (const row of publishRows) {
@@ -140,6 +219,14 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId } = request.params as z.infer<typeof siteParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await userCanAccessSite(userId, siteId))) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      // Roaming partners are company-wide (all-site users only), so a
+      // site-restricted user does not get the partner ids.
+      const allSiteUser = (await getUserSiteIds(userId)) == null;
 
       const [site] = await db
         .select({ id: sites.id, name: sites.name })
@@ -159,7 +246,7 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
         .limit(1);
 
       let partnerIds: string[] = [];
-      if (publish != null && !publish.publishToAll) {
+      if (allSiteUser && publish != null && !publish.publishToAll) {
         const partners = await db
           .select({ partnerId: ocpiLocationPublishPartners.partnerId })
           .from(ocpiLocationPublishPartners)
@@ -173,7 +260,7 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
         isPublished: publish?.isPublished ?? false,
         publishToAll: publish?.publishToAll ?? true,
         ocpiLocationId: publish?.ocpiLocationId ?? null,
-        partnerIds,
+        ...(allSiteUser ? { partnerIds } : {}),
       };
     },
   );
@@ -192,6 +279,7 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
         body: zodSchema(publishBody),
         response: {
           200: successResponse,
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
           500: errorWith('Internal server error', [ERROR_CODES.INTERNAL_ERROR]),
         },
@@ -199,6 +287,11 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { siteId } = request.params as z.infer<typeof siteParams>;
+      const { userId } = request.user as JwtPayload;
+      if (!(await userCanAccessSite(userId, siteId))) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
       const body = request.body as z.infer<typeof publishBody>;
 
       const [site] = await db
@@ -210,6 +303,28 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
       if (site == null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
+      }
+
+      // Validate everything before any write.
+      if (body.ocpiLocationId != null && (await ocpiLocationIdTaken(body.ocpiLocationId, siteId))) {
+        await sendValidationError(reply, LOCATION_ID_TAKEN, { ocpiLocationId: LOCATION_ID_TAKEN });
+        return;
+      }
+      // Roaming partners are company-wide: a site-restricted user cannot see
+      // them, so its partnerIds are ignored and the stored list is kept.
+      // publishToAll is the same company-wide choice (every partner), so it is
+      // ignored for a restricted user too and the stored value is kept.
+      const allSites = (await getUserSiteIds(userId)) == null;
+      const partnerIds = allSites ? body.partnerIds : undefined;
+      const publishToAll = allSites ? body.publishToAll : undefined;
+      if (partnerIds != null) {
+        const unknown = await unknownPartnerIds(partnerIds);
+        if (unknown.length > 0) {
+          await sendValidationError(reply, 'Unknown partner id', {
+            partnerIds: `Unknown partner id: ${unknown.join(', ')}`,
+          });
+          return;
+        }
       }
 
       // Who sees the location now: partners that lose it get its EVSEs as
@@ -229,13 +344,22 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
           isPublished: body.isPublished,
           updatedAt: new Date(),
         };
-        if (body.publishToAll != null) updateData['publishToAll'] = body.publishToAll;
+        if (publishToAll != null) updateData['publishToAll'] = publishToAll;
         if (body.ocpiLocationId != null) updateData['ocpiLocationId'] = body.ocpiLocationId;
 
-        await db
-          .update(ocpiLocationPublish)
-          .set(updateData)
-          .where(eq(ocpiLocationPublish.id, existing.id));
+        try {
+          await db
+            .update(ocpiLocationPublish)
+            .set(updateData)
+            .where(eq(ocpiLocationPublish.id, existing.id));
+        } catch (err) {
+          // A concurrent write took the id after the check above.
+          if (!isLocationIdUniqueViolation(err)) throw err;
+          await sendValidationError(reply, LOCATION_ID_TAKEN, {
+            ocpiLocationId: LOCATION_ID_TAKEN,
+          });
+          return;
+        }
         publishId = existing.id;
       } else {
         const insertValues: {
@@ -247,13 +371,23 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
           siteId,
           isPublished: body.isPublished,
         };
-        if (body.publishToAll != null) insertValues.publishToAll = body.publishToAll;
+        if (publishToAll != null) insertValues.publishToAll = publishToAll;
         if (body.ocpiLocationId != null) insertValues.ocpiLocationId = body.ocpiLocationId;
 
-        const [inserted] = await db
-          .insert(ocpiLocationPublish)
-          .values(insertValues)
-          .returning({ id: ocpiLocationPublish.id });
+        let inserted: { id: number } | undefined;
+        try {
+          [inserted] = await db
+            .insert(ocpiLocationPublish)
+            .values(insertValues)
+            .returning({ id: ocpiLocationPublish.id });
+        } catch (err) {
+          // A concurrent write took the id after the check above.
+          if (!isLocationIdUniqueViolation(err)) throw err;
+          await sendValidationError(reply, LOCATION_ID_TAKEN, {
+            ocpiLocationId: LOCATION_ID_TAKEN,
+          });
+          return;
+        }
 
         if (inserted == null) {
           await reply
@@ -265,14 +399,14 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
       }
 
       // Update partner visibility if not publish_to_all
-      if (body.partnerIds != null) {
+      if (partnerIds != null) {
         await db
           .delete(ocpiLocationPublishPartners)
           .where(eq(ocpiLocationPublishPartners.locationPublishId, publishId));
 
-        if (body.partnerIds.length > 0) {
+        if (partnerIds.length > 0) {
           await db.insert(ocpiLocationPublishPartners).values(
-            body.partnerIds.map((partnerId) => ({
+            partnerIds.map((partnerId) => ({
               locationPublishId: publishId,
               partnerId,
             })),

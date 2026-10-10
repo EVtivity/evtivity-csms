@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { eq, and, inArray, sql } from 'drizzle-orm';
-import { db, chargingProfiles } from '@evtivity/database';
+import { db, chargingProfiles, chargingStations } from '@evtivity/database';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 
@@ -45,6 +45,14 @@ export async function chargingProfileReconciliationHandler(log: Logger): Promise
     )
     .orderBy(sql`${chargingProfiles.reportedAt} DESC NULLS LAST`);
 
+  // The station's site, so the operator SSE stream delivers the mismatch
+  // event to operators of that site only.
+  const stationSites = await db
+    .select({ id: chargingStations.id, siteId: chargingStations.siteId })
+    .from(chargingStations)
+    .where(inArray(chargingStations.id, stationIds));
+  const siteByStation = new Map(stationSites.map((s) => [s.id, s.siteId]));
+
   const pubsub = getPubSub();
   let mismatchCount = 0;
 
@@ -72,7 +80,7 @@ export async function chargingProfileReconciliationHandler(log: Logger): Promise
               eventType: 'station.profileMismatch',
               stationId: row.stationId,
               sessionId: null,
-              siteId: null,
+              siteId: siteByStation.get(row.stationId) ?? null,
             }),
           );
         } catch (err) {

@@ -3,7 +3,7 @@
 
 import { client, getSystemTimezone, loadFleetBillingContacts } from '@evtivity/database';
 import { dispatchSystemNotification, notificationMoney } from '@evtivity/lib';
-import type { EmailAttachment } from '@evtivity/lib';
+import type { EmailAttachment, NotificationDelivery } from '@evtivity/lib';
 import { getInvoice } from './invoice.service.js';
 import type { InvoiceDetail } from './invoice.service.js';
 import {
@@ -12,6 +12,8 @@ import {
   resolveInvoicePdfLanguage,
 } from './invoice-pdf.service.js';
 import { INVOICE_LABELS } from './invoice-labels.js';
+import { writeInvoiceSentAudit } from './invoice-audit.js';
+import type { InvoiceAuditActor, InvoiceAuditLogger } from './invoice-audit.js';
 
 export const FLEET_INVOICE_EVENT = 'invoice.FleetInvoice';
 export const FLEET_CREDIT_NOTE_EVENT = 'invoice.FleetCreditNote';
@@ -31,6 +33,12 @@ export type FleetInvoiceSendResult =
 export interface FleetInvoiceSendDeps {
   /** Notification template directories of the calling process. */
   templatesDirs: string[];
+}
+
+/** Who the `invoice_sent` audit row names, and where a failed write is logged. */
+export interface FleetInvoiceSendAudit {
+  actor: InvoiceAuditActor;
+  log?: InvoiceAuditLogger | undefined;
 }
 
 /** The template variables of a fleet invoice or credit note email. */
@@ -86,12 +94,15 @@ async function markSent(invoiceId: string, mode: FleetInvoiceSendMode): Promise<
  * `resend` sends again and sets it. The PDF is rendered before the claim, so
  * a render failure leaves the invoice unsent. The dispatcher is fail-open per
  * recipient (each attempt is in the notification history). A fleet without
- * billing contacts sends nothing (`no_contacts`).
+ * billing contacts sends nothing (`no_contacts`). A send that at least one
+ * contact's provider accepted is audited as `invoice_sent` by `audit.actor`
+ * (a resend when the invoice was emailed before).
  */
 export async function sendFleetInvoiceEmail(
   invoiceId: string,
   mode: FleetInvoiceSendMode,
   deps: FleetInvoiceSendDeps,
+  audit: FleetInvoiceSendAudit,
 ): Promise<FleetInvoiceSendResult> {
   const detail = await getInvoice(invoiceId);
   if (detail == null) return { status: 'not_found' };
@@ -113,8 +124,9 @@ export async function sendFleetInvoiceEmail(
   const variables = fleetInvoiceVariables(detail);
   const language = invoice.language ?? contacts.language ?? 'en';
   const timezone = await getSystemTimezone();
+  const delivered: NotificationDelivery[] = [];
   for (const email of contacts.emails) {
-    await dispatchSystemNotification(
+    const result = await dispatchSystemNotification(
       client,
       eventType,
       { email, language, timezone },
@@ -122,6 +134,18 @@ export async function sendFleetInvoiceEmail(
       deps.templatesDirs,
       [attachment],
     );
+    delivered.push(...result.delivered);
   }
+  await writeInvoiceSentAudit(
+    {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      eventType,
+      delivered,
+      resend: invoice.sentAt != null,
+      actor: audit.actor,
+    },
+    audit.log,
+  );
   return { status: 'sent', recipients: contacts.emails.length };
 }

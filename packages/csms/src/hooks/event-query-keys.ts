@@ -126,6 +126,12 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       }
       break;
 
+    case 'displayMessage.updated':
+      if (stationId != null) {
+        keys.push(['display-messages', stationId]);
+      }
+      break;
+
     case 'station.securityEvent':
       if (stationId != null) {
         keys.push(['stations', stationId, 'security-logs']);

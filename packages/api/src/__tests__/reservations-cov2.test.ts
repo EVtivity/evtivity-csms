@@ -102,6 +102,18 @@ vi.mock('@evtivity/database', () => ({
   driverTokens: {},
   users: {},
   reservationAuditLog: {},
+  snapshotReservationFeeTerms: vi.fn().mockResolvedValue({
+    feeTaxBasis: 'gross',
+    feeTaxRate: '0.19',
+    feePerMinute: '0.10',
+    feeCancellationCents: 300,
+  }),
+  resolveReservationFeeTerms: vi.fn().mockResolvedValue({
+    basis: 'gross',
+    taxRate: '0.19',
+    feePerMinute: '0.10',
+    cancellationFeeCents: 300,
+  }),
   getReservationSettings: vi.fn(),
   writeReservationAudit: vi.fn().mockResolvedValue(undefined),
   reservationDiffChanged: vi.fn().mockReturnValue(false),

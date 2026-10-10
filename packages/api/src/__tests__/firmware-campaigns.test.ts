@@ -143,6 +143,8 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn(),
   isNotNull: vi.fn(),
   inArray: vi.fn(),
+  exists: vi.fn(),
+  notExists: vi.fn(),
 }));
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
@@ -179,6 +181,7 @@ vi.mock('../middleware/rbac.js', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { firmwareCampaignRoutes } from '../routes/firmware-campaigns.js';
 import * as databaseModule from '@evtivity/database';
+import { getUserSiteIds } from '../lib/site-access.js';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -1007,8 +1010,8 @@ describe('Firmware campaign routes', () => {
         updatedAt: new Date().toISOString(),
       };
 
-      // 1. select campaign, 2. update status to cancelled
-      setupDbResults([campaign], []);
+      // 1. select campaign, 2. guarded update returning the cancelled row
+      setupDbResults([campaign], [{ id: 'camp-001' }]);
 
       const response = await app.inject({
         method: 'POST',
@@ -1018,6 +1021,81 @@ describe('Firmware campaign routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.success).toBe(true);
+    });
+
+    it.each(['draft', 'completed', 'cancelled'])(
+      'returns 409 CAMPAIGN_NOT_ACTIVE for a %s campaign',
+      async (status) => {
+        const campaign = {
+          id: 'camp-001',
+          name: 'Campaign',
+          firmwareUrl: 'https://example.com/fw.bin',
+          status,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        // 1. select campaign, 2. guarded update matches no row
+        setupDbResults([campaign], []);
+
+        const response = await app.inject({
+          method: 'POST',
+          url: '/v1/firmware-campaigns/camp-001/cancel',
+          headers: { authorization: `Bearer ${token}` },
+        });
+        expect(response.statusCode).toBe(409);
+        expect(JSON.parse(response.body).code).toBe('CAMPAIGN_NOT_ACTIVE');
+      },
+    );
+  });
+
+  describe('company-wide campaigns for a site-restricted user', () => {
+    const draft = (targetFilter: Record<string, unknown> | null) => ({
+      id: 'camp-001',
+      name: 'Draft',
+      firmwareUrl: 'https://example.com/fw.bin',
+      status: 'draft',
+      targetFilter,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    it('refuses to create a campaign without a site or station', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['site-a']);
+      setupDbResults();
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/firmware-campaigns',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'All', firmwareUrl: 'https://example.com/fw.bin' }),
+      });
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).code).toBe('CAMPAIGN_NOT_FOUND');
+    });
+
+    it('refuses to widen a site draft to every site', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['site-a']);
+      setupDbResults([draft({ siteId: 'site-a' })]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/v1/firmware-campaigns/camp-001',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ targetFilter: null, firmwareUrl: 'https://evil.example/fw.bin' }),
+      });
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).code).toBe('CAMPAIGN_NOT_FOUND');
+    });
+
+    it('refuses to edit a draft that targets every site', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['site-a']);
+      setupDbResults([draft(null)]);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/v1/firmware-campaigns/camp-001',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ firmwareUrl: 'https://evil.example/fw.bin' }),
+      });
+      expect(response.statusCode).toBe(404);
+      expect(JSON.parse(response.body).code).toBe('CAMPAIGN_NOT_FOUND');
     });
   });
 });

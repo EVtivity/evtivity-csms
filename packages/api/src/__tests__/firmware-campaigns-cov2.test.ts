@@ -98,6 +98,8 @@ vi.mock('drizzle-orm', () => ({
   notInArray: vi.fn(),
   isNull: vi.fn(),
   isNotNull: vi.fn((c: unknown) => ({ isNotNull: c })),
+  exists: vi.fn(),
+  notExists: vi.fn(),
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
@@ -269,7 +271,7 @@ describe('firmware campaign routes (cov2)', () => {
         headers: auth,
       });
       expect(res.statusCode).toBe(200);
-      expect(rec.where[1]).toEqual({
+      expect(rec.where).toContainEqual({
         and: [
           { eq: ['st.site_id', 'sit_1'] },
           { eq: ['st.vendor_id', 'vnd_1'] },
@@ -334,7 +336,7 @@ describe('firmware campaign routes (cov2)', () => {
       );
       const res = await start();
       expect(res.statusCode).toBe(200);
-      expect(rec.where[1]).toEqual({
+      expect(rec.where).toContainEqual({
         and: [
           { eq: ['st.is_online', true] },
           { eq: ['st.site_id', 'sit_1'] },

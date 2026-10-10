@@ -33,13 +33,15 @@ function parseWholeNumber(text: string, min: number, max: number): number | null
 
 interface Props {
   settings: Record<string, unknown> | undefined;
+  /** Shown read-only: the settings are company-wide (all-site access to edit). */
+  readOnly?: boolean;
 }
 
 /**
  * Invoice settings: the days from issue to the due date of a new invoice, and
  * the day of the month from which the monthly run invoices fleets.
  */
-export function InvoiceSettings({ settings }: Props): React.JSX.Element {
+export function InvoiceSettings({ settings, readOnly = false }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [days, setDays] = useState(String(DEFAULT_PAYMENT_TERMS_DAYS));
@@ -88,7 +90,7 @@ export function InvoiceSettings({ settings }: Props): React.JSX.Element {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            handleSave();
+            if (!readOnly) handleSave();
           }}
           noValidate
           className="space-y-4"
@@ -105,6 +107,7 @@ export function InvoiceSettings({ settings }: Props): React.JSX.Element {
               step="1"
               value={days}
               aria-invalid={error != null}
+              disabled={readOnly}
               onChange={(e) => {
                 setDays(e.target.value);
               }}
@@ -127,6 +130,7 @@ export function InvoiceSettings({ settings }: Props): React.JSX.Element {
               step="1"
               value={runDay}
               aria-invalid={runDayError != null}
+              disabled={readOnly}
               onChange={(e) => {
                 setRunDay(e.target.value);
               }}
@@ -135,7 +139,13 @@ export function InvoiceSettings({ settings }: Props): React.JSX.Element {
             <p className="text-xs text-muted-foreground">{t('settings.fleetInvoiceRunDayHelp')}</p>
           </div>
 
-          <SaveButton isPending={mutation.isPending} />
+          {readOnly ? (
+            <p className="text-sm text-muted-foreground">
+              {t('settings.companyWideSettingsReadOnly')}
+            </p>
+          ) : (
+            <SaveButton isPending={mutation.isPending} />
+          )}
 
           {mutation.isSuccess && (
             <p className="text-sm text-success">{t('settings.invoiceSettingsSaved')}</p>

@@ -598,7 +598,15 @@ describe('projectNotifySettlement', () => {
 
   it('records the settlement in cents and notifies the driver', async () => {
     sqlResults = [
-      [{ id: 'sess-1', driver_id: 'drv-1', station_id: 'station-uuid', currency: 'USD' }],
+      [
+        {
+          id: 'sess-1',
+          driver_id: 'drv-1',
+          station_id: 'station-uuid',
+          site_id: 'site-1',
+          currency: 'USD',
+        },
+      ],
     ];
     mockRecordTerminalSettlement.mockResolvedValue(true);
 
@@ -613,7 +621,12 @@ describe('projectNotifySettlement', () => {
       currency: 'USD',
       capturedCents: 1234,
     });
-    expect(notifyChange).toHaveBeenCalledWith('payment.settled', null, null, 'sess-1');
+    expect(notifyChange).toHaveBeenCalledWith(
+      'payment.settled',
+      'station-uuid',
+      'site-1',
+      'sess-1',
+    );
     expect(sentEvents()).toEqual(['session.PaymentReceived', 'payment.Complete']);
     expect(variablesOf('session.PaymentReceived')).toMatchObject({
       siteName: 'Main Site',

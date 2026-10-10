@@ -13,6 +13,15 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { paymentRegistry } from '../lib/payments.js';
 import { writePaymentSettings } from '../lib/payment-settings-writes.js';
 import { providerSwitchStore, replyIfProviderUpgradePending } from '../lib/provider-switch.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
+
+// Payment provider settings are company-wide configuration: a site-restricted
+// user gets this 404 before any read or write (requireAllSiteAccess,
+// features/site-access-control.md).
+const ALL_SITES_SETTING_NOT_FOUND = {
+  error: 'Setting not found',
+  code: 'SETTING_NOT_FOUND',
+} as const;
 
 const upgradePendingSchema = z
   .object({
@@ -156,10 +165,14 @@ export function paymentSettingsRoutes(app: FastifyInstance): void {
           'Returns the provider for new payments, the default pre-authorization amount and platform fee, the test provider settings, and every provider registered in this API process with whether it is configured and selectable.',
         operationId: 'getPaymentSettings',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(paymentSettingsResponse) },
+        response: {
+          200: itemResponse(paymentSettingsResponse),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
       },
     },
-    async () => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const [stored, platformFeePercent, providers] = await Promise.all([
         paymentRegistry.settings(),
         getPlatformFeePercent(null),
@@ -188,6 +201,7 @@ export function paymentSettingsRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         body: zodSchema(updatePaymentSettingsBody),
         response: {
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           200: successResponse,
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           409: errorWith('Processes older than v0.1.38 are still connected', [
@@ -197,6 +211,7 @@ export function paymentSettingsRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof updatePaymentSettingsBody>;
       const pairs: Array<{ key: string; value: unknown }> = [];
 

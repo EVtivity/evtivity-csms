@@ -14,9 +14,14 @@ import { api } from '@/lib/api';
 
 interface FleetVehiclesTabProps {
   fleetId: string;
+  /** The user may add and remove members (see FleetDetail). */
+  canManageMembers?: boolean;
 }
 
-export function FleetVehiclesTab({ fleetId }: FleetVehiclesTabProps): React.JSX.Element {
+export function FleetVehiclesTab({
+  fleetId,
+  canManageMembers = true,
+}: FleetVehiclesTabProps): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
@@ -51,12 +56,14 @@ export function FleetVehiclesTab({ fleetId }: FleetVehiclesTabProps): React.JSX.
             <CardTitle>{t('fleets.vehicles')}</CardTitle>
             <CardDescription>{t('fleets.addVehicleNote')}</CardDescription>
           </div>
-          <AddButton
-            label={t('fleets.addVehicle')}
-            onClick={() => {
-              void navigate(`/fleets/${fleetId}/vehicles/add`);
-            }}
-          />
+          {canManageMembers && (
+            <AddButton
+              label={t('fleets.addVehicle')}
+              onClick={() => {
+                void navigate(`/fleets/${fleetId}/vehicles/add`);
+              }}
+            />
+          )}
         </CardHeader>
         <CardContent>
           <VehiclesTable
@@ -68,9 +75,13 @@ export function FleetVehiclesTab({ fleetId }: FleetVehiclesTabProps): React.JSX.
             onRowClick={(vehicle) => {
               void navigate(`/drivers/${vehicle.driverId}/vehicles/${vehicle.id}`);
             }}
-            onDelete={(vehicle) => {
-              setRemoveDriverId(vehicle.driverId);
-            }}
+            {...(canManageMembers
+              ? {
+                  onDelete: (vehicle: { driverId: string }): void => {
+                    setRemoveDriverId(vehicle.driverId);
+                  },
+                }
+              : {})}
           />
         </CardContent>
       </Card>

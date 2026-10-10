@@ -23,13 +23,15 @@ const MAX_THRESHOLD_CENTS = 100_000_000;
 
 interface Props {
   settings: Record<string, unknown> | undefined;
+  /** Shown read-only: the settings are company-wide (all-site access to edit). */
+  readOnly?: boolean;
 }
 
 /**
  * Prepaid card settings: the balance below which a debit sends the driver the
  * low credit notice (`prepaid.LowCredit`). 0 turns the notice off.
  */
-export function PrepaidSettings({ settings }: Props): React.JSX.Element {
+export function PrepaidSettings({ settings, readOnly = false }: Props): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { currency } = useCompanyCurrency();
@@ -79,7 +81,7 @@ export function PrepaidSettings({ settings }: Props): React.JSX.Element {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            handleSave();
+            if (!readOnly) handleSave();
           }}
           noValidate
           className="space-y-4"
@@ -96,6 +98,7 @@ export function PrepaidSettings({ settings }: Props): React.JSX.Element {
               step="0.01"
               value={threshold}
               aria-invalid={error != null}
+              disabled={readOnly}
               onChange={(e) => {
                 setThreshold(e.target.value);
               }}
@@ -106,7 +109,13 @@ export function PrepaidSettings({ settings }: Props): React.JSX.Element {
             </p>
           </div>
 
-          <SaveButton isPending={mutation.isPending} />
+          {readOnly ? (
+            <p className="text-sm text-muted-foreground">
+              {t('settings.companyWideSettingsReadOnly')}
+            </p>
+          ) : (
+            <SaveButton isPending={mutation.isPending} />
+          )}
 
           {mutation.isSuccess && (
             <p className="text-sm text-success">{t('settings.prepaidSettingsSaved')}</p>

@@ -132,7 +132,7 @@
       "targets": [
         {
           "expr": "process_resident_memory_bytes / 1024 / 1024",
-          "legendFormat": "RSS (MB)",
+          "legendFormat": "RSS (MB) · {{instance}}",
           "refId": "A"
         }
       ],
@@ -168,7 +168,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_ping_success_rate",
+          "expr": "max(ocpp_ping_success_rate)",
           "legendFormat": "success %",
           "refId": "A"
         }
@@ -207,7 +207,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "ocpp_connected_stations",
+          "expr": "max(ocpp_connected_stations)",
           "legendFormat": "connected",
           "refId": "A"
         }
@@ -246,7 +246,7 @@
       "targets": [
         {
           "expr": "http_active_requests",
-          "legendFormat": "in-flight",
+          "legendFormat": "In-flight · {{instance}}",
           "refId": "A"
         }
       ],
@@ -291,7 +291,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(stations_total{is_online=\"true\"})",
+          "expr": "sum(max by (is_online) (stations_total{is_online=\"true\"}))",
           "legendFormat": "online",
           "refId": "A"
         }
@@ -329,7 +329,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum(connectors_total{status=\"faulted\"})",
+          "expr": "sum(max by (status) (connectors_total{status=\"faulted\"}))",
           "legendFormat": "faulted",
           "refId": "A"
         }
@@ -367,7 +367,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "support_cases_open",
+          "expr": "max(support_cases_open)",
           "legendFormat": "open cases",
           "refId": "A"
         }
@@ -405,7 +405,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sessions_active",
+          "expr": "max(sessions_active)",
           "legendFormat": "active",
           "refId": "A"
         }
@@ -443,7 +443,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "idle_sessions_active",
+          "expr": "max(idle_sessions_active)",
           "legendFormat": "idle",
           "refId": "A"
         }
@@ -481,7 +481,7 @@
       "datasource": { "type": "prometheus", "uid": "prometheus" },
       "targets": [
         {
-          "expr": "sum by (currency) (delta(revenue_cents_total[1h])) / 100",
+          "expr": "max by (currency) (delta(revenue_cents_total[1h])) / 100",
           "legendFormat": "{{currency}} / hour",
           "refId": "A"
         }

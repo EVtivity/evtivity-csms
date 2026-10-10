@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { ServiceLogger } from '@evtivity/lib';
+import crypto from 'node:crypto';
 import { and, eq, inArray, or, isNull, lt, gt, sql } from 'drizzle-orm';
 import {
   db,
@@ -91,9 +92,10 @@ export interface MaintenanceFanoutJob {
   phase: MaintenanceFanoutPhase;
   stationDbIds?: string[];
   actor?: MaintenanceFanoutActor;
-  // Reassert publishes carry a per-reconnect nonce so the worker's
-  // deterministic jobId does not collapse a later reconnect's re-assert into
-  // an already-completed job for the same station.
+  // Add, remove and reassert publishes carry a nonce so the worker's
+  // deterministic jobId does not collapse a later request (the same stations
+  // added again after a remove, a station's next reconnect) into an
+  // already-completed job the queue still keeps.
   nonce?: string;
 }
 
@@ -1167,6 +1169,7 @@ export async function addStationsToMaintenance(
           phase: 'add',
           stationDbIds: trulyNew,
           actor: fanoutActor(actor),
+          nonce: crypto.randomUUID(),
         },
         logger,
       );
@@ -1191,7 +1194,10 @@ async function runAddStationSideEffects(
       ocppProtocol: chargingStations.ocppProtocol,
     })
     .from(chargingStations)
-    .where(inArray(chargingStations.id, newStationIds));
+    // Only stations still at the event's site (the job can run after a move).
+    .where(
+      and(inArray(chargingStations.id, newStationIds), eq(chargingStations.siteId, after.siteId)),
+    );
 
   const [site] = await db
     .select({ name: sites.name })
@@ -1413,6 +1419,7 @@ export async function removeStationsFromMaintenance(
           phase: 'remove',
           stationDbIds: removed,
           actor: fanoutActor(actor),
+          nonce: crypto.randomUUID(),
         },
         logger,
       );
@@ -1437,7 +1444,14 @@ async function runRemoveStationSideEffects(
       disabledReason: chargingStations.disabledReason,
     })
     .from(chargingStations)
-    .where(inArray(chargingStations.id, removedStationIds));
+    // A station that moved to another site since it was added is not this
+    // event's to release: commanding it would act on another site's station.
+    .where(
+      and(
+        inArray(chargingStations.id, removedStationIds),
+        eq(chargingStations.siteId, after.siteId),
+      ),
+    );
 
   await runReleaseStations(after, 'remove-stations', logger, releasedStations);
 }

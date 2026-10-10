@@ -24,6 +24,8 @@ import {
   hasPermissionCheck,
   useHasPermission,
   useHasAnyPermission,
+  useHasAllSiteAccess,
+  useHasCompanyWidePermission,
   MustResetPasswordError,
 } from '../auth';
 
@@ -42,6 +44,7 @@ function resetStore(): void {
     user: null,
     role: null,
     permissions: [],
+    hasAllSiteAccess: false,
     theme: 'light',
     isAuthenticated: false,
     isHydrating: true,
@@ -85,6 +88,25 @@ describe('permission hooks', () => {
     expect(renderHook(() => useHasAnyPermission(['x:read', 'y:read'])).result.current).toBe(false);
     expect(renderHook(() => useHasAnyPermission([])).result.current).toBe(false);
   });
+
+  it('useHasAllSiteAccess reads the store flag and defaults to false', () => {
+    expect(renderHook(() => useHasAllSiteAccess()).result.current).toBe(false);
+    useAuth.setState({ hasAllSiteAccess: true });
+    expect(renderHook(() => useHasAllSiteAccess()).result.current).toBe(true);
+  });
+
+  it('useHasCompanyWidePermission needs both the permission and all-site access', () => {
+    useAuth.setState({ permissions: ['pricing:write'], hasAllSiteAccess: false });
+    expect(renderHook(() => useHasCompanyWidePermission('pricing:write')).result.current).toBe(
+      false,
+    );
+    useAuth.setState({ hasAllSiteAccess: true });
+    expect(renderHook(() => useHasCompanyWidePermission('pricing:write')).result.current).toBe(
+      true,
+    );
+    expect(renderHook(() => useHasCompanyWidePermission('pricing:read')).result.current).toBe(true);
+    expect(renderHook(() => useHasCompanyWidePermission('sites:write')).result.current).toBe(false);
+  });
 });
 
 describe('useAuth', () => {
@@ -102,9 +124,9 @@ describe('useAuth', () => {
   });
 
   describe('login', () => {
-    it('stores preferences, loads permissions and logs the login', async () => {
+    it('stores preferences, loads access and logs the login', async () => {
       mockPost.mockResolvedValueOnce({ token: 't', user, role: { id: 'r1', name: 'admin' } });
-      mockGet.mockResolvedValueOnce(['stations:read']);
+      mockGet.mockResolvedValueOnce({ permissions: ['stations:read'], hasAllSiteAccess: true });
 
       await useAuth.getState().login('a@b.c', 'pw', 'captcha');
 
@@ -113,7 +135,8 @@ describe('useAuth', () => {
         password: 'pw',
         recaptchaToken: 'captcha',
       });
-      expect(mockGet).toHaveBeenCalledWith('/v1/users/me/permissions');
+      expect(mockGet).toHaveBeenCalledTimes(1);
+      expect(mockGet).toHaveBeenCalledWith('/v1/users/me');
       expect(localStorage.getItem('role')).toBe('admin');
       expect(localStorage.getItem('language')).toBe('de');
       expect(localStorage.getItem('timezone')).toBe('Europe/Berlin');
@@ -125,13 +148,14 @@ describe('useAuth', () => {
       expect(s.user).toEqual(user);
       expect(s.role).toBe('admin');
       expect(s.permissions).toEqual(['stations:read']);
+      expect(s.hasAllSiteAccess).toBe(true);
       expect(s.theme).toBe('dark');
       expect(mockPost).toHaveBeenCalledWith('/v1/access-logs', { action: 'login' });
     });
 
     it('omits the recaptcha token when not given and tolerates a null role', async () => {
       mockPost.mockResolvedValueOnce({ token: 't', user, role: null });
-      mockGet.mockResolvedValueOnce([]);
+      mockGet.mockResolvedValueOnce({ permissions: [], hasAllSiteAccess: false });
 
       await useAuth.getState().login('a@b.c', 'pw');
 
@@ -140,7 +164,8 @@ describe('useAuth', () => {
       expect(useAuth.getState().role).toBeNull();
     });
 
-    it('signs in with no permissions when the permissions call fails', async () => {
+    it('signs in without permissions or all-site access when the access call fails', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
       mockPost.mockResolvedValueOnce({ token: 't', user, role: null });
       mockGet.mockRejectedValueOnce(new Error('boom'));
 
@@ -148,13 +173,14 @@ describe('useAuth', () => {
 
       expect(useAuth.getState().isAuthenticated).toBe(true);
       expect(useAuth.getState().permissions).toEqual([]);
+      expect(useAuth.getState().hasAllSiteAccess).toBe(false);
     });
 
     it('still signs in when the access log call fails', async () => {
       mockPost
         .mockResolvedValueOnce({ token: 't', user, role: null })
         .mockRejectedValueOnce(new Error('log down'));
-      mockGet.mockResolvedValueOnce([]);
+      mockGet.mockResolvedValueOnce({ permissions: [], hasAllSiteAccess: false });
 
       await expect(useAuth.getState().login('a@b.c', 'pw')).resolves.toBeUndefined();
       expect(useAuth.getState().isAuthenticated).toBe(true);
@@ -210,7 +236,7 @@ describe('useAuth', () => {
   describe('MFA state', () => {
     it('completeMfaLogin signs in and clears the pending challenge', async () => {
       useAuth.getState().setMfaPending({ mfaRequired: true, mfaMethod: 'totp', mfaToken: 'mt' });
-      mockGet.mockResolvedValueOnce(['users:read']);
+      mockGet.mockResolvedValueOnce({ permissions: ['users:read'], hasAllSiteAccess: true });
 
       await useAuth.getState().completeMfaLogin(user, 'operator');
 
@@ -219,6 +245,8 @@ describe('useAuth', () => {
       expect(s.isAuthenticated).toBe(true);
       expect(s.role).toBe('operator');
       expect(s.permissions).toEqual(['users:read']);
+      expect(s.hasAllSiteAccess).toBe(true);
+      expect(mockGet).toHaveBeenCalledWith('/v1/users/me');
       expect(localStorage.getItem('role')).toBe('operator');
       expect(localStorage.getItem('theme')).toBe('dark');
       expect(mockLoadLanguage).toHaveBeenCalledWith('de');
@@ -226,12 +254,14 @@ describe('useAuth', () => {
     });
 
     it('completeMfaLogin stores an empty role and empty permissions on failure', async () => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
       mockGet.mockRejectedValueOnce(new Error('x'));
 
       await useAuth.getState().completeMfaLogin(user, null);
 
       expect(localStorage.getItem('role')).toBe('');
       expect(useAuth.getState().permissions).toEqual([]);
+      expect(useAuth.getState().hasAllSiteAccess).toBe(false);
     });
 
     it('clearMfaPending removes the challenge', () => {
@@ -244,7 +274,13 @@ describe('useAuth', () => {
 
   describe('logout', () => {
     it('revokes on the server, then clears local state', async () => {
-      useAuth.setState({ user, role: 'admin', permissions: ['a:read'], isAuthenticated: true });
+      useAuth.setState({
+        user,
+        role: 'admin',
+        permissions: ['a:read'],
+        hasAllSiteAccess: true,
+        isAuthenticated: true,
+      });
       localStorage.setItem('role', 'admin');
 
       await useAuth.getState().logout();
@@ -257,6 +293,7 @@ describe('useAuth', () => {
       expect(s.user).toBeNull();
       expect(s.role).toBeNull();
       expect(s.permissions).toEqual([]);
+      expect(s.hasAllSiteAccess).toBe(false);
       expect(s.isAuthenticated).toBe(false);
     });
 
@@ -278,6 +315,7 @@ describe('useAuth', () => {
         roleId: 'r1',
         role: { id: 'r1', name: 'admin' },
         permissions: ['sites:write'],
+        hasAllSiteAccess: true,
       });
 
       useAuth.getState().hydrate();
@@ -292,6 +330,7 @@ describe('useAuth', () => {
       expect(s.user).toEqual(user);
       expect(s.role).toBe('admin');
       expect(s.permissions).toEqual(['sites:write']);
+      expect(s.hasAllSiteAccess).toBe(true);
       expect(s.theme).toBe('dark');
       expect(localStorage.getItem('role')).toBe('admin');
       expect(localStorage.getItem('timezone')).toBe('Europe/Berlin');
@@ -299,7 +338,13 @@ describe('useAuth', () => {
     });
 
     it('stores an empty role when the user has none', async () => {
-      mockGet.mockResolvedValueOnce({ ...user, roleId: '', role: null, permissions: [] });
+      mockGet.mockResolvedValueOnce({
+        ...user,
+        roleId: '',
+        role: null,
+        permissions: [],
+        hasAllSiteAccess: false,
+      });
 
       useAuth.getState().hydrate();
       await vi.waitFor(() => {
@@ -308,6 +353,7 @@ describe('useAuth', () => {
 
       expect(localStorage.getItem('role')).toBe('');
       expect(useAuth.getState().role).toBeNull();
+      expect(useAuth.getState().hasAllSiteAccess).toBe(false);
     });
 
     it('marks the API down on a network TypeError', async () => {

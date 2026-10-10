@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { db, authorizeAttempts } from '@evtivity/database';
+import { eq } from 'drizzle-orm';
+import { db, authorizeAttempts, chargingStations } from '@evtivity/database';
 import type { Logger, PubSubClient } from '@evtivity/lib';
 
 // Set once at OCPP server startup so the forensic insert can fan out an SSE
@@ -73,12 +74,23 @@ export async function logAuthorizeAttempt(
   // publish failure must not break the station's authorize response.
   if (pubsub != null) {
     try {
+      // The station's site scopes the event on the operator SSE stream: an
+      // attempt at an unknown or unsited station reaches all-site operators
+      // only.
+      let siteId: string | null = null;
+      if (args.stationId != null) {
+        const [station] = await db
+          .select({ siteId: chargingStations.siteId })
+          .from(chargingStations)
+          .where(eq(chargingStations.id, args.stationId));
+        siteId = station?.siteId ?? null;
+      }
       await pubsub.publish(
         'csms_events',
         JSON.stringify({
           eventType: 'authorize.attempt',
           stationId: args.stationId,
-          siteId: null,
+          siteId,
           sessionId: null,
         }),
       );

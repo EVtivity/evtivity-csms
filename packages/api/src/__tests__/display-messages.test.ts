@@ -569,6 +569,62 @@ describe('Display message routes', () => {
       expect(body.code).toBe('MESSAGE_SEND_FAILED');
     });
 
+    it('returns 202 queued and leaves the row pending when the station disconnected', async () => {
+      setupDbResults(
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
+        [{ maxId: 5 }],
+        [
+          {
+            id: VALID_MESSAGE_ID,
+            stationId: VALID_STATION_ID,
+            ocppMessageId: 6,
+            status: 'pending',
+          },
+        ],
+      );
+      const { db } = await import('@evtivity/database');
+      vi.mocked(db.update).mockClear();
+
+      const responsePromise = app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/display-messages`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: basePayload,
+      });
+
+      await vi.waitFor(() => {
+        expect(mockPublish).toHaveBeenCalled();
+      });
+
+      const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      const notification = JSON.parse(publishCall![1] as string);
+
+      mockSubscribeCallback!(
+        JSON.stringify({
+          commandId: notification.commandId,
+          error: 'Station offline, command queued',
+          queued: true,
+        }),
+      );
+
+      const response = await responsePromise;
+      expect(response.statusCode).toBe(202);
+      expect(JSON.parse(response.body)).toMatchObject({
+        status: 'queued',
+        code: 'COMMAND_QUEUED',
+        stationId: 'STATION-001',
+        action: 'SetDisplayMessage',
+      });
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
     it('sends optional fields in OCPP payload (language, state, startDateTime, endDateTime, transactionId, evseId, messageExtra)', async () => {
       const insertedMessage = {
         id: VALID_MESSAGE_ID,
@@ -1072,6 +1128,51 @@ describe('Display message routes', () => {
       const body = JSON.parse(response.body);
       expect(body.code).toBe('MESSAGE_CLEAR_FAILED');
     });
+
+    it('returns 202 queued when the station is offline and leaves the row accepted', async () => {
+      setupDbResults([
+        {
+          id: VALID_MESSAGE_ID,
+          ocppMessageId: 1,
+          status: 'accepted',
+          stationOcppId: 'STATION-001',
+        },
+      ]);
+      const { db } = await import('@evtivity/database');
+      vi.mocked(db.update).mockClear();
+
+      const responsePromise = app.inject({
+        method: 'DELETE',
+        url: `/stations/${VALID_STATION_ID}/display-messages/${VALID_MESSAGE_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      await vi.waitFor(() => {
+        expect(mockPublish).toHaveBeenCalled();
+      });
+
+      const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      const notification = JSON.parse(publishCall![1] as string);
+
+      mockSubscribeCallback!(
+        JSON.stringify({
+          commandId: notification.commandId,
+          error: 'Station offline, command queued',
+          queued: true,
+        }),
+      );
+
+      const response = await responsePromise;
+      expect(response.statusCode).toBe(202);
+      expect(JSON.parse(response.body)).toEqual({
+        status: 'queued',
+        code: 'COMMAND_QUEUED',
+        stationId: 'STATION-001',
+        action: 'ClearDisplayMessage',
+        message: 'Station offline, command queued',
+      });
+      expect(db.update).not.toHaveBeenCalled();
+    });
   });
 
   // ===================================================================
@@ -1235,6 +1336,43 @@ describe('Display message routes', () => {
       expect(response.statusCode).toBe(502);
       const body = JSON.parse(response.body);
       expect(body.code).toBe('MESSAGE_REFRESH_FAILED');
+    });
+
+    it('returns 202 queued when the station disconnected before the command reached it', async () => {
+      setupDbResults([
+        { id: VALID_STATION_ID, stationId: 'STATION-001', isOnline: true, ocppProtocol: 'ocpp2.1' },
+      ]);
+
+      const responsePromise = app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/display-messages/refresh`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {},
+      });
+
+      await vi.waitFor(() => {
+        expect(mockPublish).toHaveBeenCalled();
+      });
+
+      const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      const notification = JSON.parse(publishCall![1] as string);
+
+      mockSubscribeCallback!(
+        JSON.stringify({
+          commandId: notification.commandId,
+          error: 'Station offline, command queued',
+          queued: true,
+        }),
+      );
+
+      const response = await responsePromise;
+      expect(response.statusCode).toBe(202);
+      const body = JSON.parse(response.body);
+      expect(body).toMatchObject({
+        status: 'queued',
+        code: 'COMMAND_QUEUED',
+        action: 'GetDisplayMessages',
+      });
     });
   });
 

@@ -11,6 +11,7 @@ import { createRefreshToken } from '../services/refresh-token.service.js';
 import { config as apiConfig } from '../lib/config.js';
 import { errorWith } from '../lib/response-schemas.js';
 import { emailEquals } from '../lib/email-match.js';
+import { beginOperatorMfa, type OperatorMfaPending } from '../lib/operator-mfa.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 
@@ -119,6 +120,12 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
           id: users.id,
           roleId: users.roleId,
           isActive: users.isActive,
+          email: users.email,
+          phone: users.phone,
+          firstName: users.firstName,
+          language: users.language,
+          mfaEnabled: users.mfaEnabled,
+          mfaMethod: users.mfaMethod,
         })
         .from(users)
         .where(emailEquals(users.email, email))
@@ -127,6 +134,16 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
       if (existingUser != null) {
         if (!existingUser.isActive) {
           await reply.redirect('/login?error=sso_account_disabled');
+          return;
+        }
+
+        // The IdP assertion replaces the password, not the second factor: a
+        // user with MFA completes the same challenge as a password login
+        // before a session is issued. The pending state travels in the URL
+        // fragment, which the browser never sends to a server.
+        const mfaPending = await beginOperatorMfa(app, existingUser);
+        if (mfaPending != null) {
+          await reply.redirect(`/login#${ssoMfaFragment(mfaPending)}`);
           return;
         }
 
@@ -222,6 +239,19 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
       await reply.redirect('/');
     },
   );
+}
+
+/**
+ * The URL fragment that hands an SSO login's MFA pending state to the CSMS
+ * login page, which shows the MFA challenge (`sso-mfa.ts` in the CSMS).
+ */
+export function ssoMfaFragment(pending: OperatorMfaPending): string {
+  const params = new URLSearchParams({
+    ssoMfaToken: pending.mfaToken,
+    ssoMfaMethod: pending.mfaMethod,
+  });
+  if (pending.challengeId != null) params.set('ssoMfaChallengeId', String(pending.challengeId));
+  return params.toString();
 }
 
 function extractAttribute(profile: Record<string, unknown>, key: string): string | null {

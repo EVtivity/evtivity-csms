@@ -5,6 +5,7 @@ import {
   checkFleetCreditLimit,
   fleetCreditNoticesClaimed,
   readFleetCreditLimit,
+  sessionGroupHasPaidTariff,
   stampSessionBilling,
 } from '@evtivity/database';
 import type { FleetCreditCheck, SessionBilling, TariffPriceSnapshot } from '@evtivity/database';
@@ -46,6 +47,13 @@ export interface PaymentGateInput {
   reserved: boolean;
   /** The tariff snapshotted on the session at Started (null: no tariff applies). */
   sessionTariff: TariffPriceSnapshot | null;
+  /**
+   * True when the session can move to a paid tariff while it charges (split
+   * billing on and a paid tariff in the pricing group it started in): a free
+   * start tariff then does not make the session free (B3). runPaymentGate
+   * reads it from the database when not given.
+   */
+  paidAhead?: boolean;
   /**
    * The gate runs for an idToken first presented in TransactionEvent Ended
    * (`linkFirstPresentedToken`): a stop faults the session but sends the
@@ -173,7 +181,9 @@ export function planPaymentGate(
   // The session is billed at the tariff snapshotted on Started, so the gate
   // decides from that same tariff (no tariff: free). The reservation holding
   // fee makes the session paid only when it started from a reservation.
-  const tariffIsFree = isTariffFree(sessionTariff, { reserved });
+  // Under split billing a session that starts on a free tariff is paid when
+  // its group has a paid tariff it can move to (paidAhead).
+  const tariffIsFree = isTariffFree(sessionTariff, { reserved }) && input.paidAhead !== true;
 
   // How the session is paid (one definition with the settlement on Ended).
   // Free vend never reaches the gate (the Started handler skips it).
@@ -336,7 +346,14 @@ export async function runPaymentGate(
       ? await checkFleetCreditLimit(deps.sql, billing.fleetId, { reserveForSessionId: sessionId })
       : null;
 
-  let decision = planPaymentGate(input, billing, credit);
+  // A free start tariff with a paid tariff ahead in the session's group
+  // (split billing) is gated as paid, so the hold is placed now (B3).
+  const paidAhead =
+    input.paidAhead ??
+    (isTariffFree(input.sessionTariff, { reserved: input.reserved }) &&
+      (await sessionGroupHasPaidTariff(deps.sql, sessionId)));
+
+  let decision = planPaymentGate({ ...input, paidAhead }, billing, credit);
 
   // Warning and reached notices to the fleet, once per month each.
   // Fire-and-forget and fail-open (P9).

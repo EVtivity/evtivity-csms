@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
 // `db.select(...).from().innerJoin().where()` resolves to the stale session
-// list. closeOpenSegment and faultUnbilledSession are mocked; they are tested
+// list. closeSegmentsAt and faultUnbilledSession are mocked; they are tested
 // in @evtivity/database.
 
 let staleSessionRows: unknown[] = [];
@@ -25,7 +25,7 @@ const mockSelect = vi.fn(() => ({
 const {
   mockGetStaleSessionTimeoutHours,
   mockWriteReservationAudit,
-  mockCloseOpenSegment,
+  mockCloseSegmentsAt,
   mockFaultUnbilledSession,
   mockPublish,
   mockClient,
@@ -33,7 +33,7 @@ const {
 } = vi.hoisted(() => ({
   mockGetStaleSessionTimeoutHours: vi.fn(),
   mockWriteReservationAudit: vi.fn().mockResolvedValue(undefined),
-  mockCloseOpenSegment: vi.fn().mockResolvedValue(undefined),
+  mockCloseSegmentsAt: vi.fn().mockResolvedValue(undefined),
   mockFaultUnbilledSession: vi.fn(),
   mockPublish: vi.fn().mockResolvedValue(undefined),
   mockClient: { __client: true },
@@ -63,7 +63,7 @@ vi.mock('@evtivity/database', async () => ({
   chargingStations: { id: 'st.id', isOnline: 'st.isOnline', stationId: 'st.stationId' },
   getStaleSessionTimeoutHours: mockGetStaleSessionTimeoutHours,
   writeReservationAudit: mockWriteReservationAudit,
-  closeOpenSegment: mockCloseOpenSegment,
+  closeSegmentsAt: mockCloseSegmentsAt,
   faultUnbilledSession: mockFaultUnbilledSession,
   sessionIdleMinutesAt: (
     await vi.importActual<typeof import('../../../../database/src/lib/session-pricing.js')>(
@@ -238,7 +238,7 @@ describe('staleSessionCleanupHandler', () => {
       endedAt: new Date('2026-06-01T01:00:00.000Z'),
     });
     // No tariff snapshot: no segment to close.
-    expect(mockCloseOpenSegment).not.toHaveBeenCalled();
+    expect(mockCloseSegmentsAt).not.toHaveBeenCalled();
 
     // Offline station: no RequestStopTransaction.
     expect(mockPublish).not.toHaveBeenCalled();
@@ -304,7 +304,7 @@ describe('staleSessionCleanupHandler', () => {
     expect(log.info).toHaveBeenCalledWith({ count: 2 }, 'Stale session cleanup complete');
   });
 
-  it('closes the open segment, then faults the session without billing it', async () => {
+  it('faults the session without billing it, then ends its segments at the last update', async () => {
     setStaleSessions([
       baseSession({
         tariffId: 'tar_1',
@@ -320,15 +320,27 @@ describe('staleSessionCleanupHandler', () => {
 
     const endedAt = new Date('2026-06-01T01:00:00.000Z');
     // 10 accumulated idle minutes plus the open period 00:50 to 01:00.
-    expect(mockCloseOpenSegment).toHaveBeenCalledWith(mockClient, 'ses_1', endedAt, 1000, 20);
+    expect(mockCloseSegmentsAt).toHaveBeenCalledWith(mockClient, 'ses_1', endedAt, 1000, 20);
     expect(mockFaultUnbilledSession).toHaveBeenCalledWith(mockClient, {
       sessionId: 'ses_1',
       reason: 'StaleSession',
       endedAt,
     });
-    expect(mockCloseOpenSegment.mock.invocationCallOrder[0]).toBeLessThan(
-      mockFaultUnbilledSession.mock.invocationCallOrder[0] ?? 0,
+    // The fault comes first, so the segments of a session that ended
+    // meanwhile keep the end its Ended projection gave them.
+    expect(mockFaultUnbilledSession.mock.invocationCallOrder[0]).toBeLessThan(
+      mockCloseSegmentsAt.mock.invocationCallOrder[0] ?? 0,
     );
+  });
+
+  it('leaves the segments of a session that ended meanwhile alone', async () => {
+    setStaleSessions([baseSession({ tariffId: 'tar_1', stationIsOnline: false })]);
+    mockFaultUnbilledSession.mockResolvedValueOnce(false);
+
+    const { staleSessionCleanupHandler } = mod;
+    await staleSessionCleanupHandler(makeLog());
+
+    expect(mockCloseSegmentsAt).not.toHaveBeenCalled();
   });
 
   it('closes the open segment of a session without stored energy at 0 Wh', async () => {
@@ -340,7 +352,7 @@ describe('staleSessionCleanupHandler', () => {
     const { staleSessionCleanupHandler } = mod;
     await staleSessionCleanupHandler(log);
 
-    expect(mockCloseOpenSegment).toHaveBeenCalledWith(
+    expect(mockCloseSegmentsAt).toHaveBeenCalledWith(
       mockClient,
       'ses_1',
       new Date('2026-06-01T01:00:00.000Z'),

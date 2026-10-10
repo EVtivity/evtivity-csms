@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 import { formatDateTime } from '@/lib/timezone';
 import type { PricingGroup } from '@/lib/types';
 
@@ -31,6 +32,8 @@ export function PricingGroupDetailsTab({
 }: PricingGroupDetailsTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  // Pricing writes are company-wide: the API answers 404 to a site-restricted user.
+  const canWrite = useHasCompanyWidePermission('pricing:write');
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
@@ -88,13 +91,15 @@ export function PricingGroupDetailsTab({
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
           <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-            {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
-            <RemoveButton
-              label={t('common.delete')}
-              onClick={() => {
-                setDeleteOpen(true);
-              }}
-            />
+            {canWrite && !editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
+            {canWrite && (
+              <RemoveButton
+                label={t('common.delete')}
+                onClick={() => {
+                  setDeleteOpen(true);
+                }}
+              />
+            )}
           </div>
         </CardHeader>
         <CardContent>

@@ -7,13 +7,26 @@ import { useTranslation } from 'react-i18next';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
+import { useHasAllSiteAccess } from '@/lib/auth';
 
+// `allSites`: company-wide tab, hidden from site-restricted users (the API
+// answers them 404).
 const TABS = [
-  { value: 'partners', path: '/roaming/partners', labelKey: 'nav.roamingPartners' as const },
+  {
+    value: 'partners',
+    path: '/roaming/partners',
+    labelKey: 'nav.roamingPartners' as const,
+    allSites: true,
+  },
   { value: 'locations', path: '/roaming/locations', labelKey: 'nav.roamingLocations' as const },
   { value: 'sessions', path: '/roaming/sessions', labelKey: 'nav.roamingSessions' as const },
   { value: 'cdrs', path: '/roaming/cdrs', labelKey: 'nav.roamingCdrs' as const },
-  { value: 'tariffs', path: '/roaming/tariffs', labelKey: 'nav.roamingTariffs' as const },
+  {
+    value: 'tariffs',
+    path: '/roaming/tariffs',
+    labelKey: 'nav.roamingTariffs' as const,
+    allSites: true,
+  },
   { value: 'history', path: '/roaming/history', labelKey: 'audit.history' as const },
 ];
 
@@ -33,6 +46,7 @@ export function useRoamingTabAction(node: React.ReactNode): void {
 
 export function RoamingLayout(): React.JSX.Element {
   const { t } = useTranslation();
+  const hasAllSiteAccess = useHasAllSiteAccess();
   const location = useLocation();
   const navigate = useNavigate();
   const [tabAction, setTabAction] = useState<React.ReactNode>(null);
@@ -47,7 +61,11 @@ export function RoamingLayout(): React.JSX.Element {
   } = useFeatureFlags();
   const roamingDisabled = isLoaded && !roamingEnabled;
 
-  const activeTab = TABS.find((tab) => location.pathname.startsWith(tab.path))?.value ?? 'partners';
+  const visibleTabs = TABS.filter((tab) => hasAllSiteAccess || tab.allSites !== true);
+  const activeTab =
+    visibleTabs.find((tab) => location.pathname.startsWith(tab.path))?.value ??
+    visibleTabs[0]?.value ??
+    'locations';
 
   if (settingsLoading) {
     return <div />;
@@ -81,14 +99,14 @@ export function RoamingLayout(): React.JSX.Element {
       <Tabs
         value={activeTab}
         onValueChange={(value) => {
-          const tab = TABS.find((tab) => tab.value === value);
+          const tab = visibleTabs.find((tab) => tab.value === value);
           if (tab != null) void navigate(tab.path);
         }}
       >
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
           <div className="overflow-x-auto">
             <TabsList>
-              {TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <TabsTrigger key={tab.value} value={tab.value}>
                   {t(tab.labelKey)}
                 </TabsTrigger>

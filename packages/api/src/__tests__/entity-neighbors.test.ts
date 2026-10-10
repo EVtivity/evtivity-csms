@@ -51,6 +51,17 @@ vi.mock('../middleware/rbac.js', () => ({
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn(() => Promise.resolve(siteIdsResult)),
+  requireAllSiteAccess: vi.fn(
+    async (
+      _request: unknown,
+      reply: { status: (code: number) => { send: (body: unknown) => unknown } },
+      notFound: unknown,
+    ) => {
+      if (siteIdsResult == null) return true;
+      await reply.status(404).send(notFound);
+      return false;
+    },
+  ),
 }));
 
 function fakeTable(name: string): { id: unknown; createdAt: unknown } {

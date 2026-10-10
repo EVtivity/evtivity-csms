@@ -47,8 +47,9 @@ import {
 } from './remote-start-timeout-worker.js';
 import { createStationMessageWorker, startStationMessageBridge } from './station-message-worker.js';
 import { createReportWorker, setReportQueue, startReportBridge } from './report-worker.js';
-import { octtRunnerHandler } from './handlers/octt-runner.js';
+import { octtRunnerJob } from './handlers/octt-runner.js';
 import type { OcttJobData } from './handlers/octt-runner.js';
+import { probeWorkerLockGrants } from './lib/redis-acl-probe.js';
 
 const log = createLogger('worker');
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
@@ -58,6 +59,16 @@ async function start(): Promise<void> {
   initSentry('evtivity-worker', sentryConfig);
 
   log.info('Worker starting...');
+
+  // Fail the rollout when the worker Redis user lacks a lock prefix grant (an
+  // upgraded Redis that still has the previous release's ACL), instead of
+  // every locked job failing later with NOPERM.
+  const probeRedis = createBullMQConnection(REDIS_URL);
+  try {
+    await probeWorkerLockGrants(probeRedis);
+  } finally {
+    probeRedis.disconnect();
+  }
 
   const pubsub = new RedisPubSubClient(REDIS_URL);
   setPubSub(pubsub);
@@ -101,16 +112,23 @@ async function start(): Promise<void> {
   const redisRecoveryWatch = await startRedisRecoveryWatch(recoveryQueues, log);
 
   // Create workers (each needs its own Redis connection per BullMQ docs)
-  const cronWorker = createCronWorker(createBullMQConnection(REDIS_URL));
+  // Lock connections (withLock), closed on shutdown after their workers.
+  const cronLockRedis = createBullMQConnection(REDIS_URL);
+  const maintenanceLockRedis = createBullMQConnection(REDIS_URL);
+  const fleetBillingLockRedis = createBullMQConnection(REDIS_URL);
+  const stationMessageLockRedis = createBullMQConnection(REDIS_URL);
+  const octtLockRedis = createBullMQConnection(REDIS_URL);
+  const cronWorker = createCronWorker(createBullMQConnection(REDIS_URL), cronLockRedis);
   const loadWorker = createLoadManagementWorker(createBullMQConnection(REDIS_URL), loadQueue);
   const guestWorker = createGuestSessionWorker(createBullMQConnection(REDIS_URL));
   const reservationWorker = createReservationWorker(createBullMQConnection(REDIS_URL), pubsub);
   const maintenanceFanoutWorker = createMaintenanceFanoutWorker(
     createBullMQConnection(REDIS_URL),
-    createBullMQConnection(REDIS_URL),
+    maintenanceLockRedis,
   );
   const fleetBillingFanoutWorker = createFleetBillingFanoutWorker(
     createBullMQConnection(REDIS_URL),
+    fleetBillingLockRedis,
   );
   const fleetInvoiceWorker = createFleetInvoiceWorker(createBullMQConnection(REDIS_URL));
   const stationWatchWorker = createStationWatchWorker(createBullMQConnection(REDIS_URL));
@@ -125,7 +143,7 @@ async function start(): Promise<void> {
 
   const stationMessageWorker = createStationMessageWorker(
     createBullMQConnection(REDIS_URL),
-    createBullMQConnection(REDIS_URL),
+    stationMessageLockRedis,
   );
 
   const reportWorker = createReportWorker(createBullMQConnection(REDIS_URL));
@@ -134,7 +152,7 @@ async function start(): Promise<void> {
   const octtWorker = new Worker<OcttJobData>(
     QUEUE_NAMES.OCTT,
     async (job) => {
-      await octtRunnerHandler(job.data, log.child({ jobId: job.id }), pubsub);
+      await octtRunnerJob(octtLockRedis, job.data, log.child({ jobId: job.id }), pubsub);
     },
     {
       connection: createBullMQConnection(REDIS_URL),
@@ -262,6 +280,19 @@ async function start(): Promise<void> {
     await remoteStartTimeoutQueue.close();
     await stationMessageQueue.close();
     await reportQueue.close();
+    for (const lockRedis of [
+      cronLockRedis,
+      maintenanceLockRedis,
+      fleetBillingLockRedis,
+      stationMessageLockRedis,
+      octtLockRedis,
+    ]) {
+      try {
+        await lockRedis.quit();
+      } catch (err) {
+        log.warn({ err }, 'Closing a lock Redis connection failed');
+      }
+    }
     await pubsub.close();
     log.info('Worker shutdown complete');
     process.exit(0);

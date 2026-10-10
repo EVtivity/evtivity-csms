@@ -147,9 +147,38 @@ vi.mock('@evtivity/database', () => ({
     return credit instanceof Error ? Promise.reject(credit) : Promise.resolve(credit);
   },
   isSiteFreeVendEnabledByStation: () => setting('freeVend', h.state.freeVend),
-  getCompanyCurrency: () => Promise.resolve('USD'),
-  getCompanyTaxBasis: () => Promise.resolve('net'),
-  resolveStationTariff: h.resolveStationTariff,
+  // The station tariff builder over the resolved tariff, with the lib mapping
+  // (no split billing, 5 idle grace minutes, conditions supported).
+  buildStationOcppTariff: async (
+    sql: unknown,
+    q: { stationUuid: string; driverUuid: string | null },
+  ): Promise<unknown> => {
+    const current = (await h.resolveStationTariff(q, sql)) as Row | null;
+    if (current == null) return null;
+    const { buildOcppTariff } = await import('@evtivity/lib');
+    return buildOcppTariff({
+      current: {
+        pricePerKwh: null,
+        pricePerMinute: null,
+        pricePerSession: null,
+        idleFeePricePerMinute: null,
+        reservationFeePerMinute: null,
+        taxRate: null,
+        restrictions: null,
+        priority: 0,
+        isDefault: true,
+        ...current,
+      } as Parameters<typeof buildOcppTariff>[0]['current'],
+      groupTariffs: [],
+      graceMinutes: 5,
+      holidays: [],
+      at: new Date('2026-10-09T12:00:00Z'),
+      timezone: 'UTC',
+      currency: 'USD',
+      taxBasis: 'net',
+      support: { conditions: true, maxElements: null },
+    });
+  },
 }));
 
 vi.mock('drizzle-orm', () => ({

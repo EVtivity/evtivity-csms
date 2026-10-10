@@ -29,9 +29,17 @@ import {
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+
+// Company-wide configuration: a site-restricted user gets this 404 before any
+// read or write (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_TEMPLATE_NOT_FOUND = {
+  error: 'Template not found',
+  code: 'TEMPLATE_NOT_FOUND',
+} as const;
 
 // State screens re-render on a template change; one-shot templates render on
 // their next dispatch.
@@ -202,6 +210,7 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TEMPLATE_NOT_FOUND))) return;
       const { state } = request.params as z.infer<typeof stateParams>;
       const { language } = request.query as z.infer<typeof languageQuery>;
       const { body } = request.body as z.infer<typeof updateBody>;
@@ -246,10 +255,16 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(stateParams),
         querystring: zodSchema(languageQuery),
-        response: { 200: itemResponse(templateItem) },
+        response: {
+          200: itemResponse(templateItem),
+          404: errorWith('Template not found, or the user is restricted to some sites', [
+            ERROR_CODES.TEMPLATE_NOT_FOUND,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TEMPLATE_NOT_FOUND))) return;
       const { state } = request.params as z.infer<typeof stateParams>;
       const { language } = request.query as z.infer<typeof languageQuery>;
       const defaultBody = STATION_MESSAGE_DEFAULTS[language][state];

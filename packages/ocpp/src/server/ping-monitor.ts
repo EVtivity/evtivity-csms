@@ -5,6 +5,13 @@ import type { ConnectionManager } from './connection-manager.js';
 import type { Logger, PubSubClient } from '@evtivity/lib';
 import { MIN_HEARTBEAT_TIMEOUT_MS, heartbeatTimeoutFor } from '@evtivity/lib';
 import type postgres from 'postgres';
+import { randomUUID } from 'node:crypto';
+import {
+  OCPP_HEALTH_SNAPSHOT_INTERVAL_MS,
+  deleteOcppInstanceHealth,
+  pruneStaleOcppHealth,
+  writeOcppInstanceHealth,
+} from '@evtivity/database';
 
 export interface HealthSnapshot {
   connectedStations: number;
@@ -17,7 +24,8 @@ export interface HealthSnapshot {
 }
 
 const MAX_LATENCY_HISTORY = 1000;
-const PING_INTERVAL_MS = 30_000;
+// Readers judge the freshness of each process's health row by this interval.
+const PING_INTERVAL_MS = OCPP_HEALTH_SNAPSHOT_INTERVAL_MS;
 const PONG_WAIT_MS = 5_000;
 export class PingMonitor {
   private readonly pingSentTimes = new Map<string, number>();
@@ -28,6 +36,9 @@ export class PingMonitor {
   private cycleInterval: ReturnType<typeof setInterval> | null = null;
   private heartbeatTimeoutMs = MIN_HEARTBEAT_TIMEOUT_MS;
   private pendingWriteTimeout: ReturnType<typeof setTimeout> | null = null;
+  // Snapshot writes in flight; stop() waits for them before deleting the row.
+  private readonly writes = new Set<Promise<void>>();
+  private lastPruneAt = 0;
 
   constructor(
     private readonly connectionManager: ConnectionManager,
@@ -36,28 +47,29 @@ export class PingMonitor {
 
   private sql: postgres.Sql | null = null;
   private pubsub: PubSubClient | null = null;
+  // Key of this process's ocpp_server_health row. The server passes the
+  // connection registry instance ID; without one the process gets a unique ID.
+  private instanceId = `ocpp-${randomUUID()}`;
 
-  start(sql?: postgres.Sql | null, pubsub?: PubSubClient | null): void {
+  start(sql?: postgres.Sql | null, pubsub?: PubSubClient | null, instanceId?: string): void {
     this.sql = sql ?? null;
     this.pubsub = pubsub ?? null;
+    if (instanceId != null && instanceId !== '') this.instanceId = instanceId;
 
     this.cycleInterval = setInterval(() => {
       this.pingAll();
       this.checkHeartbeats();
 
       if (this.sql != null) {
-        const conn = this.sql;
         // Wait for pongs to arrive before writing the snapshot
         this.pendingWriteTimeout = setTimeout(() => {
-          void this.writeSnapshot(conn);
+          this.writeNow();
         }, PONG_WAIT_MS);
       }
     }, PING_INTERVAL_MS);
 
-    if (this.sql != null) {
-      // Write initial snapshot on start
-      void this.writeSnapshot(this.sql);
-    }
+    // Write initial snapshot on start
+    this.writeNow();
 
     this.logger.info('Ping monitor started');
   }
@@ -68,16 +80,28 @@ export class PingMonitor {
     this.cycleInterval = null;
     this.pendingWriteTimeout = null;
 
-    // Write a zeroed snapshot so the dashboard reflects the server is down
-    if (this.sql != null) {
-      await this.writeShutdownSnapshot(this.sql);
+    // Delete this process's row so the fleet totals drop its stations. No
+    // write starts after this point (the server closes the station sockets
+    // after stopping the monitor, and each close calls writeNow), and a write
+    // still running finishes first, so it cannot recreate the row.
+    const sql = this.sql;
+    this.sql = null;
+    await Promise.allSettled([...this.writes]);
+    if (sql != null) {
+      await this.writeShutdownSnapshot(sql);
     }
   }
 
+  getInstanceId(): string {
+    return this.instanceId;
+  }
+
   writeNow(): void {
-    if (this.sql != null) {
-      void this.writeSnapshot(this.sql);
-    }
+    if (this.sql == null) return;
+    const write = this.writeSnapshot(this.sql).finally(() => {
+      this.writes.delete(write);
+    });
+    this.writes.add(write);
   }
 
   recordPong(stationId: string): void {
@@ -155,29 +179,22 @@ export class PingMonitor {
     }
   }
 
+  private async publishHealthChanged(): Promise<void> {
+    if (this.pubsub == null) return;
+    const notify = JSON.stringify({
+      eventType: 'ocpp.health',
+      stationId: null,
+      siteId: null,
+      sessionId: null,
+    });
+    await this.pubsub.publish('csms_events', notify);
+  }
+
+  // Deletes this process's row so readers stop counting it at once.
   private async writeShutdownSnapshot(sql: postgres.Sql): Promise<void> {
     try {
-      await sql`
-        UPDATE ocpp_server_health SET
-          connected_stations = 0,
-          avg_ping_latency_ms = 0,
-          max_ping_latency_ms = 0,
-          ping_success_rate = 100,
-          total_pings_sent = 0,
-          total_pongs_received = 0,
-          updated_at = now()
-        WHERE id = 'singleton'
-      `;
-
-      if (this.pubsub != null) {
-        const notify = JSON.stringify({
-          eventType: 'ocpp.health',
-          stationId: null,
-          siteId: null,
-          sessionId: null,
-        });
-        await this.pubsub.publish('csms_events', notify);
-      }
+      await deleteOcppInstanceHealth(sql, this.instanceId);
+      await this.publishHealthChanged();
     } catch (err) {
       this.logger.warn(
         { error: err instanceof Error ? err.message : String(err) },
@@ -189,43 +206,15 @@ export class PingMonitor {
   private async writeSnapshot(sql: postgres.Sql): Promise<void> {
     const snapshot = this.getSnapshot();
     try {
-      await sql`
-        INSERT INTO ocpp_server_health (
-          id, connected_stations, avg_ping_latency_ms, max_ping_latency_ms,
-          ping_success_rate, total_pings_sent, total_pongs_received,
-          server_started_at, updated_at
-        )
-        VALUES (
-          'singleton',
-          ${snapshot.connectedStations},
-          ${snapshot.avgPingLatencyMs},
-          ${snapshot.maxPingLatencyMs},
-          ${snapshot.pingSuccessRate},
-          ${snapshot.totalPingsSent},
-          ${snapshot.totalPongsReceived},
-          ${snapshot.serverStartedAt.toISOString()},
-          now()
-        )
-        ON CONFLICT (id) DO UPDATE SET
-          connected_stations = EXCLUDED.connected_stations,
-          avg_ping_latency_ms = EXCLUDED.avg_ping_latency_ms,
-          max_ping_latency_ms = EXCLUDED.max_ping_latency_ms,
-          ping_success_rate = EXCLUDED.ping_success_rate,
-          total_pings_sent = EXCLUDED.total_pings_sent,
-          total_pongs_received = EXCLUDED.total_pongs_received,
-          server_started_at = EXCLUDED.server_started_at,
-          updated_at = now()
-      `;
-
-      if (this.pubsub != null) {
-        const notify = JSON.stringify({
-          eventType: 'ocpp.health',
-          stationId: null,
-          siteId: null,
-          sessionId: null,
-        });
-        await this.pubsub.publish('csms_events', notify);
+      await writeOcppInstanceHealth(sql, this.instanceId, snapshot);
+      // Rows of processes that died without their shutdown delete. At most
+      // once per cycle: writeNow also runs on every connect and disconnect.
+      const now = Date.now();
+      if (now - this.lastPruneAt >= PING_INTERVAL_MS) {
+        this.lastPruneAt = now;
+        await pruneStaleOcppHealth(sql);
       }
+      await this.publishHealthChanged();
     } catch (err) {
       this.logger.warn(
         { error: err instanceof Error ? err.message : String(err) },

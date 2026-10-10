@@ -65,6 +65,18 @@ vi.mock('@evtivity/database', () => ({
   fleetReservations: {},
   fleets: {},
   writeReservationAudit: vi.fn().mockResolvedValue(undefined),
+  snapshotReservationFeeTerms: vi.fn().mockResolvedValue({
+    feeTaxBasis: 'gross',
+    feeTaxRate: '0.19',
+    feePerMinute: '0.10',
+    feeCancellationCents: 300,
+  }),
+  resolveReservationFeeTerms: vi.fn().mockResolvedValue({
+    basis: 'gross',
+    taxRate: '0.19',
+    feePerMinute: '0.10',
+    cancellationFeeCents: 300,
+  }),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -204,18 +216,34 @@ describe('Fleet reservation routes (additional coverage)', () => {
         payload,
       });
 
-    it('returns 404 when a slot station is on a site the user cannot access', async () => {
+    it.each([
+      ['a foreign station', 'CS-1'],
+      ['an unsited station', 'CS-NOSITE'],
+      ['a missing station', 'CS-GONE'],
+    ])('refuses a slot at %s with the same 404 before any write', async (_label, ocppId) => {
       mockGetUserSiteIds.mockResolvedValue([SITE_B]);
-      setupDbResults([{ id: FLEET_ID }], [{ stationId: 'CS-1', siteId: SITE_A }]);
-      const res = await post({ slots: [{ stationOcppId: 'CS-1' }], expiresAt: EXPIRES });
+      setupDbResults(
+        [{ id: FLEET_ID }],
+        [
+          station('CS-1'),
+          station('CS-NOSITE', { siteId: null }),
+          station('CS-B', { siteId: SITE_B }),
+        ],
+      );
+      const res = await post({
+        slots: [{ stationOcppId: 'CS-B' }, { stationOcppId: ocppId }],
+        expiresAt: EXPIRES,
+      });
       expect(res.statusCode).toBe(404);
-      expect(res.json()).toEqual({ error: 'Station CS-1 not found', code: 'STATION_NOT_FOUND' });
-      expect(mockExecute).not.toHaveBeenCalled();
+      expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      expect(db.insert).not.toHaveBeenCalled();
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(mockSendOcpp).not.toHaveBeenCalled();
     });
 
     it('returns 400 when the fleet reservation row is not created', async () => {
       mockGetUserSiteIds.mockResolvedValue([SITE_A]);
-      setupDbResults([{ id: FLEET_ID }], [{ stationId: 'CS-1', siteId: SITE_A }], []);
+      setupDbResults([{ id: FLEET_ID }], [station('CS-1')], []);
       const res = await post({ slots: [{ stationOcppId: 'CS-1' }], expiresAt: EXPIRES });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('FLEET_RESERVATION_CREATE_FAILED');
@@ -240,7 +268,6 @@ describe('Fleet reservation routes (additional coverage)', () => {
         .mockRejectedValueOnce(42);
       setupDbResults(
         [{ id: FLEET_ID }],
-        [{ id: FLEET_RES_ID }],
         [
           station('CS-OFF', { isOnline: false }),
           station('CS-DIS'),
@@ -249,12 +276,12 @@ describe('Fleet reservation routes (additional coverage)', () => {
           station('CS-MNT2'),
           station('CS-EVSE'),
         ],
+        [{ id: FLEET_RES_ID }],
         [{ id: 'evs_1', stationId: 'db-CS-EVSE', evseId: 1 }],
         [],
       );
       const res = await post({
         slots: [
-          { stationOcppId: 'CS-GONE' },
           { stationOcppId: 'CS-OFF' },
           { stationOcppId: 'CS-DIS' },
           { stationOcppId: 'CS-ODD' },
@@ -266,10 +293,9 @@ describe('Fleet reservation routes (additional coverage)', () => {
       });
       expect(res.statusCode).toBe(201);
       const body = res.json();
-      expect(body).toMatchObject({ id: FLEET_RES_ID, confirmed: 0, failed: 7, total: 7 });
+      expect(body).toMatchObject({ id: FLEET_RES_ID, confirmed: 0, failed: 6, total: 6 });
       expect(body.status).toBe('cancelled');
       expect(body.results.map((r: { error: string }) => r.error)).toEqual([
-        'Station CS-GONE not found',
         'Station CS-OFF is offline',
         'Reservations are disabled for this station',
         'Reservations not allowed',
@@ -277,18 +303,18 @@ describe('Fleet reservation routes (additional coverage)', () => {
         'Maintenance window blocks this slot',
         'EVSE 9 not found on station CS-EVSE',
       ]);
-      expect(body.results[6]).toMatchObject({ evseId: 9, reservationId: null, status: 'rejected' });
+      expect(body.results[5]).toMatchObject({ evseId: 9, reservationId: null, status: 'rejected' });
       expect(db.transaction).not.toHaveBeenCalled();
       expect(mockSendOcpp).not.toHaveBeenCalled();
       expect(updateSetArgs()).toMatchObject({ status: 'cancelled' });
     });
 
-    it('skips the EVSE query when no slot station exists', async () => {
-      setupDbResults([{ id: FLEET_ID }], [{ id: FLEET_RES_ID }], [], []);
+    it('refuses an all-site user a slot at a missing station before any write', async () => {
+      setupDbResults([{ id: FLEET_ID }], []);
       const res = await post({ slots: [{ stationOcppId: 'CS-GONE' }], expiresAt: EXPIRES });
-      expect(res.statusCode).toBe(201);
-      expect(res.json().results[0].error).toBe('Station CS-GONE not found');
-      expect(updateSetArgs()).toMatchObject({ status: 'cancelled' });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('STATION_NOT_FOUND');
+      expect(db.insert).not.toHaveBeenCalled();
     });
 
     it('rolls back failed slots, keeps confirmed ones, and reports partial', async () => {
@@ -308,8 +334,8 @@ describe('Fleet reservation routes (additional coverage)', () => {
       const profile = { id: 1, chargingProfilePurpose: 'TxProfile' };
       setupDbResults(
         [{ id: FLEET_ID }],
-        [{ id: FLEET_RES_ID }],
         [station('CS-ERR'), station('CS-OCC'), station('CS-REJ'), station('CS-OK')],
+        [{ id: FLEET_RES_ID }],
         [{ id: 'evs_ok', stationId: 'db-CS-OK', evseId: 2 }],
         [
           inserted('rsv_1', 'db-CS-ERR', 'drv_000000000001'),
@@ -402,8 +428,8 @@ describe('Fleet reservation routes (additional coverage)', () => {
     it('rejects a slot whose reservation row was not returned by the insert', async () => {
       setupDbResults(
         [{ id: FLEET_ID }],
-        [{ id: FLEET_RES_ID }],
         [station('CS-A'), station('CS-B')],
+        [{ id: FLEET_RES_ID }],
         [],
         [inserted('rsv_1', 'db-CS-A')],
         [],
@@ -426,8 +452,8 @@ describe('Fleet reservation routes (additional coverage)', () => {
     it('reports active when every slot is confirmed, with startsAt on the rows', async () => {
       setupDbResults(
         [{ id: FLEET_ID }],
-        [{ id: FLEET_RES_ID }],
         [station('CS-A')],
+        [{ id: FLEET_RES_ID }],
         [],
         [inserted('rsv_1', 'db-CS-A')],
         [],
@@ -504,6 +530,23 @@ describe('Fleet reservation routes (additional coverage)', () => {
       expect(db.update).not.toHaveBeenCalled();
     });
 
+    it('returns 404 to a site-restricted user when the booking has no reservation', async () => {
+      mockGetUserSiteIds.mockResolvedValue([SITE_A]);
+      setupDbResults([{ id: FLEET_RES_ID, status: 'active' }], []);
+      const res = await del();
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('FLEET_RESERVATION_NOT_FOUND');
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('lets an all-site user cancel a booking with no reservation', async () => {
+      mockGetUserSiteIds.mockResolvedValue(null);
+      setupDbResults([{ id: FLEET_RES_ID, status: 'active' }], [], []);
+      const res = await del();
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ status: 'cancelled', cancelledCount: 0 });
+    });
+
     it('cancels every active slot even when a CancelReservation throws', async () => {
       mockGetUserSiteIds.mockResolvedValue([SITE_A]);
       mockSendOcpp
@@ -513,7 +556,7 @@ describe('Fleet reservation routes (additional coverage)', () => {
       const startsAt = new Date('2024-01-02T00:00:00Z');
       setupDbResults(
         [{ id: FLEET_RES_ID, status: 'partial' }],
-        [{ siteId: SITE_A }, { siteId: null }],
+        [{ siteId: SITE_A }],
         [
           {
             id: 'rsv_1',
@@ -554,6 +597,18 @@ describe('Fleet reservation routes (additional coverage)', () => {
         expect.objectContaining({ reservationDbId: 'rsv_2', startsAt, chargeFee: false }),
       );
       expect(updateSetArgs()).toMatchObject({ status: 'cancelled' });
+    });
+
+    it('404s a restricted user when a slot is at an unsited station', async () => {
+      mockGetUserSiteIds.mockResolvedValue([SITE_A]);
+      setupDbResults(
+        [{ id: FLEET_RES_ID, status: 'partial' }],
+        [{ siteId: SITE_A }, { siteId: null }],
+      );
+      const res = await del();
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ code: 'FLEET_RESERVATION_NOT_FOUND' });
+      expect(mockSendOcpp).not.toHaveBeenCalled();
     });
   });
 });

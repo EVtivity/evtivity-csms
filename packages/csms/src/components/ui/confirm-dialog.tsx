@@ -44,7 +44,7 @@ export function ConfirmDialog({
   const { t } = useTranslation();
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} dismissible={!isPending}>
       <DialogContent className="max-w-[95vw] md:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

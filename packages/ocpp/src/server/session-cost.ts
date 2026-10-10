@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
-import { priceSessionAt } from '@evtivity/database';
+import { applyRegisterReading, priceSessionAt, registerStateFromRow } from '@evtivity/database';
 
 /** The cost of a transaction at a moment of its TransactionEvent. */
 export interface TransactionCost {
@@ -44,8 +44,9 @@ export function isUnbilledTimeoutEnd(end: {
  * Updated (I02 alternative scenario), the final cost for Ended (I03.FR.02).
  * The caller first waits for the projections the session row depends on. The
  * energy is the one the projections store: the register reading of the event
- * (`meterRegisterWh`) minus meter_start when that is higher than the energy
- * from earlier readings. `end` carries the reasons of an Ended event: a
+ * (`meterRegisterWh`) applied to the session's register state as the
+ * MeterValues projection applies it (applyRegisterReading: an older reading
+ * or a register drop keeps the energy so far, finding B10). `end` carries the reasons of an Ended event: a
  * timeout end without energy (`isUnbilledTimeoutEnd`) costs 0, as the Ended
  * projection then fails the session. Returns null when the session is unknown
  * (its Started event has not been projected), so the cost is not known.
@@ -61,7 +62,8 @@ export async function transactionCostAt(
   },
 ): Promise<TransactionCost | null> {
   const rows = await sql`
-    SELECT s.id, s.status, s.tariff_id, s.energy_delivered_wh, s.meter_start, s.final_cost_cents
+    SELECT s.id, s.status, s.tariff_id, s.energy_delivered_wh, s.meter_start, s.final_cost_cents,
+           s.meter_register_offset_wh, s.meter_last_register_wh, s.meter_last_register_at
     FROM charging_sessions s
     JOIN charging_stations st ON st.id = s.station_id
     WHERE st.station_id = ${params.stationId} AND s.transaction_id = ${params.transactionId}
@@ -83,12 +85,12 @@ export async function transactionCostAt(
   // the session is not billed, which the spec reports as 0.00 (I03.FR.04).
   if (session.tariff_id == null) return { totalCostCents: 0, calculated: false };
 
-  const storedEnergyWh = Number(session.energy_delivered_wh ?? 0);
-  const meterStart = session.meter_start != null ? Number(session.meter_start) : null;
+  const registerState = registerStateFromRow(session);
   const energyWh =
-    params.meterRegisterWh != null && meterStart != null && params.meterRegisterWh >= meterStart
-      ? Math.max(storedEnergyWh, params.meterRegisterWh - meterStart)
-      : storedEnergyWh;
+    params.meterRegisterWh != null && registerState.meterStartWh != null
+      ? applyRegisterReading(registerState, { registerWh: params.meterRegisterWh, at: params.at })
+          .energyWh
+      : (registerState.energyWh ?? 0);
   if (params.end != null && isUnbilledTimeoutEnd({ ...params.end, energyWh })) {
     return { totalCostCents: 0, calculated: false };
   }

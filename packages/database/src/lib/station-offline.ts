@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
+import { toDate, toDateOrNull } from './raw-timestamp.js';
 
 // The offline sweep (worker cron `station-offline-sweep`) marks offline a
 // station left online by an OCPP process that died without publishing
@@ -29,7 +30,12 @@ export async function findStaleOnlineStations(
   limit = 500,
 ): Promise<StaleOnlineStation[]> {
   const rows = await sql<
-    { id: string; station_id: string; last_heartbeat: Date | null; stale_before: Date }[]
+    {
+      id: string;
+      station_id: string;
+      last_heartbeat: Date | string | null;
+      stale_before: Date | string;
+    }[]
   >`
     SELECT id, station_id, last_heartbeat,
            now() - make_interval(secs => ${thresholdMs / 1000}) AS stale_before
@@ -43,8 +49,8 @@ export async function findStaleOnlineStations(
   return rows.map((r) => ({
     id: r.id,
     stationId: r.station_id,
-    lastActivityAt: r.last_heartbeat,
-    staleBefore: r.stale_before,
+    lastActivityAt: toDateOrNull(r.last_heartbeat),
+    staleBefore: toDate(r.stale_before),
   }));
 }
 

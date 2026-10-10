@@ -12,24 +12,9 @@ import type { HandlerContext } from '../../../server/middleware/pipeline.js';
 // .limit() so both call shapes resolve to the same queued value.
 let whereQueue: Array<unknown[] | Error>;
 const insertValuesFn = vi.fn().mockResolvedValue(undefined);
-// Tariff rows the shared resolver (@evtivity/database tariff-resolution) returns, first row wins.
-const executeFn = vi.fn();
-const resolveStationTariffMock = vi.fn(
-  async (_q: { stationUuid: string; driverUuid: string | null }, _sql: unknown) => {
-    const rows = (await executeFn()) as Array<Record<string, unknown>>;
-    const row = rows[0];
-    if (row == null) return null;
-    return {
-      id: row['id'],
-      pricePerKwh: row['price_per_kwh'],
-      pricePerMinute: row['price_per_minute'],
-      pricePerSession: row['price_per_session'],
-      idleFeePricePerMinute: row['idle_fee_price_per_minute'],
-      reservationFeePerMinute: null,
-      taxRate: row['tax_rate'],
-    };
-  },
-);
+// The TariffType the shared builder (@evtivity/database ocpp-session-tariff)
+// returns; its mapping is tested in @evtivity/lib ocpp-tariff.test.ts.
+const buildStationOcppTariffMock = vi.fn();
 const clientMock = vi.fn(() => Promise.resolve([{ id: 'sta_cs001' }]));
 
 function nextResult(): PromiseLike<unknown[]> & { limit: () => Promise<unknown[]> } {
@@ -49,7 +34,6 @@ const fromFn = vi.fn(() => ({ where: whereFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
 const isRoamingEnabledMock = vi.fn().mockResolvedValue(false);
-const getCompanyTaxBasisMock = vi.fn().mockResolvedValue('net');
 const isSiteFreeVendEnabledByStationMock = vi.fn().mockResolvedValue(false);
 
 vi.mock('@evtivity/database', () => ({
@@ -81,10 +65,7 @@ vi.mock('@evtivity/database', () => ({
   authorizeAttempts: {},
   isRoamingEnabled: isRoamingEnabledMock,
   isSiteFreeVendEnabledByStation: isSiteFreeVendEnabledByStationMock,
-  getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
-  getCompanyTaxBasis: (...args: unknown[]) => getCompanyTaxBasisMock(...args) as unknown,
-  resolveStationTariff: (...args: [{ stationUuid: string; driverUuid: string | null }, unknown]) =>
-    resolveStationTariffMock(...args),
+  buildStationOcppTariff: (...args: unknown[]) => buildStationOcppTariffMock(...args) as unknown,
 }));
 
 const validateContractCertificateMock = vi.fn();
@@ -157,7 +138,7 @@ beforeEach(() => {
   isRoamingEnabledMock.mockResolvedValue(false);
   isSiteFreeVendEnabledByStationMock.mockResolvedValue(false);
   insertValuesFn.mockResolvedValue(undefined);
-  executeFn.mockResolvedValue([]);
+  buildStationOcppTariffMock.mockResolvedValue(null);
 });
 
 describe('v2_1 Authorize handler', () => {
@@ -452,38 +433,31 @@ describe('v2_1 Authorize handler', () => {
     expect(response).toEqual({ idTokenInfo: { status: 'Accepted' } });
   });
 
-  it('attaches a tariff when one resolves for an accepted driver token', async () => {
+  const builtTariff = {
+    tariffId: 'evt-0123',
+    currency: 'USD',
+    energy: { prices: [{ priceKwh: 0.25 }], taxRates: [{ type: 'VAT', tax: 8 }] },
+    idleTime: {
+      prices: [{ priceMinute: 0.05, conditions: { minIdleTime: 300 } }, { priceMinute: 0 }],
+      taxRates: [{ type: 'VAT', tax: 8 }],
+    },
+  };
+
+  it('attaches the tariff the builder returns for an accepted driver token', async () => {
     whereQueue = [
       [{ id: 'dtk_8', driverId: 'drv_8', isActive: true, expiresAt: null, revokedAt: null }],
       [],
     ];
-    executeFn.mockResolvedValue([
-      {
-        id: 'trf_1',
-        price_per_kwh: '0.25',
-        price_per_minute: '0.15',
-        price_per_session: '2.00',
-        idle_fee_price_per_minute: '0.05',
-        tax_rate: '0.08',
-        pricing_group_id: 'pgr_1',
-      },
-    ]);
+    buildStationOcppTariffMock.mockResolvedValue(builtTariff);
     const { ctx } = makeCtx({ idToken: { idToken: 'tariff-rfid', type: 'ISO14443' } });
     const response = await handleAuthorize(ctx);
 
-    expect(response['tariff']).toEqual({
-      tariffId: 'trf_1',
-      currency: 'USD',
-      energy: { prices: [{ priceKwh: 0.25 }], taxRates: [{ type: 'VAT', tax: 8 }] },
-      chargingTime: { prices: [{ priceMinute: 0.15 }], taxRates: [{ type: 'VAT', tax: 8 }] },
-      idleTime: { prices: [{ priceMinute: 0.05 }], taxRates: [{ type: 'VAT', tax: 8 }] },
-      fixedFee: { prices: [{ priceFixed: 2 }], taxRates: [{ type: 'VAT', tax: 8 }] },
-    });
+    expect(response['tariff']).toEqual(builtTariff);
     // Resolved like session pricing: the station's internal id and the token's driver.
-    expect(resolveStationTariffMock).toHaveBeenCalledWith(
-      { stationUuid: 'sta_cs001', driverUuid: 'drv_8' },
-      clientMock,
-    );
+    expect(buildStationOcppTariffMock).toHaveBeenCalledWith(clientMock, {
+      stationUuid: 'sta_cs001',
+      driverUuid: 'drv_8',
+    });
   });
 
   it('uses the station id from the connection without looking it up', async () => {
@@ -496,142 +470,45 @@ describe('v2_1 Authorize handler', () => {
     await handleAuthorize(ctx);
 
     expect(clientMock).not.toHaveBeenCalled();
-    expect(resolveStationTariffMock).toHaveBeenCalledWith(
-      { stationUuid: 'sta_known', driverUuid: 'drv_s' },
-      clientMock,
-    );
-  });
-
-  it('sends net prices for a tariff entered on the gross tax basis', async () => {
-    getCompanyTaxBasisMock.mockResolvedValueOnce('gross');
-    whereQueue = [
-      [{ id: 'dtk_g', driverId: 'drv_g', isActive: true, expiresAt: null, revokedAt: null }],
-      [],
-    ];
-    executeFn.mockResolvedValue([
-      {
-        id: 'trf_g',
-        price_per_kwh: '0.357',
-        price_per_minute: null,
-        price_per_session: '1.19',
-        idle_fee_price_per_minute: '0.50',
-        tax_rate: '0.19',
-        pricing_group_id: 'pgr_1',
-      },
-    ]);
-    const { ctx } = makeCtx({ idToken: { idToken: 'gross-rfid', type: 'ISO14443' } });
-    const response = await handleAuthorize(ctx);
-
-    expect(response['tariff']).toEqual({
-      tariffId: 'trf_g',
-      currency: 'USD',
-      energy: { prices: [{ priceKwh: 0.3 }], taxRates: [{ type: 'VAT', tax: 19 }] },
-      // 0.50 / 1.19 = 0.42016...
-      idleTime: { prices: [{ priceMinute: 0.4202 }], taxRates: [{ type: 'VAT', tax: 19 }] },
-      fixedFee: { prices: [{ priceFixed: 1 }], taxRates: [{ type: 'VAT', tax: 19 }] },
+    expect(buildStationOcppTariffMock).toHaveBeenCalledWith(clientMock, {
+      stationUuid: 'sta_known',
+      driverUuid: 'drv_s',
     });
   });
 
-  it('builds a tariff with only the non-zero price components and no tax rates', async () => {
-    whereQueue = [
-      [{ id: 'dtk_z', driverId: 'drv_z', isActive: true, expiresAt: null, revokedAt: null }],
-      [],
-    ];
-    executeFn.mockResolvedValue([
-      {
-        id: 'trf_2',
-        price_per_kwh: '0.30',
-        price_per_minute: null,
-        price_per_session: '0',
-        idle_fee_price_per_minute: '0',
-        tax_rate: '0',
-        pricing_group_id: 'pgr_2',
-      },
-    ]);
-    const { ctx } = makeCtx({ idToken: { idToken: 'tariff-min', type: 'ISO14443' } });
-    const response = await handleAuthorize(ctx);
-
-    // Tariffs carry no currency; the station receives the company currency.
-    expect(response['tariff']).toEqual({
-      tariffId: 'trf_2',
-      currency: 'USD',
-      energy: { prices: [{ priceKwh: 0.3 }] },
-    });
-  });
-
-  it('builds all four tariff components without tax rates when tax is zero', async () => {
-    whereQueue = [
-      [{ id: 'dtk_nt', driverId: 'drv_nt', isActive: true, expiresAt: null, revokedAt: null }],
-      [],
-    ];
-    executeFn.mockResolvedValue([
-      {
-        id: 'trf_nt',
-        price_per_kwh: '0.25',
-        price_per_minute: '0.15',
-        price_per_session: '2.00',
-        idle_fee_price_per_minute: '0.05',
-        tax_rate: '0',
-        pricing_group_id: 'pgr_nt',
-      },
-    ]);
-    const { ctx } = makeCtx({ idToken: { idToken: 'tariff-notax', type: 'ISO14443' } });
-    const response = await handleAuthorize(ctx);
-
-    expect(response['tariff']).toEqual({
-      tariffId: 'trf_nt',
-      currency: 'USD',
-      energy: { prices: [{ priceKwh: 0.25 }] },
-      chargingTime: { prices: [{ priceMinute: 0.15 }] },
-      idleTime: { prices: [{ priceMinute: 0.05 }] },
-      fixedFee: { prices: [{ priceFixed: 2 }] },
-    });
-  });
-
-  it('resolves a tariff for an accepted token whose driverId is null (station/site path)', async () => {
+  it('builds the tariff for an accepted token whose driverId is null (station/site path)', async () => {
     whereQueue = [
       [{ id: 'dtk_nd', driverId: null, isActive: true, expiresAt: null, revokedAt: null }],
       [],
     ];
-    executeFn.mockResolvedValue([
-      {
-        id: 'trf_3',
-        price_per_kwh: '0.40',
-        price_per_minute: null,
-        price_per_session: null,
-        idle_fee_price_per_minute: null,
-        tax_rate: null,
-        pricing_group_id: 'pgr_3',
-      },
-    ]);
+    buildStationOcppTariffMock.mockResolvedValue(builtTariff);
     const { ctx } = makeCtx({ idToken: { idToken: 'tariff-nd', type: 'ISO14443' } });
     const response = await handleAuthorize(ctx);
 
-    expect(response['tariff']).toEqual({
-      tariffId: 'trf_3',
-      currency: 'USD',
-      energy: { prices: [{ priceKwh: 0.4 }] },
+    expect(response['tariff']).toEqual(builtTariff);
+    expect(buildStationOcppTariffMock).toHaveBeenCalledWith(clientMock, {
+      stationUuid: 'sta_cs001',
+      driverUuid: null,
     });
   });
 
-  it('omits tariff when resolution returns no rows', async () => {
+  it('omits tariff when no tariff applies', async () => {
     whereQueue = [
       [{ id: 'dtk_9', driverId: 'drv_9', isActive: true, expiresAt: null, revokedAt: null }],
       [],
     ];
-    executeFn.mockResolvedValue([]);
     const { ctx } = makeCtx({ idToken: { idToken: 'no-tariff', type: 'ISO14443' } });
     const response = await handleAuthorize(ctx);
 
     expect(response).not.toHaveProperty('tariff');
   });
 
-  it('omits tariff (no crash) when resolution throws', async () => {
+  it('omits tariff (no crash) when the tariff build throws', async () => {
     whereQueue = [
       [{ id: 'dtk_10', driverId: 'drv_10', isActive: true, expiresAt: null, revokedAt: null }],
       [],
     ];
-    executeFn.mockRejectedValue(new Error('tariff query failed'));
+    buildStationOcppTariffMock.mockRejectedValue(new Error('tariff query failed'));
     const { ctx } = makeCtx({ idToken: { idToken: 'tariff-err', type: 'ISO14443' } });
     const response = await handleAuthorize(ctx);
 
@@ -648,7 +525,7 @@ describe('v2_1 Authorize handler', () => {
 
       expect(response).toEqual({ idTokenInfo: { status: 'Accepted' } });
       // free-vend short-circuit returns before any tariff resolution
-      expect(executeFn).not.toHaveBeenCalled();
+      expect(buildStationOcppTariffMock).not.toHaveBeenCalled();
     });
 
     it('accepts free-vend when the matched token row has a null driverId', async () => {

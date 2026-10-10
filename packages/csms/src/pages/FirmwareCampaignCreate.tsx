@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
+import { useHasAllSiteAccess } from '@/lib/auth';
 
 interface Campaign {
   id: string;
@@ -52,6 +53,7 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
   });
   const [filter, setFilter] = useState<TargetFilterValue>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const hasAllSiteAccess = useHasAllSiteAccess();
 
   const createMutation = useMutation({
     mutationFn: (body: CreateCampaignBody) => api.post<Campaign>('/v1/firmware-campaigns', body),
@@ -68,6 +70,11 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
       errors.firmwareUrl = t('validation.required');
     } else if (!URL.canParse(firmwareUrl)) {
       errors.firmwareUrl = t('validation.invalidUrl');
+    }
+    // A campaign without a site or station targets every site: only all-site
+    // users create one (the API answers others 404).
+    if (!hasAllSiteAccess && filter.siteId == null && filter.stationId == null) {
+      errors.targetFilter = t('validation.selectRequired');
     }
     return errors;
   }
@@ -161,6 +168,9 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
               onChange={setFilter}
               idPrefix="fw-create-filter"
             />
+            {hasSubmitted && errors.targetFilter && (
+              <p className="text-sm text-destructive">{errors.targetFilter}</p>
+            )}
 
             <div className="flex justify-end gap-2">
               <CancelButton

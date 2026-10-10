@@ -92,6 +92,9 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
+const siteAccess = vi.hoisted(() => ({ isAllSiteUser: vi.fn() }));
+vi.mock('../lib/site-access.js', () => ({ isAllSiteUser: siteAccess.isAllSiteUser }));
+
 import { registerAuth } from '../plugins/auth.js';
 import { accessLogRoutes } from '../routes/access-logs.js';
 import { db } from '@evtivity/database';
@@ -122,6 +125,7 @@ describe('Access log routes', () => {
   beforeEach(() => {
     setupDbResults();
     vi.clearAllMocks();
+    siteAccess.isAllSiteUser.mockResolvedValue(true);
   });
 
   describe('POST /v1/access-logs (operator)', () => {
@@ -384,6 +388,20 @@ describe('Access log routes', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.total).toBe(0);
+    });
+
+    it('answers a site-restricted user with the route-not-found 404 without querying', async () => {
+      siteAccess.isAllSiteUser.mockResolvedValue(false);
+      setupDbResults([{ id: 1 }], [{ count: 1 }]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/access-logs',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBeUndefined();
+      expect(siteAccess.isAllSiteUser).toHaveBeenCalledWith('test-id');
+      expect(db.select).not.toHaveBeenCalled();
     });
   });
 });

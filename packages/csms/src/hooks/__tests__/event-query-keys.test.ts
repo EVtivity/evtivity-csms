@@ -169,6 +169,13 @@ describe('getQueryKeysForEvent', () => {
     expect(getQueryKeysForEvent(makeEvent('ocpp.message'))).toEqual([]);
   });
 
+  it('displayMessage.updated refreshes the station display messages', () => {
+    expect(
+      getQueryKeysForEvent(makeEvent('displayMessage.updated', { stationId: 'sta-1' })),
+    ).toEqual([['display-messages', 'sta-1']]);
+    expect(getQueryKeysForEvent(makeEvent('displayMessage.updated'))).toEqual([]);
+  });
+
   it('station.securityEvent refreshes security logs and the station detail', () => {
     const keys = getQueryKeysForEvent(makeEvent('station.securityEvent', { stationId: 'CS-1' }));
     expect(hasKey(keys, ['stations', 'CS-1', 'security-logs'])).toBe(true);

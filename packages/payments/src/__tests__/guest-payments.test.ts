@@ -205,9 +205,12 @@ function chargedSession(finalCostCents: number | null): Record<string, unknown> 
 
 function receiptSession(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
+    transactionId: 'tx-guest',
     energyDeliveredWh: '12000',
     finalCostCents: 800,
-    tariffTaxRate: null,
+    netCents: 800,
+    taxCents: 0,
+    costBreakdown: null,
     currency: 'EUR',
     startedAt: '2026-01-01T10:00:00Z',
     endedAt: '2026-01-01T10:30:00Z',
@@ -444,9 +447,11 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
       expect.objectContaining({
         stationId: 'CS-1',
         energyDeliveredWh: 12000,
+        transactionId: 'tx-guest',
         finalCostCents: 800,
         currency: 'EUR',
         costIncludesTax: false,
+        partiallyPaid: false,
         durationMinutes: 30,
         startedAt: '2026-01-01T10:00:00.000Z',
         endedAt: '2026-01-01T10:30:00.000Z',
@@ -455,9 +460,18 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     );
   });
 
-  it('captures at most the hold and records the uncollected rest as a guest shortfall', async () => {
-    m.findSessionRecord.mockResolvedValue(record({ preAuthAmountCents: 5000 }));
-    m.selectQueue.push([finalizeGuest()], [chargedSession(6000)], [receiptSession()]);
+  it('captures at most the hold and records the uncollected rest as a guest shortfall (TC-T3-33)', async () => {
+    m.findSessionRecord
+      .mockResolvedValueOnce(record({ preAuthAmountCents: 5000 }))
+      // The receipt reads the record as the capture left it.
+      .mockResolvedValueOnce(
+        record({ preAuthAmountCents: 5000, status: 'captured', capturedAmountCents: 5000 }),
+      );
+    m.selectQueue.push(
+      [finalizeGuest()],
+      [chargedSession(6000)],
+      [receiptSession({ finalCostCents: 6000, netCents: 5042, taxCents: 958 })],
+    );
 
     await end();
 
@@ -472,6 +486,20 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ finalCost: 6000, holdCents: 5000, shortfallCents: 1000 }),
       'Guest session cost exceeds the hold; captured the hold, shortfall uncollected',
+    );
+    expect(m.dispatchSystemNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      'session.Receipt',
+      { email: 'guest@example.com' },
+      expect.objectContaining({
+        finalCostCents: 6000,
+        costIncludesTax: true,
+        taxCents: 958,
+        partiallyPaid: true,
+        chargedCents: 5000,
+        unpaidCents: 1000,
+      }),
+      ['/templates'],
     );
   });
 
@@ -812,7 +840,8 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
         receiptSession({
           energyDeliveredWh: null,
           finalCostCents: 1190,
-          tariffTaxRate: '0.19',
+          netCents: 1000,
+          taxCents: 190,
           startedAt: null,
           endedAt: null,
         }),
@@ -825,10 +854,12 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
       expect.anything(),
       'session.Receipt',
       expect.anything(),
+      // TC-T3-33: the label comes from the stored tax.
       expect.objectContaining({
         energyDeliveredWh: 0,
         finalCostCents: 1190,
         costIncludesTax: true,
+        taxCents: 190,
         durationMinutes: 0,
       }),
       ['/templates'],

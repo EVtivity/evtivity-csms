@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { getUserSiteIds } from './site-access.js';
+import { eq, sql } from 'drizzle-orm';
+import { db, fleets } from '@evtivity/database';
+import { isAllSiteUser, requireAllSiteAccess } from './site-access.js';
+
+const FLEET_NOT_FOUND = { error: 'Fleet not found', code: 'FLEET_NOT_FOUND' } as const;
 
 /**
  * A fleet invoice spans the sites the fleet's members charged at, so only a
@@ -16,28 +20,34 @@ export async function refuseSiteRestrictedFleetBilling(
   request: FastifyRequest,
   reply: FastifyReply,
 ): Promise<boolean> {
-  const { userId } = request.user as { userId: string };
-  if ((await getUserSiteIds(userId)) === null) return false;
-  await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
-  return true;
+  return !(await requireAllSiteAccess(request, reply, FLEET_NOT_FOUND));
 }
 
 /**
- * The per-invoice routes (/v1/invoices/:id and its actions) apply the same
- * rule to a fleet invoice and its credit note: a site-restricted user gets 404
- * INVOICE_NOT_FOUND, the answer for a missing invoice, so the user cannot tell
- * a fleet invoice id from an unknown one. `fleetIdOf` is read only for a
- * site-restricted user, so an unrestricted request costs no extra read. Driver
- * invoices are not affected. Returns true when the reply was sent.
+ * Fleet membership decides what a driver pays at every site when the fleet
+ * has a pricing group (fleet tariffs) or bills on account. A site-restricted
+ * user may add or remove members only of a fleet with neither (owner
+ * decision 2026-10-09); otherwise, and for a missing fleet, it gets 404
+ * FLEET_NOT_FOUND. All-site users pass; the route answers its own 404 for a
+ * missing fleet. Returns true when the reply was sent.
  */
-export async function refuseSiteRestrictedFleetInvoice(
+export async function refuseSiteRestrictedFleetMembership(
   request: FastifyRequest,
   reply: FastifyReply,
-  fleetIdOf: () => Promise<string | null>,
+  fleetId: string,
 ): Promise<boolean> {
   const { userId } = request.user as { userId: string };
-  if ((await getUserSiteIds(userId)) === null) return false;
-  if ((await fleetIdOf()) == null) return false;
-  await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
+  if (await isAllSiteUser(userId)) return false;
+  const [fleet] = await db
+    .select({
+      accountBillingEnabled: fleets.accountBillingEnabled,
+      // Written out: a single-table select renders columns unqualified, and
+      // the correlated fleet id must name the outer fleets row.
+      hasPricingGroup: sql<boolean>`exists (select 1 from pricing_group_fleets pgf where pgf.fleet_id = "fleets"."id")`,
+    })
+    .from(fleets)
+    .where(eq(fleets.id, fleetId));
+  if (fleet != null && !fleet.accountBillingEnabled && !fleet.hasPricingGroup) return false;
+  await reply.status(404).send(FLEET_NOT_FOUND);
   return true;
 }

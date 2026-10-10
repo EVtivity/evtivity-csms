@@ -153,6 +153,10 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-pricing.js',
   )),
+  // The real register energy rule (session-energy), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-energy.js',
+  )),
   // The real tariff resolver, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
@@ -1310,7 +1314,7 @@ describe('Event projections - coverage expansion', () => {
   });
 
   describe('ocpp.TransactionEvent Ended - driver notifications', () => {
-    it('dispatches session.Completed and session.Receipt when driver exists', async () => {
+    it('dispatches session.Completed and session.Receipt when driver exists (TC-T3-30, TC-T3-31)', async () => {
       mockDispatchDriver.mockClear();
       await setup();
 
@@ -1350,13 +1354,24 @@ describe('Event projections - coverage expansion', () => {
             status: 'completed',
             energy_delivered_wh: 10000,
             final_cost_cents: 2500,
-            tariff_tax_rate: '0.19',
+            // The stored split decides the tax label, not a tariff rate.
+            net_cents: 2101,
+            tax_cents: 399,
+            cost_breakdown: null,
             currency: 'EUR',
             started_at: '2024-01-01T00:00:00Z',
             ended_at: '2024-01-01T01:00:00Z',
           },
         ], // SELECT driver info for notification
-        [], // SELECT payment_records (no hold)
+        // The hold was captured, the top-up above it declined.
+        [
+          {
+            status: 'captured',
+            failure_reason: 'Top-up declined: card declined; shortfall 500c',
+            pending_operation: null,
+            captured_amount_cents: 2000,
+          },
+        ], // SELECT payment_records
       );
 
       await eventBus.emit(
@@ -1394,7 +1409,11 @@ describe('Event projections - coverage expansion', () => {
           finalCostCents: 2500,
           currency: 'EUR',
           costIncludesTax: true,
+          taxCents: 399,
           notCharged: false,
+          partiallyPaid: true,
+          chargedCents: 2000,
+          unpaidCents: 500,
         }),
         ['/mock/templates'],
         expect.anything(),
@@ -1752,9 +1771,7 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [{ id: 'session-1', evse_id: 'evs_1' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [], // SELECT previous energy
-        [], // UPDATE meter_start
-        [], // UPDATE energy
+        [], // SELECT previous energy (no active session: no energy update)
         [
           {
             id: 'session-1',
@@ -1852,9 +1869,7 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [{ id: 'session-1', evse_id: 'evs_1' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [], // SELECT previous energy
-        [], // UPDATE meter_start
-        [], // UPDATE energy
+        [], // SELECT previous energy (no active session: no energy update)
         [activeSession('ocpp2.1')], // active sessions
         [{ site_id: null }], // resolveSiteId
       );
@@ -1882,10 +1897,8 @@ describe('Event projections - coverage expansion', () => {
       setupSqlResults(
         [{ id: 'sta_000000000001' }],
         [{ id: 'session-1', evse_id: 'evs_1' }],
-        [],
-        [],
-        [],
-        [],
+        [], // INSERT meter_values
+        [], // SELECT previous energy (no active session: no energy update)
         [activeSession(protocol)],
         [{ site_id: null }],
       );
@@ -1915,9 +1928,7 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [{ id: 'session-1', evse_id: 'evs_1' }], // resolveMeterValueSession by transactionId
         [], // INSERT meter_values
-        [], // SELECT previous energy
-        [], // UPDATE meter_start
-        [], // UPDATE energy
+        [], // SELECT previous energy (no active session: no energy update)
         [
           {
             id: 'session-1',

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
-import { and, eq, sql, asc, desc, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, sql, asc, desc, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
@@ -27,7 +27,15 @@ import {
 } from '@evtivity/database';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
-import { getUserSiteIds } from '../lib/site-access.js';
+import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
+import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
+import type { ErrorCode } from '../lib/error-codes.generated.js';
+import { manageableUsersCondition } from '../lib/user-management-scope.js';
+import {
+  chargingProfileTemplateInScopeSql,
+  configTemplateInScopeSql,
+  firmwareCampaignInScopeSql,
+} from '../lib/fleet-operation-scope.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, errorResponse } from '../lib/response-schemas.js';
 
@@ -51,17 +59,20 @@ interface NeighborTarget {
   tag: string;
   operationId: string;
   permission: string;
-  notFoundCode: string;
+  notFoundCode: ErrorCode;
   idColumn: PgColumn;
   createdAtColumn: PgColumn;
   parseId?: (raw: string) => string | number;
   // Returns the site-access condition for the user's allowed sites, or
   // undefined when the resource is not site-scoped. `siteIds` is non-null
   // only for restricted users.
-  scopeWhere?: (siteIds: string[]) => SQL | undefined;
+  scopeWhere?: (siteIds: string[], userId: string) => SQL | undefined;
   // True when scopeWhere does not depend on the sites: a restricted user with
   // no site is then scoped like any restricted user instead of answered 404.
   scopeServesNoSites?: boolean;
+  // True for a company-wide resource: only a user with access to every site
+  // may page through it; a site-restricted user gets 404.
+  allSitesOnly?: boolean;
 }
 
 const stationSiteSubquery = (siteIds: string[]): SQL =>
@@ -92,9 +103,8 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'STATION_NOT_FOUND',
     idColumn: chargingStations.id,
     createdAtColumn: chargingStations.createdAt,
-    // Stations with no site are visible to all users, matching the list.
-    scopeWhere: (siteIds) =>
-      or(isNull(chargingStations.siteId), inArray(chargingStations.siteId, siteIds)),
+    // Stations with no site are visible to all-site users only, matching the list.
+    scopeWhere: (siteIds) => inArray(chargingStations.siteId, siteIds),
   },
   {
     path: '/sessions/:id/neighbors',
@@ -132,6 +142,10 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'USER_NOT_FOUND',
     idColumn: users.id,
     createdAtColumn: users.createdAt,
+    // A site-restricted operator pages only through the users it manages
+    // (user-management-scope.ts): never all-site users or users of other sites.
+    scopeWhere: (siteIds) => manageableUsersCondition(siteIds),
+    scopeServesNoSites: true,
   },
   {
     path: '/tokens/:id/neighbors',
@@ -167,10 +181,9 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'INVOICE_NOT_FOUND',
     idColumn: invoices.id,
     createdAtColumn: invoices.createdAt,
-    // A fleet invoice spans sites: restricted users see driver invoices only,
-    // matching the list and the per-invoice routes.
-    scopeWhere: () => isNull(invoices.fleetId),
-    scopeServesNoSites: true,
+    // Invoices are company-wide money: a site-restricted user sees none,
+    // matching the list and the per-invoice routes (404 INVOICE_NOT_FOUND).
+    allSitesOnly: true,
   },
   {
     path: '/support-cases/:id/neighbors',
@@ -180,18 +193,8 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'SUPPORT_CASE_NOT_FOUND',
     idColumn: supportCases.id,
     createdAtColumn: supportCases.createdAt,
-    // Cases without a station are visible to all users, matching the list.
-    scopeWhere: (siteIds) =>
-      or(
-        isNull(supportCases.stationId),
-        inArray(
-          supportCases.stationId,
-          db
-            .select({ id: chargingStations.id })
-            .from(chargingStations)
-            .where(inArray(chargingStations.siteId, siteIds)),
-        ),
-      ),
+    // The same visibility as the case list and detail.
+    scopeWhere: (siteIds) => supportCaseSiteCondition(siteIds),
   },
   {
     path: '/pricing-groups/:id/neighbors',
@@ -210,15 +213,19 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'PARTNER_NOT_FOUND',
     idColumn: ocpiPartners.id,
     createdAtColumn: ocpiPartners.createdAt,
+    // Roaming partners are company-wide (site-access-control.md).
+    allSitesOnly: true,
   },
   {
     path: '/config-templates/:id/neighbors',
     tag: 'Stations',
     operationId: 'getConfigTemplateNeighbors',
     permission: 'settings.stationConfig:read',
-    notFoundCode: 'CONFIG_TEMPLATE_NOT_FOUND',
+    notFoundCode: 'TEMPLATE_NOT_FOUND',
     idColumn: configTemplates.id,
     createdAtColumn: configTemplates.createdAt,
+    // The same visibility as the template routes (fleet-operation-scope.ts).
+    scopeWhere: (siteIds) => configTemplateInScopeSql(siteIds),
   },
   {
     path: '/smart-charging/templates/:id/neighbors',
@@ -228,6 +235,7 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'TEMPLATE_NOT_FOUND',
     idColumn: chargingProfileTemplates.id,
     createdAtColumn: chargingProfileTemplates.createdAt,
+    scopeWhere: (siteIds) => chargingProfileTemplateInScopeSql(siteIds),
   },
   {
     path: '/firmware-campaigns/:id/neighbors',
@@ -237,13 +245,14 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'CAMPAIGN_NOT_FOUND',
     idColumn: firmwareCampaigns.id,
     createdAtColumn: firmwareCampaigns.createdAt,
+    scopeWhere: (siteIds, userId) => firmwareCampaignInScopeSql(siteIds, userId),
   },
   {
     path: '/octt/runs/:id/neighbors',
     tag: 'Conformance',
     operationId: 'getConformanceRunNeighbors',
     permission: 'conformance:read',
-    notFoundCode: 'RUN_NOT_FOUND',
+    notFoundCode: 'OCTT_RUN_NOT_FOUND',
     idColumn: octtRuns.id,
     createdAtColumn: octtRuns.createdAt,
     parseId: (raw) => Number(raw),
@@ -318,6 +327,15 @@ export function entityNeighborRoutes(app: FastifyInstance): void {
         const id = target.parseId ? target.parseId(rawId) : rawId;
 
         let scope: SQL | undefined;
+        if (
+          target.allSitesOnly === true &&
+          !(await requireAllSiteAccess(request, reply, {
+            error: 'Not found',
+            code: target.notFoundCode,
+          }))
+        ) {
+          return;
+        }
         if (target.scopeWhere != null) {
           const { userId } = request.user as JwtPayload;
           const siteIds = await getUserSiteIds(userId);
@@ -325,7 +343,7 @@ export function entityNeighborRoutes(app: FastifyInstance): void {
             await reply.status(404).send({ error: 'Not found', code: target.notFoundCode });
             return;
           }
-          if (siteIds != null) scope = target.scopeWhere(siteIds);
+          if (siteIds != null) scope = target.scopeWhere(siteIds, userId);
         }
 
         const neighbors = await findNeighbors(target, id, scope);

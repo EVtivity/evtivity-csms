@@ -3,13 +3,14 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, count, sql } from 'drizzle-orm';
+import { and, eq, desc, count, sql } from 'drizzle-orm';
 import {
   db,
   reports,
   reportSchedules,
   reportStatusEnum,
   reportFrequencyEnum,
+  chargingStations,
 } from '@evtivity/database';
 
 // The worker generates the report; the API only announces it.
@@ -21,6 +22,37 @@ async function announceReport(reportId: string): Promise<void> {
 function assertReportFilters(reportType: string, filters: Record<string, unknown>): void {
   const error = reportFiltersError(reportType, filters);
   if (error != null) throw new ValidationError(error);
+}
+
+interface NotFoundBody {
+  error: string;
+  code: 'SITE_NOT_FOUND' | 'STATION_NOT_FOUND';
+}
+
+/**
+ * The 404 for a site or station filter outside `scope` (null: all sites), or
+ * null when the filters fit. A restricted scope never covers an unsited
+ * station, and a station filter must name an existing station.
+ */
+async function filterScopeError(
+  filters: Record<string, unknown>,
+  scope: ReportSiteScope,
+): Promise<NotFoundBody | null> {
+  const siteId = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
+  if (siteId != null && !siteInScope(scope, siteId)) {
+    return { error: 'Site not found', code: 'SITE_NOT_FOUND' };
+  }
+  const stationId = typeof filters['stationId'] === 'string' ? filters['stationId'] : null;
+  if (stationId != null) {
+    const [station] = await db
+      .select({ siteId: chargingStations.siteId })
+      .from(chargingStations)
+      .where(eq(chargingStations.id, stationId));
+    if (station == null || !siteInScope(scope, station.siteId)) {
+      return { error: 'Station not found', code: 'STATION_NOT_FOUND' };
+    }
+  }
+  return null;
 }
 import { zodSchema } from '../lib/zod-schema.js';
 import {
@@ -42,10 +74,16 @@ import {
   REPORT_TYPES,
 } from '@evtivity/services/report.service';
 import { REPORT_FORMATS } from '@evtivity/services/report-registry';
+import {
+  intersectSiteScopes,
+  siteScopeVisibleTo,
+  type ReportSiteScope,
+} from '@evtivity/services/report-scope';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { ValidationError } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { siteInScope } from '../lib/site-scope.js';
 
 const reportTypeItem = z
   .object({
@@ -69,6 +107,12 @@ const reportItem = z
     fileName: z.string().nullable().describe('Generated file name when ready'),
     fileSize: z.number().nullable().describe('Generated file size in bytes'),
     error: z.string().nullable().describe('Error message when generation failed'),
+    siteScope: z
+      .array(z.string())
+      .nullable()
+      .describe(
+        'Site IDs the report covers (null: all sites). Site-restricted users see only reports whose scope is within their sites',
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the report was queued'),
     completedAt: z.coerce.date().nullable().describe('Timestamp when generation finished'),
   })
@@ -108,6 +152,12 @@ const scheduleItem = z
       .array(z.string())
       .describe('Email addresses that receive the generated report'),
     isEnabled: z.boolean().describe('Whether the schedule is active'),
+    siteScope: z
+      .array(z.string())
+      .nullable()
+      .describe(
+        "Site IDs the scheduled reports cover (null: all sites), set from the creator's site access and never changed by an update. Site-restricted users see only schedules whose scope is within their sites",
+      ),
     nextRunAt: z.coerce.date().nullable().describe('Timestamp of the next scheduled run'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
@@ -165,6 +215,8 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'List reports',
+        description:
+          'Site-restricted users see only reports generated within their sites; all-site users see every report.',
         operationId: 'listReports',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(reportListQuery),
@@ -174,11 +226,15 @@ export function reportRoutes(app: FastifyInstance): void {
     async (request) => {
       const { page, limit, reportType } = request.query as z.infer<typeof reportListQuery>;
       const offset = (page - 1) * limit;
+      const user = request.user as { userId: string };
+      const userScope = await getUserSiteIds(user.userId);
 
       const conditions = [];
       if (reportType) {
         conditions.push(eq(reports.reportType, reportType));
       }
+      const visible = siteScopeVisibleTo(reports.siteScope, userScope);
+      if (visible != null) conditions.push(visible);
       const whereClause =
         conditions.length > 0 ? sql`${sql.join(conditions, sql` AND `)}` : undefined;
 
@@ -193,6 +249,7 @@ export function reportRoutes(app: FastifyInstance): void {
             fileName: reports.fileName,
             fileSize: reports.fileSize,
             error: reports.error,
+            siteScope: reports.siteScope,
             createdAt: reports.createdAt,
             completedAt: reports.completedAt,
           })
@@ -234,6 +291,8 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'Get a report by ID',
+        description:
+          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites.",
         operationId: 'getReport',
         security: [{ bearerAuth: [] }],
         response: {
@@ -244,6 +303,8 @@ export function reportRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      const user = request.user as { userId: string };
+      const userScope = await getUserSiteIds(user.userId);
 
       const [report] = await db
         .select({
@@ -256,12 +317,13 @@ export function reportRoutes(app: FastifyInstance): void {
           fileName: reports.fileName,
           fileSize: reports.fileSize,
           error: reports.error,
+          siteScope: reports.siteScope,
           generatedById: reports.generatedById,
           createdAt: reports.createdAt,
           completedAt: reports.completedAt,
         })
         .from(reports)
-        .where(eq(reports.id, id));
+        .where(and(eq(reports.id, id), siteScopeVisibleTo(reports.siteScope, userScope)));
 
       if (report == null) {
         await reply.status(404).send({ error: 'Report not found', code: 'REPORT_NOT_FOUND' });
@@ -280,6 +342,8 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'Download a report file',
+        description:
+          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites.",
         operationId: 'downloadReport',
         security: [{ bearerAuth: [] }],
         response: { 404: errorWith('Report not found', [ERROR_CODES.REPORT_NOT_FOUND]) },
@@ -287,6 +351,8 @@ export function reportRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      const user = request.user as { userId: string };
+      const userScope = await getUserSiteIds(user.userId);
 
       const [report] = await db
         .select({
@@ -295,7 +361,7 @@ export function reportRoutes(app: FastifyInstance): void {
           format: reports.format,
         })
         .from(reports)
-        .where(eq(reports.id, id));
+        .where(and(eq(reports.id, id), siteScopeVisibleTo(reports.siteScope, userScope)));
 
       if (report?.fileData == null) {
         await reply.status(404).send({ error: 'Report file not found', code: 'REPORT_NOT_FOUND' });
@@ -325,13 +391,18 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'Queue a new report for generation',
+        description:
+          "The report covers the requesting user's sites (all sites for an all-site user). A site or station filter outside them returns 404.",
         operationId: 'generateReport',
         security: [{ bearerAuth: [] }],
         body: zodSchema(generateBody),
         response: {
           200: itemResponse(reportQueuedResponse),
           400: errorWith('Invalid report filters', [ERROR_CODES.VALIDATION_ERROR]),
-          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+          404: errorWith('Site or station not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+          ]),
         },
       },
       config: {
@@ -349,19 +420,15 @@ export function reportRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof generateBody>;
       const user = request.user as { userId: string };
 
-      // If the operator is restricted to specific sites, reject any
-      // filters.siteId that targets a site they can't access. Without
-      // this an operator with siteA-only access could pass
-      // { filters: { siteId: 'sit_B' } } and generate a cross-site
-      // report (reports themselves are unscoped per
-      // site-access-control.md, but the *filter parameter* must respect
-      // the caller's scope).
+      // The report covers the operator's sites: the generator reads only
+      // stations at them, and only users with those sites see the report. A
+      // site or station filter outside them is refused as not found.
       const siteIds = await getUserSiteIds(user.userId);
       const filters = body.filters ?? {};
       assertReportFilters(body.reportType, filters);
-      const requestedSite = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
-      if (siteIds != null && requestedSite != null && !siteIds.includes(requestedSite)) {
-        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+      const scopeError = await filterScopeError(filters, siteIds);
+      if (scopeError != null) {
+        await reply.status(404).send(scopeError);
         return;
       }
 
@@ -372,6 +439,7 @@ export function reportRoutes(app: FastifyInstance): void {
           format: body.format,
           filters,
           userId: user.userId,
+          siteScope: siteIds,
         },
         announceReport,
       );
@@ -388,6 +456,8 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'Delete a report',
+        description:
+          "Returns 404 REPORT_NOT_FOUND for a report outside the site-restricted user's sites.",
         operationId: 'deleteReport',
         security: [{ bearerAuth: [] }],
         response: {
@@ -398,18 +468,19 @@ export function reportRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as { id: string };
+      const user = request.user as { userId: string };
+      const userScope = await getUserSiteIds(user.userId);
 
-      const [existing] = await db
-        .select({ id: reports.id })
-        .from(reports)
-        .where(eq(reports.id, id));
+      const removed = await db
+        .delete(reports)
+        .where(and(eq(reports.id, id), siteScopeVisibleTo(reports.siteScope, userScope)))
+        .returning({ id: reports.id });
 
-      if (existing == null) {
+      if (removed.length === 0) {
         await reply.status(404).send({ error: 'Report not found', code: 'REPORT_NOT_FOUND' });
         return;
       }
 
-      await db.delete(reports).where(eq(reports.id, id));
       return { success: true };
     },
   );
@@ -424,15 +495,20 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'List report schedules',
+        description:
+          'Site-restricted users see only schedules within their sites; all-site users see every schedule.',
         operationId: 'listReportSchedules',
         security: [{ bearerAuth: [] }],
         response: { 200: itemResponse(z.object({ data: z.array(scheduleItem) }).passthrough()) },
       },
     },
-    async () => {
+    async (request) => {
+      const user = request.user as { userId: string };
+      const userScope = await getUserSiteIds(user.userId);
       const rows = await db
         .select()
         .from(reportSchedules)
+        .where(siteScopeVisibleTo(reportSchedules.siteScope, userScope))
         .orderBy(desc(reportSchedules.createdAt), desc(reportSchedules.id));
       return { data: rows };
     },
@@ -446,13 +522,18 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'Create a report schedule',
+        description:
+          "The schedule's reports cover the creating user's sites (all sites for an all-site user), narrowed at each run to the creator's current sites. A site or station filter outside them returns 404.",
         operationId: 'createReportSchedule',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createScheduleBody),
         response: {
           200: itemResponse(scheduleItem),
           400: errorWith('Invalid report filters', [ERROR_CODES.VALIDATION_ERROR]),
-          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+          404: errorWith('Site or station not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -462,13 +543,14 @@ export function reportRoutes(app: FastifyInstance): void {
 
       // Mirror the generate-report site-access guard so a restricted
       // operator can't pre-load a schedule with a cross-site filter that
-      // the cron would later run on their behalf.
+      // the cron would later run on their behalf. The schedule keeps the
+      // creator's sites as its scope.
       const siteIds = await getUserSiteIds(user.userId);
       const filters = body.filters ?? {};
       assertReportFilters(body.reportType, filters);
-      const requestedSite = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
-      if (siteIds != null && requestedSite != null && !siteIds.includes(requestedSite)) {
-        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+      const scopeError = await filterScopeError(filters, siteIds);
+      if (scopeError != null) {
+        await reply.status(404).send(scopeError);
         return;
       }
 
@@ -490,6 +572,7 @@ export function reportRoutes(app: FastifyInstance): void {
           filters,
           recipientEmails: body.recipientEmails ?? [],
           createdById: user.userId,
+          siteScope: siteIds,
           nextRunAt,
         })
         .returning();
@@ -506,6 +589,8 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'Update a report schedule',
+        description:
+          "Returns 404 SCHEDULE_NOT_FOUND for a schedule outside the site-restricted user's sites. The schedule's site scope never changes. A site or station filter outside the schedule's and the user's sites returns 404.",
         operationId: 'updateReportSchedule',
         security: [{ bearerAuth: [] }],
         body: zodSchema(updateScheduleBody),
@@ -515,6 +600,7 @@ export function reportRoutes(app: FastifyInstance): void {
           404: errorWith('Resource not found', [
             ERROR_CODES.SCHEDULE_NOT_FOUND,
             ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
           ]),
         },
       },
@@ -522,15 +608,22 @@ export function reportRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as { id: number };
       const body = request.body as z.infer<typeof updateScheduleBody>;
+      const user = request.user as { userId: string };
+      const userScope = await getUserSiteIds(user.userId);
+      const visible = and(
+        eq(reportSchedules.id, id),
+        siteScopeVisibleTo(reportSchedules.siteScope, userScope),
+      );
 
       const [existing] = await db
         .select({
           id: reportSchedules.id,
           reportType: reportSchedules.reportType,
           filters: reportSchedules.filters,
+          siteScope: reportSchedules.siteScope,
         })
         .from(reportSchedules)
-        .where(eq(reportSchedules.id, id));
+        .where(visible);
 
       if (existing == null) {
         await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
@@ -546,14 +639,15 @@ export function reportRoutes(app: FastifyInstance): void {
 
       // Same site-access guard as create — without it a restricted
       // operator could PATCH a schedule's filters to point at a site they
-      // can't access.
+      // can't access. The filters must fit both the schedule's scope and the
+      // caller's sites; the scope itself is never changed here.
       if (body.filters != null) {
-        const user = request.user as { userId: string };
-        const siteIds = await getUserSiteIds(user.userId);
-        const filters = body.filters;
-        const requestedSite = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
-        if (siteIds != null && requestedSite != null && !siteIds.includes(requestedSite)) {
-          await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        const scopeError = await filterScopeError(
+          body.filters,
+          intersectSiteScopes(existing.siteScope, userScope),
+        );
+        if (scopeError != null) {
+          await reply.status(404).send(scopeError);
           return;
         }
       }
@@ -577,12 +671,12 @@ export function reportRoutes(app: FastifyInstance): void {
         );
       }
 
-      const [updated] = await db
-        .update(reportSchedules)
-        .set(updates)
-        .where(eq(reportSchedules.id, id))
-        .returning();
+      const [updated] = await db.update(reportSchedules).set(updates).where(visible).returning();
 
+      if (updated == null) {
+        await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
+        return;
+      }
       return updated;
     },
   );
@@ -595,6 +689,8 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'Delete a report schedule',
+        description:
+          "Returns 404 SCHEDULE_NOT_FOUND for a schedule outside the site-restricted user's sites.",
         operationId: 'deleteReportSchedule',
         security: [{ bearerAuth: [] }],
         response: {
@@ -605,18 +701,21 @@ export function reportRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as { id: number };
+      const user = request.user as { userId: string };
+      const userScope = await getUserSiteIds(user.userId);
 
-      const [existing] = await db
-        .select({ id: reportSchedules.id })
-        .from(reportSchedules)
-        .where(eq(reportSchedules.id, id));
+      const removed = await db
+        .delete(reportSchedules)
+        .where(
+          and(eq(reportSchedules.id, id), siteScopeVisibleTo(reportSchedules.siteScope, userScope)),
+        )
+        .returning({ id: reportSchedules.id });
 
-      if (existing == null) {
+      if (removed.length === 0) {
         await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
         return;
       }
 
-      await db.delete(reportSchedules).where(eq(reportSchedules.id, id));
       return { success: true };
     },
   );
@@ -629,6 +728,8 @@ export function reportRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Reports'],
         summary: 'Run a report schedule immediately',
+        description:
+          "Queues a report covering the sites both the schedule and the user cover. Returns 404 SCHEDULE_NOT_FOUND for a schedule outside the site-restricted user's sites.",
         operationId: 'runReportScheduleNow',
         security: [{ bearerAuth: [] }],
         response: {
@@ -636,6 +737,7 @@ export function reportRoutes(app: FastifyInstance): void {
           404: errorWith('Resource not found', [
             ERROR_CODES.SCHEDULE_NOT_FOUND,
             ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
           ]),
         },
       },
@@ -644,7 +746,14 @@ export function reportRoutes(app: FastifyInstance): void {
       const { id } = request.params as { id: number };
       const user = request.user as { userId: string };
 
-      const [schedule] = await db.select().from(reportSchedules).where(eq(reportSchedules.id, id));
+      const userScope = await getUserSiteIds(user.userId);
+
+      const [schedule] = await db
+        .select()
+        .from(reportSchedules)
+        .where(
+          and(eq(reportSchedules.id, id), siteScopeVisibleTo(reportSchedules.siteScope, userScope)),
+        );
 
       if (schedule == null) {
         await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
@@ -653,14 +762,14 @@ export function reportRoutes(app: FastifyInstance): void {
 
       const filters = schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
 
-      // Same site-access guard as the create/PATCH paths — even though
-      // the schedule was created with that check at the time, the
-      // creator's access may have changed (or run-now may be invoked by
-      // a different operator). Re-validate at run time.
-      const siteIds = await getUserSiteIds(user.userId);
-      const requestedSite = typeof filters['siteId'] === 'string' ? filters['siteId'] : null;
-      if (siteIds != null && requestedSite != null && !siteIds.includes(requestedSite)) {
-        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+      // The report covers the sites both the schedule and the caller cover.
+      // Same site-access guard as the create/PATCH paths — even though the
+      // schedule was created with that check at the time, the caller's
+      // access may differ. Re-validate at run time.
+      const runScope = intersectSiteScopes(schedule.siteScope, userScope);
+      const scopeError = await filterScopeError(filters, runScope);
+      if (scopeError != null) {
+        await reply.status(404).send(scopeError);
         return;
       }
 
@@ -671,6 +780,7 @@ export function reportRoutes(app: FastifyInstance): void {
           format: schedule.format,
           filters,
           userId: user.userId,
+          siteScope: runScope,
         },
         announceReport,
       );

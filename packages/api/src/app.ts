@@ -22,6 +22,7 @@ import { registerApiAccessLog } from './plugins/api-access-log.js';
 import { registerCors } from './plugins/cors.js';
 import { registerHelmet } from './plugins/helmet.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
+import { registerAiToolCallContext } from './services/ai/tools/execute.js';
 import { registerAuth } from './plugins/auth.js';
 import { config } from './lib/config.js';
 import { registerOpenApi } from './plugins/openapi.js';
@@ -42,6 +43,7 @@ import { tokenRoutes } from './routes/tokens.js';
 import { authorizeAttemptRoutes } from './routes/authorize-attempts.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { settingsRoutes } from './routes/settings.js';
+import { aiDefaultsRoutes } from './routes/ai-defaults.js';
 import { paymentRoutes } from './routes/payments.js';
 import { adyenSettingsRoutes } from './routes/adyen-settings.js';
 import { payoutAccountRoutes } from './routes/payout-accounts.js';
@@ -107,6 +109,7 @@ import { panelRoutes } from './routes/panels.js';
 import { circuitRoutes } from './routes/circuits.js';
 import { unmanagedLoadRoutes } from './routes/unmanaged-loads.js';
 import { assistantRoutes } from './routes/assistant.js';
+import { assistantAttachmentRoutes } from './routes/assistant-attachments.js';
 import { octtRoutes } from './routes/octt.js';
 import { auditRoutes } from './routes/audit.js';
 import { entityNeighborRoutes } from './routes/entity-neighbors.js';
@@ -131,6 +134,8 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   await app.register(formbody);
   await registerCors(app);
   await registerHelmet(app);
+  // First: the rate limiter and the audit writes read the AI tool call context.
+  registerAiToolCallContext(app);
   await registerRateLimit(app);
   await registerAuth(app);
   await registerOpenApi(app);
@@ -197,6 +202,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(authorizeAttemptRoutes);
       await v1.register(dashboardRoutes);
       await v1.register(settingsRoutes);
+      await v1.register(aiDefaultsRoutes);
       await v1.register(paymentRoutes);
       await v1.register(adyenSettingsRoutes);
       await v1.register(payoutAccountRoutes);
@@ -263,6 +269,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(circuitRoutes);
       await v1.register(unmanagedLoadRoutes);
       await v1.register(assistantRoutes);
+      await v1.register(assistantAttachmentRoutes);
       await v1.register(octtRoutes);
       await v1.register(auditRoutes);
       await v1.register(cacheRoutes);

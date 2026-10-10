@@ -22,8 +22,9 @@ function makeLog(): Logger {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } as unknown as Logger;
 }
 
-function rowCountResult(n: number): { rowCount: number } {
-  return { rowCount: n };
+// The postgres.js result list db.execute returns: rows plus `count`.
+function rowCountResult(n: number): unknown[] & { count: number } {
+  return Object.assign([], { count: n });
 }
 
 beforeEach(() => {
@@ -134,10 +135,12 @@ describe('pruneOldRows', () => {
     expect(mockExecute).toHaveBeenCalledTimes(1);
   });
 
-  it('treats a missing rowCount on the result as zero deletions and exits', async () => {
+  it('reads the deleted count from the postgres.js result list, not rowCount', async () => {
     const log = makeLog();
-    // db.execute resolves without a rowCount field -> deleted defaults to 0.
-    mockExecute.mockResolvedValueOnce({});
+    // A full batch reported through `count` keeps the loop going.
+    mockExecute
+      .mockResolvedValueOnce(Object.assign([], { count: 1000, rowCount: undefined }))
+      .mockResolvedValueOnce(Object.assign([], { count: 4 }));
 
     const result = await pruneOldRows({
       table: 'access_logs',
@@ -146,8 +149,8 @@ describe('pruneOldRows', () => {
       log,
     });
 
-    expect(result).toBe(0);
-    expect(mockExecute).toHaveBeenCalledTimes(1);
+    expect(result).toBe(1004);
+    expect(mockExecute).toHaveBeenCalledTimes(2);
   });
 
   it('targets the supplied table and cutoff column in the batched CTE/DELETE', async () => {

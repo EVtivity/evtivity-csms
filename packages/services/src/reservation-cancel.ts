@@ -8,11 +8,24 @@ import {
   alertStationWatchersIfAvailable,
   client,
   getReservationSettings,
+  resolveReservationFeeTerms,
   writeReservationAudit,
 } from '@evtivity/database';
 import { chargeReservationFee } from '@evtivity/payments';
 import type { PaymentContext } from '@evtivity/payments';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+
+/** The row the cancelling UPDATE returns, with the fee terms snapshotted at creation. */
+// A type alias, not an interface: db.execute rows must be Record<string, unknown>.
+type CancelledRow = {
+  id: string;
+  status_before: string;
+  station_id: string;
+  fee_tax_basis: string | null;
+  fee_tax_rate: string | null;
+  fee_per_minute: string | null;
+  fee_cancellation_cents: number | null;
+};
 
 /** Who triggered the cancellation. */
 export type ReservationCancelledBy = 'driver' | 'operator' | 'system';
@@ -56,7 +69,8 @@ interface ReservationCancelBase {
    * Whether the caller wants to charge the cancellation fee. The actual
    * decision is gated by:
    *   - actor: 'system' is hard-no regardless of this flag
-   *   - settings.cancellationFeeCents (net, before tax) > 0 and cancellationWindowMinutes > 0
+   *   - the reservation's cancellation fee (snapshotted at creation, in the
+   *     company tax basis) > 0 and settings.cancellationWindowMinutes > 0
    *   - the reservation is being cancelled inside the cancellation window
    *   - the driver has a default payment method (silently skipped otherwise)
    */
@@ -75,7 +89,8 @@ export type ReservationCancelInput =
 export interface ReservationCancelResult {
   /**
    * Cents actually charged, tax included (0 when waived, no PM, error, etc.).
-   * The fee setting is net; the station tariff's tax rate is added.
+   * The fee is entered in the company tax basis and priced by the pricing
+   * engine at the station tariff's tax rate.
    */
   feeChargedCents: number;
   /** True if the row was updated (false if it was already terminal). */
@@ -121,18 +136,12 @@ export async function applyReservationCancellation(
   // The system actor never pays a fee, whatever the caller passed.
   const feePayments = input.chargeFee && input.actor !== 'system' ? input.payments : undefined;
   const wantsFee = feePayments != null;
-  let plannedFeeCents = 0;
-
-  if (
-    wantsFee &&
-    settings.cancellationFeeCents > 0 &&
-    settings.cancellationWindowMinutes > 0 &&
-    input.driverId != null
-  ) {
+  // Inside the cancellation window: the fee amount comes from the
+  // reservation's terms after the status flip below.
+  let feeDue = false;
+  if (wantsFee && settings.cancellationWindowMinutes > 0 && input.driverId != null) {
     const minutesUntilStart = Math.floor((input.startsAt.getTime() - Date.now()) / 60_000);
-    if (minutesUntilStart < settings.cancellationWindowMinutes) {
-      plannedFeeCents = settings.cancellationFeeCents;
-    }
+    feeDue = minutesUntilStart < settings.cancellationWindowMinutes;
   }
 
   // Conditional UPDATE: only one concurrent cancel can win. The RETURNING
@@ -141,7 +150,7 @@ export async function applyReservationCancellation(
   // ('active' or 'scheduled') instead of null. The CTE approach keeps this
   // as one round-trip and avoids a TOCTOU between a separate SELECT and
   // the UPDATE.
-  const updated = await db.execute<{ id: string; status_before: string; station_id: string }>(
+  const updated = await db.execute<CancelledRow>(
     sql`
       WITH old AS (
         SELECT id, status AS status_before
@@ -158,13 +167,13 @@ export async function applyReservationCancellation(
           updated_at = now()
       FROM old
       WHERE ${reservations}.id = old.id
-      RETURNING ${reservations}.id, old.status_before, ${reservations}.station_id
+      RETURNING ${reservations}.id, old.status_before, ${reservations}.station_id,
+                ${reservations}.fee_tax_basis, ${reservations}.fee_tax_rate,
+                ${reservations}.fee_per_minute, ${reservations}.fee_cancellation_cents
     `,
   );
 
-  const winningRow = (
-    updated as unknown as Array<{ id: string; status_before: string; station_id: string }>
-  )[0];
+  const winningRow = (updated as unknown as CancelledRow[])[0];
   if (winningRow == null) {
     // Lost the race or the row was already terminal.
     return { feeChargedCents: 0, cancelled: false, feeChargeFailed: false, feeCurrency: null };
@@ -215,24 +224,42 @@ export async function applyReservationCancellation(
     );
   }
 
-  if (plannedFeeCents === 0 || feePayments == null) {
+  if (!feeDue || feePayments == null || input.driverId == null) {
     return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };
   }
 
-  // The fee is a payment record taxed at the station tariff's rate and
-  // charged through the site's Stripe Connect account (chargeReservationFee).
+  // The fee is a payment record priced by the pricing engine in the tax basis
+  // it was entered in, at the tax rate of the station tariff, and charged
+  // through the site's payout account (chargeReservationFee). The terms are
+  // the reservation's snapshot at creation; a reservation created before
+  // migration 0341 has none and is charged on the terms current now
+  // (resolveReservationFeeTerms).
   let feeChargedCents = 0;
   let feeChargeFailed = false;
   let feeCurrency: string | null = null;
+  let plannedFeeCents = 0;
   try {
+    const terms = await resolveReservationFeeTerms({
+      stationId: winningRow.station_id,
+      driverId: input.driverId,
+      feeTaxBasis: winningRow.fee_tax_basis,
+      feeTaxRate: winningRow.fee_tax_rate,
+      feePerMinute: winningRow.fee_per_minute,
+      feeCancellationCents: winningRow.fee_cancellation_cents,
+    });
+    plannedFeeCents = terms.cancellationFeeCents;
+    if (plannedFeeCents <= 0) {
+      return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };
+    }
     const result = await chargeReservationFee(
       {
         type: 'reservation_cancellation',
         reservationId: input.reservationDbId,
-        driverId: input.driverId as string,
-        stationId: winningRow.station_id,
+        driverId: input.driverId,
         siteId: input.siteId,
-        netCents: plannedFeeCents,
+        fee: { amountCents: plannedFeeCents },
+        basis: terms.basis,
+        taxRate: terms.taxRate,
       },
       feePayments,
     );

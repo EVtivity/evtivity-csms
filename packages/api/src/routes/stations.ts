@@ -30,6 +30,7 @@ import {
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
   PG_FOREIGN_KEY_VIOLATION,
+  toDate,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { requestGhostSessionEnd } from '../lib/ghost-session-end.js';
@@ -79,9 +80,23 @@ import {
   errorWith,
 } from '../lib/response-schemas.js';
 import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
-import { queryRevenue, queryRevenueTotal, revenueItem } from '@evtivity/services/session-revenue';
+import {
+  profitCents,
+  queryRevenue,
+  queryRevenueTotal,
+  revenueItem,
+} from '@evtivity/services/session-revenue';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds, checkStationSiteAccess, userCanAccessSite } from '../lib/site-access.js';
+import { circuitIdAfterSiteChange } from '../lib/station-circuit.js';
+import { siteInScope } from '../lib/site-scope.js';
+import {
+  findScopedConfigTemplate,
+  findScopedChargingProfileTemplate,
+  chargingProfileTemplateInScopeSql,
+  isRestrictedCompanyWideWrite,
+  TEMPLATE_NOT_FOUND,
+} from '../lib/fleet-operation-scope.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
@@ -101,7 +116,12 @@ import {
   rotateStationPassword,
 } from '../services/station-security.service.js';
 import { confirmRealStation } from '../services/station-simulator.service.js';
-import { mapConnectorTypeToCss, publishOcppCommand, validateStationPassword } from '@evtivity/lib';
+import {
+  mapConnectorTypeToCss,
+  publishOcppCommand,
+  STATION_PASSWORD_HASH_OPTIONS,
+  validateStationPassword,
+} from '@evtivity/lib';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
@@ -724,8 +744,20 @@ const stationMetricsResponse = z
       .number()
       .int()
       .describe(
-        'Total profit in cents (revenue excluding tax minus electricity cost); may be negative',
+        'Total profit in cents (revenue excluding tax minus electricity cost); may be negative. Sessions without an electricity cost (costMissingSessionCount) are left out.',
       ),
+    costMissingSessionCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        'Ended billed sessions in the period that delivered energy but have no electricity cost (no matching site rate period, or no site). Left out of profit.',
+      ),
+    costMissingRevenueCents: z
+      .number()
+      .int()
+      .min(0)
+      .describe('Revenue of those sessions in cents, tax included. Left out of profit.'),
     periodMonths: z.number().describe('Number of months covered by these metrics'),
     currency: z
       .string()
@@ -884,9 +916,8 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const conditions = [];
       if (accessibleSiteIds != null) {
-        conditions.push(
-          or(isNull(chargingStations.siteId), inArray(chargingStations.siteId, accessibleSiteIds)),
-        );
+        // Stations without a site are visible to all-site users only.
+        conditions.push(inArray(chargingStations.siteId, accessibleSiteIds));
       }
       if (siteId != null) {
         conditions.push(eq(chargingStations.siteId, siteId));
@@ -1057,7 +1088,7 @@ export function stationRoutes(app: FastifyInstance): void {
       }
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && station.siteId != null && !siteIds.includes(station.siteId)) {
+      if (!siteInScope(siteIds, station.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -1200,7 +1231,8 @@ export function stationRoutes(app: FastifyInstance): void {
         });
         return;
       }
-      const basicAuthPasswordHash = password != null ? await hash(password) : undefined;
+      const basicAuthPasswordHash =
+        password != null ? await hash(password, { ...STATION_PASSWORD_HASH_OPTIONS }) : undefined;
 
       // The chargingStations INSERT and the css_stations pairing must commit
       // atomically. Without the transaction, a failure inside enableCssPair
@@ -1352,7 +1384,7 @@ export function stationRoutes(app: FastifyInstance): void {
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
         }
-        if (current.siteId != null && !siteIds.includes(current.siteId)) {
+        if (!siteInScope(siteIds, current.siteId)) {
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
         }
@@ -1360,8 +1392,10 @@ export function stationRoutes(app: FastifyInstance): void {
       const { password, securityProfile, availability, ...body } = request.body as z.infer<
         typeof updateStationBody
       >;
-      // Check access to the new siteId if being reassigned
-      if (body.siteId != null && !(await userCanAccessSite(userId, body.siteId))) {
+      // Check access to the new site when the station moves. A site-restricted
+      // user cannot remove a station from its site (siteId null): only
+      // all-site users manage stations without a site.
+      if (body.siteId !== undefined && !(await userCanAccessSite(userId, body.siteId))) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1378,6 +1412,9 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       const updates: Record<string, unknown> = { ...body, updatedAt: new Date() };
+      // A station that moves to another site leaves its circuit (a circuit
+      // belongs to one site's panel).
+      if (body.siteId !== undefined) updates.circuitId = circuitIdAfterSiteChange(body.siteId);
       // Setting the simulator flag either way settles a recorded conflict.
       if (body.isSimulator !== undefined) updates.simulatorConflictAt = null;
 
@@ -1561,11 +1598,7 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
-      if (
-        siteIds != null &&
-        beforeStation.siteId != null &&
-        !siteIds.includes(beforeStation.siteId)
-      ) {
+      if (!siteInScope(siteIds, beforeStation.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -3081,7 +3114,9 @@ export function stationRoutes(app: FastifyInstance): void {
         totalElectricityCostCents: financialStats?.totalElectricityCostCents ?? 0,
         totalNetRevenueCents: revenue.netCents,
         totalTaxCents: revenue.taxCents,
-        totalProfitCents: revenue.netCents - (financialStats?.totalElectricityCostCents ?? 0),
+        totalProfitCents: profitCents(revenue, financialStats?.totalElectricityCostCents ?? 0),
+        costMissingSessionCount: revenue.costMissingCount,
+        costMissingRevenueCents: revenue.costMissingGrossCents,
         periodMonths: months,
         currency,
       };
@@ -3501,7 +3536,7 @@ export function stationRoutes(app: FastifyInstance): void {
           severity: string | null;
           remote_address: string | null;
           metadata: Record<string, unknown> | null;
-          created_at: Date;
+          created_at: Date | string;
         }>(dataSql),
         db.execute<{ count: number }>(countSql),
       ]);
@@ -3513,7 +3548,7 @@ export function stationRoutes(app: FastifyInstance): void {
         severity: r.severity,
         remoteAddress: r.remote_address,
         metadata: r.metadata,
-        createdAt: r.created_at,
+        createdAt: toDate(r.created_at),
       }));
 
       return { data, total: countRows[0]?.count ?? 0 };
@@ -4049,6 +4084,7 @@ export function stationRoutes(app: FastifyInstance): void {
           onboardingStatus: chargingStations.onboardingStatus,
           stationId: chargingStations.stationId,
           isSimulator: chargingStations.isSimulator,
+          siteId: chargingStations.siteId,
         })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
@@ -4089,7 +4125,7 @@ export function stationRoutes(app: FastifyInstance): void {
       const pubsub = getPubSub();
       await pubsub.publish(
         'csms_events',
-        JSON.stringify({ eventType: 'station.status', stationId: id }),
+        JSON.stringify({ eventType: 'station.status', stationId: id, siteId: station.siteId }),
       );
 
       // Nudge a simulator out of a stale Pending boot state. Real stations
@@ -4144,7 +4180,10 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       const [station] = await db
-        .select({ onboardingStatus: chargingStations.onboardingStatus })
+        .select({
+          onboardingStatus: chargingStations.onboardingStatus,
+          siteId: chargingStations.siteId,
+        })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
 
@@ -4182,7 +4221,7 @@ export function stationRoutes(app: FastifyInstance): void {
       const pubsub = getPubSub();
       await pubsub.publish(
         'csms_events',
-        JSON.stringify({ eventType: 'station.status', stationId: id }),
+        JSON.stringify({ eventType: 'station.status', stationId: id, siteId: station.siteId }),
       );
 
       return { success: true };
@@ -4214,7 +4253,10 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const [station] = await db
-        .select({ onboardingStatus: chargingStations.onboardingStatus })
+        .select({
+          onboardingStatus: chargingStations.onboardingStatus,
+          siteId: chargingStations.siteId,
+        })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
 
@@ -4254,7 +4296,7 @@ export function stationRoutes(app: FastifyInstance): void {
       const pubsub = getPubSub();
       await pubsub.publish(
         'csms_events',
-        JSON.stringify({ eventType: 'station.status', stationId: id }),
+        JSON.stringify({ eventType: 'station.status', stationId: id, siteId: station.siteId }),
       );
 
       return { success: true };
@@ -4680,6 +4722,7 @@ export function stationRoutes(app: FastifyInstance): void {
       // rows. Only attempt the join for csms_set rows where the projection writes
       // a numeric id; null out template fields for everything else in JS.
       const profileIdExpr = sql<number>`CASE WHEN ${chargingProfiles.profileData} ->> 'id' ~ '^-?[0-9]+$' THEN (${chargingProfiles.profileData} ->> 'id')::int ELSE NULL END`;
+      const templateSiteIds = await getUserSiteIds(userId);
 
       const [rows, countResult] = await Promise.all([
         db
@@ -4689,7 +4732,17 @@ export function stationRoutes(app: FastifyInstance): void {
             templateName: chargingProfileTemplates.name,
           })
           .from(chargingProfiles)
-          .leftJoin(chargingProfileTemplates, eq(chargingProfileTemplates.profileId, profileIdExpr))
+          // A template that targets another site is hidden from a site-restricted
+          // user (a station that moved keeps profiles pushed from its old site).
+          .leftJoin(
+            chargingProfileTemplates,
+            and(
+              eq(chargingProfileTemplates.profileId, profileIdExpr),
+              templateSiteIds != null
+                ? chargingProfileTemplateInScopeSql(templateSiteIds)
+                : undefined,
+            ),
+          )
           .where(where)
           .orderBy(desc(chargingProfiles.createdAt), desc(chargingProfiles.id))
           .limit(limit)
@@ -5133,13 +5186,13 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [template] = await db
-        .select()
-        .from(chargingProfileTemplates)
-        .where(eq(chargingProfileTemplates.id, body.templateId));
-
-      if (template == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      // A template that targets another site or station is not found for a
+      // site-restricted user, and a company-wide one needs access to every
+      // site to push (owner decision 2026-10-09).
+      const profileSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedChargingProfileTemplate(body.templateId, profileSiteIds);
+      if (template == null || isRestrictedCompanyWideWrite(profileSiteIds, template.targetFilter)) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
         return;
       }
 
@@ -5313,13 +5366,18 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [template] = await db
-        .select()
-        .from(configTemplates)
-        .where(eq(configTemplates.id, body.templateId));
-
-      if (template == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      // A template bound to another site's station or site is not found for a
+      // site-restricted user. A company-wide template needs access to every
+      // site to push (owner decision 2026-10-09), and a template bound to a
+      // station is pushed to that station only.
+      const configSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedConfigTemplate(body.templateId, configSiteIds);
+      if (
+        template == null ||
+        isRestrictedCompanyWideWrite(configSiteIds, template.targetFilter, template.stationId) ||
+        (template.stationId != null && template.stationId !== id)
+      ) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
         return;
       }
 

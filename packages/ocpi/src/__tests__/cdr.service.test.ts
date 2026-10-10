@@ -43,7 +43,8 @@ const mocks = vi.hoisted(() => ({
   post: vi.fn(),
   ocpiCdrCost: vi.fn(),
   sessionTariffMapping: vi.fn(),
-  renderTariffMapping: vi.fn(),
+  renderSnapshotTariff: vi.fn(),
+  sessionCdrParts: vi.fn(),
   createCreditCdr: vi.fn(),
   notifyRoamingCdrChanged: vi.fn(),
 }));
@@ -96,7 +97,16 @@ vi.mock('../services/cpo-sessions.js', () => ({
 }));
 vi.mock('../services/published-tariffs.js', () => ({
   sessionTariffMapping: mocks.sessionTariffMapping,
-  renderTariffMapping: mocks.renderTariffMapping,
+  renderSnapshotTariff: mocks.renderSnapshotTariff,
+}));
+vi.mock('../services/cdr-parts.js', () => ({
+  sessionCdrParts: mocks.sessionCdrParts,
+  partTimes: (parts: Array<{ segment: number | null; period: Record<string, number> }>) =>
+    parts.map((p) => ({
+      segment: p.segment,
+      chargingMinutes: p.period['chargingMinutes'],
+      idleMinutes: p.period['idleMinutes'],
+    })),
 }));
 
 const { buildSessionCdr, issueSessionCdr, pushCdr, generateCreditCdr } =
@@ -122,6 +132,27 @@ const SESSION = {
 function primeGenerate(version: string): void {
   selectResults = [[{ version }]];
 }
+
+const PRICES = {
+  id: 'trf_1',
+  pricePerKwh: '0.40',
+  pricePerMinute: '0.02',
+  pricePerSession: null,
+  idleFeePricePerMinute: '0.10',
+  reservationFeePerMinute: null,
+  taxRate: '0.19',
+  restrictions: null,
+  priority: 0,
+  isDefault: true,
+  isActive: true,
+};
+/** The whole session as one priced part: 45 minutes charging, 15 idle, 5 of them billed. */
+const SINGLE_PART = {
+  segment: null,
+  tariffId: 'trf_1',
+  prices: PRICES,
+  period: { startedAt, kwh: 10, chargingMinutes: 45, idleMinutes: 15, billableIdleMinutes: 5 },
+};
 
 const LINK = {
   id: 7,
@@ -151,6 +182,12 @@ beforeEach(() => {
     total: [{ taxRate: 0.19, netCents: 400, taxCents: 76 }],
   });
   mocks.sessionTariffMapping.mockResolvedValue(null);
+  mocks.sessionCdrParts.mockResolvedValue([SINGLE_PART]);
+  mocks.renderSnapshotTariff.mockImplementation(async (input: { ocpiTariffId: string }) => ({
+    id: input.ocpiTariffId,
+    currency: 'EUR',
+    elements: [],
+  }));
 });
 
 describe('buildSessionCdr', () => {
@@ -158,7 +195,10 @@ describe('buildSessionCdr', () => {
     primeGenerate('2.2.1');
     const cdr = await generateCdr('ses_1', 'opr_1');
     expect(cdr?.total_cost).toEqual({ excl_vat: 4, incl_vat: 4.76 });
-    expect(mocks.ocpiCdrCost).toHaveBeenCalledWith(SESSION);
+    // The engine splits time by the charging and idle minutes of each part.
+    expect(mocks.ocpiCdrCost).toHaveBeenCalledWith(SESSION, [
+      { segment: null, chargingMinutes: 45, idleMinutes: 15 },
+    ]);
     // ocpi_cdrs.total_cost holds the amount excluding tax.
     expect(inserted[0]).toMatchObject({ totalCost: '4', currency: 'EUR' });
   });
@@ -186,16 +226,74 @@ describe('buildSessionCdr', () => {
     expect(cdr?.cdr_token).toMatchObject({ uid: 'TOKEN-1', country_code: 'NL', party_id: 'MSP' });
   });
 
-  it('embeds the tariff generated for the partner from the mapping covering the session tariff', async () => {
+  it('embeds the session tariff snapshot under the id of the mapping covering it', async () => {
     primeGenerate('2.3.0');
     const mapping = { id: 1, ocpiTariffId: 'T-1', tariffId: null, pricingGroupId: 'pgr_1' };
-    const generated = { id: 'T-1', currency: 'EUR', elements: [], tax_included: 'NO' };
     mocks.sessionTariffMapping.mockResolvedValue(mapping);
-    mocks.renderTariffMapping.mockResolvedValue(generated);
     const cdr = await generateCdr('ses_1', 'opr_1');
     expect(mocks.sessionTariffMapping).toHaveBeenCalledWith('opr_1', 'trf_1');
-    expect(mocks.renderTariffMapping).toHaveBeenCalledWith(mapping, '2.3.0');
-    expect(cdr?.tariffs).toEqual([generated]);
+    // The prices the session was billed at, not the tariff's current ones (B19).
+    expect(mocks.renderSnapshotTariff).toHaveBeenCalledWith(
+      {
+        prices: PRICES,
+        ocpiTariffId: 'T-1',
+        currency: 'EUR',
+        taxBasis: null,
+        lastUpdated: startedAt,
+      },
+      '2.3.0',
+    );
+    expect(cdr?.tariffs).toEqual([{ id: 'T-1', currency: 'EUR', elements: [] }]);
+    // Charging, then the 10 grace minutes and the 5 billed idle minutes (B16, B17).
+    expect(cdr?.charging_periods).toEqual([
+      {
+        start_date_time: '2026-09-01T10:00:00.000Z',
+        tariff_id: 'T-1',
+        dimensions: [
+          { type: 'ENERGY', volume: 10 },
+          { type: 'TIME', volume: 0.75 },
+        ],
+      },
+      {
+        start_date_time: '2026-09-01T10:45:00.000Z',
+        tariff_id: 'T-1',
+        dimensions: [{ type: 'PARKING_TIME', volume: 0.1667 }],
+      },
+      {
+        start_date_time: '2026-09-01T10:55:00.000Z',
+        tariff_id: 'T-1',
+        dimensions: [{ type: 'PARKING_TIME', volume: 0.0833 }],
+      },
+    ]);
+  });
+
+  it('embeds each segment tariff of a split session, distinct snapshots under distinct ids', async () => {
+    primeGenerate('2.2.1');
+    const mapping = { id: 1, ocpiTariffId: 'GRP', tariffId: null, pricingGroupId: 'pgr_1' };
+    mocks.sessionTariffMapping.mockResolvedValue(mapping);
+    const segment = (n: number, id: string, kwh: string, at: Date) => ({
+      segment: n,
+      tariffId: id,
+      prices: { ...PRICES, id, pricePerKwh: kwh },
+      period: {
+        startedAt: at,
+        kwh: 5,
+        chargingMinutes: 30,
+        idleMinutes: 0,
+        billableIdleMinutes: 0,
+      },
+    });
+    mocks.sessionCdrParts.mockResolvedValue([
+      segment(1, 'trf_day', '0.40', startedAt),
+      segment(2, 'trf_night', '0.20', new Date('2026-09-01T10:30:00Z')),
+    ]);
+    const cdr = await generateCdr('ses_1', 'opr_1');
+    expect(cdr?.tariffs?.map((t) => t.id)).toEqual(['GRP', 'GRP-2']);
+    expect(cdr?.charging_periods.map((p) => p.tariff_id)).toEqual(['GRP', 'GRP-2']);
+    expect(mocks.ocpiCdrCost).toHaveBeenCalledWith(SESSION, [
+      { segment: 1, chargingMinutes: 30, idleMinutes: 0 },
+      { segment: 2, chargingMinutes: 30, idleMinutes: 0 },
+    ]);
   });
 
   it('embeds no tariff when no mapping publishes the session tariff to the partner', async () => {

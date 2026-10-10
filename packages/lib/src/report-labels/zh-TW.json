@@ -48,7 +48,8 @@
       "electricityCost": "電費成本",
       "profit": "利潤",
       "billedOnAccount": "車隊掛帳（未付）",
-      "paymentStatus": "付款狀態"
+      "paymentStatus": "付款狀態",
+      "sessionsWithoutElectricityCost": "無電費成本的工作階段（不計入利潤）"
     },
     "summary": {
       "totalRevenueInclTax": "總營收（含稅）",
@@ -57,7 +58,8 @@
       "totalElectricityCost": "總電費成本",
       "totalProfit": "總利潤",
       "totalBilledOnAccount": "車隊掛帳總額（未付）",
-      "totalSessions": "工作階段總數"
+      "totalSessions": "工作階段總數",
+      "totalSessionsWithoutElectricityCost": "無電費成本的工作階段總數（不計入利潤）"
     }
   },
   "energy": {

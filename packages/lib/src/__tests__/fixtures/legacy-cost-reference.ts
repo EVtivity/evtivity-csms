@@ -5,7 +5,13 @@
 // assembly (issue #33): the cost calculator totals and the OCPP final-cost
 // assembly of packages/ocpp/src/server/session-cost.ts at 5f32cddb. Tests
 // replay inputs through it and through calculateSessionCostAt to prove the
-// net basis still charges the same amount to the cent. Do not change it.
+// net basis still charges the same amount to the cent. Do not change it,
+// except for the two rule changes of 2026-10-09: tax is the exact decimal
+// product rounded half up (bug B12, the float product could round a cent
+// short), and the idle grace is the session's first idle minutes, taken from
+// the first segment forward (owner decision).
+
+import { exactTaxOnNet } from '../../testing/pricing-oracle.js';
 
 export interface LegacyTariff {
   pricePerKwh: string | null;
@@ -44,7 +50,6 @@ export function legacySessionCostTotal(
     tariff.idleFeePricePerMinute != null ? Number(tariff.idleFeePricePerMinute) : 0;
   const reservationFeePerMinute =
     tariff.reservationFeePerMinute != null ? Number(tariff.reservationFeePerMinute) : 0;
-  const taxRate = tariff.taxRate != null ? Number(tariff.taxRate) : 0;
 
   const energyCostCents = dollarsToCents(energyKwh * pricePerKwh);
   const timeCostCents = dollarsToCents(durationMinutes * pricePerMinute);
@@ -56,7 +61,7 @@ export function legacySessionCostTotal(
   );
   const subtotalCents =
     energyCostCents + timeCostCents + sessionFeeCents + idleFeeCents + reservationHoldingFeeCents;
-  const taxCents = Math.round(subtotalCents * taxRate);
+  const taxCents = exactTaxOnNet(subtotalCents, tariff.taxRate ?? 0);
   return { subtotalCents, taxCents, totalCents: subtotalCents + taxCents };
 }
 
@@ -66,17 +71,12 @@ export function legacySplitSessionCostTotal(
   reservationHoldingMinutes = 0,
 ): { subtotalCents: number; taxCents: number; totalCents: number } {
   if (segments.length === 0) return { subtotalCents: 0, taxCents: 0, totalCents: 0 };
-  const totalIdleMinutes = segments.reduce((sum, s) => sum + s.idleMinutes, 0);
-  const billableTotalIdle = Math.max(0, totalIdleMinutes - gracePeriodMinutes);
-  let remainingReduction = totalIdleMinutes - billableTotalIdle;
-  const adjusted = [...segments]
-    .reverse()
-    .map((seg) => {
-      const deduct = Math.min(seg.idleMinutes, remainingReduction);
-      remainingReduction -= deduct;
-      return { ...seg, idleMinutes: seg.idleMinutes - deduct };
-    })
-    .reverse();
+  let remainingGrace = gracePeriodMinutes;
+  const adjusted = segments.map((seg) => {
+    const deduct = Math.min(seg.idleMinutes, remainingGrace);
+    remainingGrace -= deduct;
+    return { ...seg, idleMinutes: seg.idleMinutes - deduct };
+  });
   const parts = adjusted.map((segment) =>
     legacySessionCostTotal(
       segment.isFirstSegment ? segment.tariff : { ...segment.tariff, pricePerSession: null },
@@ -89,10 +89,10 @@ export function legacySplitSessionCostTotal(
   const firstTariff = segments[0]?.tariff;
   const reservationFeePerMinute =
     firstTariff?.reservationFeePerMinute != null ? Number(firstTariff.reservationFeePerMinute) : 0;
-  const firstTaxRate = firstTariff?.taxRate != null ? Number(firstTariff.taxRate) : 0;
   const holding = dollarsToCents(reservationHoldingMinutes * reservationFeePerMinute);
   const subtotalCents = parts.reduce((s, p) => s + p.subtotalCents, 0) + holding;
-  const taxCents = parts.reduce((s, p) => s + p.taxCents, 0) + Math.round(holding * firstTaxRate);
+  const taxCents =
+    parts.reduce((s, p) => s + p.taxCents, 0) + exactTaxOnNet(holding, firstTariff?.taxRate ?? 0);
   return { subtotalCents, taxCents, totalCents: subtotalCents + taxCents };
 }
 

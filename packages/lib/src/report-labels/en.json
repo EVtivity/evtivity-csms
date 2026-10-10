@@ -48,7 +48,8 @@
       "electricityCost": "Electricity Cost",
       "profit": "Profit",
       "billedOnAccount": "Billed on Account (unpaid)",
-      "paymentStatus": "Payment Status"
+      "paymentStatus": "Payment Status",
+      "sessionsWithoutElectricityCost": "Sessions without Electricity Cost (not in profit)"
     },
     "summary": {
       "totalRevenueInclTax": "Total Revenue (incl. tax)",
@@ -57,7 +58,8 @@
       "totalElectricityCost": "Total Electricity Cost",
       "totalProfit": "Total Profit",
       "totalBilledOnAccount": "Total Billed on Account (unpaid)",
-      "totalSessions": "Total Sessions"
+      "totalSessions": "Total Sessions",
+      "totalSessionsWithoutElectricityCost": "Total Sessions without Electricity Cost (not in profit)"
     }
   },
   "energy": {

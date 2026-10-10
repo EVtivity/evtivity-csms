@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { resolveActiveTariff } from '../tariff-resolver.js';
+import { compareTariffs, resolveActiveTariff } from '../tariff-resolver.js';
 import type { TariffWithRestrictions } from '../tariff-resolver.js';
 
 function makeTariff(
@@ -129,5 +129,46 @@ describe('resolveActiveTariff', () => {
     const now = new Date(2026, 6, 15, 12, 0, 0);
     const result = resolveActiveTariff(tariffs, now, [], 0);
     expect(result?.id).toBe('summer');
+  });
+});
+
+describe('energy thresholds (B9)', () => {
+  const e20 = makeTariff('trf_e20', 50, false, { energyThresholdKwh: 20 });
+  const e50 = makeTariff('trf_e50', 50, false, { energyThresholdKwh: 50 });
+  const base = makeTariff('trf_base', 0, true);
+
+  it('picks the highest threshold reached whatever the input order (TC-T3-10)', () => {
+    const now = new Date();
+    expect(resolveActiveTariff([e20, e50, base], now, [], 60)?.id).toBe('trf_e50');
+    expect(resolveActiveTariff([e50, e20, base], now, [], 60)?.id).toBe('trf_e50');
+    expect(resolveActiveTariff([e50, e20, base], now, [], 30)?.id).toBe('trf_e20');
+    expect(resolveActiveTariff([e50, e20, base], now, [], 10)?.id).toBe('trf_base');
+  });
+
+  it('orders by priority, then threshold, then id', () => {
+    const a = makeTariff('trf_a', 10, false, {
+      timeRange: { startTime: '09:00', endTime: '10:00' },
+    });
+    const b = makeTariff('trf_b', 10, false, {
+      timeRange: { startTime: '11:00', endTime: '12:00' },
+    });
+    expect([b, base, e20, a, e50].sort(compareTariffs).map((t) => t.id)).toEqual([
+      'trf_e50',
+      'trf_e20',
+      'trf_a',
+      'trf_b',
+      'trf_base',
+    ]);
+  });
+});
+
+describe('default fallback (B2)', () => {
+  it('ignores a restricted tariff flagged default (TC-T3-03)', () => {
+    const peakOnly = makeTariff('trf_peak', 10, true, {
+      timeRange: { startTime: '09:00', endTime: '17:00' },
+    });
+    // 20:00 PT: the peak tariff does not match and is no fallback.
+    const at = new Date('2026-10-09T03:00:00Z');
+    expect(resolveActiveTariff([peakOnly], at, [], 0, 'America/Los_Angeles')).toBeNull();
   });
 });

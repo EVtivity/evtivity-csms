@@ -4,7 +4,7 @@
 import type postgres from 'postgres';
 import { grossUnitPrice, taxRateFraction } from '@evtivity/lib';
 import type { TaxBasis } from '@evtivity/lib';
-import { loadStationPricing, resolveStationTariff } from './tariff-resolution.js';
+import { loadStationPricingChain, resolveStationTariff } from './tariff-resolution.js';
 import { getCompanyTaxBasis } from './system-settings.js';
 
 /**
@@ -51,8 +51,10 @@ export async function siteMaxSessionFeeGrossCents(
   const basis = await getCompanyTaxBasis();
   let max = 0;
   for (const station of stations) {
-    const pricing = await loadStationPricing({ stationUuid: station.id, driverUuid: null }, sql);
-    for (const tariff of pricing?.tariffs ?? []) {
+    // Every group of the chain: a group without a tariff that applies passes
+    // to the next one, so any of their tariffs can price a session.
+    const chain = await loadStationPricingChain({ stationUuid: station.id, driverUuid: null }, sql);
+    for (const tariff of chain.flatMap((p) => p.tariffs)) {
       max = Math.max(max, grossFeeCents(tariff.pricePerSession, tariff.taxRate, basis));
     }
   }

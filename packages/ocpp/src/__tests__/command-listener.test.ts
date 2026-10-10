@@ -682,6 +682,29 @@ describe('CommandListener', () => {
     );
   });
 
+  it.each([
+    ['ClearDisplayMessage', { id: 3 }, { status: 'Accepted' }],
+    ['SetDisplayMessage', { message: { id: 3 } }, { status: 'Rejected' }],
+  ])(
+    'publishes command.%s with the station reply so the projection records it',
+    async (action, payload, response) => {
+      dispatcher.sendVersionAwareCommand.mockResolvedValueOnce(response);
+      await createAndStart();
+      subscribeHandler!(
+        JSON.stringify({ commandId: 'cmd-dm', stationId: 'CS-001', action, payload }),
+      );
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(eventBus.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: `command.${action}`,
+          aggregateId: 'CS-001',
+          payload: { request: payload, response },
+        }),
+      );
+    },
+  );
+
   it('publishes CALLERROR and error result for a non-offline failure with commandId', async () => {
     dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
       new Error('Station rejected: NotImplemented'),

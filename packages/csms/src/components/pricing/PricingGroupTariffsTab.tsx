@@ -18,15 +18,14 @@ import { formatDecimal, formatTaxPercent } from '@/lib/formatting';
 import { DEFAULT_TAX_BASIS } from '@evtivity/lib/price-display';
 import { useCompanyTaxBasis } from '@/hooks/use-company-tax-basis';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
-
-interface TariffRestrictions {
-  timeRange?: { startTime: string; endTime: string };
-  daysOfWeek?: number[];
-  dateRange?: { startDate: string; endDate: string };
-  holidays?: boolean;
-  energyThresholdKwh?: number;
-}
+import { Badge } from '@/components/ui/badge';
+import {
+  formatRestrictionSummary,
+  useRestrictionLabels,
+  type TariffRestrictions,
+} from '@/lib/tariff-restrictions';
 
 interface Tariff {
   id: string;
@@ -54,58 +53,33 @@ export function PricingGroupTariffsTab({
 }: PricingGroupTariffsTabProps): React.JSX.Element {
   const navigate = useNavigate();
   const { t } = useTranslation();
+  // Pricing writes are company-wide: the API answers 404 to a site-restricted user.
+  const canWrite = useHasCompanyWidePermission('pricing:write');
   // Price labels say whether prices are entered excluding or including tax.
   const taxBasis = useCompanyTaxBasis() ?? DEFAULT_TAX_BASIS;
 
-  const dayLabels = [
-    t('pricing.sunday'),
-    t('pricing.monday'),
-    t('pricing.tuesday'),
-    t('pricing.wednesday'),
-    t('pricing.thursday'),
-    t('pricing.friday'),
-    t('pricing.saturday'),
-  ];
+  const restrictionLabels = useRestrictionLabels();
 
   const { data: tariffs, isLoading: tariffsLoading } = useQuery({
     queryKey: ['tariffs', groupId],
     queryFn: () => api.get<Tariff[]>(`/v1/pricing-groups/${groupId}/tariffs`),
   });
 
-  function formatRestrictionSummary(restrictions: TariffRestrictions | null): string {
-    if (restrictions == null) return t('pricing.noRestrictions');
-    if (restrictions.energyThresholdKwh != null) {
-      return `Above ${String(restrictions.energyThresholdKwh)} kWh`;
-    }
-    if (restrictions.holidays === true) return t('pricing.holiday');
-    if (restrictions.dateRange != null) {
-      return `${restrictions.dateRange.startDate} - ${restrictions.dateRange.endDate}`;
-    }
-    const parts: string[] = [];
-    if (restrictions.daysOfWeek != null) {
-      const names = restrictions.daysOfWeek
-        .map((d) => dayLabels[d])
-        .filter((s): s is string => s != null);
-      parts.push(names.join(', '));
-    }
-    if (restrictions.timeRange != null) {
-      parts.push(`${restrictions.timeRange.startTime} - ${restrictions.timeRange.endTime}`);
-    }
-    return parts.join(' ') || 'n/a';
-  }
-
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('pricing.tariffs')}</CardTitle>
-        <CreateButton
-          label={t('pricing.createTariff')}
-          onClick={() => {
-            void navigate(`/pricing/${groupId}/tariffs/new`);
-          }}
-        />
+        {canWrite && (
+          <CreateButton
+            label={t('pricing.createTariff')}
+            onClick={() => {
+              void navigate(`/pricing/${groupId}/tariffs/new`);
+            }}
+          />
+        )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <p className="text-sm text-muted-foreground">{t('pricing.defaultTariffHelper')}</p>
         {tariffsLoading && <LoadingLogo size="inline" />}
 
         {tariffs != null && tariffs.length === 0 && (
@@ -145,7 +119,12 @@ export function PricingGroupTariffsTab({
                       {tariff.name}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {formatRestrictionSummary(tariff.restrictions)}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {formatRestrictionSummary(tariff.restrictions, restrictionLabels)}
+                        {tariff.isDefault && (
+                          <Badge variant="secondary">{t('pricing.defaultTariff')}</Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>{formatDecimal(tariff.pricePerKwh)}</TableCell>
                     <TableCell>{formatDecimal(tariff.pricePerMinute)}</TableCell>

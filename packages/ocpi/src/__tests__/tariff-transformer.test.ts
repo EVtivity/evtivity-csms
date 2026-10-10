@@ -106,6 +106,40 @@ describe('transformTariff', () => {
     );
   });
 
+  it('publishes the idle grace as a min_duration element with the idle fee (B17)', () => {
+    const result = transformTariff(
+      { ...single({ pricePerMinute: '0.05', idleFeePricePerMinute: '0.10' }), graceMinutes: 5 },
+      '2.2.1',
+    );
+    expect(result.elements).toEqual([
+      {
+        price_components: [
+          { type: 'ENERGY', price: 0.3, step_size: 1 },
+          { type: 'TIME', price: 3, step_size: 1 },
+          { type: 'PARKING_TIME', price: 9, step_size: 1 },
+          { type: 'FLAT', price: 1, step_size: 1 },
+        ],
+        restrictions: { min_duration: 300 },
+      },
+      {
+        price_components: [
+          { type: 'ENERGY', price: 0.3, step_size: 1 },
+          { type: 'TIME', price: 3, step_size: 1 },
+          { type: 'PARKING_TIME', price: 3, step_size: 1 },
+          { type: 'FLAT', price: 1, step_size: 1 },
+        ],
+      },
+    ]);
+  });
+
+  it('keeps one element per window without an idle fee, grace or not', () => {
+    const result = transformTariff(
+      { ...single({ pricePerMinute: '0.05' }), graceMinutes: 5 },
+      '2.2.1',
+    );
+    expect(result.elements).toHaveLength(1);
+  });
+
   it('prices PARKING_TIME with the time price when there is no idle fee', () => {
     const result = transformTariff(single({ pricePerMinute: '0.05' }), '2.2.1');
     expect(result.elements[0]?.price_components).toEqual(
@@ -185,6 +219,34 @@ describe('transformTariff for a pricing group', () => {
       { start_time: '22:00', end_time: '06:00', day_of_week: ['SUNDAY', 'SATURDAY'] },
       undefined,
     ]);
+  });
+
+  it('lists the highest energy threshold first, whatever the row order (B9, TC-T3-10)', () => {
+    const bulk80 = { ...bulk, id: 'trf_bulk80', restrictions: { energyThresholdKwh: 80 } };
+    for (const tariffs of [
+      [tariff, bulk, bulk80],
+      [bulk80, tariff, bulk],
+    ]) {
+      const result = transformTariff(input({ tariffs, applyRestrictions: true }), '2.2.1');
+      expect(result.elements.map((e) => e.restrictions)).toEqual([
+        { min_kwh: 80 },
+        { min_kwh: 40 },
+        undefined,
+      ]);
+    }
+  });
+
+  it('publishes days without a time window as whole days (day_of_week only)', () => {
+    const weekend = {
+      ...offPeak,
+      id: 'trf_weekend',
+      restrictions: { daysOfWeek: [6, 0] },
+    };
+    const result = transformTariff(
+      input({ tariffs: [tariff, weekend], applyRestrictions: true }),
+      '2.2.1',
+    );
+    expect(result.elements[0]?.restrictions).toEqual({ day_of_week: ['SUNDAY', 'SATURDAY'] });
   });
 
   it('lists every priced dimension in every element, 0 where the tariff does not price it', () => {

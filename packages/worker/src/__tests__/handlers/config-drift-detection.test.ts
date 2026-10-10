@@ -146,7 +146,7 @@ describe('configDriftDetectionHandler', () => {
           targetFilter: null,
         },
       ],
-      [{ id: 'sta_drift' }], // targetStations
+      [{ id: 'sta_drift', siteId: 'sit_1' }], // targetStations
       [
         {
           stationId: 'sta_drift',
@@ -168,7 +168,7 @@ describe('configDriftDetectionHandler', () => {
         eventType: 'config.driftDetected',
         stationId: 'sta_drift',
         sessionId: null,
-        siteId: null,
+        siteId: 'sit_1',
       }),
     );
     expect(log.info).toHaveBeenCalledWith({ driftCount: 1 }, 'Configuration drift detected');
@@ -332,6 +332,44 @@ describe('configDriftDetectionHandler', () => {
     expect(mockEq).toHaveBeenCalledWith('chargingStations.vendorId', 'ven_1');
     expect(mockEq).toHaveBeenCalledWith('chargingStations.model', 'ModelX');
     expect(mockInArray).not.toHaveBeenCalled();
+  });
+
+  it('applies the stationId filter condition', async () => {
+    setupDbResults(
+      [
+        {
+          id: 'tpl_station_filter',
+          variables: [{ component: 'AuthCtrlr', variable: 'Enabled', value: 'true' }],
+          stationId: null,
+          targetFilter: { stationId: 'st_7' },
+        },
+      ],
+      [],
+    );
+
+    await mod.configDriftDetectionHandler(log);
+
+    expect(mockEq).toHaveBeenCalledWith('chargingStations.id', 'st_7');
+  });
+
+  it('matches a template bound to a station only against that station', async () => {
+    setupDbResults(
+      [
+        {
+          id: 'tpl_bound',
+          variables: [{ component: 'AuthCtrlr', variable: 'Enabled', value: 'true' }],
+          stationId: 'st_bound',
+          // A bound template's filter never widens its reach.
+          targetFilter: null,
+        },
+      ],
+      [],
+    );
+
+    await mod.configDriftDetectionHandler(log);
+
+    expect(mockEq).toHaveBeenCalledWith('chargingStations.id', 'st_bound');
+    expect(mockEq).not.toHaveBeenCalledWith('chargingStations.siteId', expect.anything());
   });
 
   it('continues to the next template when SSE publish fails (best-effort)', async () => {

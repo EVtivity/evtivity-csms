@@ -24,6 +24,7 @@ import type {
   CallApiFn,
 } from './types.js';
 import { getRegistry } from './registry.js';
+import { OCTT_THRESHOLD_KWH } from './tariff-test-constants.js';
 import { executeTest } from './executor.js';
 import { createApiClient } from './api-client.js';
 import { startOcspTestService, type OcspTestService } from './ocsp-test-service.js';
@@ -419,7 +420,9 @@ export interface SettingChange {
  * API, and it issues ISO 15118 contract certificates), the test eMAID prefix
  * when none is set (`pnc.local.emaidCountry`, `pnc.local.emaidProviderId`),
  * and, with an OCSP responder, its host in `pnc.ocsp.allowedPrivateHosts` (the
- * CSMS refuses OCSP requests to private addresses that are not listed).
+ * CSMS refuses OCSP requests to private addresses that are not listed). The
+ * tariff tests need split billing (`pricing.splitBillingEnabled`), which is
+ * on by default; the run leaves the operator's value alone.
  * Returns the settings it changed, for restoreRunSettings.
  */
 export async function applyRunSettings(ocspResponderUrl?: string): Promise<SettingChange[]> {
@@ -534,13 +537,27 @@ async function provisionTestTariff(
     ON CONFLICT DO NOTHING
   `);
 
-  // Create a tariff matching TC_I_109 expected values:
-  // energy: 0.25/kWh, idle: 0.10/min, fixed: 0.50, tax: 20% VAT (tax_rate is a fraction)
+  // The default tariff, matching TC_I_109 expected values: energy 0.25/kWh,
+  // idle fee 0.10/min, fixed 0.50, reservation 0.05/min, tax 20% VAT
+  // (tax_rate is a fraction).
   await db.execute(sql`
     INSERT INTO tariffs (id, pricing_group_id, name, price_per_kwh, price_per_minute,
-                         price_per_session, idle_fee_price_per_minute, tax_rate, is_active, priority, is_default)
+                         price_per_session, idle_fee_price_per_minute, reservation_fee_per_minute,
+                         tax_rate, is_active, priority, is_default)
     VALUES (${tariffId}, ${pricingGroupId}, 'OCTT Test Tariff', '0.25', '0.00',
-            '0.50', '0.10', '0.20', true, 0, true)
+            '0.50', '0.10', '0.05', '0.20', true, 0, true)
+    ON CONFLICT DO NOTHING
+  `);
+  // An energy-threshold tariff (0.20/kWh from OCTT_THRESHOLD_KWH): with split
+  // billing the CSMS sends it as a minEnergy condition (TC_I_109) and moves a
+  // session past the threshold to it (TC_I_111).
+  await db.execute(sql`
+    INSERT INTO tariffs (id, pricing_group_id, name, price_per_kwh, price_per_minute,
+                         price_per_session, idle_fee_price_per_minute, reservation_fee_per_minute,
+                         tax_rate, restrictions, is_active, priority, is_default)
+    VALUES (${createId('tariff')}, ${pricingGroupId}, 'OCTT Bulk Tariff', '0.20', '0.00',
+            '0.00', '0.10', '0.05', '0.20',
+            ${JSON.stringify({ energyThresholdKwh: OCTT_THRESHOLD_KWH })}::jsonb, true, 50, false)
     ON CONFLICT DO NOTHING
   `);
 

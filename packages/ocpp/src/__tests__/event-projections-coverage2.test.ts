@@ -141,6 +141,10 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-pricing.js',
   )),
+  // The real register energy rule (session-energy), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-energy.js',
+  )),
   // The real tariff resolver, running on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
@@ -1208,6 +1212,113 @@ describe('Event projections - coverage round 2', () => {
     });
   });
 
+  // ---- command.SetDisplayMessage / command.ClearDisplayMessage ----
+
+  describe('command.SetDisplayMessage', () => {
+    it('marks the pending row accepted on Accepted and notifies the dashboard', async () => {
+      await setup();
+      setupSqlResults(STA, [], [{ site_id: 'site_1' }]);
+      await emit('command.SetDisplayMessage', 'CS-1', {
+        request: { message: { id: 4 } },
+        response: { status: 'Accepted' },
+      });
+      const upd = findSql(/UPDATE display_messages/);
+      expect(upd?.strings.join('?')).toContain("status = 'pending'");
+      expect(upd?.values).toEqual(expect.arrayContaining(['accepted', 'sta_0001', 4]));
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'csms_events',
+        expect.stringContaining('displayMessage.updated'),
+      );
+    });
+
+    it('marks the pending row rejected on any other status', async () => {
+      await setup();
+      setupSqlResults(STA, []);
+      await emit('command.SetDisplayMessage', 'CS-1', {
+        request: { message: { id: 4 } },
+        response: { status: 'NotSupportedPriority' },
+      });
+      expect(findSql(/UPDATE display_messages/)?.values).toContain('rejected');
+    });
+
+    it('does not notify when no pending row matched', async () => {
+      await setup();
+      setupSqlResults(STA, EMPTY);
+      await emit('command.SetDisplayMessage', 'CS-1', {
+        request: { message: { id: 9000 } },
+        response: { status: 'Accepted' },
+      });
+      expect(findSql(/UPDATE display_messages/)).toBeDefined();
+      expect(mockPubSub.publish).not.toHaveBeenCalledWith('csms_events', expect.anything());
+    });
+
+    it('ignores a reply without a message id or status', async () => {
+      await setup();
+      setupSqlResults();
+      await emit('command.SetDisplayMessage', 'CS-1', { request: {}, response: {} });
+      expect(sqlCalls.length).toBe(0);
+    });
+
+    it('stops when the station is unknown', async () => {
+      await setup();
+      setupSqlResults([]);
+      await emit('command.SetDisplayMessage', 'CS-X', {
+        request: { message: { id: 4 } },
+        response: { status: 'Accepted' },
+      });
+      expect(findSql(/UPDATE display_messages/)).toBeUndefined();
+    });
+  });
+
+  describe('command.ClearDisplayMessage', () => {
+    it('marks a pending or accepted row cleared on Accepted and notifies', async () => {
+      await setup();
+      setupSqlResults(STA, [], [{ site_id: 'site_1' }]);
+      await emit('command.ClearDisplayMessage', 'CS-1', {
+        request: { id: 4 },
+        response: { status: 'Accepted' },
+      });
+      const upd = findSql(/UPDATE display_messages/);
+      expect(upd?.strings.join('?')).toContain("SET status = 'cleared'");
+      expect(upd?.strings.join('?')).toContain("status IN ('pending', 'accepted')");
+      expect(upd?.values).toEqual(expect.arrayContaining(['sta_0001', 4]));
+      expect(mockPubSub.publish).toHaveBeenCalledWith(
+        'csms_events',
+        expect.stringContaining('displayMessage.updated'),
+      );
+    });
+
+    it.each(['Unknown', 'Rejected'])('keeps the row on %s', async (status) => {
+      await setup();
+      setupSqlResults();
+      await emit('command.ClearDisplayMessage', 'CS-1', {
+        request: { id: 4 },
+        response: { status },
+      });
+      expect(sqlCalls.length).toBe(0);
+    });
+
+    it('does not notify when the row is already cleared', async () => {
+      await setup();
+      setupSqlResults(STA, EMPTY);
+      await emit('command.ClearDisplayMessage', 'CS-1', {
+        request: { id: 4 },
+        response: { status: 'Accepted' },
+      });
+      expect(mockPubSub.publish).not.toHaveBeenCalledWith('csms_events', expect.anything());
+    });
+
+    it('stops when the station is unknown', async () => {
+      await setup();
+      setupSqlResults([]);
+      await emit('command.ClearDisplayMessage', 'CS-X', {
+        request: { id: 4 },
+        response: { status: 'Accepted' },
+      });
+      expect(findSql(/UPDATE display_messages/)).toBeUndefined();
+    });
+  });
+
   // ---- ocpp.NotifyEVChargingNeeds / Schedule ----
 
   describe('ocpp.NotifyEVChargingNeeds', () => {
@@ -1573,8 +1684,8 @@ describe('Event projections - coverage round 2', () => {
         STA, // 0 resolveStationUuid
         [{ id: 'ses_1' }], // 1 resolveMeterValueSession by transactionId
         [], // 2 INSERT meter_values (count 1, success)
-        [{ energy_delivered_wh: 100, meter_start: '50' }], // 3 prev energy/meter_start
-        [], // 4 UPDATE meter_start (no-op, already set)
+        [{ id: 'ses_mv', energy_delivered_wh: 100, meter_start: '50' }], // 3 prev energy/meter_start
+        [{ energy_delivered_wh: 100, meter_start: '50' }], // SELECT register state FOR UPDATE
         [], // 5 UPDATE energy_delivered_wh
         // existingMeterStart='50', prevEnergyWh=100 -> newEnergyWh=1000-50=950, |950-100|>=1 -> energy increased branch
         [], // 6 UPDATE idle accrue (energy increased)
@@ -1655,8 +1766,8 @@ describe('Event projections - coverage round 2', () => {
         STA, // resolveStationUuid
         [{ id: 'ses_1' }], // resolveMeterValueSession
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
-        [], // UPDATE meter_start
+        [{ id: 'ses_mv', energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
+        [{ energy_delivered_wh: 100, meter_start: '50' }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle accrue
       ];
@@ -1793,8 +1904,8 @@ describe('Event projections - coverage round 2', () => {
         STA, // resolveStationUuid
         [{ id: 'ses_1' }], // resolveMeterValueSession
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
-        [], // UPDATE meter_start
+        [{ id: 'ses_mv', energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
+        [{ energy_delivered_wh: 100, meter_start: '50' }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle accrue
       ];
@@ -1963,8 +2074,8 @@ describe('Event projections - coverage round 2', () => {
         STA, // resolveStationUuid
         [{ id: 'ses_1' }], // resolveMeterValueSession
         [], // INSERT meter_values
-        [{ energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
-        [], // UPDATE meter_start
+        [{ id: 'ses_mv', energy_delivered_wh: 100, meter_start: '50' }], // prev energy/meter_start
+        [{ energy_delivered_wh: 100, meter_start: '50' }], // SELECT register state FOR UPDATE
         [], // UPDATE energy_delivered_wh
         [], // UPDATE idle accrue
       ];
@@ -2162,8 +2273,15 @@ describe('Event projections - coverage round 2', () => {
         STA, // 0
         [{ id: 'ses_1' }], // 1 session
         [], // 2 INSERT meter_values
-        [{ energy_delivered_wh: 100, meter_start: '50', last_rise_at: '2026-01-01T00:59:00Z' }], // 3 prev
-        [], // 4 UPDATE meter_start
+        [
+          {
+            id: 'ses_mv',
+            energy_delivered_wh: 100,
+            meter_start: '50',
+            last_rise_at: '2026-01-01T00:59:00Z',
+          },
+        ], // 3 prev
+        [{ energy_delivered_wh: 100, meter_start: '50', last_rise_at: '2026-01-01T00:59:00Z' }], // SELECT register state FOR UPDATE
         [], // 5 UPDATE energy
         // newEnergyWh = 150-50 = 100 == prevEnergyWh -> flat -> mark idle
         [], // 6 UPDATE idle_started_at

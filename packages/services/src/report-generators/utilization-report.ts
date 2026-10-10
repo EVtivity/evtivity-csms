@@ -1,13 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, gte, lte, eq, count } from 'drizzle-orm';
+import { sql, and, gte, lte, eq, count, type AnyColumn, type SQL } from 'drizzle-orm';
 import { db, chargingSessions, chargingStations, sites, settings } from '@evtivity/database';
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
+import { loadPdfBranding } from '../pdf-branding.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import type { ReportGeneratorResult } from '../report-registry.js';
+import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 import { csvRows, pdfRows, percentCell } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
 
@@ -15,14 +17,26 @@ interface Filters {
   dateFrom?: string | undefined;
   dateTo?: string | undefined;
   siteId?: string | undefined;
+  /** The report's site scope (report-scope.ts). */
+  scope: ReportSiteScope;
 }
 
-function parseFilters(raw: Record<string, unknown>): Filters {
+function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
   return {
     dateFrom: typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined,
     dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
+    scope,
   };
+}
+
+/** Conditions on a site id column: the site filter and the report's site scope. */
+function siteConditions(filters: Filters, siteIdColumn: AnyColumn): SQL | undefined {
+  const conditions: SQL[] = [];
+  if (filters.siteId) conditions.push(eq(siteIdColumn, filters.siteId));
+  const inScope = stationSiteInScope(siteIdColumn, filters.scope);
+  if (inScope != null) conditions.push(inScope);
+  return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
 async function getTimezone(): Promise<string> {
@@ -74,19 +88,6 @@ async function querySiteUtilization(
   totalHours: number,
   noSite: string,
 ): Promise<SiteUtilization[]> {
-  const conditions = [];
-  if (filters.dateFrom) {
-    conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
-  }
-  if (filters.dateTo) {
-    const to = new Date(filters.dateTo);
-    to.setHours(23, 59, 59, 999);
-    conditions.push(lte(chargingSessions.startedAt, to));
-  }
-  if (filters.siteId) {
-    conditions.push(eq(sites.id, filters.siteId));
-  }
-
   const sessionJoinConditions = [eq(chargingSessions.stationId, chargingStations.id)];
   if (filters.dateFrom) {
     sessionJoinConditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
@@ -106,7 +107,7 @@ async function querySiteUtilization(
     .from(sites)
     .leftJoin(chargingStations, eq(chargingStations.siteId, sites.id))
     .leftJoin(chargingSessions, and(...sessionJoinConditions))
-    .where(filters.siteId ? eq(sites.id, filters.siteId) : undefined)
+    .where(siteConditions(filters, sites.id))
     .groupBy(sites.id, sites.name)
     .orderBy(sql`3 desc`);
 
@@ -126,19 +127,6 @@ async function queryStationUtilization(
   totalHours: number,
   noSite: string,
 ): Promise<StationUtilization[]> {
-  const conditions = [];
-  if (filters.dateFrom) {
-    conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
-  }
-  if (filters.dateTo) {
-    const to = new Date(filters.dateTo);
-    to.setHours(23, 59, 59, 999);
-    conditions.push(lte(chargingSessions.startedAt, to));
-  }
-  if (filters.siteId) {
-    conditions.push(eq(chargingStations.siteId, filters.siteId));
-  }
-
   const sessionJoinConditions = [eq(chargingSessions.stationId, chargingStations.id)];
   if (filters.dateFrom) {
     sessionJoinConditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
@@ -159,7 +147,7 @@ async function queryStationUtilization(
     .from(chargingStations)
     .leftJoin(sites, eq(chargingStations.siteId, sites.id))
     .leftJoin(chargingSessions, and(...sessionJoinConditions))
-    .where(filters.siteId ? eq(chargingStations.siteId, filters.siteId) : undefined)
+    .where(siteConditions(filters, chargingStations.siteId))
     .groupBy(chargingStations.id, chargingStations.stationId, sites.name)
     .orderBy(sql`3 desc`);
 
@@ -173,7 +161,7 @@ async function queryStationUtilization(
 }
 
 async function queryPeakUsage(filters: Filters, tz: string): Promise<PeakHour[]> {
-  const conditions = [];
+  const conditions: SQL[] = [];
   if (filters.dateFrom) {
     conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
   }
@@ -182,6 +170,9 @@ async function queryPeakUsage(filters: Filters, tz: string): Promise<PeakHour[]>
     to.setHours(23, 59, 59, 999);
     conditions.push(lte(chargingSessions.startedAt, to));
   }
+  // Peak usage honours the site filter and the site scope like the other sheets.
+  const atSites = siteConditions(filters, chargingStations.siteId);
+  if (atSites != null) conditions.push(atSites);
 
   const rows = await db
     .select({
@@ -190,6 +181,7 @@ async function queryPeakUsage(filters: Filters, tz: string): Promise<PeakHour[]>
       count: count(),
     })
     .from(chargingSessions)
+    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(sql`1`, sql`2`)
     .orderBy(sql`3 desc`);
@@ -200,9 +192,10 @@ async function queryPeakUsage(filters: Filters, tz: string): Promise<PeakHour[]>
 export async function generateUtilizationReport(
   rawFilters: Record<string, unknown>,
   format: string,
-  language: UiLanguage = 'en',
+  language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters);
+  const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.utilization;
@@ -272,7 +265,7 @@ export async function generateUtilizationReport(
   }
 
   // PDF
-  const pdf = new PdfReportBuilder(rl.language);
+  const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
   pdf.addTitle(l.title);
   pdf.addSubtitle(rl.period(filters.dateFrom, filters.dateTo, common.last30Days));
 

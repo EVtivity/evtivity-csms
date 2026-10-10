@@ -5,6 +5,21 @@ import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vites
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
+// Fleet OCPP health (aggregation covered in the database package tests).
+const EMPTY_FLEET = {
+  instanceCount: 0,
+  connectedStations: 0,
+  avgPingLatencyMs: 0,
+  maxPingLatencyMs: 0,
+  pingSuccessRate: 100,
+  totalPingsSent: 0,
+  totalPongsReceived: 0,
+  serverStartedAt: null,
+  updatedAt: null,
+  instances: [],
+};
+const mockGetOcppFleetHealth = vi.hoisted(() => vi.fn());
+
 // DB mock helpers
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
@@ -74,7 +89,8 @@ vi.mock('@evtivity/database', () => ({
   sites: {},
   settings: {},
   paymentRecords: {},
-  ocppServerHealth: {},
+  client: {},
+  getOcppFleetHealth: (...args: unknown[]) => mockGetOcppFleetHealth(...args),
   dashboardSnapshots: {},
   getSystemTimezone: vi.fn().mockResolvedValue('America/New_York'),
 }));
@@ -383,6 +399,113 @@ describe('Dashboard routes', () => {
     );
   });
 
+  it('GET /v1/dashboard/financial-stats leaves sessions without an electricity cost out of profit', async () => {
+    // Electricity cost, then the names of the sites with sessions without a cost.
+    setupDbResults(
+      [{ totalElectricityCostCents: 300, dayElectricityCostCents: 100 }],
+      [
+        { id: 'sit_a', name: 'Alpha' },
+        { id: 'sit_b', name: 'Beta' },
+      ],
+    );
+    const { aggregateRevenueRows } = sessionRevenueModule;
+    mockQueryRevenue.mockResolvedValueOnce(
+      aggregateRevenueRows([
+        // Site A: two sessions with a cost (one today), one without (today).
+        {
+          key: 'false|sit_a',
+          taxRate: '0',
+          grossCents: 1000,
+          source: 'session',
+          costMissing: false,
+          count: 1,
+        },
+        {
+          key: 'true|sit_a',
+          taxRate: '0',
+          grossCents: 1000,
+          source: 'session',
+          costMissing: false,
+          count: 1,
+        },
+        {
+          key: 'true|sit_a',
+          taxRate: '0',
+          grossCents: 400,
+          source: 'session',
+          costMissing: true,
+          count: 1,
+        },
+        // Site B: two sessions without a cost, earlier.
+        {
+          key: 'false|sit_b',
+          taxRate: '0',
+          grossCents: 500,
+          source: 'session',
+          costMissing: true,
+          count: 2,
+        },
+        // A station without a site: counted in the totals only.
+        {
+          key: 'false|',
+          taxRate: '0',
+          grossCents: 700,
+          source: 'session',
+          costMissing: true,
+          count: 1,
+        },
+      ]),
+    );
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/financial-stats',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    // Revenue keeps every session.
+    expect(body.totalRevenueCents).toBe(2000 + 400 + 1000 + 700);
+    expect(body.todayRevenueCents).toBe(1400);
+    // Profit counts only the sessions with a cost.
+    expect(body.totalProfitCents).toBe(2000 - 300);
+    expect(body.dayProfitCents).toBe(1000 - 100);
+    expect(body.totalCostMissingSessionCount).toBe(4);
+    expect(body.totalCostMissingRevenueCents).toBe(400 + 1000 + 700);
+    expect(body.dayCostMissingSessionCount).toBe(1);
+    expect(body.dayCostMissingRevenueCents).toBe(400);
+    expect(body.costMissingSites).toEqual([
+      { siteId: 'sit_b', siteName: 'Beta', sessionCount: 2, revenueCents: 1000 },
+      { siteId: 'sit_a', siteName: 'Alpha', sessionCount: 1, revenueCents: 400 },
+    ]);
+  });
+
+  it('GET /v1/dashboard/financial-stats reports no excluded sessions when every session has a cost', async () => {
+    setupDbResults([{ totalElectricityCostCents: 300, dayElectricityCostCents: 0 }]);
+    const { aggregateRevenueRows } = sessionRevenueModule;
+    mockQueryRevenue.mockResolvedValueOnce(
+      aggregateRevenueRows([
+        {
+          key: 'false|sit_a',
+          taxRate: '0',
+          grossCents: 1000,
+          source: 'session',
+          costMissing: false,
+          count: 2,
+        },
+      ]),
+    );
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/financial-stats',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const body = JSON.parse(response.body);
+    expect(body.totalProfitCents).toBe(2000 - 300);
+    expect(body.totalCostMissingSessionCount).toBe(0);
+    expect(body.totalCostMissingRevenueCents).toBe(0);
+    expect(body.costMissingSites).toEqual([]);
+  });
+
   it('GET /v1/dashboard/financial-stats returns zeroed financials when the user has no site access', async () => {
     getUserSiteIdsMock.mockResolvedValueOnce([]);
     const response = await app.inject({
@@ -398,6 +521,8 @@ describe('Dashboard routes', () => {
     expect(body.totalProfitCents).toBe(0);
     expect(body.dayProfitCents).toBe(0);
     expect(body.billedOnAccountCents).toBe(0);
+    expect(body.totalCostMissingSessionCount).toBe(0);
+    expect(body.costMissingSites).toEqual([]);
     expect(body.currency).toBe('EUR');
   });
 
@@ -470,21 +595,32 @@ describe('Dashboard routes', () => {
     expect(body.stationsBelowThreshold).toBe(0);
   });
 
-  it('GET /v1/dashboard/ocpp-health returns server health data', async () => {
-    setupDbResults(
-      [{ count: 10 }],
-      [
-        {
-          avgPingLatencyMs: 25,
-          maxPingLatencyMs: 100,
-          pingSuccessRate: 99,
-          totalPingsSent: 5000,
-          totalPongsReceived: 4950,
-          serverStartedAt: '2025-01-01T00:00:00Z',
-          updatedAt: '2025-01-15T12:00:00Z',
-        },
-      ],
-    );
+  it('GET /v1/dashboard/ocpp-health returns the fleet health and each process', async () => {
+    setupDbResults([{ count: 10 }]);
+    const instance = {
+      instanceId: 'ocpp-a',
+      connectedStations: 10,
+      avgPingLatencyMs: 25,
+      maxPingLatencyMs: 100,
+      pingSuccessRate: 99,
+      totalPingsSent: 5000,
+      totalPongsReceived: 4950,
+      serverStartedAt: new Date('2025-01-01T00:00:00Z'),
+      updatedAt: new Date('2025-01-15T12:00:00Z'),
+    };
+    mockGetOcppFleetHealth.mockResolvedValueOnce({
+      ...EMPTY_FLEET,
+      instanceCount: 1,
+      connectedStations: 10,
+      avgPingLatencyMs: 25,
+      maxPingLatencyMs: 100,
+      pingSuccessRate: 99,
+      totalPingsSent: 5000,
+      totalPongsReceived: 4950,
+      serverStartedAt: instance.serverStartedAt,
+      updatedAt: instance.updatedAt,
+      instances: [instance],
+    });
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/ocpp-health',
@@ -495,10 +631,47 @@ describe('Dashboard routes', () => {
     expect(body).toHaveProperty('connectedStations', 10);
     expect(body).toHaveProperty('avgPingLatencyMs', 25);
     expect(body).toHaveProperty('pingSuccessRate', 99);
+    expect(body).toHaveProperty('instanceCount', 1);
+    expect(body.instances).toEqual([
+      {
+        instanceId: 'ocpp-a',
+        connectedStations: 10,
+        avgPingLatencyMs: 25,
+        maxPingLatencyMs: 100,
+        pingSuccessRate: 99,
+        serverStartedAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-15T12:00:00.000Z',
+      },
+    ]);
   });
 
-  it('GET /v1/dashboard/ocpp-health returns defaults when no row', async () => {
-    setupDbResults([{ count: 0 }], []);
+  it('GET /v1/dashboard/ocpp-health gives a site-restricted user its connected count only', async () => {
+    getUserSiteIdsMock.mockResolvedValueOnce(['sit_a']);
+    setupDbResults([{ count: 3 }]);
+    mockGetOcppFleetHealth.mockClear();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/dashboard/ocpp-health',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(response.statusCode).toBe(200);
+    const body = JSON.parse(response.body);
+    expect(body).toMatchObject({
+      connectedStations: 3,
+      avgPingLatencyMs: 0,
+      maxPingLatencyMs: 0,
+      pingSuccessRate: 100,
+      totalPingsSent: 0,
+      serverStartedAt: null,
+      instanceCount: 0,
+    });
+    expect(body).not.toHaveProperty('instances');
+    expect(mockGetOcppFleetHealth).not.toHaveBeenCalled();
+  });
+
+  it('GET /v1/dashboard/ocpp-health returns defaults when no process reports', async () => {
+    setupDbResults([{ count: 0 }]);
+    mockGetOcppFleetHealth.mockResolvedValueOnce(EMPTY_FLEET);
     const response = await app.inject({
       method: 'GET',
       url: '/dashboard/ocpp-health',
@@ -511,6 +684,8 @@ describe('Dashboard routes', () => {
     expect(body.pingSuccessRate).toBe(100);
     expect(body.serverStartedAt).toBeNull();
     expect(body.updatedAt).toBeNull();
+    expect(body.instanceCount).toBe(0);
+    expect(body.instances).toEqual([]);
   });
 
   // --- Snapshot endpoints ---

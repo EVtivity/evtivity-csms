@@ -19,6 +19,7 @@ import { api, getApiErrorCode, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useUserTimezone } from '@/lib/timezone';
 import { midnightInTimezone, toDatetimeLocalInTimezone } from '@/lib/schedule-anchor';
+import { useHasAllSiteAccess } from '@/lib/auth';
 
 type OcppVersion = '2.1' | '1.6';
 
@@ -43,6 +44,7 @@ interface CreatedTemplate {
 
 export function SmartChargingTemplateCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const hasAllSiteAccess = useHasAllSiteAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const timezone = useUserTimezone();
@@ -88,6 +90,10 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!name.trim()) errors.name = t('validation.required');
+    // A template without a site targets every site.
+    if (!hasAllSiteAccess && filterSiteId === '') {
+      errors.filterSiteId = t('validation.selectRequired');
+    }
     if (profileKind === 'Recurring' && !startSchedule) {
       errors.startSchedule = t('validation.required');
     }
@@ -412,17 +418,23 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
                 <Select
                   id="sc-filter-site"
                   value={filterSiteId}
+                  className={hasSubmitted && errors.filterSiteId ? 'border-destructive' : ''}
                   onChange={(e) => {
                     setFilterSiteId(e.target.value);
                   }}
                 >
-                  <option value="">{t('configTemplates.allSites')}</option>
+                  <option value="">
+                    {hasAllSiteAccess ? t('configTemplates.allSites') : t('common.select')}
+                  </option>
                   {filterOptions?.sites.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
                     </option>
                   ))}
                 </Select>
+                {hasSubmitted && errors.filterSiteId && (
+                  <p className="text-sm text-destructive">{errors.filterSiteId}</p>
+                )}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="sc-filter-vendor" className="leading-6">

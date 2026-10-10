@@ -28,6 +28,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface Holiday {
@@ -46,6 +47,8 @@ export function PricingHolidays(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  // Holiday writes are company-wide: the API answers 404 to a site-restricted user.
+  const canWrite = useHasCompanyWidePermission('pricing:write');
 
   const [createOpen, setCreateOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
@@ -146,24 +149,26 @@ export function PricingHolidays(): React.JSX.Element {
           <h1 className="text-2xl md:text-3xl font-bold">{t('pricing.holidays')}</h1>
           <p className="text-sm text-muted-foreground">{t('pricing.holidaysSubtitle')}</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={() => {
-              setBulkOpen(true);
-            }}
-          >
-            {t('pricing.bulkAdd')}
-          </Button>
-          <Button
-            onClick={() => {
-              setCreateOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4" />
-            {t('pricing.addHoliday')}
-          </Button>
-        </div>
+        {canWrite && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setBulkOpen(true);
+              }}
+            >
+              {t('pricing.bulkAdd')}
+            </Button>
+            <Button
+              onClick={() => {
+                setCreateOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              {t('pricing.addHoliday')}
+            </Button>
+          </div>
+        )}
       </div>
 
       {isLoading && <LoadingLogo size="inline" />}
@@ -180,7 +185,7 @@ export function PricingHolidays(): React.JSX.Element {
                 <TableRow>
                   <TableHead>{t('pricing.holidayDate')}</TableHead>
                   <TableHead>{t('pricing.holidayName')}</TableHead>
-                  <TableHead className="w-16" />
+                  {canWrite && <TableHead className="w-16" />}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -188,18 +193,20 @@ export function PricingHolidays(): React.JSX.Element {
                   <TableRow key={holiday.id}>
                     <TableCell>{holiday.date}</TableCell>
                     <TableCell>{holiday.name}</TableCell>
-                    <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t('pricing.deleteHoliday')}
-                        onClick={() => {
-                          setDeleteTarget(holiday);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </TableCell>
+                    {canWrite && (
+                      <TableCell className="text-right">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t('pricing.deleteHoliday')}
+                          onClick={() => {
+                            setDeleteTarget(holiday);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>

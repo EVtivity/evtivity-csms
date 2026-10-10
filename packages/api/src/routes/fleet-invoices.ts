@@ -216,9 +216,12 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
       // Fail-open (P9): the invoice is issued; a failed email can be resent.
       let emailed = false;
       try {
-        const sent = await sendFleetInvoiceEmail(invoice.id, 'once', {
-          templatesDirs: ALL_TEMPLATES_DIRS,
-        });
+        const sent = await sendFleetInvoiceEmail(
+          invoice.id,
+          'once',
+          { templatesDirs: ALL_TEMPLATES_DIRS },
+          { actor: getAuditActor(request), log: request.log },
+        );
         emailed = sent.status === 'sent';
         if (sent.status === 'no_contacts') {
           request.log.warn({ fleetId: id, invoiceId: invoice.id }, 'Fleet has no billing contact');

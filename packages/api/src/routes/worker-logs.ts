@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, ilike, sql, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
@@ -11,6 +11,20 @@ import { paginatedResponse } from '../lib/response-schemas.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+import { isAllSiteUser } from '../lib/site-access.js';
+
+// The route stays hidden from site-restricted users: operator-wide logs need
+// access to every site, so they get the same 404 as a route that does not
+// exist. Returns false after the reply was sent.
+async function allowAllSiteUsersOnly(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<boolean> {
+  const { userId } = request.user as { userId: string };
+  if (await isAllSiteUser(userId)) return true;
+  reply.callNotFound();
+  return false;
+}
 
 const workerJobLogItem = z
   .object({
@@ -47,11 +61,12 @@ export function workerLogRoutes(app: FastifyInstance): void {
         response: { 200: paginatedResponse(workerJobLogItem) },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { page, limit, search, status, queue } = request.query as z.infer<
         typeof listWorkerLogsQuery
       >;
       const offset = (page - 1) * limit;
+      if (!(await allowAllSiteUsersOnly(request, reply))) return;
 
       const conditions = [];
 

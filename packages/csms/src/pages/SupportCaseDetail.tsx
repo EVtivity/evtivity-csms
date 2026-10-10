@@ -29,6 +29,7 @@ import {
 import { MessageThread } from '@/components/support/MessageThread';
 import { CaseInfoSidebar } from '@/components/support/CaseInfoSidebar';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
+import { parseMajorInputToCents } from '@evtivity/lib/currency';
 import { api } from '@/lib/api';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { formatCents, formatNumber } from '@/lib/formatting';
@@ -224,7 +225,9 @@ export function SupportCaseDetail(): React.JSX.Element {
   }
 
   if (caseDetail == null) {
-    return <p className="text-sm text-destructive">Case not found</p>;
+    // A 404 (missing case, or a case outside the operator's sites) leaves
+    // caseDetail undefined.
+    return <p className="text-sm text-destructive">{t('supportCases.notFound')}</p>;
   }
 
   function canRefundSession(sessionId: string): boolean {
@@ -236,8 +239,8 @@ export function SupportCaseDetail(): React.JSX.Element {
 
   function handleRefundConfirm(): boolean {
     if (refundSession == null) return false;
-    const cents = Math.round(parseFloat(refundAmount) * 100);
-    if (isNaN(cents) || cents <= 0) {
+    const cents = parseMajorInputToCents(refundAmount);
+    if (cents == null || cents <= 0) {
       setRefundError(t('supportCases.refundAmountRequired'));
       return false;
     }
@@ -259,10 +262,10 @@ export function SupportCaseDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/support-cases" />
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">{caseDetail.caseNumber}</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{caseDetail.caseNumber}</h1>
           <CopyableId id={caseDetail.id} />
         </div>
         <Badge>{t(`supportCases.statuses.${caseDetail.status}`, caseDetail.status)}</Badge>

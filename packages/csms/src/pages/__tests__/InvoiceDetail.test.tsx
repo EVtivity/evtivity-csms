@@ -29,7 +29,11 @@ vi.mock('@/lib/timezone', () => ({
   formatDateTime: (value: string) => value,
 }));
 vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: h.toast }) }));
-vi.mock('@/components/EntityHistoryTab', () => ({ EntityHistoryTab: () => null }));
+vi.mock('@/components/EntityHistoryTab', () => ({
+  EntityHistoryTab: ({ entityId }: { entityId: string }) => (
+    <div data-testid="entity-history">{entityId}</div>
+  ),
+}));
 vi.mock('@/components/entity-nav-buttons', () => ({ EntityNavButtons: () => null }));
 
 import { InvoiceDetail } from '../InvoiceDetail';
@@ -86,10 +90,16 @@ function renderPage(id = 'inv_1'): void {
   );
 }
 
+const PRINT_LOGO = 'data:image/png;base64,iVBORw0KGgo=';
+
 function mockInvoice(data: Record<string, unknown>): void {
-  h.get.mockImplementation((path: string) =>
-    path.startsWith('/v1/invoices/') ? Promise.resolve(data) : Promise.resolve({}),
-  );
+  h.get.mockImplementation((path: string) => {
+    if (path === '/v1/invoices/print-logo') return Promise.resolve({ logo: PRINT_LOGO });
+    if (path === '/v1/portal/branding') {
+      return Promise.resolve({ name: 'Acme Charging', logo: 'data:image/png;base64,COMPANY' });
+    }
+    return path.startsWith('/v1/invoices/') ? Promise.resolve(data) : Promise.resolve({});
+  });
 }
 
 beforeEach(() => {
@@ -102,6 +112,55 @@ afterEach(() => {
 });
 
 describe('InvoiceDetail', () => {
+  it('keeps the history section closed until the operator opens it', async () => {
+    h.permissions = new Set(['payments:read', 'audit:read']);
+    mockInvoice(detail());
+    renderPage();
+
+    const toggle = await screen.findByRole('button', { name: /audit\.history/ });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.getByText('invoices.historyDescription')).toBeDefined();
+    expect(screen.queryByTestId('entity-history')).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByTestId('entity-history').textContent).toBe('inv_1');
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('entity-history')).toBeNull();
+  });
+
+  it('hides the history section without audit:read', async () => {
+    mockInvoice(detail());
+    renderPage();
+
+    expect(await screen.findByText('invoices.markPaid')).toBeDefined();
+    expect(screen.queryByRole('button', { name: /audit\.history/ })).toBeNull();
+  });
+
+  it('gives the header actions 44 px touch targets that wrap on small screens', async () => {
+    mockInvoice(detail());
+    renderPage();
+
+    await screen.findByText('invoices.markPaid');
+    const actions = screen.getByTestId('invoice-actions');
+    expect(actions.className).toContain('flex-wrap');
+    for (const button of Array.from(actions.querySelectorAll('button'))) {
+      expect(button.className).toContain('h-11');
+      expect(button.className).toContain('sm:h-10');
+    }
+  });
+
+  it('repeats the totals under the line items table for small screens', async () => {
+    mockInvoice(detail());
+    renderPage();
+
+    const totals = await screen.findByTestId('invoice-totals-mobile');
+    expect(totals.className).toContain('sm:hidden');
+    expect(totals.textContent).toContain('invoices.subtotalNet');
+    expect(totals.textContent).toContain('invoices.total');
+  });
+
   it('offers mark paid and credit note on an issued invoice, and no void', async () => {
     mockInvoice(detail());
     renderPage();
@@ -330,5 +389,26 @@ describe('InvoiceDetail', () => {
     renderPage('inv_1?action=markPaid');
 
     expect(await screen.findByText('invoices.markPaidDescription')).toBeDefined();
+  });
+
+  it('shows the PDF logo only in the print layout, not the company logo', async () => {
+    mockInvoice(detail());
+    renderPage();
+
+    const logo = await screen.findByTestId('invoice-print-logo');
+    expect(logo.getAttribute('src')).toBe(PRINT_LOGO);
+    expect(logo.classList.contains('print-only')).toBe(true);
+    expect(logo.getAttribute('alt')).toBe('Acme Charging');
+    expect(h.get).toHaveBeenCalledWith('/v1/invoices/print-logo');
+    expect(document.querySelector('img[src="data:image/png;base64,COMPANY"]')).toBeNull();
+    expect(document.querySelectorAll('.invoice-print-area img')).toHaveLength(1);
+  });
+
+  it('shows no company name heading next to the logo or above the invoice', async () => {
+    mockInvoice(detail());
+    renderPage();
+
+    await screen.findByTestId('invoice-print-logo');
+    expect(screen.queryByText('Acme Charging')).toBeNull();
   });
 });

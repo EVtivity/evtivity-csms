@@ -4,7 +4,7 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, count, sql, inArray, or, isNull, desc } from 'drizzle-orm';
+import { eq, and, count, sql, inArray, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import {
   cssStations,
@@ -14,6 +14,7 @@ import {
   chargingStations,
   evses,
   connectors,
+  sites,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, paginatedResponse, errorWith } from '../lib/response-schemas.js';
@@ -55,6 +56,7 @@ import {
 import { OCPP21_CONFIG_DEFAULTS, OCPP16_CONFIG_DEFAULTS } from '../lib/css-config-defaults.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { siteInScope } from '../lib/site-scope.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { generateStationPassword, tryParseJson } from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -68,8 +70,10 @@ import {
 // charging_stations.siteId for the css_stations row and verifies the
 // operator can read it per the same rules as charging_stations:
 //   - full access (siteIds == null) wins
-//   - no paired charging_stations row OR paired with siteId=null is visible
-//     to everyone (matches stations.ts behavior for unsited rows)
+//   - no paired charging_stations row, or one with siteId=null, is visible
+//     to all-site users only (matches stations.ts behavior for unsited rows).
+//     So a site-restricted user cannot create a simulator for a new station
+//     id (it would create an unsited station) or take over an unsited one.
 //   - otherwise the paired siteId must be in the operator's allow-list
 // Returns 404 (not 403) on denial to avoid leaking existence.
 async function isCssStationAccessible(stationId: string, userId: string): Promise<boolean> {
@@ -80,9 +84,7 @@ async function isCssStationAccessible(stationId: string, userId: string): Promis
     .from(chargingStations)
     .where(eq(chargingStations.stationId, stationId))
     .limit(1);
-  if (cs == null) return true;
-  if (cs.siteId == null) return true;
-  return siteIds.includes(cs.siteId);
+  return siteInScope(siteIds, cs?.siteId);
 }
 
 // ---------------------------------------------------------------------------
@@ -210,6 +212,12 @@ const createStationBody = z.object({
   caCert: z.string().optional().describe('CA certificate PEM'),
   sourceType: z.enum(['api', 'chaos', 'cli']).optional().describe('Source type'),
   evses: z.array(createStationEvse).min(1).max(50).describe('EVSE configurations'),
+  siteId: z
+    .string()
+    .optional()
+    .describe(
+      'Site of the charging station created for a new station id. A site-restricted user must give one of its sites. Ignored when the charging station already exists (it keeps its site).',
+    ),
 });
 
 const updateStationBody = z.object({
@@ -1126,7 +1134,10 @@ export function cssRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(stationItem),
           400: errorWith('Invalid password', [ERROR_CODES.VALIDATION_ERROR]),
-          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          404: errorWith('Station or site not found', [
+            ERROR_CODES.STATION_NOT_FOUND,
+            ERROR_CODES.SITE_NOT_FOUND,
+          ]),
           409: errorWith('Duplicate station id', [ERROR_CODES.DUPLICATE_STATION_ID]),
           502: errorWith('The station did not accept the password', [
             ERROR_CODES.STATION_SECURITY_CHANGE_REJECTED,
@@ -1140,11 +1151,36 @@ export function cssRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof createStationBody>;
       const { userId } = request.user as JwtPayload;
 
-      // Reject if the caller is scoped to a site set that doesn't include the
-      // paired charging_stations row's site. Unsited / not-yet-existing
-      // charging_stations are fine -- those are visible to every operator.
-      if (!(await isCssStationAccessible(body.stationId, userId))) {
-        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      // An existing charging_stations row must be in the caller's sites: a
+      // site-restricted user cannot take over an unsited or foreign real
+      // station. A new station id creates a charging station in body.siteId,
+      // which must exist and be one of the caller's sites; without a site the
+      // new station is unsited, which only an all-site user may create.
+      const callerSiteIds = await getUserSiteIds(userId);
+      if (callerSiteIds != null || body.siteId != null) {
+        const [pairedStation] = await db
+          .select({ siteId: chargingStations.siteId })
+          .from(chargingStations)
+          .where(eq(chargingStations.stationId, body.stationId))
+          .limit(1);
+        if (pairedStation != null) {
+          if (!siteInScope(callerSiteIds, pairedStation.siteId)) {
+            return reply
+              .status(404)
+              .send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+          }
+        } else if (body.siteId != null) {
+          const [targetSite] = await db
+            .select({ id: sites.id })
+            .from(sites)
+            .where(eq(sites.id, body.siteId))
+            .limit(1);
+          if (targetSite == null || !siteInScope(callerSiteIds, targetSite.id)) {
+            return reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+          }
+        } else {
+          return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        }
       }
 
       // Check for duplicate stationId (read-only, safe outside the transaction).
@@ -1205,6 +1241,7 @@ export function cssRoutes(app: FastifyInstance): void {
         if (existingCs == null) {
           await tx.insert(chargingStations).values({
             stationId: body.stationId,
+            siteId: body.siteId ?? null,
             model: body.model ?? 'CSS-1000',
             serialNumber: body.serialNumber ?? `SN-${body.stationId}`,
             firmwareVersion: body.firmwareVersion ?? '1.0.0',
@@ -1305,16 +1342,10 @@ export function cssRoutes(app: FastifyInstance): void {
 
       // Filter css_stations by the paired charging_stations.siteId. LEFT JOIN
       // because some css_stations rows have no charging_stations pair (legacy
-      // seeded fixtures); those stay visible. Same rule for siteId=null --
-      // unsited stations are visible to everyone per site-access-control.md.
+      // seeded fixtures). Rows without a pair or with siteId=null are visible
+      // to all-site users only, per site-access-control.md.
       const accessCondition =
-        siteIds == null
-          ? undefined
-          : or(
-              isNull(chargingStations.id),
-              isNull(chargingStations.siteId),
-              inArray(chargingStations.siteId, siteIds),
-            );
+        siteIds == null ? undefined : inArray(chargingStations.siteId, siteIds);
 
       const [data, totalResult] = await Promise.all([
         db

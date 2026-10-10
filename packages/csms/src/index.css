@@ -358,7 +358,9 @@
     display: table-header-group;
   }
 
-  a[href]::after {
+  /* Only external links print their address: an app route means nothing on paper. */
+  a[href^='http://']::after,
+  a[href^='https://']::after {
     content: ' (' attr(href) ')';
     font-size: 0.8em;
     color: #666;
@@ -441,6 +443,21 @@
     width: 100%;
   }
   .print-hidden {
+    display: none !important;
+  }
+  /* Links in the invoice print as plain text: no address, no link color. */
+  .invoice-print-area a {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+  .invoice-print-area a::after {
+    content: none !important;
+  }
+}
+
+/* Print-only content (the invoice PDF logo): hidden on screen, shown when printed. */
+@media not print {
+  .print-only {
     display: none !important;
   }
 }

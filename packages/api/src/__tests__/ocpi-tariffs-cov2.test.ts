@@ -88,6 +88,7 @@ const { publishOcpiTariffPush } = vi.hoisted(() => ({
   publishOcpiTariffPush: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../lib/ocpi-tariff-push.js', () => ({ publishOcpiTariffPush }));
+vi.mock('../lib/site-access.js', () => ({ requireAllSiteAccess: vi.fn().mockResolvedValue(true) }));
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ eq: [a, b] })),

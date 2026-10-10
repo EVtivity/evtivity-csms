@@ -18,6 +18,7 @@ import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
 import {
   successResponse,
   paginatedResponse,
@@ -227,6 +228,12 @@ function isUniqueViolation(err: unknown): boolean {
   return pgErrorCode(err) === PG_UNIQUE_VIOLATION;
 }
 
+// OCPI tariff mappings publish company-wide pricing: site-restricted users get 404.
+const MAPPING_SCOPE_NOT_FOUND = {
+  error: 'Tariff mapping not found',
+  code: 'MAPPING_NOT_FOUND',
+} as const;
+
 export function ocpiTariffRoutes(app: FastifyInstance): void {
   // GET /ocpi/tariff-mappings - list tariff mappings
   app.get(
@@ -239,10 +246,14 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         operationId: 'listOcpiTariffMappings',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(tariffMappingQuery),
-        response: { 200: paginatedResponse(tariffMappingItem) },
+        response: {
+          200: paginatedResponse(tariffMappingItem),
+          404: errorWith('Tariff mapping not found', [ERROR_CODES.MAPPING_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, MAPPING_SCOPE_NOT_FOUND))) return;
       const { page, limit, partnerId } = request.query as z.infer<typeof tariffMappingQuery>;
       const offset = (page - 1) * limit;
 
@@ -284,6 +295,7 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, MAPPING_SCOPE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof tariffMappingParams>;
       const mapping = await loadMapping(id);
       if (mapping == null) {
@@ -312,7 +324,8 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(tariffMappingItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
-          404: errorWith('Tariff, pricing group, or partner not found', [
+          404: errorWith('Tariff mapping, tariff, pricing group, or partner not found', [
+            ERROR_CODES.MAPPING_NOT_FOUND,
             ERROR_CODES.TARIFF_NOT_FOUND,
             ERROR_CODES.PRICING_GROUP_NOT_FOUND,
             ERROR_CODES.PARTNER_NOT_FOUND,
@@ -321,6 +334,7 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, MAPPING_SCOPE_NOT_FOUND))) return;
       const body = parseZodRequest(createTariffMappingBody, request.body);
       const tariffId = body.tariffId ?? null;
       const pricingGroupId = body.pricingGroupId ?? null;
@@ -384,6 +398,7 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, MAPPING_SCOPE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof tariffMappingParams>;
       const body = parseZodRequest(updateTariffMappingBody, request.body);
 
@@ -479,6 +494,7 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, MAPPING_SCOPE_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof tariffMappingParams>;
 
       const [deleted] = await db

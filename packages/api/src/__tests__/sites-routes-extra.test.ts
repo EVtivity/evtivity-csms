@@ -83,7 +83,8 @@ vi.mock('@evtivity/services/station-derived-status', () => ({
   buildStatusReasonSubquery: vi.fn(() => null),
 }));
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
+  const rawTimestamp = await import('@evtivity/database/src/lib/raw-timestamp.js');
   const tx = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -91,6 +92,7 @@ vi.mock('@evtivity/database', () => {
     delete: vi.fn(() => makeChain()),
   };
   return {
+    ...rawTimestamp,
     getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
     db: {
       select: vi.fn(() => makeChain()),
@@ -180,10 +182,25 @@ vi.mock('@evtivity/services/session-revenue', async (importOriginal) => {
   };
 });
 
-vi.mock('../lib/site-access.js', () => ({
-  getUserSiteIds: vi.fn().mockResolvedValue(null),
-  invalidateSiteAccessCache: vi.fn(),
-}));
+vi.mock('../lib/site-access.js', () => {
+  const getUserSiteIds = vi.fn().mockResolvedValue(null);
+  return {
+    getUserSiteIds,
+    invalidateSiteAccessCache: vi.fn(),
+    // Mirrors the real guard on top of the mocked getUserSiteIds.
+    requireAllSiteAccess: vi.fn(
+      async (
+        _request: unknown,
+        reply: { status: (c: number) => { send: (b: unknown) => Promise<unknown> } },
+        notFound: unknown,
+      ) => {
+        if ((await getUserSiteIds()) == null) return true;
+        await reply.status(404).send(notFound);
+        return false;
+      },
+    ),
+  };
+});
 
 vi.mock('../lib/pricing-events.js', () => ({
   publishPricingChanged: vi.fn().mockResolvedValue(undefined),
@@ -601,8 +618,9 @@ describe('Site routes - extra coverage', () => {
   describe('GET /sites/:id/meter-values', () => {
     it('returns one per-minute summed series when a measurand is given', async () => {
       setupDbResults([
-        { timestamp: '2024-01-01T00:00:00.000Z', value: '22.5', unit: 'kW' },
-        { timestamp: '2024-01-01T00:01:00.000Z', value: '30', unit: 'kW' },
+        // A sql field returns postgres text on the shared client.
+        { timestamp: '2024-01-01 00:00:00+00', value: '22.5', unit: 'kW' },
+        { timestamp: '2024-01-01 00:01:00+00', value: '30', unit: 'kW' },
       ]);
       const res = await app.inject({
         method: 'GET',

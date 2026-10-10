@@ -62,6 +62,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
       driverId: reservations.driverId,
       stationDbId: reservations.stationId,
       stationOcppId: chargingStations.stationId,
+      siteId: chargingStations.siteId,
       isOnline: chargingStations.isOnline,
       evseDbId: reservations.evseId,
     })
@@ -89,8 +90,8 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
         'csms_events',
         JSON.stringify({
           eventType: 'reservation.changed',
-          stationId: reservation.stationOcppId,
-          siteId: null,
+          stationId: reservation.stationDbId,
+          siteId: reservation.siteId,
           sessionId: null,
         }),
       )

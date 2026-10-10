@@ -445,7 +445,8 @@ describe('importSitesCsv', () => {
     ]);
 
     expect(result.sitesCreated).toBe(0);
-    expect(result.errors[0]).toContain('insufficient site access to create new site');
+    // The same message as another site's name, so site names do not leak.
+    expect(result.errors).toEqual(['Row 1: no access to site "Blocked Site"']);
   });
 
   it('rejects mutating a site outside the restricted operator allow-list', async () => {
@@ -456,7 +457,76 @@ describe('importSitesCsv', () => {
     ]);
 
     expect(result.sitesUpdated).toBe(0);
-    expect(result.errors[0]).toContain('no access to site');
+    expect(result.errors).toEqual(['Row 1: no access to site "Other Site"']);
+  });
+
+  it.each([
+    ['update path', true],
+    ['no-update path', false],
+  ])(
+    'refuses a station of another site for a restricted operator (%s)',
+    async (_label, updateExisting) => {
+      const site = [{ id: 'sit_allowed', name: 'Mine' }];
+      const foreignStation = [{ id: 'station-b', siteId: 'sit_other' }];
+      // site lookup, the site update (update path only), the station lookup
+      if (updateExisting) setupDbResults(site, site, foreignStation);
+      else setupDbResults(site, foreignStation);
+
+      const result = await importSitesCsv(
+        [
+          { siteName: 'Mine', stationId: 'CS-B', evseId: 1, connectorId: 1 },
+          { siteName: 'Mine', stationId: 'CS-B', evseId: 2 },
+        ],
+        updateExisting,
+        undefined,
+        ['sit_allowed'],
+      );
+
+      expect(result.stationsCreated + result.stationsUpdated).toBe(0);
+      expect(result.evsesCreated + result.evsesUpdated).toBe(0);
+      expect(result.connectorsCreated + result.connectorsUpdated).toBe(0);
+      expect(result.errors).toContain('Row 1: station "CS-B" cannot be imported');
+      expect(result.errors).toContain('Row 2: station "CS-B" cannot be imported');
+      expect(mockSiteMove).not.toHaveBeenCalled();
+    },
+  );
+
+  it('refuses an unsited station for a restricted operator', async () => {
+    setupDbResults([{ id: 'sit_allowed', name: 'Mine' }], [{ id: 'station-u', siteId: null }]);
+
+    const result = await importSitesCsv(
+      [{ siteName: 'Mine', stationId: 'CS-U', evseId: 1 }],
+      false,
+      undefined,
+      ['sit_allowed'],
+    );
+
+    expect(result.evsesCreated).toBe(0);
+    expect(result.errors).toEqual([
+      'Site "Mine" already exists, skipped',
+      'Row 1: station "CS-U" cannot be imported',
+    ]);
+  });
+
+  it('lets a restricted operator update its own station', async () => {
+    const created = new Date('2026-01-01T00:00:00Z');
+    const updated = new Date('2026-02-01T00:00:00Z');
+    setupDbResults(
+      [{ id: 'sit_allowed', name: 'Mine' }], // site lookup
+      [{ id: 'sit_allowed', name: 'Mine' }], // site update
+      [{ id: 'station-a', siteId: 'sit_allowed' }], // station in the allowed site
+      [{ id: 'station-a', createdAt: created, updatedAt: updated }], // upsert
+    );
+
+    const result = await importSitesCsv(
+      [{ siteName: 'Mine', stationId: 'CS-A' }],
+      true,
+      undefined,
+      ['sit_allowed'],
+    );
+
+    expect(result.stationsUpdated).toBe(1);
+    expect(result.errors).toEqual([]);
   });
 
   it('resolves a vendor by case-insensitive name and reuses the cache across stations', async () => {

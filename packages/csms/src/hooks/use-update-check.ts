@@ -70,12 +70,11 @@ export function useUpdateCheck(): void {
           variant: 'info',
           title: t('updateCheck.title'),
           description: t('updateCheck.description', { version: normalizedLatest }),
-          persistent: true,
           action: {
             label: t('updateCheck.viewRelease'),
             href: releaseUrl,
           },
-          onDismiss: () => {
+          onClose: () => {
             localStorage.setItem(
               DISMISS_KEY,
               JSON.stringify({ version: latest, at: Date.now() } satisfies DismissalRecord),

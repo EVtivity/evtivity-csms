@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { eq } from 'drizzle-orm';
+import { chargingStations, db } from '@evtivity/database';
 import { createLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { publishOcpiTariffPush } from './ocpi-tariff-push.js';
@@ -75,6 +77,16 @@ export async function publishPricingChanged(args: {
   fleetId?: string | null;
 }): Promise<void> {
   try {
+    // A station assignment carries the station's site, so the operator SSE
+    // stream delivers it to operators of that site only.
+    let siteId = args.siteId ?? null;
+    if (siteId == null && args.stationId != null) {
+      const [station] = await db
+        .select({ siteId: chargingStations.siteId })
+        .from(chargingStations)
+        .where(eq(chargingStations.id, args.stationId));
+      siteId = station?.siteId ?? null;
+    }
     const pubsub = getPubSub();
     await pubsub.publish(
       'csms_events',
@@ -83,7 +95,7 @@ export async function publishPricingChanged(args: {
         pricingGroupId: args.pricingGroupId,
         tariffId: args.tariffId ?? null,
         action: args.action,
-        siteId: args.siteId ?? null,
+        siteId,
         stationId: args.stationId ?? null,
         driverId: args.driverId ?? null,
         fleetId: args.fleetId ?? null,

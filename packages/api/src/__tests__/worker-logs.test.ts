@@ -93,7 +93,11 @@ vi.mock('drizzle-orm', () => {
   };
 });
 
+const siteAccess = vi.hoisted(() => ({ isAllSiteUser: vi.fn() }));
+vi.mock('../lib/site-access.js', () => ({ isAllSiteUser: siteAccess.isAllSiteUser }));
+
 import { registerAuth } from '../plugins/auth.js';
+import { db } from '@evtivity/database';
 import { workerLogRoutes } from '../routes/worker-logs.js';
 
 async function buildApp(): Promise<FastifyInstance> {
@@ -120,6 +124,7 @@ describe('Worker log routes', () => {
   beforeEach(() => {
     setupDbResults();
     vi.clearAllMocks();
+    siteAccess.isAllSiteUser.mockResolvedValue(true);
   });
 
   describe('GET /worker-logs', () => {
@@ -208,6 +213,19 @@ describe('Worker log routes', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(body.total).toBe(0);
+    });
+
+    it('answers a site-restricted user with the route-not-found 404 without querying', async () => {
+      siteAccess.isAllSiteUser.mockResolvedValue(false);
+      setupDbResults([{ id: 1 }], [{ count: 1 }]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/worker-logs',
+        headers: { authorization: `Bearer ${operatorToken}` },
+      });
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBeUndefined();
+      expect(db.select).not.toHaveBeenCalled();
     });
   });
 });

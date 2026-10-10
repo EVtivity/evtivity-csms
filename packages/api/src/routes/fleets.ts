@@ -21,6 +21,15 @@ import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+import {
+  checkStationSiteAccess,
+  getUserSiteIds,
+  requireAllSiteAccess,
+} from '../lib/site-access.js';
+import {
+  refuseSiteRestrictedFleetBilling,
+  refuseSiteRestrictedFleetMembership,
+} from '../lib/fleet-billing-access.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import {
@@ -32,6 +41,13 @@ import {
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { INVOICE_LANGUAGES } from '@evtivity/services/invoice-labels';
+
+// Company-wide configuration: a site-restricted user gets this 404 before any
+// read or write (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_PRICING_GROUP_NOT_FOUND = {
+  error: 'Pricing group not found',
+  code: 'PRICING_GROUP_NOT_FOUND',
+} as const;
 
 const MAX_BILLING_CONTACTS = 10;
 
@@ -65,6 +81,10 @@ const billingProfileFields = {
     .boolean()
     .describe('The monthly run invoices the fleet and emails the invoice to the billing contacts'),
 };
+const optionalBillingProfileFields = Object.fromEntries(
+  Object.entries(billingProfileFields).map(([key, schema]) => [key, schema.optional()]),
+) as { [K in keyof typeof billingProfileFields]: z.ZodOptional<(typeof billingProfileFields)[K]> };
+
 const fleetListItem = z
   .object({
     id: z.string().describe('Fleet identifier'),
@@ -78,7 +98,13 @@ const fleetListItem = z
     createdAt: z.coerce.date().describe('Timestamp when the fleet was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the fleet was last updated'),
     driverCount: z.number().int().min(0).describe('Number of drivers in this fleet'),
-    stationCount: z.number().int().min(0).describe('Number of stations assigned to this fleet'),
+    stationCount: z
+      .number()
+      .int()
+      .min(0)
+      .describe(
+        "Number of stations assigned to this fleet; for a site-restricted user only the stations of the user's sites",
+      ),
   })
   .passthrough();
 
@@ -92,7 +118,8 @@ const fleetItem = z
       .describe(
         "Charge on account: the members' sessions are billed to the fleet on its invoice (no card, no hold). Members who opted out pay by card.",
       ),
-    ...billingProfileFields,
+    // Omitted for a site-restricted user (with the credit limit fields).
+    ...optionalBillingProfileFields,
     creditLimitCents: z
       .number()
       .int()
@@ -106,6 +133,12 @@ const fleetItem = z
       .int()
       .optional()
       .describe('Percent of the credit limit at which the fleet is warned (1 to 99)'),
+    hasPricingGroup: z
+      .boolean()
+      .optional()
+      .describe(
+        'The fleet has a pricing group (GET /fleets/:id only). A user restricted to some sites may change the members only of a fleet with no pricing group and no account billing.',
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the fleet was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the fleet was last updated'),
   })
@@ -470,6 +503,20 @@ const energyHistoryQuery = z.object({
     .describe('Number of days of energy history'),
 });
 
+// Fields of GET /fleets/:id a site-restricted user does not see: the billing
+// profile and the credit limit (account billing spans every site).
+const FLEET_BILLING_FIELDS = new Set<string>([
+  ...Object.keys(billingProfileFields),
+  'creditLimitCents',
+  'creditLimitWarningPercent',
+]);
+
+function omitFleetBillingFields<T extends Record<string, unknown>>(fleet: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(fleet).filter(([key]) => !FLEET_BILLING_FIELDS.has(key)),
+  ) as Partial<T>;
+}
+
 export function fleetRoutes(app: FastifyInstance): void {
   app.get(
     '/fleets',
@@ -486,7 +533,8 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const params = request.query as z.infer<typeof paginationQuery>;
-      return fleetService.listFleets(params);
+      const { userId } = request.user as { userId: string };
+      return fleetService.listFleets(params, await getUserSiteIds(userId));
     },
   );
 
@@ -497,6 +545,8 @@ export function fleetRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'Get a fleet by ID',
+        description:
+          'A user restricted to some sites does not get the billing profile and credit limit fields: account billing spans every site.',
         operationId: 'getFleet',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -513,7 +563,16 @@ export function fleetRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
         return;
       }
-      return fleet;
+      const withPricing = {
+        ...fleet,
+        hasPricingGroup: await fleetService.fleetHasPricingGroup(id),
+      };
+      // Account billing spans every site: a site-restricted user does not
+      // see the billing profile or the credit limit (the billing routes
+      // answer it 404), only that the fleet bills on account.
+      const { userId } = request.user as { userId: string };
+      if ((await getUserSiteIds(userId)) != null) return omitFleetBillingFields(withPricing);
+      return withPricing;
     },
   );
 
@@ -598,6 +657,8 @@ export function fleetRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      const { userId } = request.user as { userId: string };
+      if ((await getUserSiteIds(userId)) != null) return omitFleetBillingFields(fleet);
       return fleet;
     },
   );
@@ -611,7 +672,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         summary: 'Delete a fleet',
         operationId: 'deleteFleet',
         description:
-          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead.',
+          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead. A user restricted to some sites gets 404 FLEET_NOT_FOUND: the fleet spans every site.',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         response: {
@@ -622,6 +683,9 @@ export function fleetRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      // Deleting a fleet removes its memberships and station links at every
+      // site, so it needs access to every site.
+      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       const { id } = request.params as z.infer<typeof fleetParams>;
       let fleet;
       try {
@@ -664,7 +728,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Turn charge on account on or off for a fleet',
         description:
-          "On: the members' new sessions are billed to the fleet on its invoice, with no card and no hold (members who opted out pay by card). Off: new sessions are paid by card; running sessions keep how they started and unbilled sessions are still billed to the fleet. Turning it on answers 409 FLEET_BILLING_OLD_PODS_CONNECTED (details: oldConnections, hosts, lastOldSeenAt, watchCheckedAt) while processes before v0.1.41 may run. A change is audited (billing_updated) and the worker sends fleet.AccountBillingChanged to each member whose billing it moved (a background job); a request that changes nothing does neither.",
+          "On: the members' new sessions are billed to the fleet on its invoice, with no card and no hold (members who opted out pay by card). Off: new sessions are paid by card; running sessions keep how they started and unbilled sessions are still billed to the fleet. Turning it on answers 409 FLEET_BILLING_OLD_PODS_CONNECTED (details: oldConnections, hosts, lastOldSeenAt, watchCheckedAt) while processes before v0.1.41 may run. A change is audited (billing_updated) and the worker sends fleet.AccountBillingChanged to each member whose billing it moved (a background job); a request that changes nothing does neither. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.",
         operationId: 'updateFleetBilling',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -681,6 +745,8 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const { accountBillingEnabled } = request.body as z.infer<typeof fleetBillingBody>;
+      // Account billing spans every site the members charge at (fleet-billing-access.ts).
+      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       let fleet;
       try {
         fleet = await fleetService.setFleetAccountBilling(id, accountBillingEnabled, {
@@ -714,7 +780,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Update the fleet billing profile',
         description:
-          'Sets who the fleet invoice goes to and how: billing contacts, the bill-to block (legal name, address, VAT or tax ID), the invoice language, the payment terms (overrides the invoice.paymentTermsDays setting) and automatic monthly invoicing. Fields left out keep their value; null or a blank string clears a text field. Turning on automatic invoicing, or removing the last contact while it is on, answers 400 FLEET_BILLING_CONTACT_REQUIRED. A change is audited (billing_updated with the changed fields); a request that changes nothing is not.',
+          'Sets who the fleet invoice goes to and how: billing contacts, the bill-to block (legal name, address, VAT or tax ID), the invoice language, the payment terms (overrides the invoice.paymentTermsDays setting) and automatic monthly invoicing. Fields left out keep their value; null or a blank string clears a text field. Turning on automatic invoicing, or removing the last contact while it is on, answers 400 FLEET_BILLING_CONTACT_REQUIRED. A change is audited (billing_updated with the changed fields); a request that changes nothing is not. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.',
         operationId: 'updateFleetBillingProfile',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -731,6 +797,7 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof fleetBillingProfileBody>;
+      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       let fleet;
       try {
         fleet = await fleetService.updateFleetBillingProfile(id, body, {
@@ -764,7 +831,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: "Get a fleet's credit limit and exposure",
         description:
-          'The credit limit of the account billing and the exposure it is checked against: ended account sessions on no invoice, account sessions on an issued unpaid invoice, and the running cost of active account sessions, in the company currency. Sessions with a payment record are paid by card and do not count.',
+          'The credit limit of the account billing and the exposure it is checked against: ended account sessions on no invoice, account sessions on an issued unpaid invoice, and the running cost of active account sessions, in the company currency. Sessions with a payment record are paid by card and do not count. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.',
         operationId: 'getFleetCreditLimit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -776,6 +843,7 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
+      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       const view = await fleetService.getFleetCreditLimit(id);
       if (view == null) {
         await reply.status(404).send({ error: 'Fleet not found', code: 'FLEET_NOT_FOUND' });
@@ -793,7 +861,7 @@ export function fleetRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: "Set a fleet's credit limit",
         description:
-          "Sets the credit limit of the fleet's account billing (null removes it) and the warning percent. A driver start billed to the fleet is refused while the exposure is at or above the limit: the portal answers 402 FLEET_CREDIT_LIMIT_REACHED, and the payment gate stops an RFID start (stopped reason AccountCreditLimit). The fleet is warned once per month at the warning percent (fleet.CreditLimitWarning) and once per month at the limit (fleet.CreditLimitReached). Checked at the start only. A change is audited (billing_updated).",
+          "Sets the credit limit of the fleet's account billing (null removes it) and the warning percent. A driver start billed to the fleet is refused while the exposure is at or above the limit: the portal answers 402 FLEET_CREDIT_LIMIT_REACHED, and the payment gate stops an RFID start (stopped reason AccountCreditLimit). The fleet is warned once per month at the warning percent (fleet.CreditLimitWarning) and once per month at the limit (fleet.CreditLimitReached). Checked at the start only. A change is audited (billing_updated). A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.",
         operationId: 'updateFleetCreditLimit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -807,6 +875,7 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof fleetCreditLimitBody>;
+      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       const view = await fleetService.setFleetCreditLimit(
         id,
         { creditLimitCents: body.creditLimitCents, warningPercent: body.warningPercent },
@@ -850,6 +919,8 @@ export function fleetRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'Add a driver to a fleet',
+        description:
+          'A user restricted to some sites may add members only to a fleet with no pricing group and no account billing; otherwise it gets 404 FLEET_NOT_FOUND.',
         operationId: 'addFleetDriver',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -867,6 +938,7 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof addDriverBody>;
+      if (await refuseSiteRestrictedFleetMembership(request, reply, id)) return;
       // Pre-check fleet existence so an FK race on the INSERT below can
       // be safely attributed to the driver (the only remaining unknown FK).
       const fleet = await fleetService.getFleet(id);
@@ -932,18 +1004,23 @@ export function fleetRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: "Set a member's opt-out of charge on account",
         description:
-          'An opted-out member pays by card although the fleet bills on account. A change is audited (member_billing_opt_out_changed) and the driver gets fleet.AccountBillingChanged when it moved their billing; a request that changes nothing does neither. Running sessions keep how they started.',
+          'An opted-out member pays by card although the fleet bills on account. A change is audited (member_billing_opt_out_changed) and the driver gets fleet.AccountBillingChanged when it moved their billing; a request that changes nothing does neither. Running sessions keep how they started. A user restricted to some sites gets 404 FLEET_NOT_FOUND: the opt-out applies at every site.',
         operationId: 'updateFleetDriverBilling',
         security: [{ bearerAuth: [] }],
         params: zodSchema(driverParams),
         body: zodSchema(memberBillingBody),
         response: {
           200: itemResponse(fleetDriverRecordItem),
-          404: errorWith('Driver not found in fleet', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          404: errorWith('Fleet or driver not found', [
+            ERROR_CODES.FLEET_NOT_FOUND,
+            ERROR_CODES.DRIVER_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      // The opt-out decides how the member pays at every site.
+      if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
       const { id, driverId } = request.params as z.infer<typeof driverParams>;
       const { accountBillingOptOut } = request.body as z.infer<typeof memberBillingBody>;
       const record = await fleetService.setMemberBillingOptOut(id, driverId, accountBillingOptOut, {
@@ -967,17 +1044,23 @@ export function fleetRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'Remove a driver from a fleet',
+        description:
+          'A user restricted to some sites may remove members only from a fleet with no pricing group and no account billing; otherwise it gets 404 FLEET_NOT_FOUND.',
         operationId: 'removeFleetDriver',
         security: [{ bearerAuth: [] }],
         params: zodSchema(driverParams),
         response: {
           200: itemResponse(fleetDriverRecordItem),
-          404: errorWith('Driver not found in fleet', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          404: errorWith('Fleet or driver not found', [
+            ERROR_CODES.FLEET_NOT_FOUND,
+            ERROR_CODES.DRIVER_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
       const { id, driverId } = request.params as z.infer<typeof driverParams>;
+      if (await refuseSiteRestrictedFleetMembership(request, reply, id)) return;
       const record = await fleetService.removeDriverFromFleet(id, driverId);
       if (record == null) {
         await reply
@@ -1012,6 +1095,8 @@ export function fleetRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'List stations in a fleet',
+        description:
+          'The stations of the fleet. A user restricted to some sites sees only the stations at those sites.',
         operationId: 'listFleetStations',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -1020,7 +1105,8 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      return fleetService.getFleetStations(id);
+      const { userId } = request.user as { userId: string };
+      return fleetService.getFleetStations(id, await getUserSiteIds(userId));
     },
   );
 
@@ -1057,11 +1143,13 @@ export function fleetRoutes(app: FastifyInstance): void {
       }
       // Pre-check station existence (FK violations bypass ON CONFLICT and
       // would otherwise leak as a 500).
+      // A station outside the user's sites answers like a missing one (P11).
+      const { userId } = request.user as { userId: string };
       const [station] = await db
         .select({ id: chargingStations.id })
         .from(chargingStations)
         .where(eq(chargingStations.id, body.stationId));
-      if (station == null) {
+      if (station == null || !(await checkStationSiteAccess(body.stationId, userId))) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
@@ -1120,6 +1208,13 @@ export function fleetRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id, stationId } = request.params as z.infer<typeof stationParams>;
+      const { userId } = request.user as { userId: string };
+      if (!(await checkStationSiteAccess(stationId, userId))) {
+        await reply
+          .status(404)
+          .send({ error: 'Station not found in fleet', code: 'STATION_NOT_FOUND' });
+        return;
+      }
       const record = await fleetService.removeStationFromFleet(id, stationId);
       if (record == null) {
         await reply
@@ -1202,6 +1297,8 @@ export function fleetRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'List charging sessions for a fleet',
+        description:
+          "The charging sessions of the fleet's drivers. A user restricted to some sites sees only the sessions at those sites.",
         operationId: 'listFleetSessions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -1212,7 +1309,8 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const { page, limit } = request.query as z.infer<typeof sessionsQuery>;
-      return fleetService.getFleetSessions(id, page, limit);
+      const { userId } = request.user as { userId: string };
+      return fleetService.getFleetSessions(id, page, limit, await getUserSiteIds(userId));
     },
   );
 
@@ -1225,6 +1323,8 @@ export function fleetRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'Get fleet metrics',
+        description:
+          'Session, energy and driver metrics of the fleet. For a user restricted to some sites the session figures count only the sessions at those sites.',
         operationId: 'getFleetMetrics',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -1235,7 +1335,8 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const { months } = request.query as z.infer<typeof metricsQuery>;
-      return fleetService.getFleetMetrics(id, months);
+      const { userId } = request.user as { userId: string };
+      return fleetService.getFleetMetrics(id, months, await getUserSiteIds(userId));
     },
   );
 
@@ -1248,6 +1349,8 @@ export function fleetRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleets'],
         summary: 'Get fleet energy delivery history',
+        description:
+          "Energy delivered per day to the fleet's drivers. For a user restricted to some sites only the sessions at those sites count.",
         operationId: 'getFleetEnergyHistory',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
@@ -1258,7 +1361,8 @@ export function fleetRoutes(app: FastifyInstance): void {
     async (request) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
       const { days } = request.query as z.infer<typeof energyHistoryQuery>;
-      return fleetService.getFleetEnergyHistory(id, days);
+      const { userId } = request.user as { userId: string };
+      return fleetService.getFleetEnergyHistory(id, days, await getUserSiteIds(userId));
     },
   );
 
@@ -1304,6 +1408,7 @@ export function fleetRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PRICING_GROUP_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof fleetParams>;
       const body = request.body as z.infer<typeof addPricingGroupBody>;
       // Pre-check fleet existence so the FK race on the INSERT below can
@@ -1393,12 +1498,14 @@ export function fleetRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(fleetPricingGroupRecordItem),
           404: errorWith('Pricing assignment not found', [
+            ERROR_CODES.PRICING_GROUP_NOT_FOUND,
             ERROR_CODES.PRICING_ASSIGNMENT_NOT_FOUND,
           ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PRICING_GROUP_NOT_FOUND))) return;
       const { id, pricingGroupId } = request.params as z.infer<typeof pricingGroupParams>;
       const record = await fleetService.removePricingGroupFromFleet(id, pricingGroupId);
       if (record == null) {

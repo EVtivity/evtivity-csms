@@ -1,11 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { tryParseJson } from '@evtivity/lib';
-import { isMissingFileError } from '../lib/fs-errors.js';
+import {
+  ocppRequestSchemaPath,
+  schemaToCommandDef,
+  type CommandDef,
+  type OcppRequestSchema,
+} from '@evtivity/lib/ocpp-command-schema';
 import type { FastifyInstance } from 'fastify';
 import {
   ActionRegistry,
@@ -15,273 +17,11 @@ import {
 } from '@evtivity/ocpp';
 import { errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { readOcppSchemaFile } from '../lib/ocpp-schema-files.js';
 import { authorize } from '../middleware/rbac.js';
 
-const currentDir = fileURLToPath(new URL('.', import.meta.url));
-const SCHEMAS_DIR = join(currentDir, '..', '..', '..', '..', 'schemas', 'ocpp-2.1');
-const SCHEMAS_DIR_16 = join(currentDir, '..', '..', '..', '..', 'schemas', 'ocpp-1.6');
-
-// ---------------------------------------------------------------------------
-// JSON Schema -> CommandDef processing
-// ---------------------------------------------------------------------------
-
-interface SchemaProperty {
-  $ref?: string;
-  type?: string;
-  format?: string;
-  description?: string;
-  enum?: string[];
-  minimum?: number;
-  maximum?: number;
-  maxLength?: number;
-  items?: { $ref?: string; type?: string };
-  properties?: Record<string, SchemaProperty>;
-  required?: string[];
-}
-
-interface SchemaDefinition {
-  type?: string;
-  enum?: string[];
-  description?: string;
-  maxLength?: number;
-  properties?: Record<string, SchemaProperty>;
-  required?: string[];
-}
-
-interface RawSchema {
-  properties?: Record<string, SchemaProperty>;
-  required?: string[];
-  definitions?: Record<string, SchemaDefinition>;
-}
-
-interface CommandFieldDef {
-  name: string;
-  type: 'string' | 'integer' | 'number' | 'boolean' | 'enum' | 'object' | 'array' | 'datetime';
-  required: boolean;
-  values?: string[];
-  default?: unknown;
-  description: string;
-  minimum?: number;
-  maximum?: number;
-  maxLength?: number;
-  fields?: CommandFieldDef[] | undefined;
-}
-
-interface CommandDef {
-  action: string;
-  version: string;
-  fields: CommandFieldDef[];
-  example: Record<string, unknown>;
-}
-
-const schemaCache = new Map<string, RawSchema>();
-
-async function loadSchema(filePath: string): Promise<RawSchema | null> {
-  const cached = schemaCache.get(filePath);
-  if (cached != null) return cached;
-  let content: string;
-  try {
-    content = await readFile(filePath, 'utf-8');
-  } catch (err) {
-    if (isMissingFileError(err)) return null;
-    throw new Error(`Reading the OCPP schema ${filePath} failed`, { cause: err });
-  }
-  const parsed = tryParseJson(content) as RawSchema | undefined;
-  if (parsed == null) throw new Error(`The OCPP schema ${filePath} is not valid JSON`);
-  schemaCache.set(filePath, parsed);
-  return parsed;
-}
-
-function resolveRef(ref: string): string {
-  return ref.replace('#/definitions/', '');
-}
-
-function resolvePropertyField(
-  name: string,
-  prop: SchemaProperty,
-  required: boolean,
-  definitions: Record<string, SchemaDefinition>,
-): CommandFieldDef | null {
-  if (name === 'customData') return null;
-
-  if (prop.$ref != null) {
-    const defName = resolveRef(prop.$ref);
-    const def = definitions[defName];
-    if (def == null) return { name, type: 'string', required, description: '' };
-
-    if (def.enum != null) {
-      return {
-        name,
-        type: 'enum',
-        required,
-        values: def.enum,
-        default: def.enum[0],
-        description: cleanDescription(def.description),
-      };
-    }
-
-    if (def.type === 'object' && def.properties != null) {
-      const subFields = resolveProperties(def.properties, def.required ?? [], definitions);
-      return {
-        name,
-        type: 'object',
-        required,
-        description: cleanDescription(def.description),
-        fields: subFields,
-      };
-    }
-
-    return {
-      name,
-      type: 'string',
-      required,
-      description: cleanDescription(def.description),
-      ...(def.maxLength != null && { maxLength: def.maxLength }),
-    };
-  }
-
-  if (prop.type === 'array' && prop.items != null) {
-    let subFields: CommandFieldDef[] | undefined;
-    if (prop.items.$ref != null) {
-      const defName = resolveRef(prop.items.$ref);
-      const def = definitions[defName];
-      if (def?.type === 'object' && def.properties != null) {
-        subFields = resolveProperties(def.properties, def.required ?? [], definitions);
-      }
-    }
-    return {
-      name,
-      type: 'array',
-      required,
-      description: cleanDescription(prop.description),
-      fields: subFields,
-    };
-  }
-
-  if (prop.type === 'string' && prop.enum != null) {
-    return {
-      name,
-      type: 'enum',
-      required,
-      values: prop.enum,
-      default: prop.enum[0],
-      description: cleanDescription(prop.description),
-    };
-  }
-
-  if (prop.type === 'string' && prop.format === 'date-time') {
-    return { name, type: 'datetime', required, description: cleanDescription(prop.description) };
-  }
-
-  if (prop.type === 'integer') {
-    return {
-      name,
-      type: 'integer',
-      required,
-      description: cleanDescription(prop.description),
-      ...(prop.minimum != null && { minimum: prop.minimum }),
-      ...(prop.maximum != null && { maximum: prop.maximum }),
-    };
-  }
-
-  if (prop.type === 'number') {
-    return {
-      name,
-      type: 'number',
-      required,
-      description: cleanDescription(prop.description),
-      ...(prop.minimum != null && { minimum: prop.minimum }),
-      ...(prop.maximum != null && { maximum: prop.maximum }),
-    };
-  }
-
-  if (prop.type === 'boolean') {
-    return { name, type: 'boolean', required, description: cleanDescription(prop.description) };
-  }
-
-  return {
-    name,
-    type: 'string',
-    required,
-    description: cleanDescription(prop.description),
-    ...(prop.maxLength != null && { maxLength: prop.maxLength }),
-  };
-}
-
-function resolveProperties(
-  properties: Record<string, SchemaProperty>,
-  required: string[],
-  definitions: Record<string, SchemaDefinition>,
-): CommandFieldDef[] {
-  const fields: CommandFieldDef[] = [];
-  for (const [name, prop] of Object.entries(properties)) {
-    const field = resolvePropertyField(name, prop, required.includes(name), definitions);
-    if (field != null) fields.push(field);
-  }
-  return fields;
-}
-
-function cleanDescription(desc: string | undefined): string {
-  if (desc == null) return '';
-  return desc.replace(/\r\n/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function buildDefaultValue(field: CommandFieldDef): unknown {
-  switch (field.type) {
-    case 'enum':
-      return field.values?.[0] ?? '';
-    case 'integer':
-      return 0;
-    case 'number':
-      return 0;
-    case 'boolean':
-      return false;
-    case 'datetime':
-      return new Date().toISOString();
-    case 'string':
-      return '';
-    case 'array':
-      return [];
-    case 'object': {
-      if (field.fields == null || field.fields.length === 0) return {};
-      const obj: Record<string, unknown> = {};
-      for (const sub of field.fields) {
-        if (sub.required) {
-          obj[sub.name] = buildDefaultValue(sub);
-        }
-      }
-      return obj;
-    }
-    default:
-      return '';
-  }
-}
-
-function buildExample(fields: CommandFieldDef[]): Record<string, unknown> {
-  const example: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (field.required) {
-      example[field.name] = buildDefaultValue(field);
-    }
-  }
-  return example;
-}
-
-function schemaToCommandDef(action: string, version: string, schema: RawSchema): CommandDef {
-  const fields = resolveProperties(
-    schema.properties ?? {},
-    schema.required ?? [],
-    schema.definitions ?? {},
-  );
-  return {
-    action,
-    version,
-    fields,
-    example: buildExample(fields),
-  };
-}
-
-// Cache processed CommandDefs
+// Processed CommandDefs per `version:action`. The schema files never change at
+// runtime, so the example's datetime fields carry the first request's time.
 const commandDefCache = new Map<string, CommandDef>();
 
 // ---------------------------------------------------------------------------
@@ -323,16 +63,10 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
         });
       }
 
-      const filePath = is16
-        ? join(SCHEMAS_DIR_16, `${action}.json`)
-        : join(SCHEMAS_DIR, `${action}Request.json`);
-      let content: string;
-      try {
-        content = await readFile(filePath, 'utf-8');
-      } catch (err) {
-        if (!isMissingFileError(err)) {
-          throw new Error(`Reading the OCPP schema ${filePath} failed`, { cause: err });
-        }
+      const content = await readOcppSchemaFile(
+        ocppRequestSchemaPath(is16 ? 'ocpp1.6' : 'ocpp2.1', action),
+      );
+      if (content == null) {
         return reply.status(404).send({
           error: 'Schema not found',
           code: 'SCHEMA_NOT_FOUND',
@@ -376,16 +110,16 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
       return reply.send(cached);
     }
 
-    const filePath = is16
-      ? join(SCHEMAS_DIR_16, `${action}.json`)
-      : join(SCHEMAS_DIR, `${action}Request.json`);
-    const schema = await loadSchema(filePath);
-    if (schema == null) {
+    const content = await readOcppSchemaFile(ocppRequestSchemaPath(version, action));
+    if (content == null) {
       return reply.status(404).send({
         error: 'Schema not found',
         code: 'SCHEMA_NOT_FOUND',
       });
     }
+    const schema = tryParseJson(content) as OcppRequestSchema | undefined;
+    if (schema == null)
+      throw new Error(`The OCPP schema for ${version} ${action} is not valid JSON`);
 
     const commandDef = schemaToCommandDef(action, version, schema);
     commandDefCache.set(cacheKey, commandDef);

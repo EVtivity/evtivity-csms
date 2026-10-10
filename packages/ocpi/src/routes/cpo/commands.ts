@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and, lte, gte, sql, asc } from 'drizzle-orm';
+import { eq, and, lte, gte, asc } from 'drizzle-orm';
 import {
   db,
   chargingStations,
   chargingSessions,
   connectors,
-  ocpiLocationPublish,
   ocpiExternalTokens,
   ocpiRoamingSessions,
   maintenanceEvents,
@@ -19,6 +18,7 @@ import { createLogger, isPrivateUrl } from '@evtivity/lib';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import { isLocationVisibleToPartner } from '../../lib/location-visibility.js';
+import { findPublishedSiteId } from '../../lib/published-location.js';
 import { findEvseByUid } from '../../lib/evse-lookup.js';
 import { getCommandCallbackService } from '../../services/command-callback.service.js';
 import type {
@@ -57,26 +57,15 @@ function isAcceptableResponseUrl(url: string, allowPrivateNetwork: boolean): boo
 // "fall back to site UUID" path that used to exist here was the same data
 // leak we patched in cpo/locations.ts for the GET endpoints.
 async function resolveSiteId(locationId: string, partnerId: string): Promise<string | null> {
-  // Check if there's a publish entry with a custom OCPI location ID OR
-  // the raw siteId. We honour both because OCPI partners may use either
-  // form depending on how they integrated.
-  const [publish] = await db
-    .select({ siteId: ocpiLocationPublish.siteId })
-    .from(ocpiLocationPublish)
-    .where(
-      and(
-        eq(ocpiLocationPublish.isPublished, true),
-        sql`(${ocpiLocationPublish.ocpiLocationId} = ${locationId} OR ${ocpiLocationPublish.siteId} = ${locationId})`,
-      ),
-    )
-    .limit(1);
+  // Partners may send the custom OCPI location id or the raw site id. The
+  // custom id is matched first (findPublishedSiteId).
+  const siteId = await findPublishedSiteId(locationId);
+  if (siteId == null) return null;
 
-  if (publish == null) return null;
-
-  if (!(await isLocationVisibleToPartner(partnerId, publish.siteId))) {
+  if (!(await isLocationVisibleToPartner(partnerId, siteId))) {
     return null;
   }
-  return publish.siteId;
+  return siteId;
 }
 
 interface MaintenanceCoverage {

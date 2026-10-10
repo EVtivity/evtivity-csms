@@ -149,14 +149,23 @@ describe('docker/redis/acl-rules.conf', () => {
     const noncePrefix = /PREFIX = '([^']+)'/.exec(
       readFileSync(join(ROOT, 'packages/api/src/lib/device-attestation/challenge.ts'), 'utf8'),
     )?.[1];
+    const aiRateLimitPrefix = /AI_RATE_LIMIT_KEY_PREFIX = '([^']+)'/.exec(
+      readFileSync(join(ROOT, 'packages/api/src/services/ai/engine/limits.ts'), 'utf8'),
+    )?.[1];
     expect(watchKey).toBeDefined();
     expect(registryPrefix).toBeDefined();
     expect(noncePrefix).toBeDefined();
+    expect(aiRateLimitPrefix).toBeDefined();
 
     // BullMQ (prefix "bull"), the maintenance fan-out and station render locks, the watch key.
     expect(grantsKey(user('worker'), 'bull:cron-jobs:wait', 'rw')).toBe(true);
     expect(grantsKey(user('worker'), 'mfl:site-1', 'rw')).toBe(true);
     expect(grantsKey(user('worker'), 'sml:sta_1', 'rw')).toBe(true);
+    // Worker locks: a cron job, a fleet billing fan-out, the conformance run.
+    expect(grantsKey(user('worker'), 'wkl:cron:dashboard-snapshot', 'rw')).toBe(true);
+    expect(grantsKey(user('worker'), 'wkl:fleet-billing:flt_1', 'rw')).toBe(true);
+    expect(grantsKey(user('worker'), 'wkl:octt-run', 'rw')).toBe(true);
+    expect(grantsKey(user('api'), 'wkl:octt-run', 'r')).toBe(false);
     expect(grantsKey(user('worker'), watchKey as string, 'rw')).toBe(true);
     // The connection registry belongs to ocpp; the worker's offline sweep reads it.
     expect(grantsKey(user('ocpp'), `${registryPrefix as string}CS-1`, 'rw')).toBe(true);
@@ -165,6 +174,14 @@ describe('docker/redis/acl-rules.conf', () => {
     // Response cache and attestation nonces; the watch key read-only.
     expect(grantsKey(user('api'), 'rc:ver:stations', 'rw')).toBe(true);
     expect(grantsKey(user('api'), `${noncePrefix as string}abc`, 'rw')).toBe(true);
+    // AI per-minute counters (user and site windows); a missing grant fails open.
+    expect(grantsKey(user('api'), `${aiRateLimitPrefix as string}user:usr_1:1`, 'rw')).toBe(true);
+    expect(grantsKey(user('api'), `${aiRateLimitPrefix as string}site:sit_1:1`, 'rw')).toBe(true);
+    for (const name of ['ocpp', 'ocpi', 'worker', 'css']) {
+      expect(grantsKey(user(name), `${aiRateLimitPrefix as string}user:usr_1:1`, 'r'), name).toBe(
+        false,
+      );
+    }
     expect(grantsKey(user('api'), watchKey as string, 'r')).toBe(true);
     expect(grantsKey(user('api'), watchKey as string, 'rw')).toBe(false);
     // OCPI pull lock and its own BullMQ queue (ocpi-cdrs), no other queue.

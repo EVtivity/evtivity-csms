@@ -51,6 +51,10 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+
 vi.mock('@evtivity/database', () => ({
   getCompanyCurrency: vi.fn(() => Promise.resolve('USD')),
   getCompanyTaxBasis: vi.fn(() => Promise.resolve('net')),
@@ -156,6 +160,27 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
     MOBILE_APP_ANDROID_PACKAGES_KEY: actual.MOBILE_APP_ANDROID_PACKAGES_KEY,
     parseAllowedPrivateHosts: actual.parseAllowedPrivateHosts,
     MAX_ALLOWED_PRIVATE_HOSTS: actual.MAX_ALLOWED_PRIVATE_HOSTS,
+    validateAiBaseUrl: actual.validateAiBaseUrl,
+    isAiBaseUrlSettingKey: actual.isAiBaseUrlSettingKey,
+    isAiSettingKey: actual.isAiSettingKey,
+    isAiLimitSettingKey: actual.isAiLimitSettingKey,
+    normalizeAiSettingValue: actual.normalizeAiSettingValue,
+    AI_LIMIT_SETTINGS: actual.AI_LIMIT_SETTINGS,
+    AI_PROVIDER_IDS: actual.AI_PROVIDER_IDS,
+    AI_EFFORTS: actual.AI_EFFORTS,
+    AI_SUPPORT_TONES: actual.AI_SUPPORT_TONES,
+    REMOVED_AI_SETTING_KEYS: actual.REMOVED_AI_SETTING_KEYS,
+    PDF_LOGO_KEY: actual.PDF_LOGO_KEY,
+    PDF_FOOTER_KEY: actual.PDF_FOOTER_KEY,
+    MAX_PDF_LOGO_BYTES: actual.MAX_PDF_LOGO_BYTES,
+    MAX_PDF_FOOTER_LENGTH: actual.MAX_PDF_FOOTER_LENGTH,
+    MAX_PDF_FOOTER_LINES: actual.MAX_PDF_FOOTER_LINES,
+    normalizePdfLogo: actual.normalizePdfLogo,
+    normalizePdfFooter: actual.normalizePdfFooter,
+    INVOICE_SELLER_MAX_LENGTHS: actual.INVOICE_SELLER_MAX_LENGTHS,
+    COMPANY_INVOICE_EMAIL_KEY: actual.COMPANY_INVOICE_EMAIL_KEY,
+    isInvoiceSellerSettingKey: actual.isInvoiceSellerSettingKey,
+    normalizeInvoiceSellerSetting: actual.normalizeInvoiceSellerSetting,
   };
 });
 

@@ -14,6 +14,38 @@ import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
+import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+
+export type WebPaymentSupportStatus = 'supported' | 'not_supported' | 'unknown';
+
+const SUPPORT_BADGE = {
+  supported: { variant: 'success', label: 'stations.dynamicQrSupported' },
+  not_supported: { variant: 'destructive', label: 'stations.dynamicQrNotSupported' },
+  unknown: { variant: 'outline', label: 'stations.dynamicQrSupportUnknown' },
+} as const satisfies Record<WebPaymentSupportStatus, { variant: string; label: string }>;
+
+const SUPPORT_REASON = {
+  reported: 'stations.dynamicQrReasonReported',
+  not_available: 'stations.dynamicQrReasonNotAvailable',
+  unknown_component: 'stations.dynamicQrReasonUnknownComponent',
+  unknown_variable: 'stations.dynamicQrReasonUnknownVariable',
+  ocpp_version: 'stations.dynamicQrOcpp21Only',
+  offline: 'stations.dynamicQrReasonOffline',
+  timeout: 'stations.dynamicQrReasonTimeout',
+  command_failed: 'stations.dynamicQrReasonCommandFailed',
+  unexpected_response: 'stations.dynamicQrReasonUnexpected',
+  not_checked: 'stations.dynamicQrReasonNotChecked',
+} as const;
+
+export type WebPaymentSupportReason = keyof typeof SUPPORT_REASON;
+
+export interface WebPaymentSupport {
+  status: WebPaymentSupportStatus;
+  reason: WebPaymentSupportReason;
+  source: 'station' | 'device_model' | 'none';
+  stationEnabled: boolean | null;
+  checkedAt: string | null;
+}
 
 export interface WebPaymentConfig {
   enabled: boolean;
@@ -48,6 +80,7 @@ export function StationWebPaymentsCard({
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('stations:write');
+  const timezone = useUserTimezone();
   const [validity, setValidity] = useState('60');
   const [length, setLength] = useState('8');
   const [hasSubmitted, setHasSubmitted] = useState(false);
@@ -83,9 +116,34 @@ export function StationWebPaymentsCard({
     onError,
   });
 
+  const supported = ocppProtocol === 'ocpp2.1';
+  const supportKey = ['stations', stationId, 'web-payments', 'support'];
+  const { data: support } = useQuery({
+    queryKey: supportKey,
+    queryFn: () =>
+      api.get<WebPaymentSupport>(`/v1/stations/${stationId}/web-payments/support?live=false`),
+    enabled: supported,
+    staleTime: 60_000,
+  });
+  const checkMutation = useMutation({
+    mutationFn: () =>
+      api.get<WebPaymentSupport>(`/v1/stations/${stationId}/web-payments/support?live=true`),
+    onSuccess: (result: WebPaymentSupport) => {
+      queryClient.setQueryData(supportKey, result);
+    },
+    onError: (err: unknown) => {
+      toast({
+        title: t('stations.dynamicQrCheckFailed'),
+        description: getErrorMessage(err, t),
+        variant: 'destructive',
+      });
+    },
+  });
+
   const validitySeconds = parseIntInRange(validity, 6, 3600);
   const totpLength = parseIntInRange(length, 6, 32);
-  const supported = ocppProtocol === 'ocpp2.1';
+  const notSupported = support?.status === 'not_supported';
+  const supportBadge = support != null ? SUPPORT_BADGE[support.status] : null;
 
   function handleEnable(e: React.SyntheticEvent): void {
     e.preventDefault();
@@ -104,10 +162,49 @@ export function StationWebPaymentsCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">{t('stations.dynamicQrDescription')}</p>
+        <p className="text-sm text-muted-foreground">{t('stations.dynamicQrRequirement')}</p>
         {!supported ? (
           <p className="text-sm text-muted-foreground">{t('stations.dynamicQrOcpp21Only')}</p>
         ) : (
           <>
+            <div className="flex flex-wrap items-start justify-between gap-2 rounded-md border p-3">
+              <div className="space-y-1 text-sm">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-medium">{t('stations.dynamicQrSupport')}</span>
+                  {supportBadge != null && (
+                    <Badge variant={supportBadge.variant}>{t(supportBadge.label)}</Badge>
+                  )}
+                </div>
+                {support != null && (
+                  <p className="text-muted-foreground">{t(SUPPORT_REASON[support.reason])}</p>
+                )}
+                {support?.checkedAt != null && (
+                  <p className="text-xs text-muted-foreground">
+                    {t(
+                      support.source === 'station'
+                        ? 'stations.dynamicQrCheckedLive'
+                        : 'stations.dynamicQrCheckedReport',
+                      { time: formatDateTime(support.checkedAt, timezone) },
+                    )}
+                  </p>
+                )}
+              </div>
+              {canWrite && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!isOnline || checkMutation.isPending}
+                  onClick={() => {
+                    checkMutation.mutate();
+                  }}
+                >
+                  {checkMutation.isPending
+                    ? t('stations.dynamicQrChecking')
+                    : t('stations.dynamicQrCheckSupport')}
+                </Button>
+              )}
+            </div>
             {data?.enabled === true && (
               <dl className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
                 <div>
@@ -181,7 +278,10 @@ export function StationWebPaymentsCard({
                       {t('stations.dynamicQrDisable')}
                     </Button>
                   )}
-                  <Button type="submit" disabled={!isOnline || enableMutation.isPending}>
+                  <Button
+                    type="submit"
+                    disabled={!isOnline || notSupported || enableMutation.isPending}
+                  >
                     {data?.enabled === true
                       ? t('stations.dynamicQrRotate')
                       : t('stations.dynamicQrEnable')}
@@ -190,6 +290,11 @@ export function StationWebPaymentsCard({
                 {!isOnline && (
                   <p className="text-right text-sm text-muted-foreground">
                     {t('stations.dynamicQrOfflineHint')}
+                  </p>
+                )}
+                {isOnline && notSupported && (
+                  <p className="text-right text-sm text-muted-foreground">
+                    {t('stations.dynamicQrNotSupportedHint')}
                   </p>
                 )}
               </form>

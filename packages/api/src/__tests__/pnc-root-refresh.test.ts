@@ -7,6 +7,10 @@ import type { FastifyInstance } from 'fastify';
 
 const { writeAuditMock } = vi.hoisted(() => ({ writeAuditMock: vi.fn(() => Promise.resolve()) }));
 
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+
 vi.mock('../middleware/rbac.js', () => ({
   authorize:
     () =>

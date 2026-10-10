@@ -99,7 +99,7 @@ release_previous_tag() {
 # commit (the version bumps and the regenerated AI tools), relative to the repo root.
 release_version_files() {
   local f
-  for f in package.json packages/*/package.json packages/api/src/services/ai/tools.ts; do
+  for f in package.json packages/*/package.json packages/api/src/services/ai/tools/catalog.ts; do
     if [ -f "$f" ]; then printf '%s\n' "$f"; fi
   done
 }

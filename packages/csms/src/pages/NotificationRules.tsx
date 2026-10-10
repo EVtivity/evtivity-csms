@@ -3,6 +3,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
+import { useHasAllSiteAccess } from '@/lib/auth';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { OcppEvents } from '@/pages/OcppEvents';
 import { DriverEvents } from '@/pages/DriverEvents';
@@ -12,6 +13,8 @@ import { NotificationHistory } from '@/pages/NotificationHistory';
 export function NotificationRules(): React.JSX.Element {
   const { t } = useTranslation();
   const [tab, setTab] = useTab('driver-events');
+  // The notification log is company-wide: the API answers 404 to a site-restricted user.
+  const hasAllSiteAccess = useHasAllSiteAccess();
 
   return (
     <div className="space-y-6">
@@ -25,7 +28,9 @@ export function NotificationRules(): React.JSX.Element {
           <TabsTrigger value="driver-events">{t('notifications.driverEventsTab')}</TabsTrigger>
           <TabsTrigger value="system-events">{t('notifications.systemEventsTab')}</TabsTrigger>
           <TabsTrigger value="ocpp-events">{t('notifications.ocppEventsTab')}</TabsTrigger>
-          <TabsTrigger value="history">{t('notifications.historyTab')}</TabsTrigger>
+          {hasAllSiteAccess && (
+            <TabsTrigger value="history">{t('notifications.historyTab')}</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="ocpp-events">
@@ -40,9 +45,11 @@ export function NotificationRules(): React.JSX.Element {
           <SystemEvents />
         </TabsContent>
 
-        <TabsContent value="history">
-          <NotificationHistory />
-        </TabsContent>
+        {hasAllSiteAccess && (
+          <TabsContent value="history">
+            <NotificationHistory />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

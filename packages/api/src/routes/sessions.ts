@@ -30,6 +30,7 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { siteInScope } from '../lib/site-scope.js';
 import { pendingOperationSchema, providerRefundsSchema } from '../lib/payment-provider-schemas.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
@@ -245,6 +246,26 @@ const sessionDetail = z
       .nullable()
       .describe(
         'When the running re-bill claimed the session (rebillStatus in_progress); a claim older than 5 minutes belongs to a request that died and may be taken over',
+      ),
+    stationTariffId: z
+      .string()
+      .nullable()
+      .describe(
+        'OCPP 2.1 local cost calculation: the tariffId the station last reported for the transaction (transactionInfo.tariffId), null when it reported none',
+      ),
+    stationCostCents: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        'The cost the station last calculated (costDetails.totalCost.total, including tax when the station sent it), in cents. The session is billed at its own cost; null when the station sent no cost details',
+      ),
+    stationCostDifferenceCents: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        "The station's final cost minus the billed final cost, in cents, set when the session ended with station cost details",
       ),
     rebillable: z
       .boolean()
@@ -604,6 +625,9 @@ export function sessionRoutes(app: FastifyInstance): void {
             string | null
           >`(SELECT i.status::text FROM invoices i WHERE i.id = ${chargingSessions.invoiceId})`,
           rebillClaimedAt: chargingSessions.rebillClaimedAt,
+          stationTariffId: chargingSessions.stationTariffId,
+          stationCostCents: chargingSessions.stationCostCents,
+          stationCostDifferenceCents: chargingSessions.stationCostDifferenceCents,
           tokenId: driverTokens.id,
           tokenIdToken: driverTokens.idToken,
           tokenType: driverTokens.tokenType,
@@ -648,7 +672,7 @@ export function sessionRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && row.siteId != null && !siteIds.includes(row.siteId)) {
+      if (!siteInScope(siteIds, row.siteId)) {
         await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
         return;
       }
@@ -768,7 +792,7 @@ export function sessionRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as JwtPayload;
       const txSiteIds = await getUserSiteIds(userId);
-      if (txSiteIds != null && session.siteId != null && !txSiteIds.includes(session.siteId)) {
+      if (!siteInScope(txSiteIds, session.siteId)) {
         await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
         return;
       }
@@ -836,7 +860,7 @@ export function sessionRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as JwtPayload;
       const mvSiteIds = await getUserSiteIds(userId);
-      if (mvSiteIds != null && session.siteId != null && !mvSiteIds.includes(session.siteId)) {
+      if (!siteInScope(mvSiteIds, session.siteId)) {
         await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
         return;
       }

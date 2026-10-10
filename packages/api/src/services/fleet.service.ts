@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq, and, or, ilike, sql, gte, count, desc, ne } from 'drizzle-orm';
+import { eq, and, or, ilike, sql, gte, count, desc, ne, inArray } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import {
   db,
@@ -43,13 +43,19 @@ import {
   pricingGroups,
 } from '@evtivity/database';
 import type { PaginationParams } from '../lib/pagination.js';
+import { sessionsAtSites } from '../lib/session-site-scope.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import {
   buildDerivedStatusSubquery,
   buildStatusReasonSubquery,
 } from '@evtivity/services/station-derived-status';
 
-export async function listFleets(params: PaginationParams) {
+/**
+ * Lists fleets. Fleets are company-wide records, so every fleet is listed;
+ * with `siteIds` (a site-restricted user) the station count covers only the
+ * fleet's stations at those sites.
+ */
+export async function listFleets(params: PaginationParams, siteIds: string[] | null = null) {
   const { page, limit, search } = params;
   const offset = (page - 1) * limit;
 
@@ -72,14 +78,18 @@ export async function listFleets(params: PaginationParams) {
         accountBillingEnabled: fleets.accountBillingEnabled,
         createdAt: fleets.createdAt,
         updatedAt: fleets.updatedAt,
-        driverCount: sql<number>`count(distinct ${fleetDrivers.id})::int`,
-        stationCount: sql<number>`count(distinct ${fleetStations.id})::int`,
+        // Correlated counts written out with aliases: a single-table select
+        // renders columns unqualified, so the fleet id must name "fleets".
+        driverCount: sql<number>`(select count(*) from fleet_drivers fd where fd.fleet_id = "fleets"."id")::int`,
+        stationCount:
+          siteIds == null
+            ? sql<number>`(select count(*) from fleet_stations fs where fs.fleet_id = "fleets"."id")::int`
+            : siteIds.length === 0
+              ? sql<number>`0`
+              : sql<number>`(select count(*) from fleet_stations fs inner join charging_stations cs on cs.id = fs.station_id where fs.fleet_id = "fleets"."id" and cs.site_id in ${siteIds})::int`,
       })
       .from(fleets)
-      .leftJoin(fleetDrivers, eq(fleetDrivers.fleetId, fleets.id))
-      .leftJoin(fleetStations, eq(fleetStations.fleetId, fleets.id))
       .where(where)
-      .groupBy(fleets.id)
       .orderBy(desc(fleets.createdAt), desc(fleets.id))
       .limit(limit)
       .offset(offset),
@@ -95,6 +105,16 @@ export async function listFleets(params: PaginationParams) {
 export async function getFleet(id: string) {
   const [fleet] = await db.select().from(fleets).where(eq(fleets.id, id));
   return fleet ?? null;
+}
+
+/** True when the fleet is assigned to at least one pricing group. */
+export async function fleetHasPricingGroup(fleetId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: pricingGroupFleets.id })
+    .from(pricingGroupFleets)
+    .where(eq(pricingGroupFleets.fleetId, fleetId))
+    .limit(1);
+  return row != null;
 }
 
 export async function createFleet(data: { name: string; description?: string | undefined }) {
@@ -620,7 +640,11 @@ export async function removeDriverFromFleet(fleetId: string, driverId: string) {
   return record ?? null;
 }
 
-export async function getFleetStations(fleetId: string) {
+/**
+ * The fleet's stations. `siteIds` is the operator's `getUserSiteIds()`: a
+ * site-restricted operator sees only the stations at its sites (null: all).
+ */
+export async function getFleetStations(fleetId: string, siteIds: string[] | null) {
   return db
     .select({
       id: chargingStations.id,
@@ -643,7 +667,12 @@ export async function getFleetStations(fleetId: string) {
     .innerJoin(chargingStations, eq(fleetStations.stationId, chargingStations.id))
     .leftJoin(evses, eq(evses.stationId, chargingStations.id))
     .leftJoin(connectors, eq(connectors.evseId, evses.id))
-    .where(eq(fleetStations.fleetId, fleetId))
+    .where(
+      and(
+        eq(fleetStations.fleetId, fleetId),
+        siteIds != null ? inArray(chargingStations.siteId, siteIds) : undefined,
+      ),
+    )
     .groupBy(chargingStations.id)
     .orderBy(desc(chargingStations.createdAt), desc(chargingStations.id));
 }
@@ -733,9 +762,26 @@ export async function searchAvailableVehicles(fleetId: string, search: string, l
     .limit(limit);
 }
 
-export async function getFleetSessions(fleetId: string, page: number, limit: number) {
+/**
+ * The sessions of the fleet's drivers. `siteIds` (the operator's
+ * `getUserSiteIds()`) keeps the sessions at stations of those sites; null
+ * keeps all. The same scope applies to the fleet metrics and energy history.
+ */
+function fleetSessionFilter(fleetId: string, siteIds: string[] | null) {
+  return and(
+    sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`,
+    siteIds != null ? sessionsAtSites(siteIds) : undefined,
+  );
+}
+
+export async function getFleetSessions(
+  fleetId: string,
+  page: number,
+  limit: number,
+  siteIds: string[] | null,
+) {
   const offset = (page - 1) * limit;
-  const driverFilter = sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`;
+  const driverFilter = fleetSessionFilter(fleetId, siteIds);
 
   const [rows, countRows] = await Promise.all([
     db
@@ -770,11 +816,11 @@ export async function getFleetSessions(fleetId: string, page: number, limit: num
   return { data: rows, total: countRows[0]?.count ?? 0 };
 }
 
-export async function getFleetMetrics(fleetId: string, months: number) {
+export async function getFleetMetrics(fleetId: string, months: number, siteIds: string[] | null) {
   const since = new Date();
   since.setMonth(since.getMonth() - months);
 
-  const driverFilter = sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`;
+  const driverFilter = fleetSessionFilter(fleetId, siteIds);
 
   // Three independent aggregations — fan them in parallel so the metrics
   // endpoint is bounded by the slowest query, not the sum.
@@ -822,11 +868,15 @@ export async function getFleetMetrics(fleetId: string, months: number) {
   };
 }
 
-export async function getFleetEnergyHistory(fleetId: string, days: number) {
+export async function getFleetEnergyHistory(
+  fleetId: string,
+  days: number,
+  siteIds: string[] | null,
+) {
   const since = new Date();
   since.setDate(since.getDate() - days);
 
-  const driverFilter = sql`${chargingSessions.driverId} IN (select driver_id from fleet_drivers where fleet_id = ${fleetId})`;
+  const driverFilter = fleetSessionFilter(fleetId, siteIds);
 
   const rows = await db
     .select({

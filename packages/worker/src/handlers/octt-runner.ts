@@ -6,6 +6,8 @@ import { eq } from 'drizzle-orm';
 import { db, octtRuns, octtTestResults } from '@evtivity/database';
 import { runTests } from '@evtivity/octt';
 import type { OcppVersion, SutType } from '@evtivity/octt';
+import type { Redis } from 'ioredis';
+import { withLock } from '@evtivity/lib';
 import type { RedisPubSubClient } from '@evtivity/lib';
 import { config } from '../lib/config.js';
 
@@ -105,4 +107,26 @@ export async function octtRunnerHandler(
       .set({ status: 'failed', completedAt: new Date() })
       .where(eq(octtRuns.id, runId));
   }
+}
+
+/** Redis key held while a conformance run is in progress (ACL prefix `wkl:`). */
+export const OCTT_RUN_LOCK_KEY = 'wkl:octt-run';
+
+/** How long a queued run waits for the run in progress to finish. */
+export const OCTT_RUN_LOCK_WAIT_MS = 24 * 60 * 60_000;
+
+/**
+ * Runs one conformance run at a time across worker replicas. The OCTT worker's
+ * `concurrency: 1` holds per worker instance only, and two runs at once would
+ * drive the same test stations. A queued run waits for the lock.
+ */
+export async function octtRunnerJob(
+  lockRedis: Redis,
+  data: OcttJobData,
+  log: Logger,
+  pubsub: RedisPubSubClient,
+): Promise<void> {
+  await withLock(lockRedis, OCTT_RUN_LOCK_KEY, () => octtRunnerHandler(data, log, pubsub), {
+    acquireTimeoutMs: OCTT_RUN_LOCK_WAIT_MS,
+  });
 }

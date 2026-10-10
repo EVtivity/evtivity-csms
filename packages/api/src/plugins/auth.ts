@@ -4,18 +4,13 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import jwt from '@fastify/jwt';
 import { db } from '@evtivity/database';
-import {
-  refreshTokens,
-  users,
-  drivers,
-  userPermissions,
-  OCTT_API_KEY_NAME,
-} from '@evtivity/database';
+import { refreshTokens, users, userPermissions, OCTT_API_KEY_NAME } from '@evtivity/database';
 import { eq, and, isNull } from 'drizzle-orm';
 import { config } from '../lib/config.js';
 import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
-import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { hashToken } from '../lib/token-hash.js';
+import { isDriverActive } from '../lib/driver-active.js';
+import { isUserActive } from '../lib/user-active.js';
 
 // A missing, expired or forged token is routine: log it at debug. Anything
 // else (a database error while checking the account) is logged at warn.
@@ -35,6 +30,11 @@ export interface JwtPayload {
   apiKeyName?: string;
   apiKeyPermissions?: string[];
   /**
+   * The calling API key's expiry (ISO 8601), when it has one. A key it
+   * creates never outlives it (`POST /v1/api-keys`).
+   */
+  apiKeyExpiresAt?: string;
+  /**
    * Set on the short-lived JWT issued during the MFA challenge step. Tokens
    * carrying this flag are only valid for /auth/mfa/verify and
    * /auth/mfa/resend; `app.authenticate` rejects them on every other route.
@@ -49,42 +49,67 @@ export interface DriverJwtPayload {
   mfaPending?: boolean;
 }
 
-// Cache user isActive status to avoid a DB query on every request.
-// Short TTL (30s) balances latency vs deactivation propagation speed.
-const userActiveCache = new Map<string, { isActive: boolean; expiresAt: number }>();
-const USER_ACTIVE_CACHE_TTL_MS = 30_000;
+/** Why a verified operator JWT may not be used, or null when it may. */
+export interface OperatorTokenRejection {
+  error: string;
+  code: 'UNAUTHORIZED' | 'MFA_REQUIRED' | 'ACCOUNT_DEACTIVATED';
+}
 
-async function isUserActive(userId: string): Promise<boolean> {
-  // Skip DB check in test environment (unit tests mock JWT but not the users table)
-  if (config.NODE_ENV === 'test') return true;
-  const cached = userActiveCache.get(userId);
-  if (cached != null && cached.expiresAt > Date.now()) {
-    return cached.isActive;
+/**
+ * The checks every operator route applies to a JWT after its signature and
+ * expiry verified: a driver token (the two realms share a signing key) or a
+ * token without a userId is refused, an MFA-pending token is refused, and a
+ * deactivated user is refused. Used by `app.authenticate` and by the SSE
+ * stream, which verifies its token itself.
+ */
+export async function operatorTokenRejection(
+  payload: unknown,
+): Promise<OperatorTokenRejection | null> {
+  const record = (payload ?? {}) as Record<string, unknown>;
+  if (record['type'] === 'driver' || typeof record['userId'] !== 'string') {
+    return { error: 'Unauthorized', code: 'UNAUTHORIZED' };
   }
-  const [row] = await db
-    .select({ isActive: users.isActive })
-    .from(users)
-    .where(eq(users.id, userId));
-  const isActive = row?.isActive ?? false;
-  userActiveCache.set(userId, { isActive, expiresAt: Date.now() + USER_ACTIVE_CACHE_TTL_MS });
-  return isActive;
+  if (record['mfaPending'] === true) {
+    return { error: 'MFA verification required', code: 'MFA_REQUIRED' };
+  }
+  if (!(await isUserActive(record['userId']))) {
+    return { error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' };
+  }
+  return null;
 }
 
-/** Clear the in-process cache only. Used by the cache-invalidate pub/sub
- *  listener so a broadcast invalidation does not re-publish. */
-export function clearUserActiveCacheLocal(userId: string): void {
-  userActiveCache.delete(userId);
+/** Why a verified driver JWT may not be used, or null when it may. */
+export interface DriverTokenRejection {
+  status: 401 | 403;
+  error: string;
+  code: 'FORBIDDEN_DRIVER_TOKEN' | 'MFA_REQUIRED' | 'ACCOUNT_DEACTIVATED';
 }
 
-/** Clear cached isActive status for a user. Call after deactivation.
- *  Also broadcasts to other API pods so they drop their local entry too. */
-export function invalidateUserActiveCache(userId: string): void {
-  clearUserActiveCacheLocal(userId);
-  void getPubSub()
-    .publish('cache_invalidate', JSON.stringify({ kind: 'active', userId }))
-    .catch(() => {
-      // Best-effort; falls back to TTL on other pods.
-    });
+/**
+ * The checks every driver route applies to a JWT after its signature and
+ * expiry verified: an operator token is refused (the two realms share a
+ * signing key), an MFA-pending token is refused (it is valid only for the
+ * portal MFA verify and resend routes), and a deactivated driver is refused.
+ * Used by `app.authenticateDriver` and by the portal SSE stream, which
+ * verifies its token itself.
+ */
+export async function driverTokenRejection(payload: unknown): Promise<DriverTokenRejection | null> {
+  const record = (payload ?? {}) as Record<string, unknown>;
+  if (record['type'] !== 'driver') {
+    return {
+      status: 403,
+      error: 'Forbidden: driver token required',
+      code: 'FORBIDDEN_DRIVER_TOKEN',
+    };
+  }
+  if (record['mfaPending'] === true) {
+    return { status: 401, error: 'MFA verification required', code: 'MFA_REQUIRED' };
+  }
+  const driverId = record['driverId'];
+  if (typeof driverId !== 'string' || !(await isDriverActive(driverId))) {
+    return { status: 401, error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' };
+  }
+  return null;
 }
 
 export async function registerAuth(app: FastifyInstance): Promise<void> {
@@ -104,27 +129,16 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
     try {
       // Try standard jwtVerify first (checks Authorization header + portal_token cookie)
       await request.jwtVerify();
-      // Check if operator user is still active (catches deactivated users with valid JWTs)
-      const jwtUser = request.user as unknown as Record<string, unknown>;
       // Reject driver JWTs presented to operator routes. The two realms share
       // a signing key, so jwtVerify() validates a driver token here. Cookie
       // path scoping (portal_token is /v1/portal) prevents the normal browser
       // from sending it cross-realm, but an attacker with the raw JWT can
-      // submit it as Authorization: Bearer to any operator route. Without
-      // this guard such a request would reach a handler that calls
-      // request.user.userId (undefined) and fail in surprising ways.
-      if (jwtUser['type'] === 'driver' || typeof jwtUser['userId'] !== 'string') {
-        await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
-        return;
-      }
-      // Reject MFA-pending tokens on regular routes. The mfaPending JWT issued
-      // during the login flow is only valid for /auth/mfa/verify and /auth/mfa/resend.
-      if (jwtUser['mfaPending'] === true) {
-        await reply.status(401).send({ error: 'MFA verification required', code: 'MFA_REQUIRED' });
-        return;
-      }
-      if (!(await isUserActive(jwtUser['userId']))) {
-        await reply.status(401).send({ error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' });
+      // submit it as Authorization: Bearer to any operator route. Also reject
+      // MFA-pending tokens (only valid for /auth/mfa/verify and
+      // /auth/mfa/resend) and deactivated users with valid JWTs.
+      const rejection = await operatorTokenRejection(request.user);
+      if (rejection != null) {
+        await reply.status(401).send(rejection);
         return;
       }
       return;
@@ -139,26 +153,11 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
           const csmsToken = unsigned.valid ? unsigned.value : rawCsmsToken;
           const payload = app.jwt.verify<JwtPayload>(csmsToken);
           (request as unknown as Record<string, unknown>)['user'] = payload;
-          const payloadRecord = payload as unknown as Record<string, unknown>;
-          // Reject driver JWTs in the csms_token cookie slot too. The cookie
-          // is normally only set by operator login, but rejecting on payload
-          // shape rather than cookie name keeps the defense at the JWT layer.
-          if (payloadRecord['type'] === 'driver' || typeof payloadRecord['userId'] !== 'string') {
-            await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
-            return;
-          }
-          // Reject MFA-pending tokens on regular routes.
-          if (payloadRecord['mfaPending'] === true) {
-            await reply
-              .status(401)
-              .send({ error: 'MFA verification required', code: 'MFA_REQUIRED' });
-            return;
-          }
-          // Check if user is still active (catches deactivated users with valid JWTs)
-          if (!(await isUserActive(payload.userId))) {
-            await reply
-              .status(401)
-              .send({ error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' });
+          // Same checks as the Bearer path. Rejecting on payload shape rather
+          // than cookie name keeps the defense at the JWT layer.
+          const rejection = await operatorTokenRejection(payload);
+          if (rejection != null) {
+            await reply.status(401).send(rejection);
             return;
           }
           return;
@@ -219,6 +218,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
                 roleId: user.roleId,
                 isApiKey: true,
                 ...(row.name != null ? { apiKeyName: row.name } : {}),
+                ...(row.expiresAt != null ? { apiKeyExpiresAt: row.expiresAt.toISOString() } : {}),
               };
 
               // Attach API key permissions (always set for API keys)
@@ -267,36 +267,15 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
   app.decorate('authenticateDriver', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       await request.jwtVerify();
-      const payload = request.user as unknown as Record<string, unknown>;
-      if (payload['type'] !== 'driver') {
-        await reply
-          .status(403)
-          .send({ error: 'Forbidden: driver token required', code: 'FORBIDDEN_DRIVER_TOKEN' });
-        return;
-      }
-      // Reject MFA-pending tokens on regular routes. The mfaPending JWT issued
-      // during the driver login flow is only valid for portal MFA verify/resend.
-      if (payload['mfaPending'] === true) {
-        await reply.status(401).send({ error: 'MFA verification required', code: 'MFA_REQUIRED' });
-        return;
-      }
-      // Check if driver account is still active
-      const driverId = payload['driverId'];
-      if (typeof driverId === 'string' && config.NODE_ENV !== 'test') {
-        const [driver] = await db
-          .select({ isActive: drivers.isActive })
-          .from(drivers)
-          .where(eq(drivers.id, driverId));
-        if (driver == null || !driver.isActive) {
-          await reply
-            .status(401)
-            .send({ error: 'Account deactivated', code: 'ACCOUNT_DEACTIVATED' });
-          return;
-        }
-      }
     } catch (err) {
       logAuthFailure(request, err, 'Driver token check failed, refusing the request');
       await reply.status(401).send({ error: 'Unauthorized', code: 'UNAUTHORIZED' });
+      return;
+    }
+    const rejection = await driverTokenRejection(request.user);
+    if (rejection != null) {
+      const { status, ...body } = rejection;
+      await reply.status(status).send(body);
     }
   });
 }

@@ -19,7 +19,10 @@ import {
   resolveAccountBilling,
   sessionBillingColumns,
   checkFleetCreditLimit,
-  resolveStationTariff,
+  resolveStationPricing,
+  isSplitBillingEnabled,
+  hasPaidTariff,
+  snapshotReservationFeeTerms,
 } from '@evtivity/database';
 import { decryptString, notificationMoney, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
@@ -38,11 +41,18 @@ import {
   writeReservationAudit,
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
+import { publicStationListed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
+import { optionalDriverId } from '../../lib/optional-driver.js';
 import { requestGhostSessionEnd } from '../../lib/ghost-session-end.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import {
+  reservationCancellationFeeSchema,
+  reservationFeesView,
+  reservationNoShowFeeSchema,
+} from '../../lib/reservation-fee-view.js';
 import { scheduleRemoteStartTimeout } from '../../lib/remote-start-timeout.js';
 import { itemResponse, arrayResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
@@ -127,10 +137,12 @@ const portalChargerDetail = z
           .string()
           .nullable()
           .describe('ISO 8601 timestamp the active reservation expires, null when not reserved'),
-        reservationDriverId: z
-          .string()
-          .nullable()
-          .describe('Driver ID holding the active reservation, null when not reserved'),
+        reserved: z.boolean().describe('True when an active reservation holds this EVSE'),
+        reservedByMe: z
+          .boolean()
+          .describe(
+            'True when the active reservation belongs to the signed-in driver (false for anonymous callers)',
+          ),
       })
       .describe('Selected EVSE detail with reservation context'),
     maintenance: z
@@ -158,10 +170,12 @@ const portalEvseItem = z
       .string()
       .nullable()
       .describe('ISO 8601 timestamp the active reservation expires, null when not reserved'),
-    reservationDriverId: z
-      .string()
-      .nullable()
-      .describe('Driver ID holding the active reservation, null when not reserved'),
+    reserved: z.boolean().describe('True when an active reservation holds this EVSE'),
+    reservedByMe: z
+      .boolean()
+      .describe(
+        'True when the active reservation belongs to the signed-in driver (false for anonymous callers)',
+      ),
   })
   .passthrough();
 
@@ -305,6 +319,8 @@ const reservationItem = z
       .describe('Reservation window start, null for immediately-active reservations'),
     expiresAt: z.coerce.date().describe('Reservation window end'),
     createdAt: z.coerce.date().describe('Timestamp the reservation was created'),
+    cancellationFee: reservationCancellationFeeSchema,
+    noShowFee: reservationNoShowFeeSchema,
   })
   .passthrough();
 
@@ -340,6 +356,8 @@ const reservationDetail = z
       .string()
       .nullable()
       .describe('Charging session ID created from this reservation, set only for used status'),
+    cancellationFee: reservationCancellationFeeSchema,
+    noShowFee: reservationNoShowFeeSchema,
   })
   .passthrough();
 
@@ -413,6 +431,12 @@ const portalPricingInfo = z
       .string()
       .nullable()
       .describe('Idle fee per minute (after grace period) in major currency units'),
+    reservationFeePerMinute: z
+      .string()
+      .nullable()
+      .describe(
+        'Reservation holding fee per minute in major currency units: a reservation made now is charged it for the minutes it holds the connector when it expires unused (the no-show fee). Null for none',
+      ),
     taxRate: z.string().nullable().describe('Sales tax rate as a decimal (e.g. 0.0875 = 8.75%)'),
     taxBasis: z
       .enum(TAX_BASES)
@@ -434,6 +458,22 @@ const portalPricingInfo = z
       .nullable()
       .describe(
         'How the driver pays a session started at this charger: account (billed to a fleet, no payment method needed, no hold) or card. Null at a free vend site, where nothing is billed',
+      ),
+    timezone: z
+      .string()
+      .nullable()
+      .describe(
+        'IANA timezone of the station site that time-of-day restrictions are evaluated in. Null when the site has none (the system timezone applies)',
+      ),
+    priceChangesDuringSession: z
+      .boolean()
+      .describe(
+        'True when split billing is on and the pricing group has tariffs with restrictions: the price can change while the session charges (time of day, day, season, holiday or energy reached)',
+      ),
+    paidTariffAhead: z
+      .boolean()
+      .describe(
+        'True when split billing is on and the pricing group has a paid tariff: a session that starts on a free tariff can become paid, so the start needs a payment method like a paid tariff',
       ),
   })
   .passthrough();
@@ -582,7 +622,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(eq(chargingStations.stationId, params.stationId));
+        .where(and(eq(chargingStations.stationId, params.stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -619,7 +659,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       // must keep applying. Gating on connector status here would let the
       // UI flash a Start button for everyone post-plug-in.
       let reservationExpiresAt: string | null = null;
-      let reservationDriverId: string | null = null;
+      let reservedByMe = false;
       {
         const [reservation] = await db
           .select({ expiresAt: reservations.expiresAt, driverId: reservations.driverId })
@@ -641,7 +681,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           .limit(1);
         if (reservation != null) {
           reservationExpiresAt = reservation.expiresAt.toISOString();
-          reservationDriverId = reservation.driverId;
+          // The holder's id is never returned: the route is public.
+          const callerDriverId = await optionalDriverId(request);
+          reservedByMe = callerDriverId != null && reservation.driverId === callerDriverId;
         }
       }
 
@@ -663,7 +705,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           evseId: evse.evseId,
           connectors: evseConnectors,
           reservationExpiresAt,
-          reservationDriverId,
+          reserved: reservationExpiresAt != null,
+          reservedByMe,
         },
         maintenance,
         stationUnavailable: isStationLevelUnavailable(station),
@@ -698,7 +741,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .select({ id: chargingStations.id, freeVendEnabled: sites.freeVendEnabled })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(eq(chargingStations.stationId, stationId));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -719,22 +762,33 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           pricePerMinute: null,
           pricePerSession: null,
           idleFeePricePerMinute: null,
+          reservationFeePerMinute: null,
           taxRate: null,
           taxBasis: await getCompanyTaxBasis(),
           isFreeVend: true,
           restrictions: null,
           billing: null,
+          timezone: null,
+          priceChangesDuringSession: false,
+          paidTariffAhead: false,
         };
       }
 
-      const tariff = await resolveStationTariff(
+      // The resolver billing uses (the whole group chain), so the driver is
+      // shown the tariff the session is charged at.
+      const resolved = await resolveStationPricing(
         { stationUuid: station.id, driverUuid: driverId },
         client,
       );
-      if (tariff == null) {
+      if (resolved == null) {
         await reply.status(404).send({ error: 'No pricing found', code: 'PRICING_NOT_FOUND' });
         return;
       }
+      const { tariff, groupTariffs } = resolved;
+      const splitBilling = await isSplitBillingEnabled();
+      const priceChangesDuringSession = splitBilling && groupTariffs.some((t) => t.priority > 0);
+      // The start decides free or paid like isStationChargingFree (B3).
+      const paidTariffAhead = splitBilling && hasPaidTariff(groupTariffs);
 
       return {
         currency: await getCompanyCurrency(),
@@ -742,11 +796,15 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         pricePerMinute: tariff.pricePerMinute,
         pricePerSession: tariff.pricePerSession,
         idleFeePricePerMinute: tariff.idleFeePricePerMinute,
+        reservationFeePerMinute: tariff.reservationFeePerMinute,
         taxRate: tariff.taxRate,
         taxBasis: await getCompanyTaxBasis(),
         isFreeVend: false,
         restrictions: tariff.restrictions ?? null,
         billing: toDriverBilling(await resolveAccountBilling(client, driverId)),
+        timezone: tariff.timezone,
+        priceChangesDuringSession,
+        paidTariffAhead,
       };
     },
   );
@@ -807,8 +865,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           availableCount: sql<number>`${sql.raw(availableEvseCountSql('charging_stations'))}`,
         })
         .from(chargingStations)
-        .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(whereClause)
+        .innerJoin(sites, eq(chargingStations.siteId, sites.id))
+        .where(and(publicStationListed(), whereClause))
         .limit(20);
 
       const stationUuids = rows.map((r) => r.stationUuid);
@@ -900,6 +958,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .innerJoin(sites, eq(chargingStations.siteId, sites.id))
         .where(
           and(
+            publicStationListed(),
             sql`COALESCE(${chargingStations.latitude}, ${sites.latitude}) IS NOT NULL`,
             sql`COALESCE(${chargingStations.longitude}, ${sites.longitude}) IS NOT NULL`,
             sql`${distanceExpr} <= ${radius}`,
@@ -1167,7 +1226,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .leftJoin(evses, eq(evses.stationId, chargingStations.id))
         .leftJoin(connectors, eq(connectors.evseId, evses.id))
-        .where(eq(chargingStations.siteId, siteId));
+        .where(and(eq(chargingStations.siteId, siteId), publicStationListed()));
 
       // Per-EVSE detail for the chargers list. One row per EVSE with the first
       // connector's type / power / status (most stations have 1 connector per
@@ -1185,7 +1244,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .innerJoin(evses, eq(evses.stationId, chargingStations.id))
         .innerJoin(connectors, eq(connectors.evseId, evses.id))
-        .where(eq(chargingStations.siteId, siteId))
+        .where(and(eq(chargingStations.siteId, siteId), publicStationListed()))
         .orderBy(chargingStations.stationId, evses.evseId);
 
       const isContactPublic = site.contactIsPublic;
@@ -1424,7 +1483,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(eq(chargingStations.stationId, stationId));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -1520,6 +1579,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         }
       }
 
+      // The holder's id is never returned: the route is public.
+      const callerDriverId = reservationDriverMap.size > 0 ? await optionalDriverId(request) : null;
       const paymentProvider = await activePaymentProvider(request.log);
 
       const isContactPublic = station.siteContactIsPublic === true;
@@ -1543,7 +1604,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           evseId: e.evseId,
           connectors: e.connectors,
           reservationExpiresAt: reservationExpiryMap.get(e.evseUuid) ?? null,
-          reservationDriverId: reservationDriverMap.get(e.evseUuid) ?? null,
+          reserved: reservationExpiryMap.has(e.evseUuid),
+          reservedByMe:
+            callerDriverId != null && reservationDriverMap.get(e.evseUuid) === callerDriverId,
         })),
         maintenance,
         stationUnavailable: isStationLevelUnavailable(station),
@@ -1597,7 +1660,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           ocppProtocol: chargingStations.ocppProtocol,
         })
         .from(chargingStations)
-        .where(eq(chargingStations.stationId, stationId));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
@@ -1731,12 +1794,16 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(chargingStations)
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
-        .where(eq(chargingStations.stationId, params.stationId));
+        // A pending or blocked station answers like an unknown one.
+        .where(and(eq(chargingStations.stationId, params.stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
+
+      // Second layer (P11): the onboarding gate runs before any other state.
+      if (!(await checkStationOnboarded(station, reply))) return;
 
       const activeMaintenance = await getActiveMaintenanceForStation(station.id);
       if (activeMaintenance != null) {
@@ -1747,8 +1814,6 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         });
         return;
       }
-
-      if (!(await checkStationOnboarded(station, reply))) return;
 
       if (!station.isOnline) {
         await reply.status(400).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });
@@ -2425,7 +2490,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
     async (request) => {
       const { driverId } = request.user as DriverJwtPayload;
 
-      const data = await db
+      const rows = await db
         .select({
           id: reservations.id,
           reservationId: reservations.reservationId,
@@ -2434,6 +2499,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           startsAt: reservations.startsAt,
           expiresAt: reservations.expiresAt,
           createdAt: reservations.createdAt,
+          stationDbId: reservations.stationId,
+          feeTaxBasis: reservations.feeTaxBasis,
+          feeTaxRate: reservations.feeTaxRate,
+          feePerMinute: reservations.feePerMinute,
+          feeCancellationCents: reservations.feeCancellationCents,
         })
         .from(reservations)
         .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
@@ -2441,7 +2511,23 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .orderBy(desc(reservations.createdAt), desc(reservations.id))
         .limit(50);
 
-      return { data };
+      return {
+        data: await Promise.all(
+          rows.map(async (r) => ({
+            id: r.id,
+            reservationId: r.reservationId,
+            stationOcppId: r.stationOcppId,
+            status: r.status,
+            startsAt: r.startsAt,
+            expiresAt: r.expiresAt,
+            createdAt: r.createdAt,
+            ...(await reservationFeesView(
+              { ...r, stationId: r.stationDbId, driverId },
+              request.log,
+            )),
+          })),
+        ),
+      };
     },
   );
 
@@ -2480,6 +2566,11 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           expiresAt: reservations.expiresAt,
           createdAt: reservations.createdAt,
           updatedAt: reservations.updatedAt,
+          stationDbId: reservations.stationId,
+          feeTaxBasis: reservations.feeTaxBasis,
+          feeTaxRate: reservations.feeTaxRate,
+          feePerMinute: reservations.feePerMinute,
+          feeCancellationCents: reservations.feeCancellationCents,
         })
         .from(reservations)
         .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
@@ -2531,6 +2622,10 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         createdAt: reservation.createdAt,
         updatedAt: reservation.updatedAt,
         sessionId,
+        ...(await reservationFeesView(
+          { ...reservation, stationId: reservation.stationDbId, driverId },
+          request.log,
+        )),
       };
     },
   );
@@ -2589,13 +2684,15 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           reportedStatus: chargingStations.reportedStatus,
         })
         .from(chargingStations)
-        .where(eq(chargingStations.stationId, body.stationId));
+        // A pending or blocked station answers like an unknown one.
+        .where(and(eq(chargingStations.stationId, body.stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
 
+      // Second layer (P11): the onboarding gate runs before any other state.
       if (!(await checkStationOnboarded(station, reply))) return;
 
       const portalReservationStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
@@ -2812,6 +2909,14 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         );
       }
 
+      // The cancellation and no-show fee terms in effect now (tariff the
+      // driver resolves at the station, fee setting, tax basis): a later edit
+      // does not change what this reservation is charged.
+      const feeTerms = await snapshotReservationFeeTerms({
+        stationUuid: station.id,
+        driverUuid: driverId,
+      });
+
       const [reservation] = await db
         .insert(reservations)
         .values({
@@ -2823,6 +2928,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           status: isFutureScheduled ? 'scheduled' : 'active',
           expiresAt: new Date(body.expiresAt),
           ...(body.startsAt != null ? { startsAt: new Date(body.startsAt) } : {}),
+          ...feeTerms,
         })
         .returning();
 
@@ -2856,13 +2962,14 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           'csms_events',
           JSON.stringify({
             eventType: 'reservation.changed',
-            stationId: null,
-            siteId: null,
+            stationId: station.id,
+            siteId: station.siteId,
             sessionId: null,
           }),
         )
-        .catch(() => {
-          /* best-effort */
+        .catch((err: unknown) => {
+          // fail-open: the Reservations page refreshes on its next fetch (P9).
+          request.log.warn({ err }, 'reservation.changed publish failed');
         });
 
       if (isFutureScheduled) {

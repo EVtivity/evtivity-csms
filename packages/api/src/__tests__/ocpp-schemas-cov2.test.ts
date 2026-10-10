@@ -189,7 +189,7 @@ describe('OCPP command schema processing (all field types)', () => {
 
     expect(body.example).toEqual({
       missingRef: '',
-      profiles: [],
+      profiles: [{ id: 0 }],
       startTime: '2026-01-02T03:04:05.000Z',
       enabled: false,
       limit: 0,

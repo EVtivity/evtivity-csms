@@ -4,15 +4,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 
-const { mockInsertFn, mockValuesFn } = vi.hoisted(() => ({
+const { mockInsertFn, mockValuesFn, stationRows } = vi.hoisted(() => ({
   mockInsertFn: vi.fn(),
   mockValuesFn: vi.fn(),
+  // The station's site, as the SSE site lookup returns it.
+  stationRows: { rows: [] as Array<{ siteId: string | null }> },
 }));
 
-vi.mock('@evtivity/database', () => ({
-  db: { insert: mockInsertFn },
-  authorizeAttempts: { __table: 'authorize_attempts' },
-}));
+vi.mock('@evtivity/database', () => {
+  const select = vi.fn(() => ({
+    from: () => ({ where: () => Promise.resolve(stationRows.rows) }),
+  }));
+  return {
+    db: { insert: mockInsertFn, select },
+    authorizeAttempts: { __table: 'authorize_attempts' },
+    chargingStations: { id: 'charging_stations.id', siteId: 'charging_stations.site_id' },
+  };
+});
 
 import {
   logAuthorizeAttempt,
@@ -28,6 +36,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockValuesFn.mockResolvedValue(undefined);
   mockInsertFn.mockReturnValue({ values: mockValuesFn });
+  stationRows.rows = [];
 });
 
 describe('parseOcpiValidThru', () => {
@@ -252,7 +261,8 @@ describe('logAuthorizeAttempt SSE notification', () => {
     setAuthorizeLogPubSub({ publish } as unknown as PubSubClient);
   });
 
-  it('publishes an authorize.attempt csms_events after a successful insert', async () => {
+  it('publishes an authorize.attempt csms_events with the station site after a successful insert', async () => {
+    stationRows.rows = [{ siteId: 'sit_1' }];
     await logAuthorizeAttempt(
       {
         stationId: 'CS-SSE',
@@ -270,6 +280,29 @@ describe('logAuthorizeAttempt SSE notification', () => {
       JSON.stringify({
         eventType: 'authorize.attempt',
         stationId: 'CS-SSE',
+        siteId: 'sit_1',
+        sessionId: null,
+      }),
+    );
+  });
+
+  it('publishes without a site for an unknown station', async () => {
+    await logAuthorizeAttempt(
+      {
+        stationId: 'CS-GONE',
+        idToken: 'TAG-SSE',
+        tokenType: 'ISO14443',
+        outcome: 'unknown',
+        ocppVersion: 'ocpp2.1',
+      },
+      logger,
+    );
+
+    expect(publish).toHaveBeenCalledWith(
+      'csms_events',
+      JSON.stringify({
+        eventType: 'authorize.attempt',
+        stationId: 'CS-GONE',
         siteId: null,
         sessionId: null,
       }),

@@ -48,3 +48,23 @@ export function shouldMarkStationOffline(input: {
   if (input.lastActivityAt == null) return true;
   return input.lastActivityAt.getTime() < input.staleBefore.getTime();
 }
+
+/**
+ * Whether the tariff boundary job may switch a session's tariff segment at
+ * wall clock (finding B6): the station is online and sent something within
+ * one heartbeat interval (plus the liveness write interval). A station that is
+ * offline or silent may be queueing readings and its transaction end, which
+ * arrive later with their own timestamps: the MeterValues projection then
+ * switches at the reading timestamp and the Ended projection ends the
+ * segments at the reported end, so the job leaves such a session alone.
+ */
+export function isStationLiveForSegmentSwitch(input: {
+  isOnline: boolean;
+  lastActivityAt: Date | null;
+  now: Date;
+  heartbeatSeconds: number;
+}): boolean {
+  if (!input.isOnline || input.lastActivityAt == null) return false;
+  const maxSilenceMs = (input.heartbeatSeconds + LIVENESS_WRITE_INTERVAL_SECONDS) * 1000;
+  return input.now.getTime() - input.lastActivityAt.getTime() <= maxSilenceMs;
+}

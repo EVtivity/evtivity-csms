@@ -297,15 +297,15 @@ describe('Load management routes (hierarchy and site scope)', () => {
     expect(res.json().config).toBeNull();
   });
 
-  it('GET returns an empty view for a site outside the user scope', async () => {
+  it('GET returns 404 SITE_NOT_FOUND for a site outside the user scope', async () => {
     vi.mocked(getUserSiteIds).mockResolvedValue([OTHER_SITE]);
     const res = await app.inject({
       method: 'GET',
       url: `/sites/${SITE}/load-management`,
       headers: auth(),
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ config: null, hierarchy: [], stations: [] });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: 'SITE_NOT_FOUND' });
     expect(buildSiteHierarchy).not.toHaveBeenCalled();
   });
 
@@ -333,7 +333,7 @@ describe('Load management routes (hierarchy and site scope)', () => {
     expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
   });
 
-  it('history returns an empty list for a site outside the user scope', async () => {
+  it('history returns 404 SITE_NOT_FOUND for a site outside the user scope', async () => {
     vi.mocked(getUserSiteIds).mockResolvedValue([OTHER_SITE]);
     setupDbResults([
       {
@@ -350,7 +350,7 @@ describe('Load management routes (hierarchy and site scope)', () => {
       url: `/sites/${SITE}/load-management/history`,
       headers: auth(),
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual([]);
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: 'SITE_NOT_FOUND' });
   });
 });

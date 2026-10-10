@@ -767,7 +767,7 @@ describe('Config template routes', () => {
       expect(res.statusCode).toBe(401);
     });
 
-    it('returns 200 with empty array when station not found', async () => {
+    it('returns 404 when the station is not found', async () => {
       setupDbResults([]);
 
       const res = await app.inject({
@@ -775,9 +775,8 @@ describe('Config template routes', () => {
         url: '/v1/stations/sta-1/config-drift',
         headers: { authorization: `Bearer ${token}` },
       });
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
-      expect(body).toEqual([]);
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ code: 'STATION_NOT_FOUND' });
     });
 
     it('returns 200 with empty array when no templates match', async () => {

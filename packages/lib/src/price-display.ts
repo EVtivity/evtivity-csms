@@ -15,7 +15,8 @@ import { resolveLocale } from './number.js';
  * Rounding rules (what the driver was charged):
  * - Tax basis 'net' (default): tariff prices exclude tax. Each billed amount
  *   is quantity times price rounded to the cent. Tax is the net amount times
- *   the rate, rounded half up to the cent (taxOnNet), once per tax rate of a
+ *   the rate, computed exactly on the decimal values (no floating point
+ *   error) and rounded half up to the cent (taxOnNet), once per tax rate of a
  *   session: the amounts of every tariff segment (and a split session's
  *   reservation holding fee, at the first segment's rate) billed at one rate
  *   are summed first (taxPerRate).
@@ -185,17 +186,6 @@ export function formatTaxRatePercent(taxRate: number, locale = 'en-US'): string 
 }
 
 /**
- * Whether a session cost contains tax: an amount above 0 billed with a tariff
- * tax rate above 0. Labels such as "incl. tax" are shown only then.
- */
-export function costIncludesTax(
-  costCents: number | null | undefined,
-  taxRate: string | number | null | undefined,
-): boolean {
-  return costCents != null && costCents > 0 && Number(taxRate ?? 0) > 0;
-}
-
-/**
  * Whether a session cost contains tax, from the tax stored with it
  * (charging_sessions.tax_cents, written with every cost): an amount above 0
  * whose stored tax is above 0. Portal lists and the guest page gate their
@@ -273,9 +263,68 @@ export interface TaxTotals {
   grossCents: number;
 }
 
-/** Tax of a net amount in cents at a rate, rounded half up to the cent. */
+/** A finite number as an exact fraction of integers, from its shortest round-trip decimal form. */
+interface ExactDecimal {
+  num: bigint;
+  den: bigint;
+}
+
+const DECIMAL_PATTERN = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]\d+))?$/;
+
+/**
+ * The decimal a number stands for (0.0875 is 875 / 10000), not its binary
+ * approximation: JavaScript prints the shortest decimal that reads back as
+ * the same number, and that decimal is what a stored numeric value holds.
+ * Throws for a value that is not finite.
+ */
+function exactDecimal(value: number): ExactDecimal {
+  if (!Number.isFinite(value)) throw new RangeError(`Not a finite amount: ${String(value)}`);
+  const match = DECIMAL_PATTERN.exec(String(value));
+  if (match == null) throw new RangeError(`Not a decimal amount: ${String(value)}`);
+  const [, sign = '', whole = '0', fraction = '', exponentText = '0'] = match;
+  const exponent = Number(exponentText) - fraction.length;
+  let num = BigInt(`${sign}${whole}${fraction}`);
+  let den = 1n;
+  if (exponent >= 0) num *= 10n ** BigInt(exponent);
+  else den = 10n ** BigInt(-exponent);
+  return { num, den };
+}
+
+/** num / den rounded down (toward minus infinity), den > 0. */
+function floorDiv(num: bigint, den: bigint): bigint {
+  const q = num / den;
+  return num % den !== 0n && num < 0n ? q - 1n : q;
+}
+
+/** num / den rounded half up (ties toward plus infinity, as Math.round), den > 0. */
+function roundHalfUp(num: bigint, den: bigint): number {
+  return Number(floorDiv(2n * num + den, 2n * den));
+}
+
+/**
+ * An amount in cents times `factor` divided by `divisor`, computed exactly on
+ * the decimal values (no binary floating point error) and rounded half up to
+ * the cent. multiplyCents(360, 0.0875) is 32 (31.5 rounded up), where
+ * Math.round(360 * 0.0875) gives 31 because 360 * 0.0875 is 31.499999... in
+ * floating point. Every tax and percentage of an amount uses it.
+ */
+export function multiplyCents(amountCents: number, factor: number, divisor = 1): number {
+  const amount = exactDecimal(amountCents);
+  const f = exactDecimal(factor);
+  const d = exactDecimal(divisor);
+  if (d.num === 0n) throw new RangeError('Division by zero');
+  let num = amount.num * f.num * d.den;
+  let den = amount.den * f.den * d.num;
+  if (den < 0n) {
+    num = -num;
+    den = -den;
+  }
+  return roundHalfUp(num, den);
+}
+
+/** Tax of a net amount in cents at a rate, exact and rounded half up to the cent. */
 export function taxOnNet(netCents: number, taxRate: number): number {
-  return Math.round(netCents * taxRate);
+  return multiplyCents(netCents, taxRate);
 }
 
 /**
@@ -291,14 +340,18 @@ export function taxLineFromNet(netCents: number, taxRate: number): TaxBreakdownL
 
 /**
  * Net amount contained in a gross amount (tax included) at one rate:
- * round(gross / (1 + rate)).
+ * round(gross / (1 + rate)), exact and rounded half up.
  *
  * For an amount the cost calculator produced from a single tariff
  * (gross = net + taxOnNet(net, rate)), this returns that net exactly, because
  * gross / (1 + rate) differs from net by less than half a cent.
  */
 export function netFromGross(grossCents: number, taxRate: number): number {
-  return taxRate > 0 ? Math.round(grossCents / (1 + taxRate)) : grossCents;
+  if (!(taxRate > 0)) return grossCents;
+  const gross = exactDecimal(grossCents);
+  const rate = exactDecimal(taxRate);
+  // gross / (1 + rate) = (g / gd) / ((rd + r) / rd), computed exactly.
+  return roundHalfUp(gross.num * rate.den, gross.den * (rate.den + rate.num));
 }
 
 /** Split a gross amount into net and tax at one rate (tax = gross - net). */
@@ -363,15 +416,28 @@ export function taxTotals(lines: readonly TaxLine[]): TaxTotals {
  */
 export function allocateCents(totalCents: number, weights: readonly number[]): number[] {
   if (weights.length === 0) return [];
-  const weightSum = weights.reduce((sum, w) => sum + w, 0);
-  if (weightSum === 0) return weights.map((_, i) => (i === 0 ? totalCents : 0));
-
-  const exact = weights.map((w) => (totalCents * w) / weightSum);
-  const parts = exact.map((x) => Math.floor(x));
+  // Exact integer arithmetic: the weights scaled to one common denominator,
+  // so equal remainders compare equal and ties go to the earlier weight.
+  const exact = weights.map(exactDecimal);
+  const commonDen = exact.reduce((max, w) => (w.den > max ? w.den : max), 1n);
+  let scaled = exact.map((w) => (w.num * commonDen) / w.den);
+  let weightSum = scaled.reduce((sum, w) => sum + w, 0n);
+  if (weightSum === 0n) return weights.map((_, i) => (i === 0 ? totalCents : 0));
+  if (weightSum < 0n) {
+    scaled = scaled.map((w) => -w);
+    weightSum = -weightSum;
+  }
+  const total = BigInt(totalCents);
+  const shares = scaled.map((w) => {
+    const product = total * w;
+    const floor = floorDiv(product, weightSum);
+    return { floor, fraction: product - floor * weightSum };
+  });
+  const parts = shares.map((share) => Number(share.floor));
   let remainder = totalCents - parts.reduce((sum, p) => sum + p, 0);
-  const order = exact
-    .map((x, i) => ({ i, fraction: x - Math.floor(x) }))
-    .sort((a, b) => b.fraction - a.fraction || a.i - b.i);
+  const order = shares
+    .map((share, i) => ({ i, fraction: share.fraction }))
+    .sort((a, b) => (a.fraction === b.fraction ? a.i - b.i : a.fraction > b.fraction ? -1 : 1));
   for (const { i } of order) {
     if (remainder <= 0) break;
     parts[i] = (parts[i] ?? 0) + 1;

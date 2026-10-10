@@ -59,8 +59,23 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
+vi.mock('../lib/support-case-scope.js', () => ({
+  supportCaseSiteCondition: vi.fn((siteIds: string[]) => ({ supportCaseSiteCondition: siteIds })),
+}));
+
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn(() => Promise.resolve(state.siteIds)),
+  requireAllSiteAccess: vi.fn(
+    async (
+      _request: unknown,
+      reply: { status: (code: number) => { send: (body: unknown) => unknown } },
+      notFound: unknown,
+    ) => {
+      if (state.siteIds == null) return true;
+      await reply.status(404).send(notFound);
+      return false;
+    },
+  ),
 }));
 
 vi.mock('@evtivity/database', () => {
@@ -108,7 +123,6 @@ import {
   invoices,
   reservations,
   sites,
-  supportCases,
 } from '@evtivity/database';
 
 describe('entity neighbor site scoping (cov2)', () => {
@@ -176,41 +190,23 @@ describe('entity neighbor site scoping (cov2)', () => {
     expect(inArrayMock).toHaveBeenCalledWith(chargingStations.siteId, ['sit_a', 'sit_b']);
   });
 
-  it('keeps support cases without a station visible to restricted users', async () => {
+  it('pages support cases with the case list visibility (supportCaseSiteCondition)', async () => {
     setupDbResults([{ id: 'cas_1' }], [], []);
     const res = await get('/support-cases/cas_1/neighbors');
     expect(res.statusCode).toBe(200);
-    const scope = currentScope() as { or: Array<Record<string, unknown>> };
-    expect(scope.or[0]).toEqual({ isNull: supportCases.stationId });
-    expect((scope.or[1] as { inArray: unknown[] }).inArray[0]).toBe(supportCases.stationId);
+    expect(currentScope()).toEqual({ supportCaseSiteCondition: state.siteIds });
   });
 
-  it('skips fleet invoices for restricted users', async () => {
+  it.each([
+    ['assigned to some sites', ['sit_a']],
+    ['assigned to no site', []],
+  ])('404s every invoice for a restricted user %s', async (_label, ids) => {
+    state.siteIds = ids;
     setupDbResults([{ id: 'inv_1' }], [{ id: 'inv_0' }], [{ id: 'inv_2' }]);
     const res = await get('/invoices/inv_1/neighbors');
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ prevId: 'inv_0', nextId: 'inv_2' });
-    // The current, prev and next queries all leave fleet invoices out.
-    expect(mainWheres()).toHaveLength(3);
-    for (const where of mainWheres()) {
-      expect(where.and[1]).toEqual({ isNull: invoices.fleetId });
-    }
-  });
-
-  it('serves driver invoice neighbors to a restricted user with no site', async () => {
-    state.siteIds = [];
-    setupDbResults([{ id: 'inv_1' }], [], [{ id: 'inv_2' }]);
-    const res = await get('/invoices/inv_1/neighbors');
-    expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ prevId: null, nextId: 'inv_2' });
-    expect(currentScope()).toEqual({ isNull: invoices.fleetId });
-  });
-
-  it('404s a fleet invoice for a restricted user as a missing invoice', async () => {
-    setupDbResults([]);
-    const res = await get('/invoices/inv_fleet/neighbors');
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ error: 'Not found', code: 'INVOICE_NOT_FOUND' });
+    expect(mainWheres()).toHaveLength(0);
   });
 
   it('does not scope invoices for unrestricted users', async () => {

@@ -2,11 +2,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
 // DB mock helpers
 let dbResults: unknown[][] = [];
+// Values of every insert run inside db.transaction.
+const lastTxInsertValues: unknown[] = [];
 let dbCallIndex = 0;
 function setupDbResults(...results: unknown[][]) {
   dbResults = results;
@@ -75,7 +81,15 @@ vi.mock('@evtivity/database', () => ({
     transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         select: vi.fn(() => makeChain()),
-        insert: vi.fn(() => makeChain()),
+        insert: vi.fn(() => {
+          const chain = makeChain();
+          const values = chain['values'] as (v: unknown) => unknown;
+          chain['values'] = (v: unknown) => {
+            lastTxInsertValues.push(v);
+            return values(v);
+          };
+          return chain;
+        }),
         update: vi.fn(() => makeChain()),
         delete: vi.fn(() => makeChain()),
       };
@@ -120,7 +134,6 @@ vi.mock('drizzle-orm', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { pricingRoutes } from '../routes/pricing.js';
 import { resolveGroupTariffs } from '@evtivity/database';
-import { db } from '@evtivity/database';
 
 const VALID_GROUP_ID = 'pgr_000000000001';
 const VALID_TARIFF_ID = 'trf_000000000001';
@@ -330,7 +343,8 @@ describe('Pricing routes', () => {
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-01T00:00:00Z',
       };
-      setupDbResults([created]);
+      // Q1: no default group yet, Q2: insert
+      setupDbResults([], [created]);
       const res = await app.inject({
         method: 'POST',
         url: '/pricing-groups',
@@ -569,7 +583,7 @@ describe('Pricing routes', () => {
         createdAt: '2024-01-01T00:00:00Z',
         updatedAt: '2024-01-01T00:00:00Z',
       };
-      // Q1: existing tariffs, Q2: unset defaults, Q3: insert
+      // Q1: the group tariffs, Q2: unset defaults, Q3: insert (in the transaction)
       setupDbResults([], [], [created]);
       const res = await app.inject({
         method: 'POST',
@@ -579,12 +593,9 @@ describe('Pricing routes', () => {
       });
       expect(res.statusCode).toBe(201);
       expect(res.json()).not.toHaveProperty('currency');
-      const insertChain = vi.mocked(db.insert).mock.results.at(-1)?.value as {
-        values: ReturnType<typeof vi.fn>;
-      };
-      expect(insertChain.values).toHaveBeenCalledWith(
-        expect.not.objectContaining({ currency: expect.anything() }),
-      );
+      const insertValues = lastTxInsertValues.at(-1);
+      expect(insertValues).toBeDefined();
+      expect(insertValues).not.toHaveProperty('currency');
     });
 
     it('creates a tariff with only required fields', async () => {

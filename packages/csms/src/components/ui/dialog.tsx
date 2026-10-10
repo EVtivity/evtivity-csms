@@ -21,9 +21,70 @@ interface DialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: React.ReactNode;
+  /**
+   * False while the dialog must not be dismissed (an action is running): Escape
+   * and a click on the backdrop then leave it open. Default true.
+   */
+  dismissible?: boolean;
 }
 
-function Dialog({ open, onOpenChange, children }: DialogProps): React.JSX.Element | null {
+// Open dialogs in the order they opened. Escape closes only the topmost one.
+const openDialogs: symbol[] = [];
+
+// Escape dismisses the topmost dialog, and focus returns to the element that
+// had it when the dialog opened. Mounted only while the dialog is open.
+function useDialogDismiss(onDismiss: () => void, dismissible: boolean): void {
+  // Read during the first render, before an autoFocus child takes focus.
+  const [returnFocusTo] = React.useState<Element | null>(() =>
+    typeof document === 'undefined' ? null : document.activeElement,
+  );
+  const latest = React.useRef({ onDismiss, dismissible });
+  React.useEffect(() => {
+    latest.current = { onDismiss, dismissible };
+  });
+
+  React.useEffect(() => {
+    const token = Symbol('dialog');
+    openDialogs.push(token);
+    function handleKeyDown(e: KeyboardEvent): void {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      if (openDialogs[openDialogs.length - 1] !== token) return;
+      // The topmost dialog consumes Escape even while busy, so the dialog
+      // below it does not close instead.
+      e.preventDefault();
+      if (latest.current.dismissible) latest.current.onDismiss();
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      const index = openDialogs.indexOf(token);
+      if (index !== -1) openDialogs.splice(index, 1);
+      if (returnFocusTo instanceof HTMLElement && returnFocusTo.isConnected) {
+        returnFocusTo.focus();
+      }
+    };
+  }, [returnFocusTo]);
+}
+
+function Dialog({
+  open,
+  onOpenChange,
+  children,
+  dismissible = true,
+}: DialogProps): React.JSX.Element | null {
+  if (!open) return null;
+  return (
+    <OpenDialog onOpenChange={onOpenChange} dismissible={dismissible}>
+      {children}
+    </OpenDialog>
+  );
+}
+
+function OpenDialog({
+  onOpenChange,
+  children,
+  dismissible,
+}: Omit<DialogProps, 'open'> & { dismissible: boolean }): React.JSX.Element {
   const titleId = React.useId();
   const descriptionId = React.useId();
   const [descriptionCount, setDescriptionCount] = React.useState(0);
@@ -33,8 +94,9 @@ function Dialog({ open, onOpenChange, children }: DialogProps): React.JSX.Elemen
       setDescriptionCount((n) => n - 1);
     };
   }, []);
-
-  if (!open) return null;
+  useDialogDismiss(() => {
+    onOpenChange(false);
+  }, dismissible);
 
   return (
     <DialogContext.Provider
@@ -51,7 +113,7 @@ function Dialog({ open, onOpenChange, children }: DialogProps): React.JSX.Elemen
         <div
           className="fixed inset-0 bg-foreground/80"
           onClick={() => {
-            onOpenChange(false);
+            if (dismissible) onOpenChange(false);
           }}
         />
         <div className="fixed inset-0 flex items-center justify-center p-4">{children}</div>

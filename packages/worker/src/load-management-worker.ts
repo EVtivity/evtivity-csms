@@ -13,7 +13,10 @@ const log = createLogger('load-management-worker');
 
 /**
  * Reads all sites with active load management and enqueues one job per site.
- * jobId deduplication prevents duplicate jobs for the same site.
+ * The jobId collapses an add while the site's previous job is still waiting
+ * or running. A finished job is removed at once (removeOnComplete and
+ * removeOnFail true): BullMQ ignores an add whose id still exists, so a kept
+ * finished job would skip the site's next ticks until the queue evicts it.
  * Called every 10 seconds by the BullMQ repeating coordinator job.
  */
 export async function enqueueLoadManagementJobs(loadQueue: Queue): Promise<void> {
@@ -32,6 +35,8 @@ export async function enqueueLoadManagementJobs(loadQueue: Queue): Promise<void>
         {
           jobId: `load-management-${site.siteId}`,
           attempts: 1,
+          removeOnComplete: true,
+          removeOnFail: true,
         },
       ),
     ),

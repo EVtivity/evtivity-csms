@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
+import { parseMajorInputToCents } from '@evtivity/lib/currency';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
@@ -155,8 +156,8 @@ export function SessionPaymentTab({
       return true;
     }
 
-    const cents = Math.round(parseFloat(refundAmount) * 100);
-    if (isNaN(cents) || cents <= 0) {
+    const cents = parseMajorInputToCents(refundAmount);
+    if (cents == null || cents <= 0) {
       setRefundError(t('sessions.refundAmountInvalid'));
       return false;
     }

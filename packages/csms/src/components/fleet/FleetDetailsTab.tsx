@@ -16,6 +16,7 @@ import { EnergyChart } from '@/components/charts/EnergyChart';
 import { api } from '@/lib/api';
 import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { useHasAllSiteAccess } from '@/lib/auth';
 
 interface Fleet {
   id: string;
@@ -47,6 +48,8 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  // Deleting a fleet removes its links at every site: all-site users only.
+  const hasAllSiteAccess = useHasAllSiteAccess();
   const timezone = useUserTimezone();
 
   const [editing, setEditing] = useState(false);
@@ -124,15 +127,17 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
           <CardTitle>{t('common.details')}</CardTitle>
           <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
             {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
-            <div title={driverCount > 0 ? t('fleets.removeDriversFirst') : undefined}>
-              <RemoveButton
-                label={t('common.delete')}
-                onClick={() => {
-                  deleteMutation.mutate();
-                }}
-                disabled={deleteMutation.isPending || driverCount > 0}
-              />
-            </div>
+            {hasAllSiteAccess && (
+              <div title={driverCount > 0 ? t('fleets.removeDriversFirst') : undefined}>
+                <RemoveButton
+                  label={t('common.delete')}
+                  onClick={() => {
+                    deleteMutation.mutate();
+                  }}
+                  disabled={deleteMutation.isPending || driverCount > 0}
+                />
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>

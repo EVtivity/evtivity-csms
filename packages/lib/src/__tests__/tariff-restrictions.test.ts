@@ -210,14 +210,29 @@ describe('tariffMatchesNow', () => {
   });
 
   describe('falls through to false', () => {
-    it('returns false when daysOfWeek matches the day but no timeRange is set', () => {
-      // daysOfWeek present and the current day is in the list, but with no
-      // timeRange the function falls through past every branch to `return false`.
+    it('matches the whole day when daysOfWeek has no timeRange (TC-T3-14)', () => {
       const restrictions: TariffRestrictions = {
         daysOfWeek: [3], // Wednesday
       };
-      const wednesday = new Date(2026, 0, 14, 12, 0, 0); // 2026-01-14 is a Wednesday
-      expect(tariffMatchesNow(restrictions, wednesday, [], 0)).toBe(false);
+      expect(tariffMatchesNow(restrictions, new Date(2026, 0, 14, 0, 0, 0), [], 0)).toBe(true);
+      expect(tariffMatchesNow(restrictions, new Date(2026, 0, 14, 23, 59, 30), [], 0)).toBe(true);
+      // Thursday 00:00 is the next day.
+      expect(tariffMatchesNow(restrictions, new Date(2026, 0, 15, 0, 0, 0), [], 0)).toBe(false);
+    });
+
+    it('keeps calendar-day semantics for a window crossing midnight (TC-T3-15)', () => {
+      const fri = { daysOfWeek: [5], timeRange: { startTime: '22:00', endTime: '06:00' } };
+      const tz = 'America/Los_Angeles';
+      // Fri 02:00 PT matches (Fri 00:00-06:00), Sat 02:00 PT does not.
+      expect(tariffMatchesNow(fri, new Date('2026-10-09T09:00:00Z'), [], 0, tz)).toBe(true);
+      expect(tariffMatchesNow(fri, new Date('2026-10-10T09:00:00Z'), [], 0, tz)).toBe(false);
+    });
+
+    it('covers Feb 29 with a season ending 02-29 (TC-T3-16)', () => {
+      const winter = { dateRange: { startDate: '12-01', endDate: '02-29' } };
+      expect(tariffMatchesNow(winter, new Date(2028, 1, 29, 12, 0, 0), [], 0)).toBe(true);
+      expect(tariffMatchesNow(winter, new Date(2027, 1, 28, 12, 0, 0), [], 0)).toBe(true);
+      expect(tariffMatchesNow(winter, new Date(2027, 2, 1, 12, 0, 0), [], 0)).toBe(false);
     });
 
     it('returns false for an empty restriction object', () => {
@@ -319,14 +334,12 @@ describe('tariffRestrictionsSchema', () => {
     expect(result.success).toBe(false);
   });
 
-  it('rejects daysOfWeek without timeRange', () => {
+  it('accepts daysOfWeek without timeRange (the whole day)', () => {
     const result = tariffRestrictionsSchema.safeParse({
-      daysOfWeek: [1, 2, 3, 4, 5],
+      daysOfWeek: [0, 6],
     });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error.issues[0]?.message).toContain('daysOfWeek requires timeRange');
-    }
+    expect(result.success).toBe(true);
+    expect(derivePriority({ daysOfWeek: [0, 6] })).toBe(20);
   });
 
   it('accepts an empty restriction object (the default/no-restriction tariff)', () => {

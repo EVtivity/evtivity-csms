@@ -26,11 +26,32 @@
     "./price-display": {
       "import": "./src/price-display.ts"
     },
+    "./reservation-holding": {
+      "import": "./src/reservation-holding.ts"
+    },
+    "./pricing-engine": {
+      "import": "./src/pricing-engine.ts"
+    },
+    "./testing/pricing-oracle": {
+      "import": "./src/testing/pricing-oracle.ts"
+    },
+    "./payment-helpers": {
+      "import": "./src/payment-helpers.ts"
+    },
     "./timezone": {
       "import": "./src/timezone.ts"
     },
     "./station-password": {
       "import": "./src/station-password.ts"
+    },
+    "./uuid": {
+      "import": "./src/uuid.ts"
+    },
+    "./toast-durations": {
+      "import": "./src/toast-durations.ts"
+    },
+    "./ocpp-command-schema": {
+      "import": "./src/ocpp-command-schema.ts"
     },
     "./password-policy": {
       "import": "./src/password-policy.ts"
@@ -53,8 +74,23 @@
     "./safe-json": {
       "import": "./src/safe-json.ts"
     },
+    "./ai-stream": {
+      "import": "./src/ai-stream.ts"
+    },
+    "./ai-config": {
+      "import": "./src/ai-config.ts"
+    },
+    "./ai-markdown-policy": {
+      "import": "./src/ai-markdown-policy.ts"
+    },
     "./notification-test-sink": {
       "import": "./src/notification-test-sink.ts"
+    },
+    "./pdf-branding": {
+      "import": "./src/pdf-branding.ts"
+    },
+    "./invoice-seller": {
+      "import": "./src/invoice-seller.ts"
     }
   },
   "scripts": {
@@ -63,6 +99,7 @@
   },
   "dependencies": {
     "@sentry/node": "^10.42.0",
+    "@xmldom/xmldom": "^0.9.12",
     "handlebars": "^4.7.10",
     "html-to-text": "^10.0.1",
     "ioredis": "^5.9.3",
@@ -73,11 +110,13 @@
     "postgres": "^3.4.8",
     "reflect-metadata": "^0.2.2",
     "tsyringe": "^4.8.0",
-    "undici": "^8.11.2"
+    "undici": "^8.11.2",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/html-to-text": "^9.0.4",
     "@types/node": "^25.2.3",
+    "fast-check": "^4.10.2",
     "typescript": "^6.0.3",
     "vitest": "^5.0.2"
   }

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
@@ -241,9 +241,12 @@ vi.mock('../services/payout-onboarding.service.js', () => ({
   revokePayoutInvites: mockRevokePayoutInvites,
 }));
 
-vi.mock('../lib/site-access.js', () => ({
-  getUserSiteIds: vi.fn().mockResolvedValue(null),
-  invalidateSiteAccessCache: vi.fn(),
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+// The site filter is SQL over the mocked tables: the database mock answers the rows.
+vi.mock('../lib/payment-site-scope.js', () => ({
+  paymentRecordsAtSites: vi.fn(() => undefined),
 }));
 
 const { mockHoldFeeCheck } = vi.hoisted(() => ({
@@ -257,6 +260,7 @@ import { config as apiConfig } from '../lib/config.js';
 import { db } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { resetSiteAccessMock, setMockUserSiteIds } from './helpers/site-access-mock.js';
 
 /** The payment context the routes build from the request logger. */
 const CTX = { registry: 'registry', logger: expect.anything() };
@@ -1442,6 +1446,22 @@ describe('Payment routes - handler logic', () => {
       });
     }
 
+    // The session exists at an accessible site (sessionAccessible).
+    beforeEach(() => {
+      setupDbResults([{ siteId: VALID_SITE_ID }]);
+    });
+
+    it('answers an unknown session like one without a hold, before the payment service', async () => {
+      setupDbResults([]);
+      const response = await capture();
+      expect(response.statusCode).toBe(404);
+      expect(response.json()).toEqual({
+        error: 'No pre-authorized payment for this session',
+        code: 'NO_PRE_AUTH',
+      });
+      expect(mockCaptureSessionHold).not.toHaveBeenCalled();
+    });
+
     it('captures payment and returns updated record', async () => {
       mockCaptureSessionHold.mockResolvedValueOnce({
         status: 'captured',
@@ -1647,6 +1667,19 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('PAYMENT_NOT_FOUND');
+      expect(mockRefundPaymentRecord).not.toHaveBeenCalled();
+    });
+
+    it('answers an unknown session exactly like a foreign one', async () => {
+      setupDbResults([{ siteId: VALID_SITE_ID }]);
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_000000000099']);
+      const foreign = await refund();
+      setupDbResults([]);
+      const unknown = await refund();
+
+      expect(unknown.statusCode).toBe(foreign.statusCode);
+      expect(unknown.json()).toEqual(foreign.json());
+      expect(unknown.json()).toEqual({ error: 'Payment not found', code: 'PAYMENT_NOT_FOUND' });
       expect(mockRefundPaymentRecord).not.toHaveBeenCalled();
     });
 
@@ -1940,7 +1973,6 @@ describe('Payment routes - handler logic', () => {
     }
 
     it('recovers the shortfall and returns the record', async () => {
-      setupDbResults([{ siteId: VALID_SITE_ID }]);
       mockRetryShortfallForRecord.mockResolvedValueOnce({
         status: 'recovered',
         record: paymentRecord({ status: 'captured', capturedAmountCents: 2000 }),
@@ -1959,7 +1991,8 @@ describe('Payment routes - handler logic', () => {
     });
 
     it('returns 404 without retrying when the payment is on a site outside the operator access', async () => {
-      setupDbResults([{ siteId: VALID_SITE_ID }]);
+      // No record of this id at the operator's sites.
+      setupDbResults([]);
       vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_000000000099']);
 
       const response = await retry();
@@ -2023,6 +2056,205 @@ describe('Payment routes - handler logic', () => {
       expect(response.json()).toMatchObject({ checked: 3, matched: 2, errors: [] });
       expect(response.json().discrepancies).toHaveLength(1);
       expect(mockRunPaymentReconciliation).toHaveBeenCalledWith(CTX);
+    });
+  });
+
+  // --- Site access (a user restricted to site OTHER_SITE) ---
+
+  describe('site-restricted users', () => {
+    const OTHER_SITE = 'sit_000000000099';
+    const auth = () => ({ authorization: 'Bearer ' + token });
+
+    beforeEach(() => {
+      setMockUserSiteIds([OTHER_SITE]);
+    });
+    afterEach(() => {
+      resetSiteAccessMock();
+    });
+
+    it('answers 404 SESSION_NOT_FOUND on pre-authorize for a session at another site', async () => {
+      setupDbResults([{ id: VALID_SESSION_ID, driverId: VALID_DRIVER_ID, siteId: VALID_SITE_ID }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/sessions/${VALID_SESSION_ID}/pre-authorize`,
+        headers: auth(),
+        payload: { paymentMethodId: 1 },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('SESSION_NOT_FOUND');
+      expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['linked to a site outside its access', [[{ siteId: VALID_SITE_ID }]]],
+      ['never on this site (no history)', [[], []]],
+    ])('refuses a payout account %s with one answer and no write', async (_label, results) => {
+      setupDbResults(...(results as unknown[][]));
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${OTHER_SITE}/payment-config`,
+        headers: auth(),
+        payload: { payoutAccountId: 'acct_other' },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toEqual({
+        error: 'The payout account is not a payout account of this site',
+        code: 'VALIDATION_ERROR',
+        details: { payoutAccountId: 'Not a payout account of this site' },
+      });
+      expect(mockSetSitePayoutAccountId).not.toHaveBeenCalled();
+    });
+
+    it('answers 404 SESSION_NOT_FOUND on pre-authorize for a session at an unsited station', async () => {
+      setupDbResults([{ id: VALID_SESSION_ID, driverId: VALID_DRIVER_ID, siteId: null }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/sessions/${VALID_SESSION_ID}/pre-authorize`,
+        headers: auth(),
+        payload: { paymentMethodId: 1 },
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+    });
+
+    it('places the hold for a session at its own site', async () => {
+      setupDbResults(
+        [{ id: VALID_SESSION_ID, driverId: VALID_DRIVER_ID, siteId: OTHER_SITE }],
+        [paymentRecord({ status: 'pre_authorized' })],
+      );
+      mockAuthorizeSessionHold.mockResolvedValueOnce({
+        outcome: 'authorized',
+        paymentRecordId: 1,
+        paymentId: 'pi_test_123',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/sessions/${VALID_SESSION_ID}/pre-authorize`,
+        headers: auth(),
+        payload: { paymentMethodId: 1 },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers 404 NO_PRE_AUTH on capture for a session at another site', async () => {
+      setupDbResults([{ siteId: VALID_SITE_ID }]);
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/sessions/${VALID_SESSION_ID}/capture`,
+        headers: auth(),
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('NO_PRE_AUTH');
+      expect(mockCaptureSessionHold).not.toHaveBeenCalled();
+    });
+
+    it('captures for a session at its own site', async () => {
+      setupDbResults([{ siteId: OTHER_SITE }]);
+      mockCaptureSessionHold.mockResolvedValueOnce({
+        status: 'captured',
+        record: paymentRecord({ status: 'captured', capturedAmountCents: 1200 }),
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: `/sessions/${VALID_SESSION_ID}/capture`,
+        headers: auth(),
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockCaptureSessionHold).toHaveBeenCalledTimes(1);
+    });
+
+    it('answers 404 PAYMENT_NOT_FOUND on the reconciliation list and run', async () => {
+      const list = await app.inject({
+        method: 'GET',
+        url: '/payments/reconciliation',
+        headers: auth(),
+      });
+      const run = await app.inject({
+        method: 'POST',
+        url: '/payments/reconciliation/run',
+        headers: auth(),
+      });
+
+      expect(list.statusCode).toBe(404);
+      expect(list.json().code).toBe('PAYMENT_NOT_FOUND');
+      expect(run.statusCode).toBe(404);
+      expect(mockRunPaymentReconciliation).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['GET', '/settings/stripe'],
+      ['PUT', '/settings/stripe'],
+      ['POST', '/settings/stripe/test'],
+      ['GET', '/settings/stripe/webhook'],
+      ['POST', '/settings/stripe/webhook'],
+    ] as const)('answers 404 SETTING_NOT_FOUND on %s %s', async (method, url) => {
+      const response = await app.inject({
+        method,
+        url,
+        headers: auth(),
+        ...(method === 'GET'
+          ? {}
+          : {
+              payload: {
+                url: 'https://csms.example.com/v1/webhooks/payments/stripe',
+                replace: false,
+              },
+            }),
+      });
+
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('SETTING_NOT_FOUND');
+    });
+
+    it('refuses a payout account another site outside its access uses', async () => {
+      setupDbResults([{ siteId: VALID_SITE_ID }]);
+
+      const response = await app.inject({
+        method: 'PUT',
+        url: `/sites/${OTHER_SITE}/payment-config`,
+        headers: auth(),
+        payload: { payoutAccountId: 'acct_foreign' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'VALIDATION_ERROR',
+        details: { payoutAccountId: expect.any(String) },
+      });
+      expect(db.update).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+    });
+
+    it('retries a payment made at its own site', async () => {
+      setupDbResults([{ id: 1 }]);
+      mockRetryShortfallForRecord.mockResolvedValueOnce({
+        status: 'recovered',
+        record: paymentRecord({ status: 'captured', capturedAmountCents: 2000 }),
+        shortfallCents: 500,
+        topUpId: 'pi_topup',
+      });
+
+      const response = await app.inject({
+        method: 'POST',
+        url: '/payments/1/retry-capture',
+        headers: auth(),
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(mockRetryShortfallForRecord).toHaveBeenCalledTimes(1);
     });
   });
 

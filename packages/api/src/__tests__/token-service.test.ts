@@ -49,6 +49,7 @@ function makeChain() {
 vi.mock('@evtivity/database', async () => ({
   // The real SQLSTATE readers, so the mocked errors map as in production.
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
+  currentAuditViaAi: () => undefined,
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

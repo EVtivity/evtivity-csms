@@ -4,12 +4,14 @@
 import { eq, and, or, ilike, sql, desc, inArray } from 'drizzle-orm';
 import { db, client, pgErrorCode, PG_UNIQUE_VIOLATION } from '@evtivity/database';
 import {
+  chargingStations,
   driverTokens,
   drivers,
   tokenAuditLog,
   stationLocalAuthEntries,
   stationLocalAuthVersions,
   writeAudit,
+  currentAuditViaAi,
 } from '@evtivity/database';
 import { dispatchDriverNotification, createLogger, csvEscape } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -242,17 +244,33 @@ async function bumpStationsHoldingToken(tokenId: string): Promise<void> {
 
   // Push SSE so any operator currently viewing one of these stations sees the
   // unpushed-changes banner appear without a manual refresh. Best-effort.
+  await publishLocalAuthListChanged(stationIds);
+}
+
+/**
+ * One `localAuthList.changed` event per station, with the station's siteId so
+ * the SSE stream delivers it to operators of that site only. Fail-open (P9).
+ */
+async function publishLocalAuthListChanged(stationIds: string[]): Promise<void> {
   try {
+    const stations = await db
+      .select({ id: chargingStations.id, siteId: chargingStations.siteId })
+      .from(chargingStations)
+      .where(inArray(chargingStations.id, stationIds));
     const pubsub = getPubSub();
-    for (const stationId of stationIds) {
+    for (const station of stations) {
       await pubsub.publish(
         'csms_events',
-        JSON.stringify({ eventType: 'localAuthList.changed', stationId }),
+        JSON.stringify({
+          eventType: 'localAuthList.changed',
+          stationId: station.id,
+          siteId: station.siteId,
+        }),
       );
     }
   } catch (err) {
     logger.warn(
-      { err, tokenId },
+      { err, stationIds },
       'localAuthList.changed publish failed, open station pages refresh later',
     );
   }
@@ -520,6 +538,7 @@ export async function bulkSetActive(
       actor: actorKind,
       actorUserId,
       actorDriverId,
+      viaAi: currentAuditViaAi() ?? null,
       after: {
         idToken: t.idToken,
         tokenType: t.tokenType,
@@ -542,20 +561,7 @@ export async function bulkSetActive(
       .update(stationLocalAuthVersions)
       .set({ lastModifiedAt: new Date() })
       .where(inArray(stationLocalAuthVersions.stationId, stationIds));
-    try {
-      const pubsub = getPubSub();
-      for (const stationId of stationIds) {
-        await pubsub.publish(
-          'csms_events',
-          JSON.stringify({ eventType: 'localAuthList.changed', stationId }),
-        );
-      }
-    } catch (err) {
-      logger.warn(
-        { err, stationIds },
-        'localAuthList.changed publish failed, open station pages refresh later',
-      );
-    }
+    await publishLocalAuthListChanged(stationIds);
   }
 
   // Per-driver notifications. Bulk activate flips previously-deactivated
@@ -779,6 +785,7 @@ export async function importTokensCsv(
           actor: actorKind,
           actorUserId,
           actorDriverId,
+          viaAi: currentAuditViaAi() ?? null,
           after: {
             idToken: t.idToken,
             tokenType: t.tokenType,

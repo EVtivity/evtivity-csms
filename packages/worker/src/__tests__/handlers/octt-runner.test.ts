@@ -365,3 +365,67 @@ describe('octtRunnerHandler', () => {
     expect(updateSets[1]).toMatchObject({ status: 'failed' });
   });
 });
+
+describe('octtRunnerJob', () => {
+  beforeEach(() => {
+    mockRunTests.mockReset();
+  });
+
+  it('runs the conformance run while holding the OCTT run lock', async () => {
+    mockRunTests.mockResolvedValue({});
+    const lockRedis = { set: vi.fn().mockResolvedValue('OK'), eval: vi.fn().mockResolvedValue(1) };
+    const log = makeLogger();
+
+    const { octtRunnerJob, OCTT_RUN_LOCK_KEY } = octtRunnerModule;
+    await octtRunnerJob(
+      lockRedis as never,
+      { runId: 21, ocppVersion: 'ocpp2.1', sutType: 'csms' },
+      log,
+      pubsub,
+    );
+
+    expect(OCTT_RUN_LOCK_KEY).toBe('wkl:octt-run');
+    expect(lockRedis.set).toHaveBeenCalledWith(
+      'wkl:octt-run',
+      expect.any(String),
+      'PX',
+      60000,
+      'NX',
+    );
+    expect(mockRunTests).toHaveBeenCalledTimes(1);
+    // Released with the owner token after the run.
+    const token = lockRedis.set.mock.calls[0]?.[1] as string;
+    expect(lockRedis.eval.mock.calls.at(-1)).toEqual([
+      expect.stringContaining("redis.call('del'"),
+      1,
+      'wkl:octt-run',
+      token,
+    ]);
+  });
+
+  it('waits for a run in progress before starting', async () => {
+    vi.useFakeTimers();
+    try {
+      mockRunTests.mockResolvedValue({});
+      const lockRedis = {
+        set: vi.fn().mockResolvedValueOnce(null).mockResolvedValue('OK'),
+        eval: vi.fn().mockResolvedValue(1),
+      };
+      const { octtRunnerJob } = octtRunnerModule;
+      const done = octtRunnerJob(
+        lockRedis as never,
+        { runId: 22, ocppVersion: 'ocpp2.1', sutType: 'csms' },
+        makeLogger(),
+        pubsub,
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockRunTests).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(2_000);
+      await done;
+      expect(lockRedis.set).toHaveBeenCalledTimes(2);
+      expect(mockRunTests).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

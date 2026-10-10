@@ -68,7 +68,9 @@ vi.mock('@evtivity/database', () => ({
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/lib')>()),
-  dispatchSystemNotification: vi.fn(() => Promise.resolve()),
+  dispatchSystemNotification: vi.fn((_sql: unknown, _event: string, to: { email: string }) =>
+    Promise.resolve({ delivered: [{ channel: 'email', recipient: to.email }] }),
+  ),
 }));
 
 vi.mock('../fleet-invoice.service.js', async (importOriginal) => ({
@@ -80,6 +82,11 @@ vi.mock('../fleet-invoice.service.js', async (importOriginal) => ({
 vi.mock('../fleet-invoice-notice.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../fleet-invoice-notice.js')>()),
   sendFleetInvoiceEmail: vi.fn(() => Promise.resolve({ status: 'sent', recipients: 1 })),
+}));
+
+vi.mock('../invoice-audit.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../invoice-audit.js')>()),
+  writeInvoiceSentAudit: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../invoice.service.js', () => ({
@@ -95,6 +102,7 @@ import { writeAudit } from '@evtivity/database';
 import { AppError, dispatchSystemNotification } from '@evtivity/lib';
 import { createFleetInvoice, findPeriodInvoice } from '../fleet-invoice.service.js';
 import { sendFleetInvoiceEmail } from '../fleet-invoice-notice.js';
+import { writeInvoiceSentAudit } from '../invoice-audit.js';
 import { generateInvoicePdf } from '../invoice-pdf.service.js';
 import {
   FLEET_INVOICE_OVERDUE_EVENT,
@@ -253,7 +261,10 @@ describe('runScheduledFleetInvoice', () => {
       notes: '2026-09',
     });
     expect(audit?.after).toMatchObject({ sessionIds: ['ses_1'], excludedCount: 2 });
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith('inv_new', 'once', deps);
+    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith('inv_new', 'once', deps, {
+      actor: { actor: 'system', actorLabel: 'fleet-invoice-run' },
+      log,
+    });
   });
 
   it('answers nothing to bill and an unknown fleet without failing', async () => {
@@ -288,7 +299,10 @@ describe('runScheduledFleetInvoice', () => {
 
     expect(result).toEqual({ status: 'exists', invoiceId: 'inv_live', email: 'already_sent' });
     expect(findPeriodInvoice).toHaveBeenCalledWith({}, 'flt_1', '2026-09-01');
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith('inv_live', 'once', deps);
+    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith('inv_live', 'once', deps, {
+      actor: { actor: 'system', actorLabel: 'fleet-invoice-run' },
+      log,
+    });
     expect(writeAudit).not.toHaveBeenCalled();
   });
 
@@ -545,6 +559,20 @@ describe('sendFleetInvoiceOverdueNotice', () => {
     expect(calls[0]?.[5]).toEqual([
       expect.objectContaining({ filename: 'INV-202610-inv_1.pdf', contentType: 'application/pdf' }),
     ]);
+    expect(writeInvoiceSentAudit).toHaveBeenCalledWith(
+      {
+        invoiceId: 'inv_1',
+        invoiceNumber: 'INV-202610-inv_1',
+        eventType: FLEET_INVOICE_OVERDUE_EVENT,
+        delivered: [
+          { channel: 'email', recipient: 'ap@acme.test' },
+          { channel: 'email', recipient: 'cfo@acme.test' },
+        ],
+        resend: false,
+        actor: { actor: 'system', actorLabel: 'fleet-invoice-run' },
+      },
+      undefined,
+    );
   });
 
   it('sends once: a claim taken before sends nothing', async () => {
@@ -552,6 +580,7 @@ describe('sendFleetInvoiceOverdueNotice', () => {
     h.claimRows = [];
     await expect(sendFleetInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('already_sent');
     expect(dispatchSystemNotification).not.toHaveBeenCalled();
+    expect(writeInvoiceSentAudit).not.toHaveBeenCalled();
   });
 
   it.each([

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, like, or, inArray } from 'drizzle-orm';
 import {
@@ -18,8 +18,7 @@ import {
   clearSupportCache,
   clearFleetCache,
   clearGuestChargingCache,
-  clearChatbotAiSettingsCache,
-  clearSupportAiSettingsCache,
+  clearAiSettingsCache,
   clearPncSettingsCache,
   writeAudit,
   settingAuditLog,
@@ -74,7 +73,28 @@ import {
   MOBILE_APP_ANDROID_PACKAGES_KEY,
   parseAllowedPrivateHosts,
   MAX_ALLOWED_PRIVATE_HOSTS,
+  validateAiBaseUrl,
+  isAiBaseUrlSettingKey,
+  isAiSettingKey,
+  isAiLimitSettingKey,
+  normalizeAiSettingValue,
+  AI_LIMIT_SETTINGS,
+  AI_PROVIDER_IDS,
+  AI_EFFORTS,
+  AI_SUPPORT_TONES,
+  REMOVED_AI_SETTING_KEYS,
   createLogger,
+  PDF_LOGO_KEY,
+  PDF_FOOTER_KEY,
+  MAX_PDF_LOGO_BYTES,
+  MAX_PDF_FOOTER_LENGTH,
+  MAX_PDF_FOOTER_LINES,
+  normalizePdfLogo,
+  normalizePdfFooter,
+  INVOICE_SELLER_MAX_LENGTHS,
+  COMPANY_INVOICE_EMAIL_KEY,
+  isInvoiceSellerSettingKey,
+  normalizeInvoiceSellerSetting,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
@@ -112,7 +132,9 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { clearS3ConfigCache } from '../services/s3.service.js';
 import { DEFAULT_CONTENT } from './default-content.js';
 import { authorize } from '../middleware/rbac.js';
+import { isAllSiteUser, requireAllSiteAccess } from '../lib/site-access.js';
 import { config as apiConfig } from '../lib/config.js';
+import { storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { decryptForRead, encryptForWrite, isServerManagedSetting } from '../lib/settings-crypto.js';
 
@@ -143,7 +165,24 @@ function isCachedSystemSetting(key: string): boolean {
  * null when the value is invalid.
  */
 function normalizeSettingValue(key: string, value: unknown): { value: unknown } | null {
-  if (isServerManagedSetting(key)) return null;
+  if (isServerManagedSetting(key) || isDedicatedRouteSetting(key)) return null;
+  if (isAiBaseUrlSettingKey(key)) {
+    // A mock provider on localhost is allowed in development only.
+    const url = validateAiBaseUrl(value, {
+      allowPrivateHosts: apiConfig.NODE_ENV === 'development',
+    });
+    return url != null ? { value: url } : null;
+  }
+  const ai = normalizeAiSettingValue(key, value);
+  if (ai !== undefined) return ai;
+  // A saved but unchanged built-in prompt is stored empty, so the surface
+  // keeps following the built-in prompt and its later improvements.
+  if (typeof value === 'string' && key === 'chatbotAi.systemPrompt') {
+    return { value: storedSystemPrompt('chatbot', value) };
+  }
+  if (typeof value === 'string' && key === 'supportAi.systemPrompt') {
+    return { value: storedSystemPrompt('support', value) };
+  }
   if (key === COMPANY_PRICE_DISPLAY_KEY) return isPriceDisplay(value) ? { value } : null;
   if (key === STATION_MESSAGE_LANGUAGE_KEY) {
     return isStationMessageLanguage(value) ? { value } : null;
@@ -172,6 +211,19 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
   if (key === FLEET_INVOICE_RUN_DAY_KEY) {
     const day = parseFleetInvoiceRunDay(value);
     return day != null ? { value: day } : null;
+  }
+  if (key === PDF_LOGO_KEY) {
+    // An SVG is stored sanitized: no scripts, no references outside the file.
+    const logo = normalizePdfLogo(value);
+    return logo != null ? { value: logo } : null;
+  }
+  if (key === PDF_FOOTER_KEY) {
+    const footer = normalizePdfFooter(value);
+    return footer != null ? { value: footer } : null;
+  }
+  if (isInvoiceSellerSettingKey(key)) {
+    const seller = normalizeInvoiceSellerSetting(key, value);
+    return seller != null ? { value: seller } : null;
   }
   if (key !== COMPANY_CURRENCY_KEY) return { value };
   const code = typeof value === 'string' ? value.trim().toUpperCase() : value;
@@ -229,6 +281,28 @@ const invalidFleetCreditReservationError = {
   code: 'VALIDATION_ERROR',
 };
 
+const invalidPdfLogoError = {
+  error: `${PDF_LOGO_KEY} must be an empty string (the default logo) or a PNG or SVG data URI of at most ${String(MAX_PDF_LOGO_BYTES / 1024)} KB`,
+  code: 'VALIDATION_ERROR',
+};
+
+const invalidPdfFooterError = {
+  error: `${PDF_FOOTER_KEY} must be plain text of at most ${String(MAX_PDF_FOOTER_LENGTH)} characters and ${String(MAX_PDF_FOOTER_LINES)} lines`,
+  code: 'VALIDATION_ERROR',
+};
+
+function invalidInvoiceSellerError(key: keyof typeof INVOICE_SELLER_MAX_LENGTHS): {
+  error: string;
+  code: string;
+} {
+  const max = String(INVOICE_SELLER_MAX_LENGTHS[key]);
+  const email = key === COMPANY_INVOICE_EMAIL_KEY ? ', empty or an email address' : '';
+  return {
+    error: `${key} must be one line of text of at most ${max} characters${email}`,
+    code: 'VALIDATION_ERROR',
+  };
+}
+
 const invalidFleetInvoiceRunDayError = {
   error: `${FLEET_INVOICE_RUN_DAY_KEY} must be a whole day of the month from 1 to ${String(MAX_FLEET_INVOICE_RUN_DAY)}`,
   code: 'VALIDATION_ERROR',
@@ -239,13 +313,94 @@ const serverManagedSettingError = {
   code: 'VALIDATION_ERROR',
 };
 
+/**
+ * SSO and security settings decide who signs in and how. Only their own routes
+ * write and return them (`/v1/sso/settings`, `/v1/security/*`: the
+ * settings.security permissions and all-site access), never the generic ones.
+ */
+function isDedicatedRouteSetting(key: string): boolean {
+  return key.startsWith('sso.') || key.startsWith('security.');
+}
+
+const dedicatedRouteSettingError = {
+  error: 'This setting is written through /v1/sso/settings or /v1/security/*',
+  code: 'VALIDATION_ERROR',
+};
+
+/**
+ * The keys a site-restricted user may read through the generic routes: the
+ * general payment settings the CSMS shows it read-only (Settings > Payments,
+ * PrepaidSettings and InvoiceSettings). They are company-wide, so writing
+ * them, like reading or writing every other key, needs access to every site
+ * and answers a restricted user 404 SETTING_NOT_FOUND (owner decisions
+ * 2026-10-09 and 2026-10-10, features/site-access-control.md). Never add an `*Enc`,
+ * `payments.*`, `company.*`, `smtp.*`, `twilio.*`, `s3.*`, `sso.*` or
+ * `security.*` key.
+ */
+export const SITE_RESTRICTED_SETTING_KEYS: ReadonlySet<string> = new Set([
+  PREPAID_LOW_CREDIT_THRESHOLD_KEY,
+  INVOICE_PAYMENT_TERMS_DAYS_KEY,
+  FLEET_INVOICE_RUN_DAY_KEY,
+]);
+
+const settingNotFound = { error: 'Setting not found', code: 'SETTING_NOT_FOUND' } as const;
+
+/** Whether the request may read this key through the generic routes. */
+async function mayReadSettingKey(request: FastifyRequest, key: string): Promise<boolean> {
+  if (SITE_RESTRICTED_SETTING_KEYS.has(key)) return true;
+  const { userId } = request.user as { userId: string };
+  return isAllSiteUser(userId);
+}
+
+function invalidAiSettingError(key: string): { error: string; code: string } | null {
+  if (isAiBaseUrlSettingKey(key)) {
+    return {
+      error: `${key} must be empty or an https URL without credentials, query or fragment on a public host`,
+      code: 'AI_BASE_URL_INVALID',
+    };
+  }
+  const replacement = REMOVED_AI_SETTING_KEYS[key];
+  if (replacement !== undefined) {
+    return { error: `${key} was removed, use ${replacement}`, code: 'VALIDATION_ERROR' };
+  }
+  if (isAiLimitSettingKey(key)) {
+    const { min, max } = AI_LIMIT_SETTINGS[key];
+    return {
+      error: `${key} must be a whole number from ${String(min)} to ${String(max)}`,
+      code: 'VALIDATION_ERROR',
+    };
+  }
+  const allowed: Record<string, readonly string[]> = {
+    'chatbotAi.provider': ['', ...AI_PROVIDER_IDS],
+    'supportAi.provider': ['', ...AI_PROVIDER_IDS],
+    'chatbotAi.effort': AI_EFFORTS,
+    'supportAi.effort': AI_EFFORTS,
+    'supportAi.tone': AI_SUPPORT_TONES,
+  };
+  const values = allowed[key];
+  if (values !== undefined) {
+    const list = values.map((v) => (v === '' ? '(empty)' : v)).join(', ');
+    return { error: `${key} must be one of: ${list}`, code: 'VALIDATION_ERROR' };
+  }
+  if (key === 'chatbotAi.enabled' || key === 'supportAi.enabled') {
+    return { error: `${key} must be true or false`, code: 'VALIDATION_ERROR' };
+  }
+  return null;
+}
+
 function invalidSettingError(key: string): { error: string; code: string } {
   if (isServerManagedSetting(key)) return serverManagedSettingError;
+  if (isDedicatedRouteSetting(key)) return dedicatedRouteSettingError;
+  const aiError = invalidAiSettingError(key);
+  if (aiError != null) return aiError;
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) return invalidWebhookAllowedHostsError;
   if (key === PREPAID_LOW_CREDIT_THRESHOLD_KEY) return invalidPrepaidLowCreditThresholdError;
   if (key === INVOICE_PAYMENT_TERMS_DAYS_KEY) return invalidInvoicePaymentTermsError;
   if (key === FLEET_CREDIT_RESERVATION_KEY) return invalidFleetCreditReservationError;
   if (key === FLEET_INVOICE_RUN_DAY_KEY) return invalidFleetInvoiceRunDayError;
+  if (key === PDF_LOGO_KEY) return invalidPdfLogoError;
+  if (key === PDF_FOOTER_KEY) return invalidPdfFooterError;
+  if (isInvoiceSellerSettingKey(key)) return invalidInvoiceSellerError(key);
   if (key === MOBILE_APP_URL_SCHEMES_KEY) return invalidMobileAppSchemesError;
   if (key === MOBILE_APP_ANDROID_PACKAGES_KEY) return invalidMobileAppPackagesError;
   if (key === COMPANY_PRICE_DISPLAY_KEY) return invalidPriceDisplayError;
@@ -297,8 +452,7 @@ function clearCachesForKey(key: string): void {
   if (key === 'fleet.enabled') clearFleetCache();
   if (key === 'guest.enabled') clearGuestChargingCache();
   if (key.startsWith('pnc.')) clearPncSettingsCache();
-  if (key === 'chatbotAi.enabled') clearChatbotAiSettingsCache();
-  if (key === 'supportAi.enabled') clearSupportAiSettingsCache();
+  if (isAiSettingKey(key)) clearAiSettingsCache();
 }
 
 const settingItem = z
@@ -406,7 +560,7 @@ export function settingsRoutes(app: FastifyInstance): void {
                   .int()
                   .min(0)
                   .describe(
-                    "Cancellation fee in cents before tax, charged when a reservation is cancelled inside the cancellation window. The tax rate of the station's tariff is added to the amount charged",
+                    "Current cancellation fee setting in cents, in the company tax basis (company.taxBasis: net excludes the tax of the station's tariff, gross includes it). A reservation is charged the fee in effect when it was made: the portal reservation endpoints return that fee, tax included, as cancellationFee",
                   ),
                 reservationCancellationWindowMinutes: z
                   .number()
@@ -505,11 +659,14 @@ export function settingsRoutes(app: FastifyInstance): void {
         response: { 200: itemResponse(z.record(z.unknown())) },
       },
     },
-    async () => {
+    async (request) => {
+      const { userId } = request.user as { userId: string };
+      const allSites = await isAllSiteUser(userId);
       const rows = await db.select().from(settings);
       const result: Record<string, unknown> = {};
       for (const row of rows) {
-        if (isServerManagedSetting(row.key)) continue;
+        if (isServerManagedSetting(row.key) || isDedicatedRouteSetting(row.key)) continue;
+        if (!allSites && !SITE_RESTRICTED_SETTING_KEYS.has(row.key)) continue;
         result[row.key] = decryptForRead(row.key, row.value);
       }
       return result;
@@ -534,9 +691,11 @@ export function settingsRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
-      const [row] = isServerManagedSetting(key)
-        ? []
-        : await db.select().from(settings).where(eq(settings.key, key));
+      const hidden =
+        isServerManagedSetting(key) ||
+        isDedicatedRouteSetting(key) ||
+        !(await mayReadSettingKey(request, key));
+      const [row] = hidden ? [] : await db.select().from(settings).where(eq(settings.key, key));
       if (row == null) {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
         return;
@@ -561,7 +720,10 @@ export function settingsRoutes(app: FastifyInstance): void {
         body: zodSchema(updateSettingBody),
         response: {
           200: itemResponse(settingItem),
-          400: errorWith('Invalid setting value', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith('Invalid setting value', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.AI_BASE_URL_INVALID,
+          ]),
           404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           409: errorWith('Processes older than v0.1.38 are still connected', [
             ERROR_CODES.PAYMENT_PROVIDER_UPGRADE_PENDING,
@@ -571,6 +733,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
       const normalized = normalizeSettingValue(
         key,
         (request.body as z.infer<typeof updateSettingBody>).value,
@@ -630,7 +793,11 @@ export function settingsRoutes(app: FastifyInstance): void {
         body: zodSchema(updateSettingBody),
         response: {
           200: itemResponse(settingItem),
-          400: errorWith('Invalid setting value', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith('Invalid setting value', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.AI_BASE_URL_INVALID,
+          ]),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           409: errorWith('Processes older than v0.1.38 are still connected', [
             ERROR_CODES.PAYMENT_PROVIDER_UPGRADE_PENDING,
           ]),
@@ -639,6 +806,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
       const normalized = normalizeSettingValue(
         key,
         (request.body as z.infer<typeof updateSettingBody>).value,
@@ -707,11 +875,10 @@ export function settingsRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { key } = request.params as z.infer<typeof settingParams>;
-      if (isServerManagedSetting(key)) {
-        await reply.status(400).send({
-          error: serverManagedSettingError.error,
-          code: 'VALIDATION_ERROR',
-        });
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
+      if (isServerManagedSetting(key) || isDedicatedRouteSetting(key)) {
+        const { error } = invalidSettingError(key);
+        await reply.status(400).send({ error, code: 'VALIDATION_ERROR' });
         return;
       }
       const [row] = await db.delete(settings).where(eq(settings.key, key)).returning();
@@ -750,10 +917,14 @@ export function settingsRoutes(app: FastifyInstance): void {
         summary: 'Get S3 storage configuration status',
         operationId: 'getS3Status',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(s3StatusResponse) },
+        response: {
+          200: itemResponse(s3StatusResponse),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
       },
     },
-    async () => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
       const rows = await db.select().from(settings).where(like(settings.key, 's3.%'));
       const map = new Map<string, unknown>();
       for (const row of rows) map.set(row.key, row.value);
@@ -794,11 +965,13 @@ export function settingsRoutes(app: FastifyInstance): void {
         body: zodSchema(s3SettingsBody),
         response: {
           200: successResponse,
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           500: errorWith('Encryption key missing', [ERROR_CODES.ENCRYPTION_KEY_MISSING]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
       const body = request.body as z.infer<typeof s3SettingsBody>;
       const encryptionKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
       if (encryptionKey === '') {
@@ -874,10 +1047,12 @@ export function settingsRoutes(app: FastifyInstance): void {
             ERROR_CODES.STORAGE_CONNECTION_FAILED,
             ERROR_CODES.STORAGE_NOT_CONFIGURED,
           ]),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },
     },
-    async (_request, reply) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, settingNotFound))) return;
       const { getS3Config: getConfig } = await import('../services/s3.service.js');
       const s3 = await getConfig();
       if (s3 == null) {

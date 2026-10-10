@@ -24,6 +24,15 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { config as apiConfig } from '../lib/config.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
+
+// Plug and Charge settings and the contract CA serve every site: company-wide,
+// so a site-restricted user gets this 404 before any read or write
+// (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_SETTING_NOT_FOUND = {
+  error: 'Setting not found',
+  code: 'SETTING_NOT_FOUND',
+} as const;
 
 const testProviderResponse = z
   .object({ success: z.boolean().describe('Whether the provider connectivity test succeeded') })
@@ -112,10 +121,14 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
         summary: 'Get Plug and Charge settings',
         operationId: 'getPncSettings',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(z.record(z.unknown())) },
+        response: {
+          200: itemResponse(z.record(z.unknown())),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
       },
     },
-    async () => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       // Push the PNC_KEYS filter to Postgres instead of selecting every
       // settings row and discarding the rest in JS.
       const rows = await db
@@ -146,10 +159,12 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
             ERROR_CODES.PRIVATE_URL,
             ERROR_CODES.VALIDATION_ERROR,
           ]),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof updatePncSettingsBody>;
 
       if (
@@ -279,10 +294,12 @@ export function pncSettingsRoutes(app: FastifyInstance): void {
           200: itemResponse(testProviderResponse),
           400: itemResponse(testProviderResponse),
           502: itemResponse(testProviderResponse),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
         },
       },
     },
-    async (_request, reply) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       try {
         const rows = await db
           .select()

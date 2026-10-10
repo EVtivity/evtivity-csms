@@ -62,6 +62,12 @@ describe('qrTransactionLimits', () => {
     });
   });
 
+  it('converts maxcost to cents exactly, half up (1.005 is 101, not the float 100)', () => {
+    expect(qrTransactionLimits(new URLSearchParams('maxcost=1.005'))).toEqual({
+      maxCostCents: 101,
+    });
+  });
+
   it('returns an empty object without limit parameters', () => {
     expect(qrTransactionLimits(new URLSearchParams(''))).toEqual({});
   });

@@ -91,6 +91,12 @@ vi.mock('drizzle-orm', () => ({
   and: vi.fn((...a: unknown[]) => ({ and: a })),
   inArray: vi.fn((a: unknown, b: unknown) => ({ inArray: [a, b] })),
   isNotNull: vi.fn((a: unknown) => ({ isNotNull: a })),
+  isNull: vi.fn((a: unknown) => ({ isNull: a })),
+  notInArray: vi.fn((a: unknown, b: unknown) => ({ notInArray: [a, b] })),
+  or: vi.fn((...a: unknown[]) => ({ or: a })),
+  exists: vi.fn((a: unknown) => ({ exists: a })),
+  notExists: vi.fn((a: unknown) => ({ notExists: a })),
+  sql: vi.fn(() => ({ sql: true })),
   desc: vi.fn(),
   asc: vi.fn(),
   count: vi.fn(),
@@ -142,9 +148,9 @@ function template(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function whereConds(index: number): unknown[] {
-  const w = argsOf('select', 'where')[index]?.[0] as { and: unknown[] };
-  return w.and;
+// Every select where clause, for routes whose site scope adds subqueries.
+function allWheres(): unknown[] {
+  return argsOf('select', 'where').map((args) => args[0]);
 }
 
 describe('config template routes, uncovered paths', () => {
@@ -221,14 +227,16 @@ describe('config template routes, uncovered paths', () => {
       const res = await app.inject({ method: 'GET', url: '/v1/config-templates', headers: auth });
       expect(res.statusCode).toBe(200);
       expect(res.json().data[0].matchingStationsCount).toBe(4);
-      expect(whereConds(0)).toEqual([
-        { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
-        { eq: ['cs.siteId', 'sit_1'] },
-        { eq: ['cs.vendorId', 'ven_1'] },
-        { eq: ['cs.model', 'M1'] },
-        { eq: ['cs.id', 'sta_1'] },
-        { inArray: ['cs.siteId', ['sit_1']] },
-      ]);
+      expect(allWheres()).toContainEqual({
+        and: [
+          { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          { eq: ['cs.id', 'sta_1'] },
+          { eq: ['cs.siteId', 'sit_1'] },
+          { eq: ['cs.vendorId', 'ven_1'] },
+          { eq: ['cs.model', 'M1'] },
+          { inArray: ['cs.siteId', ['sit_1']] },
+        ],
+      });
     });
 
     it('reports zero matching stations for a user with no sites', async () => {
@@ -301,13 +309,13 @@ describe('config template routes, uncovered paths', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ data: [station], total: 1 });
-      expect(argsOf('select', 'where')[1]?.[0]).toEqual({
+      expect(allWheres()).toContainEqual({
         and: [
           { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          { eq: ['cs.id', 'sta_1'] },
           { eq: ['cs.siteId', 'sit_1'] },
           { eq: ['cs.vendorId', 'ven_1'] },
           { eq: ['cs.model', 'M1'] },
-          { eq: ['cs.id', 'sta_1'] },
           { eq: ['cs.isOnline', true] },
           { inArray: ['cs.siteId', ['sit_1']] },
         ],
@@ -354,15 +362,17 @@ describe('config template routes, uncovered paths', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true, pushId: 'push_1' });
-      expect(whereConds(1)).toEqual([
-        { eq: ['cs.isOnline', true] },
-        { eq: ['cs.ocppProtocol', 'ocpp1.6'] },
-        { eq: ['cs.siteId', 'sit_1'] },
-        { eq: ['cs.vendorId', 'ven_1'] },
-        { eq: ['cs.model', 'M1'] },
-        { eq: ['cs.id', 'sta_1'] },
-        { inArray: ['cs.siteId', ['sit_1']] },
-      ]);
+      expect(allWheres()).toContainEqual({
+        and: [
+          { eq: ['cs.isOnline', true] },
+          { eq: ['cs.ocppProtocol', 'ocpp1.6'] },
+          { eq: ['cs.id', 'sta_1'] },
+          { eq: ['cs.siteId', 'sit_1'] },
+          { eq: ['cs.vendorId', 'ven_1'] },
+          { eq: ['cs.model', 'M1'] },
+          { inArray: ['cs.siteId', ['sit_1']] },
+        ],
+      });
       expect(processConfigPush).toHaveBeenCalledWith(
         'push_1',
         targets,
@@ -373,7 +383,7 @@ describe('config template routes, uncovered paths', () => {
 
     it('does nothing for a user with no sites', async () => {
       vi.mocked(getUserSiteIds).mockResolvedValue([]);
-      setupDbResults([template()]);
+      setupDbResults([template({ targetFilter: { siteId: 'sit_1' } })]);
       const res = await app.inject({
         method: 'POST',
         url: '/v1/config-templates/tpl_1/push',
@@ -383,6 +393,88 @@ describe('config template routes, uncovered paths', () => {
       expect(res.json()).toEqual({ success: true, pushId: '' });
       expect(argsOf('insert', 'values')).toHaveLength(0);
       expect(processConfigPush).not.toHaveBeenCalled();
+    });
+
+    it('refuses a company-wide template for a site-restricted user', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValue(['sit_1']);
+      setupDbResults([template()]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates/tpl_1/push',
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('TEMPLATE_NOT_FOUND');
+      expect(argsOf('insert', 'values')).toHaveLength(0);
+      expect(processConfigPush).not.toHaveBeenCalled();
+    });
+
+    it('pushes a station template to its station only, whatever its filter says', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValue(['sit_1']);
+      const targets = [{ id: 'sta_1', stationId: 'CS-1' }];
+      setupDbResults(
+        [template({ stationId: 'sta_1', targetFilter: { siteId: 'sit_2' } })],
+        targets,
+        [{ id: 'push_1' }],
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates/tpl_1/push',
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(allWheres()).toContainEqual({
+        and: [
+          { eq: ['cs.isOnline', true] },
+          { eq: ['cs.ocppProtocol', 'ocpp2.1'] },
+          { eq: ['cs.id', 'sta_1'] },
+          { inArray: ['cs.siteId', ['sit_1']] },
+        ],
+      });
+    });
+  });
+
+  describe('PATCH /v1/config-templates/:id (station template)', () => {
+    it('refuses a target filter on a template bound to a station', async () => {
+      setupDbResults([template({ stationId: 'sta_1' })]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/config-templates/tpl_1',
+        headers: auth,
+        payload: { targetFilter: null },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(argsOf('update', 'set')).toHaveLength(0);
+    });
+
+    it('updates a station template without a target filter', async () => {
+      const bound = template({ stationId: 'sta_1' });
+      setupDbResults([bound], [{ ...bound, name: 'Renamed' }]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/v1/config-templates/tpl_1',
+        headers: auth,
+        payload: { name: 'Renamed' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().name).toBe('Renamed');
+    });
+  });
+
+  describe('POST /v1/config-templates/:id/duplicate (station template)', () => {
+    it('copies a station template with a filter naming its station', async () => {
+      const original = template({ stationId: 'sta_1', targetFilter: null });
+      setupDbResults([original], [template({ id: 'tpl_2' })]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/config-templates/tpl_1/duplicate',
+        headers: auth,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(argsOf('insert', 'values')[0]?.[0]).toMatchObject({
+        targetFilter: { stationId: 'sta_1' },
+      });
     });
   });
 
@@ -513,7 +605,7 @@ describe('config template routes, uncovered paths', () => {
   describe('GET /v1/stations/:id/config-drift', () => {
     const station = { id: 'sta_1', siteId: 'sit_1', vendorId: 'ven_1', model: 'M1' };
 
-    it('returns no drift for a station outside the user sites', async () => {
+    it('answers 404 for a station outside the user sites', async () => {
       vi.mocked(getUserSiteIds).mockResolvedValue(['sit_9']);
       setupDbResults([station]);
       const res = await app.inject({
@@ -521,8 +613,8 @@ describe('config template routes, uncovered paths', () => {
         url: '/v1/stations/sta_1/config-drift',
         headers: auth,
       });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual([]);
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ code: 'STATION_NOT_FOUND' });
       expect(chains.filter((c) => c.kind === 'select')).toHaveLength(1);
     });
 
@@ -534,6 +626,10 @@ describe('config template routes, uncovered paths', () => {
           template({ id: 'b', targetFilter: { vendorId: 'ven_2' } }),
           template({ id: 'c', targetFilter: { model: 'M2' } }),
           template({ id: 'd', targetFilter: { stationId: 'sta_2' } }),
+          // bound to another station: matches that station only, even
+          // without a filter or with one naming this station
+          template({ id: 'e', stationId: 'sta_2', targetFilter: null }),
+          template({ id: 'f', stationId: 'sta_2', targetFilter: { stationId: 'sta_1' } }),
         ],
       );
       const res = await app.inject({

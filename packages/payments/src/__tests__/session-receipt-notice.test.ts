@@ -31,7 +31,9 @@ function sessionRow(overrides: Record<string, unknown> = {}): Record<string, unk
     final_cost_cents: 1650,
     started_at: new Date('2026-10-03T10:00:00Z'),
     ended_at: new Date('2026-10-03T10:30:00Z'),
-    tariff_tax_rate: '0.10',
+    net_cents: 1500,
+    tax_cents: 150,
+    cost_breakdown: null,
     currency: 'USD',
     billing_mode: 'card',
     billing_fleet_name: null,
@@ -39,6 +41,7 @@ function sessionRow(overrides: Record<string, unknown> = {}): Record<string, unk
     site_name: 'Depot',
     record_status: 'captured',
     failure_reason: null,
+    captured_amount_cents: 1650,
     ...overrides,
   };
 }
@@ -50,6 +53,34 @@ beforeEach(() => {
 });
 
 describe('dispatchSessionReceiptIfDue (finding JB-3)', () => {
+  it('TC-T3-31: says what was charged when the top-up above the hold was declined', async () => {
+    h.results.push(
+      [{ id: 's1' }],
+      [
+        sessionRow({
+          captured_amount_cents: '1200',
+          failure_reason: 'Top-up declined: card declined; shortfall 450c',
+        }),
+      ],
+    );
+
+    expect(await dispatchSessionReceiptIfDue('s1', deps)).toBe(true);
+
+    expect(h.dispatchDriverNotification).toHaveBeenCalledWith(
+      h.client,
+      'session.Receipt',
+      'd1',
+      expect.objectContaining({
+        finalCostCents: 1650,
+        partiallyPaid: true,
+        chargedCents: 1200,
+        unpaidCents: 450,
+      }),
+      ['/t'],
+      undefined,
+    );
+  });
+
   it('claims the receipt and sends it once the payment is final', async () => {
     h.results.push([{ id: 's1' }], [sessionRow()]);
 
@@ -76,6 +107,9 @@ describe('dispatchSessionReceiptIfDue (finding JB-3)', () => {
         notCharged: false,
         billingMode: 'card',
         billedTo: '',
+        costIncludesTax: true,
+        taxCents: 150,
+        partiallyPaid: false,
       }),
       ['/t'],
       undefined,

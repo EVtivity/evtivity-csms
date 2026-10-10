@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, desc, and, count, isNull } from 'drizzle-orm';
+import { eq, desc, and, count } from 'drizzle-orm';
 import {
   db,
   client,
@@ -13,6 +13,8 @@ import {
   INVOICE_KINDS,
   invoiceAuditLog,
   writeAudit,
+  chargingSessions,
+  chargingStations,
 } from '@evtivity/database';
 import { dispatchDriverNotification, AppError, notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -30,11 +32,7 @@ import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getAuditActor } from '../lib/audit-actor.js';
-import { getUserSiteIds } from '../lib/site-access.js';
-import {
-  refuseSiteRestrictedFleetBilling,
-  refuseSiteRestrictedFleetInvoice,
-} from '../lib/fleet-billing-access.js';
+import { requireAllSiteAccess, userCanAccessSite } from '../lib/site-access.js';
 
 export const invoiceListItem = z
   .object({
@@ -303,9 +301,12 @@ import {
   voidInvoice,
   markInvoicePaid,
 } from '@evtivity/services/invoice.service';
-import type { InvoiceDetail } from '@evtivity/services/invoice.service';
+import type { InvoiceDetail, InvoiceWithLineItems } from '@evtivity/services/invoice.service';
 import { creditInvoice } from '@evtivity/services/credit-note.service';
 import { generateInvoicePdf } from '@evtivity/services/invoice-pdf.service';
+import { loadPdfBranding } from '@evtivity/services/pdf-branding';
+import { wasInvoiceSent, writeInvoiceSentAudit } from '@evtivity/services/invoice-audit';
+import type { InvoiceAuditActor, InvoiceAuditLogger } from '@evtivity/services/invoice-audit';
 
 const invoiceIdParams = z.object({ id: ID_PARAMS.invoiceId.describe('Invoice ID') });
 const sessionIdParams = z.object({
@@ -353,20 +354,88 @@ const aggregatedInvoiceBody = z.object({
 });
 
 /**
+ * Writes `invoice_generated` for a driver invoice the operator created:
+ * `before` null, `after` the invoice row (total, currency) plus the billed
+ * `sessionIds` and `sessionCount`. Fail-open (P9) through writeAudit.
+ */
+async function auditDriverInvoiceGenerated(
+  result: InvoiceWithLineItems,
+  actor: InvoiceAuditActor,
+  log: InvoiceAuditLogger,
+  notes: string | null,
+): Promise<void> {
+  const sessionIds = [
+    ...new Set(result.lineItems.map((item) => item.sessionId).filter((id) => id != null)),
+  ];
+  await writeAudit(
+    { table: invoiceAuditLog, idColumn: 'invoice_id' },
+    {
+      entityId: result.invoice.id,
+      entityIdSnapshot: result.invoice.id,
+      action: 'invoice_generated',
+      ...actor,
+      before: null,
+      after: { ...result.invoice, sessionIds, sessionCount: sessionIds.length },
+      notes,
+    },
+    db,
+    log,
+  );
+}
+
+/**
+ * Sends a driver invoice (invoice.Sent) or credit note (invoice.CreditNote)
+ * to its driver and audits it as `invoice_sent` when a provider accepted it.
+ * The dispatcher is fail-open (warn and continue).
+ */
+async function sendToDriver(
+  invoice: InvoiceDetail['invoice'] & { driverId: string },
+  eventType: 'invoice.Sent' | 'invoice.CreditNote',
+  variables: Record<string, unknown>,
+  actor: InvoiceAuditActor,
+  log: InvoiceAuditLogger,
+): Promise<void> {
+  const resend = await wasInvoiceSent(invoice.id, log);
+  const { delivered } = await dispatchDriverNotification(
+    client,
+    eventType,
+    invoice.driverId,
+    variables,
+    ALL_TEMPLATES_DIRS,
+    getPubSub(),
+  );
+  await writeInvoiceSentAudit(
+    {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      eventType,
+      delivered,
+      resend,
+      actor,
+    },
+    log,
+  );
+}
+
+/**
  * Sends the invoice.CreditNote notification of a credit note to its driver.
  * Amounts are what the driver is credited (positive). The dispatcher is
  * fail-open (warn and continue). No driver: nothing to send.
  */
-async function notifyCreditNote(detail: InvoiceDetail): Promise<void> {
+async function notifyCreditNote(
+  detail: InvoiceDetail,
+  actor: InvoiceAuditActor,
+  log: InvoiceAuditLogger,
+): Promise<void> {
   const { invoice, creditedInvoice } = detail;
-  if (invoice.driverId == null) return;
+  const { driverId } = invoice;
+  if (driverId == null) return;
   // A credit note of a fleet invoice goes to the fleet billing contacts (notifyFleetDocument).
   if (invoice.fleetId != null) return;
   const creditedCents = Math.abs(invoice.totalCents);
-  await dispatchDriverNotification(
-    client,
+  await sendToDriver(
+    { ...invoice, driverId },
     'invoice.CreditNote',
-    invoice.driverId,
     {
       creditNoteNumber: invoice.invoiceNumber,
       invoiceNumber: creditedInvoice?.invoiceNumber ?? '',
@@ -378,8 +447,8 @@ async function notifyCreditNote(detail: InvoiceDetail): Promise<void> {
       currency: invoice.currency,
       wasPaid: creditedInvoice?.paidAt != null,
     },
-    ALL_TEMPLATES_DIRS,
-    getPubSub(),
+    actor,
+    log,
   );
 }
 
@@ -415,12 +484,16 @@ export const invoiceListColumns = {
 async function notifyFleetDocument(
   invoiceId: string,
   mode: 'once' | 'resend',
+  actor: InvoiceAuditActor,
   log: FastifyInstance['log'],
 ): Promise<'sent' | 'no_contacts' | 'failed' | 'skipped'> {
   try {
-    const result = await sendFleetInvoiceEmail(invoiceId, mode, {
-      templatesDirs: ALL_TEMPLATES_DIRS,
-    });
+    const result = await sendFleetInvoiceEmail(
+      invoiceId,
+      mode,
+      { templatesDirs: ALL_TEMPLATES_DIRS },
+      { actor, log },
+    );
     if (result.status === 'sent') return 'sent';
     if (result.status === 'no_contacts') return 'no_contacts';
     return 'skipped';
@@ -430,18 +503,31 @@ async function notifyFleetDocument(
   }
 }
 
-/** The fleet of an invoice or credit note, null for a driver invoice or an unknown id. */
-async function invoiceFleetId(id: string): Promise<string | null> {
-  const detail = await getInvoice(id);
-  return detail?.invoice.fleetId ?? null;
+// Invoices are company-wide money: a driver's invoice bills sessions at any
+// site and a fleet invoice spans sites. Only a user with access to every site
+// may list, read or change them; a site-restricted user gets 404
+// INVOICE_NOT_FOUND on every invoice route, as for a missing invoice (P11).
+const invoiceAccessDenied = { error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' } as const;
+
+const printLogoResponse = z
+  .object({
+    logo: z
+      .string()
+      .describe(
+        'The PDF logo as a data URI: data:image/png;base64,... (an SVG logo is rasterized as for the PDF) or data:image/jpeg;base64,...',
+      ),
+  })
+  .passthrough();
+
+/** PNG or JPEG bytes (as loadPdfBranding returns them) as a data URI. */
+function imageDataUri(bytes: Buffer): string {
+  const isJpeg = bytes[0] === 0xff && bytes[1] === 0xd8;
+  return `data:image/${isJpeg ? 'jpeg' : 'png'};base64,${bytes.toString('base64')}`;
 }
 
-// A fleet invoice spans sites: a site-restricted user gets 404 INVOICE_NOT_FOUND,
-// as for a missing invoice, on every per-invoice route (refuseSiteRestrictedFleetInvoice).
-const invoiceNotFound = errorWith(
-  'Invoice not found, or a fleet invoice for a site-restricted user',
-  [ERROR_CODES.INVOICE_NOT_FOUND],
-);
+const invoiceNotFound = errorWith('Invoice not found, or the user is restricted to some sites', [
+  ERROR_CODES.INVOICE_NOT_FOUND,
+]);
 
 export function invoiceRoutes(app: FastifyInstance): void {
   // List invoices
@@ -454,28 +540,23 @@ export function invoiceRoutes(app: FastifyInstance): void {
         summary: 'List invoices',
         operationId: 'listInvoices',
         description:
-          'Invoices and credit notes, newest first. Fleet invoices and their credit notes span sites: with fleetId, a user restricted to some sites gets 404 FLEET_NOT_FOUND; without it, the list leaves them out for that user.',
+          'Invoices and credit notes, newest first. Invoices span sites, so a user restricted to some sites gets 404 INVOICE_NOT_FOUND.',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(invoiceListQuery),
         response: {
           200: paginatedResponse(invoiceListItem),
-          404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
+          404: invoiceNotFound,
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { page, limit, driverId, fleetId, status, kind } = request.query as z.infer<
         typeof invoiceListQuery
       >;
-      if (fleetId != null && (await refuseSiteRestrictedFleetBilling(request, reply))) return;
       const offset = (page - 1) * limit;
 
       const conditions = [];
-      if (fleetId == null) {
-        // A fleet invoice spans sites: a site-restricted user sees driver invoices only.
-        const { userId } = request.user as { userId: string };
-        if ((await getUserSiteIds(userId)) !== null) conditions.push(isNull(invoices.fleetId));
-      }
       if (driverId != null) {
         conditions.push(eq(invoices.driverId, driverId));
       }
@@ -527,18 +608,12 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const result = await getInvoice(id);
 
       if (result == null) {
         await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
-        return;
-      }
-      if (
-        await refuseSiteRestrictedFleetInvoice(request, reply, () =>
-          Promise.resolve(result.invoice.fleetId),
-        )
-      ) {
         return;
       }
 
@@ -555,21 +630,37 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Generate an invoice for a single charging session',
         description:
-          'Builds an invoice from the session and its tariff snapshot, allocating the next gap-free invoice number from the invoice counter. Inserts the invoice header and line items in a transaction. Returns 400 if the session is not eligible (no driver, no final cost, or already invoiced).',
+          "Builds an invoice from the session and its tariff snapshot, allocating the next gap-free invoice number from the invoice counter. Inserts the invoice header and line items in a transaction. Returns 400 if the session is not eligible (no driver, no final cost, or already invoiced), and 404 SESSION_NOT_FOUND for an unknown session or one at a site outside the user's site access.",
         operationId: 'createSessionInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(sessionIdParams),
         response: {
           201: itemResponse(invoiceDetailItem),
           400: errorWith('Invoice creation failed', [ERROR_CODES.INVOICE_CREATION_FAILED]),
+          404: errorWith("Session not found, or at a site outside the user's site access", [
+            ERROR_CODES.SESSION_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
       const { sessionId } = request.params as z.infer<typeof sessionIdParams>;
+      const { userId } = request.user as { userId: string };
+
+      // A session at a site outside the user's access answers like a missing one (P11).
+      const [session] = await db
+        .select({ siteId: chargingStations.siteId })
+        .from(chargingSessions)
+        .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
+        .where(eq(chargingSessions.id, sessionId));
+      if (session == null || !(await userCanAccessSite(userId, session.siteId))) {
+        await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+        return;
+      }
 
       try {
         const result = await createSessionInvoice(sessionId);
+        await auditDriverInvoiceGenerated(result, getAuditActor(request), request.log, null);
         await reply.status(201).send(result);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Failed to create invoice';
@@ -597,10 +688,14 @@ export function invoiceRoutes(app: FastifyInstance): void {
             ERROR_CODES.INVOICE_NO_SESSIONS,
             ERROR_CODES.INVOICE_CREATION_FAILED,
           ]),
+          404: errorWith('Invoice not found, or the user is restricted to some sites', [
+            ERROR_CODES.INVOICE_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const body = request.body as z.infer<typeof aggregatedInvoiceBody>;
 
       try {
@@ -608,6 +703,13 @@ export function invoiceRoutes(app: FastifyInstance): void {
           body.driverId,
           new Date(body.startDate),
           new Date(body.endDate),
+        );
+        // The billed window as an ISO 8601 interval.
+        await auditDriverInvoiceGenerated(
+          result,
+          getAuditActor(request),
+          request.log,
+          `${body.startDate}/${body.endDate}`,
         );
         await reply.status(201).send(result);
       } catch (err: unknown) {
@@ -642,8 +744,8 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
-      if (await refuseSiteRestrictedFleetInvoice(request, reply, () => invoiceFleetId(id))) return;
       // INVOICE_NOT_VOIDABLE is an AppError (409) the error handler sends.
       const result = await voidInvoice(id);
 
@@ -706,10 +808,10 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const body = request.body as z.infer<typeof markPaidBody>;
       const paidAt = new Date(body.paidAt);
-      if (await refuseSiteRestrictedFleetInvoice(request, reply, () => invoiceFleetId(id))) return;
 
       if (paidAt.getTime() > Date.now() + PAID_AT_FUTURE_TOLERANCE_MS) {
         await reply
@@ -773,9 +875,9 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const reason = (request.body as z.infer<typeof creditNoteBody>).reason.trim();
-      if (await refuseSiteRestrictedFleetInvoice(request, reply, () => invoiceFleetId(id))) return;
 
       // The 409 refusals are AppErrors the error handler sends.
       const result = await creditInvoice(id, reason);
@@ -808,10 +910,11 @@ export function invoiceRoutes(app: FastifyInstance): void {
 
       const detail = await getInvoice(creditNote.id);
       if (detail != null) {
+        const actor = getAuditActor(request);
         if (detail.invoice.fleetId != null) {
-          await notifyFleetDocument(creditNote.id, 'once', request.log);
+          await notifyFleetDocument(creditNote.id, 'once', actor, request.log);
         } else {
-          await notifyCreditNote(detail);
+          await notifyCreditNote(detail, actor, request.log);
         }
       }
 
@@ -828,7 +931,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Email an invoice to its driver or fleet',
         description:
-          'Renders the invoice.Sent driver notification (invoice.CreditNote for a credit note) and dispatches it via the configured channels. A fleet invoice (invoice.FleetInvoice) or its credit note (invoice.FleetCreditNote) goes to the fleet billing contacts with the PDF attached and sets sentAt; 400 FLEET_BILLING_CONTACT_REQUIRED when the fleet has none. Safe to call repeatedly; each call sends again (deliberate resend semantics).',
+          'Renders the invoice.Sent driver notification (invoice.CreditNote for a credit note) and dispatches it via the configured channels. A fleet invoice (invoice.FleetInvoice) or its credit note (invoice.FleetCreditNote) goes to the fleet billing contacts with the PDF attached and sets sentAt; 400 FLEET_BILLING_CONTACT_REQUIRED when the fleet has none. Safe to call repeatedly; each call sends again (deliberate resend semantics). A send a provider accepted is recorded in the invoice audit log (invoice_sent).',
         operationId: 'sendInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),
@@ -843,6 +946,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const result = await getInvoice(id);
 
@@ -852,18 +956,15 @@ export function invoiceRoutes(app: FastifyInstance): void {
       }
 
       const { invoice } = result;
-      if (
-        await refuseSiteRestrictedFleetInvoice(request, reply, () =>
-          Promise.resolve(invoice.fleetId),
-        )
-      ) {
-        return;
-      }
+      const actor = getAuditActor(request);
       if (invoice.fleetId != null) {
         // Resend: errors here are not swallowed, the operator sees them.
-        const sent = await sendFleetInvoiceEmail(invoice.id, 'resend', {
-          templatesDirs: ALL_TEMPLATES_DIRS,
-        });
+        const sent = await sendFleetInvoiceEmail(
+          invoice.id,
+          'resend',
+          { templatesDirs: ALL_TEMPLATES_DIRS },
+          { actor, log: request.log },
+        );
         if (sent.status === 'no_contacts') {
           await reply.status(400).send({
             error: 'The fleet has no billing contact',
@@ -873,20 +974,20 @@ export function invoiceRoutes(app: FastifyInstance): void {
         }
         return { success: true };
       }
-      if (invoice.driverId == null) {
+      const { driverId } = invoice;
+      if (driverId == null) {
         await reply.status(400).send({ error: 'Invoice has no driver', code: 'INVOICE_NO_DRIVER' });
         return;
       }
 
       if (invoice.kind === 'credit_note') {
-        await notifyCreditNote(result);
+        await notifyCreditNote(result, actor, request.log);
         return { success: true };
       }
 
-      await dispatchDriverNotification(
-        client,
+      await sendToDriver(
+        { ...invoice, driverId },
         'invoice.Sent',
-        invoice.driverId,
         {
           invoiceNumber: invoice.invoiceNumber,
           status: invoice.status,
@@ -897,11 +998,33 @@ export function invoiceRoutes(app: FastifyInstance): void {
           totalCents: invoice.totalCents,
           currency: invoice.currency,
         },
-        ALL_TEMPLATES_DIRS,
-        getPubSub(),
+        actor,
+        request.log,
       );
 
       return { success: true };
+    },
+  );
+
+  // The PDF logo for the printed invoice page
+  app.get(
+    '/invoices/print-logo',
+    {
+      onRequest: [authorize('payments:read')],
+      schema: {
+        tags: ['Invoices'],
+        summary: 'Get the logo of the printed invoice',
+        description:
+          'The logo the invoice PDF draws (pdf.logo, or the default logo when it is empty or unusable), as a PNG or JPEG data URI, so the printed invoice page shows the same image as the PDF. The CSMS shows it only in the print layout. Invoices span sites, so a user restricted to some sites gets 404 INVOICE_NOT_FOUND.',
+        operationId: 'getInvoicePrintLogo',
+        security: [{ bearerAuth: [] }],
+        response: { 200: zodSchema(printLogoResponse), 404: invoiceNotFound },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
+      const { logo } = await loadPdfBranding();
+      return { logo: imageDataUri(logo) };
     },
   );
 
@@ -914,7 +1037,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Download an invoice as a PDF',
         description:
-          "Renders a portrait A4 PDF of the invoice in the driver's language (a fleet invoice in the language stored on it; English otherwise) with the company logo, billed-to driver (a fleet invoice: the fleet's bill-to block, the period, and the lines grouped by driver with a subtotal each), line items with their tax rate, the net amount, tax rate, and tax amount per rate, and the totals. A credit note is titled as one and names the invoice it credits and the reason; a credited invoice names its credit note. Streams application/pdf as an attachment.",
+          "Renders a portrait A4 PDF of the invoice in the driver's language (a fleet invoice in the language stored on it; English otherwise) with the PDF logo (pdf.logo), billed-to driver (a fleet invoice: the fleet's bill-to block, the period, and the lines grouped by driver with a subtotal each), line items with their tax rate, the net amount, tax rate, and tax amount per rate, and the totals, and the PDF footer (pdf.footer) centered at the bottom of every page. A credit note is titled as one and names the invoice it credits and the reason; a credited invoice names its credit note. Streams application/pdf as an attachment.",
         operationId: 'downloadInvoicePdf',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),
@@ -922,18 +1045,12 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const result = await getInvoice(id);
 
       if (result == null) {
         await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
-        return;
-      }
-      if (
-        await refuseSiteRestrictedFleetInvoice(request, reply, () =>
-          Promise.resolve(result.invoice.fleetId),
-        )
-      ) {
         return;
       }
 
@@ -961,18 +1078,12 @@ export function invoiceRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, invoiceAccessDenied))) return;
       const { id } = request.params as z.infer<typeof invoiceIdParams>;
       const result = await getInvoice(id);
 
       if (result == null) {
         await reply.status(404).send({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
-        return;
-      }
-      if (
-        await refuseSiteRestrictedFleetInvoice(request, reply, () =>
-          Promise.resolve(result.invoice.fleetId),
-        )
-      ) {
         return;
       }
 

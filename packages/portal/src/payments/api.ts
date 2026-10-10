@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { randomUuidV4 } from '@evtivity/lib/uuid';
 import { api, ApiError, getApiErrorFieldDetails } from '@/lib/api';
 import type {
   PaymentProviderDescriptor,
@@ -27,9 +28,10 @@ export async function startSetup(): Promise<SetupSession> {
  * One id per card attempt. The API derives the provider idempotency keys from it,
  * hashed with the driver id (`method_setup_<sha256(driverId:attemptId)[:32]>`, and the
  * details step adds the details to the hash), so a retry of one step replays it.
+ * `randomUuidV4` also works over plain HTTP, where `crypto.randomUUID` does not exist.
  */
 export function newAttemptId(): string {
-  return crypto.randomUUID();
+  return randomUuidV4();
 }
 
 /** A refused card is a 400 PAYMENT_FAILED with `details.reason`; other errors are thrown. */

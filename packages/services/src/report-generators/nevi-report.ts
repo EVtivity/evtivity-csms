@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import ExcelJS from 'exceljs';
-import { sql, eq } from 'drizzle-orm';
+import { sql, eq, and, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingStations,
@@ -14,6 +14,14 @@ import {
   neviStationData,
   getSystemTimezone,
 } from '@evtivity/database';
+import type { UiLanguage } from '@evtivity/lib/languages';
+import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
+
+/** `AND ...` condition on the station alias `cs` for the report's site scope, empty for all sites. */
+function csInScope(scope: ReportSiteScope): SQL {
+  const inScope = stationSiteInScope(sql.raw('cs.site_id'), scope);
+  return inScope != null ? sql`AND ${inScope}` : sql``;
+}
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -193,7 +201,10 @@ function autoSizeColumns(sheet: ExcelJS.Worksheet): void {
 
 // ── Tab 1: Station Location ────────────────────────────────────────────────────
 
-async function buildStationLocationTab(sheet: ExcelJS.Worksheet): Promise<void> {
+async function buildStationLocationTab(
+  sheet: ExcelJS.Worksheet,
+  scope: ReportSiteScope,
+): Promise<void> {
   sheet.columns = [
     { header: 'Station Name', key: 'stationName' },
     { header: 'Address', key: 'address' },
@@ -221,7 +232,8 @@ async function buildStationLocationTab(sheet: ExcelJS.Worksheet): Promise<void> 
     .from(chargingStations)
     .innerJoin(sites, eq(chargingStations.siteId, sites.id))
     .innerJoin(evses, eq(evses.stationId, chargingStations.id))
-    .innerJoin(connectors, eq(connectors.evseId, evses.id));
+    .innerJoin(connectors, eq(connectors.evseId, evses.id))
+    .where(stationSiteInScope(chargingStations.siteId, scope));
 
   const stationMap = new Map<
     string,
@@ -284,6 +296,7 @@ async function buildSessionsTab(
   sheet: ExcelJS.Worksheet,
   dates: QuarterDates,
   tz: string,
+  scope: ReportSiteScope,
 ): Promise<void> {
   sheet.columns = [
     { header: 'Station ID', key: 'stationId' },
@@ -318,7 +331,10 @@ async function buildSessionsTab(
     .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
     .leftJoin(evses, eq(chargingSessions.evseId, evses.id))
     .where(
-      sql`(${chargingSessions.startedAt} AT TIME ZONE ${tz})::date BETWEEN ${dates.startDate}::date AND ${dates.endDate}::date`,
+      and(
+        sql`(${chargingSessions.startedAt} AT TIME ZONE ${tz})::date BETWEEN ${dates.startDate}::date AND ${dates.endDate}::date`,
+        stationSiteInScope(chargingStations.siteId, scope),
+      ),
     );
 
   const sessionIds = (sessionRows as SessionRow[]).map((r) => r.sessionId);
@@ -371,6 +387,7 @@ async function buildUptimeTab(
   sheet: ExcelJS.Worksheet,
   dates: QuarterDates,
   tz: string,
+  scope: ReportSiteScope,
 ): Promise<void> {
   sheet.columns = [
     { header: 'Station ID', key: 'stationId' },
@@ -460,6 +477,7 @@ async function buildUptimeTab(
         ON opp.station_id = ap.station_id AND opp.evse_id = ap.evse_id
       LEFT JOIN excluded_per_port epp
         ON epp.station_id = ap.station_id AND epp.evse_id = ap.evse_id
+      WHERE 1=1 ${csInScope(scope)}
     `);
 
     for (const row of rows as unknown as UptimeRow[]) {
@@ -493,6 +511,7 @@ async function buildOutageTab(
   sheet: ExcelJS.Worksheet,
   dates: QuarterDates,
   tz: string,
+  scope: ReportSiteScope,
 ): Promise<void> {
   sheet.columns = [
     { header: 'Station ID', key: 'stationId' },
@@ -527,6 +546,7 @@ async function buildOutageTab(
       CROSS JOIN bounds
       WHERE psl.timestamp >= bounds.period_start
         AND psl.timestamp <= bounds.period_end
+        ${csInScope(scope)}
     )
     SELECT
       station_id,
@@ -562,7 +582,10 @@ async function buildOutageTab(
 
 // ── Tab 5: Maintenance Cost ────────────────────────────────────────────────────
 
-async function buildMaintenanceCostTab(sheet: ExcelJS.Worksheet): Promise<void> {
+async function buildMaintenanceCostTab(
+  sheet: ExcelJS.Worksheet,
+  scope: ReportSiteScope,
+): Promise<void> {
   sheet.columns = [
     { header: 'Station ID', key: 'stationId' },
     { header: 'Annual Maintenance Cost', key: 'annualMaintenanceCost' },
@@ -576,7 +599,8 @@ async function buildMaintenanceCostTab(sheet: ExcelJS.Worksheet): Promise<void> 
       maintenanceCostYear: neviStationData.maintenanceCostYear,
     })
     .from(neviStationData)
-    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id));
+    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
+    .where(stationSiteInScope(chargingStations.siteId, scope));
 
   for (const row of rows as MaintenanceCostRow[]) {
     sheet.addRow({
@@ -593,7 +617,10 @@ async function buildMaintenanceCostTab(sheet: ExcelJS.Worksheet): Promise<void> 
 
 // ── Tab 6: Station Operator Identity ───────────────────────────────────────────
 
-async function buildOperatorIdentityTab(sheet: ExcelJS.Worksheet): Promise<void> {
+async function buildOperatorIdentityTab(
+  sheet: ExcelJS.Worksheet,
+  scope: ReportSiteScope,
+): Promise<void> {
   sheet.columns = [
     { header: 'Station ID', key: 'stationId' },
     { header: 'Operator Name', key: 'operatorName' },
@@ -611,7 +638,8 @@ async function buildOperatorIdentityTab(sheet: ExcelJS.Worksheet): Promise<void>
       operatorEmail: neviStationData.operatorEmail,
     })
     .from(neviStationData)
-    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id));
+    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
+    .where(stationSiteInScope(chargingStations.siteId, scope));
 
   for (const row of rows as OperatorIdentityRow[]) {
     sheet.addRow({
@@ -629,7 +657,10 @@ async function buildOperatorIdentityTab(sheet: ExcelJS.Worksheet): Promise<void>
 
 // ── Tab 7: Station Operator Programs ───────────────────────────────────────────
 
-async function buildOperatorProgramsTab(sheet: ExcelJS.Worksheet): Promise<void> {
+async function buildOperatorProgramsTab(
+  sheet: ExcelJS.Worksheet,
+  scope: ReportSiteScope,
+): Promise<void> {
   sheet.columns = [
     { header: 'Station ID', key: 'stationId' },
     { header: 'Programs', key: 'programs' },
@@ -641,7 +672,8 @@ async function buildOperatorProgramsTab(sheet: ExcelJS.Worksheet): Promise<void>
       programParticipation: neviStationData.programParticipation,
     })
     .from(neviStationData)
-    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id));
+    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
+    .where(stationSiteInScope(chargingStations.siteId, scope));
 
   for (const row of rows as OperatorProgramsRow[]) {
     let programs = '';
@@ -660,7 +692,7 @@ async function buildOperatorProgramsTab(sheet: ExcelJS.Worksheet): Promise<void>
 
 // ── Tab 8: DER Info ────────────────────────────────────────────────────────────
 
-async function buildDerInfoTab(sheet: ExcelJS.Worksheet): Promise<void> {
+async function buildDerInfoTab(sheet: ExcelJS.Worksheet, scope: ReportSiteScope): Promise<void> {
   sheet.columns = [
     { header: 'Station ID', key: 'stationId' },
     { header: 'DER Type', key: 'derType' },
@@ -676,7 +708,8 @@ async function buildDerInfoTab(sheet: ExcelJS.Worksheet): Promise<void> {
       derCapacityKwh: neviStationData.derCapacityKwh,
     })
     .from(neviStationData)
-    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id));
+    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
+    .where(stationSiteInScope(chargingStations.siteId, scope));
 
   for (const row of rows as DerInfoRow[]) {
     sheet.addRow({
@@ -693,7 +726,10 @@ async function buildDerInfoTab(sheet: ExcelJS.Worksheet): Promise<void> {
 
 // ── Tab 9: Capital/Installation Costs ──────────────────────────────────────────
 
-async function buildCapitalCostsTab(sheet: ExcelJS.Worksheet): Promise<void> {
+async function buildCapitalCostsTab(
+  sheet: ExcelJS.Worksheet,
+  scope: ReportSiteScope,
+): Promise<void> {
   sheet.columns = [
     { header: 'Station ID', key: 'stationId' },
     { header: 'Installation Cost', key: 'installationCost' },
@@ -707,7 +743,8 @@ async function buildCapitalCostsTab(sheet: ExcelJS.Worksheet): Promise<void> {
       gridConnectionCost: neviStationData.gridConnectionCost,
     })
     .from(neviStationData)
-    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id));
+    .innerJoin(chargingStations, eq(neviStationData.stationId, chargingStations.id))
+    .where(stationSiteInScope(chargingStations.siteId, scope));
 
   for (const row of rows as CapitalCostsRow[]) {
     sheet.addRow({
@@ -745,9 +782,13 @@ export function neviFiltersError(filters: Record<string, unknown>): string | nul
 export async function generateNeviReport(
   filters: Record<string, unknown>,
   format: string,
+  language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<{ data: Buffer; fileName: string }> {
-  // NEVI reports are always XLSX (EV-ChART format); format parameter is part of the generator interface
+  // NEVI reports are always XLSX (EV-ChART format) with fixed English field
+  // names; format and language are part of the generator interface.
   void format;
+  void language;
   if (!neviFiltersValid(filters)) {
     throw new Error(NEVI_FILTERS_ERROR);
   }
@@ -772,15 +813,15 @@ export async function generateNeviReport(
   const capitalCostsSheet = workbook.addWorksheet('Capital-Installation Costs');
 
   await Promise.all([
-    buildStationLocationTab(stationLocationSheet),
-    buildSessionsTab(sessionsSheet, dates, tz),
-    buildUptimeTab(uptimeSheet, dates, tz),
-    buildOutageTab(outageSheet, dates, tz),
-    buildMaintenanceCostTab(maintenanceCostSheet),
-    buildOperatorIdentityTab(operatorIdentitySheet),
-    buildOperatorProgramsTab(operatorProgramsSheet),
-    buildDerInfoTab(derInfoSheet),
-    buildCapitalCostsTab(capitalCostsSheet),
+    buildStationLocationTab(stationLocationSheet, siteIds),
+    buildSessionsTab(sessionsSheet, dates, tz, siteIds),
+    buildUptimeTab(uptimeSheet, dates, tz, siteIds),
+    buildOutageTab(outageSheet, dates, tz, siteIds),
+    buildMaintenanceCostTab(maintenanceCostSheet, siteIds),
+    buildOperatorIdentityTab(operatorIdentitySheet, siteIds),
+    buildOperatorProgramsTab(operatorProgramsSheet, siteIds),
+    buildDerInfoTab(derInfoSheet, siteIds),
+    buildCapitalCostsTab(capitalCostsSheet, siteIds),
   ]);
 
   const buffer = await workbook.xlsx.writeBuffer();

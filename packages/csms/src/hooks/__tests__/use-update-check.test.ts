@@ -164,7 +164,7 @@ describe('useUpdateCheck', () => {
       });
     });
 
-    it('adds the v prefix to the release link and records a dismissal', async () => {
+    it('adds the v prefix to the release link and records a dismissal when closed', async () => {
       serveLatest('0.1.38');
       renderHook(() => {
         useUpdateCheck();
@@ -174,15 +174,14 @@ describe('useUpdateCheck', () => {
       });
       const arg = toastMock.mock.calls[0]?.[0] as {
         action: { href: string };
-        persistent: boolean;
-        onDismiss: () => void;
+        onClose: () => void;
       };
       expect(arg.action.href).toBe(
         'https://github.com/EVtivity/evtivity-csms/releases/tag/v0.1.38',
       );
-      expect(arg.persistent).toBe(true);
+      expect(arg).not.toHaveProperty('persistent');
 
-      arg.onDismiss();
+      arg.onClose();
       const stored = JSON.parse(localStorage.getItem('csms_update_dismissed') ?? '{}') as {
         version: string;
         at: number;

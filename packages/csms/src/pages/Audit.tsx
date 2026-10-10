@@ -19,7 +19,15 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { actorDisplay, type AuditEntry } from '@/components/EntityHistoryTab';
+import { actorDisplay, AuditActorBadge, type AuditEntry } from '@/components/EntityHistoryTab';
+import {
+  AUDIT_ACTIONS,
+  AUDIT_ACTORS,
+  AUDIT_ENTITY_TYPES,
+  auditActionLabel,
+  auditActorLabel,
+  auditEntityLabel,
+} from '@/lib/audit-labels';
 import { FilterPopover } from '@/components/FilterBar';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
@@ -28,121 +36,6 @@ interface AuditPage {
   data: AuditEntry[];
   total: number;
 }
-
-const ENTITY_TYPES = [
-  'site',
-  'station',
-  'driver',
-  'fleet',
-  'user',
-  'vehicle',
-  'support_case',
-  'ocpi_partner',
-  'certificate',
-  'role',
-  'api_key',
-  'setting',
-  'smart_charging_template',
-  'config_template',
-  'firmware_campaign',
-  'station_image',
-  'local_auth_list',
-  'token',
-  'reservation',
-  'pricing_group',
-  'tariff',
-  'holiday',
-  'pricing_assignment',
-  'maintenance_event',
-  'session',
-  'invoice',
-] as const;
-
-const ACTORS = ['operator', 'driver', 'api_key', 'system', 'ocpp'] as const;
-
-// Union of every action verb declared across all per-entity action enums in
-// packages/database/src/schema/audit.ts. Keep sorted alphabetically. Adding
-// a new entity action enum? Add the value(s) here so the global Audit page
-// dropdown can offer it.
-const ACTIONS = [
-  'activated',
-  'assigned',
-  'attachment_added',
-  'availability_changed',
-  'ca_certificate_added',
-  'ca_certificate_deleted',
-  'cancelled',
-  'carbon_region_changed',
-  'category_changed',
-  'certificate_deleted',
-  'certificate_installed',
-  'command_dispatched',
-  'completed',
-  'configuration_pushed',
-  'created',
-  'csr_rejected',
-  'csr_signed',
-  'deactivated',
-  'deleted',
-  'disconnected',
-  'email_verified',
-  'ended',
-  'expired',
-  'fleet_assignment_changed',
-  'free_vend_toggled',
-  'imported',
-  'invoice_credited',
-  'invoice_generated',
-  'location_published_changed',
-  'login_failed',
-  'login_succeeded',
-  'manual_billing',
-  'marked_paid',
-  'member_added',
-  'member_removed',
-  'message_added',
-  'mfa_disabled',
-  'mfa_enabled',
-  'onboarding_status_changed',
-  'password_reset',
-  'paused',
-  'payment_config_changed',
-  'permissions_changed',
-  'pnc_settings_updated',
-  'pricing_assignment_changed',
-  'priority_changed',
-  'pulled',
-  'pushed',
-  'rebilled',
-  'refund_issued',
-  'registered',
-  'reservations_cancelled',
-  'reset_triggered',
-  'resumed',
-  'revoked',
-  'role_changed',
-  'root_certificates_refreshed',
-  'session_failed',
-  'sessions_linked',
-  'sessions_stopped',
-  'sessions_unlinked',
-  'set_main',
-  'simulator_toggled',
-  'site_access_changed',
-  'started',
-  'station_added',
-  'station_removed',
-  'status_changed',
-  'sync_triggered',
-  'tariff_mapping_changed',
-  'token_received',
-  'tokens_added',
-  'tokens_removed',
-  'updated',
-  'uploaded',
-  'used',
-  'voided',
-] as const;
 
 function formatTimestamp(iso: string, timezone: string): string {
   const d = new Date(iso);
@@ -219,9 +112,9 @@ export function Audit(): React.JSX.Element {
           }}
         >
           <option value="">{t('audit.all', 'All')}</option>
-          {ENTITY_TYPES.map((tt) => (
+          {AUDIT_ENTITY_TYPES.map((tt) => (
             <option key={tt} value={tt}>
-              {tt}
+              {auditEntityLabel(t, tt)}
             </option>
           ))}
         </Select>
@@ -238,9 +131,9 @@ export function Audit(): React.JSX.Element {
           }}
         >
           <option value="">{t('audit.all', 'All')}</option>
-          {ACTORS.map((a) => (
+          {AUDIT_ACTORS.map((a) => (
             <option key={a} value={a}>
-              {a}
+              {auditActorLabel(t, a)}
             </option>
           ))}
         </Select>
@@ -257,9 +150,9 @@ export function Audit(): React.JSX.Element {
           }}
         >
           <option value="">{t('audit.all', 'All')}</option>
-          {ACTIONS.map((a) => (
+          {AUDIT_ACTIONS.map((a) => (
             <option key={a} value={a}>
-              {a}
+              {auditActionLabel(t, a)}
             </option>
           ))}
         </Select>
@@ -368,16 +261,20 @@ export function Audit(): React.JSX.Element {
                         {formatTimestamp(row.createdAt, timezone)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="secondary">{row.entityType}</Badge>
+                        <Badge variant="secondary" title={row.entityType}>
+                          {auditEntityLabel(t, row.entityType)}
+                        </Badge>
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {row.entityId ?? row.entityIdSnapshot}
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{row.action}</Badge>
+                        <Badge variant="outline" title={row.action}>
+                          {auditActionLabel(t, row.action)}
+                        </Badge>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="info">{row.actor}</Badge>
+                        <AuditActorBadge actor={row.actor} />
                       </TableCell>
                       <TableCell className="text-sm">{actorDisplay(row)}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">

@@ -233,7 +233,7 @@ else
   release_subject="release: version $next_version"
 fi
 
-git add package.json packages/*/package.json packages/api/src/services/ai/tools.ts
+git add package.json packages/*/package.json packages/api/src/services/ai/tools/catalog.ts
 if git diff --cached --quiet; then
   git commit --allow-empty -m "$release_subject"
 else

@@ -28,6 +28,9 @@
     "./fleet-invoice.service": {
       "import": "./src/fleet-invoice.service.ts"
     },
+    "./invoice-audit": {
+      "import": "./src/invoice-audit.ts"
+    },
     "./invoice-labels": {
       "import": "./src/invoice-labels.ts"
     },
@@ -49,6 +52,9 @@
     "./ocpp-command": {
       "import": "./src/ocpp-command.ts"
     },
+    "./pdf-branding": {
+      "import": "./src/pdf-branding.ts"
+    },
     "./pdf-fonts": {
       "import": "./src/pdf-fonts.ts"
     },
@@ -58,8 +64,14 @@
     "./report-registry": {
       "import": "./src/report-registry.ts"
     },
+    "./report-scope": {
+      "import": "./src/report-scope.ts"
+    },
     "./report.service": {
       "import": "./src/report.service.ts"
+    },
+    "./s3-storage": {
+      "import": "./src/s3-storage.ts"
     },
     "./reservation-cancel": {
       "import": "./src/reservation-cancel.ts"
@@ -82,17 +94,18 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1149.0",
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
     "@evtivity/payments": "*",
     "@resvg/resvg-js": "^2.6.2",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^3.4.0",
-    "pdfkit": "^0.17.2"
+    "pdfkit": "^0.20.2"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
-    "@types/pdfkit": "^0.17.5",
+    "@types/pdfkit": "^0.17.6",
     "typescript": "^6.0.3",
     "vitest": "^5.0.2"
   }

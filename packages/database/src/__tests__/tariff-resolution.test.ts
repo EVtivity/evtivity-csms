@@ -3,12 +3,22 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type postgres from 'postgres';
+import { DEFAULT_TIMEZONE } from '@evtivity/lib';
+
+const settings = vi.hoisted(() => ({ splitBilling: false }));
+vi.mock('../lib/pricing-settings.js', () => ({
+  isSplitBillingEnabled: vi.fn(() => Promise.resolve(settings.splitBilling)),
+}));
 
 const {
   loadStationPricing,
+  loadStationPricingChain,
   resolveStationTariff,
+  resolveStationPricing,
   resolveGroupTariffs,
   isStationChargingFree,
+  sessionGroupHasPaidTariff,
+  listPricingGroupsWithoutDefault,
   getPricingHolidays,
   clearTariffResolutionCache,
 } = await import('../lib/tariff-resolution.js');
@@ -33,7 +43,7 @@ function makeSql(answers: Array<[string, Record<string, unknown>[]]> = []): {
   return { sql: fn as unknown as postgres.Sql, calls };
 }
 
-const GROUP = { group_id: 'pgr_1', group_name: 'Members', group_priority: 1, timezone: null };
+const GROUP = { group_id: 'pgr_1', group_name: 'Members', group_priority: 1, timezone: 'UTC' };
 
 const DEFAULT_TARIFF = {
   id: 'trf_default',
@@ -88,6 +98,7 @@ function pricingRows(
 
 beforeEach(() => {
   clearTariffResolutionCache();
+  settings.splitBilling = false;
 });
 
 afterEach(() => {
@@ -104,10 +115,17 @@ describe('loadStationPricing', () => {
       const pricing = await loadStationPricing({ stationUuid: 'sta_1', driverUuid: 'drv_1' }, sql);
       expect(pricing?.group).toEqual({ id: 'pgr_1', name: 'Members', source });
       expect(calls).toHaveLength(1);
-      expect(calls[0]?.values).toEqual(['drv_1', 'drv_1', 'sta_1', 'sta_1', 'sta_1']);
+      expect(calls[0]?.values).toEqual([
+        'drv_1',
+        'drv_1',
+        'sta_1',
+        'sta_1',
+        'America/New_York',
+        'sta_1',
+      ]);
       // driver > fleet (oldest membership) > station > site > default.
       expect(calls[0]?.text).toContain('ORDER BY fd.created_at ASC, fd.id ASC');
-      expect(calls[0]?.text).toContain('ORDER BY priority');
+      expect(calls[0]?.text).toContain('ORDER BY c.priority, t.id');
     }
   });
 
@@ -117,16 +135,113 @@ describe('loadStationPricing', () => {
     expect(calls[0]?.values.slice(0, 2)).toEqual(['', '']);
   });
 
-  it('reports a group without active tariffs with an empty list', async () => {
+  it('lists a group without active tariffs in the chain and skips it as the group', async () => {
     const { sql } = makeSql([
       ['WITH driver_group', [{ ...GROUP, timezone: 'Europe/Berlin', id: null, name: null }]],
     ]);
-    const pricing = await loadStationPricing({ stationUuid: 'sta_1', driverUuid: null }, sql);
-    expect(pricing).toEqual({
-      group: { id: 'pgr_1', name: 'Members', source: 'driver' },
-      timezone: 'Europe/Berlin',
-      tariffs: [],
-    });
+    const q = { stationUuid: 'sta_1', driverUuid: null };
+    expect(await loadStationPricingChain(q, sql)).toEqual([
+      {
+        group: { id: 'pgr_1', name: 'Members', source: 'driver' },
+        timezone: 'Europe/Berlin',
+        tariffs: [],
+      },
+    ]);
+    expect(await loadStationPricing(q, sql)).toBeNull();
+  });
+
+  it('returns the first group with active tariffs, each group once at its first step', async () => {
+    const rows = [
+      { ...GROUP, group_id: 'pgr_empty', group_priority: 1, id: null, name: null },
+      ...pricingRows([DEFAULT_TARIFF], { ...GROUP, group_id: 'pgr_site', group_priority: 4 }),
+      ...pricingRows([DEFAULT_TARIFF], { ...GROUP, group_id: 'pgr_site', group_priority: 5 }),
+    ];
+    const { sql } = makeSql([['WITH driver_group', rows]]);
+    const q = { stationUuid: 'sta_1', driverUuid: 'drv_1' };
+    const chain = await loadStationPricingChain(q, sql);
+    expect(chain.map((p) => [p.group.id, p.group.source, p.tariffs.length])).toEqual([
+      ['pgr_empty', 'driver', 0],
+      ['pgr_site', 'site', 1],
+    ]);
+    expect((await loadStationPricing(q, sql))?.group.id).toBe('pgr_site');
+  });
+});
+
+describe('group fall-through (B2)', () => {
+  const DRIVER_PEAK = { ...OFF_PEAK_TARIFF, id: 'trf_driver_peak' };
+  const chainRows = [
+    ...pricingRows([DRIVER_PEAK], { ...GROUP, group_id: 'pgr_driver', group_priority: 1 }),
+    ...pricingRows([DEFAULT_TARIFF], { ...GROUP, group_id: 'pgr_station', group_priority: 3 }),
+  ];
+
+  it('passes a group without a matching tariff to the next group (TC-T3-05)', async () => {
+    const { sql } = makeSql([['WITH driver_group', chainRows]]);
+    const q = { stationUuid: 'sta_1', driverUuid: 'drv_1' };
+    // Noon UTC (server time, no site timezone): the driver group's off-peak
+    // window (20:00-08:00) does not match and the group has no default.
+    const noon = await resolveStationTariff({ ...q, at: new Date(2026, 9, 3, 12, 0, 0) }, sql);
+    expect(noon?.id).toBe('trf_default');
+    expect(noon?.pricingGroup).toEqual({ id: 'pgr_station', name: 'Members', source: 'station' });
+    // 22:00: the driver group matches.
+    const night = await resolveStationTariff({ ...q, at: new Date(2026, 9, 3, 22, 0, 0) }, sql);
+    expect(night?.id).toBe('trf_driver_peak');
+    expect(night?.pricingGroup.source).toBe('driver');
+  });
+
+  it('passes a driver group without active tariffs to the next group (TC-T3-06)', async () => {
+    const rows = [
+      { ...GROUP, group_id: 'pgr_driver', group_priority: 1, id: null, name: null },
+      ...pricingRows([DEFAULT_TARIFF], { ...GROUP, group_id: 'pgr_fleet', group_priority: 2 }),
+    ];
+    const t = await resolveStationTariff(
+      { stationUuid: 'sta_1', driverUuid: 'drv_1' },
+      makeSql([['WITH driver_group', rows]]).sql,
+    );
+    expect(t?.pricingGroup).toEqual({ id: 'pgr_fleet', name: 'Members', source: 'fleet' });
+  });
+
+  it('returns the group tariffs with the resolved tariff', async () => {
+    const { sql } = makeSql([['WITH driver_group', chainRows]]);
+    const r = await resolveStationPricing(
+      { stationUuid: 'sta_1', driverUuid: 'drv_1', at: new Date(2026, 9, 3, 12, 0, 0) },
+      sql,
+    );
+    expect(r?.tariff.id).toBe('trf_default');
+    expect(r?.groupTariffs.map((g) => g.id)).toEqual(['trf_default']);
+  });
+});
+
+describe('resolution within the session group (B7)', () => {
+  it('resolves only within the given pricing group (TC-T3-12)', async () => {
+    const { sql, calls } = makeSql([
+      [
+        'WHERE pg.id =',
+        pricingRows([DEFAULT_TARIFF, OFF_PEAK_TARIFF], { ...GROUP, group_id: 'pgr_session' }),
+      ],
+      ['WITH driver_group', pricingRows([HOLIDAY_TARIFF])],
+    ]);
+    const t = await resolveStationTariff(
+      {
+        stationUuid: 'sta_1',
+        driverUuid: 'drv_1',
+        at: new Date(2026, 9, 3, 22, 0, 0),
+        pricingGroupId: 'pgr_session',
+      },
+      sql,
+    );
+    expect(t?.id).toBe('trf_offpeak');
+    expect(t?.pricingGroup).toEqual({ id: 'pgr_session', name: 'Members', source: 'session' });
+    expect(calls.some((c) => c.text.includes('WITH driver_group'))).toBe(false);
+    // The station's site timezone, else system.timezone, else the default (B22).
+    expect(calls[0]?.values).toEqual([DEFAULT_TIMEZONE, 'sta_1', 'pgr_session']);
+  });
+
+  it('returns null when the session group no longer exists', async () => {
+    const t = await resolveStationTariff(
+      { stationUuid: 'sta_1', driverUuid: null, pricingGroupId: 'pgr_gone' },
+      makeSql([]).sql,
+    );
+    expect(t).toBeNull();
   });
 });
 
@@ -160,6 +275,27 @@ describe('resolveStationTariff', () => {
       pricingGroup: { id: 'pgr_1', name: 'Members', source: 'driver' },
       timezone: 'America/New_York',
     });
+  });
+
+  it('resolves a station without a site in the system timezone (B22)', async () => {
+    // The statement falls back to the system.timezone setting, then the
+    // seed default, for a station without a site.
+    const { sql, calls } = makeSql([
+      [
+        'WITH driver_group',
+        pricingRows([DEFAULT_TARIFF, OFF_PEAK_TARIFF], { ...GROUP, timezone: 'Asia/Tokyo' }),
+      ],
+    ]);
+    // 12:00 UTC is 21:00 in Tokyo: off-peak there, not on the UTC server clock.
+    const tariff = await resolveStationTariff(
+      { stationUuid: 'sta_1', driverUuid: null, at: new Date('2026-10-03T12:00:00Z') },
+      sql,
+    );
+    expect(tariff).toMatchObject({ id: 'trf_offpeak', timezone: 'Asia/Tokyo' });
+    expect(calls[0]?.text).toContain('COALESCE(tz.timezone, sys_tz.timezone, ?) AS timezone');
+    expect(calls[0]?.text).toContain(
+      "WHERE key = 'system.timezone' AND jsonb_typeof(value) = 'string'",
+    );
   });
 
   it('falls back to the default tariff outside the restricted window', async () => {
@@ -286,6 +422,52 @@ describe('isStationChargingFree', () => {
     const q = { stationUuid: 'sta_1', driverUuid: 'drv_1', freeVend: false };
     expect(await isStationChargingFree({ ...q, reserved: false }, sql)).toBe(true);
     expect(await isStationChargingFree({ ...q, reserved: true }, sql)).toBe(false);
+  });
+
+  it('is paid under split billing when the group has a paid tariff ahead (B3, TC-T3-08)', async () => {
+    const FREE = { ...DEFAULT_TARIFF, price_per_kwh: '0', price_per_session: '0' };
+    const { sql } = makeSql([['WITH driver_group', pricingRows([FREE, OFF_PEAK_TARIFF])]]);
+    const q = {
+      stationUuid: 'sta_1',
+      driverUuid: 'drv_1',
+      reserved: false,
+      freeVend: false,
+      at: new Date(2026, 9, 3, 12, 0, 0),
+    };
+    expect(await isStationChargingFree(q, sql)).toBe(true);
+    settings.splitBilling = true;
+    expect(await isStationChargingFree(q, sql)).toBe(false);
+    // Every tariff of the group free: still free.
+    expect(
+      await isStationChargingFree(q, makeSql([['WITH driver_group', pricingRows([FREE])]]).sql),
+    ).toBe(true);
+  });
+});
+
+describe('sessionGroupHasPaidTariff', () => {
+  it('is false without split billing and reads the session group with it', async () => {
+    const { sql, calls } = makeSql([['FROM charging_sessions cs', [DEFAULT_TARIFF]]]);
+    expect(await sessionGroupHasPaidTariff(sql, 'ses_1')).toBe(false);
+    expect(calls).toHaveLength(0);
+    settings.splitBilling = true;
+    expect(await sessionGroupHasPaidTariff(sql, 'ses_1')).toBe(true);
+    expect(calls[0]?.text).toContain('t.pricing_group_id = cs.pricing_group_id');
+    expect(calls[0]?.values).toEqual(['ses_1']);
+    const free = makeSql([
+      [
+        'FROM charging_sessions cs',
+        [{ ...DEFAULT_TARIFF, price_per_kwh: '0', price_per_session: null }],
+      ],
+    ]);
+    expect(await sessionGroupHasPaidTariff(free.sql, 'ses_1')).toBe(false);
+  });
+});
+
+describe('listPricingGroupsWithoutDefault', () => {
+  it('lists groups with active tariffs and no active unrestricted default', async () => {
+    const { sql, calls } = makeSql([['FROM pricing_groups pg', [{ id: 'pgr_1', name: 'Peak' }]]]);
+    expect(await listPricingGroupsWithoutDefault(sql)).toEqual([{ id: 'pgr_1', name: 'Peak' }]);
+    expect(calls[0]?.text).toContain('d.is_default = true AND d.priority = 0');
   });
 });
 

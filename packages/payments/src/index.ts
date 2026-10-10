@@ -276,7 +276,7 @@ export type {
 } from './payout-accounts.js';
 export { findSitePayoutAccount } from './payout-account-records.js';
 export type { PayoutAccountDetails, SitePayoutAccountRow } from './payout-account-records.js';
-export { chargeReservationFee } from './reservation-fees.js';
+export { chargeReservationFee, priceReservationFee } from './reservation-fees.js';
 export type {
   ReservationFeeInput,
   ReservationFeeResult,

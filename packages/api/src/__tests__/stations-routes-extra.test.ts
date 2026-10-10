@@ -437,13 +437,8 @@ describe('Station routes - extra coverage', () => {
       expect(where.op).toBe('and');
       expect(where.conds).toEqual(
         expect.arrayContaining([
-          {
-            op: 'or',
-            conds: [
-              { op: 'isNull', col: 'chargingStations.siteId' },
-              { op: 'inArray', col: 'chargingStations.siteId', val: [SITE_A] },
-            ],
-          },
+          // Unsited stations are hidden from a site-restricted user.
+          { op: 'inArray', col: 'chargingStations.siteId', val: [SITE_A] },
           { op: 'eq', col: 'chargingStations.siteId', val: SITE_A },
           {
             op: 'or',
@@ -710,6 +705,27 @@ describe('Station routes - extra coverage', () => {
       expect(res.json().code).toBe('SITE_NOT_FOUND');
       expect(mocks.userCanAccessSite).toHaveBeenCalledWith(USER, SITE_B);
       expect(chainsOf('update')).toHaveLength(0);
+    });
+
+    it('clears the circuit in the same UPDATE when the station changes site', async () => {
+      queue(
+        [{ id: STATION, stationId: 'CS-1', siteId: SITE_A, disabledReason: null }],
+        [{ id: STATION, stationId: 'CS-1', siteId: SITE_B, isSimulator: false }],
+      );
+      await inject('PATCH', `/stations/${STATION}`, { siteId: SITE_B });
+      const set = argsOf(chainsOf('update')[0], 'set')?.[0] as Record<string, unknown>;
+      expect(set).toMatchObject({ siteId: SITE_B, circuitId: { op: 'sql' } });
+      expect((set['circuitId'] as { values: unknown[] }).values).toContain(SITE_B);
+    });
+
+    it('leaves the circuit alone when the site is not in the body', async () => {
+      queue(
+        [{ id: STATION, stationId: 'CS-1', siteId: SITE_A, disabledReason: null }],
+        [{ id: STATION, stationId: 'CS-1', siteId: SITE_A, isSimulator: false }],
+      );
+      await inject('PATCH', `/stations/${STATION}`, { model: 'X' });
+      const set = argsOf(chainsOf('update')[0], 'set')?.[0] as Record<string, unknown>;
+      expect(set).not.toHaveProperty('circuitId');
     });
   });
 
@@ -1745,6 +1761,33 @@ describe('Station routes - extra coverage', () => {
       expect(mocks.sendOcpp).not.toHaveBeenCalled();
     });
 
+    it('refuses a company-wide template for a site-restricted user', async () => {
+      mocks.getUserSiteIds.mockResolvedValue([SITE_A]);
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [{ ...template, targetFilter: null }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/push`, {
+        templateId: 'tpl-1',
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('TEMPLATE_NOT_FOUND');
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
+    });
+
+    it('pushes a template of the user sites for a site-restricted user', async () => {
+      mocks.getUserSiteIds.mockResolvedValue([SITE_A]);
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [{ ...template, targetFilter: { siteId: SITE_A } }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/push`, {
+        templateId: 'tpl-1',
+      });
+      expect(res.statusCode).toBe(200);
+      expect(ocppCalls('SetChargingProfile')).toHaveLength(1);
+    });
+
     it('clears, sets the profile, refreshes, and audits on Accepted (2.1)', async () => {
       queue([{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }], [template]);
       const res = await inject('POST', `/stations/${STATION}/charging-profiles/push`, {
@@ -1873,6 +1916,33 @@ describe('Station routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('TEMPLATE_NOT_FOUND');
+    });
+
+    it('refuses a company-wide template for a site-restricted user', async () => {
+      mocks.getUserSiteIds.mockResolvedValue([SITE_A]);
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [{ variables, targetFilter: null, stationId: null }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/configurations/push`, {
+        templateId: 'ct-1',
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('TEMPLATE_NOT_FOUND');
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
+    });
+
+    it('refuses a template bound to another station', async () => {
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [{ variables, targetFilter: null, stationId: 'other-station' }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/configurations/push`, {
+        templateId: 'ct-1',
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('TEMPLATE_NOT_FOUND');
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
     });
 
     it('returns success with no results for an empty template', async () => {

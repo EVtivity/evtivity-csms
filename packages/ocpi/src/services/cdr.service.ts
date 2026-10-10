@@ -25,7 +25,9 @@ import { taxTotals } from '@evtivity/lib/price-display';
 import { idleMinutesAt, ocpiCdrCost } from './session-cost-split.js';
 import { cpoSessionLink, partnerToken, sessionPlace } from './cpo-sessions.js';
 import type { CpoSessionLink } from './cpo-sessions.js';
-import { renderTariffMapping, sessionTariffMapping } from './published-tariffs.js';
+import { renderSnapshotTariff, sessionTariffMapping } from './published-tariffs.js';
+import { partTimes, sessionCdrParts } from './cdr-parts.js';
+import { cdrChargingPeriods } from '../lib/charging-periods.js';
 import type { PublishedTariff } from './published-tariffs.js';
 import type { OcpiCdr } from '../types/ocpi.js';
 
@@ -58,8 +60,9 @@ export interface BuiltCdr {
  * pipeline; the only difference for `is_roaming = true` sessions is that the
  * payment gate skips the pre-auth, because the eMSP partner pays us via this
  * CDR and then bills its own driver however it wants. The CDR embeds the
- * published tariff that covers the session's tariff for this partner,
- * generated from the internal tariff like GET /cpo/tariffs.
+ * tariffs it was billed with (the session's and its segments' price
+ * snapshots, not the tariffs' current prices) under the OCPI ids of the
+ * mappings that publish them to this partner.
  */
 export async function buildSessionCdr(
   session: ChargingSessionRow,
@@ -84,20 +87,60 @@ export async function buildSessionCdr(
     .limit(1);
   const partnerVersion = resolvePartnerVersion(partner?.version);
 
-  // The tariff the session was billed with, as published to this partner:
-  // generated from the mapping that covers the session's tariff (directly or
-  // through its pricing group).
-  let tariff: PublishedTariff | null = null;
-  if (session.tariffId != null) {
-    const mapping = await sessionTariffMapping(partnerId, session.tariffId);
-    if (mapping != null) tariff = await renderTariffMapping(mapping, partnerVersion);
+  // The priced parts (the session, or each tariff segment) with the prices
+  // they were billed at, and the tariffs the CDR embeds for them: the price
+  // snapshot of each part, published under the OCPI id of the mapping that
+  // covers its tariff for this partner (directly or through its pricing
+  // group). Distinct snapshots under one mapping get "<id>-2", "<id>-3".
+  const parts = await sessionCdrParts(session);
+  const tariffs: PublishedTariff[] = [];
+  const partTariffIds: Array<string | undefined> = [];
+  const byContent = new Map<string, string>();
+  const perMapping = new Map<string, number>();
+  for (const part of parts) {
+    const mapping =
+      part.tariffId != null ? await sessionTariffMapping(partnerId, part.tariffId) : null;
+    if (mapping == null) {
+      partTariffIds.push(undefined);
+      continue;
+    }
+    const key = `${mapping.ocpiTariffId}|${JSON.stringify({ ...part.prices, id: '' })}`;
+    let ocpiTariffId = byContent.get(key);
+    if (ocpiTariffId == null) {
+      const n = (perMapping.get(mapping.ocpiTariffId) ?? 0) + 1;
+      perMapping.set(mapping.ocpiTariffId, n);
+      ocpiTariffId =
+        n === 1 ? mapping.ocpiTariffId : `${mapping.ocpiTariffId.slice(0, 32)}-${String(n)}`;
+      byContent.set(key, ocpiTariffId);
+      tariffs.push(
+        await renderSnapshotTariff(
+          {
+            prices: part.prices,
+            ocpiTariffId,
+            currency,
+            taxBasis:
+              session.taxBasis === 'gross' || session.taxBasis === 'net' ? session.taxBasis : null,
+            lastUpdated: session.startedAt,
+          },
+          partnerVersion,
+        ),
+      );
+    }
+    partTariffIds.push(ocpiTariffId);
   }
 
   const cdrId = crypto.randomUUID();
 
   // final_cost_cents includes tax: the CDR carries it as the gross and its
-  // net and tax split per tax rate (see session-cost-split.ts).
-  const cost = ocpiCdrCost(session);
+  // net and tax split per tax rate and dimension, from the pricing engine
+  // (see session-cost-split.ts).
+  const cost = ocpiCdrCost(session, partTimes(parts));
+  const periods = cdrChargingPeriods(
+    parts.map((part, i) => {
+      const tariffId = partTariffIds[i];
+      return tariffId != null ? { ...part.period, tariffId } : part.period;
+    }),
+  );
 
   const cdrInput: Parameters<typeof transformCdr>[0] = {
     session: {
@@ -131,9 +174,8 @@ export async function buildSessionCdr(
     cdrId,
     token,
   };
-  if (tariff != null) {
-    cdrInput.tariff = tariff;
-  }
+  if (periods.length > 0) cdrInput.chargingPeriods = periods;
+  if (tariffs.length > 0) cdrInput.tariffs = tariffs;
 
   const cdr = transformCdr(cdrInput, partnerVersion);
   return {

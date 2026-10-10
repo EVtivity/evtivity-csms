@@ -159,7 +159,7 @@ describe('verifyMfaChallenge', () => {
     return {
       id: 1,
       code_hash: sha256Hex('123456'),
-      expires_at: new Date('2026-06-01T00:05:00.000Z'),
+      expired: false,
       used_at: null,
       user_id: 'usr_1',
       driver_id: null,
@@ -204,11 +204,19 @@ describe('verifyMfaChallenge', () => {
   });
 
   it('rejects an expired challenge', async () => {
-    const row = validRow({ expires_at: new Date('2026-05-31T23:59:00.000Z') });
+    const row = validRow({ expired: true });
     const { client, calls } = createSqlMock([[row]]);
     const ok = await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' });
     expect(ok).toBe(false);
     expect(calls.find((c) => c.sql.includes('used_at = NOW()'))).toBeUndefined();
+  });
+
+  it('decides expiry in SQL, not by comparing a raw expires_at with a Date', async () => {
+    // The shared client returns timestamps as postgres text; a Date-vs-string
+    // comparison was always false and accepted expired codes.
+    const { client, calls } = createSqlMock([[validRow({ expired: true })]]);
+    await verifyMfaChallenge(client, 1, '123456', { userId: 'usr_1' });
+    expect(calls[0]!.sql).toContain('expires_at <= now()');
   });
 
   it('rejects when the supplied code is wrong', async () => {

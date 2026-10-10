@@ -6,7 +6,11 @@ import type postgres from 'postgres';
 import { chargedCostBreakdown } from '@evtivity/lib';
 
 const priceSessionAtMock = vi.fn();
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  // The real register energy rule (applyRegisterReading, finding B10).
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/session-energy.js',
+  )),
   priceSessionAt: priceSessionAtMock,
 }));
 
@@ -82,6 +86,33 @@ describe('transactionCostAt', () => {
     expect(priceSessionAtMock).toHaveBeenLastCalledWith(sql, 'ses_1', params.at, 1000);
     await transactionCostAt(sql, { ...params, meterRegisterWh: 9000 });
     expect(priceSessionAtMock).toHaveBeenLastCalledWith(sql, 'ses_1', params.at, 1000);
+  });
+
+  it('applies the register offset and ignores a reading older than the newest one (B10)', async () => {
+    // A meter reset rebased the session: offset 9000, newest register 2000 at 00:50.
+    const sql = makeSql([
+      [
+        'FROM charging_sessions s',
+        [
+          {
+            ...baseSession,
+            status: 'active',
+            energy_delivered_wh: '3000',
+            meter_start: 8000,
+            meter_register_offset_wh: '9000',
+            meter_last_register_wh: '2000',
+            meter_last_register_at: '2026-06-04T00:50:00Z',
+          },
+        ],
+      ],
+    ]);
+    // 2500 + 9000 - 8000 = 3500 Wh at the Ended reading.
+    await transactionCostAt(sql, { ...params, meterRegisterWh: 2500 });
+    expect(priceSessionAtMock).toHaveBeenLastCalledWith(sql, 'ses_1', params.at, 3500);
+    // An Ended event older than the newest reading keeps the stored energy.
+    const early = new Date('2026-06-04T00:40:00Z');
+    await transactionCostAt(sql, { ...params, at: early, meterRegisterWh: 9999 });
+    expect(priceSessionAtMock).toHaveBeenLastCalledWith(sql, 'ses_1', early, 3000);
   });
 
   it('reports a session without a tariff as free', async () => {

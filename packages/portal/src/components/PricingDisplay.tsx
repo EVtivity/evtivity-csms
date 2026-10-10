@@ -11,6 +11,7 @@ import {
   type PriceDisplay,
   type TaxBasis,
 } from '@evtivity/lib/price-display';
+import { isTariffFree } from '@evtivity/lib/payment-helpers';
 import { formatFlatPrice, formatTaxPercent, formatUnitPrice } from '@/lib/utils';
 import type { DriverBilling } from '@/lib/fleet-billing';
 
@@ -28,6 +29,8 @@ export interface PricingInfo {
   pricePerMinute: string | null;
   pricePerSession: string | null;
   idleFeePricePerMinute: string | null;
+  /** Reservation holding fee per minute (the no-show fee of a reservation made now). */
+  reservationFeePerMinute?: string | null;
   taxRate: string | null;
   /** How the prices are entered: excluding ('net') or including ('gross') tax. */
   taxBasis?: TaxBasis;
@@ -35,6 +38,12 @@ export interface PricingInfo {
   restrictions?: TariffRestrictionsLite | null;
   /** How the driver pays a session started here; null at a free vend site. */
   billing?: DriverBilling | null;
+  /** IANA timezone of the site, the one time and day restrictions are evaluated in. */
+  timezone?: string | null;
+  /** True when the price can switch mid-session (split billing with restricted tariffs). */
+  priceChangesDuringSession?: boolean;
+  /** Split billing can move a free start to a paid tariff (needs a payment method). */
+  paidTariffAhead?: boolean;
 }
 
 const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
@@ -66,8 +75,17 @@ function formatRestrictions(
   }
   if (r.timeRange != null) {
     parts.push(`${r.timeRange.startTime}–${r.timeRange.endTime}`);
+  } else if (parts.length > 0) {
+    // Days without a time window apply for the whole day.
+    parts.push(t('charger.restrictionAllDay'));
   }
   return parts.length > 0 ? parts.join(' ') : null;
+}
+
+/** True when the restriction depends on the time of day or the day of week. */
+function hasTimeOrDayRestriction(r: TariffRestrictionsLite | null | undefined): boolean {
+  if (r == null) return false;
+  return r.timeRange != null || (r.daysOfWeek != null && r.daysOfWeek.length > 0);
 }
 
 // Tariff prices are entered in the company tax basis (net by default). Every
@@ -94,6 +112,16 @@ export function PricingDisplay({
   // A session fee is a flat amount, shown rounded to the cent as it is billed.
   const formatFee = (price: number): string => formatFlatPrice(displayed(price), pricing.currency);
   const restrictionLabel = formatRestrictions(pricing.restrictions, t);
+  const timezoneLabel =
+    pricing.timezone != null && hasTimeOrDayRestriction(pricing.restrictions)
+      ? t('charger.restrictionTimezone', { timezone: pricing.timezone })
+      : null;
+  const priceChangeNote =
+    pricing.priceChangesDuringSession === true ? (
+      <p className="text-center text-xs text-muted-foreground">
+        {t('charger.priceChangesDuringSession')}
+      </p>
+    ) : null;
 
   if (pricing.isFreeVend === true) {
     return (
@@ -104,9 +132,13 @@ export function PricingDisplay({
     );
   }
 
-  if (perKwh === 0 && perMin === 0 && perSession === 0 && idleFee === 0 && taxRate === 0) {
+  // Free when every price is zero, whatever the tax rate (same rule as the server).
+  if (isTariffFree(pricing)) {
     return (
-      <p className="text-base text-muted-foreground text-center">{t('charger.pricingFree')}</p>
+      <div className="space-y-1">
+        <p className="text-base text-muted-foreground text-center">{t('charger.pricingFree')}</p>
+        {priceChangeNote}
+      </div>
     );
   }
 
@@ -153,6 +185,10 @@ export function PricingDisplay({
           {restrictionLabel}
         </p>
       )}
+      {timezoneLabel != null && (
+        <p className="text-center text-xs text-muted-foreground">{timezoneLabel}</p>
+      )}
+      {priceChangeNote}
       {expanded && (
         <div className="space-y-0.5 text-center">
           {breakdownLines.map((line) => (
@@ -164,12 +200,4 @@ export function PricingDisplay({
       )}
     </div>
   );
-}
-
-export function isPricingFree(pricing: PricingInfo): boolean {
-  const perKwh = pricing.pricePerKwh != null ? Number(pricing.pricePerKwh) : 0;
-  const perMin = pricing.pricePerMinute != null ? Number(pricing.pricePerMinute) : 0;
-  const perSession = pricing.pricePerSession != null ? Number(pricing.pricePerSession) : 0;
-  const idleFee = pricing.idleFeePricePerMinute != null ? Number(pricing.idleFeePricePerMinute) : 0;
-  return perKwh === 0 && perMin === 0 && perSession === 0 && idleFee === 0;
 }

@@ -26,6 +26,7 @@ import {
 } from '../../transformers/location.transformer.js';
 import { config } from '../../lib/config.js';
 import { isLocationVisibleToPartner } from '../../lib/location-visibility.js';
+import { findPublishedSiteId } from '../../lib/published-location.js';
 import { findEvseByUid } from '../../lib/evse-lookup.js';
 import { connectorTariffIds } from '../../services/connector-tariffs.js';
 import { removedEvseRow } from '../../services/location-render.js';
@@ -257,22 +258,6 @@ async function findSiteMaintenanceCoverage(
   return result;
 }
 
-// Resolve a partner-supplied location_id (custom OCPI location id or site id)
-// to a published site id. Null when nothing published matches.
-async function resolvePublishedSiteId(locationId: string): Promise<string | null> {
-  const [publishRow] = await db
-    .select({ siteId: ocpiLocationPublish.siteId })
-    .from(ocpiLocationPublish)
-    .where(
-      and(
-        eq(ocpiLocationPublish.isPublished, true),
-        sql`(${ocpiLocationPublish.ocpiLocationId} = ${locationId} OR ${ocpiLocationPublish.siteId} = ${locationId})`,
-      ),
-    )
-    .limit(1);
-  return publishRow?.siteId ?? null;
-}
-
 // An EVSE that left the site (`ocpi_removed_evses`), as a REMOVED EVSE row.
 async function findRemovedEvse(siteId: string, uid: string): Promise<TransformEvseRow | null> {
   const removed = (await removedOcpiEvses([siteId])).find((r) => r.evseUid === uid);
@@ -416,7 +401,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
     }
 
     // Find site by OCPI location ID or direct site ID
-    const siteId = await resolvePublishedSiteId(location_id);
+    const siteId = await findPublishedSiteId(location_id);
     if (siteId == null) {
       await reply
         .status(404)
@@ -494,7 +479,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
 
       // The EVSE must belong to the requested location, or have left it
       // (served as REMOVED, OCPI 8.1).
-      const siteId = await resolvePublishedSiteId(location_id);
+      const siteId = await findPublishedSiteId(location_id);
       const found = siteId != null ? await findEvseByUid(evse_uid) : null;
       if (siteId == null || !(await isLocationVisibleToPartner(partner.partnerId, siteId))) {
         await reply
@@ -571,7 +556,7 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
       const connectorIdNum = parseInt(connector_id, 10);
       // The EVSE must belong to the requested location, or have left it (its
       // connectors are served as they were).
-      const siteId = await resolvePublishedSiteId(location_id);
+      const siteId = await findPublishedSiteId(location_id);
       const found = siteId != null ? await findEvseByUid(evse_uid) : null;
       if (siteId == null || !(await isLocationVisibleToPartner(partner.partnerId, siteId))) {
         await reply

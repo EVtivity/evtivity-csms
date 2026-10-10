@@ -17,7 +17,8 @@ import {
   priceSessionAt,
   loadSessionPricing,
   storeFinalCost,
-  closeOpenSegment,
+  closeSegmentsAt,
+  eventTimeAtMostNow,
   sessionIdleMinutesAt,
   pgConnectionErrorKind,
   SESSION_END_FAILED_REASON,
@@ -28,6 +29,7 @@ import type { ProjectionAttempt } from '../projection-retry.js';
 import { runPaymentGate } from './payment-gate.js';
 import { noteCostLimitReached } from './payment-stop.js';
 import { settleTransactionEnded } from './settlement.js';
+import { recordStationCost } from './station-cost.js';
 import type { SessionLifecycleState } from './state.js';
 import { getString } from '../projection-support/payload.js';
 import { requestCsmsSessionEnd, SESSION_ENDED_BY_CSMS } from '../csms-session-end.js';
@@ -37,7 +39,7 @@ import {
   resolveElectricityRate,
   calculateElectricityCostCents,
   notificationMoney,
-  costIncludesTax,
+  costContainsTax,
   reconcileCostBreakdown,
   chargedCostBreakdown,
 } from '@evtivity/lib';
@@ -147,6 +149,21 @@ export class TransactionProjector {
       await this.projectUpdated(tx);
     } else if (eventType === 'Ended') {
       await this.projectEnded(tx);
+    }
+
+    // Local cost calculation (OCPP 2.1 I08, I11, I12): after the event's
+    // projection, so the Ended comparison reads the stored final cost.
+    const stationTariffId = getString(payload, 'stationTariffId');
+    if (stationTariffId != null || payload.costDetails != null) {
+      await attempt.once(`${eventType}:station-cost`, () =>
+        recordStationCost(this.deps.sql, this.deps.logger, {
+          stationUuid,
+          transactionId,
+          eventType,
+          stationTariffId,
+          costDetails: payload.costDetails,
+        }),
+      );
     }
   }
 
@@ -612,10 +629,18 @@ export class TransactionProjector {
       // The session is priced from these snapshots only (issue #33). The
       // payment gate decides free or paid from this same tariff. A rerun
       // keeps the tariff it resolved first; the snapshot UPDATE repeats
-      // safely, and the first segment is opened once.
+      // safely, and the first segment is opened once. The tariff is the one
+      // that applied when the transaction started (the event timestamp, at
+      // most now: a station clock ahead of the CSMS never selects a future
+      // tariff), so a Started replayed from an offline queue is priced from
+      // its own start (finding B5).
       const tariffDriverUuid = driverUuid;
+      const tariffAt = eventTimeAtMostNow(timestamp);
       const tariff = await tx.attempt.memo('started:tariff', () =>
-        resolveStationTariff({ stationUuid, driverUuid: tariffDriverUuid }, this.deps.sql),
+        resolveStationTariff(
+          { stationUuid, driverUuid: tariffDriverUuid, at: tariffAt },
+          this.deps.sql,
+        ),
       );
       sessionTariff = tariff;
       if (tariff != null) {
@@ -689,7 +714,7 @@ export class TransactionProjector {
             await this.deps.notify.notifyChange(
               'reservation.changed',
               stationUuid,
-              null,
+              await this.deps.lookups.resolveSiteId(stationUuid),
               sessionId,
             );
           }
@@ -1556,7 +1581,7 @@ export class TransactionProjector {
             AND (last_update_notified_at IS NULL
               OR last_update_notified_at < now() - make_interval(secs => ${SESSION_UPDATE_THROTTLE_MS / 1000}))
           RETURNING driver_id, energy_delivered_wh, current_cost_cents, started_at,
-                    tariff_tax_rate, UPPER(currency) AS currency
+                    tax_cents, UPPER(currency) AS currency
         `,
       );
       const updatedSession = throttleResult[0];
@@ -1581,10 +1606,11 @@ export class TransactionProjector {
                   (updatedSession.current_cost_cents as number | null) ?? 0,
                   updatedSession.currency as string,
                 ),
-                // Templates label the cost "incl. tax" only when it contains tax.
-                costIncludesTax: costIncludesTax(
+                // Templates label the cost "incl. tax" only when it contains
+                // tax: the tax stored with the running cost, not a tariff rate.
+                costIncludesTax: costContainsTax(
                   updatedSession.current_cost_cents as number | null,
-                  updatedSession.tariff_tax_rate as string | null,
+                  updatedSession.tax_cents as number | null,
                 ),
                 currency: updatedSession.currency as string,
                 durationMinutes,
@@ -1708,10 +1734,14 @@ export class TransactionProjector {
             idle_started_at = NULL,
             stopped_reason = COALESCE(stopped_reason, ${stoppedReason}),
             meter_stop = COALESCE(${meterStopVal}, meter_stop),
+            -- A stop register below the newest projected register (a meter
+            -- reset or replacement) keeps the energy so far; above it, the
+            -- register offset of earlier drops applies (finding B10).
             energy_delivered_wh = CASE
               WHEN ${meterStopVal}::numeric IS NOT NULL AND meter_start IS NOT NULL
-                AND ${meterStopVal}::numeric >= meter_start
-              THEN GREATEST(COALESCE(energy_delivered_wh, 0), ${meterStopVal}::numeric - meter_start)
+                AND ${meterStopVal}::numeric >= COALESCE(meter_last_register_wh, meter_start)
+              THEN GREATEST(COALESCE(energy_delivered_wh, 0),
+                ${meterStopVal}::numeric + meter_register_offset_wh - meter_start)
               ELSE energy_delivered_wh
             END,
             updated_at = now()
@@ -1834,9 +1864,11 @@ export class TransactionProjector {
           endedAt,
         );
 
-        // Close the open tariff segment with the idle not yet attributed to
-        // closed segments.
-        await closeOpenSegment(this.deps.sql, sessionId, endedAt, energyWh, idleMinutes);
+        // End the tariff segments at the reported end (finding B6): a
+        // segment the boundary job opened at or after it is removed, and the
+        // latest remaining one closes at the end with the idle not yet
+        // attributed to the other segments.
+        await closeSegmentsAt(this.deps.sql, sessionId, endedAt, energyWh, idleMinutes);
 
         // The one cost assembly prices the session from its snapshots. The
         // OCPP 2.1 handler priced it the same way and returned the result to
@@ -1929,11 +1961,23 @@ export class TransactionProjector {
       // Electricity cost (operator's wholesale cost). Forward-only: computed
       // once at session end against the site's TOU rate periods, never
       // backfilled. Fail-open: a missing rate config or any error leaves the
-      // column null and never blocks session completion.
-      if (siteId != null) {
+      // column null and never blocks session completion. A null cost is
+      // logged at info with its reason; profit leaves such a session out
+      // (session-revenue.ts) unless it delivered no energy.
+      const logNoElectricityCost = (reason: string): void => {
+        this.deps.logger.info(
+          { sessionId, stationId: tx.stationId, siteId, reason },
+          'Electricity cost not recorded',
+        );
+      };
+      if (siteId == null) {
+        logNoElectricityCost('no_site');
+      } else {
         try {
           const periods = await getElectricityRatePeriodsForSite(siteId);
-          if (periods.length > 0) {
+          if (periods.length === 0) {
+            logNoElectricityCost('no_periods');
+          } else {
             const [ctxRow] = await this.deps.sql`
                 SELECT cs.ended_at, s.timezone
                 FROM charging_sessions cs
@@ -1945,7 +1989,11 @@ export class TransactionProjector {
             const ratedAt = endedAtValue != null ? new Date(endedAtValue) : new Date();
             const rate = resolveElectricityRate(periods, ratedAt, timezone);
             const sessionEnergyWh = Number(sessionRow.energy_delivered_wh ?? 0);
-            if (rate != null && sessionEnergyWh > 0) {
+            if (rate == null) {
+              logNoElectricityCost('no_matching_period');
+            } else if (sessionEnergyWh <= 0) {
+              logNoElectricityCost('zero_energy');
+            } else {
               const electricityCostCents = calculateElectricityCostCents(
                 sessionEnergyWh,
                 rate.ratePerKwh,

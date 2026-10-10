@@ -32,6 +32,15 @@ import {
   splitWebhookEndpoints,
 } from '../lib/payment-webhook-url.js';
 import { decryptForRead, SECRET_SETTINGS_READ_PERMISSION } from '../lib/settings-crypto.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
+
+// Payment provider settings are company-wide configuration: a site-restricted
+// user gets this 404 before any read or write (requireAllSiteAccess,
+// features/site-access-control.md).
+const ALL_SITES_SETTING_NOT_FOUND = {
+  error: 'Setting not found',
+  code: 'SETTING_NOT_FOUND',
+} as const;
 
 /** The path Adyen posts to; the operator's webhook URL must end in it exactly. */
 export const ADYEN_WEBHOOK_URL_PATH = '/v1/webhooks/payments/adyen';
@@ -291,10 +300,14 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
           'Returns the Adyen settings and whether each secret is stored. The API key, HMAC key and webhook password are returned decrypted only when the caller also holds settings.system:read (for an API key, when its scope includes it), like the generic settings GET; otherwise they are null. The previous HMAC key is reported only as stored or not.',
         operationId: 'getAdyenSettings',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(adyenSettingsResponse) },
+        response: {
+          200: itemResponse(adyenSettingsResponse),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const map = await readAdyenSettings();
       // Stored secrets are readable only with the permission of the generic
       // settings GET (P12); payments:read alone gets whether each is stored.
@@ -335,12 +348,14 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         body: zodSchema(updateAdyenSettingsBody),
         response: {
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           200: successResponse,
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof updateAdyenSettingsBody>;
 
       const current = await readAdyenSettings();
@@ -407,6 +422,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         operationId: 'testAdyenConnection',
         security: [{ bearerAuth: [] }],
         response: {
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           200: itemResponse(adyenTestResponse),
           400: errorWith('Bad request', [
             ERROR_CODES.PAYMENT_PROVIDER_CONNECTION_FAILED,
@@ -416,6 +432,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       let provider: AdyenPaymentProvider;
       try {
         provider = await adyenProvider();
@@ -461,6 +478,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(adyenWebhookQuery),
         response: {
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           200: itemResponse(adyenWebhookResponse),
           400: errorWith('Invalid URL, or Adyen is not configured or cannot be reached', [
             ERROR_CODES.VALIDATION_ERROR,
@@ -472,6 +490,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const query = request.query as z.infer<typeof adyenWebhookQuery>;
       let url: string | undefined;
       if (query.url !== undefined) {
@@ -515,6 +534,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         body: zodSchema(createAdyenWebhookBody),
         response: {
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           200: itemResponse(createAdyenWebhookResponse),
           400: errorWith('Bad request', [
             ERROR_CODES.VALIDATION_ERROR,
@@ -527,6 +547,7 @@ export function adyenSettingsRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof createAdyenWebhookBody>;
       const checked = checkPaymentWebhookUrl(body.url, 'adyen');
       if (!checked.ok) {

@@ -34,6 +34,7 @@ interface StationMetrics {
   totalNetRevenueCents: number;
   totalTaxCents: number;
   totalProfitCents: number;
+  costMissingSessionCount?: number;
   currency: string;
   periodMonths: number;
 }
@@ -217,6 +218,11 @@ export function StationMetricsTab({ stationId }: StationMetricsTabProps): React.
                 >
                   {formatCents(metrics.totalProfitCents, metrics.currency)}
                 </p>
+                {(metrics.costMissingSessionCount ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('metrics.costMissing', { count: metrics.costMissingSessionCount })}
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>

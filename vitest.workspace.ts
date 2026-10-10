@@ -132,7 +132,11 @@ export default defineConfig({
           name: '@evtivity/api',
           root: 'packages/api',
           include: ['src/**/*.test.ts'],
-          exclude: ['src/__integration__/**'],
+          exclude: ['src/__integration__/**', 'src/**/*.live.test.ts'],
+          setupFiles: [
+            'src/__tests__/setup/driver-active.ts',
+            'src/__tests__/setup/user-active.ts',
+          ],
           env: {
             API_PORT: '3001',
             JWT_SECRET: 'test-secret-that-is-at-least-32-characters-long',
@@ -228,8 +232,25 @@ export default defineConfig({
           root: 'packages/csms',
           include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
           environment: 'jsdom',
+          // A `?raw` stylesheet import returns the file (print-css.test.ts); other CSS stays empty.
+          css: { include: [/\.css\?raw$/] },
         },
       },
+      // Live AI provider contract runs (TC-AI-P-LIVE-*): only with AI_LIVE set, never in
+      // `npm test` or CI. Each file reads its own key and skips without it.
+      ...(process.env.AI_LIVE !== undefined && process.env.AI_LIVE !== ''
+        ? [
+            {
+              resolve: { alias: workspaceAliases },
+              test: {
+                name: '@evtivity/api-ai-live',
+                root: 'packages/api',
+                include: ['src/**/*.live.test.ts'],
+                testTimeout: 120_000,
+              },
+            },
+          ]
+        : []),
     ],
   },
 });

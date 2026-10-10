@@ -79,8 +79,24 @@ vi.mock('@evtivity/database', () => ({
   ocpiPartners: {},
 }));
 
-const { publishOcpiTariffPush } = vi.hoisted(() => ({ publishOcpiTariffPush: vi.fn() }));
+const { publishOcpiTariffPush, allSiteUser } = vi.hoisted(() => ({
+  publishOcpiTariffPush: vi.fn(),
+  allSiteUser: { value: true },
+}));
 vi.mock('../lib/ocpi-tariff-push.js', () => ({ publishOcpiTariffPush }));
+vi.mock('../lib/site-access.js', () => ({
+  requireAllSiteAccess: vi.fn(
+    async (
+      _request: unknown,
+      reply: { status: (code: number) => { send: (body: unknown) => Promise<void> } },
+      notFound: unknown,
+    ) => {
+      if (allSiteUser.value) return true;
+      await reply.status(404).send(notFound);
+      return false;
+    },
+  ),
+}));
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
@@ -146,6 +162,38 @@ describe('OCPI tariff mapping routes', () => {
   beforeEach(() => {
     setupDbResults();
     publishOcpiTariffPush.mockClear();
+    allSiteUser.value = true;
+  });
+
+  describe('site-restricted user', () => {
+    it('gets 404 on every tariff mapping route and nothing is written', async () => {
+      allSiteUser.value = false;
+      const headers = { authorization: `Bearer ${token}` };
+      const requests = [
+        { method: 'GET' as const, url: '/ocpi/tariff-mappings' },
+        { method: 'GET' as const, url: '/ocpi/tariff-mappings/1' },
+        {
+          method: 'POST' as const,
+          url: '/ocpi/tariff-mappings',
+          payload: { tariffId: 'trf_000000000001', ocpiTariffId: 'T-1' },
+        },
+        {
+          method: 'PATCH' as const,
+          url: '/ocpi/tariff-mappings/1',
+          payload: { ocpiTariffId: 'T-2' },
+        },
+        { method: 'DELETE' as const, url: '/ocpi/tariff-mappings/1' },
+      ];
+      for (const req of requests) {
+        const res = await app.inject({ ...req, headers });
+        expect(res.statusCode).toBe(404);
+        expect(res.json()).toEqual({
+          error: 'Tariff mapping not found',
+          code: 'MAPPING_NOT_FOUND',
+        });
+      }
+      expect(publishOcpiTariffPush).not.toHaveBeenCalled();
+    });
   });
 
   // -------------------------------------------------------

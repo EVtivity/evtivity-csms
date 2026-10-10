@@ -14,6 +14,7 @@ import {
   stopMetricsCollector,
 } from './services/metrics-collector.service.js';
 import { startCacheInvalidateListener } from './services/cache-invalidate-listener.js';
+import { reportPricingGroupsWithoutDefault } from './lib/pricing-default-report.js';
 
 async function start(): Promise<void> {
   const sentryConfig = await getSentryConfig();
@@ -82,6 +83,7 @@ async function start(): Promise<void> {
 
   await app.listen({ port: config.API_PORT, host: config.API_HOST });
   app.log.info(`API server listening on ${config.API_HOST}:${String(config.API_PORT)}`);
+  await reportPricingGroupsWithoutDefault(client, app.log);
 }
 
 start().catch((err: unknown) => {

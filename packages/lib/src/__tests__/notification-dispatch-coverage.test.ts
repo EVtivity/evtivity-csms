@@ -464,7 +464,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT push
       );
 
-      await dispatchDriverNotification(
+      const result = await dispatchDriverNotification(
         sql as never,
         'session.Completed',
         'drv_99',
@@ -474,6 +474,13 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [],
       );
 
+      // The accepted email and SMS are the deliveries; the push drawer row is not.
+      expect(result).toEqual({
+        delivered: [
+          { channel: 'email', recipient: 'both@test.com' },
+          { channel: 'sms', recipient: '+15551234567' },
+        ],
+      });
       expect(mockSendMail).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('twilio.com'),
@@ -564,7 +571,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
 
       await expect(
         dispatchDriverNotification(sql as never, 'session.Started', 'drv_failpub', {}, [], pubsub),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ delivered: [] });
 
       expect(publish).toHaveBeenCalled();
       // push row was recorded before the publish attempt
@@ -834,7 +841,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const { dispatchSystemNotification } = notificationDispatchModule;
       setupSqlResults([{ is_enabled: false }]);
 
-      await dispatchSystemNotification(
+      const result = await dispatchSystemNotification(
         sql as never,
         'session.Receipt',
         { email: 'g@test.com' },
@@ -842,6 +849,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [],
       );
 
+      expect(result).toEqual({ delivered: [] });
       // only the driver_event_settings SELECT ran, no INSERTs
       expect(sqlCalls.length).toBe(1);
       expect(sqlCalls[0]?.strings.join('')).toContain('driver_event_settings');
@@ -913,7 +921,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT sms
       );
 
-      await dispatchSystemNotification(
+      const result = await dispatchSystemNotification(
         sql as never,
         'session.EndRequestFailed',
         {
@@ -928,6 +936,12 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [],
       );
 
+      expect(result).toEqual({
+        delivered: [
+          { channel: 'email', recipient: 'op@test.com' },
+          { channel: 'sms', recipient: '+15551112222' },
+        ],
+      });
       expect(mockSendMail).toHaveBeenCalledTimes(1);
       expect(mockFetch).toHaveBeenCalledWith(
         expect.stringContaining('twilio.com'),
@@ -1008,8 +1022,15 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
         [], // INSERT sms
       );
 
-      await dispatchSystemNotification(sql as never, 'session.EndRequestFailed', {}, {}, []);
+      const result = await dispatchSystemNotification(
+        sql as never,
+        'session.EndRequestFailed',
+        {},
+        {},
+        [],
+      );
 
+      expect(result).toEqual({ delivered: [] });
       expect(mockSendMail).not.toHaveBeenCalled();
       const email = decodeInsert(findInsert('email')!);
       expect(email.status).toBe('failed');
@@ -1387,7 +1408,7 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
           {},
           [],
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ delivered: [] });
     });
   });
 

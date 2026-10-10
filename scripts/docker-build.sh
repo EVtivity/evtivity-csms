@@ -126,6 +126,15 @@ while lsof -i :8443 >/dev/null 2>&1; do sleep 1; done
 # set VITE_CSMS_AUTO_LOGIN / VITE_PORTAL_AUTO_LOGIN in .env.
 docker compose up -d postgres redis
 
+# A preserved Redis keeps the ACL it loaded at start. Load the current
+# docker/redis/acl-rules.conf, so a new key prefix or channel of this version
+# reaches the service users without restarting Redis.
+echo "Waiting for redis to be ready..."
+until docker compose exec -T redis redis-cli ping >/dev/null 2>&1; do
+  sleep 1
+done
+docker compose exec -T redis sh /usr/local/etc/redis/start.sh --reload
+
 # Wait for postgres to be healthy before running migrations and seeds. The
 # migrate container has its own healthcheck dependency, but the host-side
 # `npm run db:seed` connects directly and would race postgres startup.

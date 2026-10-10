@@ -242,10 +242,9 @@ vi.mock('../services/payout-onboarding.service.js', () => ({
   revokePayoutInvites: mockRevokePayoutInvites,
 }));
 
-vi.mock('../lib/site-access.js', () => ({
-  getUserSiteIds: vi.fn().mockResolvedValue(null),
-  invalidateSiteAccessCache: vi.fn(),
-}));
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
 
 const { mockHoldFeeCheck } = vi.hoisted(() => ({
   mockHoldFeeCheck: vi.fn(async () => ({ sessionFeeCents: 0, holdBelowSessionFee: false })),

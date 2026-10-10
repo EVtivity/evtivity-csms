@@ -58,6 +58,9 @@ export const reports = pgTable(
     fileName: varchar('file_name', { length: 255 }),
     fileSize: integer('file_size'),
     generatedById: text('generated_by_id').references(() => users.id),
+    // Sites the report covers and who may see it: null = all sites (all-site
+    // users only), else only stations at these sites (report-scope.ts).
+    siteScope: text('site_scope').array(),
     error: varchar('error', { length: 1000 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     completedAt: timestamp('completed_at', { withTimezone: true }),
@@ -86,6 +89,9 @@ export const reportSchedules = pgTable(
     lastRunAt: timestamp('last_run_at', { withTimezone: true }),
     nextRunAt: timestamp('next_run_at', { withTimezone: true }),
     createdById: text('created_by_id').references(() => users.id),
+    // Sites the schedule's reports cover and who may see or change it: null =
+    // all sites (all-site users only), else these sites (report-scope.ts).
+    siteScope: text('site_scope').array(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

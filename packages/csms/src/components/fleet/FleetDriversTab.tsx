@@ -14,7 +14,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Toggle } from '@/components/ui/toggle';
 import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
-import { useHasPermission } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { useUserTimezone } from '@/lib/timezone';
 
@@ -34,11 +34,14 @@ interface FleetDriversTabProps {
   fleetId: string;
   /** The fleet bills its members' sessions on account. */
   accountBillingEnabled?: boolean;
+  /** The user may add and remove members (see FleetDetail). */
+  canManageMembers?: boolean;
 }
 
 export function FleetDriversTab({
   fleetId,
   accountBillingEnabled = false,
+  canManageMembers = true,
 }: FleetDriversTabProps): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -53,6 +56,8 @@ export function FleetDriversTab({
   } | null>(null);
   const { toast } = useToast();
   const canWrite = useHasPermission('fleets:write');
+  // The member opt-out applies at every site: all-site users only.
+  const hasAllSiteAccess = useHasAllSiteAccess();
   const limit = 10;
 
   const { data: response } = useQuery({
@@ -103,13 +108,18 @@ export function FleetDriversTab({
             {!accountBillingEnabled && (
               <CardDescription>{t('fleets.billing.memberNoteOff')}</CardDescription>
             )}
+            {!canManageMembers && (
+              <CardDescription>{t('fleets.membersAllSitesOnly')}</CardDescription>
+            )}
           </div>
-          <AddButton
-            label={t('fleets.addDriver')}
-            onClick={() => {
-              void navigate(`/fleets/${fleetId}/drivers/add`);
-            }}
-          />
+          {canManageMembers && (
+            <AddButton
+              label={t('fleets.addDriver')}
+              onClick={() => {
+                void navigate(`/fleets/${fleetId}/drivers/add`);
+              }}
+            />
+          )}
         </CardHeader>
         <CardContent>
           <DriversTable
@@ -128,7 +138,7 @@ export function FleetDriversTab({
                   <Toggle
                     size="sm"
                     checked={onAccount}
-                    disabled={!canWrite || billingMutation.isPending}
+                    disabled={!canWrite || !hasAllSiteAccess || billingMutation.isPending}
                     aria-label={t('fleets.billing.memberColumn')}
                     data-testid={`member-billing-${driver.id}`}
                     onCheckedChange={() => {
@@ -138,9 +148,13 @@ export function FleetDriversTab({
                 );
               },
             }}
-            onRemove={(driverId) => {
-              setRemoveDriverId(driverId);
-            }}
+            {...(canManageMembers
+              ? {
+                  onRemove: (driverId: string): void => {
+                    setRemoveDriverId(driverId);
+                  },
+                }
+              : {})}
           />
         </CardContent>
       </Card>

@@ -46,6 +46,18 @@ describe('payments api', () => {
     expect(newAttemptId()).not.toBe(a);
   });
 
+  it('creates the attempt id over plain HTTP, where crypto.randomUUID does not exist', () => {
+    const real = globalThis.crypto;
+    vi.stubGlobal('crypto', { getRandomValues: real.getRandomValues.bind(real) });
+    try {
+      expect(newAttemptId()).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('posts submit with provider, attemptId and payload and maps saved', async () => {
     postMock.mockResolvedValue({ status: 'saved', method: { id: 1 } });
     await expect(submitSetup('att-1', 'stripe', { paymentMethodId: 'pm_1' })).resolves.toEqual({

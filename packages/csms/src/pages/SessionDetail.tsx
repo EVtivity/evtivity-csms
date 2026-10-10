@@ -139,10 +139,10 @@ export function SessionDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/sessions" />
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">{t('sessions.title')}</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{t('sessions.title')}</h1>
           <CopyableId id={id ?? ''} />
         </div>
         <Badge
@@ -159,14 +159,22 @@ export function SessionDetail(): React.JSX.Element {
           <Badge variant="warning">{t('sessions.manualBilling')}</Badge>
         )}
         {isBilledOnAccount(session) && (
-          <Badge variant="info" data-testid="session-billing-badge">
+          <Badge
+            variant="info"
+            className="max-w-full whitespace-normal"
+            data-testid="session-billing-badge"
+          >
             {t('sessions.billedTo', { fleet: session.billingFleetName ?? '' })}
             {' · '}
             {t(`sessions.billingState.${accountBillingState(session.invoiceStatus)}`)}
           </Badge>
         )}
         {tokenMismatch != null && (
-          <Badge variant="warning" title={t('sessions.reservationTokenMismatchTooltip')}>
+          <Badge
+            variant="warning"
+            className="max-w-full whitespace-normal"
+            title={t('sessions.reservationTokenMismatchTooltip')}
+          >
             {t('sessions.reservationTokenMismatch')}
           </Badge>
         )}

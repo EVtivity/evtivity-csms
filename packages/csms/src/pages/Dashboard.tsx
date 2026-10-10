@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { api } from '@/lib/api';
-import { useAuth } from '@/lib/auth';
+import { useAuth, useHasAllSiteAccess } from '@/lib/auth';
 import { EnergyChart } from '@/components/charts/EnergyChart';
 import { SessionsChart } from '@/components/charts/SessionsChart';
 import { Sparkline } from '@/components/charts/Sparkline';
@@ -30,6 +30,10 @@ import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-con
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { formatCents, formatNumber, formatNumberUpTo } from '@/lib/formatting';
 import { parseValue, formatParsedValue } from '@/lib/animated-value';
+import {
+  CostMissingDashboardNotice,
+  type CostMissingSite,
+} from '@/components/ElectricityCostNotices';
 
 interface DashboardStats {
   totalStations: number;
@@ -106,6 +110,10 @@ interface FinancialStats {
   dayElectricityCostCents: number;
   totalProfitCents: number;
   dayProfitCents: number;
+  /** Sessions without an electricity cost, left out of profit. */
+  totalCostMissingSessionCount?: number;
+  totalCostMissingRevenueCents?: number;
+  costMissingSites?: CostMissingSite[];
   /** Account sessions whose fleet invoice is not paid yet (not revenue). */
   billedOnAccountCents?: number;
   billedOnAccountCount?: number;
@@ -133,6 +141,9 @@ interface OcppHealthStats {
   totalPongsReceived: number;
   serverStartedAt: string | null;
   updatedAt: string | null;
+  /** Running OCPP server processes; the stats above are their fleet totals. */
+  instanceCount: number;
+  instances?: Array<{ instanceId: string; connectedStations: number }>;
 }
 
 interface CarbonStats {
@@ -509,6 +520,8 @@ function AdminDashboard({
   toDate: string;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  // The OCPP server ping statistics cover every site: all-site users only.
+  const hasAllSiteAccess = useHasAllSiteAccess();
 
   const energy = useDateRange();
   const sessions = useDateRange();
@@ -806,22 +819,38 @@ function AdminDashboard({
             info={t('dashboard.info.ocppConnections')}
             dayDelta={dayDelta(yd?.connectedStations, db?.connectedStations)}
             deltaLabel={deltaLabel}
+            extra={
+              (ocppHealth.data?.instanceCount ?? 0) > 1 ? (
+                <p
+                  className="text-xs text-muted-foreground"
+                  title={ocppHealth.data?.instances
+                    ?.map((i) => `${i.instanceId}: ${String(i.connectedStations)}`)
+                    .join('\n')}
+                >
+                  {t('dashboard.ocppServers', { count: ocppHealth.data?.instanceCount ?? 0 })}
+                </p>
+              ) : undefined
+            }
           />
-          <StatCard
-            title={t('dashboard.pingLatency')}
-            value={`${formatNumberUpTo(ocppHealth.data?.avgPingLatencyMs ?? 0, 2)}\u00a0ms`}
-            info={t('dashboard.info.pingLatency')}
-            positiveIsGood={false}
-            dayDelta={dayDelta(yd?.avgPingLatencyMs, db?.avgPingLatencyMs)}
-            deltaLabel={deltaLabel}
-          />
-          <StatCard
-            title={t('dashboard.pingSuccessRate')}
-            value={`${formatNumberUpTo(ocppHealth.data?.pingSuccessRate ?? 100, 1)}%`}
-            info={t('dashboard.info.pingSuccessRate')}
-            dayDelta={dayDelta(yd?.pingSuccessRate, db?.pingSuccessRate)}
-            deltaLabel={deltaLabel}
-          />
+          {hasAllSiteAccess && (
+            <>
+              <StatCard
+                title={t('dashboard.pingLatency')}
+                value={`${formatNumberUpTo(ocppHealth.data?.avgPingLatencyMs ?? 0, 2)}\u00a0ms`}
+                info={t('dashboard.info.pingLatency')}
+                positiveIsGood={false}
+                dayDelta={dayDelta(yd?.avgPingLatencyMs, db?.avgPingLatencyMs)}
+                deltaLabel={deltaLabel}
+              />
+              <StatCard
+                title={t('dashboard.pingSuccessRate')}
+                value={`${formatNumberUpTo(ocppHealth.data?.pingSuccessRate ?? 100, 1)}%`}
+                info={t('dashboard.info.pingSuccessRate')}
+                dayDelta={dayDelta(yd?.pingSuccessRate, db?.pingSuccessRate)}
+                deltaLabel={deltaLabel}
+              />
+            </>
+          )}
           <StatCard
             title={t('dashboard.totalPorts')}
             value={uptimeQuery.data?.totalPorts ?? 0}
@@ -838,6 +867,12 @@ function AdminDashboard({
             { id: 'cost', content: costGrid },
             ...(billedOnAccountCount > 0 ? [{ id: 'account', content: accountGrid }] : []),
           ]}
+        />
+        <CostMissingDashboardNotice
+          sessionCount={financialStats.data?.totalCostMissingSessionCount ?? 0}
+          revenueCents={financialStats.data?.totalCostMissingRevenueCents ?? 0}
+          currency={liveCurrency}
+          sites={financialStats.data?.costMissingSites ?? []}
         />
       </>
     );

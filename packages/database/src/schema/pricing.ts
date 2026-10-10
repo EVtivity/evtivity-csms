@@ -14,7 +14,9 @@ import {
   jsonb,
   index,
   unique,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
 import { chargingStations, sites } from './assets.js';
 import { drivers, fleets } from './drivers.js';
@@ -193,5 +195,11 @@ export const sessionTariffSegments = pgTable(
     taxRate: numeric('tax_rate'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('idx_session_tariff_segments_session').on(table.sessionId)],
+  (table) => [
+    index('idx_session_tariff_segments_session').on(table.sessionId),
+    // At most one open segment per session (migration 0330, finding B1).
+    uniqueIndex('uq_session_tariff_segments_open')
+      .on(table.sessionId)
+      .where(sql`ended_at IS NULL`),
+  ],
 );

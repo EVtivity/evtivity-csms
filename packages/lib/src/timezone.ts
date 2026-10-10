@@ -8,6 +8,9 @@
 
 import { resolveLocale } from './number.js';
 
+/** The system.timezone setting when it is unset (seed default). */
+export const DEFAULT_TIMEZONE = 'America/New_York';
+
 const DEFAULT_DATE_TIME_FIELDS: Intl.DateTimeFormatOptions = {
   year: 'numeric',
   month: 'numeric',

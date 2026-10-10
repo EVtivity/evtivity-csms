@@ -23,6 +23,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
+import { siteInScope } from '../lib/site-scope.js';
 import { authorize } from '../middleware/rbac.js';
 
 const transactionEventItem = z
@@ -115,20 +116,20 @@ const transactionLookupQuery = z.object({
     ),
 });
 
-/** Check if user has site access to a session's station. Returns true if allowed. */
+/**
+ * True when the session exists and its station is in the user's sites. A
+ * missing session is false for every user, so a foreign and an unknown
+ * session answer the same 404.
+ */
 async function checkSessionSiteAccess(sessionId: string, userId: string): Promise<boolean> {
-  const siteIds = await getUserSiteIds(userId);
-  if (siteIds == null) return true;
-
   const [session] = await db
     .select({ siteId: chargingStations.siteId })
     .from(chargingSessions)
     .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
     .where(eq(chargingSessions.id, sessionId));
-
-  if (session == null) return true;
-  if (session.siteId == null) return true;
-  return siteIds.includes(session.siteId);
+  if (session == null) return false;
+  const siteIds = await getUserSiteIds(userId);
+  return siteInScope(siteIds, session.siteId);
 }
 
 export function transactionRoutes(app: FastifyInstance): void {
@@ -221,7 +222,7 @@ export function transactionRoutes(app: FastifyInstance): void {
           .select({ siteId: chargingStations.siteId })
           .from(chargingStations)
           .where(eq(chargingStations.id, session.stationId));
-        if (stationRow?.siteId != null && !siteIds.includes(stationRow.siteId)) {
+        if (!siteInScope(siteIds, stationRow?.siteId)) {
           await reply
             .status(404)
             .send({ error: 'Transaction not found', code: 'TRANSACTION_NOT_FOUND' });

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql, and, gte, lte, eq, count } from 'drizzle-orm';
+import { sql, and, gte, lte, eq, count, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -12,8 +12,10 @@ import {
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
+import { loadPdfBranding } from '../pdf-branding.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import type { ReportGeneratorResult } from '../report-registry.js';
+import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 import { csvRows, dateCell, fixedCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
 
@@ -21,18 +23,30 @@ interface Filters {
   dateFrom?: string | undefined;
   dateTo?: string | undefined;
   siteId?: string | undefined;
+  /** The report's site scope (report-scope.ts). */
+  scope: ReportSiteScope;
 }
 
-function parseFilters(raw: Record<string, unknown>): Filters {
+function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
   return {
     dateFrom: typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined,
     dateTo: typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined,
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
+    scope,
   };
 }
 
-function buildDateConditions(filters: Filters) {
-  const conditions = [];
+/** Conditions on the joined station: the site filter and the report's site scope. */
+function stationConditions(filters: Filters): SQL[] {
+  const conditions: SQL[] = [];
+  if (filters.siteId) conditions.push(eq(chargingStations.siteId, filters.siteId));
+  const inScope = stationSiteInScope(chargingStations.siteId, filters.scope);
+  if (inScope != null) conditions.push(inScope);
+  return conditions;
+}
+
+function buildDateConditions(filters: Filters): SQL[] {
+  const conditions: SQL[] = [];
   if (filters.dateFrom) {
     conditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
   }
@@ -78,8 +92,9 @@ async function queryEnergyByDay(filters: Filters, tz: string): Promise<EnergyByD
     })
     .from(chargingSessions);
 
-  if (filters.siteId) {
-    conditions.push(eq(chargingStations.siteId, filters.siteId));
+  const atStations = stationConditions(filters);
+  if (atStations.length > 0) {
+    conditions.push(...atStations);
     return baseQuery
       .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
@@ -94,10 +109,7 @@ async function queryEnergyByDay(filters: Filters, tz: string): Promise<EnergyByD
 }
 
 async function queryEnergyByStation(filters: Filters, noSite: string): Promise<EnergyByStation[]> {
-  const conditions = buildDateConditions(filters);
-  if (filters.siteId) {
-    conditions.push(eq(chargingStations.siteId, filters.siteId));
-  }
+  const conditions = [...buildDateConditions(filters), ...stationConditions(filters)];
 
   const rows = await db
     .select({
@@ -117,10 +129,7 @@ async function queryEnergyByStation(filters: Filters, noSite: string): Promise<E
 }
 
 async function queryEnergyBySite(filters: Filters, noSite: string): Promise<EnergyBySite[]> {
-  const conditions = buildDateConditions(filters);
-  if (filters.siteId) {
-    conditions.push(eq(sites.id, filters.siteId));
-  }
+  const conditions = [...buildDateConditions(filters), ...stationConditions(filters)];
 
   const rows = await db
     .select({
@@ -142,9 +151,10 @@ async function queryEnergyBySite(filters: Filters, noSite: string): Promise<Ener
 export async function generateEnergyReport(
   rawFilters: Record<string, unknown>,
   format: string,
-  language: UiLanguage = 'en',
+  language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters);
+  const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.energy;
@@ -208,7 +218,7 @@ export async function generateEnergyReport(
   }
 
   // PDF
-  const pdf = new PdfReportBuilder(rl.language);
+  const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
   pdf.addTitle(l.title);
   pdf.addSubtitle(rl.period(filters.dateFrom, filters.dateTo, common.allTime));
   pdf.addSummaryRow(

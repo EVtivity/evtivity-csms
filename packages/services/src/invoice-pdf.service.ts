@@ -2,13 +2,29 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import PDFDocument from 'pdfkit';
-import { Resvg } from '@resvg/resvg-js';
 import { client } from '@evtivity/database';
-import { createLogger, formatCurrencyAmount, formatTaxRatePercent } from '@evtivity/lib';
+import {
+  COMPANY_INVOICE_EMAIL_KEY,
+  COMPANY_INVOICE_PHONE_KEY,
+  COMPANY_REGISTRATION_NUMBER_KEY,
+  COMPANY_TAX_ID_KEY,
+  COMPANY_TAX_ID_LABEL_KEY,
+  INVOICE_SELLER_SETTING_KEYS,
+  createLogger,
+  formatCurrencyAmount,
+  formatTaxRatePercent,
+} from '@evtivity/lib';
 import type { InvoiceDetail } from './invoice.service.js';
 import { INVOICE_LABELS, describeLineItem, isInvoiceLanguage } from './invoice-labels.js';
 import type { InvoiceLabels, InvoiceLanguage } from './invoice-labels.js';
-import { pdfCanRender, registerPdfFonts } from './cjk-fonts.js';
+import { pdfCanRender, registerPdfFonts, registerPdfTextFonts } from './cjk-fonts.js';
+import {
+  defaultPdfLogoPng,
+  drawPdfFooter,
+  layoutPdfFooter,
+  loadPdfBranding,
+  reservePdfFooterSpace,
+} from './pdf-branding.js';
 
 const logger = createLogger('invoice-pdf');
 
@@ -17,6 +33,7 @@ const PAGE_WIDTH = 595.28; // A4 portrait width in points
 const CONTENT_WIDTH = PAGE_WIDTH - MARGIN * 2;
 const LOGO_MAX_WIDTH = 160;
 const LOGO_MAX_HEIGHT = 60;
+/** Lowest y of the page content with the default bottom margin. */
 const PAGE_BOTTOM = 760;
 
 const COLOR_TEXT = '#0f172a';
@@ -34,62 +51,6 @@ export function resolveInvoicePdfLanguage(
   if (!isInvoiceLanguage(driverLanguage)) return 'en';
   if (!pdfCanRender(driverLanguage)) return 'en';
   return driverLanguage;
-}
-
-interface CompanyBranding {
-  name: string;
-  logo: string | null;
-}
-
-async function getCompanyBranding(): Promise<CompanyBranding> {
-  const rows = await client`
-    SELECT key, value FROM settings WHERE key IN ('company.name', 'company.logo')
-  `;
-  let name = 'EVtivity';
-  let logo: string | null = null;
-  for (const row of rows) {
-    const key = (row as { key: string }).key;
-    const value: unknown = (row as { value: unknown }).value;
-    if (key === 'company.name' && typeof value === 'string' && value !== '') {
-      name = value;
-    } else if (key === 'company.logo' && typeof value === 'string' && value !== '') {
-      logo = value;
-    }
-  }
-  return { name, logo };
-}
-
-/**
- * Decode a data URI logo into a PNG/JPEG buffer pdfkit can embed. SVG logos are
- * rasterized via resvg. Returns null when the logo is absent, not a data URI,
- * an unsupported format, or rasterization fails -- the caller falls back to a
- * text wordmark so a bad logo never breaks the PDF.
- */
-function decodeLogo(logo: string | null): Buffer | null {
-  if (logo == null) return null;
-  const match = /^data:([^;,]+)(;base64)?,(.*)$/s.exec(logo);
-  if (match == null) return null;
-  const mime = match[1] ?? '';
-  const isBase64 = match[2] != null;
-  const payload = match[3] ?? '';
-
-  try {
-    if (mime === 'image/svg+xml') {
-      const svg = isBase64
-        ? Buffer.from(payload, 'base64').toString('utf8')
-        : decodeURIComponent(payload);
-      const resvg = new Resvg(svg, { fitTo: { mode: 'width', value: LOGO_MAX_WIDTH * 2 } });
-      return Buffer.from(resvg.render().asPng());
-    }
-    if (mime === 'image/png' || mime === 'image/jpeg' || mime === 'image/jpg') {
-      if (!isBase64) return null;
-      return Buffer.from(payload, 'base64');
-    }
-  } catch (err) {
-    logger.warn({ err }, 'Failed to decode invoice logo, falling back to wordmark');
-    return null;
-  }
-  return null;
 }
 
 /** The fleet invoice bill-to block as stored on the invoice (FleetBillTo). */
@@ -110,16 +71,104 @@ export function readBillTo(billTo: unknown): BillToBlock | null {
   const record = billTo as Record<string, unknown>;
   const name = stringField(record, 'name');
   if (name == null) return null;
+  return { name, lines: addressLines(record), taxId: stringField(record, 'taxId') };
+}
+
+/**
+ * Address lines from `street`, `zip`, `city`, `state` and `country` fields:
+ * the street, "zip city", the state and the country, each left out when empty.
+ */
+function addressLines(record: Record<string, unknown>): string[] {
   const cityLine = [stringField(record, 'zip'), stringField(record, 'city')]
     .filter((part): part is string => part != null)
     .join(' ');
-  const lines = [
+  return [
     stringField(record, 'street'),
     cityLine !== '' ? cityLine : null,
     stringField(record, 'state'),
     stringField(record, 'country'),
   ].filter((line): line is string => line != null);
-  return { name, lines, taxId: stringField(record, 'taxId') };
+}
+
+/** The seller printed in the "From" block of an invoice or credit note. */
+export interface InvoiceSeller {
+  name: string;
+  /** The company address, formatted like the fleet bill-to block. */
+  addressLines: string[];
+  taxId: string | null;
+  /** The operator's tax ID label; null prints the localized "Tax ID" label. */
+  taxIdLabel: string | null;
+  registrationNumber: string | null;
+  email: string | null;
+  phone: string | null;
+}
+
+const COMPANY_ADDRESS_KEYS = {
+  street: 'company.street',
+  city: 'company.city',
+  zip: 'company.zip',
+  state: 'company.state',
+  country: 'company.country',
+} as const;
+
+const SELLER_SETTING_KEYS = [
+  'company.name',
+  ...Object.values(COMPANY_ADDRESS_KEYS),
+  ...INVOICE_SELLER_SETTING_KEYS,
+];
+
+/** The seller from the settings rows (key to value). Empty values are null. */
+export function readInvoiceSeller(settings: Record<string, unknown>): InvoiceSeller {
+  return {
+    name: stringField(settings, 'company.name') ?? 'EVtivity',
+    addressLines: addressLines({
+      street: settings[COMPANY_ADDRESS_KEYS.street],
+      city: settings[COMPANY_ADDRESS_KEYS.city],
+      zip: settings[COMPANY_ADDRESS_KEYS.zip],
+      state: settings[COMPANY_ADDRESS_KEYS.state],
+      country: settings[COMPANY_ADDRESS_KEYS.country],
+    }),
+    taxId: stringField(settings, COMPANY_TAX_ID_KEY),
+    taxIdLabel: stringField(settings, COMPANY_TAX_ID_LABEL_KEY),
+    registrationNumber: stringField(settings, COMPANY_REGISTRATION_NUMBER_KEY),
+    email: stringField(settings, COMPANY_INVOICE_EMAIL_KEY),
+    phone: stringField(settings, COMPANY_INVOICE_PHONE_KEY),
+  };
+}
+
+/**
+ * The lines printed under the seller's name: the address, the tax ID with
+ * its label, the registration number, the invoice email and phone. Fields
+ * that are not set are left out.
+ */
+export function sellerDetailLines(seller: InvoiceSeller, labels: InvoiceLabels): string[] {
+  const lines = [...seller.addressLines];
+  if (seller.taxId != null) {
+    lines.push(
+      seller.taxIdLabel != null
+        ? `${seller.taxIdLabel}: ${seller.taxId}`
+        : labels.sellerTaxId.replace('{id}', seller.taxId),
+    );
+  }
+  if (seller.registrationNumber != null) {
+    lines.push(labels.registrationNumber.replace('{id}', seller.registrationNumber));
+  }
+  if (seller.email != null) lines.push(seller.email);
+  if (seller.phone != null) lines.push(seller.phone);
+  return lines;
+}
+
+/** The seller settings (one query, no cache: PDFs are rendered on demand). */
+async function loadInvoiceSeller(): Promise<InvoiceSeller> {
+  const rows = await client`
+    SELECT key, value FROM settings WHERE key = ANY(${SELLER_SETTING_KEYS}::text[])
+  `;
+  const settings: Record<string, unknown> = {};
+  for (const row of rows) {
+    const { key, value } = row as { key: string; value: unknown };
+    settings[key] = value;
+  }
+  return readInvoiceSeller(settings);
 }
 
 /** The billed month of a fleet invoice (period_start YYYY-MM-DD), e.g. "October 2026". */
@@ -207,8 +256,13 @@ function drawRule(doc: PDFKit.PDFDocument, y: number, fromX = MARGIN): void {
     .stroke(COLOR_LINE);
 }
 
-function ensureSpace(doc: PDFKit.PDFDocument, y: number, needed: number): number {
-  if (y + needed > PAGE_BOTTOM) {
+function ensureSpace(
+  doc: PDFKit.PDFDocument,
+  y: number,
+  needed: number,
+  pageBottom: number,
+): number {
+  if (y + needed > pageBottom) {
     doc.addPage();
     return MARGIN;
   }
@@ -226,11 +280,19 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
   const rate = (taxRate: number | string): string =>
     labels.taxRateValue.replace('{rate}', formatTaxRatePercent(Number(taxRate), labels.locale));
 
-  const branding = await getCompanyBranding();
-  const logoBuffer = decodeLogo(branding.logo);
+  const [seller, branding] = await Promise.all([loadInvoiceSeller(), loadPdfBranding()]);
 
-  const doc = new PDFDocument({ margin: MARGIN, size: 'A4', layout: 'portrait' });
+  const doc = new PDFDocument({
+    margins: { top: MARGIN, left: MARGIN, right: MARGIN, bottom: MARGIN },
+    size: 'A4',
+    layout: 'portrait',
+    bufferPages: true,
+  });
   const fonts = registerPdfFonts(doc, language);
+  const footer = layoutPdfFooter(doc, branding.footer, CONTENT_WIDTH);
+  // A footer taller than the bottom margin moves the content limit up.
+  const pageBottom = PAGE_BOTTOM - (reservePdfFooterSpace(doc, footer, MARGIN) - MARGIN);
+  const ensure = (y: number, needed: number): number => ensureSpace(doc, y, needed, pageBottom);
   const chunks: Buffer[] = [];
 
   const built = new Promise<Buffer>((resolve, reject) => {
@@ -243,23 +305,14 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
     doc.on('error', reject);
   });
 
-  // Header: logo (or wordmark) on the left, invoice meta on the right.
-  let headerBottom = MARGIN;
-  if (logoBuffer != null) {
-    try {
-      doc.image(logoBuffer, MARGIN, MARGIN, {
-        fit: [LOGO_MAX_WIDTH, LOGO_MAX_HEIGHT],
-      });
-      headerBottom = MARGIN + LOGO_MAX_HEIGHT;
-    } catch (err) {
-      logger.warn({ err }, 'pdfkit rejected invoice logo, falling back to wordmark');
-      doc.fontSize(22).font(fonts.bold).fillColor(COLOR_TEXT).text(branding.name, MARGIN, MARGIN);
-      headerBottom = MARGIN + 30;
-    }
-  } else {
-    doc.fontSize(22).font(fonts.bold).fillColor(COLOR_TEXT).text(branding.name, MARGIN, MARGIN);
-    headerBottom = MARGIN + 30;
+  // Header: the PDF logo on the left, invoice meta on the right.
+  try {
+    doc.image(branding.logo, MARGIN, MARGIN, { fit: [LOGO_MAX_WIDTH, LOGO_MAX_HEIGHT] });
+  } catch (err) {
+    logger.warn({ err }, 'pdfkit rejected the PDF logo, using the default logo');
+    doc.image(defaultPdfLogoPng(), MARGIN, MARGIN, { fit: [LOGO_MAX_WIDTH, LOGO_MAX_HEIGHT] });
   }
+  const headerBottom = MARGIN + LOGO_MAX_HEIGHT;
 
   doc
     .fontSize(20)
@@ -309,14 +362,25 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
     detailY += 14;
   }
 
+  // The seller: name, address, tax ID, registration number and contact. The
+  // operator's text can hold characters the document font lacks.
+  const sellerLines = sellerDetailLines(seller, labels);
+  const sellerFonts = registerPdfTextFonts(doc, fonts, [seller.name, ...sellerLines].join('\n'));
+  const sellerWidth = CONTENT_WIDTH / 2;
   doc.fontSize(9).font(fonts.bold).fillColor(COLOR_MUTED).text(labels.from, rightX, y);
   doc
     .fontSize(11)
-    .font(fonts.regular)
+    .font(sellerFonts.regular)
     .fillColor(COLOR_TEXT)
-    .text(branding.name, rightX, y + 12);
+    .text(seller.name, rightX, y + 12, { width: sellerWidth });
+  let sellerY = y + 12 + Math.max(15, doc.heightOfString(seller.name, { width: sellerWidth }));
+  doc.fontSize(10).fillColor(COLOR_MUTED);
+  for (const sellerLine of sellerLines) {
+    doc.text(sellerLine, rightX, sellerY, { width: sellerWidth });
+    sellerY += Math.max(14, doc.heightOfString(sellerLine, { width: sellerWidth }));
+  }
 
-  y = Math.max(y + 50, detailY + 10);
+  y = Math.max(y + 50, detailY + 10, sellerY + 10);
 
   const metaRows: Array<[string, string]> = [
     [labels.status, labels.statuses[invoice.status]],
@@ -364,7 +428,7 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
   drawRule(doc, y - 4);
 
   const drawItem = (item: LineItem): void => {
-    y = ensureSpace(doc, y, 30);
+    y = ensure(y, 30);
     const qty = Number(item.quantity);
     doc.font(fonts.regular).fontSize(10).fillColor(COLOR_TEXT);
     y += drawRow(
@@ -385,14 +449,14 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
     // A fleet invoice lists each driver's sessions under the driver, with a
     // net subtotal per driver; the tax summary below covers the whole invoice.
     for (const group of groupLinesByDriver(lineItems)) {
-      y = ensureSpace(doc, y, 50);
+      y = ensure(y, 50);
       const name = group.driverName !== '' ? group.driverName : labels.unknownDriver;
       doc.font(fonts.bold).fontSize(10).fillColor(COLOR_TEXT).text(name, MARGIN, y, {
         width: CONTENT_WIDTH,
       });
       y += 16;
       for (const item of group.items) drawItem(item);
-      y = ensureSpace(doc, y, 20);
+      y = ensure(y, 20);
       drawRule(doc, y - 2, MARGIN + CONTENT_WIDTH / 2);
       doc.font(fonts.bold).fontSize(10).fillColor(COLOR_TEXT);
       y += drawRow(
@@ -417,7 +481,7 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
     { x: 250, width: 120, align: 'right' },
     { x: 375, width: CONTENT_WIDTH - 375, align: 'right' },
   ];
-  y = ensureSpace(doc, y, 30 + taxBreakdown.length * 16);
+  y = ensure(y, 30 + taxBreakdown.length * 16);
   doc.fontSize(9).font(fonts.bold).fillColor(COLOR_MUTED).text(labels.taxSummary, MARGIN, y);
   y += 16;
   y += drawRow(
@@ -440,7 +504,7 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
   y += 10;
 
   // Totals block (divider + net subtotal + tax + total) must not split across pages.
-  y = ensureSpace(doc, y, 10 + 16 + 16 + 20 + 20);
+  y = ensure(y, 10 + 16 + 16 + 20 + 20);
   drawRule(doc, y, MARGIN + CONTENT_WIDTH / 2);
   y += 10;
 
@@ -472,10 +536,11 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
     .fillColor(COLOR_MUTED)
     .text(labels.amountsNote, MARGIN, y + 4, { width: CONTENT_WIDTH });
   if (isCreditNote && creditedInvoice?.paidAt != null) {
-    const noteY = ensureSpace(doc, y + 16, 24);
+    const noteY = ensure(y + 16, 24);
     doc.text(labels.creditNotePaidNote, MARGIN, noteY, { width: CONTENT_WIDTH });
   }
 
+  drawPdfFooter(doc, footer, MARGIN, CONTENT_WIDTH);
   doc.end();
   return built;
 }

@@ -15,13 +15,16 @@ vi.mock('@/lib/api', () => ({ api: { get: getMock } }));
 
 import { SystemInfoDialog } from '../SystemInfoDialog';
 
-function info(payments: { provider: string; configured: boolean }): Record<string, unknown> {
+function info(
+  payments: { provider: string; configured: boolean },
+  bindIp: string | null = null,
+): Record<string, unknown> {
   return {
     version: '0.1.38',
     nodeEnv: 'test',
     logLevel: 'info',
     network: {
-      bindIp: null,
+      bindIp,
       apiPort: '7102',
       apiHost: '0.0.0.0',
       ocppPort: '7103',
@@ -100,5 +103,21 @@ describe('SystemInfoDialog payments', () => {
     await screen.findByText('paymentProviders.systemInfo.title');
     expect(rowValue('payments.provider')).toBe('none');
     expect(screen.queryByText('paymentProviders.systemInfo.providerStatus')).toBeNull();
+  });
+});
+
+describe('SystemInfoDialog bind address', () => {
+  it('shows BIND_IP on a Docker Compose install', async () => {
+    getMock.mockResolvedValue(info({ provider: 'none', configured: false }, '192.168.1.234'));
+    renderDialog();
+    await screen.findByText('systemInfo.network');
+    expect(rowValue('BIND_IP')).toBe('192.168.1.234');
+  });
+
+  it('hides BIND_IP outside Docker Compose', async () => {
+    getMock.mockResolvedValue(info({ provider: 'none', configured: false }));
+    renderDialog();
+    await screen.findByText('systemInfo.network');
+    expect(screen.queryByText('BIND_IP')).toBeNull();
   });
 });

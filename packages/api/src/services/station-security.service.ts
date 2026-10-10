@@ -5,10 +5,13 @@ import { hash } from 'argon2';
 import { eq } from 'drizzle-orm';
 import {
   AppError,
+  STATION_PASSWORD_HASH_OPTIONS,
   ValidationError,
   generateStationPassword,
+  publishStationAuthInvalidation,
   validateStationPassword,
 } from '@evtivity/lib';
+import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import type { StationOcppProtocol } from '@evtivity/lib';
 import {
   db,
@@ -162,11 +165,30 @@ async function audit(
   );
 }
 
-async function storePasswordHash(station: StationRow, password: string): Promise<void> {
+function hashStationPassword(password: string): Promise<string> {
+  return hash(password, { ...STATION_PASSWORD_HASH_OPTIONS });
+}
+
+// Every OCPP process evicts the station's cached password check. Fail-open:
+// the cache entry also binds the stored hash, which OCPP reads on every
+// connection, so a lost message never lets an old password through.
+async function invalidateStationAuth(
+  station: StationRow,
+  ctx: Pick<SecurityChangeContext, 'log'>,
+): Promise<void> {
+  await publishStationAuthInvalidation(getPubSub(), station.id, ctx.log);
+}
+
+async function storePasswordHash(
+  station: StationRow,
+  password: string,
+  ctx: SecurityChangeContext,
+): Promise<void> {
   await db
     .update(chargingStations)
-    .set({ basicAuthPasswordHash: await hash(password), updatedAt: new Date() })
+    .set({ basicAuthPasswordHash: await hashStationPassword(password), updatedAt: new Date() })
     .where(eq(chargingStations.id, station.id));
+  await invalidateStationAuth(station, ctx);
 }
 
 async function sendPassword(station: StationRow, password: string): Promise<void> {
@@ -191,7 +213,7 @@ export async function changeStationPassword(
   const usesPassword = station.securityProfile === 1 || station.securityProfile === 2;
   const appliedTo = station.isOnline && usesPassword ? 'station' : 'stored';
   if (appliedTo === 'station') await sendPassword(station, password);
-  await storePasswordHash(station, password);
+  await storePasswordHash(station, password, ctx);
   if (!station.isOnline) {
     await syncCssStationSecurity(station.stationId, {
       securityProfile: station.securityProfile,
@@ -218,7 +240,7 @@ export async function rotateStationPassword(
   if (!station.isOnline) throw new AppError('Station is offline', 409, 'STATION_OFFLINE');
   const password = generateStationPassword();
   await sendPassword(station, password);
-  await storePasswordHash(station, password);
+  await storePasswordHash(station, password, ctx);
   await logConnectionEvent(station, 'credentials_rotated', { rotatedBy: 'operator' }, ctx);
   await audit(station, 'Station credentials rotated', ctx);
 }
@@ -246,7 +268,7 @@ export async function initialStationPassword(opts: {
   const password = opts.password ?? (usesPassword ? generateStationPassword() : null);
   if (password == null) return { password: null, passwordHash: null };
   assertValidPasswordFor(password, opts.ocppProtocol);
-  return { password, passwordHash: await hash(password) };
+  return { password, passwordHash: await hashStationPassword(password) };
 }
 
 export interface ProfileChangeResult {
@@ -255,6 +277,8 @@ export interface ProfileChangeResult {
   status: 'updated' | 'pending' | 'unchanged';
 }
 
+// The password check cache binds the stored hash only, so a pending profile
+// change needs no station auth invalidation.
 async function setPendingProfile(station: StationRow, profile: number | null): Promise<void> {
   await db
     .update(chargingStations)
@@ -301,13 +325,14 @@ export async function changeSecurityProfile(
         securityProfile: profile,
         pendingSecurityProfile: null,
         ...(password != null
-          ? { basicAuthPasswordHash: await hash(password) }
+          ? { basicAuthPasswordHash: await hashStationPassword(password) }
           : needsPassword
             ? {}
             : { basicAuthPasswordHash: null }),
         updatedAt: new Date(),
       })
       .where(eq(chargingStations.id, station.id));
+    await invalidateStationAuth(station, ctx);
     await syncCssStationSecurity(station.stationId, { securityProfile: profile, password });
     await audit(station, `Security profile set to ${String(profile)} (station offline)`, ctx);
     return { status: 'updated' };
@@ -335,7 +360,7 @@ export async function changeSecurityProfile(
   } else {
     await upgrade21(station, profile, passwordForUpgrade);
   }
-  if (passwordForUpgrade != null) await storePasswordHash(station, passwordForUpgrade);
+  if (passwordForUpgrade != null) await storePasswordHash(station, passwordForUpgrade, ctx);
   await setPendingProfile(station, profile);
   await logConnectionEvent(
     station,

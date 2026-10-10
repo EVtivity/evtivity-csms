@@ -12,6 +12,7 @@ import {
   fleetReservations,
   fleets,
   writeReservationAudit,
+  snapshotReservationFeeTerms,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -24,6 +25,8 @@ import { assertReservationsAllowed } from '../lib/reservation-eligibility.js';
 import { assertNoMaintenanceConflict } from '@evtivity/services/maintenance-check';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { siteInScope } from '../lib/site-scope.js';
+import { stationInSitesSql } from '../lib/fleet-operation-scope.js';
 
 // -- Response schemas --
 
@@ -124,7 +127,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Create bulk reservations for a fleet',
         description:
-          'Allocates reservations across the supplied station/EVSE list and creates one reservation per fleet driver. Future-dated reservations are persisted as scheduled and activated by the worker; immediate reservations dispatch ReserveNow synchronously. Returns the per-driver allocation result with success/failure status for each.',
+          "Allocates reservations across the supplied station/EVSE list and creates one reservation per fleet driver. Future-dated reservations are persisted as scheduled and activated by the worker; immediate reservations dispatch ReserveNow synchronously. Returns the per-driver allocation result with success/failure status for each. A slot at a station that does not exist or is outside the user's sites refuses the whole request with 404 STATION_NOT_FOUND before anything is written.",
         operationId: 'createFleetReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetIdParams),
@@ -134,7 +137,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           400: errorWith('Fleet reservation create failed', [
             ERROR_CODES.FLEET_RESERVATION_CREATE_FAILED,
           ]),
-          404: errorWith('Resource not found', [
+          404: errorWith('Fleet or station not found', [
             ERROR_CODES.FLEET_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
@@ -154,24 +157,34 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Verify all referenced stations belong to sites the user has access to
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null) {
-        const stationOcppIds = body.slots.map((s) => s.stationOcppId);
-        const stations = await db
-          .select({ stationId: chargingStations.stationId, siteId: chargingStations.siteId })
-          .from(chargingStations)
-          .where(inArray(chargingStations.stationId, stationOcppIds));
 
-        for (const station of stations) {
-          if (station.siteId != null && !siteIds.includes(station.siteId)) {
-            await reply.status(404).send({
-              error: `Station ${station.stationId} not found`,
-              code: 'STATION_NOT_FOUND',
-            });
-            return;
-          }
-        }
+      // Batch-fetch all referenced stations in one query
+      const slotStationOcppIds = [...new Set(body.slots.map((s) => s.stationOcppId))];
+      const stationRows = await db
+        .select({
+          id: chargingStations.id,
+          stationId: chargingStations.stationId,
+          siteId: chargingStations.siteId,
+          isOnline: chargingStations.isOnline,
+          reservationsEnabled: chargingStations.reservationsEnabled,
+          disabledReason: chargingStations.disabledReason,
+          firmwareState: chargingStations.firmwareState,
+          reportedStatus: chargingStations.reportedStatus,
+        })
+        .from(chargingStations)
+        .where(inArray(chargingStations.stationId, slotStationOcppIds));
+
+      // A station outside the user's sites (or unsited) is left out. A slot
+      // naming it, or a station that does not exist, refuses the whole
+      // request with the same 404 before anything is written (no existence
+      // oracle, P11).
+      const stationMap = new Map(
+        stationRows.filter((s) => siteInScope(siteIds, s.siteId)).map((s) => [s.stationId, s]),
+      );
+      if (slotStationOcppIds.some((id) => !stationMap.has(id))) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
       }
 
       // Create fleet_reservations aggregate row
@@ -201,24 +214,6 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         sql`SELECT nextval('reservation_id_seq')::int AS next_val FROM generate_series(1, ${body.slots.length})`,
       );
       const reservationIds = idRows.map((r) => Number(r.next_val));
-
-      // Batch-fetch all referenced stations in one query
-      const slotStationOcppIds = [...new Set(body.slots.map((s) => s.stationOcppId))];
-      const stationRows = await db
-        .select({
-          id: chargingStations.id,
-          stationId: chargingStations.stationId,
-          siteId: chargingStations.siteId,
-          isOnline: chargingStations.isOnline,
-          reservationsEnabled: chargingStations.reservationsEnabled,
-          disabledReason: chargingStations.disabledReason,
-          firmwareState: chargingStations.firmwareState,
-          reportedStatus: chargingStations.reportedStatus,
-        })
-        .from(chargingStations)
-        .where(inArray(chargingStations.stationId, slotStationOcppIds));
-
-      const stationMap = new Map(stationRows.map((s) => [s.stationId, s]));
 
       // Batch-fetch all referenced EVSEs in one query
       const stationUuids = stationRows.map((s) => s.id);
@@ -304,6 +299,15 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         });
       }
 
+      // The cancellation and no-show fee terms in effect now, per slot (tariff
+      // the slot's driver resolves at the station, fee setting, tax basis): a
+      // later edit does not change what a reservation is charged.
+      const feeTerms = await Promise.all(
+        validatedSlots.map((v) =>
+          snapshotReservationFeeTerms({ stationUuid: v.stationId, driverUuid: v.driverId ?? null }),
+        ),
+      );
+
       // Phase 2: Insert all reservation rows in a single transaction
       const insertedReservations =
         validatedSlots.length > 0
@@ -311,7 +315,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
               const inserted = await tx
                 .insert(reservations)
                 .values(
-                  validatedSlots.map((v) => ({
+                  validatedSlots.map((v, i) => ({
                     reservationId: v.reservationId,
                     stationId: v.stationId,
                     evseId: v.resolvedEvseId,
@@ -320,6 +324,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
                     startsAt: body.startsAt != null ? new Date(body.startsAt) : null,
                     expiresAt: new Date(body.expiresAt),
                     fleetReservationId: fleetReservation.id,
+                    ...feeTerms[i],
                   })),
                 )
                 .returning();
@@ -558,7 +563,16 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
             reservationCount: count(reservations.id),
           })
           .from(fleetReservations)
-          .leftJoin(reservations, eq(reservations.fleetReservationId, fleetReservations.id))
+          // A site-restricted user counts only the reservations at its sites.
+          .leftJoin(
+            reservations,
+            siteIds == null
+              ? eq(reservations.fleetReservationId, fleetReservations.id)
+              : and(
+                  eq(reservations.fleetReservationId, fleetReservations.id),
+                  stationInSitesSql(reservations.stationId, siteIds),
+                ),
+          )
           .where(where)
           .groupBy(fleetReservations.id)
           // Secondary sort on id keeps pagination stable when two
@@ -582,7 +596,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Cancel all reservations in a fleet reservation',
         description:
-          'Cancels every reservation in the fleet booking. Active reservations get a CancelReservation dispatched to their station; scheduled reservations are cancelled DB-only. Operator-initiated and never charges cancellation fees. Returns counts of cancelled and skipped reservations.',
+          'Cancels every reservation in the fleet booking. Active reservations get a CancelReservation dispatched to their station; scheduled reservations are cancelled DB-only. Operator-initiated and never charges cancellation fees. Returns counts of cancelled and skipped reservations. A user restricted to some sites gets 404 FLEET_RESERVATION_NOT_FOUND when a reservation is outside its sites or the booking has none.',
         operationId: 'cancelFleetReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetReservationIdParams),
@@ -616,7 +630,9 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Verify the fleet reservation's stations belong to allowed sites
+      // Verify the fleet reservation's stations belong to allowed sites. A
+      // fleet reservation with no reservation at all names no site, so only
+      // an all-site user may cancel it (the list hides it from the others).
       const siteIds = await getUserSiteIds(userId);
       if (siteIds != null) {
         const stationSites = await db
@@ -625,14 +641,15 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
           .where(eq(reservations.fleetReservationId, id));
 
-        for (const row of stationSites) {
-          if (row.siteId != null && !siteIds.includes(row.siteId)) {
-            await reply.status(404).send({
-              error: 'Fleet reservation not found',
-              code: 'FLEET_RESERVATION_NOT_FOUND',
-            });
-            return;
-          }
+        if (
+          stationSites.length === 0 ||
+          stationSites.some((row) => !siteInScope(siteIds, row.siteId))
+        ) {
+          await reply.status(404).send({
+            error: 'Fleet reservation not found',
+            code: 'FLEET_RESERVATION_NOT_FOUND',
+          });
+          return;
         }
       }
 

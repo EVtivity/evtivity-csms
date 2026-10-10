@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { formatCurrencyAmount, formatUnitPrice } from './currency.js';
+import { resolveLocale } from './number.js';
 import { formatTaxRatePercent } from './price-display.js';
 
 /**
@@ -60,6 +61,35 @@ export class TaxRateValue extends LocalizedValue {
 
   format(locale: string): string {
     return formatTaxRatePercent(this.taxRate, locale);
+  }
+}
+
+/**
+ * The tax of each rate of a session cost as one list ("7%: €0.70; 19%: €1.90";
+ * "7 %: 0,70 €; 19 %: 1,90 €" in de). The templates allow no loops, so a
+ * receipt with several tax rates gets them as one value.
+ */
+export class TaxLinesValue extends LocalizedValue {
+  constructor(
+    readonly lines: readonly { taxRate: number; taxCents: number }[],
+    readonly currency: string,
+  ) {
+    super();
+  }
+
+  format(locale: string): string {
+    const resolved = resolveLocale(locale);
+    const percent = new Intl.NumberFormat(resolved, {
+      style: 'percent',
+      maximumFractionDigits: 2,
+    });
+    // A semicolon, since amounts can hold a decimal comma (de, es).
+    return this.lines
+      .map(
+        (line) =>
+          `${percent.format(line.taxRate)}: ${formatCurrencyAmount(line.taxCents, this.currency, locale)}`,
+      )
+      .join('; ');
   }
 }
 

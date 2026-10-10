@@ -46,6 +46,9 @@ function timeRangesOverlap(aStart: string, aEnd: string, bStart: string, bEnd: s
   return false;
 }
 
+/** The whole day, for days of the week without a time window. */
+const FULL_DAY = { startTime: '00:00', endTime: '00:00' };
+
 function daysOverlap(a: number[], b: number[]): boolean {
   const setB = new Set(b);
   return a.some((d) => setB.has(d));
@@ -112,8 +115,21 @@ export function validateNoOverlap(
     return { valid: true };
   }
 
-  // Priority 50 (energy): multiple allowed, no overlap concept
+  // Priority 50 (energy): several thresholds per group, each threshold once.
+  // The highest threshold the session reached wins (compareTariffs), so two
+  // tariffs at the same threshold would tie.
   if (newPriority === 50) {
+    const threshold = newRestrictions?.energyThresholdKwh;
+    const conflict = candidates.find(
+      (t) => threshold != null && t.restrictions?.energyThresholdKwh === threshold,
+    );
+    if (conflict != null) {
+      return {
+        valid: false,
+        conflictingTariffId: conflict.id,
+        message: 'An energy threshold tariff with the same threshold already exists',
+      };
+    }
     return { valid: true };
   }
 
@@ -140,22 +156,23 @@ export function validateNoOverlap(
     return { valid: true };
   }
 
-  // Priority 20 (day+time): check day intersection AND time overlap
-  if (
-    newPriority === 20 &&
-    newRestrictions?.daysOfWeek != null &&
-    newRestrictions.timeRange != null
-  ) {
+  // Priority 20 (day+time): check day intersection AND time overlap. Days
+  // without a time window cover the whole day.
+  if (newPriority === 20 && newRestrictions?.daysOfWeek != null) {
+    const newRange = newRestrictions.timeRange ?? FULL_DAY;
     for (const existing of candidates) {
-      if (existing.restrictions?.daysOfWeek != null && existing.restrictions.timeRange != null) {
+      if (existing.restrictions?.daysOfWeek != null) {
+        const existingRange = existing.restrictions.timeRange ?? FULL_DAY;
         if (
           daysOverlap(newRestrictions.daysOfWeek, existing.restrictions.daysOfWeek) &&
-          timeRangesOverlap(
-            newRestrictions.timeRange.startTime,
-            newRestrictions.timeRange.endTime,
-            existing.restrictions.timeRange.startTime,
-            existing.restrictions.timeRange.endTime,
-          )
+          (newRange === FULL_DAY ||
+            existingRange === FULL_DAY ||
+            timeRangesOverlap(
+              newRange.startTime,
+              newRange.endTime,
+              existingRange.startTime,
+              existingRange.endTime,
+            ))
         ) {
           return {
             valid: false,

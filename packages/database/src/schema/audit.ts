@@ -55,6 +55,8 @@ export const siteAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -93,6 +95,8 @@ export const stationAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -130,6 +134,8 @@ export const driverAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -166,6 +172,8 @@ export const fleetAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -203,6 +211,8 @@ export const userAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -232,6 +242,8 @@ export const vehicleAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -270,6 +282,8 @@ export const supportCaseAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -305,6 +319,8 @@ export const ocpiPartnerAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -339,6 +355,8 @@ export const certificateAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -369,6 +387,8 @@ export const roleAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -400,6 +420,8 @@ export const apiKeyAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -425,6 +447,8 @@ export const settingAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -455,6 +479,8 @@ export const smartChargingTemplateAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -485,6 +511,8 @@ export const configTemplateAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -521,6 +549,8 @@ export const firmwareCampaignAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -552,6 +582,8 @@ export const stationImageAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -582,6 +614,8 @@ export const localAuthListAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -616,6 +650,8 @@ export const tokenAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -649,6 +685,8 @@ export const reservationAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -695,6 +733,8 @@ export const pricingGroupAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -718,6 +758,8 @@ export const tariffAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -741,6 +783,8 @@ export const holidayAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -764,6 +808,8 @@ export const pricingAssignmentAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -799,6 +845,8 @@ export const maintenanceEventAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -830,6 +878,8 @@ export const sessionAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -840,13 +890,15 @@ export const sessionAuditLog = pgTable(
 
 // Invoice audit. Operator actions on an issued invoice: 'marked_paid' (payment
 // received outside EVtivity), 'voided' (drafts only), and 'invoice_credited'
-// (a credit note credited it in full), and 'invoice_generated' (a fleet invoice
-// was issued).
+// (a credit note credited it in full), 'invoice_generated' (a driver or fleet
+// invoice was created) and 'invoice_sent' (its email or SMS was accepted for
+// delivery, 0400).
 export const invoiceAuditActionEnum = pgEnum('invoice_audit_action', [
   'marked_paid',
   'voided',
   'invoice_credited',
   'invoice_generated',
+  'invoice_sent',
 ]);
 
 export const invoiceAuditLog = pgTable(
@@ -864,11 +916,51 @@ export const invoiceAuditLog = pgTable(
     before: jsonb('before'),
     after: jsonb('after'),
     notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_invoice_audit_invoice_id').on(table.invoiceId),
     index('idx_invoice_audit_created_at').on(table.createdAt),
+  ],
+);
+
+// AI conversation audit (migration 0379). Written by the API conversation
+// service: the conversation lifecycle, every tool call the model made, the
+// user's decision on a write it proposed, and attachments (lane L3).
+export const aiConversationAuditActionEnum = pgEnum('ai_conversation_audit_action', [
+  'created',
+  'renamed',
+  'deleted',
+  'tool_called',
+  'action_confirmed',
+  'action_rejected',
+  'attachment_added',
+]);
+
+export const aiConversationAuditLog = pgTable(
+  'ai_conversation_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    aiConversationId: text('ai_conversation_id'),
+    aiConversationIdSnapshot: text('ai_conversation_id_snapshot').notNull(),
+    action: aiConversationAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    /** Set when the change came from an AI assistant tool call: { conversationId, toolCallId }. */
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_ai_conversation_audit_conversation_id').on(table.aiConversationId),
+    index('idx_ai_conversation_audit_created_at').on(table.createdAt),
   ],
 );
 
@@ -902,6 +994,7 @@ export const AUDIT_TABLES = {
   maintenance_event: maintenanceEventAuditLog,
   session: sessionAuditLog,
   invoice: invoiceAuditLog,
+  ai_conversation: aiConversationAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

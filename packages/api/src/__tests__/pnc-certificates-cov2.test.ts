@@ -6,7 +6,18 @@ import Fastify from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import type { FastifyInstance } from 'fastify';
 
-const { isPncEnabledMock, writeAuditMock, publishMock, eqMock } = vi.hoisted(() => ({
+const {
+  isPncEnabledMock,
+  writeAuditMock,
+  publishMock,
+  eqMock,
+  inArrayMock,
+  getUserSiteIdsMock,
+  checkStationSiteAccessMock,
+} = vi.hoisted(() => ({
+  inArrayMock: vi.fn((col: unknown, value: unknown) => ({ inArray: [col, value] })),
+  getUserSiteIdsMock: vi.fn(),
+  checkStationSiteAccessMock: vi.fn(),
   isPncEnabledMock: vi.fn(),
   writeAuditMock: vi.fn(),
   publishMock: vi.fn(),
@@ -53,6 +64,7 @@ vi.mock('@evtivity/database', () => ({
   pkiCaCertificates: { id: 'ca.id', certificateType: 'ca.type', status: 'ca.status' },
   pkiCsrRequests: { id: 'csr.id', status: 'csr.status', stationId: 'csr.stationId' },
   stationCertificates: { stationId: 'sc.stationId', status: 'sc.status' },
+  chargingStations: { id: 'cs.id', siteId: 'cs.siteId' },
   certificateAuditLog: {},
   writeAudit: writeAuditMock,
   isPncEnabled: isPncEnabledMock,
@@ -61,9 +73,24 @@ vi.mock('@evtivity/database', () => ({
 vi.mock('drizzle-orm', () => ({
   eq: eqMock,
   and: vi.fn((...args: unknown[]) => ({ and: args })),
+  inArray: inArrayMock,
   desc: vi.fn(),
   count: vi.fn(),
   sql: vi.fn(),
+}));
+
+vi.mock('../lib/site-access.js', () => ({
+  getUserSiteIds: getUserSiteIdsMock,
+  checkStationSiteAccess: checkStationSiteAccessMock,
+  requireAllSiteAccess: async (
+    _request: unknown,
+    reply: { status: (code: number) => { send: (body: unknown) => Promise<unknown> } },
+    notFound: unknown,
+  ) => {
+    if ((await getUserSiteIdsMock()) == null) return true;
+    await reply.status(404).send(notFound);
+    return false;
+  },
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
@@ -166,6 +193,8 @@ describe('PnC certificate routes under /v1', () => {
     isPncEnabledMock.mockResolvedValue(true);
     writeAuditMock.mockResolvedValue(undefined);
     publishMock.mockResolvedValue(undefined);
+    getUserSiteIdsMock.mockResolvedValue(null);
+    checkStationSiteAccessMock.mockResolvedValue(true);
   });
 
   function call(method: 'GET' | 'POST', url: string, payload?: Record<string, unknown>) {
@@ -232,6 +261,39 @@ describe('PnC certificate routes under /v1', () => {
     });
   });
 
+  describe('trust store writes for a site-restricted user', () => {
+    it.each([
+      [
+        'POST',
+        '/v1/pnc/ca-certificates',
+        { certificateType: 'MORootCertificate', certificate: 'x' },
+      ],
+      ['DELETE', '/v1/pnc/ca-certificates/1', undefined],
+      ['POST', '/v1/pnc/refresh-root-certificates', {}],
+    ] as const)(
+      '%s %s answers 404 CA_CERT_NOT_FOUND without a write',
+      async (method, url, body) => {
+        getUserSiteIdsMock.mockResolvedValue(['sit_a']);
+        // Another user: the refresh rate limit counts per user.
+        const restricted = app.jwt.sign({ userId: 'usr_000000000009', roleId: 'rol_000000000001' });
+        const res = await app.inject({
+          method,
+          url,
+          headers: { authorization: `Bearer ${restricted}` },
+          ...(body != null ? { payload: body } : {}),
+        });
+        expect(res.statusCode).toBe(404);
+        expect(res.json()).toEqual({
+          error: 'CA certificate not found',
+          code: 'CA_CERT_NOT_FOUND',
+        });
+        expect(db.insert).not.toHaveBeenCalled();
+        expect(db.delete).not.toHaveBeenCalled();
+        expect(publishMock).not.toHaveBeenCalled();
+      },
+    );
+  });
+
   describe('GET /pnc/csr-requests', () => {
     it('filters by status and station', async () => {
       dbResults = [[csrRow], [{ count: 1 }]];
@@ -287,11 +349,11 @@ describe('PnC certificate routes under /v1', () => {
 
   describe('POST /pnc/csr-requests/:id/reject', () => {
     it('marks a pending CSR rejected and audits it', async () => {
-      dbResults = [[{ id: 4 }]];
+      dbResults = [[{ stationId: STATION_ID }], [{ id: 4 }]];
       const res = await call('POST', '/v1/pnc/csr-requests/4/reject');
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
-      expect(chains[0]?.['set']).toHaveBeenCalledWith(
+      expect(chains[1]?.['set']).toHaveBeenCalledWith(
         expect.objectContaining({ status: 'rejected', completedAt: expect.any(Date) }),
       );
       expect(eqMock).toHaveBeenCalledWith('csr.status', 'pending');
@@ -308,6 +370,66 @@ describe('PnC certificate routes under /v1', () => {
       const res = await call('POST', '/v1/pnc/csr-requests/99/reject');
       expect(res.statusCode).toBe(404);
       expect(res.json()).toEqual({ error: 'Pending CSR not found', code: 'CSR_NOT_FOUND' });
+      expect(writeAuditMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('site-restricted user', () => {
+    beforeEach(() => {
+      getUserSiteIdsMock.mockResolvedValue(['sit_a']);
+    });
+
+    it('lists only CSRs of stations at the user sites', async () => {
+      dbResults = [[csrRow], [{ count: 1 }]];
+      const res = await call('GET', '/v1/pnc/csr-requests');
+      expect(res.statusCode).toBe(200);
+      expect(inArrayMock).toHaveBeenCalledWith('cs.siteId', ['sit_a']);
+      expect(inArrayMock).toHaveBeenCalledWith('csr.stationId', expect.anything());
+    });
+
+    it('returns an empty CSR page without querying when the user has no sites', async () => {
+      getUserSiteIdsMock.mockResolvedValue([]);
+      const res = await call('GET', '/v1/pnc/csr-requests');
+      expect(res.json()).toEqual({ data: [], total: 0 });
+      expect(db.select).not.toHaveBeenCalled();
+    });
+
+    it('lists only station certificates of stations at the user sites', async () => {
+      dbResults = [[stationCertRow], [{ count: 1 }]];
+      const res = await call('GET', '/v1/pnc/station-certificates');
+      expect(res.statusCode).toBe(200);
+      expect(inArrayMock).toHaveBeenCalledWith('sc.stationId', expect.anything());
+    });
+
+    it('refuses to sign a CSR of another site station with 404 and changes nothing', async () => {
+      checkStationSiteAccessMock.mockResolvedValue(false);
+      dbResults = [[csrRow]];
+      const res = await call('POST', '/v1/pnc/csr-requests/4/sign', {
+        signedCertificateChain: CA_PEM,
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: 'Pending CSR not found', code: 'CSR_NOT_FOUND' });
+      expect(checkStationSiteAccessMock).toHaveBeenCalledWith(STATION_ID, 'usr_000000000001');
+      expect(db.update).not.toHaveBeenCalled();
+      expect(publishMock).not.toHaveBeenCalled();
+    });
+
+    it('refuses to sign a CSR without a station', async () => {
+      dbResults = [[{ ...csrRow, stationId: null }]];
+      const res = await call('POST', '/v1/pnc/csr-requests/4/sign', {
+        signedCertificateChain: CA_PEM,
+      });
+      expect(res.statusCode).toBe(404);
+      expect(db.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to reject a CSR of another site station with 404 and changes nothing', async () => {
+      checkStationSiteAccessMock.mockResolvedValue(false);
+      dbResults = [[{ stationId: STATION_ID }]];
+      const res = await call('POST', '/v1/pnc/csr-requests/4/reject');
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: 'Pending CSR not found', code: 'CSR_NOT_FOUND' });
+      expect(db.update).not.toHaveBeenCalled();
       expect(writeAuditMock).not.toHaveBeenCalled();
     });
   });

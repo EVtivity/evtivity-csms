@@ -263,26 +263,32 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
   const headers = () => ({ authorization: `Bearer ${token}` });
 
   describe('site access check', () => {
-    it('allows a station that has no charging_stations row', async () => {
+    it('hides a station without a charging_stations row from a site-restricted user', async () => {
       vi.mocked(getUserSiteIds).mockResolvedValue(['sit_a']);
-      // access lookup (none), station lookup, evses, tx count
       setupDbResults([], [STATION_ROW], [], [{ count: 2 }]);
       const res = await app.inject({
         method: 'GET',
         url: '/css/stations/SIM-1',
         headers: headers(),
       });
-      expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({
-        stationId: 'SIM-1',
-        evses: [],
-        activeTransactionCount: 2,
-      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toMatchObject({ code: 'STATION_NOT_FOUND' });
     });
 
-    it('allows an unsited charging_stations row', async () => {
+    it('hides an unsited charging_stations row from a site-restricted user', async () => {
       vi.mocked(getUserSiteIds).mockResolvedValue(['sit_a']);
       setupDbResults([{ siteId: null }], [STATION_ROW], [{ id: 'e1' }], []);
+      const res = await app.inject({
+        method: 'GET',
+        url: '/css/stations/SIM-1',
+        headers: headers(),
+      });
+      expect(res.statusCode).toBe(404);
+    });
+
+    it('shows an unsited station to an all-site user', async () => {
+      vi.mocked(getUserSiteIds).mockResolvedValue(null);
+      setupDbResults([STATION_ROW], [{ id: 'e1' }], []);
       const res = await app.inject({
         method: 'GET',
         url: '/css/stations/SIM-1',

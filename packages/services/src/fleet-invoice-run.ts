@@ -10,7 +10,7 @@ import {
   writeAudit,
 } from '@evtivity/database';
 import { AppError, dispatchSystemNotification, isValidTimezone } from '@evtivity/lib';
-import type { EmailAttachment, ServiceLogger } from '@evtivity/lib';
+import type { EmailAttachment, NotificationDelivery, ServiceLogger } from '@evtivity/lib';
 import {
   createFleetInvoice,
   dateIn,
@@ -25,6 +25,7 @@ import {
 } from './fleet-invoice-notice.js';
 import { getInvoice } from './invoice.service.js';
 import { generateInvoicePdf } from './invoice-pdf.service.js';
+import { systemInvoiceAuditActor, writeInvoiceSentAudit } from './invoice-audit.js';
 
 /** Operators hear which fleets the scheduled run could not invoice for a month (system event, one digest per month). */
 export const FLEET_INVOICE_RUN_FAILED_EVENT = 'fleet.InvoiceRunFailed';
@@ -192,7 +193,10 @@ export async function runScheduledFleetInvoice(
     invoiceId = live.id;
   }
 
-  const sent = await sendFleetInvoiceEmail(invoiceId, 'once', deps);
+  const sent = await sendFleetInvoiceEmail(invoiceId, 'once', deps, {
+    actor: systemInvoiceAuditActor(FLEET_INVOICE_RUN_ACTOR),
+    log,
+  });
   if (sent.status === 'no_contacts') {
     log.warn({ fleetId, invoiceId }, 'Fleet has no billing contact; the invoice was not emailed');
   }
@@ -433,11 +437,14 @@ async function claimOverdueNotice(invoiceId: string): Promise<boolean> {
  * `invoices.overdue_notice_sent_at` is taken before the send, so a send that
  * fails is not repeated (the dispatcher logs each attempt). A fleet without
  * billing contacts is not claimed, so the notice goes out once one is added.
+ * A notice that at least one provider accepted is audited as `invoice_sent`
+ * (event invoice.FleetOverdue) by the system actor `fleet-invoice-run`.
  */
 export async function sendFleetInvoiceOverdueNotice(
   invoiceId: string,
   deps: FleetInvoiceRunDeps,
   now: Date = new Date(),
+  log?: ServiceLogger,
 ): Promise<FleetOverdueNoticeResult> {
   const detail = await getInvoice(invoiceId);
   if (detail == null) return 'not_found';
@@ -466,8 +473,9 @@ export async function sendFleetInvoiceOverdueNotice(
   const variables = fleetInvoiceVariables(detail);
   const language = invoice.language ?? contacts.language ?? 'en';
   const timezone = await getSystemTimezone();
+  const delivered: NotificationDelivery[] = [];
   for (const email of contacts.emails) {
-    await dispatchSystemNotification(
+    const result = await dispatchSystemNotification(
       client,
       FLEET_INVOICE_OVERDUE_EVENT,
       { email, language, timezone },
@@ -475,7 +483,19 @@ export async function sendFleetInvoiceOverdueNotice(
       deps.templatesDirs,
       [attachment],
     );
+    delivered.push(...result.delivered);
   }
+  await writeInvoiceSentAudit(
+    {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      eventType: FLEET_INVOICE_OVERDUE_EVENT,
+      delivered,
+      resend: false,
+      actor: systemInvoiceAuditActor(FLEET_INVOICE_RUN_ACTOR),
+    },
+    log,
+  );
   return 'sent';
 }
 
@@ -510,7 +530,7 @@ export async function sendFleetInvoiceOverdueNotices(
   const summary: FleetOverdueRunSummary = { sent: 0, noContacts: 0, failed: 0 };
   for (const row of rows) {
     try {
-      const result = await sendFleetInvoiceOverdueNotice(row.id, deps, now);
+      const result = await sendFleetInvoiceOverdueNotice(row.id, deps, now, log);
       if (result === 'sent') summary.sent += 1;
       if (result === 'no_contacts') summary.noContacts += 1;
     } catch (err) {

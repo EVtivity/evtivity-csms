@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { eq, and, or, isNull, ilike, sql, inArray, desc } from 'drizzle-orm';
+import { eq, and, or, isNull, ilike, sql, inArray, desc, ne } from 'drizzle-orm';
 import argon2 from 'argon2';
 import { db, client, getMfaConfig, writeAudit, userAuditLog } from '@evtivity/database';
 import {
@@ -67,10 +67,19 @@ import {
   errorResponse,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { beginOperatorMfa } from '../lib/operator-mfa.js';
 import { authorize, invalidatePermissionCache } from '../middleware/rbac.js';
-import { invalidateUserActiveCache } from '../plugins/auth.js';
-import { invalidateSiteAccessCache } from '../lib/site-access.js';
-import { permissionCatalog } from '@evtivity/lib';
+import { invalidateUserActiveCache } from '../lib/user-active.js';
+import { invalidateSiteAccessCache, assertSitesWithinScope } from '../lib/site-access.js';
+import {
+  canAdministerUser,
+  canGrantPermissions,
+  canManageUser,
+  getUserManagementActor,
+  manageableUsersCondition,
+  roleDefaultPermissions,
+} from '../lib/user-management-scope.js';
+import { permissionCatalog, AI_EFFORTS, AI_PROVIDER_IDS, isAiEffort } from '@evtivity/lib';
 import { validatePasswordComplexity } from '../lib/password-validation.js';
 import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
 import { config as apiConfig } from '../lib/config.js';
@@ -79,6 +88,14 @@ import {
   recordMfaChallengeAttempt,
   clearMfaChallengeAttempts,
 } from '../lib/rate-limiters.js';
+import { storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
+import type { AiSurface } from '../services/ai/tools/policy.js';
+
+/** Null for no personal prompt, including a saved but unchanged built-in one. */
+function personalSystemPrompt(surface: AiSurface, text: string | undefined): string | null {
+  const stored = text != null ? storedSystemPrompt(surface, text) : '';
+  return stored.trim() === '' ? null : stored;
+}
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = process.env['API_TEMPLATES_DIR'] ?? resolve(currentDir, '..', 'templates');
@@ -119,7 +136,9 @@ const createUserBody = z.object({
   siteIds: z
     .array(z.string())
     .optional()
-    .describe('Site IDs to grant access to (ignored when hasAllSiteAccess is true)'),
+    .describe(
+      'Site IDs to grant access to (ignored when hasAllSiteAccess is true). A site-restricted operator must give at least one of its own sites.',
+    ),
 });
 
 const userParams = z.object({
@@ -134,6 +153,13 @@ const userLanguageEnum = z
   .describe('Preferred language code (one of the 6 CSMS-supported locales)');
 
 const updateUserBody = z.object({
+  email: z
+    .string()
+    .email()
+    .max(255)
+    .transform((v) => v.trim().toLowerCase())
+    .optional()
+    .describe('Sign-in email address, where password reset links go'),
   firstName: z.string().max(100).optional(),
   lastName: z.string().max(100).optional(),
   phone: z.string().max(50).nullable().optional().describe('Mobile phone number'),
@@ -146,7 +172,9 @@ const updateUserBody = z.object({
   siteIds: z
     .array(z.string())
     .optional()
-    .describe('Site IDs to grant access to (replaces existing assignments)'),
+    .describe(
+      'Site IDs to grant access to (replaces existing assignments). A site-restricted operator cannot send an empty list.',
+    ),
 });
 
 // Self-edit body for /v1/users/me. Restricted to fields a user can change
@@ -384,41 +412,8 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       // MFA check
-      if (user.mfaEnabled && user.mfaMethod != null) {
-        const mfaToken = app.jwt.sign(
-          { userId: user.id, roleId: user.roleId, mfaPending: true },
-          { expiresIn: '3m' },
-        );
-
-        let challengeId: number | undefined;
-        if (user.mfaMethod === 'email' || user.mfaMethod === 'sms') {
-          const challenge = await createMfaChallenge(client, {
-            userId: user.id,
-            method: user.mfaMethod,
-          });
-          challengeId = challenge.challengeId;
-
-          await dispatchSystemNotification(
-            client,
-            'mfa.VerificationCode',
-            {
-              email: user.email,
-              phone: user.phone ?? undefined,
-              firstName: user.firstName ?? undefined,
-              language: user.language,
-            },
-            { code: challenge.code },
-            TEMPLATES_DIR,
-          );
-        }
-
-        return {
-          mfaRequired: true,
-          mfaMethod: user.mfaMethod,
-          mfaToken,
-          challengeId,
-        };
-      }
+      const mfaPending = await beginOperatorMfa(app, user);
+      if (mfaPending != null) return mfaPending;
 
       const [role] = await db
         .select({ id: roles.id, name: roles.name })
@@ -903,40 +898,8 @@ export function userRoutes(app: FastifyInstance): void {
       // existing /auth/mfa/verify flow before getting a real session. The
       // login handler does the same thing for normal logins; we route the
       // forced-reset path through the same gate.
-      if (user.mfaEnabled && user.mfaMethod != null) {
-        const mfaToken = app.jwt.sign(
-          { userId: user.id, roleId: user.roleId, mfaPending: true },
-          { expiresIn: '3m' },
-        );
-
-        let challengeId: number | undefined;
-        if (user.mfaMethod === 'email' || user.mfaMethod === 'sms') {
-          const challenge = await createMfaChallenge(client, {
-            userId: user.id,
-            method: user.mfaMethod,
-          });
-          challengeId = challenge.challengeId;
-          await dispatchSystemNotification(
-            client,
-            'mfa.VerificationCode',
-            {
-              email: user.email,
-              phone: user.phone ?? undefined,
-              firstName: user.firstName ?? undefined,
-              language: user.language,
-            },
-            { code: challenge.code },
-            TEMPLATES_DIR,
-          );
-        }
-
-        return {
-          mfaRequired: true,
-          mfaMethod: user.mfaMethod,
-          mfaToken,
-          challengeId,
-        };
-      }
+      const mfaPending = await beginOperatorMfa(app, user);
+      if (mfaPending != null) return mfaPending;
 
       const [role] = await db
         .select({ id: roles.id, name: roles.name })
@@ -1100,7 +1063,11 @@ export function userRoutes(app: FastifyInstance): void {
       const { page, limit, search, roleId, status } = query;
       const offset = (page - 1) * limit;
 
+      // A site-restricted operator sees only users within its sites.
+      const actor = await getUserManagementActor(request);
       const conditions = [];
+      const scope = manageableUsersCondition(actor.siteIds);
+      if (scope != null) conditions.push(scope);
       if (search) {
         const pattern = `%${search}%`;
         conditions.push(
@@ -1176,12 +1143,31 @@ export function userRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(userCreated),
           400: errorResponse,
+          403: errorWith('Grant exceeds own access', [
+            ERROR_CODES.FORBIDDEN,
+            ERROR_CODES.PERMISSIONS_EXCEED_OWN,
+          ]),
           409: errorWith('Email already in use', [ERROR_CODES.DUPLICATE_EMAIL]),
         },
       },
     },
     async (request, reply) => {
       const body = parseZodRequest(createUserBody, request.body);
+      const actor = await getUserManagementActor(request);
+
+      // A site-restricted operator never grants access to every site.
+      if (body.hasAllSiteAccess && actor.siteIds != null) {
+        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        return;
+      }
+      // A site-restricted operator assigns at least one of its sites: a user
+      // without a site would be invisible to it.
+      if (actor.siteIds != null && (body.siteIds == null || body.siteIds.length === 0)) {
+        await reply
+          .status(400)
+          .send({ error: 'At least one site is required', code: 'INVALID_SITE_IDS' });
+        return;
+      }
 
       // Pre-check the unique email constraint (case-insensitive) so we return
       // a clean 409 instead of letting Postgres raise a 500. Body email is
@@ -1199,12 +1185,21 @@ export function userRoutes(app: FastifyInstance): void {
       // Pre-validate roleId so a bad FK returns a clean 400 instead of a
       // Postgres FK violation surfaced as 500.
       const [role] = await db
-        .select({ id: roles.id })
+        .select({ id: roles.id, name: roles.name })
         .from(roles)
         .where(eq(roles.id, body.roleId))
         .limit(1);
       if (role == null) {
         await reply.status(400).send({ error: 'Role does not exist', code: 'ROLE_NOT_FOUND' });
+        return;
+      }
+      // The new user gets the role's default permissions: an operator may
+      // only pick a role whose defaults it holds itself.
+      if (!(await canGrantPermissions(request, roleDefaultPermissions(role.name)))) {
+        await reply.status(403).send({
+          error: 'Permissions must be a subset of your own permissions',
+          code: 'PERMISSIONS_EXCEED_OWN',
+        });
         return;
       }
 
@@ -1219,7 +1214,12 @@ export function userRoutes(app: FastifyInstance): void {
           .select({ id: sites.id })
           .from(sites)
           .where(inArray(sites.id, createSiteIds));
-        if (found.length !== createSiteIds.length) {
+        // A site outside a restricted operator's sites answers like an
+        // unknown one, so its existence does not leak.
+        if (
+          found.length !== createSiteIds.length ||
+          !(await assertSitesWithinScope(actor.userId, createSiteIds))
+        ) {
           await reply
             .status(400)
             .send({ error: 'One or more siteIds do not exist', code: 'INVALID_SITE_IDS' });
@@ -1307,14 +1307,14 @@ export function userRoutes(app: FastifyInstance): void {
         ALL_TEMPLATES_DIRS,
       );
 
-      const actor = getAuditActor(request);
+      const auditActor = getAuditActor(request);
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
         {
           entityId: user.id,
           entityIdSnapshot: user.id,
           action: 'created',
-          ...actor,
+          ...auditActor,
           after: {
             ...user,
             hasAllSiteAccess: body.hasAllSiteAccess,
@@ -1354,7 +1354,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       const [user] = await db.select(userSelect).from(users).where(eq(users.id, id));
 
-      if (user == null) {
+      if (user == null || !(await canManageUser(await getUserManagementActor(request), id))) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
@@ -1392,15 +1392,21 @@ export function userRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(userItem),
           400: errorResponse,
-          403: errorWith('Self edit forbidden', [ERROR_CODES.SELF_EDIT_FORBIDDEN]),
+          403: errorWith('Self edit forbidden or grant exceeds own access', [
+            ERROR_CODES.SELF_EDIT_FORBIDDEN,
+            ERROR_CODES.FORBIDDEN,
+            ERROR_CODES.PERMISSIONS_EXCEED_OWN,
+          ]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+          409: errorWith('Email already in use', [ERROR_CODES.DUPLICATE_EMAIL]),
         },
       },
     },
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof userParams>;
-      const body = request.body as z.infer<typeof updateUserBody>;
+      // Parsed here so the email transform (trim, lowercase) runs.
+      const body = parseZodRequest(updateUserBody, request.body);
 
       // Block self-edit of sensitive fields (role, status, site access)
       // Users can edit their own name, language, timezone, theme via Profile
@@ -1419,11 +1425,68 @@ export function userRoutes(app: FastifyInstance): void {
         }
       }
 
+      // A site-restricted operator manages only users within its sites. Any
+      // other user answers like a missing one.
+      const actor = await getUserManagementActor(request);
+      // Account changes (status, role, site access, the MFA phone, the email
+      // that receives password reset links) also need the target's
+      // permissions within the actor's own; the profile fields (name,
+      // language, timezone, theme) need the site scope only.
+      const changesAccount =
+        body.isActive !== undefined ||
+        body.roleId !== undefined ||
+        body.hasAllSiteAccess !== undefined ||
+        body.siteIds !== undefined ||
+        body.phone !== undefined ||
+        body.email !== undefined;
+      const [before] = await db.select(userSelect).from(users).where(eq(users.id, id));
+      const allowed =
+        before != null &&
+        (changesAccount
+          ? await canAdministerUser(request, actor, id)
+          : await canManageUser(actor, id));
+      if (!allowed) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
+        return;
+      }
+
+      // A site-restricted operator never grants access to every site.
+      if (body.hasAllSiteAccess === true && actor.siteIds != null) {
+        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
+        return;
+      }
+      // A site-restricted operator never removes every site of a user: the
+      // user would become invisible to it.
+      if (actor.siteIds != null && body.siteIds !== undefined && body.siteIds.length === 0) {
+        await reply
+          .status(400)
+          .send({ error: 'At least one site is required', code: 'INVALID_SITE_IDS' });
+        return;
+      }
+
+      // The unique email constraint is case-insensitive: answer a clean 409
+      // instead of a Postgres error.
+      const emailChanged = body.email !== undefined && body.email !== before.email.toLowerCase();
+      if (emailChanged && body.email !== undefined) {
+        const [taken] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(and(emailEquals(users.email, body.email), ne(users.id, id)))
+          .limit(1);
+        if (taken != null) {
+          await reply.status(409).send({ error: 'Email already in use', code: 'DUPLICATE_EMAIL' });
+          return;
+        }
+      }
+
       // Pre-validate roleId FK so a bad role returns a clean 400 instead
-      // of a Postgres FK violation surfaced as 500.
+      // of a Postgres FK violation surfaced as 500. A role change resets the
+      // user's permissions to the role defaults, so a site-restricted
+      // operator may only pick a role whose defaults it holds itself.
+      let newRoleDefaults: string[] = [];
       if (body.roleId !== undefined) {
         const [role] = await db
-          .select({ id: roles.id })
+          .select({ id: roles.id, name: roles.name })
           .from(roles)
           .where(eq(roles.id, body.roleId))
           .limit(1);
@@ -1431,9 +1494,40 @@ export function userRoutes(app: FastifyInstance): void {
           await reply.status(400).send({ error: 'Role does not exist', code: 'ROLE_NOT_FOUND' });
           return;
         }
+        newRoleDefaults = roleDefaultPermissions(role.name);
+        if (!(await canGrantPermissions(request, newRoleDefaults))) {
+          await reply.status(403).send({
+            error: 'Permissions must be a subset of your own permissions',
+            code: 'PERMISSIONS_EXCEED_OWN',
+          });
+          return;
+        }
+      }
+
+      // Pre-validate site assignments before any write, so a bad siteId
+      // returns a clean 400 instead of a Postgres FK violation surfaced as
+      // 500. A site outside a restricted operator's sites answers like an
+      // unknown one. Dedupe the input so duplicates don't trip the
+      // (userId, siteId) UNIQUE constraint on insert.
+      const patchSiteIds = body.siteIds === undefined ? undefined : [...new Set(body.siteIds)];
+      if (patchSiteIds != null && patchSiteIds.length > 0) {
+        const found = await db
+          .select({ id: sites.id })
+          .from(sites)
+          .where(inArray(sites.id, patchSiteIds));
+        if (
+          found.length !== patchSiteIds.length ||
+          !(await assertSitesWithinScope(actor.userId, patchSiteIds))
+        ) {
+          await reply
+            .status(400)
+            .send({ error: 'One or more siteIds do not exist', code: 'INVALID_SITE_IDS' });
+          return;
+        }
       }
 
       const fields: Record<string, unknown> = { updatedAt: new Date() };
+      if (body.email !== undefined) fields['email'] = body.email;
       if (body.firstName !== undefined) fields['firstName'] = body.firstName;
       if (body.lastName !== undefined) fields['lastName'] = body.lastName;
       if (body.phone !== undefined) fields['phone'] = body.phone;
@@ -1444,46 +1538,55 @@ export function userRoutes(app: FastifyInstance): void {
       if (body.themePreference !== undefined) fields['themePreference'] = body.themePreference;
       if (body.hasAllSiteAccess !== undefined) fields['hasAllSiteAccess'] = body.hasAllSiteAccess;
 
-      const [before] = await db.select(userSelect).from(users).where(eq(users.id, id));
-      const [updated] = await db
-        .update(users)
-        .set(fields)
-        .where(eq(users.id, id))
-        .returning(userSelect);
+      // One transaction: the user row, its site assignments and its
+      // permissions change together or not at all.
+      const updated = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(users)
+          .set(fields)
+          .where(eq(users.id, id))
+          .returning(userSelect);
+        if (row == null) return null;
+
+        // Reset and invite links already sent went to the old address.
+        if (emailChanged) {
+          await tx
+            .update(userTokens)
+            .set({ revokedAt: new Date() })
+            .where(
+              and(
+                eq(userTokens.userId, id),
+                eq(userTokens.type, 'password_reset'),
+                isNull(userTokens.revokedAt),
+              ),
+            );
+        }
+
+        if (patchSiteIds !== undefined) {
+          await tx.delete(userSiteAssignments).where(eq(userSiteAssignments.userId, id));
+          if (patchSiteIds.length > 0) {
+            await tx
+              .insert(userSiteAssignments)
+              .values(patchSiteIds.map((siteId) => ({ userId: id, siteId })));
+          }
+        }
+
+        // Reset permissions to the new role defaults when roleId changes
+        if (body.roleId !== undefined) {
+          await tx.delete(userPermissions).where(eq(userPermissions.userId, id));
+          if (newRoleDefaults.length > 0) {
+            await tx
+              .insert(userPermissions)
+              .values(newRoleDefaults.map((p) => ({ userId: id, permission: p })))
+              .onConflictDoNothing();
+          }
+        }
+        return row;
+      });
 
       if (updated == null) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
-      }
-
-      // Update site assignments if provided. Pre-validate so a bad siteId
-      // returns a clean 400 instead of a Postgres FK violation surfaced
-      // as 500. Dedupe the input so duplicates don't trip the
-      // (userId, siteId) UNIQUE constraint on insert.
-      if (body.siteIds !== undefined) {
-        const patchSiteIds = [...new Set(body.siteIds)];
-        if (patchSiteIds.length > 0) {
-          const found = await db
-            .select({ id: sites.id })
-            .from(sites)
-            .where(inArray(sites.id, patchSiteIds));
-          if (found.length !== patchSiteIds.length) {
-            await reply
-              .status(400)
-              .send({ error: 'One or more siteIds do not exist', code: 'INVALID_SITE_IDS' });
-            return;
-          }
-        }
-        await db.delete(userSiteAssignments).where(eq(userSiteAssignments.userId, id));
-
-        if (patchSiteIds.length > 0) {
-          await db.insert(userSiteAssignments).values(
-            patchSiteIds.map((siteId) => ({
-              userId: id,
-              siteId,
-            })),
-          );
-        }
       }
 
       // Invalidate site access cache when site access fields change
@@ -1497,24 +1600,11 @@ export function userRoutes(app: FastifyInstance): void {
       if (body.isActive === false) {
         await revokeAllUserRefreshTokens(id);
         invalidateUserActiveCache(id);
+      } else if (body.isActive === true) {
+        invalidateUserActiveCache(id);
       }
 
-      // Reset permissions to new role defaults when roleId changes
       if (body.roleId !== undefined) {
-        const [newRole] = await db
-          .select({ name: roles.name })
-          .from(roles)
-          .where(eq(roles.id, body.roleId));
-
-        const defaults = permissionCatalog.defaultsFor(newRole?.name);
-
-        await db.delete(userPermissions).where(eq(userPermissions.userId, id));
-        if (defaults.length > 0) {
-          await db
-            .insert(userPermissions)
-            .values(defaults.map((p) => ({ userId: id, permission: p })))
-            .onConflictDoNothing();
-        }
         invalidatePermissionCache(id);
         await revokeAllUserSessions(id);
       }
@@ -1531,9 +1621,9 @@ export function userRoutes(app: FastifyInstance): void {
           .where(eq(userPermissions.userId, id)),
       ]);
 
-      const actor = getAuditActor(request);
+      const auditActor = getAuditActor(request);
       let action: string = 'updated';
-      if (body.roleId !== undefined && before != null && body.roleId !== before.roleId) {
+      if (body.roleId !== undefined && body.roleId !== before.roleId) {
         action = 'role_changed';
       } else if (body.hasAllSiteAccess !== undefined || body.siteIds !== undefined) {
         action = 'site_access_changed';
@@ -1544,8 +1634,8 @@ export function userRoutes(app: FastifyInstance): void {
           entityId: updated.id,
           entityIdSnapshot: updated.id,
           action,
-          ...actor,
-          before: before ?? null,
+          ...auditActor,
+          before,
           after: { ...updated, siteIds: assignments.map((a) => a.siteId) },
         },
         db,
@@ -1587,6 +1677,11 @@ export function userRoutes(app: FastifyInstance): void {
       const complexityError = validatePasswordComplexity(password);
       if (complexityError != null) {
         await reply.status(400).send({ error: complexityError, code: 'WEAK_PASSWORD' });
+        return;
+      }
+
+      if (!(await canAdministerUser(request, await getUserManagementActor(request), id))) {
+        await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
 
@@ -1726,7 +1821,10 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       const [user] = await db.select().from(users).where(eq(users.id, id));
-      if (user == null) {
+      if (
+        user == null ||
+        !(await canAdministerUser(request, await getUserManagementActor(request), id))
+      ) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
@@ -1794,7 +1892,10 @@ export function userRoutes(app: FastifyInstance): void {
         .from(users)
         .where(eq(users.id, id));
 
-      if (user == null) {
+      if (
+        user == null ||
+        !(await canAdministerUser(request, await getUserManagementActor(request), id))
+      ) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
@@ -2456,15 +2557,19 @@ export function userRoutes(app: FastifyInstance): void {
   const aiConfigResponse = z
     .object({
       configured: z.boolean().describe('Whether the user has saved a personal AI assistant config'),
-      provider: z.string().nullable().describe('Selected AI provider (anthropic, openai, gemini)'),
+      provider: z
+        .string()
+        .nullable()
+        .describe('Selected AI provider (anthropic, openai, gemini, deepseek)'),
       apiKey: z
         .string()
         .nullable()
         .describe('Provider API key (decrypted from storage; null when unset)'),
       model: z.string().nullable().describe('Model override applied for this user'),
-      temperature: z.number().nullable().describe('Generation temperature (0-2)'),
-      topP: z.number().nullable().describe('Nucleus sampling threshold (0-1)'),
-      topK: z.number().nullable().describe('Top-K token selection limit'),
+      effort: z
+        .enum(AI_EFFORTS)
+        .nullable()
+        .describe('Reasoning effort (low, medium, high); null uses the default (medium)'),
       systemPrompt: z
         .string()
         .nullable()
@@ -2550,9 +2655,7 @@ export function userRoutes(app: FastifyInstance): void {
           provider: chatbotAiConfigs.provider,
           apiKeyEnc: chatbotAiConfigs.apiKeyEnc,
           model: chatbotAiConfigs.model,
-          temperature: chatbotAiConfigs.temperature,
-          topP: chatbotAiConfigs.topP,
-          topK: chatbotAiConfigs.topK,
+          effort: chatbotAiConfigs.effort,
           systemPrompt: chatbotAiConfigs.systemPrompt,
         })
         .from(chatbotAiConfigs)
@@ -2567,9 +2670,7 @@ export function userRoutes(app: FastifyInstance): void {
           provider: null,
           apiKey: null,
           model: null,
-          temperature: null,
-          topP: null,
-          topK: null,
+          effort: null,
           systemPrompt: null,
         };
       }
@@ -2585,21 +2686,20 @@ export function userRoutes(app: FastifyInstance): void {
         provider: row.provider,
         apiKey,
         model: row.model ?? null,
-        temperature: row.temperature != null ? Number(row.temperature) : null,
-        topP: row.topP != null ? Number(row.topP) : null,
-        topK: row.topK ?? null,
+        effort: isAiEffort(row.effort) ? row.effort : null,
         systemPrompt: row.systemPrompt ?? null,
       };
     },
   );
 
   const aiConfigBody = z.object({
-    provider: z.enum(['anthropic', 'openai', 'gemini']).describe('AI provider'),
+    provider: z.enum(AI_PROVIDER_IDS).describe('AI provider'),
     apiKey: z.string().min(1).describe('Provider API key'),
     model: z.string().optional().describe('Model override (leave empty for provider default)'),
-    temperature: z.number().min(0).max(2).optional().describe('Sampling temperature (0-2)'),
-    topP: z.number().min(0).max(1).optional().describe('Top-p sampling (0-1)'),
-    topK: z.number().int().min(1).optional().describe('Top-k sampling'),
+    effort: z
+      .enum(AI_EFFORTS)
+      .optional()
+      .describe('Reasoning effort (low, medium, high); omit for the default (medium)'),
     systemPrompt: z.string().max(8000).optional().describe('Custom system prompt (max 8000 chars)'),
   });
 
@@ -2618,8 +2718,9 @@ export function userRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { userId } = request.user as { userId: string; roleId: string };
-      const { provider, apiKey, model, temperature, topP, topK, systemPrompt } =
-        request.body as z.infer<typeof aiConfigBody>;
+      const { provider, apiKey, model, effort, systemPrompt } = request.body as z.infer<
+        typeof aiConfigBody
+      >;
 
       const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
       if (encKey === '') {
@@ -2634,10 +2735,8 @@ export function userRoutes(app: FastifyInstance): void {
           provider,
           apiKeyEnc,
           model: model ?? null,
-          temperature: temperature != null ? String(temperature) : null,
-          topP: topP != null ? String(topP) : null,
-          topK: topK ?? null,
-          systemPrompt: systemPrompt ?? null,
+          effort: effort ?? null,
+          systemPrompt: personalSystemPrompt('chatbot', systemPrompt),
           updatedAt: new Date(),
         })
         .onConflictDoUpdate({
@@ -2646,10 +2745,8 @@ export function userRoutes(app: FastifyInstance): void {
             provider,
             apiKeyEnc,
             model: model ?? null,
-            temperature: temperature != null ? String(temperature) : null,
-            topP: topP != null ? String(topP) : null,
-            topK: topK ?? null,
-            systemPrompt: systemPrompt ?? null,
+            effort: effort ?? null,
+            systemPrompt: personalSystemPrompt('chatbot', systemPrompt),
             updatedAt: new Date(),
           },
         });
@@ -2699,9 +2796,7 @@ export function userRoutes(app: FastifyInstance): void {
             provider: '',
             apiKeyEnc: '',
             model: null,
-            temperature: null,
-            topP: null,
-            topK: null,
+            effort: null,
             systemPrompt: null,
             updatedAt: new Date(),
           })
@@ -2723,9 +2818,10 @@ export function userRoutes(app: FastifyInstance): void {
         .nullable()
         .describe('Provider API key (decrypted from storage; null when unset)'),
       model: z.string().nullable().describe('Model override applied for this user'),
-      temperature: z.number().nullable().describe('Generation temperature (0-2)'),
-      topP: z.number().nullable().describe('Nucleus sampling threshold (0-1)'),
-      topK: z.number().nullable().describe('Top-K token selection limit'),
+      effort: z
+        .enum(AI_EFFORTS)
+        .nullable()
+        .describe('Reasoning effort (low, medium, high); null uses the default (medium)'),
       systemPrompt: z
         .string()
         .nullable()
@@ -2757,9 +2853,7 @@ export function userRoutes(app: FastifyInstance): void {
           supportAiProvider: chatbotAiConfigs.supportAiProvider,
           supportAiApiKeyEnc: chatbotAiConfigs.supportAiApiKeyEnc,
           supportAiModel: chatbotAiConfigs.supportAiModel,
-          supportAiTemperature: chatbotAiConfigs.supportAiTemperature,
-          supportAiTopP: chatbotAiConfigs.supportAiTopP,
-          supportAiTopK: chatbotAiConfigs.supportAiTopK,
+          supportAiEffort: chatbotAiConfigs.supportAiEffort,
           supportAiSystemPrompt: chatbotAiConfigs.supportAiSystemPrompt,
           supportAiTone: chatbotAiConfigs.supportAiTone,
         })
@@ -2772,9 +2866,7 @@ export function userRoutes(app: FastifyInstance): void {
           provider: null,
           apiKey: null,
           model: null,
-          temperature: null,
-          topP: null,
-          topK: null,
+          effort: null,
           systemPrompt: null,
           tone: null,
         };
@@ -2791,9 +2883,7 @@ export function userRoutes(app: FastifyInstance): void {
         provider: row.supportAiProvider,
         apiKey,
         model: row.supportAiModel ?? null,
-        temperature: row.supportAiTemperature != null ? Number(row.supportAiTemperature) : null,
-        topP: row.supportAiTopP != null ? Number(row.supportAiTopP) : null,
-        topK: row.supportAiTopK ?? null,
+        effort: isAiEffort(row.supportAiEffort) ? row.supportAiEffort : null,
         systemPrompt: row.supportAiSystemPrompt ?? null,
         tone: row.supportAiTone ?? null,
       };
@@ -2801,14 +2891,13 @@ export function userRoutes(app: FastifyInstance): void {
   );
 
   const supportAiConfigBody = z.object({
-    provider: z
-      .enum(['anthropic', 'openai', 'gemini'])
-      .describe('AI provider for support case assistance'),
+    provider: z.enum(AI_PROVIDER_IDS).describe('AI provider for support case assistance'),
     apiKey: z.string().min(1).describe('Provider API key'),
     model: z.string().optional().describe('Model override (leave empty for provider default)'),
-    temperature: z.number().min(0).max(2).optional().describe('Sampling temperature (0-2)'),
-    topP: z.number().min(0).max(1).optional().describe('Top-p sampling (0-1)'),
-    topK: z.number().int().min(1).optional().describe('Top-k sampling'),
+    effort: z
+      .enum(AI_EFFORTS)
+      .optional()
+      .describe('Reasoning effort (low, medium, high); omit for the default (medium)'),
     systemPrompt: z
       .string()
       .max(8000)
@@ -2835,8 +2924,9 @@ export function userRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { userId } = request.user as { userId: string; roleId: string };
-      const { provider, apiKey, model, temperature, topP, topK, systemPrompt, tone } =
-        request.body as z.infer<typeof supportAiConfigBody>;
+      const { provider, apiKey, model, effort, systemPrompt, tone } = request.body as z.infer<
+        typeof supportAiConfigBody
+      >;
 
       const encKey = apiConfig.SETTINGS_ENCRYPTION_KEY;
       if (encKey === '') {
@@ -2848,10 +2938,8 @@ export function userRoutes(app: FastifyInstance): void {
         supportAiProvider: provider,
         supportAiApiKeyEnc,
         supportAiModel: model ?? null,
-        supportAiTemperature: temperature != null ? String(temperature) : null,
-        supportAiTopP: topP != null ? String(topP) : null,
-        supportAiTopK: topK ?? null,
-        supportAiSystemPrompt: systemPrompt ?? null,
+        supportAiEffort: effort ?? null,
+        supportAiSystemPrompt: personalSystemPrompt('support', systemPrompt),
         supportAiTone: tone ?? null,
         updatedAt: new Date(),
       };
@@ -2921,9 +3009,7 @@ export function userRoutes(app: FastifyInstance): void {
             supportAiProvider: null,
             supportAiApiKeyEnc: null,
             supportAiModel: null,
-            supportAiTemperature: null,
-            supportAiTopP: null,
-            supportAiTopK: null,
+            supportAiEffort: null,
             supportAiSystemPrompt: null,
             supportAiTone: null,
             updatedAt: new Date(),
@@ -3021,7 +3107,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, id));
 
-      if (user == null) {
+      if (user == null || !(await canManageUser(await getUserManagementActor(request), id))) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
@@ -3049,7 +3135,11 @@ export function userRoutes(app: FastifyInstance): void {
         response: {
           200: arrayResponse(z.string()),
           400: errorWith('Invalid permissions', [ERROR_CODES.INVALID_PERMISSIONS]),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN, ERROR_CODES.SELF_EDIT_FORBIDDEN]),
+          403: errorWith('Forbidden', [
+            ERROR_CODES.FORBIDDEN,
+            ERROR_CODES.SELF_EDIT_FORBIDDEN,
+            ERROR_CODES.PERMISSIONS_EXCEED_OWN,
+          ]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
       },
@@ -3067,9 +3157,12 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const actor = await getUserManagementActor(request);
       const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, id));
 
-      if (user == null) {
+      // The target's current permissions must be within the actor's own too:
+      // no one rewrites (or strips) the permissions of a more privileged user.
+      if (user == null || !(await canAdministerUser(request, actor, id))) {
         await reply.status(404).send({ error: 'User not found', code: 'USER_NOT_FOUND' });
         return;
       }
@@ -3080,6 +3173,15 @@ export function userRoutes(app: FastifyInstance): void {
         await reply.status(400).send({
           error: `Invalid permissions: ${invalid.join(', ')}`,
           code: 'INVALID_PERMISSIONS',
+        });
+        return;
+      }
+
+      // An operator grants only permissions it holds.
+      if (!(await canGrantPermissions(request, permissions))) {
+        await reply.status(403).send({
+          error: 'Permissions must be a subset of your own permissions',
+          code: 'PERMISSIONS_EXCEED_OWN',
         });
         return;
       }
@@ -3100,14 +3202,14 @@ export function userRoutes(app: FastifyInstance): void {
       }
       invalidatePermissionCache(id);
 
-      const actor = getAuditActor(request);
+      const auditActor = getAuditActor(request);
       await writeAudit(
         { table: userAuditLog, idColumn: 'user_id' },
         {
           entityId: id,
           entityIdSnapshot: id,
           action: 'permissions_changed',
-          ...actor,
+          ...auditActor,
           before: { permissions: beforePermRows.map((r) => r.permission) },
           after: { permissions },
         },

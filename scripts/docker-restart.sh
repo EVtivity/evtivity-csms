@@ -76,6 +76,14 @@ if docker compose -f "${CSMS_DIR}/docker-compose.yml" ps --status running --serv
   fi
 fi
 
+# A running Redis keeps the ACL it loaded at start: load the current
+# docker/redis/acl-rules.conf, so the restarted services get the grants of
+# this version.
+if docker compose -f "${CSMS_DIR}/docker-compose.yml" ps --status running --services 2> /dev/null |
+  grep -qx redis; then
+  docker compose -f "${CSMS_DIR}/docker-compose.yml" exec -T redis sh /usr/local/etc/redis/start.sh --reload
+fi
+
 echo "Building: ${COMPOSE_SERVICES}"
 docker compose -f "${CSMS_DIR}/docker-compose.yml" build $COMPOSE_SERVICES
 

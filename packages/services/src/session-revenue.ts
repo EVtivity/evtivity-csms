@@ -48,6 +48,13 @@ export function paymentsKeptCentsSql(companyCurrency: string): SQL {
  * rate (revenueFromGrossGroups in @evtivity/lib/price-display): the session
  * at its tariff snapshot rate (tariff_tax_rate), a fee at the rate it was
  * taxed at (payment_records.tax_rate).
+ *
+ * Profit needs the electricity cost of each session. A session that delivered
+ * energy but has no electricity cost (its site has no rate periods, none
+ * matched its end time, or its station has no site) is "cost missing":
+ * counted in revenue as usual, and in costMissing* so profit can leave it out
+ * (profitCents). A session without energy costs nothing, so it is never cost
+ * missing. Fees have no electricity cost.
  */
 function revenueItemsSql(companyCurrency: string): SQL {
   return sql`
@@ -64,7 +71,9 @@ function revenueItemsSql(companyCurrency: string): SQL {
                 THEN cs.tax_cents END AS tax_cents,
            CASE WHEN cs.billing_mode = 'account' AND pr.id IS NULL AND cs.final_cost_cents > 0
                      AND inv.status IS DISTINCT FROM 'paid'
-                THEN 'account' ELSE 'session' END AS source
+                THEN 'account' ELSE 'session' END AS source,
+           (cs.electricity_cost_cents IS NULL
+             AND coalesce(cs.energy_delivered_wh, 0) > 0) AS cost_missing
     FROM charging_sessions cs
     JOIN charging_stations st ON st.id = cs.station_id
     LEFT JOIN payment_records pr ON pr.session_id = cs.id
@@ -80,7 +89,8 @@ function revenueItemsSql(companyCurrency: string): SQL {
            greatest(coalesce(pr.captured_amount_cents, 0) - pr.refunded_amount_cents, 0) AS gross_cents,
            NULL::integer AS net_cents,
            NULL::integer AS tax_cents,
-           'fee'::text AS source
+           'fee'::text AS source,
+           false AS cost_missing
     FROM payment_records pr
     LEFT JOIN reservations r ON r.id = pr.reservation_id
     LEFT JOIN charging_stations st ON st.id = r.station_id
@@ -126,6 +136,15 @@ export interface RevenueTotals extends TaxTotals {
   billedOnAccountCents: number;
   /** The number of those account sessions. */
   billedOnAccountCount: number;
+  /**
+   * Billed sessions (in sessionCount) that delivered energy but have no
+   * electricity cost. Profit leaves them out (profitCents).
+   */
+  costMissingCount: number;
+  /** Revenue of those sessions, tax included. */
+  costMissingGrossCents: number;
+  /** Revenue of those sessions, tax excluded. */
+  costMissingNetCents: number;
 }
 
 export const EMPTY_REVENUE: RevenueTotals = {
@@ -137,6 +156,9 @@ export const EMPTY_REVENUE: RevenueTotals = {
   itemCount: 0,
   billedOnAccountCents: 0,
   billedOnAccountCount: 0,
+  costMissingCount: 0,
+  costMissingGrossCents: 0,
+  costMissingNetCents: 0,
 };
 
 /** Revenue items of one key, tax rate, amount, and source, as the database returns them. */
@@ -148,7 +170,30 @@ export interface RevenueRow {
   netCents?: number | string | null;
   taxCents?: number | string | null;
   source: string;
+  /** A billed session with energy but no electricity cost (see revenueItemsSql). */
+  costMissing?: boolean | null;
   count: number | string;
+}
+
+/** Revenue excluding tax of rows: the stored split when known, else split at the rate. */
+function netOfRows(rows: readonly RevenueRow[]): TaxTotals {
+  const split = revenueFromGrossGroups(
+    rows
+      .filter((r) => r.netCents == null || r.taxCents == null)
+      .map((r) => ({
+        taxRate: Number(r.taxRate),
+        grossCents: Number(r.grossCents),
+        count: Number(r.count),
+      })),
+  );
+  for (const r of rows) {
+    if (r.netCents == null || r.taxCents == null) continue;
+    const count = Number(r.count);
+    split.netCents += Number(r.netCents) * count;
+    split.taxCents += Number(r.taxCents) * count;
+    split.grossCents += Number(r.grossCents) * count;
+  }
+  return split;
 }
 
 /** Revenue per key from grouped revenue rows. */
@@ -173,22 +218,11 @@ export function aggregateRevenueRows(
       billedOnAccountCount += count;
       billedOnAccountCents += Number(r.grossCents) * count;
     }
-    const stored = list.filter((r) => r.netCents != null && r.taxCents != null);
-    const split = revenueFromGrossGroups(
-      list
-        .filter((r) => r.netCents == null || r.taxCents == null)
-        .map((r) => ({
-          taxRate: Number(r.taxRate),
-          grossCents: Number(r.grossCents),
-          count: Number(r.count),
-        })),
-    );
-    for (const r of stored) {
-      const count = Number(r.count);
-      split.netCents += Number(r.netCents) * count;
-      split.taxCents += Number(r.taxCents) * count;
-      split.grossCents += Number(r.grossCents) * count;
-    }
+    const split = netOfRows(list);
+    const costMissing = list.filter((r) => r.source === 'session' && r.costMissing === true);
+    const missing = netOfRows(costMissing);
+    let costMissingCount = 0;
+    for (const r of costMissing) costMissingCount += Number(r.count);
     let sessionCount = 0;
     let sessionGrossCents = 0;
     let itemCount = 0;
@@ -207,6 +241,9 @@ export function aggregateRevenueRows(
       itemCount,
       billedOnAccountCents,
       billedOnAccountCount,
+      costMissingCount,
+      costMissingGrossCents: missing.grossCents,
+      costMissingNetCents: missing.netCents,
     });
   }
   return result;
@@ -224,8 +261,21 @@ export function sumRevenue(totals: Iterable<RevenueTotals>): RevenueTotals {
     sum.itemCount += t.itemCount;
     sum.billedOnAccountCents += t.billedOnAccountCents;
     sum.billedOnAccountCount += t.billedOnAccountCount;
+    sum.costMissingCount += t.costMissingCount;
+    sum.costMissingGrossCents += t.costMissingGrossCents;
+    sum.costMissingNetCents += t.costMissingNetCents;
   }
   return sum;
+}
+
+/**
+ * Profit in cents: revenue excluding tax minus electricity cost, over the
+ * revenue items with a known electricity cost. Sessions without one
+ * (costMissing*) are left out, so their revenue is not counted as profit.
+ * May be negative.
+ */
+export function profitCents(revenue: RevenueTotals, electricityCostCents: number): number {
+  return revenue.netCents - revenue.costMissingNetCents - electricityCostCents;
 }
 
 /**
@@ -251,13 +301,14 @@ export async function queryRevenue(input: {
     net_cents: string | number | null;
     tax_cents: string | number | null;
     source: string;
+    cost_missing: boolean;
     count: string | number;
   }>(sql`
     SELECT (${key})::text AS key, ri.tax_rate, ri.gross_cents, ri.net_cents, ri.tax_cents,
-           ri.source, count(*) AS count
+           ri.source, ri.cost_missing, count(*) AS count
     FROM (${revenueItemsSql(input.companyCurrency)}) AS ri
     ${where}
-    GROUP BY 1, 2, 3, 4, 5, 6
+    GROUP BY 1, 2, 3, 4, 5, 6, 7
   `);
   return aggregateRevenueRows(
     rows.map((r) => ({
@@ -267,6 +318,7 @@ export async function queryRevenue(input: {
       netCents: r.net_cents,
       taxCents: r.tax_cents,
       source: r.source,
+      costMissing: r.cost_missing,
       count: r.count,
     })),
   );

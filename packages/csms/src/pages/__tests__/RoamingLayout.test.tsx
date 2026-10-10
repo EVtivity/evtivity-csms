@@ -8,6 +8,10 @@ import { MemoryRouter, Route, Routes } from 'react-router';
 
 const { getMock } = vi.hoisted(() => ({ getMock: vi.fn() }));
 
+// Access to every site (useHasAllSiteAccess), set per test.
+const siteAccess = vi.hoisted(() => ({ all: true }));
+vi.mock('@/lib/auth', () => ({ useHasAllSiteAccess: () => siteAccess.all }));
+
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return { ...actual, api: { get: getMock } };
@@ -51,6 +55,7 @@ function renderRoaming(): void {
 afterEach(() => {
   cleanup();
   getMock.mockReset();
+  siteAccess.all = true;
 });
 
 describe('RoamingLayout', () => {
@@ -74,5 +79,21 @@ describe('RoamingLayout', () => {
     getMock.mockRejectedValue(new Error('forbidden'));
     renderRoaming();
     expect(await screen.findByText('partners page')).toBeTruthy();
+  });
+
+  it('hides the company-wide partners and tariffs tabs from a site-restricted user', async () => {
+    getMock.mockResolvedValue({ roamingEnabled: true });
+    siteAccess.all = false;
+    renderRoaming();
+    expect(await screen.findByText('nav.roamingLocations')).toBeTruthy();
+    expect(screen.queryByText('nav.roamingPartners')).toBeNull();
+    expect(screen.queryByText('nav.roamingTariffs')).toBeNull();
+  });
+
+  it('shows the partners and tariffs tabs to an all-site user', async () => {
+    getMock.mockResolvedValue({ roamingEnabled: true });
+    renderRoaming();
+    expect(await screen.findByText('nav.roamingPartners')).toBeTruthy();
+    expect(screen.getByText('nav.roamingTariffs')).toBeTruthy();
   });
 });

@@ -72,6 +72,18 @@ vi.mock('@evtivity/database', () => ({
   fleetReservations: {},
   fleets: {},
   writeReservationAudit: vi.fn().mockResolvedValue(undefined),
+  snapshotReservationFeeTerms: vi.fn().mockResolvedValue({
+    feeTaxBasis: 'gross',
+    feeTaxRate: '0.19',
+    feePerMinute: '0.10',
+    feeCancellationCents: 300,
+  }),
+  resolveReservationFeeTerms: vi.fn().mockResolvedValue({
+    basis: 'gross',
+    taxRate: '0.19',
+    feePerMinute: '0.10',
+    cancellationFeeCents: 300,
+  }),
   reservationDiffChanged: vi.fn().mockReturnValue(false),
 }));
 
@@ -123,6 +135,7 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { fleetReservationRoutes } from '../routes/fleet-reservations.js';
+import { snapshotReservationFeeTerms } from '@evtivity/database';
 
 const VALID_FLEET_ID = 'flt_000000000001';
 const VALID_FLEET_RES_ID = 'frs_000000000001';
@@ -208,7 +221,6 @@ describe('Fleet reservation routes', () => {
       // 8. update fleet_reservations status
       setupDbResults(
         [{ id: VALID_FLEET_ID }], // fleet exists
-        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }], // insert fleet_reservation
         // db.execute returns sequence IDs (mocked above)
         [
           {
@@ -219,6 +231,7 @@ describe('Fleet reservation routes', () => {
             reservationsEnabled: true,
           },
         ], // batch station lookup
+        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }], // insert fleet_reservation
         [], // batch EVSE lookup
         [{ id: reservationDbId, reservationId: 1, stationId: stationDbId, status: 'active' }], // tx.insert reservation
         [], // update fleet_reservations (final status)
@@ -242,6 +255,11 @@ describe('Fleet reservation routes', () => {
       expect(body.total).toBe(1);
       expect(body.results).toHaveLength(1);
       expect(body.results[0].status).toBe('confirmed');
+      // TC-T3-24: each slot stores the fee terms its driver resolves now.
+      expect(snapshotReservationFeeTerms).toHaveBeenCalledWith({
+        stationUuid: stationDbId,
+        driverUuid: null,
+      });
     });
 
     it('returns partial status when some stations reject', async () => {
@@ -259,7 +277,6 @@ describe('Fleet reservation routes', () => {
       // DB calls: fleet, insert fleet_res, batch stations, EVSE lookup, tx.insert, updates
       setupDbResults(
         [{ id: VALID_FLEET_ID }], // fleet exists
-        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }], // insert fleet_reservation
         // Batch station lookup (both stations)
         [
           {
@@ -277,6 +294,7 @@ describe('Fleet reservation routes', () => {
             reservationsEnabled: true,
           },
         ],
+        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }], // insert fleet_reservation
         [], // batch EVSE lookup
         // tx.insert reservations (both)
         [
@@ -318,7 +336,6 @@ describe('Fleet reservation routes', () => {
       // reservation IDs allocated via db.execute (sequence)
       setupDbResults(
         [{ id: VALID_FLEET_ID }],
-        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }],
         [
           {
             id: stationDbId,
@@ -328,6 +345,7 @@ describe('Fleet reservation routes', () => {
             reservationsEnabled: true,
           },
         ],
+        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }],
         [], // EVSE lookup
         [{ id: reservationDbId, reservationId: 1, stationId: stationDbId, status: 'active' }], // tx.insert
         [], // final update

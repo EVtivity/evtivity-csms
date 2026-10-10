@@ -12,6 +12,10 @@ const { getMock, editorValues } = vi.hoisted(() => ({
   editorValues: [] as string[][],
 }));
 
+// Access to every site (useHasAllSiteAccess), set per test.
+const siteAccess = vi.hoisted(() => ({ all: true }));
+vi.mock('@/lib/auth', () => ({ useHasAllSiteAccess: () => siteAccess.all }));
+
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => undefined },
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
@@ -97,5 +101,18 @@ describe('UserCreate role defaults', () => {
     renderCreate();
     await selectRole('rol_viewer');
     expect(getMock).not.toHaveBeenCalledWith('/v1/permissions');
+  });
+
+  it('shows the all-site toggle to an all-site user only', async () => {
+    siteAccess.all = true;
+    renderCreate();
+    expect(await screen.findByText('users.allSites')).toBeTruthy();
+    cleanup();
+
+    siteAccess.all = false;
+    renderCreate();
+    await screen.findByRole('option', { name: 'viewer' });
+    expect(screen.queryByText('users.allSites')).toBeNull();
+    siteAccess.all = true;
   });
 });

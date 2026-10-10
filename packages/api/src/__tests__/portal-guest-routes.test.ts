@@ -367,7 +367,7 @@ describe('Portal guest routes - handler logic', () => {
         priority: 0,
         isDefault: true,
         pricingGroup: { id: 'pgr_1', name: 'Group', source: 'station' },
-        timezone: null,
+        timezone: 'UTC',
       });
 
       const response = await app.inject({
@@ -654,6 +654,31 @@ describe('Portal guest routes - handler logic', () => {
       expect(response.json().code).toBe('PAYMENT_PROVIDER_NOT_CONFIGURED');
       expect(mockAuthorizeGuestHold).not.toHaveBeenCalled();
     });
+
+    it.each(['pending', 'blocked'])(
+      'refuses a %s station before the maintenance check (second layer)',
+      async (onboardingStatus) => {
+        vi.mocked(getActiveMaintenanceForStation).mockClear();
+        setupDbResults([
+          {
+            id: 'sta_000000000001',
+            stationId: 'CS-001',
+            siteId: null,
+            isOnline: true,
+            onboardingStatus,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ]);
+        const response = await app.inject({
+          method: 'POST',
+          url: '/portal/guest/start/CS-001/1',
+          payload: { guestEmail: 'guest@example.com' },
+        });
+        expect(response.statusCode).toBe(403);
+        expect(getActiveMaintenanceForStation).not.toHaveBeenCalled();
+        expect(mockAuthorizeGuestHold).not.toHaveBeenCalled();
+      },
+    );
 
     it('refuses paymentMethodId and paymentMethod together', async () => {
       const response = await app.inject({

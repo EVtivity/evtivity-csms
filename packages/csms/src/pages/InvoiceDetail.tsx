@@ -1,11 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useId, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, Download, FileMinus, Mail, Printer } from 'lucide-react';
+import { CheckCircle, ChevronDown, Download, FileMinus, Mail, Printer } from 'lucide-react';
 import { BackButton } from '@/components/back-button';
 import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { API_BASE_URL } from '@/lib/config';
@@ -107,6 +107,8 @@ function toDatetimeLocal(date: Date): string {
 }
 
 const CREDIT_REASON_MAX = 500;
+/** Header actions wrap and fill the row with 44 px touch targets below `sm`. */
+const HEADER_ACTION_CLASS = 'h-11 grow sm:h-10 sm:grow-0';
 const PAYMENT_REFERENCE_MAX = 200;
 
 async function downloadInvoicePdf(invoice: { id: string; invoiceNumber: string }): Promise<void> {
@@ -131,6 +133,9 @@ export function InvoiceDetail(): React.JSX.Element {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('payments:write');
+  const canReadAudit = useHasPermission('audit:read');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyPanelId = useId();
   const [voidOpen, setVoidOpen] = useState(false);
   const [resendOpen, setResendOpen] = useState(false);
   const [paidOpen, setPaidOpen] = useState(false);
@@ -154,8 +159,12 @@ export function InvoiceDetail(): React.JSX.Element {
   });
   const companyName =
     branding?.['name'] != null && branding['name'] !== '' ? branding['name'] : 'EVtivity';
-  const companyLogo =
-    branding?.['logo'] != null && branding['logo'] !== '' ? branding['logo'] : null;
+  // The logo the invoice PDF draws (pdf.logo or the default), shown only when printed.
+  const { data: printLogo } = useQuery({
+    queryKey: ['invoice-print-logo'],
+    queryFn: () => api.get<{ logo: string }>('/v1/invoices/print-logo'),
+    staleTime: 60_000,
+  });
 
   const voidMutation = useMutation({
     mutationFn: () => api.patch(`/v1/invoices/${id ?? ''}/void`, {}),
@@ -331,8 +340,8 @@ export function InvoiceDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
           <BackButton
             to={
               fleetId != null
@@ -342,8 +351,10 @@ export function InvoiceDetail(): React.JSX.Element {
                   : '/drivers'
             }
           />
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">{invoice.invoiceNumber}</h1>
+          <div className="min-w-0">
+            <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">
+              {invoice.invoiceNumber}
+            </h1>
             {isCreditNote && (
               <p className="text-sm text-muted-foreground">{t('invoices.kinds.credit_note')}</p>
             )}
@@ -354,10 +365,17 @@ export function InvoiceDetail(): React.JSX.Element {
               `invoices.status.${invoice.status}` as never,
             )}
           </Badge>
+          <div className="print-hidden ml-auto">
+            <EntityNavButtons resource="invoices" basePath="/invoices" currentId={id} />
+          </div>
         </div>
-        <div className="print-hidden flex items-center gap-2">
+        <div
+          className="print-hidden flex flex-wrap items-start gap-2"
+          data-testid="invoice-actions"
+        >
           <Button
             variant="outline"
+            className={HEADER_ACTION_CLASS}
             onClick={() => {
               window.print();
             }}
@@ -365,13 +383,14 @@ export function InvoiceDetail(): React.JSX.Element {
             <Printer className="mr-2 h-4 w-4" />
             {t('invoices.print')}
           </Button>
-          <Button variant="outline" onClick={handleDownload}>
+          <Button variant="outline" className={HEADER_ACTION_CLASS} onClick={handleDownload}>
             <Download className="mr-2 h-4 w-4" />
             {t('invoices.download')}
           </Button>
           {canWrite && (invoice.driverId != null || isFleetInvoice) && (
             <Button
               variant="outline"
+              className={HEADER_ACTION_CLASS}
               onClick={() => {
                 setResendOpen(true);
               }}
@@ -381,13 +400,13 @@ export function InvoiceDetail(): React.JSX.Element {
             </Button>
           )}
           {canMarkPaid && (
-            <Button variant="outline" onClick={openMarkPaid}>
+            <Button variant="outline" className={HEADER_ACTION_CLASS} onClick={openMarkPaid}>
               <CheckCircle className="mr-2 h-4 w-4" />
               {t('invoices.markPaid')}
             </Button>
           )}
           {canCredit && (
-            <Button variant="destructive" onClick={openCredit}>
+            <Button variant="destructive" className={HEADER_ACTION_CLASS} onClick={openCredit}>
               <FileMinus className="mr-2 h-4 w-4" />
               {t('invoices.issueCreditNote')}
             </Button>
@@ -395,6 +414,7 @@ export function InvoiceDetail(): React.JSX.Element {
           {canVoid && (
             <Button
               variant="destructive"
+              className={HEADER_ACTION_CLASS}
               onClick={() => {
                 setVoidOpen(true);
               }}
@@ -402,7 +422,6 @@ export function InvoiceDetail(): React.JSX.Element {
               {t('invoices.voidInvoice')}
             </Button>
           )}
-          <EntityNavButtons resource="invoices" basePath="/invoices" currentId={id} />
         </div>
       </div>
 
@@ -526,14 +545,14 @@ export function InvoiceDetail(): React.JSX.Element {
       />
 
       <div className="invoice-print-area space-y-6">
-        <div className="flex items-center gap-4">
+        {printLogo != null && (
           <img
-            src={companyLogo ?? '/evtivity-logo-animated.svg'}
+            src={printLogo.logo}
             alt={companyName}
-            className="h-12 w-auto max-w-[200px] object-contain"
+            data-testid="invoice-print-logo"
+            className="print-only h-12 w-auto max-w-[200px] object-contain"
           />
-          <span className="text-xl font-semibold">{companyName}</span>
-        </div>
+        )}
 
         <Card>
           <CardHeader>
@@ -737,7 +756,7 @@ export function InvoiceDetail(): React.JSX.Element {
                         );
                       })
                     : lineItems.map((item) => renderLine(item))}
-                  <TableRow>
+                  <TableRow className="hidden sm:table-row">
                     <TableCell colSpan={5} className="text-right text-muted-foreground">
                       {t('invoices.subtotalNet')}
                     </TableCell>
@@ -745,7 +764,7 @@ export function InvoiceDetail(): React.JSX.Element {
                       {formatCents(invoice.subtotalCents, invoice.currency)}
                     </TableCell>
                   </TableRow>
-                  <TableRow>
+                  <TableRow className="hidden sm:table-row">
                     <TableCell colSpan={5} className="text-right text-muted-foreground">
                       {t('invoices.totalTax')}
                     </TableCell>
@@ -753,7 +772,7 @@ export function InvoiceDetail(): React.JSX.Element {
                       {formatCents(invoice.taxCents, invoice.currency)}
                     </TableCell>
                   </TableRow>
-                  <TableRow>
+                  <TableRow className="hidden sm:table-row">
                     <TableCell colSpan={5} className="text-right font-bold">
                       {t('invoices.total')}
                     </TableCell>
@@ -764,6 +783,21 @@ export function InvoiceDetail(): React.JSX.Element {
                 </TableBody>
               </Table>
             </div>
+            {/* Below sm the table scrolls sideways, so the totals sit under it in full view. */}
+            <dl className="mt-4 space-y-1 text-sm sm:hidden" data-testid="invoice-totals-mobile">
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">{t('invoices.subtotalNet')}</dt>
+                <dd>{formatCents(invoice.subtotalCents, invoice.currency)}</dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-muted-foreground">{t('invoices.totalTax')}</dt>
+                <dd>{formatCents(invoice.taxCents, invoice.currency)}</dd>
+              </div>
+              <div className="flex justify-between gap-4 font-bold">
+                <dt>{t('invoices.total')}</dt>
+                <dd>{formatCents(invoice.totalCents, invoice.currency)}</dd>
+              </div>
+            </dl>
             <p className="mt-2 text-xs text-muted-foreground">{t('invoices.amountsExcludeTax')}</p>
             {isCreditNote && creditedInvoice?.paidAt != null && (
               <p className="mt-1 text-xs text-muted-foreground">
@@ -812,9 +846,44 @@ export function InvoiceDetail(): React.JSX.Element {
         </Card>
       </div>
 
-      <div className="print-hidden">
-        <EntityHistoryTab entityType="invoice" entityId={id ?? ''} title={t('audit.history')} />
-      </div>
+      {canReadAudit && (
+        <section className="print-hidden rounded-lg border bg-card text-card-foreground shadow-xs">
+          <h2>
+            <button
+              type="button"
+              className="flex min-h-11 w-full items-center justify-between gap-4 rounded-lg p-6 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              aria-expanded={historyOpen}
+              aria-controls={historyPanelId}
+              onClick={() => {
+                setHistoryOpen((open) => !open);
+              }}
+            >
+              <span className="flex min-w-0 flex-col gap-1.5">
+                <span className="text-2xl font-semibold leading-none tracking-tight">
+                  {t('audit.history')}
+                </span>
+                <span className="text-sm font-normal text-muted-foreground">
+                  {t('invoices.historyDescription')}
+                </span>
+              </span>
+              <ChevronDown
+                aria-hidden="true"
+                className={`h-5 w-5 shrink-0 transition-transform ${historyOpen ? 'rotate-180' : ''}`}
+              />
+            </button>
+          </h2>
+          <div id={historyPanelId} hidden={!historyOpen} className="border-t">
+            {historyOpen && (
+              <EntityHistoryTab
+                entityType="invoice"
+                entityId={id ?? ''}
+                title=""
+                className="rounded-none border-0 shadow-none"
+              />
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

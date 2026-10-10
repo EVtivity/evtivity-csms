@@ -3,7 +3,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sendMock, syncCssMock, updates, station, configState } = vi.hoisted(() => ({
+const { sendMock, syncCssMock, updates, station, configState, publishMock } = vi.hoisted(() => ({
+  publishMock: vi.fn((_channel: string, _payload: string) => Promise.resolve(undefined)),
   sendMock: vi.fn(),
   syncCssMock: vi.fn(() => Promise.resolve(undefined)),
   updates: [] as Record<string, unknown>[],
@@ -15,6 +16,9 @@ vi.mock('@evtivity/services/ocpp-command', () => ({ sendOcppCommandAndWait: send
 vi.mock('../lib/config.js', () => ({ config: configState }));
 vi.mock('../lib/css-pairing.js', () => ({ syncCssStationSecurity: syncCssMock }));
 vi.mock('argon2', () => ({ hash: vi.fn((pw: string) => Promise.resolve(`hash(${pw})`)) }));
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
+  getPubSub: () => ({ publish: publishMock }),
+}));
 
 vi.mock('@evtivity/database', () => {
   const selectChain = {
@@ -41,6 +45,8 @@ vi.mock('@evtivity/database', () => {
   };
 });
 
+import { hash } from 'argon2';
+import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
 import {
   changeStationPassword,
   initialStationPassword,
@@ -82,7 +88,13 @@ const actions = (): string[] => sendMock.mock.calls.map((c) => c[1] as string);
 const hashUpdates = (): unknown[] =>
   updates.filter((u) => 'basicAuthPasswordHash' in u).map((u) => u['basicAuthPasswordHash']);
 
+const authInvalidations = (): unknown[] =>
+  publishMock.mock.calls
+    .filter((c) => c[0] === 'cache_invalidate')
+    .map((c) => JSON.parse(c[1]) as unknown);
+
 beforeEach(() => {
+  publishMock.mockClear();
   sendMock.mockReset();
   updates.length = 0;
   configState.OCPP_STATION_TLS_URL = undefined;
@@ -427,5 +439,56 @@ describe('changeSecurityProfile', () => {
       expect(sendMock.mock.calls[2]?.[2]).toEqual({ type: 'Immediate' });
       expect(updates.at(-1)).toMatchObject({ pendingSecurityProfile: 1 });
     });
+  });
+});
+
+describe('station auth cache invalidation and hash parameters', () => {
+  it('hashes station passwords with the station argon2id parameters', async () => {
+    await initialStationPassword({ ocppProtocol: 'ocpp2.1', securityProfile: 1, password: PW });
+
+    expect(hash).toHaveBeenCalledWith(PW, { ...STATION_PASSWORD_HASH_OPTIONS });
+  });
+
+  it('evicts the cached password check in every OCPP process after a password change', async () => {
+    sendMock.mockResolvedValueOnce(accepted);
+
+    await changeStationPassword('sta_1', PW, ctx);
+
+    expect(authInvalidations()).toEqual([{ kind: 'station_auth', stationId: 'sta_1' }]);
+  });
+
+  it('publishes nothing when the station rejects the new password', async () => {
+    sendMock.mockResolvedValueOnce({ commandId: 'c', response: { status: 'Rejected' } });
+
+    await expect(changeStationPassword('sta_1', PW, ctx)).rejects.toThrow();
+    expect(authInvalidations()).toEqual([]);
+  });
+
+  it('evicts after an offline profile change', async () => {
+    setStation({ isOnline: false, securityProfile: 2 });
+    await changeSecurityProfile('sta_1', 1, undefined, ctx);
+
+    expect(authInvalidations()).toEqual([{ kind: 'station_auth', stationId: 'sta_1' }]);
+  });
+
+  it('publishes nothing for a cancelled upgrade: the cache binds only the stored hash', async () => {
+    setStation({ pendingSecurityProfile: 2 });
+    await changeSecurityProfile('sta_1', 1, undefined, ctx);
+
+    expect(authInvalidations()).toEqual([]);
+  });
+
+  it('still completes the change when the publish fails, and warns', async () => {
+    setStation({ isOnline: false });
+    publishMock.mockRejectedValueOnce(new Error('redis down'));
+    const log = { warn: vi.fn() };
+
+    await expect(changeStationPassword('sta_1', PW, { ...ctx, log })).resolves.toEqual({
+      appliedTo: 'stored',
+    });
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ stationDbId: 'sta_1' }),
+      'Failed to publish station auth cache invalidation',
+    );
   });
 });

@@ -13,6 +13,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { LanguageSelect } from '@/components/ui/language-select';
 import { TemplateEditPanel, type TemplateEditPanelHandle } from '@/components/TemplateEditPanel';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { TEMPLATE_VARIABLES, COMMON_VARIABLES } from '@/lib/template-variables';
 
@@ -84,6 +85,9 @@ export function EventSettingsLayout({
 }: EventSettingsLayoutProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  // Template and event setting writes are company-wide: the API answers 404 to a
+  // site-restricted user. Templates stay readable.
+  const canWrite = useHasCompanyWidePermission('notifications:write');
 
   const [selectedEvent, setSelectedEvent] = useState('');
   const [channelChoice, setChannel] = useState<string>(channels[0] ?? 'email');
@@ -256,23 +260,27 @@ export function EventSettingsLayout({
                     >
                       {t('notifications.preview')}
                     </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => {
-                        templatePanelRef.current?.reset();
-                      }}
-                      disabled={templatePanelRef.current?.isPending}
-                    >
-                      {t('notifications.resetToDefault')}
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        templatePanelRef.current?.save();
-                      }}
-                      disabled={!isDirty || templatePanelRef.current?.isPending}
-                    >
-                      {t('notifications.save')}
-                    </Button>
+                    {canWrite && (
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          templatePanelRef.current?.reset();
+                        }}
+                        disabled={templatePanelRef.current?.isPending}
+                      >
+                        {t('notifications.resetToDefault')}
+                      </Button>
+                    )}
+                    {canWrite && (
+                      <Button
+                        onClick={() => {
+                          templatePanelRef.current?.save();
+                        }}
+                        disabled={!isDirty || templatePanelRef.current?.isPending}
+                      >
+                        {t('notifications.save')}
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <Card>
@@ -301,7 +309,9 @@ export function EventSettingsLayout({
                                 <Toggle
                                   id="event-switch"
                                   checked={on}
-                                  disabled={required || !eventSwitch.canEdit || switchSaving}
+                                  disabled={
+                                    required || !eventSwitch.canEdit || !canWrite || switchSaving
+                                  }
                                   onCheckedChange={(next) => {
                                     void changeEventSwitch(selectedEvent, next);
                                   }}
@@ -344,6 +354,7 @@ export function EventSettingsLayout({
                               type="button"
                               role="switch"
                               aria-checked={isActive}
+                              disabled={!canWrite}
                               onClick={() => {
                                 setLocalToggle((prev) => {
                                   const next = new Map(prev);
@@ -351,7 +362,7 @@ export function EventSettingsLayout({
                                   return next;
                                 });
                               }}
-                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50 border-2 border-transparent transition-colors ${
                                 isActive ? 'bg-primary' : 'bg-muted'
                               }`}
                             >

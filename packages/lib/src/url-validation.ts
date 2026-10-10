@@ -54,3 +54,30 @@ export function parseAllowedPrivateHosts(value: unknown): string[] | null {
   }
   return [...new Set(hosts)];
 }
+
+/**
+ * Validates an AI provider base URL setting (`ai.<provider>.baseUrl`) before
+ * it is stored. The API key is sent to this URL, so it must be https, carry
+ * no credentials, query or fragment, and point at a public host
+ * (`isPrivateUrl`). `allowPrivateHosts` (local development only) also accepts
+ * a private host and plain http, for a mock provider on localhost. An empty
+ * string means the official endpoint. Returns the trimmed URL, or null when
+ * invalid. This is a syntactic check: the client that sends the key still
+ * checks the address the host resolves to.
+ */
+export function validateAiBaseUrl(
+  value: unknown,
+  options: { allowPrivateHosts: boolean },
+): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (trimmed === '') return '';
+  const parsed = URL.parse(trimmed);
+  if (parsed == null) return null;
+  const httpAllowed = options.allowPrivateHosts && parsed.protocol === 'http:';
+  if (parsed.protocol !== 'https:' && !httpAllowed) return null;
+  if (parsed.username !== '' || parsed.password !== '') return null;
+  if (parsed.search !== '' || parsed.hash !== '') return null;
+  if (!options.allowPrivateHosts && isPrivateUrl(trimmed)) return null;
+  return trimmed;
+}

@@ -25,6 +25,7 @@ const {
   mockStampSessionBilling,
   mockCheckFleetCreditLimit,
   mockDispatchFleetCreditLimitNotices,
+  mockSessionGroupHasPaidTariff,
 } = vi.hoisted(() => ({
   calls: [] as string[],
   mockAuthorizeSessionHold: vi.fn(),
@@ -35,12 +36,14 @@ const {
   mockStampSessionBilling: vi.fn(),
   mockCheckFleetCreditLimit: vi.fn(),
   mockDispatchFleetCreditLimitNotices: vi.fn(),
+  mockSessionGroupHasPaidTariff: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
   stampSessionBilling: mockStampSessionBilling,
   checkFleetCreditLimit: mockCheckFleetCreditLimit,
+  sessionGroupHasPaidTariff: mockSessionGroupHasPaidTariff,
 }));
 
 vi.mock('@evtivity/payments', async (importOriginal) => ({
@@ -442,6 +445,7 @@ describe('runPaymentGate', () => {
     mockStampSessionBilling.mockResolvedValue({ mode: 'card', fleetId: null, fleetName: null });
     mockCheckFleetCreditLimit.mockResolvedValue(null);
     mockDispatchFleetCreditLimitNotices.mockResolvedValue(null);
+    mockSessionGroupHasPaidTariff.mockResolvedValue(false);
     logger = {
       warn: vi.fn(() => calls.push('log')),
       error: vi.fn(() => calls.push('log')),
@@ -775,5 +779,73 @@ describe('runPaymentGate', () => {
   ])('writes no billing stamp for %s', async (_name, overrides) => {
     await runPaymentGate(deps, { ...input, ...overrides });
     expect(mockStampSessionBilling).not.toHaveBeenCalled();
+  });
+});
+
+describe('paid tariff ahead under split billing (B3)', () => {
+  it('plans a hold for a card driver on a free start tariff with a paid tariff ahead (TC-T3-08)', () => {
+    const base = { ...input, driverId: 'drv-1', sessionTariff: freeTariff };
+    expect(planPaymentGate(base)).toEqual({ kind: 'allow', why: 'free_tariff' });
+    expect(planPaymentGate({ ...base, paidAhead: true })).toEqual({
+      kind: 'hold',
+      driverId: 'drv-1',
+    });
+  });
+
+  it('stops a guest who started free when a paid tariff is ahead', () => {
+    const decision = planPaymentGate({
+      ...input,
+      guestStatus: 'free_start',
+      guestEmail: 'g@example.com',
+      sessionTariff: pricedTariff,
+      paidAhead: true,
+    });
+    expect(decision).toMatchObject({ kind: 'stop', why: 'guest_not_authorized' });
+  });
+
+  it('reads paidAhead from the session group when the start tariff is free', async () => {
+    vi.clearAllMocks();
+    mockStampSessionBilling.mockResolvedValue({ mode: 'card', fleetId: null, fleetName: null });
+    mockCheckFleetCreditLimit.mockResolvedValue(null);
+    mockActivePaymentProvider.mockResolvedValue({ id: 'stripe' });
+    mockAuthorizeSessionHold.mockResolvedValue({ outcome: 'authorized' });
+    mockSessionGroupHasPaidTariff.mockResolvedValue(true);
+    const deps = {
+      sql: vi.fn(),
+      eventBus: { track: vi.fn() },
+      pubsub: { publish: vi.fn(() => Promise.resolve()) },
+      logger: { warn: vi.fn(), error: vi.fn(), debug: vi.fn(), info: vi.fn() },
+      payments: {},
+      lookups: {},
+      notify: {},
+    } as unknown as ProjectionDeps;
+
+    const decision = await runPaymentGate(deps, {
+      ...input,
+      driverId: 'drv-1',
+      sessionTariff: freeTariff,
+    });
+
+    expect(mockSessionGroupHasPaidTariff).toHaveBeenCalledWith(deps.sql, 'sess-1');
+    expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
+    expect(decision).toEqual({ kind: 'allow', why: 'hold_authorized' });
+  });
+
+  it('does not read the group for a priced start tariff', async () => {
+    vi.clearAllMocks();
+    mockStampSessionBilling.mockResolvedValue({ mode: 'card', fleetId: null, fleetName: null });
+    mockCheckFleetCreditLimit.mockResolvedValue(null);
+    mockActivePaymentProvider.mockResolvedValue(null);
+    const deps = {
+      sql: vi.fn(),
+      eventBus: { track: vi.fn() },
+      pubsub: { publish: vi.fn(() => Promise.resolve()) },
+      logger: { warn: vi.fn(), error: vi.fn(), debug: vi.fn(), info: vi.fn() },
+      payments: {},
+      lookups: {},
+      notify: {},
+    } as unknown as ProjectionDeps;
+    await runPaymentGate(deps, { ...input, driverId: 'drv-1' });
+    expect(mockSessionGroupHasPaidTariff).not.toHaveBeenCalled();
   });
 });

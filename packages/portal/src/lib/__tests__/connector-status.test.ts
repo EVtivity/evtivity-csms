@@ -10,8 +10,9 @@ import {
   type SelectableEvse,
 } from '../connector-status';
 
-function evse(status: string | null, reservationDriverId: string | null = null): SelectableEvse {
-  return { connectors: [{ status }], reservationDriverId };
+// holder: who holds the active reservation ('self', 'other') or null.
+function evse(status: string | null, holder: 'self' | 'other' | null = null): SelectableEvse {
+  return { connectors: [{ status }], reserved: holder != null, reservedByMe: holder === 'self' };
 }
 
 const chargeOnline = {
@@ -19,7 +20,6 @@ const chargeOnline = {
   isOnline: true,
   maintenanceActive: false,
   stationUnavailable: false,
-  currentDriverId: 'drv_self',
 };
 
 describe('isStartable', () => {
@@ -71,11 +71,11 @@ describe('isEvseSelectable (charge mode)', () => {
   });
 
   it('rejects a connector reserved by another driver even when startable', () => {
-    expect(isEvseSelectable(evse('preparing', 'drv_other'), chargeOnline)).toBe(false);
+    expect(isEvseSelectable(evse('preparing', 'other'), chargeOnline)).toBe(false);
   });
 
   it('allows a connector reserved for the current driver', () => {
-    expect(isEvseSelectable(evse('preparing', 'drv_self'), chargeOnline)).toBe(true);
+    expect(isEvseSelectable(evse('preparing', 'self'), chargeOnline)).toBe(true);
   });
 });
 
@@ -87,8 +87,8 @@ describe('isEvseSelectable (reserve mode)', () => {
   });
 
   it('rejects a connector that already has any reservation', () => {
-    expect(isEvseSelectable(evse('available', 'drv_other'), reserveOnline)).toBe(false);
-    expect(isEvseSelectable(evse('available', 'drv_self'), reserveOnline)).toBe(false);
+    expect(isEvseSelectable(evse('available', 'other'), reserveOnline)).toBe(false);
+    expect(isEvseSelectable(evse('available', 'self'), reserveOnline)).toBe(false);
   });
 
   it('rejects when offline or under maintenance', () => {

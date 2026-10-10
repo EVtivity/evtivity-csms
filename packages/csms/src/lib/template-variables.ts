@@ -361,7 +361,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'costFormatted', description: 'Cost with currency, including tax' },
     {
       name: 'costIncludesTax',
-      description: 'Whether the cost contains tax (a tariff tax rate applied); use with #if',
+      description: 'Whether the cost contains tax (the tax stored with the cost); use with #if',
     },
     { name: 'currency', description: 'Currency code' },
     { name: 'durationMinutes', description: 'Duration in minutes' },
@@ -378,8 +378,43 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'costFormatted', description: 'Cost with currency, including tax' },
     {
       name: 'costIncludesTax',
-      description: 'Whether the cost contains tax (a tariff tax rate applied); use with #if',
+      description: 'Whether the cost contains tax (the tax stored with the cost); use with #if',
     },
+    {
+      name: 'taxFormatted',
+      description: 'Tax contained in the cost, with currency; empty without tax',
+    },
+    { name: 'taxCents', description: 'Tax contained in the cost in cents' },
+    { name: 'netFormatted', description: 'Cost without tax, with currency; empty without tax' },
+    {
+      name: 'taxRatePercent',
+      description: 'Tax rate in percent when all tax was charged at one rate; empty otherwise',
+    },
+    {
+      name: 'taxLinesFormatted',
+      description:
+        'Tax per rate (7%: 0.11; 19%: 0.29) when tax was charged at several rates; empty otherwise',
+    },
+    { name: 'energyCostFormatted', description: 'Energy cost incl. tax; empty when not billed' },
+    { name: 'timeCostFormatted', description: 'Time cost incl. tax; empty when not billed' },
+    { name: 'sessionFeeFormatted', description: 'Session fee incl. tax; empty when not billed' },
+    { name: 'idleCostFormatted', description: 'Idle fee charged incl. tax; empty when not billed' },
+    {
+      name: 'reservationFeeFormatted',
+      description: 'Reservation holding fee incl. tax; empty when not billed',
+    },
+    {
+      name: 'partiallyPaid',
+      description:
+        'The payment collected less than the cost (the top-up above the hold was declined); use with #if',
+    },
+    { name: 'chargedFormatted', description: 'Amount charged when partially paid, with currency' },
+    { name: 'chargedCents', description: 'Amount charged in cents' },
+    {
+      name: 'unpaidFormatted',
+      description: 'Amount still open when partially paid, with currency',
+    },
+    { name: 'unpaidCents', description: 'Amount still open in cents; 0 when fully paid' },
     { name: 'currency', description: 'Currency code' },
     { name: 'durationMinutes', description: 'Duration in minutes' },
     { name: 'startedAt', description: 'Start timestamp' },
@@ -619,8 +654,43 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'costFormatted', description: 'Cost with currency, including tax' },
     {
       name: 'costIncludesTax',
-      description: 'Whether the cost contains tax (a tariff tax rate applied); use with #if',
+      description: 'Whether the cost contains tax (the tax stored with the cost); use with #if',
     },
+    {
+      name: 'taxFormatted',
+      description: 'Tax contained in the cost, with currency; empty without tax',
+    },
+    { name: 'taxCents', description: 'Tax contained in the cost in cents' },
+    { name: 'netFormatted', description: 'Cost without tax, with currency; empty without tax' },
+    {
+      name: 'taxRatePercent',
+      description: 'Tax rate in percent when all tax was charged at one rate; empty otherwise',
+    },
+    {
+      name: 'taxLinesFormatted',
+      description:
+        'Tax per rate (7%: 0.11; 19%: 0.29) when tax was charged at several rates; empty otherwise',
+    },
+    { name: 'energyCostFormatted', description: 'Energy cost incl. tax; empty when not billed' },
+    { name: 'timeCostFormatted', description: 'Time cost incl. tax; empty when not billed' },
+    { name: 'sessionFeeFormatted', description: 'Session fee incl. tax; empty when not billed' },
+    { name: 'idleCostFormatted', description: 'Idle fee charged incl. tax; empty when not billed' },
+    {
+      name: 'reservationFeeFormatted',
+      description: 'Reservation holding fee incl. tax; empty when not billed',
+    },
+    {
+      name: 'partiallyPaid',
+      description:
+        'The payment collected less than the cost (the top-up above the hold was declined); use with #if',
+    },
+    { name: 'chargedFormatted', description: 'Amount charged when partially paid, with currency' },
+    { name: 'chargedCents', description: 'Amount charged in cents' },
+    {
+      name: 'unpaidFormatted',
+      description: 'Amount still open when partially paid, with currency',
+    },
+    { name: 'unpaidCents', description: 'Amount still open in cents; 0 when fully paid' },
     { name: 'currency', description: 'Currency code' },
     { name: 'durationMinutes', description: 'Duration in minutes' },
     { name: 'startedAt', description: 'Start timestamp' },

@@ -34,6 +34,7 @@ interface SiteMetrics {
   totalNetRevenueCents: number;
   totalTaxCents: number;
   totalProfitCents: number;
+  costMissingSessionCount?: number;
   currency: string;
   periodMonths: number;
 }
@@ -210,6 +211,11 @@ export function SiteMetricsTab({ siteId }: SiteMetricsTabProps): React.JSX.Eleme
                 >
                   {formatCents(metrics.totalProfitCents, metrics.currency)}
                 </p>
+                {(metrics.costMissingSessionCount ?? 0) > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('metrics.costMissing', { count: metrics.costMissingSessionCount })}
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>

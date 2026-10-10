@@ -17,14 +17,11 @@ import { formatDecimal } from '@/lib/formatting';
 import { api } from '@/lib/api';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { LoadingLogo } from '@/components/loading-logo';
-
-interface TariffRestrictions {
-  timeRange?: { startTime: string; endTime: string };
-  daysOfWeek?: number[];
-  dateRange?: { startDate: string; endDate: string };
-  holidays?: boolean;
-  energyThresholdKwh?: number;
-}
+import {
+  formatRestrictionSummary,
+  useRestrictionLabels,
+  type TariffRestrictions,
+} from '@/lib/tariff-restrictions';
 
 interface ScheduleItem {
   id: string;
@@ -50,42 +47,12 @@ export function PricingGroupScheduleTab({
   const { t } = useTranslation();
   const { currency } = useCompanyCurrency();
 
-  const dayLabels = [
-    t('pricing.sunday'),
-    t('pricing.monday'),
-    t('pricing.tuesday'),
-    t('pricing.wednesday'),
-    t('pricing.thursday'),
-    t('pricing.friday'),
-    t('pricing.saturday'),
-  ];
+  const restrictionLabels = useRestrictionLabels();
 
   const { data: schedule, isLoading: scheduleLoading } = useQuery({
     queryKey: ['tariff-schedule', groupId],
     queryFn: () => api.get<ScheduleItem[]>(`/v1/pricing-groups/${groupId}/schedule`),
   });
-
-  function formatRestrictionSummary(restrictions: TariffRestrictions | null): string {
-    if (restrictions == null) return t('pricing.noRestrictions');
-    if (restrictions.energyThresholdKwh != null) {
-      return `Above ${String(restrictions.energyThresholdKwh)} kWh`;
-    }
-    if (restrictions.holidays === true) return t('pricing.holiday');
-    if (restrictions.dateRange != null) {
-      return `${restrictions.dateRange.startDate} - ${restrictions.dateRange.endDate}`;
-    }
-    const parts: string[] = [];
-    if (restrictions.daysOfWeek != null) {
-      const names = restrictions.daysOfWeek
-        .map((d) => dayLabels[d])
-        .filter((s): s is string => s != null);
-      parts.push(names.join(', '));
-    }
-    if (restrictions.timeRange != null) {
-      parts.push(`${restrictions.timeRange.startTime} - ${restrictions.timeRange.endTime}`);
-    }
-    return parts.join(' ') || 'n/a';
-  }
 
   function formatCompactRates(item: ScheduleItem): string {
     const parts: string[] = [];
@@ -127,7 +94,7 @@ export function PricingGroupScheduleTab({
                   <TableRow key={item.id} className={item.isCurrent ? 'bg-primary/5' : ''}>
                     <TableCell className="font-medium">{item.name}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {formatRestrictionSummary(item.restrictions)}
+                      {formatRestrictionSummary(item.restrictions, restrictionLabels)}
                     </TableCell>
                     <TableCell>{item.priority}</TableCell>
                     <TableCell className="text-sm">{formatCompactRates(item)}</TableCell>

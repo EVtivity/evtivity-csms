@@ -11,6 +11,9 @@ import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse } from '../lib/response-schemas.js';
 import { authorize } from '../middleware/rbac.js';
+import { getUserSiteIds } from '../lib/site-access.js';
+import { sessionInSites } from '../lib/ocpi-site-scope.js';
+import type { JwtPayload } from '../plugins/auth.js';
 
 // OCPI SessionStatus as stored in `ocpi_roaming_sessions.status`: the status a
 // partner sent us (eMSP role), or the status of our session rendered for the
@@ -67,8 +70,14 @@ export function ocpiSessionRoutes(app: FastifyInstance): void {
     async (request) => {
       const { page, limit, partnerId, status } = request.query as z.infer<typeof sessionQuery>;
       const offset = (page - 1) * limit;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && siteIds.length === 0) return { data: [], total: 0 };
 
       const conditions = [];
+      if (siteIds != null) {
+        conditions.push(sessionInSites(ocpiRoamingSessions.chargingSessionId, siteIds));
+      }
       if (partnerId != null) {
         conditions.push(eq(ocpiRoamingSessions.partnerId, partnerId));
       }

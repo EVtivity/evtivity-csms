@@ -55,7 +55,7 @@ export interface CostBreakdown {
 export interface SplitCostBreakdown extends CostBreakdown {
   /**
    * Cost of each segment, in segment order, after the grace period was
-   * distributed and without the reservation holding fee. Tax is rounded once
+   * taken from the first idle minutes and without the reservation holding fee. Tax is rounded once
    * per rate over all segments (and the holding fee) at that rate; each
    * segment carries its share of it, in proportion to its amount.
    */
@@ -70,6 +70,41 @@ export interface TariffSegment {
   energyDeliveredWh: number;
   idleMinutes: number;
   isFirstSegment: boolean;
+}
+
+/**
+ * A cost calculator input that cannot be priced: a quantity (energy, minutes)
+ * or a tariff price that is not a finite number at or above 0. The calculator
+ * refuses it instead of billing a negative or NaN amount (design principle
+ * P9: a billing input error is not recoverable). Callers pass non-negative
+ * quantities; this error means the data feeding them is wrong.
+ */
+export class CostInputError extends RangeError {
+  readonly field: string;
+  readonly value: unknown;
+
+  constructor(field: string, value: unknown) {
+    super(`Cost input ${field} must be a finite number at or above 0, got ${String(value)}`);
+    this.name = 'CostInputError';
+    this.field = field;
+    this.value = value;
+  }
+}
+
+/** A quantity checked to be a finite number at or above 0. */
+function quantity(field: string, value: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new CostInputError(field, value);
+  }
+  return value;
+}
+
+/** A stored tariff price (decimal string) as a number, 0 when absent; refused when invalid. */
+function price(field: keyof TariffInput, value: string | null): number {
+  if (value == null) return 0;
+  const parsed = typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN;
+  if (!Number.isFinite(parsed) || parsed < 0) throw new CostInputError(`tariff.${field}`, value);
+  return parsed;
 }
 
 function dollarsToCents(dollars: number): number {
@@ -93,15 +128,17 @@ export function calculateSessionCost(
   reservationHoldingMinutes: number = 0,
   basis: TaxBasis = DEFAULT_TAX_BASIS,
 ): CostBreakdown {
-  const energyKwh = energyDeliveredWh / 1000;
-  const pricePerKwh = tariff.pricePerKwh != null ? Number(tariff.pricePerKwh) : 0;
-  const pricePerMinute = tariff.pricePerMinute != null ? Number(tariff.pricePerMinute) : 0;
-  const pricePerSession = tariff.pricePerSession != null ? Number(tariff.pricePerSession) : 0;
-  const idleFeePricePerMinute =
-    tariff.idleFeePricePerMinute != null ? Number(tariff.idleFeePricePerMinute) : 0;
-  const reservationFeePerMinute =
-    tariff.reservationFeePerMinute != null ? Number(tariff.reservationFeePerMinute) : 0;
-  const taxRate = tariff.taxRate != null ? Number(tariff.taxRate) : 0;
+  const energyKwh = quantity('energyDeliveredWh', energyDeliveredWh) / 1000;
+  quantity('durationMinutes', durationMinutes);
+  quantity('idleMinutes', idleMinutes);
+  quantity('gracePeriodMinutes', gracePeriodMinutes);
+  quantity('reservationHoldingMinutes', reservationHoldingMinutes);
+  const pricePerKwh = price('pricePerKwh', tariff.pricePerKwh);
+  const pricePerMinute = price('pricePerMinute', tariff.pricePerMinute);
+  const pricePerSession = price('pricePerSession', tariff.pricePerSession);
+  const idleFeePricePerMinute = price('idleFeePricePerMinute', tariff.idleFeePricePerMinute);
+  const reservationFeePerMinute = price('reservationFeePerMinute', tariff.reservationFeePerMinute);
+  const taxRate = price('taxRate', tariff.taxRate);
 
   const energyCostCents = dollarsToCents(energyKwh * pricePerKwh);
   const timeCostCents = dollarsToCents(durationMinutes * pricePerMinute);
@@ -173,22 +210,21 @@ export function calculateSplitSessionCost(
     };
   }
 
-  // Apply grace period once across all segments. Distribute idle reduction
-  // from last segment backward (idle typically accumulates at end of session).
-  const totalIdleMinutes = segments.reduce((sum, s) => sum + s.idleMinutes, 0);
-  const billableTotalIdle = Math.max(0, totalIdleMinutes - gracePeriodMinutes);
-  let remainingReduction = totalIdleMinutes - billableTotalIdle;
+  quantity('gracePeriodMinutes', gracePeriodMinutes);
+  quantity('reservationHoldingMinutes', reservationHoldingMinutes);
+  segments.forEach((seg, i) => {
+    quantity(`segments[${String(i)}].idleMinutes`, seg.idleMinutes);
+  });
 
-  // Reduce idle from segments, starting from the last. Mapping over reversed
-  // values (not indices) keeps each element non-nullable for the type checker.
-  const adjustedSegments = [...segments]
-    .reverse()
-    .map((seg) => {
-      const deduct = Math.min(seg.idleMinutes, remainingReduction);
-      remainingReduction -= deduct;
-      return { ...seg, idleMinutes: seg.idleMinutes - deduct };
-    })
-    .reverse();
+  // The grace period is the first idle minutes of the session (owner
+  // decision 2026-10-09): it is taken once, from the first segment forward,
+  // so the free minutes are the same whether or not the session was split.
+  let remainingGrace = gracePeriodMinutes;
+  const adjustedSegments = segments.map((seg) => {
+    const deduct = Math.min(seg.idleMinutes, remainingGrace);
+    remainingGrace -= deduct;
+    return { ...seg, idleMinutes: seg.idleMinutes - deduct };
+  });
 
   // Each segment is billed at its own tariff's rate, so sessions which cross
   // tariffs with different tax rates -- different jurisdictions, tax-exempt
@@ -212,9 +248,11 @@ export function calculateSplitSessionCost(
   // tax it under that same first-segment rate for consistency with how the
   // session fee is treated.
   const firstTariff = segments[0]?.tariff;
-  const reservationFeePerMinute =
-    firstTariff?.reservationFeePerMinute != null ? Number(firstTariff.reservationFeePerMinute) : 0;
-  const firstTaxRate = firstTariff?.taxRate != null ? Number(firstTariff.taxRate) : 0;
+  const reservationFeePerMinute = price(
+    'reservationFeePerMinute',
+    firstTariff?.reservationFeePerMinute ?? null,
+  );
+  const firstTaxRate = price('taxRate', firstTariff?.taxRate ?? null);
   const reservationHoldingFeeCents = dollarsToCents(
     reservationHoldingMinutes * reservationFeePerMinute,
   );
@@ -223,9 +261,7 @@ export function calculateSplitSessionCost(
   // holding fee) at one rate are summed and taxed together, and each part
   // carries its share of that tax (taxPerRate), so the per-segment components
   // add up to the session's tax per rate.
-  const segmentRates = adjustedSegments.map((segment) =>
-    segment.tariff.taxRate != null ? Number(segment.tariff.taxRate) : 0,
-  );
+  const segmentRates = adjustedSegments.map((segment) => price('taxRate', segment.tariff.taxRate));
   const partTaxes = taxPerRate(
     [
       ...segmentAmounts.map((b, i) => ({

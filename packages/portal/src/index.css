@@ -399,7 +399,9 @@
     display: table-header-group;
   }
 
-  a[href]::after {
+  /* Only external links print their address: an app route means nothing on paper. */
+  a[href^='http://']::after,
+  a[href^='https://']::after {
     content: ' (' attr(href) ')';
     font-size: 0.8em;
     color: #666;

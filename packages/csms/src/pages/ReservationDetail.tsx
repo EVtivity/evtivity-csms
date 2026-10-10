@@ -16,6 +16,7 @@ import { ReservationCommandsTab } from '@/components/reservation/ReservationComm
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useTab } from '@/hooks/use-tab';
 import { api } from '@/lib/api';
+import type { ReservationCancellationFee } from '@/lib/reservation-fee';
 import { useHasPermission } from '@/lib/auth';
 import { useUserTimezone } from '@/lib/timezone';
 import { reservationStatusVariant } from '@/lib/status-variants';
@@ -47,6 +48,8 @@ interface ReservationDetail {
   cancelReason: string | null;
   cancelNote: string | null;
   cancellationFeeCents: number;
+  /** The fee cancelling now would charge, tax included; null when not open or no fee. */
+  cancellationFee: ReservationCancellationFee | null;
   sessionId: string | null;
   sessionStatus: string | null;
   sessionEnergyWh: string | null;
@@ -102,10 +105,10 @@ export function ReservationDetail(): React.JSX.Element {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/reservations" />
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">
             {t('reservations.detail')} #{reservation.reservationId}
           </h1>
           <CopyableId id={reservation.id} />

@@ -491,7 +491,14 @@ describe('Maintenance routes', () => {
     });
 
     it('creates a one-off event with owned stations and detached side effects', async () => {
-      setupDbResults([{ id: SITE_ID }], [{ id: STATION_A }, { id: STATION_B }]);
+      setupDbResults(
+        [{ id: SITE_ID }],
+        [{ id: STATION_A }, { id: STATION_B }],
+        [
+          { id: STATION_A, siteId: SITE_ID },
+          { id: STATION_B, siteId: SITE_ID },
+        ],
+      );
       const created = makeEvent({ affectedStationIds: [STATION_A, STATION_B], reason: 'Repair' });
       mockCreateEvent.mockResolvedValue(created as never);
       const res = await app.inject({
@@ -637,6 +644,19 @@ describe('Maintenance routes', () => {
       });
       expect(eq).toHaveBeenCalledWith('me.id', EVENT_ID);
       expect(eq).toHaveBeenCalledWith('me.siteId', SITE_ID);
+    });
+
+    it('returns only the affected stations still in the event site', async () => {
+      setupDbResults(
+        [makeEvent({ affectedStationIds: [STATION_A, STATION_B] })],
+        [
+          { id: STATION_A, siteId: SITE_ID },
+          { id: STATION_B, siteId: OTHER_SITE_ID },
+        ],
+      );
+      const res = await app.inject({ method: 'GET', url, headers: auth() });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().affectedStationIds).toEqual([STATION_A]);
     });
 
     it('returns the event', async () => {
@@ -874,7 +894,7 @@ describe('Maintenance routes', () => {
     });
 
     it('calls the service with the event, stations, actor and detached side effects', async () => {
-      setupDbResults([{ siteId: SITE_ID }]);
+      setupDbResults([{ siteId: SITE_ID }], [{ id: STATION_A, siteId: SITE_ID }]);
       serviceMock.mockResolvedValue(makeEvent({ affectedStationIds: [STATION_A] }) as never);
       const res = await app.inject({
         method: 'POST',

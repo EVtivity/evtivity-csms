@@ -7,7 +7,10 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { createLogger, redisTlsOptions } from '@evtivity/lib';
 import { config } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
+import { requestAccessScope } from '../lib/access-scope.js';
 import { successResponse, errorWith } from '../lib/response-schemas.js';
+import { optionalDriverId } from '../lib/optional-driver.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 
 const logger = createLogger('response-cache');
@@ -101,9 +104,26 @@ function requestUserId(request: FastifyRequest): string {
   return user?.userId ?? user?.driverId ?? 'anon';
 }
 
-export function buildCacheKey(tagVersions: string, userId: string, url: string): string {
+/**
+ * The access fingerprint of an operator request (`requestAccessScope`): a
+ * site, permission or role change never serves a response cached under the
+ * old access. A deactivated user is refused by authentication before the
+ * cache is read. '-' for drivers and anonymous requests.
+ */
+async function requestScopeHash(request: FastifyRequest): Promise<string> {
+  const user = request.user as { userId?: string } | undefined;
+  if (user?.userId == null) return '-';
+  return requestAccessScope(request, user.userId);
+}
+
+export function buildCacheKey(
+  tagVersions: string,
+  userId: string,
+  scopeHash: string,
+  url: string,
+): string {
   const urlHash = createHash('sha256').update(url).digest('hex').slice(0, 16);
-  return `rc:${tagVersions}:${userId}:${urlHash}`;
+  return `rc:${tagVersions}:${userId}:${scopeHash}:${urlHash}`;
 }
 
 interface CacheCtx {
@@ -170,9 +190,12 @@ async function versionedKey(
   rule: CacheRule,
   request: FastifyRequest,
 ): Promise<string> {
-  const versions = await redis.mget(...rule.tags.map((t) => `rc:ver:${t}`));
+  const [versions, scopeHash] = await Promise.all([
+    redis.mget(...rule.tags.map((t) => `rc:ver:${t}`)),
+    requestScopeHash(request),
+  ]);
   const tagVersions = versions.map((v) => v ?? '0').join(':');
-  return buildCacheKey(tagVersions, requestUserId(request), request.url);
+  return buildCacheKey(tagVersions, requestUserId(request), scopeHash, request.url);
 }
 
 export function registerResponseCache(app: FastifyInstance): void {
@@ -207,6 +230,9 @@ export function registerResponseCache(app: FastifyInstance): void {
     const pathname = request.url.split('?')[0] ?? request.url;
     const rule = matchCacheRule(pathname);
     if (rule == null) return;
+    // Public portal charger pages answer per caller for a signed-in driver
+    // (reservedByMe), so only anonymous requests share the cached body.
+    if (rule.tags.includes('portal') && (await optionalDriverId(request)) != null) return;
 
     try {
       const redis = getCacheRedis();
@@ -272,11 +298,20 @@ export function cacheRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         response: {
           200: successResponse,
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           500: errorWith('Cache backend unreachable', [ERROR_CODES.INTERNAL_ERROR]),
         },
       },
     },
     async (request, reply) => {
+      // The cache is shared by every site: flushing it is company-wide.
+      if (
+        !(await requireAllSiteAccess(request, reply, {
+          error: 'Setting not found',
+          code: 'SETTING_NOT_FOUND',
+        }))
+      )
+        return;
       try {
         const redis = getCacheRedis();
         let cursor = '0';

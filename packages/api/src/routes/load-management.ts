@@ -17,6 +17,7 @@ import {
 } from '@evtivity/services/load-management.service';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
+import { siteInScope } from '../lib/site-scope.js';
 
 const putBody = z.object({
   strategy: z.enum(LOAD_ALLOCATION_STRATEGIES).describe('Load distribution strategy'),
@@ -234,16 +235,20 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         summary: 'Get load management config, hierarchy, and station status for a site',
         operationId: 'getSiteLoadManagement',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(loadManagementItem) },
+        response: {
+          200: itemResponse(loadManagementItem),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params as { id: string };
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
-        return { config: null, hierarchy: [], stations: [] };
+      if (!siteInScope(siteIds, id)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
       }
 
       const [config] = await db
@@ -311,7 +316,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -370,7 +375,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
+      if (!siteInScope(siteIds, id)) {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
 
@@ -405,17 +410,21 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         operationId: 'getSiteLoadManagementHistory',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(historyQuery),
-        response: { 200: arrayResponse(historyItem) },
+        response: {
+          200: arrayResponse(historyItem),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params as { id: string };
       const { limit } = request.query as z.infer<typeof historyQuery>;
 
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null && !siteIds.includes(id)) {
-        return [];
+      if (!siteInScope(siteIds, id)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
       }
 
       const rows = await db

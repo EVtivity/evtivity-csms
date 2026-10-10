@@ -15,7 +15,7 @@ import { Label } from '@/components/ui/label';
 import { Toggle } from '@/components/ui/toggle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
-import { useHasPermission } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import {
   centsToMajorInput,
@@ -92,10 +92,20 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('payments:write');
-  // The prepaid threshold is a generic setting (settings.system:write).
+  // The prepaid and invoice settings are generic settings (settings.system:*).
+  const canReadSystemSettings = useHasPermission('settings.system:read');
   const canWriteSystemSettings = useHasPermission('settings.system:write');
+  // The payment provider settings (provider, Stripe, Adyen) are company-wide:
+  // their routes answer 404 to a site-restricted user. The prepaid and invoice
+  // settings are company-wide too: a restricted user reads them only.
+  const hasAllSiteAccess = useHasAllSiteAccess();
+  const showGeneralTab = hasAllSiteAccess || canReadSystemSettings;
+  const systemSettingsReadOnly = !(hasAllSiteAccess && canWriteSystemSettings);
 
-  const [paymentSubTab, setPaymentSubTab] = useTab('general', 'sub');
+  const [paymentSubTab, setPaymentSubTab] = useTab(
+    showGeneralTab ? 'general' : 'siteConfigs',
+    'sub',
+  );
 
   const [stripeSecretKey, setStripeSecretKey] = useState('');
   const [stripePublishableKey, setStripePublishableKey] = useState('');
@@ -116,6 +126,7 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
     queryKey: ['stripe-settings'],
     queryFn: () => api.get<StripeSettings>('/v1/settings/stripe'),
     staleTime: 30_000,
+    enabled: hasAllSiteAccess,
   });
 
   const { data: siteList } = useQuery({
@@ -299,163 +310,179 @@ export function PaymentSettings({ settings }: PaymentSettingsProps = {}): React.
   return (
     <Tabs value={paymentSubTab} onValueChange={setPaymentSubTab}>
       <TabsList>
-        <TabsTrigger value="general">{t('paymentProviders.general.tab')}</TabsTrigger>
-        <TabsTrigger value="stripe">{t('settings.paymentSubTabStripe')}</TabsTrigger>
-        <TabsTrigger value="adyen">{t('settings.paymentSubTabAdyen')}</TabsTrigger>
+        {showGeneralTab && (
+          <TabsTrigger value="general">{t('paymentProviders.general.tab')}</TabsTrigger>
+        )}
+        {hasAllSiteAccess && (
+          <TabsTrigger value="stripe">{t('settings.paymentSubTabStripe')}</TabsTrigger>
+        )}
+        {hasAllSiteAccess && (
+          <TabsTrigger value="adyen">{t('settings.paymentSubTabAdyen')}</TabsTrigger>
+        )}
         <TabsTrigger value="siteConfigs">{t('settings.paymentSubTabSiteConfigs')}</TabsTrigger>
       </TabsList>
       <TabsContent value="general" className="mt-4 space-y-6">
-        <PaymentProviderSettings />
-        {canWriteSystemSettings && <PrepaidSettings settings={settings} />}
-        {canWriteSystemSettings && <InvoiceSettings settings={settings} />}
+        {hasAllSiteAccess && <PaymentProviderSettings />}
+        {canReadSystemSettings && (
+          <PrepaidSettings settings={settings} readOnly={systemSettingsReadOnly} />
+        )}
+        {canReadSystemSettings && (
+          <InvoiceSettings settings={settings} readOnly={systemSettingsReadOnly} />
+        )}
       </TabsContent>
-      <TabsContent value="stripe" className="mt-4 space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('settings.paymentSubTabStripe')}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleStripeSubmit} noValidate className="space-y-4">
-              <p className="text-sm text-muted-foreground">{t('settings.stripeDescription')}</p>
+      {hasAllSiteAccess && (
+        <TabsContent value="stripe" className="mt-4 space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('settings.paymentSubTabStripe')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleStripeSubmit} noValidate className="space-y-4">
+                <p className="text-sm text-muted-foreground">{t('settings.stripeDescription')}</p>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="stripe-secret-key" className="leading-6">
-                    {t('settings.stripeSecretKey')}
-                  </Label>
-                  <StoredSecretInput
-                    id="stripe-secret-key"
-                    value={stripeSecretKey}
-                    onChange={(value) => {
-                      setStripeSecretKey(value);
-                      markStripeChanged();
-                    }}
-                    secret={stripeSecret(stripeSettings, 'secretKey')}
-                    removing={stripeRemoving.secretKey}
-                    onRemovingChange={(removing) => {
-                      setStripeRemoving((current) => ({ ...current, secretKey: removing }));
-                      markStripeChanged();
-                    }}
-                    canWrite={canWrite}
-                    hint={t('settings.stripeSecretKeyHint')}
-                  />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="stripe-secret-key" className="leading-6">
+                      {t('settings.stripeSecretKey')}
+                    </Label>
+                    <StoredSecretInput
+                      id="stripe-secret-key"
+                      value={stripeSecretKey}
+                      onChange={(value) => {
+                        setStripeSecretKey(value);
+                        markStripeChanged();
+                      }}
+                      secret={stripeSecret(stripeSettings, 'secretKey')}
+                      removing={stripeRemoving.secretKey}
+                      onRemovingChange={(removing) => {
+                        setStripeRemoving((current) => ({ ...current, secretKey: removing }));
+                        markStripeChanged();
+                      }}
+                      canWrite={canWrite}
+                      hint={t('settings.stripeSecretKeyHint')}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="stripe-publishable-key" className="leading-6">
+                      {t('settings.stripePublishableKey')}
+                    </Label>
+                    <Input
+                      id="stripe-publishable-key"
+                      value={stripePublishableKey}
+                      disabled={!canWrite}
+                      onChange={(e) => {
+                        setStripePublishableKey(e.target.value);
+                        markStripeChanged();
+                      }}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="stripe-webhook-secret" className="leading-6">
+                      {t('settings.stripeWebhookSecret')}
+                    </Label>
+                    <StoredSecretInput
+                      id="stripe-webhook-secret"
+                      value={stripeWebhookSecret}
+                      onChange={(value) => {
+                        setStripeWebhookSecret(value);
+                        markStripeChanged();
+                      }}
+                      secret={stripeSecret(stripeSettings, 'webhookSecret')}
+                      removing={stripeRemoving.webhookSecret}
+                      onRemovingChange={(removing) => {
+                        setStripeRemoving((current) => ({ ...current, webhookSecret: removing }));
+                        markStripeChanged();
+                      }}
+                      canWrite={canWrite}
+                      hint={t('settings.stripeWebhookSecretHint')}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="stripe-connect-webhook-secret" className="leading-6">
+                      {t('settings.stripeConnectWebhookSecret')}
+                    </Label>
+                    <StoredSecretInput
+                      id="stripe-connect-webhook-secret"
+                      value={stripeConnectWebhookSecret}
+                      onChange={(value) => {
+                        setStripeConnectWebhookSecret(value);
+                        markStripeChanged();
+                      }}
+                      secret={stripeSecret(stripeSettings, 'connectWebhookSecret')}
+                      removing={stripeRemoving.connectWebhookSecret}
+                      onRemovingChange={(removing) => {
+                        setStripeRemoving((current) => ({
+                          ...current,
+                          connectWebhookSecret: removing,
+                        }));
+                        markStripeChanged();
+                      }}
+                      canWrite={canWrite}
+                      hint={t('settings.stripeConnectWebhookSecretHint')}
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="stripe-publishable-key" className="leading-6">
-                    {t('settings.stripePublishableKey')}
-                  </Label>
-                  <Input
-                    id="stripe-publishable-key"
-                    value={stripePublishableKey}
-                    disabled={!canWrite}
-                    onChange={(e) => {
-                      setStripePublishableKey(e.target.value);
-                      markStripeChanged();
-                    }}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="stripe-webhook-secret" className="leading-6">
-                    {t('settings.stripeWebhookSecret')}
-                  </Label>
-                  <StoredSecretInput
-                    id="stripe-webhook-secret"
-                    value={stripeWebhookSecret}
-                    onChange={(value) => {
-                      setStripeWebhookSecret(value);
-                      markStripeChanged();
-                    }}
-                    secret={stripeSecret(stripeSettings, 'webhookSecret')}
-                    removing={stripeRemoving.webhookSecret}
-                    onRemovingChange={(removing) => {
-                      setStripeRemoving((current) => ({ ...current, webhookSecret: removing }));
-                      markStripeChanged();
-                    }}
-                    canWrite={canWrite}
-                    hint={t('settings.stripeWebhookSecretHint')}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="stripe-connect-webhook-secret" className="leading-6">
-                    {t('settings.stripeConnectWebhookSecret')}
-                  </Label>
-                  <StoredSecretInput
-                    id="stripe-connect-webhook-secret"
-                    value={stripeConnectWebhookSecret}
-                    onChange={(value) => {
-                      setStripeConnectWebhookSecret(value);
-                      markStripeChanged();
-                    }}
-                    secret={stripeSecret(stripeSettings, 'connectWebhookSecret')}
-                    removing={stripeRemoving.connectWebhookSecret}
-                    onRemovingChange={(removing) => {
-                      setStripeRemoving((current) => ({
-                        ...current,
-                        connectWebhookSecret: removing,
-                      }));
-                      markStripeChanged();
-                    }}
-                    canWrite={canWrite}
-                    hint={t('settings.stripeConnectWebhookSecretHint')}
-                  />
-                </div>
-              </div>
-
-              {canWrite && (
-                <div className="flex items-center justify-end gap-2">
-                  {stripeHasUnsavedChanges && (
-                    <p className="text-sm text-muted-foreground">{t('settings.unsavedChanges')}</p>
-                  )}
-                  <SaveButton
-                    isPending={stripeSaveMutation.isPending}
-                    disabled={!stripeHasUnsavedChanges || stripeSaveMutation.isPending}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="relative"
-                    onClick={() => {
-                      stripeTestMutation.mutate();
-                    }}
-                    disabled={stripeTestMutation.isPending}
-                  >
-                    {stripeTestMutation.isPending && (
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <Spinner className="h-4 w-4" />
-                      </div>
+                {canWrite && (
+                  <div className="flex items-center justify-end gap-2">
+                    {stripeHasUnsavedChanges && (
+                      <p className="text-sm text-muted-foreground">
+                        {t('settings.unsavedChanges')}
+                      </p>
                     )}
-                    <span className={stripeTestMutation.isPending ? 'invisible' : ''}>
-                      {t('settings.stripeTestConnection')}
-                    </span>
-                  </Button>
-                </div>
-              )}
-              {stripeSaveMutation.isSuccess && !stripeHasUnsavedChanges && (
-                <p className="text-sm text-success">{t('settings.stripeSaved')}</p>
-              )}
-              {stripeSaveMutation.isError && (
-                <p className="text-sm text-destructive">{t('settings.stripeSaveFailed')}</p>
-              )}
-              {stripeTestMutation.isSuccess && (
-                <p className="text-sm text-success">{t('settings.stripeTestSuccess')}</p>
-              )}
-              {stripeTestMutation.isError && (
-                <p className="text-sm text-destructive">{t('settings.stripeTestFailed')}</p>
-              )}
-            </form>
-          </CardContent>
-        </Card>
-        <StripeWebhookCard
-          canWrite={canWrite}
-          secretKeyConfigured={stripeSettings?.secretKeyConfigured}
-        />
-      </TabsContent>
-      <TabsContent value="adyen" className="mt-4">
-        <AdyenSettings />
-      </TabsContent>
+                    <SaveButton
+                      isPending={stripeSaveMutation.isPending}
+                      disabled={!stripeHasUnsavedChanges || stripeSaveMutation.isPending}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="relative"
+                      onClick={() => {
+                        stripeTestMutation.mutate();
+                      }}
+                      disabled={stripeTestMutation.isPending}
+                    >
+                      {stripeTestMutation.isPending && (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Spinner className="h-4 w-4" />
+                        </div>
+                      )}
+                      <span className={stripeTestMutation.isPending ? 'invisible' : ''}>
+                        {t('settings.stripeTestConnection')}
+                      </span>
+                    </Button>
+                  </div>
+                )}
+                {stripeSaveMutation.isSuccess && !stripeHasUnsavedChanges && (
+                  <p className="text-sm text-success">{t('settings.stripeSaved')}</p>
+                )}
+                {stripeSaveMutation.isError && (
+                  <p className="text-sm text-destructive">{t('settings.stripeSaveFailed')}</p>
+                )}
+                {stripeTestMutation.isSuccess && (
+                  <p className="text-sm text-success">{t('settings.stripeTestSuccess')}</p>
+                )}
+                {stripeTestMutation.isError && (
+                  <p className="text-sm text-destructive">{t('settings.stripeTestFailed')}</p>
+                )}
+              </form>
+            </CardContent>
+          </Card>
+          <StripeWebhookCard
+            canWrite={canWrite}
+            secretKeyConfigured={stripeSettings?.secretKeyConfigured}
+          />
+        </TabsContent>
+      )}
+      {hasAllSiteAccess && (
+        <TabsContent value="adyen" className="mt-4">
+          <AdyenSettings />
+        </TabsContent>
+      )}
       <TabsContent value="siteConfigs" className="mt-4">
         <div className="grid gap-6 lg:grid-cols-[300px_1fr]">
           <Card>

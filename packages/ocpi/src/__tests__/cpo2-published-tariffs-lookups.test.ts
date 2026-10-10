@@ -30,6 +30,7 @@ vi.mock('@evtivity/database', async (importOriginal) => ({
   db: { select: vi.fn(() => makeChain()) },
   getCompanyCurrency: mockCurrency,
   getCompanyTaxBasis: mockTaxBasis,
+  getIdlingGracePeriodMinutes: () => Promise.resolve(5),
 }));
 
 const {
@@ -38,6 +39,7 @@ const {
   sessionTariffMapping,
   renderTariffMapping,
   renderPartnerTariffs,
+  renderSnapshotTariff,
 } = await import('../services/published-tariffs.js');
 type TariffMappingRow = import('../services/published-tariffs.js').TariffMappingRow;
 const { findEvseByUid } = await import('../lib/evse-lookup.js');
@@ -224,6 +226,44 @@ describe('renderTariffMapping', () => {
     );
     expect(tariff?.last_updated).toBe(at(8).toISOString());
     expect(selectResults).toHaveLength(1);
+  });
+});
+
+describe('renderSnapshotTariff', () => {
+  it('renders the billed prices without restrictions, in the session currency, with the grace', async () => {
+    const tariff = await renderSnapshotTariff(
+      {
+        prices: {
+          id: 'trf_1',
+          pricePerKwh: '0.40',
+          pricePerMinute: '0.02',
+          pricePerSession: null,
+          idleFeePricePerMinute: '0.10',
+          reservationFeePerMinute: null,
+          taxRate: '0.19',
+          restrictions: { timeRange: { startTime: '08:00', endTime: '18:00' } },
+          priority: 10,
+          isDefault: false,
+          isActive: true,
+        },
+        ocpiTariffId: 'T-1',
+        currency: 'EUR',
+        taxBasis: 'net',
+        lastUpdated: at(2),
+      },
+      '2.2.1',
+    );
+    expect(tariff.id).toBe('T-1');
+    expect(tariff.currency).toBe('EUR');
+    expect(tariff.last_updated).toBe(at(2).toISOString());
+    // The grace (5 minutes) as min_duration on the element with the idle fee.
+    expect(tariff.elements.map((e) => e.restrictions)).toEqual([{ min_duration: 300 }, undefined]);
+    expect(tariff.elements[0]?.price_components).toContainEqual({
+      type: 'ENERGY',
+      price: 0.4,
+      step_size: 1,
+      vat: 19,
+    });
   });
 });
 

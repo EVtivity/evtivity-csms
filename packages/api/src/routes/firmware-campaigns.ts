@@ -32,6 +32,15 @@ import {
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getUserSiteIds } from '../lib/site-access.js';
+import {
+  findScopedFirmwareCampaign,
+  firmwareCampaignInScopeSql,
+  targetFilterNotFound,
+  targetFilterOutOfScope,
+  isRestrictedCompanyWideWrite,
+} from '../lib/fleet-operation-scope.js';
+
+const CAMPAIGN_NOT_FOUND = { error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' };
 import { authorize } from '../middleware/rbac.js';
 import {
   assertFirmwareSignature,
@@ -192,7 +201,14 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         db
           .selectDistinct({ model: chargingStations.model })
           .from(chargingStations)
-          .where(isNotNull(chargingStations.model))
+          .where(
+            accessibleSiteIds != null
+              ? and(
+                  isNotNull(chargingStations.model),
+                  inArray(chargingStations.siteId, accessibleSiteIds),
+                )
+              : isNotNull(chargingStations.model),
+          )
           .orderBy(asc(chargingStations.model)),
       ]);
 
@@ -243,14 +259,23 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
+      // A restricted user sees only the campaigns that cover its sites alone.
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const scope =
+        accessibleSiteIds != null
+          ? firmwareCampaignInScopeSql(accessibleSiteIds, userId)
+          : undefined;
+
       const [data, countResult] = await Promise.all([
         db
           .select()
           .from(firmwareCampaigns)
+          .where(scope)
           .orderBy(desc(firmwareCampaigns.createdAt), desc(firmwareCampaigns.id))
           .limit(limit)
           .offset(offset),
-        db.select({ total: count() }).from(firmwareCampaigns),
+        db.select({ total: count() }).from(firmwareCampaigns).where(scope),
       ]);
 
       return { data, total: countResult[0]?.total ?? 0 } satisfies PaginatedResponse<
@@ -282,10 +307,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       const { page = 1, limit = 20 } = request.query as { page?: number; limit?: number };
       const offset = (page - 1) * limit;
 
-      const [campaign] = await db
-        .select()
-        .from(firmwareCampaigns)
-        .where(eq(firmwareCampaigns.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const campaign = await findScopedFirmwareCampaign(id, accessibleSiteIds, userId);
       if (campaign == null) {
         await reply.status(404).send({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
         return;
@@ -353,6 +377,11 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(campaignItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Target not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+            ERROR_CODES.CAMPAIGN_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -360,6 +389,18 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       const body = request.body as z.infer<typeof createCampaignBody>;
       const userId = (request.user as { userId: string }).userId;
       assertFirmwareSignature(body.signingCertificate, body.signature);
+      const createSiteIds = await getUserSiteIds(userId);
+      // A campaign without a site or station targets every site: creating
+      // one needs access to every site (owner decision 2026-10-09).
+      if (isRestrictedCompanyWideWrite(createSiteIds, body.targetFilter)) {
+        await reply.status(404).send(CAMPAIGN_NOT_FOUND);
+        return;
+      }
+      const outOfScope = await targetFilterOutOfScope(body.targetFilter, createSiteIds);
+      if (outOfScope != null) {
+        await reply.status(404).send(targetFilterNotFound(outOfScope));
+        return;
+      }
 
       const [campaign] = await db
         .insert(firmwareCampaigns)
@@ -409,7 +450,11 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(campaignItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
-          404: errorWith('Campaign not found', [ERROR_CODES.CAMPAIGN_NOT_FOUND]),
+          404: errorWith('Campaign, site or station not found', [
+            ERROR_CODES.CAMPAIGN_NOT_FOUND,
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+          ]),
           409: errorResponse,
         },
       },
@@ -420,11 +465,18 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         typeof updateCampaignBody
       >;
 
-      const [campaign] = await db
-        .select()
-        .from(firmwareCampaigns)
-        .where(eq(firmwareCampaigns.id, id));
-      if (campaign == null) {
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const campaign = await findScopedFirmwareCampaign(id, accessibleSiteIds, userId);
+      // Editing a campaign that targets every site, or widening one to every
+      // site, needs access to every site: otherwise a restricted user could
+      // turn another operator's draft into an all-site rollout.
+      if (
+        campaign == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, campaign.targetFilter) ||
+        (fields.targetFilter !== undefined &&
+          isRestrictedCompanyWideWrite(accessibleSiteIds, fields.targetFilter))
+      ) {
         await reply.status(404).send({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
         return;
       }
@@ -432,6 +484,11 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         await reply
           .status(409)
           .send({ error: 'Only draft campaigns can be updated', code: 'NOT_DRAFT' });
+        return;
+      }
+      const outOfScope = await targetFilterOutOfScope(fields.targetFilter, accessibleSiteIds);
+      if (outOfScope != null) {
+        await reply.status(404).send(targetFilterNotFound(outOfScope));
         return;
       }
 
@@ -496,10 +553,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof campaignParams>;
 
-      const [campaign] = await db
-        .select()
-        .from(firmwareCampaigns)
-        .where(eq(firmwareCampaigns.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const campaign = await findScopedFirmwareCampaign(id, accessibleSiteIds, userId);
       if (campaign == null) {
         await reply.status(404).send({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
         return;
@@ -560,10 +616,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
-      const [campaign] = await db
-        .select()
-        .from(firmwareCampaigns)
-        .where(eq(firmwareCampaigns.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const campaign = await findScopedFirmwareCampaign(id, accessibleSiteIds, userId);
       if (campaign == null) {
         await reply.status(404).send({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
         return;
@@ -580,8 +635,6 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       if (query.status === 'online') conditions.push(eq(chargingStations.isOnline, true));
       if (query.status === 'offline') conditions.push(eq(chargingStations.isOnline, false));
 
-      const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
       if (accessibleSiteIds != null && accessibleSiteIds.length === 0)
         return { data: [], total: 0 };
       if (accessibleSiteIds != null)
@@ -639,10 +692,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof campaignParams>;
 
-      const [campaign] = await db
-        .select()
-        .from(firmwareCampaigns)
-        .where(eq(firmwareCampaigns.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const campaign = await findScopedFirmwareCampaign(id, accessibleSiteIds, userId);
       if (campaign == null) {
         await reply.status(404).send({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
         return;
@@ -662,8 +714,6 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
       if (filter?.stationId) conditions.push(eq(chargingStations.id, filter.stationId));
 
-      const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
       if (accessibleSiteIds != null && accessibleSiteIds.length === 0) {
         await reply.status(409).send({ error: 'No matching stations found', code: 'NO_TARGETS' });
         return;
@@ -825,25 +875,35 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         response: {
           200: successResponse,
           404: errorWith('Campaign not found', [ERROR_CODES.CAMPAIGN_NOT_FOUND]),
+          409: errorWith('Campaign is not active', [ERROR_CODES.CAMPAIGN_NOT_ACTIVE]),
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof campaignParams>;
 
-      const [campaign] = await db
-        .select()
-        .from(firmwareCampaigns)
-        .where(eq(firmwareCampaigns.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const campaign = await findScopedFirmwareCampaign(id, accessibleSiteIds, userId);
       if (campaign == null) {
-        await reply.status(404).send({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        await reply.status(404).send(CAMPAIGN_NOT_FOUND);
         return;
       }
 
-      await db
+      // Only an active campaign is cancelled: a completed or cancelled one is
+      // terminal, and a draft is deleted instead. The status guard in the
+      // UPDATE also loses cleanly to a concurrent completion.
+      const cancelled = await db
         .update(firmwareCampaigns)
         .set({ status: 'cancelled', updatedAt: new Date() })
-        .where(eq(firmwareCampaigns.id, id));
+        .where(and(eq(firmwareCampaigns.id, id), eq(firmwareCampaigns.status, 'active')))
+        .returning({ id: firmwareCampaigns.id });
+      if (cancelled.length === 0) {
+        await reply
+          .status(409)
+          .send({ error: 'Only active campaigns can be cancelled', code: 'CAMPAIGN_NOT_ACTIVE' });
+        return;
+      }
 
       const actor = getAuditActor(request);
       await writeAudit(

@@ -68,3 +68,43 @@ export function registerPdfFonts(doc: PDFKit.PDFDocument, language: string): Pdf
   doc.registerFont('Cjk-Bold', data.bold, faces.bold);
   return { regular: 'Cjk', bold: 'Cjk-Bold' };
 }
+
+// Characters Helvetica draws (WinAnsi): Latin-1 plus the typographic marks of
+// Windows-1252 that a footer is likely to hold.
+const WIN_ANSI_TEXT =
+  /^[\n\u0020-\u007E\u00A0-\u00FF\u20AC\u2013\u2014\u2018\u2019\u201C\u201D\u2022\u2026]*$/;
+
+/**
+ * Registers the font of a PDF footer and returns its name. The choice
+ * depends on the text only, so the footer looks the same in every PDF:
+ * Helvetica when it can draw every character, else the Simplified Chinese
+ * Noto Sans CJK face (which also covers Latin, Hangul, kana and Han), and
+ * Helvetica again when the CJK fonts are missing.
+ */
+export function registerPdfFooterFont(doc: PDFKit.PDFDocument, text: string): string {
+  if (WIN_ANSI_TEXT.test(text)) return LATIN_FONTS.regular;
+  const data = loadCjkFonts();
+  if (data == null) return LATIN_FONTS.regular;
+  doc.registerFont('Cjk-Footer', data.regular, CJK_FONT_FACES.zh.regular);
+  return 'Cjk-Footer';
+}
+
+/**
+ * The fonts for operator text (such as the invoice seller block) drawn in a
+ * document that uses `fonts`. A CJK document font covers it; a Latin one
+ * covers WinAnsi text only, so other text gets the Simplified Chinese Noto
+ * Sans CJK face (Latin, Hangul, kana and Han), or Helvetica without the CJK
+ * fonts.
+ */
+export function registerPdfTextFonts(
+  doc: PDFKit.PDFDocument,
+  fonts: PdfFonts,
+  text: string,
+): PdfFonts {
+  if (fonts !== LATIN_FONTS || WIN_ANSI_TEXT.test(text)) return fonts;
+  const data = loadCjkFonts();
+  if (data == null) return fonts;
+  doc.registerFont('Cjk-Text', data.regular, CJK_FONT_FACES.zh.regular);
+  doc.registerFont('Cjk-Text-Bold', data.bold, CJK_FONT_FACES.zh.bold);
+  return { regular: 'Cjk-Text', bold: 'Cjk-Text-Bold' };
+}

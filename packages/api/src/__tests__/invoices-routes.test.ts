@@ -31,16 +31,25 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
-  db: {},
-  client: {},
-  invoices: {},
-  fleets: {},
-  invoiceStatusEnum: { enumValues: ['draft', 'issued', 'paid', 'void', 'credited'] },
-  INVOICE_KINDS: ['invoice', 'credit_note'],
-  invoiceAuditLog: { __table: 'invoice_audit_log' },
-  writeAudit: vi.fn().mockResolvedValue(undefined),
-}));
+// The session (with its station's site) POST /invoices/session/:sessionId reads.
+let sessionRows: unknown[] = [];
+vi.mock('@evtivity/database', () => {
+  const chain: Record<string, unknown> = {};
+  for (const m of ['from', 'innerJoin', 'where']) chain[m] = vi.fn(() => chain);
+  chain['then'] = (resolve: (v: unknown) => unknown) => Promise.resolve(sessionRows).then(resolve);
+  return {
+    db: { select: vi.fn(() => chain) },
+    client: {},
+    invoices: {},
+    fleets: {},
+    chargingSessions: {},
+    chargingStations: {},
+    invoiceStatusEnum: { enumValues: ['draft', 'issued', 'paid', 'void', 'credited'] },
+    INVOICE_KINDS: ['invoice', 'credit_note'],
+    invoiceAuditLog: { __table: 'invoice_audit_log' },
+    writeAudit: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 vi.mock('@evtivity/services/invoice.service', () => ({
   createSessionInvoice: vi.fn(),
@@ -56,11 +65,22 @@ vi.mock('@evtivity/services/credit-note.service', () => ({
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/lib')>()),
-  dispatchDriverNotification: vi.fn().mockResolvedValue(undefined),
+  dispatchDriverNotification: vi
+    .fn()
+    .mockResolvedValue({ delivered: [{ channel: 'email', recipient: 'driver@example.test' }] }),
+}));
+
+vi.mock('@evtivity/services/invoice-audit', () => ({
+  wasInvoiceSent: vi.fn().mockResolvedValue(false),
+  writeInvoiceSentAudit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@evtivity/services/invoice-pdf.service', () => ({
   generateInvoicePdf: vi.fn(),
+}));
+
+vi.mock('@evtivity/services/pdf-branding', () => ({
+  loadPdfBranding: vi.fn(),
 }));
 
 vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: [] }));
@@ -73,14 +93,36 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: vi.fn() }));
 let userSiteIds: string[] | null = null;
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn(() => Promise.resolve(userSiteIds)),
+  userCanAccessSite: vi.fn((_userId: string, siteId: string | null) =>
+    Promise.resolve(userSiteIds === null || (siteId != null && userSiteIds.includes(siteId))),
+  ),
+  requireAllSiteAccess: vi.fn(
+    async (
+      _request: unknown,
+      reply: { status: (code: number) => { send: (body: unknown) => Promise<unknown> } },
+      notFound: unknown,
+    ) => {
+      if (userSiteIds === null) return true;
+      await reply.status(404).send(notFound);
+      return false;
+    },
+  ),
 }));
 
 import { AppError, dispatchDriverNotification } from '@evtivity/lib';
 import { writeAudit } from '@evtivity/database';
-import { getInvoice, markInvoicePaid, voidInvoice } from '@evtivity/services/invoice.service';
+import {
+  createAggregatedInvoice,
+  createSessionInvoice,
+  getInvoice,
+  markInvoicePaid,
+  voidInvoice,
+} from '@evtivity/services/invoice.service';
 import { creditInvoice } from '@evtivity/services/credit-note.service';
 import { sendFleetInvoiceEmail } from '@evtivity/services/fleet-invoice-notice';
 import { generateInvoicePdf } from '@evtivity/services/invoice-pdf.service';
+import { loadPdfBranding } from '@evtivity/services/pdf-branding';
+import { wasInvoiceSent, writeInvoiceSentAudit } from '@evtivity/services/invoice-audit';
 import { registerAuth } from '../plugins/auth.js';
 import { invoiceRoutes } from '../routes/invoices.js';
 
@@ -491,6 +533,23 @@ describe('POST /invoices/:id/credit-note', () => {
       expect.anything(),
       undefined,
     );
+    expect(writeInvoiceSentAudit).toHaveBeenCalledWith(
+      {
+        invoiceId: CREDIT_NOTE_ID,
+        invoiceNumber: 'CN-202607-0001',
+        eventType: 'invoice.CreditNote',
+        delivered: [{ channel: 'email', recipient: 'driver@example.test' }],
+        resend: false,
+        actor: {
+          actor: 'operator',
+          actorUserId: 'usr_000000000001',
+          actorDriverId: null,
+          actorApiKeyId: null,
+          actorLabel: null,
+        },
+      },
+      expect.anything(),
+    );
   });
 
   it('emails the credit note of a fleet invoice once to the fleet billing contacts', async () => {
@@ -504,9 +563,12 @@ describe('POST /invoices/:id/credit-note', () => {
     const res = await creditRequest();
 
     expect(res.statusCode).toBe(201);
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith(CREDIT_NOTE_ID, 'once', {
-      templatesDirs: [],
-    });
+    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith(
+      CREDIT_NOTE_ID,
+      'once',
+      { templatesDirs: [] },
+      { actor: expect.objectContaining({ actor: 'operator' }), log: expect.anything() },
+    );
     expect(dispatchDriverNotification).not.toHaveBeenCalled();
   });
 
@@ -593,6 +655,108 @@ describe('POST /invoices/:id/send', () => {
       expect.anything(),
       undefined,
     );
+    expect(writeInvoiceSentAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ invoiceId: CREDIT_NOTE_ID, eventType: 'invoice.CreditNote' }),
+      expect.anything(),
+    );
+  });
+
+  function driverInvoiceDetail(): Record<string, unknown> {
+    return {
+      invoice: invoiceRow({
+        issuedAt: new Date('2026-06-30T10:00:00.000Z'),
+        dueAt: new Date('2026-07-30T10:00:00.000Z'),
+      }),
+      lineItems: [],
+      driver: null,
+      fleet: null,
+      taxBreakdown: [],
+      creditedInvoice: null,
+      creditNote: null,
+    };
+  }
+
+  it('sends a driver invoice and audits it as invoice_sent by the operator', async () => {
+    vi.mocked(getInvoice).mockResolvedValue(driverInvoiceDetail() as never);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/invoices/${INVOICE_ID}/send`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(dispatchDriverNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      'invoice.Sent',
+      'drv_000000000001',
+      expect.objectContaining({ invoiceNumber: 'INV-202606-0042', totalCents: 1190 }),
+      expect.anything(),
+      undefined,
+    );
+    expect(wasInvoiceSent).toHaveBeenCalledWith(INVOICE_ID, expect.anything());
+    expect(writeInvoiceSentAudit).toHaveBeenCalledWith(
+      {
+        invoiceId: INVOICE_ID,
+        invoiceNumber: 'INV-202606-0042',
+        eventType: 'invoice.Sent',
+        delivered: [{ channel: 'email', recipient: 'driver@example.test' }],
+        resend: false,
+        actor: {
+          actor: 'operator',
+          actorUserId: 'usr_000000000001',
+          actorDriverId: null,
+          actorApiKeyId: null,
+          actorLabel: null,
+        },
+      },
+      expect.anything(),
+    );
+  });
+
+  it('marks a send of an invoice sent before as a resend', async () => {
+    vi.mocked(getInvoice).mockResolvedValue(driverInvoiceDetail() as never);
+    vi.mocked(wasInvoiceSent).mockResolvedValueOnce(true);
+
+    await app.inject({
+      method: 'POST',
+      url: `/invoices/${INVOICE_ID}/send`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(vi.mocked(writeInvoiceSentAudit).mock.calls[0]?.[0]).toMatchObject({ resend: true });
+  });
+
+  it('passes an empty delivery list on when no provider accepted the send', async () => {
+    vi.mocked(getInvoice).mockResolvedValue(driverInvoiceDetail() as never);
+    vi.mocked(dispatchDriverNotification).mockResolvedValueOnce({ delivered: [] });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/invoices/${INVOICE_ID}/send`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    // writeInvoiceSentAudit writes nothing for an empty list (invoice-audit tests).
+    expect(res.statusCode).toBe(200);
+    expect(vi.mocked(writeInvoiceSentAudit).mock.calls[0]?.[0]).toMatchObject({ delivered: [] });
+  });
+
+  it('answers 400 INVOICE_NO_DRIVER without sending or auditing', async () => {
+    vi.mocked(getInvoice).mockResolvedValue({
+      ...driverInvoiceDetail(),
+      invoice: invoiceRow({ driverId: null }),
+    } as never);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/invoices/${INVOICE_ID}/send`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(dispatchDriverNotification).not.toHaveBeenCalled();
+    expect(writeInvoiceSentAudit).not.toHaveBeenCalled();
   });
 
   function fleetInvoiceDetail(): Record<string, unknown> {
@@ -617,9 +781,16 @@ describe('POST /invoices/:id/send', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith(INVOICE_ID, 'resend', {
-      templatesDirs: [],
-    });
+    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith(
+      INVOICE_ID,
+      'resend',
+      { templatesDirs: [] },
+      {
+        actor: expect.objectContaining({ actor: 'operator', actorUserId: 'usr_000000000001' }),
+        log: expect.anything(),
+      },
+    );
+    expect(writeInvoiceSentAudit).not.toHaveBeenCalled();
     expect(dispatchDriverNotification).not.toHaveBeenCalled();
   });
 
@@ -638,7 +809,78 @@ describe('POST /invoices/:id/send', () => {
   });
 });
 
-describe('fleet invoices on the per-invoice routes for a site-restricted user', () => {
+describe('GET /invoices/print-logo', () => {
+  let app: FastifyInstance;
+  let token: string;
+
+  // PNG and JPEG file signatures, enough for the data URI type.
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0]);
+
+  beforeAll(async () => {
+    app = await buildApp();
+    token = app.jwt.sign({ userId: 'usr_000000000001', roleId: 'rol_000000000001' });
+  });
+
+  afterAll(async () => {
+    userSiteIds = null;
+    await app.close();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    heldPermissions = new Set(['payments:read']);
+    userSiteIds = null;
+  });
+
+  function getLogo() {
+    return app.inject({
+      method: 'GET',
+      url: '/invoices/print-logo',
+      headers: { authorization: `Bearer ${token}` },
+    });
+  }
+
+  it('returns the PDF logo as a PNG data URI, behind payments:read', async () => {
+    vi.mocked(loadPdfBranding).mockResolvedValue({ logo: PNG, isDefaultLogo: true, footer: '' });
+
+    const res = await getLogo();
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ logo: `data:image/png;base64,${PNG.toString('base64')}` });
+    expect(authorizedPermissions.has('payments:read')).toBe(true);
+    expect(getInvoice).not.toHaveBeenCalled();
+  });
+
+  it('keeps a JPEG logo a JPEG', async () => {
+    vi.mocked(loadPdfBranding).mockResolvedValue({ logo: JPEG, isDefaultLogo: false, footer: '' });
+
+    const res = await getLogo();
+
+    expect(res.json()).toEqual({ logo: `data:image/jpeg;base64,${JPEG.toString('base64')}` });
+  });
+
+  it('answers 403 without payments:read', async () => {
+    heldPermissions = new Set();
+
+    const res = await getLogo();
+
+    expect(res.statusCode).toBe(403);
+    expect(loadPdfBranding).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 INVOICE_NOT_FOUND for a site-restricted user', async () => {
+    userSiteIds = ['sit_000000000001'];
+
+    const res = await getLogo();
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
+    expect(loadPdfBranding).not.toHaveBeenCalled();
+  });
+});
+
+describe('invoice routes for a site-restricted user', () => {
   let app: FastifyInstance;
   let token: string;
 
@@ -705,32 +947,84 @@ describe('fleet invoices on the per-invoice routes for a site-restricted user', 
     expect(sendFleetInvoiceEmail).not.toHaveBeenCalled();
     expect(generateInvoicePdf).not.toHaveBeenCalled();
     expect(writeAudit).not.toHaveBeenCalled();
+    expect(writeInvoiceSentAudit).not.toHaveBeenCalled();
   });
 
-  it('serves a driver invoice to a site-restricted user', async () => {
-    vi.mocked(getInvoice).mockResolvedValue(detail(null) as never);
+  it.each(routes)(
+    '$method /invoices/:id$path answers 404 INVOICE_NOT_FOUND for a driver invoice too',
+    async (route) => {
+      vi.mocked(getInvoice).mockResolvedValue(detail(null) as never);
 
-    const res = await app.inject({
+      const res = await app.inject({
+        method: route.method,
+        url: `/invoices/${FLEET_INVOICE_ID}${route.path}`,
+        headers: { authorization: `Bearer ${token}` },
+        ...(route.payload != null ? { payload: route.payload as Record<string, unknown> } : {}),
+      });
+
+      // A driver's invoice bills sessions at any site: company-wide money.
+      expect(res.statusCode).toBe(404);
+      expect(res.json()).toEqual({ error: 'Invoice not found', code: 'INVOICE_NOT_FOUND' });
+      expect(getInvoice).not.toHaveBeenCalled();
+      expect(voidInvoice).not.toHaveBeenCalled();
+      expect(dispatchDriverNotification).not.toHaveBeenCalled();
+    },
+  );
+
+  it('answers 404 INVOICE_NOT_FOUND on the invoice list and the aggregated invoice', async () => {
+    const list = await app.inject({
       method: 'GET',
-      url: `/invoices/${FLEET_INVOICE_ID}`,
+      url: '/invoices',
       headers: { authorization: `Bearer ${token}` },
     });
+    const aggregated = await app.inject({
+      method: 'POST',
+      url: '/invoices/aggregated',
+      headers: { authorization: `Bearer ${token}` },
+      payload: {
+        driverId: 'drv_000000000001',
+        startDate: '2026-06-01T00:00:00.000Z',
+        endDate: '2026-07-01T00:00:00.000Z',
+      },
+    });
 
-    expect(res.statusCode).toBe(200);
+    expect(list.statusCode).toBe(404);
+    expect(list.json()).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
+    expect(aggregated.statusCode).toBe(404);
+    expect(createAggregatedInvoice).not.toHaveBeenCalled();
   });
 
-  it('lets a site-restricted user void a driver invoice', async () => {
-    vi.mocked(getInvoice).mockResolvedValue(detail(null) as never);
-    vi.mocked(voidInvoice).mockResolvedValue(null);
+  it.each([
+    ['a session at another site', [{ siteId: 'sit_000000000099' }]],
+    ['a session at an unsited station', [{ siteId: null }]],
+    ['an unknown session', []],
+  ])('answers 404 SESSION_NOT_FOUND on the session invoice for %s', async (_label, rows) => {
+    sessionRows = rows;
 
     const res = await app.inject({
-      method: 'PATCH',
-      url: `/invoices/${FLEET_INVOICE_ID}/void`,
+      method: 'POST',
+      url: '/invoices/session/ses_000000000001',
       headers: { authorization: `Bearer ${token}` },
     });
 
-    expect(voidInvoice).toHaveBeenCalledWith(FLEET_INVOICE_ID);
-    expect(res.json()).toMatchObject({ code: 'INVOICE_NOT_FOUND' });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+    expect(createSessionInvoice).not.toHaveBeenCalled();
+    expect(writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('invoices a session at one of its sites', async () => {
+    sessionRows = [{ siteId: 'sit_000000000001' }];
+    vi.mocked(createSessionInvoice).mockResolvedValue(detail(null) as never);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/invoices/session/ses_000000000001',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(createSessionInvoice).toHaveBeenCalledWith('ses_000000000001');
   });
 
   it('serves a fleet invoice to a user with access to every site', async () => {
@@ -757,5 +1051,138 @@ describe('fleet invoices on the per-invoice routes for a site-restricted user', 
     });
 
     expect(getInvoice).not.toHaveBeenCalled();
+  });
+});
+
+describe('driver invoice creation audit', () => {
+  let app: FastifyInstance;
+  let token: string;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    token = app.jwt.sign({ userId: 'usr_000000000001', roleId: 'rol_000000000001' });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    heldPermissions = new Set(['payments:read', 'payments:write']);
+    userSiteIds = null;
+    sessionRows = [{ siteId: 'sit_000000000001' }];
+  });
+
+  function lineItem(id: number, sessionId: string | null): Record<string, unknown> {
+    return {
+      id,
+      invoiceId: INVOICE_ID,
+      sessionId,
+      paymentRecordId: sessionId == null ? 9 : null,
+      description: 'Charging',
+      quantity: '1',
+      unitPriceCents: 100,
+      totalCents: 100,
+      taxCents: 19,
+      taxRate: '0.19',
+      metadata: null,
+      createdAt: '2026-06-30T10:00:00.000Z',
+    };
+  }
+
+  const created = {
+    invoice: invoiceRow({ status: 'issued' }),
+    lineItems: [
+      lineItem(1, 'ses_000000000001'),
+      lineItem(2, 'ses_000000000001'),
+      lineItem(3, 'ses_000000000002'),
+      lineItem(4, null),
+    ],
+  };
+
+  const aggregatedBody = {
+    driverId: 'drv_000000000001',
+    startDate: '2026-06-01T00:00:00.000Z',
+    endDate: '2026-07-01T00:00:00.000Z',
+  };
+
+  it('audits a session invoice as invoice_generated by the operator', async () => {
+    vi.mocked(createSessionInvoice).mockResolvedValue(created as never);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/invoices/session/ses_000000000001',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ idColumn: 'invoice_id' }),
+      expect.objectContaining({
+        entityId: INVOICE_ID,
+        entityIdSnapshot: INVOICE_ID,
+        action: 'invoice_generated',
+        actor: 'operator',
+        actorUserId: 'usr_000000000001',
+        before: null,
+        notes: null,
+        after: expect.objectContaining({
+          totalCents: 1190,
+          currency: 'EUR',
+          sessionIds: ['ses_000000000001', 'ses_000000000002'],
+          sessionCount: 2,
+        }),
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('audits an aggregated invoice with the billed window', async () => {
+    vi.mocked(createAggregatedInvoice).mockResolvedValue(created as never);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/invoices/aggregated',
+      headers: { authorization: `Bearer ${token}` },
+      payload: aggregatedBody,
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(writeAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        action: 'invoice_generated',
+        actor: 'operator',
+        notes: '2026-06-01T00:00:00.000Z/2026-07-01T00:00:00.000Z',
+        after: expect.objectContaining({ sessionCount: 2, currency: 'EUR' }),
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('audits nothing when the invoice was not created', async () => {
+    vi.mocked(createSessionInvoice).mockRejectedValue(new Error('Session already invoiced'));
+    vi.mocked(createAggregatedInvoice).mockRejectedValue(
+      new AppError('No sessions', 400, 'INVOICE_NO_SESSIONS'),
+    );
+
+    const single = await app.inject({
+      method: 'POST',
+      url: '/invoices/session/ses_000000000001',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const aggregated = await app.inject({
+      method: 'POST',
+      url: '/invoices/aggregated',
+      headers: { authorization: `Bearer ${token}` },
+      payload: aggregatedBody,
+    });
+
+    expect(single.statusCode).toBe(400);
+    expect(aggregated.statusCode).toBe(400);
+    expect(writeAudit).not.toHaveBeenCalled();
   });
 });

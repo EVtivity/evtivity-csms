@@ -21,6 +21,8 @@ import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
+import { getUserSiteIds } from '../lib/site-access.js';
+import { sessionsAtSites } from '../lib/session-site-scope.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
 // OCPP 2.1 IdTokenEnumType. Canonical list shared by operator + portal.
@@ -308,6 +310,8 @@ export function tokenRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Tokens'],
         summary: 'List charging sessions authorized by this token',
+        description:
+          'The charging sessions this token authorized, newest first. A user restricted to some sites sees only the sessions at those sites.',
         operationId: 'listTokenSessions',
         security: [{ bearerAuth: [] }],
         params: zodSchema(tokenParams),
@@ -332,7 +336,12 @@ export function tokenRoutes(app: FastifyInstance): void {
       // Filter by token_id directly (the FK on charging_sessions). This shows
       // sessions where the OCPP authorize matched THIS card, not every session
       // by the same driver.
-      const where = eq(chargingSessions.tokenId, id);
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      const where = and(
+        eq(chargingSessions.tokenId, id),
+        siteIds != null ? sessionsAtSites(siteIds) : undefined,
+      );
 
       const [data, countRows] = await Promise.all([
         db

@@ -21,8 +21,8 @@ import {
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, errorResponse } from '../lib/response-schemas.js';
+import { ocppCommandQueued, ocppCommandQueuedBody } from '../lib/ocpp-command-queued.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
-import { getUserSiteIds } from '../lib/site-access.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { assertFirmwareSignature } from '../lib/firmware-signature.js';
 
@@ -84,6 +84,7 @@ import {
   chargingProfilePurposeEnum as chargingProfilePurposeEnumV16,
   chargingRateUnitEnum as chargingRateUnitEnumV16,
 } from '../lib/ocpp-zod-types-v16.js';
+import { findCommandStation } from '../lib/command-station.js';
 
 const RESPONSE_TIMEOUT_MS = 35_000;
 
@@ -110,20 +111,6 @@ const ocppCommandError = z
     stationId: z.string().describe('Target station OCPP ID'),
     action: z.string().describe('OCPP action that was dispatched'),
     error: z.string().describe('Human-readable error message'),
-  })
-  .passthrough();
-
-const ocppCommandQueued = z
-  .object({
-    status: z
-      .literal('queued')
-      .describe('Indicates the command was queued because the station is offline'),
-    code: z.literal('COMMAND_QUEUED').describe('Stable code for offline-queued commands'),
-    stationId: z.string().describe('Target station OCPP ID'),
-    action: z.string().describe('OCPP action that was dispatched'),
-    message: z
-      .string()
-      .describe('Human-readable note explaining the command will be delivered on reconnect'),
   })
   .passthrough();
 
@@ -251,25 +238,8 @@ async function dispatchCommandRaw(
   // restricted site visibility.
   let stationInternalId: string | null = null;
   if (options?.skipSiteAccess !== true) {
-    const [station] = await db
-      .select({
-        id: chargingStations.id,
-        siteId: chargingStations.siteId,
-        ocppProtocol: chargingStations.ocppProtocol,
-      })
-      .from(chargingStations)
-      .where(eq(chargingStations.stationId, stationId));
+    const station = await findCommandStation(userId, stationId);
     if (station == null) {
-      return {
-        code: 404,
-        body: { error: 'Station not found', code: 'STATION_NOT_FOUND' },
-      };
-    }
-    const siteAccessIds = await getUserSiteIds(userId);
-    if (
-      siteAccessIds != null &&
-      (station.siteId == null || !siteAccessIds.includes(station.siteId))
-    ) {
       return {
         code: 404,
         body: { error: 'Station not found', code: 'STATION_NOT_FOUND' },
@@ -323,13 +293,7 @@ async function dispatchCommandRaw(
       );
       return {
         code: 202,
-        body: {
-          status: 'queued',
-          code: 'COMMAND_QUEUED',
-          stationId,
-          action,
-          message: result.error ?? 'Station offline, command queued',
-        },
+        body: ocppCommandQueuedBody(stationId, action, result.error),
       };
     }
 
@@ -1555,7 +1519,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Change tariff for active transaction',
     changeTransactionTariffV21Body,
-    'Switches the tariff applied to an active transaction so the station can display the new price and the CSMS can bill the post-change segment correctly. Used by split-billing on tariff boundaries. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time.',
+    'Sends a new tariff for an active transaction to a station that calculates the cost locally (I11). The station applies it from now on; the CSMS bill does not change, it is priced from the tariff segments. With split billing the CSMS sends this command itself at a tariff boundary when the tariff the station applies no longer describes the session. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time.',
   );
 
   commandRoute(

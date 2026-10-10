@@ -53,6 +53,8 @@ const BUILT_IN_GROUPS = [
   { resource: 'users', kind: 'page' },
   { resource: 'audit', kind: 'page' },
   { resource: 'maintenance', kind: 'page' },
+  // Chatting with the AI assistant. Configuring AI stays settings.ai.
+  { resource: 'aiAssistant', kind: 'page' },
   { resource: 'settings.system', kind: 'settings' },
   { resource: 'settings.notification', kind: 'settings' },
   { resource: 'settings.payment', kind: 'settings' },
@@ -111,6 +113,8 @@ const OPERATOR_DEFAULTS: readonly Permission[] = [
   'audit:read',
   'maintenance:read',
   'maintenance:write',
+  'aiAssistant:read',
+  'aiAssistant:write',
 ];
 
 /** Viewer gets read-only access to operational pages. No write, no settings. */
@@ -137,6 +141,7 @@ const VIEWER_DEFAULTS: readonly Permission[] = [
   'users:read',
   'audit:read',
   'maintenance:read',
+  'aiAssistant:read',
 ];
 
 const RESOURCE_PATTERN = /^(settings\.)?[a-z][a-zA-Z0-9]*$/;

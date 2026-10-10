@@ -32,3 +32,9 @@ export async function getIdlingGracePeriodMinutes(): Promise<number> {
     return cachedValue ?? 30;
   }
 }
+
+/** Drops the cached `idling.gracePeriodMinutes`, so the next read goes to the database. */
+export function clearIdlingSettingCache(): void {
+  cachedValue = undefined;
+  cachedAt = 0;
+}

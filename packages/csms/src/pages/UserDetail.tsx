@@ -17,6 +17,7 @@ import type { UserDetailUser, UserRole } from '@/components/user/UserDetailsTab'
 import { UserPermissionsTab } from '@/components/user/UserPermissionsTab';
 import { UserSecurityTab } from '@/components/user/UserSecurityTab';
 import { api } from '@/lib/api';
+import { isSubsetOf } from '@evtivity/lib/permissions';
 import { useAuth } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -25,6 +26,7 @@ export function UserDetail(): React.JSX.Element {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const currentUserId = useAuth((s) => s.user?.id);
+  const ownPermissions = useAuth((s) => s.permissions);
   const [activeTab, setActiveTab] = useTab('details');
 
   const isOwnUser = id === currentUserId;
@@ -55,12 +57,17 @@ export function UserDetail(): React.JSX.Element {
     return <p className="text-destructive">{t('users.userNotFound')}</p>;
   }
 
+  // Account changes (password, invite, email, status, role, permissions, site
+  // access, phone) need every permission of the user: the API answers 404
+  // otherwise.
+  const canAdminister = isSubsetOf(user.permissions ?? [], ownPermissions);
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <BackButton to="/users" />
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">{user.email}</h1>
+        <div className="min-w-0">
+          <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">{user.email}</h1>
           <CopyableId id={user.id} />
         </div>
         <Badge variant={user.isActive ? 'default' : 'outline'}>
@@ -73,21 +80,28 @@ export function UserDetail(): React.JSX.Element {
         <TabsList>
           <TabsTrigger value="details">{t('common.details')}</TabsTrigger>
           <TabsTrigger value="permissions">{t('users.permissions')}</TabsTrigger>
-          <TabsTrigger value="security">{t('users.resetPassword')}</TabsTrigger>
+          {canAdminister && <TabsTrigger value="security">{t('users.resetPassword')}</TabsTrigger>}
           <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="details">
-          <UserDetailsTab user={user} userId={user.id} roles={roles} />
+          <UserDetailsTab
+            user={user}
+            userId={user.id}
+            roles={roles}
+            canAdminister={canAdminister}
+          />
         </TabsContent>
 
         <TabsContent value="permissions">
-          <UserPermissionsTab userId={user.id} />
+          <UserPermissionsTab userId={user.id} canEdit={canAdminister} />
         </TabsContent>
 
-        <TabsContent value="security">
-          <UserSecurityTab userId={user.id} />
-        </TabsContent>
+        {canAdminister && (
+          <TabsContent value="security">
+            <UserSecurityTab userId={user.id} />
+          </TabsContent>
+        )}
 
         <TabsContent value="history">
           <EntityHistoryTab entityType="user" entityId={user.id} />

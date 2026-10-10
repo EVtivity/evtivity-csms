@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db, availableEvseCountSql } from '@evtivity/database';
 import { driverFavoriteStations, chargingStations, sites, evses } from '@evtivity/database';
+import { publicStationListed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import {
   successResponse,
@@ -209,7 +210,7 @@ export function portalFavoriteRoutes(app: FastifyInstance): void {
       const [station] = await db
         .select({ id: chargingStations.id })
         .from(chargingStations)
-        .where(eq(chargingStations.stationId, stationId));
+        .where(and(eq(chargingStations.stationId, stationId), publicStationListed()));
 
       if (station == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });

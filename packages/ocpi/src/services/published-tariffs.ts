@@ -15,12 +15,14 @@ import {
   tariffs,
   getCompanyCurrency,
   getCompanyTaxBasis,
+  getIdlingGracePeriodMinutes,
 } from '@evtivity/database';
 import type { TariffRestrictions } from '@evtivity/lib';
 import { config } from '../lib/config.js';
 import { transformTariff } from '../transformers/tariff.transformer.js';
 import type { TariffSource } from '../transformers/tariff.transformer.js';
 import type { OcpiTariff, OcpiVersion } from '../types/ocpi.js';
+import type { TaxBasis } from '@evtivity/lib/price-display';
 import type { Ocpi230Tariff } from '../types/ocpi-2.3.0.js';
 
 export interface TariffMappingRow {
@@ -124,6 +126,20 @@ function latest(dates: readonly Date[]): Date {
   return new Date(Math.max(...dates.map((d) => d.getTime())));
 }
 
+/** UTC-12, the last timezone to reach a date. */
+const LAST_TIMEZONE_OFFSET_MS = 12 * 3_600_000;
+
+/**
+ * The day past holidays and date ranges are left out from: the date in the
+ * last timezone to reach it (UTC-12). A published tariff is not tied to one
+ * site, and partners apply its dates in each Location's time_zone, so a
+ * holiday stays published until it has ended at every site. With the UTC date
+ * a holiday disappeared while it still applied at a site west of UTC.
+ */
+export function publishedToday(now: Date): string {
+  return new Date(now.getTime() - LAST_TIMEZONE_OFFSET_MS).toISOString().slice(0, 10);
+}
+
 /**
  * A mapping rendered as the OCPI Tariff of a version, in the company
  * currency. Null when its source no longer exists.
@@ -190,9 +206,10 @@ export async function renderTariffMapping(
       tariffs: sources,
       applyRestrictions,
       holidays,
-      today: now.toISOString().slice(0, 10),
+      today: publishedToday(now),
       currency: await getCompanyCurrency(),
       taxBasis: await getCompanyTaxBasis(),
+      graceMinutes: await getIdlingGracePeriodMinutes(),
       countryCode: config.OCPI_COUNTRY_CODE,
       partyId: config.OCPI_PARTY_ID,
       ocpiTariffId: mapping.ocpiTariffId,
@@ -213,4 +230,39 @@ export async function renderPartnerTariffs(
   return rendered
     .filter((t): t is PublishedTariff => t != null)
     .sort((a, b) => b.last_updated.localeCompare(a.last_updated) || a.id.localeCompare(b.id));
+}
+
+/**
+ * A tariff as one session was billed with it (its price snapshot), rendered
+ * as an OCPI Tariff for the session's CDR: without restrictions (the CDR's
+ * charging periods name the tariff of each part), in the session's currency
+ * and tax basis, with the idle grace. The prices are the ones charged, not the
+ * tariff's current ones.
+ */
+export async function renderSnapshotTariff(
+  input: {
+    prices: TariffSource;
+    ocpiTariffId: string;
+    currency: string;
+    taxBasis: TaxBasis | null;
+    lastUpdated: Date;
+  },
+  version: OcpiVersion,
+): Promise<PublishedTariff> {
+  return transformTariff(
+    {
+      tariffs: [input.prices],
+      applyRestrictions: false,
+      holidays: [],
+      today: publishedToday(input.lastUpdated),
+      currency: input.currency,
+      taxBasis: input.taxBasis ?? (await getCompanyTaxBasis()),
+      graceMinutes: await getIdlingGracePeriodMinutes(),
+      countryCode: config.OCPI_COUNTRY_CODE,
+      partyId: config.OCPI_PARTY_ID,
+      ocpiTariffId: input.ocpiTariffId,
+      lastUpdated: input.lastUpdated,
+    },
+    version,
+  );
 }

@@ -4,7 +4,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   costContainsTax,
-  costIncludesTax,
   formatTaxRatePercent,
   grossUnitPrice,
   netUnitPrice,
@@ -120,17 +119,6 @@ describe('formatTaxRatePercent', () => {
     expect(formatTaxRatePercent(0.075, 'de')).toBe('7,5');
     expect(formatTaxRatePercent(0.12345)).toBe('12.35');
     expect(formatTaxRatePercent(0.0825)).toBe('8.25');
-  });
-});
-
-describe('costIncludesTax', () => {
-  it('is true only for an amount above 0 with a tax rate above 0', () => {
-    expect(costIncludesTax(1234, '0.19')).toBe(true);
-    expect(costIncludesTax(1234, 0.19)).toBe(true);
-    expect(costIncludesTax(null, '0.19')).toBe(false);
-    expect(costIncludesTax(0, '0.19')).toBe(false);
-    expect(costIncludesTax(1234, null)).toBe(false);
-    expect(costIncludesTax(1234, '0')).toBe(false);
   });
 });
 

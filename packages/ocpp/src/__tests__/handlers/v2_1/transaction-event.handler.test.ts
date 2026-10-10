@@ -1113,6 +1113,27 @@ describe('v2_1 TransactionEvent handler', () => {
       expect(payload['meterStop']).toBe(15000);
     });
 
+    it('passes the station tariff id and cost details to the projection (I08.FR.22, I12)', async () => {
+      const { handleTransactionEvent } = transactionEventHandlerModule;
+      const costDetails = {
+        totalCost: { currency: 'EUR', typeOfCost: 'NormalCost', total: { inclTax: 2 } },
+        totalUsage: { energy: 0, chargingTime: 120, idleTime: 0 },
+      };
+      const { ctx, publishMock } = makeCtx(
+        ended({
+          transactionInfo: { transactionId: 'tx-cost', stoppedReason: 'Local', tariffId: 'evt-1' },
+          costDetails,
+        }),
+      );
+
+      await handleTransactionEvent(ctx);
+
+      const payload = (publishMock.mock.calls[0]?.[0] as { payload: Record<string, unknown> })
+        .payload;
+      expect(payload['stationTariffId']).toBe('evt-1');
+      expect(payload['costDetails']).toEqual(costDetails);
+    });
+
     it('omits totalCost when earlier projections do not finish in time', async () => {
       settledMock.mockResolvedValue(false);
       const { handleTransactionEvent } = transactionEventHandlerModule;

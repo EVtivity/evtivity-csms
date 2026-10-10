@@ -84,7 +84,7 @@
     "typescript-eslint": "^8.55.0"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.95.1",
+    "@anthropic-ai/sdk": "^0.133.0",
     "@fastify/jwt": "^10.0.0",
     "drizzle-orm": "^0.45.2",
     "nodemailer": "^10.0.11"

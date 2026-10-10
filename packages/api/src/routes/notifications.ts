@@ -71,8 +71,24 @@ import {
   errorWith,
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
 import { config as apiConfig } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
+
+// Company-wide configuration: a site-restricted user gets this 404 before any
+// read or write (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_MESSAGE_NOT_FOUND = {
+  error: 'Message not found',
+  code: 'MESSAGE_NOT_FOUND',
+} as const;
+const ALL_SITES_SETTING_NOT_FOUND = {
+  error: 'Setting not found',
+  code: 'SETTING_NOT_FOUND',
+} as const;
+const ALL_SITES_TEMPLATE_NOT_FOUND = {
+  error: 'Template not found',
+  code: 'TEMPLATE_NOT_FOUND',
+} as const;
 
 const ocppEventSettingItem = z
   .object({
@@ -449,6 +465,22 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'transactionId',
     'energyDeliveredWh',
     'finalCostCents',
+    'costIncludesTax',
+    'taxFormatted',
+    'taxCents',
+    'netFormatted',
+    'taxRatePercent',
+    'taxLinesFormatted',
+    'energyCostFormatted',
+    'timeCostFormatted',
+    'sessionFeeFormatted',
+    'idleCostFormatted',
+    'reservationFeeFormatted',
+    'partiallyPaid',
+    'chargedFormatted',
+    'chargedCents',
+    'unpaidFormatted',
+    'unpaidCents',
     'currency',
     'durationMinutes',
     'startedAt',
@@ -547,6 +579,22 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'transactionId',
     'energyDeliveredWh',
     'finalCostCents',
+    'costIncludesTax',
+    'taxFormatted',
+    'taxCents',
+    'netFormatted',
+    'taxRatePercent',
+    'taxLinesFormatted',
+    'energyCostFormatted',
+    'timeCostFormatted',
+    'sessionFeeFormatted',
+    'idleCostFormatted',
+    'reservationFeeFormatted',
+    'partiallyPaid',
+    'chargedFormatted',
+    'chargedCents',
+    'unpaidFormatted',
+    'unpaidCents',
     'currency',
     'durationMinutes',
     'startedAt',
@@ -787,10 +835,14 @@ export function notificationRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(ocppEventSettingItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof ocppEventSettingsBody>;
       const channel = body.channel ?? 'email';
       // Validate the recipient against the channel format so misconfigured
@@ -868,6 +920,7 @@ export function notificationRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const { eventType, channel } = request.query as { eventType: string; channel: string };
       const deleted = await db
         .delete(ocppEventSettings)
@@ -899,10 +952,16 @@ export function notificationRoutes(app: FastifyInstance): void {
         operationId: 'listNotifications',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(notificationListQuery),
-        response: { 200: paginatedResponse(notificationHistoryItem) },
+        response: {
+          200: paginatedResponse(notificationHistoryItem),
+          404: errorWith('Message not found, or the user is restricted to some sites', [
+            ERROR_CODES.MESSAGE_NOT_FOUND,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_MESSAGE_NOT_FOUND))) return;
       const params = request.query as z.infer<typeof notificationListQuery>;
       const offset = (params.page - 1) * params.limit;
 
@@ -967,10 +1026,14 @@ export function notificationRoutes(app: FastifyInstance): void {
             ERROR_CODES.EMAIL_SEND_FAILED,
             ERROR_CODES.SMS_SEND_FAILED,
           ]),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const { channel, recipient } = request.body as z.infer<typeof testBody>;
 
       // Fail fast on bad recipients so operators don't see a vague SMTP/Twilio
@@ -1143,10 +1206,14 @@ export function notificationRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(eventToggleSettingItem),
           400: errorWith('The event type is always on', [ERROR_CODES.NOTIFICATION_EVENT_REQUIRED]),
+          404: errorWith('Setting not found, or the user is restricted to some sites', [
+            ERROR_CODES.SETTING_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof driverEventSettingBody>;
       if (!body.isEnabled && isRequiredDriverEventType(body.eventType)) {
         await reply.status(400).send({
@@ -1280,10 +1347,14 @@ export function notificationRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(notificationTemplateDbItem),
           400: errorWith('Template is invalid', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Template not found, or the user is restricted to some sites', [
+            ERROR_CODES.TEMPLATE_NOT_FOUND,
+          ]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TEMPLATE_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof templateUpsertBody>;
       const details: Record<string, string> = {};
       const subjectError = templateError(body.subject);
@@ -1332,10 +1403,16 @@ export function notificationRoutes(app: FastifyInstance): void {
         operationId: 'deleteNotificationTemplate',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(templateCrudQuery),
-        response: { 200: successResponse },
+        response: {
+          200: successResponse,
+          404: errorWith('Template not found, or the user is restricted to some sites', [
+            ERROR_CODES.TEMPLATE_NOT_FOUND,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TEMPLATE_NOT_FOUND))) return;
       const { eventType, channel, language } = request.query as z.infer<typeof templateCrudQuery>;
       await db
         .delete(notificationTemplates)
@@ -1503,6 +1580,12 @@ export function notificationRoutes(app: FastifyInstance): void {
             exposureFormatted: notificationMoney(812_500, companyCurrency),
             limitFormatted: notificationMoney(1_000_000, companyCurrency),
             idleFeeFormatted: notificationUnitPrice(0.25, companyCurrency),
+            taxFormatted: notificationMoney(200, companyCurrency),
+            netFormatted: notificationMoney(1050, companyCurrency),
+            energyCostFormatted: notificationMoney(1000, companyCurrency),
+            sessionFeeFormatted: notificationMoney(250, companyCurrency),
+            chargedFormatted: notificationMoney(1000, companyCurrency),
+            unpaidFormatted: notificationMoney(250, companyCurrency),
             taxRatePercent: notificationTaxRate(0.19),
           },
           body.language,
@@ -1510,6 +1593,14 @@ export function notificationRoutes(app: FastifyInstance): void {
         totalCents: 1250,
         cancellationFeeCents: 595,
         costIncludesTax: true,
+        taxCents: 200,
+        taxLinesFormatted: '',
+        timeCostFormatted: '',
+        idleCostFormatted: '',
+        reservationFeeFormatted: '',
+        partiallyPaid: false,
+        chargedCents: 1250,
+        unpaidCents: 0,
         notCharged: false,
         billingMode: 'account',
         billedTo: 'Acme Logistics',

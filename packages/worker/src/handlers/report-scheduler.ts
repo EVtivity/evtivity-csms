@@ -11,6 +11,11 @@ import {
   renderReport,
   sweepStaleReports,
 } from '@evtivity/services/report.service';
+import {
+  scheduleRunScope,
+  scheduleSkipReason,
+  type ReportSiteScope,
+} from '@evtivity/services/report-scope';
 import { getNotificationSettings, sendEmail, renderTemplate, wrapEmailHtml } from '@evtivity/lib';
 import type { EmailAttachment, RenderedTemplate } from '@evtivity/lib';
 import { isUiLanguage } from '@evtivity/lib/languages';
@@ -38,7 +43,23 @@ async function runOneSchedule(
   log: Logger,
 ): Promise<void> {
   try {
+    // A schedule runs with its creator's access: no run (and no email) for a
+    // missing or deactivated creator or one without reports:read. The next run
+    // moves on, so the schedule resumes once the creator has access again.
+    const skipReason = await scheduleSkipReason(schedule.createdById);
+    if (skipReason != null || schedule.createdById == null) {
+      log.warn(
+        { scheduleId: schedule.id, createdById: schedule.createdById, reason: skipReason },
+        'Scheduled report skipped, its creator cannot read reports',
+      );
+      await advanceSchedule(schedule, null);
+      return;
+    }
+
     const filters = schedule.filters != null ? (schedule.filters as Record<string, unknown>) : {};
+    // The run covers the schedule's sites narrowed to its creator's current
+    // sites; the report row stores that scope.
+    const siteScope = await scheduleRunScope(schedule.siteScope, schedule.createdById);
     const reportId = await queueReport(
       {
         name: schedule.name,
@@ -46,6 +67,7 @@ async function runOneSchedule(
         format: schedule.format,
         filters,
         userId: schedule.createdById,
+        siteScope,
       },
       enqueueReport,
     );
@@ -55,16 +77,7 @@ async function runOneSchedule(
       'Scheduled report queued',
     );
 
-    const nextRunAt = await computeNextRunAtInTz(
-      schedule.frequency,
-      schedule.dayOfWeek,
-      schedule.dayOfMonth,
-    );
-
-    await db
-      .update(reportSchedules)
-      .set({ lastRunAt: now, nextRunAt, updatedAt: sql`now()` })
-      .where(eq(reportSchedules.id, schedule.id));
+    await advanceSchedule(schedule, now);
 
     const recipientEmails = schedule.recipientEmails as string[] | null;
     if (recipientEmails == null || recipientEmails.length === 0) return;
@@ -73,7 +86,13 @@ async function runOneSchedule(
     const notificationSettings = await getNotificationSettings(client);
     if (notificationSettings.smtp == null) return;
 
-    const attachmentsFor = await reportAttachments(schedule, completedReport, filters, log);
+    const attachmentsFor = await reportAttachments(
+      schedule,
+      completedReport,
+      filters,
+      siteScope,
+      log,
+    );
     const companyRows = await client`SELECT value FROM settings WHERE key = 'company.name'`;
     const companyName = (companyRows[0]?.value as string | undefined) ?? 'EVtivity CSMS';
     const templateVars = {
@@ -128,6 +147,22 @@ async function runOneSchedule(
   }
 }
 
+/** Moves the schedule to its next run; `lastRunAt` only when this run queued a report. */
+async function advanceSchedule(
+  schedule: typeof reportSchedules.$inferSelect,
+  lastRunAt: Date | null,
+): Promise<void> {
+  const nextRunAt = await computeNextRunAtInTz(
+    schedule.frequency,
+    schedule.dayOfWeek,
+    schedule.dayOfMonth,
+  );
+  await db
+    .update(reportSchedules)
+    .set({ ...(lastRunAt != null ? { lastRunAt } : {}), nextRunAt, updatedAt: sql`now()` })
+    .where(eq(reportSchedules.id, schedule.id));
+}
+
 // Stored language of the operator users among the recipients, keyed by
 // lowercased email.
 async function recipientLanguages(emails: string[]): Promise<Map<string, string>> {
@@ -148,7 +183,7 @@ const CONTENT_TYPES: Record<string, string> = {
 /**
  * The report attachment in each recipient language, built once per language.
  * The stored report (in the schedule creator's language) is reused for that
- * language; other languages are generated in memory. A file that fails to
+ * language; other languages are generated in memory with the same site scope. A file that fails to
  * generate is logged and the email goes without it, as when the stored report
  * fails. No attachment at all when the stored report did not complete.
  */
@@ -156,6 +191,7 @@ async function reportAttachments(
   schedule: typeof reportSchedules.$inferSelect,
   storedReport: { fileData: Buffer; fileName: string } | null,
   filters: Record<string, unknown>,
+  siteScope: ReportSiteScope,
   log: Logger,
 ): Promise<(language: string) => Promise<EmailAttachment[] | undefined>> {
   if (storedReport == null) return () => Promise.resolve(undefined);
@@ -172,7 +208,13 @@ async function reportAttachments(
     if (byLanguage.has(key)) return byLanguage.get(key);
     let attachments: EmailAttachment[] | undefined;
     try {
-      const file = await renderReport(schedule.reportType, filters, schedule.format, key);
+      const file = await renderReport(
+        schedule.reportType,
+        filters,
+        schedule.format,
+        key,
+        siteScope,
+      );
       attachments = [{ filename: file.fileName, content: file.data, contentType }];
     } catch (err: unknown) {
       log.warn(

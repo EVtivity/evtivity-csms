@@ -52,11 +52,6 @@ export type InvoiceNumberExecutor = Pick<typeof db, 'execute'>;
  * guarantee: nextval is never rolled back.
  *
  * The sequence part (NNNN) is global per kind and does not reset monthly.
- *
- * invoice_number_seq is no longer read. v0.1.41 pods still number through it
- * during the rolling upgrade to v0.1.42, under the same counter row lock and
- * always above the counter, so the two never draw the same number. v0.1.43
- * drops it.
  */
 export async function allocateInvoiceNumber(
   tx: InvoiceNumberExecutor,

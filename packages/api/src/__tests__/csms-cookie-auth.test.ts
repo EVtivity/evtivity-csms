@@ -1,10 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import { registerAuth } from '../plugins/auth.js';
+import { isUserActive } from '../lib/user-active.js';
 
 describe('authenticate decorator with csms_token cookie', () => {
   async function buildApp() {
@@ -46,6 +47,21 @@ describe('authenticate decorator with csms_token cookie', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().userId).toBe('u2');
+    await app.close();
+  });
+
+  it('refuses the csms_token cookie of a deactivated operator', async () => {
+    const app = await buildApp();
+    vi.mocked(isUserActive).mockResolvedValueOnce(false);
+    const token = app.jwt.sign({ userId: 'u_off', roleId: 'r2' }, { expiresIn: '1h' });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      cookies: { csms_token: token },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe('ACCOUNT_DEACTIVATED');
     await app.close();
   });
 

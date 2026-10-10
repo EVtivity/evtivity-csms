@@ -14,6 +14,7 @@ import {
 import { buildCsv } from './csv-builder.js';
 import { buildXlsx } from './xlsx-builder.js';
 import { PdfReportBuilder } from './pdf-builder.js';
+import { loadPdfBranding } from '../pdf-branding.js';
 import type { UiLanguage } from '@evtivity/lib/languages';
 import { inCompanyCurrency } from '../company-currency.js';
 import {
@@ -25,6 +26,7 @@ import {
 import { MoneyCell, moneyCell, csvRows, dateCell, pdfRows } from './report-cells.js';
 import { reportLocale } from './report-locale.js';
 import type { ReportGeneratorResult } from '../report-registry.js';
+import { stationSiteInScope, type ReportSiteScope } from '../report-scope.js';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -32,20 +34,32 @@ interface Filters {
   dateFrom?: string | undefined;
   dateTo?: string | undefined;
   siteId?: string | undefined;
+  /** The report's site scope (report-scope.ts). */
+  scope: ReportSiteScope;
 }
 
-function parseFilters(raw: Record<string, unknown>): Filters {
+function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Filters {
   const dateFromRaw = typeof raw['dateFrom'] === 'string' ? raw['dateFrom'] : undefined;
   const dateToRaw = typeof raw['dateTo'] === 'string' ? raw['dateTo'] : undefined;
   return {
     dateFrom: dateFromRaw != null && ISO_DATE.test(dateFromRaw) ? dateFromRaw : undefined,
     dateTo: dateToRaw != null && ISO_DATE.test(dateToRaw) ? dateToRaw : undefined,
     siteId: typeof raw['siteId'] === 'string' ? raw['siteId'] : undefined,
+    scope,
   };
 }
 
-function buildDateConditions(filters: Filters, tz: string) {
-  const conditions = [];
+/** Conditions on the joined station: the site filter and the report's site scope. */
+function stationConditions(filters: Filters): SQL[] {
+  const conditions: SQL[] = [];
+  if (filters.siteId != null) conditions.push(eq(chargingStations.siteId, filters.siteId));
+  const inScope = stationSiteInScope(chargingStations.siteId, filters.scope);
+  if (inScope != null) conditions.push(inScope);
+  return conditions;
+}
+
+function buildDateConditions(filters: Filters, tz: string): SQL[] {
+  const conditions: SQL[] = [];
   // Compare startedAt projected into the system timezone so YYYY-MM-DD
   // filters mean "the operator's local day" instead of UTC midnight.
   if (filters.dateFrom != null) {
@@ -69,6 +83,8 @@ interface RevenueByDay {
   electricityCostCents: number;
   billedOnAccountCents: number;
   sessionCount: number;
+  costMissingCount: number;
+  costMissingNetCents: number;
 }
 
 interface RevenueBySite {
@@ -79,6 +95,8 @@ interface RevenueBySite {
   electricityCostCents: number;
   billedOnAccountCents: number;
   sessionCount: number;
+  costMissingCount: number;
+  costMissingNetCents: number;
   energyKwh: number;
 }
 
@@ -102,6 +120,8 @@ function revenueConditions(filters: Filters, tz: string): SQL[] {
     );
   }
   if (filters.siteId != null) where.push(sql`${revenueItem.siteId} = ${filters.siteId}`);
+  const inScope = stationSiteInScope(revenueItem.siteId, filters.scope);
+  if (inScope != null) where.push(inScope);
   return where;
 }
 
@@ -120,8 +140,9 @@ async function queryRevenueByDay(
       electricityCostCents: sql<number>`coalesce(sum(${chargingSessions.electricityCostCents}), 0)::float8`,
     })
     .from(chargingSessions);
-  if (filters.siteId != null) {
-    conditions.push(eq(chargingStations.siteId, filters.siteId));
+  const atStations = stationConditions(filters);
+  if (atStations.length > 0) {
+    conditions.push(...atStations);
     costsQuery.innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
   }
 
@@ -148,6 +169,8 @@ async function queryRevenueByDay(
       electricityCostCents: costByDay.get(date) ?? 0,
       billedOnAccountCents: r.billedOnAccountCents,
       sessionCount: r.sessionCount,
+      costMissingCount: r.costMissingCount,
+      costMissingNetCents: r.costMissingNetCents,
     };
   });
 }
@@ -159,10 +182,7 @@ async function queryRevenueBySite(
   noSite: string,
 ): Promise<RevenueBySite[]> {
   const billed = inCompanyCurrency(chargingSessions.currency, currency);
-  const conditions = [...buildDateConditions(filters, tz), billed];
-  if (filters.siteId != null) {
-    conditions.push(eq(sites.id, filters.siteId));
-  }
+  const conditions = [...buildDateConditions(filters, tz), billed, ...stationConditions(filters)];
 
   const [rows, revenue] = await Promise.all([
     db
@@ -194,6 +214,8 @@ async function queryRevenueBySite(
       electricityCostCents: row.electricityCostCents,
       billedOnAccountCents: 0,
       sessionCount: 0,
+      costMissingCount: 0,
+      costMissingNetCents: 0,
       energyKwh: row.energyKwh,
     });
   }
@@ -213,6 +235,8 @@ async function queryRevenueBySite(
         electricityCostCents: 0,
         billedOnAccountCents: 0,
         sessionCount: 0,
+        costMissingCount: 0,
+        costMissingNetCents: 0,
         energyKwh: 0,
       });
     }
@@ -228,6 +252,8 @@ async function queryRevenueBySite(
         electricityCostCents: 0,
         billedOnAccountCents: 0,
         sessionCount: 0,
+        costMissingCount: 0,
+        costMissingNetCents: 0,
         energyKwh: 0,
       } satisfies RevenueBySite);
     site.revenueCents = r.grossCents;
@@ -235,6 +261,8 @@ async function queryRevenueBySite(
     site.taxCents = r.taxCents;
     site.billedOnAccountCents = r.billedOnAccountCents;
     site.sessionCount = r.sessionCount;
+    site.costMissingCount = r.costMissingCount;
+    site.costMissingNetCents = r.costMissingNetCents;
     bySite.set(siteId, site);
   }
   // Biggest sites first.
@@ -249,10 +277,7 @@ async function queryPaymentBreakdown(
   // Payment breakdown must honour the same date + site filters as the rest
   // of the report. Without joining to chargingSessions, the prior version
   // returned cross-time/cross-site totals even when the report was scoped.
-  const conditions = buildDateConditions(filters, tz);
-  if (filters.siteId != null) {
-    conditions.push(eq(chargingStations.siteId, filters.siteId));
-  }
+  const conditions = [...buildDateConditions(filters, tz), ...stationConditions(filters)];
 
   return db
     .select({
@@ -270,9 +295,10 @@ async function queryPaymentBreakdown(
 export async function generateRevenueReport(
   rawFilters: Record<string, unknown>,
   format: string,
-  language: UiLanguage = 'en',
+  language: UiLanguage,
+  siteIds: ReportSiteScope,
 ): Promise<ReportGeneratorResult> {
-  const filters = parseFilters(rawFilters);
+  const filters = parseFilters(rawFilters, siteIds);
   const rl = reportLocale(language, format);
   const { common, columns } = rl.labels;
   const l = rl.labels.revenue;
@@ -291,11 +317,14 @@ export async function generateRevenueReport(
   const totalTaxCents = bySite.reduce((sum, r) => sum + r.taxCents, 0);
   const totalElectricityCents = bySite.reduce((sum, r) => sum + r.electricityCostCents, 0);
   const totalBilledOnAccountCents = bySite.reduce((sum, r) => sum + r.billedOnAccountCents, 0);
+  const totalCostMissingCount = bySite.reduce((sum, r) => sum + r.costMissingCount, 0);
+  const totalCostMissingNetCents = bySite.reduce((sum, r) => sum + r.costMissingNetCents, 0);
 
   // Revenue is billed sessions and reservation fees minus refunds
   // (session-revenue.ts); unpaid account sessions are a column of their own
   // (billed on account), not revenue. Profit is revenue excluding tax minus electricity
-  // cost: the tax collected is owed to the tax authority, not earned.
+  // cost: the tax collected is owed to the tax authority, not earned. Sessions
+  // without an electricity cost are left out of profit and counted in a column.
   const moneyColumns = [
     rl.moneyHeader(l.columns.revenue, currency, common.inclTax),
     rl.moneyHeader(l.columns.tax, currency),
@@ -310,21 +339,39 @@ export async function generateRevenueReport(
     netRevenueCents: number;
     electricityCostCents: number;
     billedOnAccountCents: number;
+    costMissingNetCents: number;
   }): MoneyCell[] => [
     money(r.revenueCents),
     money(r.taxCents),
     money(r.netRevenueCents),
     money(r.electricityCostCents),
-    money(r.netRevenueCents - r.electricityCostCents),
+    money(r.netRevenueCents - r.costMissingNetCents - r.electricityCostCents),
     money(r.billedOnAccountCents),
   ];
-  const dayHeaders = [columns.date, ...moneyColumns, columns.sessions];
-  const dayRows = byDay.map((r) => [dateCell(r.date), ...moneyCells(r), r.sessionCount]);
-  const siteHeaders = [columns.site, ...moneyColumns, columns.sessions, columns.energyKwh];
+  const dayHeaders = [
+    columns.date,
+    ...moneyColumns,
+    columns.sessions,
+    l.columns.sessionsWithoutElectricityCost,
+  ];
+  const dayRows = byDay.map((r) => [
+    dateCell(r.date),
+    ...moneyCells(r),
+    r.sessionCount,
+    r.costMissingCount,
+  ]);
+  const siteHeaders = [
+    columns.site,
+    ...moneyColumns,
+    columns.sessions,
+    l.columns.sessionsWithoutElectricityCost,
+    columns.energyKwh,
+  ];
   const siteRows = bySite.map((r) => [
     r.siteName,
     ...moneyCells(r),
     r.sessionCount,
+    r.costMissingCount,
     Math.round(r.energyKwh * 10) / 10,
   ]);
   const paymentHeaders = [
@@ -354,7 +401,7 @@ export async function generateRevenueReport(
 
   // PDF
   const fmt = (cents: number): string => rl.money(cents, currency);
-  const pdf = new PdfReportBuilder(rl.language);
+  const pdf = new PdfReportBuilder(rl.language, await loadPdfBranding());
   pdf.addTitle(l.title);
   pdf.addSubtitle(rl.period(filters.dateFrom, filters.dateTo, common.allTime));
   pdf.addSummaryRow(rl.summary(l.summary.totalRevenueInclTax), fmt(totalRevenueCents));
@@ -363,7 +410,11 @@ export async function generateRevenueReport(
   pdf.addSummaryRow(rl.summary(l.summary.totalElectricityCost), fmt(totalElectricityCents));
   pdf.addSummaryRow(
     rl.summary(l.summary.totalProfit),
-    fmt(totalNetRevenueCents - totalElectricityCents),
+    fmt(totalNetRevenueCents - totalCostMissingNetCents - totalElectricityCents),
+  );
+  pdf.addSummaryRow(
+    rl.summary(l.summary.totalSessionsWithoutElectricityCost),
+    rl.number(totalCostMissingCount),
   );
   pdf.addSummaryRow(rl.summary(l.summary.totalBilledOnAccount), fmt(totalBilledOnAccountCents));
   pdf.addSummaryRow(rl.summary(l.summary.totalSessions), rl.number(totalSessions));

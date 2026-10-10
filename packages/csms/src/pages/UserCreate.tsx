@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { permissionCatalog } from '@evtivity/lib/permissions';
 import { PermissionEditor } from '@/components/PermissionEditor';
+import { useHasAllSiteAccess } from '@/lib/auth';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 
@@ -37,6 +38,7 @@ interface Site {
 
 export function UserCreate(): React.JSX.Element {
   const { t } = useTranslation();
+  const canGrantAllSites = useHasAllSiteAccess();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -235,20 +237,25 @@ export function UserCreate(): React.JSX.Element {
             )}
             <div className="space-y-2">
               <Label className="leading-6">{t('users.siteAccess')}</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  id="create-all-sites"
-                  type="checkbox"
-                  checked={hasAllSiteAccess}
-                  onChange={(e) => {
-                    setHasAllSiteAccess(e.target.checked);
-                    if (e.target.checked) setSelectedSiteIds([]);
-                  }}
-                  className="h-4 w-4 rounded border-input"
-                />
-                <Label htmlFor="create-all-sites">{t('users.allSites')}</Label>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('users.allSitesDescription')}</p>
+              {/* Only an operator with access to every site may grant it. */}
+              {canGrantAllSites && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="create-all-sites"
+                      type="checkbox"
+                      checked={hasAllSiteAccess}
+                      onChange={(e) => {
+                        setHasAllSiteAccess(e.target.checked);
+                        if (e.target.checked) setSelectedSiteIds([]);
+                      }}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <Label htmlFor="create-all-sites">{t('users.allSites')}</Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t('users.allSitesDescription')}</p>
+                </>
+              )}
               {!hasAllSiteAccess && (
                 <div
                   className={`max-h-48 overflow-y-auto rounded-md border p-3 space-y-2 ${

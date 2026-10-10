@@ -4,8 +4,8 @@
 import postgres from 'postgres';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createLogger } from '@evtivity/lib';
-import type { DomainEvent, PubSubClient } from '@evtivity/lib';
+import { CACHE_INVALIDATE_CHANNEL, createLogger } from '@evtivity/lib';
+import type { DomainEvent, NotificationDispatchResult, PubSubClient } from '@evtivity/lib';
 import { getWebhookAllowedPrivateHosts } from '@evtivity/database';
 import {
   getNotificationSettings,
@@ -38,7 +38,7 @@ export function dispatchDriverNotification(
   variables: Record<string, unknown>,
   templatesDir?: string | string[],
   pubsub?: PubSubClient,
-): Promise<void> {
+): Promise<NotificationDispatchResult> {
   return _dispatchDriverNotification(
     sql,
     eventType,
@@ -84,7 +84,7 @@ export function clearOcppEventSettingsCache(): void {
 // API publishes on `cache_invalidate` after PUT/DELETE on
 // /v1/ocpp-event-settings. Returns the subscription so the caller can
 // close it on shutdown.
-export const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
+export const OCPP_CACHE_INVALIDATE_CHANNEL = CACHE_INVALIDATE_CHANNEL;
 
 interface CacheInvalidateMessage {
   cache?: string;

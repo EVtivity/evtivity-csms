@@ -518,7 +518,7 @@ describe('notification-dispatch', () => {
       // Should not throw
       await expect(
         dispatchDriverNotification(sql as never, 'test.event', 'driver-1', {}, []),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ delivered: [] });
     });
   });
 });

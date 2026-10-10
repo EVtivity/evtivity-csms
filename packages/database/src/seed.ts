@@ -44,7 +44,6 @@ import {
   fleetStations,
   chargingSessions,
   transactionEvents,
-  meterValues,
   reservations,
   sitePowerLimits,
   siteLoadManagement,
@@ -93,9 +92,15 @@ import {
 } from './schema/index.js';
 import { acceptPendingFixtureStations } from './lib/fixture-stations.js';
 import { REBILL_DEMO_METHOD_ID } from './seed-demo-cards.js';
+import { insertDemoMeterValues, type DemoMeterValueRow } from './seed-meter-values.js';
+import {
+  ensureSiteElectricityRates,
+  seedElectricityRateRows,
+  seedSessionElectricityCostCents,
+} from './seed-electricity-rates.js';
+import { mapSeedSettings, seedSettingRows } from './seed-settings.js';
 import argon2 from 'argon2';
 import {
-  encryptString,
   calculateCo2AvoidedKg,
   permissionCatalog,
   STATION_MESSAGE_DEFAULTS,
@@ -110,7 +115,12 @@ import {
   chargedCostBreakdown,
   LOAD_ALLOCATION_STRATEGIES,
 } from '@evtivity/lib';
-import type { SessionCostBreakdown } from '@evtivity/lib';
+import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
+import type {
+  ElectricityRatePeriod,
+  ElectricityRatePeriodRestrictions,
+  SessionCostBreakdown,
+} from '@evtivity/lib';
 
 /**
  * The stored split of a demo session cost (net_cents, tax_cents,
@@ -421,6 +431,11 @@ const seedDemo = process.env['SEED_DEMO'] === 'true';
 // runs, so without it a fresh database keeps the migration defaults.
 // scripts/docker-build.sh passes it only when it has just wiped the database.
 const applyConfig = process.argv.includes('--apply-config');
+const configArgIndex = process.argv.indexOf('--config');
+const configArg = configArgIndex === -1 ? undefined : process.argv[configArgIndex + 1];
+if (configArgIndex !== -1 && configArg === undefined) {
+  throw new Error('--config needs a path to a seed config JSON file.');
+}
 // Same env vars seed-admin.ts honors, so all entry points agree on the admin
 // account. Defaults match the historical dev credentials.
 const initialAdminEmail = process.env['INITIAL_ADMIN_EMAIL'] ?? 'admin@evtivity.local';
@@ -465,8 +480,13 @@ async function seed(): Promise<void> {
   const animatedLogoSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120"><defs><mask id="logoRingGaps"><rect width="120" height="120" fill="white"/><polygon points="68.82,-8.24 76.70,-6.86 69.82,32.54 61.94,31.16" fill="black"/><polygon points="52.08,87.46 59.96,88.84 53.08,128.24 45.20,126.86" fill="black"/></mask><style>@keyframes evtivity-logo-spin{0%{transform:rotate(0deg)}12%{transform:rotate(360deg)}100%{transform:rotate(360deg)}}@keyframes evtivity-logo-pulse{0%,100%{fill:#22c55e;transform:scale(0.95);filter:drop-shadow(0 0 0 rgba(34,197,94,0))}50%{fill:#16a34a;transform:scale(0.9);filter:drop-shadow(0 0 6px rgba(34,197,94,0.7))}}.evtivity-logo-ring{transform-origin:60px 60px;animation:evtivity-logo-spin 10s ease-in-out infinite}.evtivity-logo-bolt{transform-origin:60px 60px;transform:scale(0.95);fill:#22c55e;animation:evtivity-logo-pulse 5s ease-in-out infinite}@media (prefers-reduced-motion:reduce){.evtivity-logo-ring{animation:none}.evtivity-logo-bolt{animation:none}}</style></defs><g class="evtivity-logo-ring"><circle cx="60" cy="60" r="50" fill="none" stroke="#22c55e" stroke-width="12" mask="url(#logoRingGaps)"/></g><path class="evtivity-logo-bolt" d="M68 20L38 68h22l-6 32 30-48H62l6-32z"/></svg>`;
   const animatedLogoDataUri = `data:image/svg+xml;base64,${Buffer.from(animatedLogoSvg).toString('base64')}`;
 
-  // Load overrides from seed.config.json (gitignored, not committed)
-  const seedConfigPath = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'seed.config.json');
+  // Load overrides from seed.config.json (gitignored, not committed), or from
+  // the file `--config <path>` names (tests).
+  const seedConfigPath =
+    configArg ?? resolve(dirname(fileURLToPath(import.meta.url)), '..', 'seed.config.json');
+  if (configArg !== undefined && !existsSync(configArg)) {
+    throw new Error(`--config: ${configArg} does not exist.`);
+  }
   let seedOverrides: Record<string, unknown> = {};
   if (existsSync(seedConfigPath)) {
     const raw = JSON.parse(readFileSync(seedConfigPath, 'utf-8')) as {
@@ -578,6 +598,11 @@ async function seed(): Promise<void> {
     'company.state': 'CA',
     'company.zip': '94105',
     'company.country': 'US',
+    'company.taxId': '',
+    'company.taxIdLabel': '',
+    'company.registrationNumber': '',
+    'company.invoiceEmail': '',
+    'company.invoicePhone': '',
     'company.logo': animatedLogoDataUri,
     'company.favicon': logoDataUri,
     qr_code_icon: logoSvg,
@@ -594,6 +619,9 @@ async function seed(): Promise<void> {
     'prepaid.lowCreditThresholdCents': 500,
     'invoice.paymentTermsDays': 30,
     'fleet.invoiceRunDay': 1,
+    // Every generated PDF: '' is the default EVtivity logo; '' as a footer prints none.
+    'pdf.logo': '',
+    'pdf.footer': 'www.evtivity.com',
     'session.staleTimeoutHours': 24,
     // Connection timeout (s) assumed for a station that has not reported its own,
     // when the CSMS closes a remote start the driver never plugged in for.
@@ -665,21 +693,30 @@ async function seed(): Promise<void> {
     'googleMaps.defaultLat': '39.8283',
     'googleMaps.defaultLng': '-98.5795',
     'googleMaps.defaultZoom': '4',
+    'ai.anthropic.apiKeyEnc': '',
+    'ai.anthropic.baseUrl': '',
+    'ai.openai.apiKeyEnc': '',
+    'ai.openai.baseUrl': '',
+    'ai.gemini.apiKeyEnc': '',
+    'ai.gemini.baseUrl': '',
+    'ai.deepseek.apiKeyEnc': '',
+    'ai.deepseek.baseUrl': '',
+    'ai.rateLimit.userPerMinute': 10,
+    'ai.rateLimit.sitePerMinute': 60,
+    'ai.budget.userDailyTokens': 2000000,
+    'ai.maxToolCallsPerTurn': 20,
+    'ai.conversationRetentionDays': 30,
+    'ai.attachments.maxBytes': 10485760,
+    'ai.attachments.maxPerMessage': 5,
     'chatbotAi.enabled': false,
     'chatbotAi.provider': 'anthropic',
-    'chatbotAi.apiKeyEnc': '',
     'chatbotAi.model': '',
-    'chatbotAi.temperature': '',
-    'chatbotAi.topP': '',
-    'chatbotAi.topK': '',
+    'chatbotAi.effort': 'medium',
     'chatbotAi.systemPrompt': '',
     'supportAi.enabled': true,
     'supportAi.provider': '',
-    'supportAi.apiKeyEnc': '',
     'supportAi.model': '',
-    'supportAi.temperature': '',
-    'supportAi.topP': '',
-    'supportAi.topK': '',
+    'supportAi.effort': 'medium',
     'supportAi.systemPrompt': '',
     'supportAi.tone': 'professional',
     'sso.enabled': false,
@@ -692,66 +729,28 @@ async function seed(): Promise<void> {
     'sso.attributeMapping': '{"email":"email","firstName":"firstName","lastName":"lastName"}',
   };
 
-  // Config file uses plaintext key names (no Enc suffix). Map them to DB key names.
-  const encryptedKeyMap: Record<string, string> = {
-    's3.accessKeyId': 's3.accessKeyIdEnc',
-    's3.secretAccessKey': 's3.secretAccessKeyEnc',
-    'stripe.secretKey': 'stripe.secretKeyEnc',
-    'stripe.webhookSecret': 'stripe.webhookSecretEnc',
-    'stripe.connectWebhookSecret': 'stripe.connectWebhookSecretEnc',
-    'adyen.apiKey': 'adyen.apiKeyEnc',
-    'adyen.hmacKey': 'adyen.hmacKeyEnc',
-    'adyen.hmacKeyPrevious': 'adyen.hmacKeyPreviousEnc',
-    'adyen.webhookPassword': 'adyen.webhookPasswordEnc',
-    'security.recaptcha.secretKey': 'security.recaptcha.secretKeyEnc',
-    'pnc.hubject.clientSecret': 'pnc.hubject.clientSecretEnc',
-    'pnc.local.ca': 'pnc.local.caEnc',
-    'chatbotAi.apiKey': 'chatbotAi.apiKeyEnc',
-    'supportAi.apiKey': 'supportAi.apiKeyEnc',
-    'sso.cert': 'sso.certEnc',
-    // Operators editing seed.config.json keep the plaintext key names; the
-    // seed maps them to the *Enc db keys and the auto-encrypt loop below
-    // encrypts the value.
-    'smtp.password': 'smtp.passwordEnc',
-    'twilio.authToken': 'twilio.authTokenEnc',
-    'ftp.password': 'ftp.passwordEnc',
-    'googleMaps.apiKey': 'googleMaps.apiKeyEnc',
-    'mobile.attestation.android.serviceAccount': 'mobile.attestation.android.serviceAccountEnc',
-  };
-
-  // Remap config file keys to their Enc DB counterparts. The explicit
-  // configuration is the env registration policy (when set) plus the config
-  // file, which wins.
+  // Remap config file keys to their Enc DB counterparts (seed-settings.ts).
+  // The explicit configuration is the env registration policy (when set) plus
+  // the config file, which wins. A removed key and a secret-looking key with
+  // no Enc mapping are skipped, so no secret lands as a plaintext row.
   const explicitSettings: Record<string, unknown> = {};
   if (envRegistrationPolicy === 'open' || envRegistrationPolicy === 'approval-required') {
     explicitSettings['ocpp.registrationPolicy'] = envRegistrationPolicy;
   }
-  for (const [key, value] of Object.entries(seedOverrides)) {
-    const dbKey = encryptedKeyMap[key] ?? key;
-    explicitSettings[dbKey] = value;
-  }
+  const mappedSeedSettings = mapSeedSettings(seedOverrides);
+  for (const warning of mappedSeedSettings.warnings) console.warn(`  ${warning}`);
+  Object.assign(explicitSettings, mappedSeedSettings.settings);
 
   // Merge: explicit configuration wins over built-in defaults for missing keys
   const mergedSettings = { ...defaultSettings, ...explicitSettings };
 
-  // Auto-encrypt keys ending in "Enc" when they have a non-empty plaintext value.
-  // Fail loud if any Enc key has a non-empty value but SETTINGS_ENCRYPTION_KEY is
-  // missing -- the alternative is silently persisting credentials as plaintext,
-  // which breaks the "Enc suffix == encrypted at rest" contract and then makes
-  // every subsequent decryption attempt at runtime fail with a confusing error.
-  const encryptionKey = process.env['SETTINGS_ENCRYPTION_KEY'] ?? '';
-  const settingsRows = Object.entries(mergedSettings).map(([key, value]) => {
-    if (key.endsWith('Enc') && typeof value === 'string' && value !== '') {
-      if (encryptionKey === '') {
-        throw new Error(
-          `Cannot seed ${key} with a non-empty value when SETTINGS_ENCRYPTION_KEY is missing. ` +
-            `Set the env var or clear ${key} in seed.config.json.`,
-        );
-      }
-      return { key, value: encryptString(value, encryptionKey) };
-    }
-    return { key, value };
-  });
+  // Encrypts every non-empty Enc value with SETTINGS_ENCRYPTION_KEY and fails
+  // loud without the key: persisting credentials as plaintext would break the
+  // "Enc suffix == encrypted at rest" contract (P12).
+  const settingsRows = seedSettingRows(
+    mergedSettings,
+    process.env['SETTINGS_ENCRYPTION_KEY'] ?? '',
+  );
 
   // Only missing keys are added. An existing value is the operator's (or the
   // migration default) and a rerun must not reset it (P7).
@@ -863,6 +862,13 @@ async function seed(): Promise<void> {
       target: [stationMessageTemplates.state, stationMessageTemplates.language],
     });
   console.log(`  ${String(stationMessageTemplateRows.length)} station message templates seeded.`);
+
+  // The migration 0001 Main Office site gets the seeded electricity rates when
+  // it has none (an operator's rates stay), with and without demo data.
+  const mainOfficeRates = await ensureSiteElectricityRates(db, 'sit_000000000001');
+  if (mainOfficeRates > 0) {
+    console.log(`  ${String(mainOfficeRates)} electricity rate periods added to Main Office.`);
+  }
 
   if (!seedDemo) {
     // When SEED_DEMO=false, only create roles, admin user, and permissions, then exit
@@ -997,7 +1003,7 @@ async function seed(): Promise<void> {
   // computed from that and the connectors, so it is not seeded directly.
   const disabledReasons: Array<'operator' | null> = [null, null, null, null, 'operator'];
   // Hash default password for SP1/SP2 stations (matches simulator default STATION_PASSWORD=password)
-  const stationPasswordHash = await argon2.hash('password');
+  const stationPasswordHash = await argon2.hash('password', { ...STATION_PASSWORD_HASH_OPTIONS });
   // Track Saratoga Springs site IDs for station-level coordinate assignment
   const saratogaSiteIds = new Set(createdSites.slice(0, 5).map((s) => s.id));
   const saratogaSiteCoords = new Map<string, { lat: number; lng: number }>();
@@ -1713,30 +1719,30 @@ async function seed(): Promise<void> {
   console.log(`  ${String(pgSiteRows.length)} pricing-group-site assignments created.`);
 
   // ------ Electricity rate periods (one default + one weekday peak per site) ------
-  const electricityRateRows = createdSites.flatMap((site) => [
-    {
-      siteId: site.id,
-      name: 'Standard',
-      ratePerKwh: '0.120000',
-      restrictions: null,
-      priority: 0,
-      isDefault: true,
-    },
-    {
-      siteId: site.id,
-      name: 'Weekday Peak',
-      ratePerKwh: '0.220000',
-      restrictions: {
-        timeRange: { startTime: '16:00', endTime: '21:00' },
-        daysOfWeek: [1, 2, 3, 4, 5],
-      },
-      priority: 20,
-      isDefault: false,
-    },
-  ]);
+  const electricityRateRows = createdSites.flatMap((site) => seedElectricityRateRows(site.id));
+  const siteRatePeriods = new Map<string, ElectricityRatePeriod[]>();
   for (let i = 0; i < electricityRateRows.length; i += 500) {
-    await db.insert(siteElectricityRatePeriods).values(electricityRateRows.slice(i, i + 500));
+    const inserted = await db
+      .insert(siteElectricityRatePeriods)
+      .values(electricityRateRows.slice(i, i + 500))
+      .returning();
+    for (const row of inserted) {
+      const list = siteRatePeriods.get(row.siteId) ?? [];
+      list.push({
+        id: row.id,
+        siteId: row.siteId,
+        name: row.name,
+        ratePerKwh: row.ratePerKwh,
+        restrictions: row.restrictions as ElectricityRatePeriodRestrictions | null,
+        priority: row.priority,
+        isDefault: row.isDefault,
+      });
+      siteRatePeriods.set(row.siteId, list);
+    }
   }
+  const siteTimezones = new Map(
+    createdSites.map((site, i) => [site.id, at(siteRows, i).timezone] as const),
+  );
   console.log(
     `  ${String(electricityRateRows.length)} electricity rate periods created across ${String(createdSites.length)} sites.`,
   );
@@ -1828,8 +1834,18 @@ async function seed(): Promise<void> {
     const meterStop = status !== 'active' ? meterStart + energyWh : null;
     // Cost: ~$0.15-0.30/kWh, so cents = energyWh / 1000 * 15-30
     const costCents = Math.round((energyWh / 1000) * randomInt(15, 30));
-    // Operator electricity cost at the seeded $0.12/kWh Standard rate.
-    const electricityCostCents = status !== 'active' ? Math.round((energyWh / 1000) * 12) : null;
+    // Operator electricity cost from the site's rate periods, as the session
+    // end projection computes it (the period in force at the end time).
+    const stationSiteId = at(stationRows, stationIdx).siteId;
+    const electricityCostCents =
+      endedAt != null
+        ? seedSessionElectricityCostCents(
+            siteRatePeriods.get(stationSiteId) ?? [],
+            energyWh,
+            endedAt,
+            siteTimezones.get(stationSiteId),
+          )
+        : null;
 
     sessionRows.push({
       currency: companyCurrency,
@@ -2002,16 +2018,7 @@ async function seed(): Promise<void> {
     'Voltage',
     'SoC',
   ];
-  const meterValueRows: Array<{
-    stationId: string;
-    sessionId: string;
-    timestamp: Date;
-    measurand: string;
-    unit: string;
-    value: string;
-    context: string;
-    location: string;
-  }> = [];
+  const meterValueRows: DemoMeterValueRow[] = [];
 
   for (const session of createdSessions.slice(0, 8000)) {
     const start = session.startedAt ?? new Date();
@@ -2058,10 +2065,8 @@ async function seed(): Promise<void> {
     }
   }
 
-  for (let i = 0; i < meterValueRows.length; i += 500) {
-    await db.insert(meterValues).values(meterValueRows.slice(i, i + 500));
-  }
-  console.log(`  ${String(meterValueRows.length)} meter values created.`);
+  const meterValueCount = await insertDemoMeterValues(client, meterValueRows);
+  console.log(`  ${String(meterValueCount)} meter values created.`);
 
   // ------ Reservations (30) ------
   const reservationStatuses: Array<'active' | 'used' | 'cancelled' | 'expired'> = [

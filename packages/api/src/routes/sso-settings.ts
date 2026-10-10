@@ -12,6 +12,15 @@ import { successResponse, itemResponse, errorWith } from '../lib/response-schema
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { config as apiConfig } from '../lib/config.js';
+import { requireAllSiteAccess } from '../lib/site-access.js';
+
+// SSO decides who signs in as which operator: company-wide, so a
+// site-restricted user gets this 404 before any read or write
+// (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_SETTING_NOT_FOUND = {
+  error: 'Setting not found',
+  code: 'SETTING_NOT_FOUND',
+} as const;
 
 const SSO_KEYS = [
   'sso.enabled',
@@ -56,10 +65,14 @@ export function ssoSettingsRoutes(app: FastifyInstance): void {
         summary: 'Get SSO (SAML 2.0) settings',
         operationId: 'getSsoSettings',
         security: [{ bearerAuth: [] }],
-        response: { 200: itemResponse(z.record(z.unknown())) },
+        response: {
+          200: itemResponse(z.record(z.unknown())),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+        },
       },
     },
-    async () => {
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const rows = await db.select().from(settings).where(like(settings.key, 'sso.%'));
       const result: Record<string, unknown> = {};
       for (const row of rows) {
@@ -82,11 +95,13 @@ export function ssoSettingsRoutes(app: FastifyInstance): void {
         body: zodSchema(ssoSettingsBody),
         response: {
           200: successResponse,
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
           500: errorWith('Encryption key missing', [ERROR_CODES.ENCRYPTION_KEY_MISSING]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof ssoSettingsBody>;
 
       const upsert = (key: string, value: unknown) =>

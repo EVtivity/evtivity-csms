@@ -154,7 +154,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'ocpp_ping_success_rate'
+              expr: 'max(ocpp_ping_success_rate)'
               instant: true
               refId: A
           - refId: B
@@ -201,7 +201,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'ocpp_connected_stations'
+              expr: 'max(ocpp_connected_stations)'
               instant: true
               refId: A
           - refId: B
@@ -300,7 +300,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'sum(stations_total{is_online="true"})'
+              expr: 'sum(max by (is_online) (stations_total{is_online="true"}))'
               instant: true
               refId: A
           - refId: B
@@ -347,7 +347,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'sum(connectors_total{status="faulted"})'
+              expr: 'sum(max by (status) (connectors_total{status="faulted"}))'
               instant: true
               refId: A
           - refId: B
@@ -394,7 +394,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'support_cases_open'
+              expr: 'max(support_cases_open)'
               instant: true
               refId: A
           - refId: B
@@ -441,7 +441,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'sessions_active'
+              expr: 'max(sessions_active)'
               instant: true
               refId: A
           - refId: B
@@ -488,7 +488,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'idle_sessions_active'
+              expr: 'max(idle_sessions_active)'
               instant: true
               refId: A
           - refId: B
@@ -535,7 +535,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: 'sum(delta(revenue_cents_total[1h]))'
+              expr: 'sum(max by (currency) (delta(revenue_cents_total[1h])))'
               refId: A
           - refId: B
             relativeTimeRange:

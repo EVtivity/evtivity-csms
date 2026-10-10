@@ -4,7 +4,8 @@
 import crypto from 'node:crypto';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, sql as dsql } from 'drizzle-orm';
+import { eq, and, desc, count, inArray, sql as dsql } from 'drizzle-orm';
+import type { AnyColumn, SQL } from 'drizzle-orm';
 import {
   db,
   pkiCaCertificates,
@@ -13,6 +14,7 @@ import {
   writeAudit,
   certificateAuditLog,
   isPncEnabled,
+  chargingStations,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -29,6 +31,12 @@ import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
 import {
+  checkStationSiteAccess,
+  getUserSiteIds,
+  requireAllSiteAccess,
+} from '../lib/site-access.js';
+import type { JwtPayload } from '../plugins/auth.js';
+import {
   successResponse,
   paginatedResponse,
   itemResponse,
@@ -36,6 +44,14 @@ import {
 } from '../lib/response-schemas.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+
+// The V2G root trust store serves every station: changing it is company-wide,
+// so a site-restricted user gets this 404 before any write
+// (requireAllSiteAccess, features/site-access-control.md).
+const ALL_SITES_CA_CERT_NOT_FOUND = {
+  error: 'CA certificate not found',
+  code: 'CA_CERT_NOT_FOUND',
+} as const;
 // OCPP 2.1 InstallCertificateUseEnumType + V2G CertificateUseEnumType
 const PKI_CERTIFICATE_TYPES = [
   'V2GRootCertificate',
@@ -229,6 +245,29 @@ async function invalidateCaCertificateCache(log: FastifyBaseLogger): Promise<voi
   }
 }
 
+/**
+ * Condition that keeps rows whose station column points to a station at one of
+ * `siteIds`. Rows without a station and unsited stations drop out, so a
+ * site-restricted user sees only certificates of its own sites. `siteIds`
+ * must not be empty.
+ */
+function stationInSites(stationIdColumn: AnyColumn, siteIds: string[]): SQL {
+  return inArray(
+    stationIdColumn,
+    db
+      .select({ id: chargingStations.id })
+      .from(chargingStations)
+      .where(inArray(chargingStations.siteId, siteIds)),
+  );
+}
+
+/** A CSR the user may act on: it has a station and the station is in scope. */
+async function csrInScope(stationId: string | null, userId: string): Promise<boolean> {
+  if ((await getUserSiteIds(userId)) == null) return true;
+  if (stationId == null) return false;
+  return checkStationSiteAccess(stationId, userId);
+}
+
 export function pncCertificateRoutes(app: FastifyInstance): void {
   // Gate the entire PnC certificate API on the pnc.enabled feature flag.
   // Certificate routes return 403 PNC_DISABLED when the feature is off.
@@ -307,10 +346,12 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(caCertItem),
           400: errorWith('Invalid certificate', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('CA certificate not found', [ERROR_CODES.CA_CERT_NOT_FOUND]),
         },
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_CA_CERT_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof uploadCaCertBody>;
 
       // Parse the PEM up front and extract metadata (serial, issuer, subject,
@@ -391,6 +432,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_CA_CERT_NOT_FOUND))) return;
       const { id } = request.params as z.infer<typeof idParams>;
 
       const [deleted] = await db
@@ -441,8 +483,14 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
     async (request) => {
       const query = request.query as z.infer<typeof csrQuery>;
       const offset = (query.page - 1) * query.limit;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && siteIds.length === 0) return { data: [], total: 0 };
 
       const conditions = [];
+      if (siteIds != null) {
+        conditions.push(stationInSites(pkiCsrRequests.stationId, siteIds));
+      }
       if (query.status != null) {
         conditions.push(eq(pkiCsrRequests.status, query.status));
       }
@@ -518,7 +566,8 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         .from(pkiCsrRequests)
         .where(and(eq(pkiCsrRequests.id, id), eq(pkiCsrRequests.status, 'pending')));
 
-      if (csrRow == null) {
+      const { userId } = request.user as JwtPayload;
+      if (csrRow == null || !(await csrInScope(csrRow.stationId, userId))) {
         await reply.status(404).send({ error: 'Pending CSR not found', code: 'CSR_NOT_FOUND' });
         return;
       }
@@ -591,6 +640,17 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof idParams>;
+      const { userId } = request.user as JwtPayload;
+
+      // Check the CSR's station site before changing anything.
+      const [csrRow] = await db
+        .select({ stationId: pkiCsrRequests.stationId })
+        .from(pkiCsrRequests)
+        .where(and(eq(pkiCsrRequests.id, id), eq(pkiCsrRequests.status, 'pending')));
+      if (csrRow == null || !(await csrInScope(csrRow.stationId, userId))) {
+        await reply.status(404).send({ error: 'Pending CSR not found', code: 'CSR_NOT_FOUND' });
+        return;
+      }
 
       const [updated] = await db
         .update(pkiCsrRequests)
@@ -642,8 +702,14 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
     async (request) => {
       const query = request.query as z.infer<typeof stationCertQuery>;
       const offset = (query.page - 1) * query.limit;
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      if (siteIds != null && siteIds.length === 0) return { data: [], total: 0 };
 
       const conditions = [];
+      if (siteIds != null) {
+        conditions.push(stationInSites(stationCertificates.stationId, siteIds));
+      }
       if (query.stationId != null) {
         conditions.push(eq(stationCertificates.stationId, query.stationId));
       }
@@ -685,6 +751,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         response: {
           200: itemResponse(rootRefreshResult),
+          404: errorWith('CA certificate not found', [ERROR_CODES.CA_CERT_NOT_FOUND]),
           502: errorWith('The PKI provider refresh failed or no OCPP server replied', [
             ERROR_CODES.PKI_ROOT_REFRESH_FAILED,
           ]),
@@ -708,6 +775,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_CA_CERT_NOT_FOUND))) return;
       let result: PncCommandResult | null;
       try {
         result = await requestRootCertificateRefresh();

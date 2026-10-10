@@ -14,11 +14,11 @@ import {
   sessionFeeGrossCents,
 } from '@evtivity/database';
 import {
-  costIncludesTax,
   dispatchSystemNotification,
-  notificationMoney,
   parseSessionCostBreakdown,
+  receiptCapturedCents,
   sessionChargeTax,
+  sessionReceiptVariables,
 } from '@evtivity/lib';
 import type { PaymentContext } from './context.js';
 import { errorMessage, pendingRef } from './context.js';
@@ -842,9 +842,12 @@ async function sendGuestReceipt(
     if (claimed.length === 0) return;
     const [session] = await db
       .select({
+        transactionId: chargingSessions.transactionId,
         energyDeliveredWh: chargingSessions.energyDeliveredWh,
         finalCostCents: chargingSessions.finalCostCents,
-        tariffTaxRate: chargingSessions.tariffTaxRate,
+        netCents: chargingSessions.netCents,
+        taxCents: chargingSessions.taxCents,
+        costBreakdown: chargingSessions.costBreakdown,
         currency: sql<string>`upper(${chargingSessions.currency})`,
         startedAt: chargingSessions.startedAt,
         endedAt: chargingSessions.endedAt,
@@ -854,22 +857,34 @@ async function sendGuestReceipt(
     if (session == null) return;
     const startedAt = session.startedAt != null ? new Date(session.startedAt) : new Date();
     const endedAt = session.endedAt != null ? new Date(session.endedAt) : new Date();
+    // The capture as recorded: a guest shortfall (a cost above the hold, no
+    // saved card for a top-up) leaves it below the final cost, so the receipt
+    // says what was charged and what is unpaid.
+    const paid = await findSessionRecord(sessionId);
     await dispatchSystemNotification(
       client,
       'session.Receipt',
       { email: guest.guestEmail },
-      {
+      sessionReceiptVariables({
+        siteName: null,
         stationId: guest.stationOcppId,
+        transactionId: session.transactionId,
         energyDeliveredWh:
           session.energyDeliveredWh != null ? Number(session.energyDeliveredWh) : 0,
         finalCostCents: session.finalCostCents ?? 0,
-        costFormatted: notificationMoney(session.finalCostCents ?? 0, session.currency),
-        costIncludesTax: costIncludesTax(session.finalCostCents, session.tariffTaxRate),
+        netCents: session.netCents,
+        taxCents: session.taxCents,
+        costBreakdown: session.costBreakdown,
+        capturedCents:
+          paid != null ? receiptCapturedCents(paid.status, paid.capturedAmountCents) : null,
         currency: session.currency,
-        durationMinutes: Math.round((endedAt.getTime() - startedAt.getTime()) / 60000),
         startedAt: startedAt.toISOString(),
         endedAt: endedAt.toISOString(),
-      },
+        // A release below the provider minimum sends no guest receipt.
+        notCharged: false,
+        billingMode: null,
+        billedTo: null,
+      }),
       deps.templatesDirs,
     );
     deps.logger.info({ guestSessionId: guest.id }, 'Guest receipt notification sent');

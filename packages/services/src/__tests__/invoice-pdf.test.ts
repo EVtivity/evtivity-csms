@@ -5,10 +5,13 @@ import { inflateSync } from 'node:zlib';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { warn } = vi.hoisted(() => ({ warn: vi.fn() }));
+const { warn, settingsRows } = vi.hoisted(() => ({
+  warn: vi.fn(),
+  settingsRows: { rows: [] as Array<{ key: string; value: unknown }> },
+}));
 
 vi.mock('@evtivity/database', () => ({
-  client: vi.fn(() => Promise.resolve([{ key: 'company.name', value: 'Acme Charging' }])),
+  client: vi.fn(() => Promise.resolve(settingsRows.rows)),
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({
@@ -30,7 +33,12 @@ vi.mock('../pdf-fonts.js', async (importOriginal) => ({
   },
 }));
 
-import { generateInvoicePdf, resolveInvoicePdfLanguage } from '../invoice-pdf.service.js';
+import {
+  generateInvoicePdf,
+  readInvoiceSeller,
+  resolveInvoicePdfLanguage,
+  sellerDetailLines,
+} from '../invoice-pdf.service.js';
 import { INVOICE_LABELS, INVOICE_LANGUAGES, describeLineItem } from '../invoice-labels.js';
 import type { InvoiceDetail } from '../invoice.service.js';
 
@@ -207,8 +215,92 @@ function detail(language: string): InvoiceDetail {
   };
 }
 
+const COMPANY_NAME_ROW = { key: 'company.name', value: 'Acme Charging' };
+
+/** Every seller field set: name, address, tax ID, registration number, contact. */
+const FULL_SELLER_ROWS = [
+  COMPANY_NAME_ROW,
+  { key: 'company.street', value: 'Hauptstrasse 1' },
+  { key: 'company.zip', value: '10115' },
+  { key: 'company.city', value: 'Berlin' },
+  { key: 'company.state', value: '' },
+  { key: 'company.country', value: 'DE' },
+  { key: 'company.taxId', value: 'DE123456789' },
+  { key: 'company.taxIdLabel', value: '' },
+  { key: 'company.registrationNumber', value: 'HRB 12345' },
+  { key: 'company.invoiceEmail', value: 'billing@acme.example' },
+  { key: 'company.invoicePhone', value: '+49 30 1234567' },
+];
+
 beforeEach(() => {
   warn.mockClear();
+  settingsRows.rows = [COMPANY_NAME_ROW];
+});
+
+function settingsOf(rows: Array<{ key: string; value: unknown }>): Record<string, unknown> {
+  return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+}
+
+describe('invoice seller', () => {
+  it('reads every seller field and prints them under the name', () => {
+    const seller = readInvoiceSeller(settingsOf(FULL_SELLER_ROWS));
+    expect(seller.name).toBe('Acme Charging');
+    expect(sellerDetailLines(seller, INVOICE_LABELS.en)).toEqual([
+      'Hauptstrasse 1',
+      '10115 Berlin',
+      'DE',
+      'Tax ID: DE123456789',
+      'Registration no.: HRB 12345',
+      'billing@acme.example',
+      '+49 30 1234567',
+    ]);
+  });
+
+  it("uses the operator's tax ID label when set", () => {
+    const seller = readInvoiceSeller(
+      settingsOf([...FULL_SELLER_ROWS, { key: 'company.taxIdLabel', value: 'USt-IdNr.' }]),
+    );
+    expect(sellerDetailLines(seller, INVOICE_LABELS.de)).toContain('USt-IdNr.: DE123456789');
+  });
+
+  it('leaves out fields that are not set and falls back to EVtivity without a name', () => {
+    const seller = readInvoiceSeller({ 'company.city': 'Berlin', 'company.taxId': '  ' });
+    expect(seller.name).toBe('EVtivity');
+    expect(sellerDetailLines(seller, INVOICE_LABELS.en)).toEqual(['Berlin']);
+    expect(sellerDetailLines(readInvoiceSeller({}), INVOICE_LABELS.en)).toEqual([]);
+  });
+
+  it('draws the full seller block in the From area', async () => {
+    settingsRows.rows = FULL_SELLER_ROWS;
+    const { text } = pdfContent(await generateInvoicePdf(detail('en')));
+    for (const line of [
+      'FROM',
+      'Acme Charging',
+      'Hauptstrasse 1',
+      '10115 Berlin',
+      'Tax ID: DE123456789',
+      'Registration no.: HRB 12345',
+      'billing@acme.example',
+      '+49 30 1234567',
+    ]) {
+      expect(text).toContain(line);
+    }
+  });
+
+  it('draws only the name when no other seller field is set', async () => {
+    const { text } = pdfContent(await generateInvoicePdf(detail('en')));
+    expect(text).toContain('FROMAcme Charging');
+    expect(text).not.toContain('Tax ID');
+    expect(text).not.toContain('Registration no.');
+  });
+
+  it('draws a CJK seller name in a Latin invoice with the Noto Sans CJK face', async () => {
+    settingsRows.rows = [{ key: 'company.name', value: '杭州充电' }];
+    const { text, fonts, missingGlyphs } = pdfContent(await generateInvoicePdf(detail('en')));
+    expect(missingGlyphs).toEqual([]);
+    expect(text).toContain('杭州充电');
+    expect(fonts.some((font) => /NotoSansCJKsc-Regular$/.test(font))).toBe(true);
+  });
 });
 
 describe('resolveInvoicePdfLanguage', () => {
@@ -326,7 +418,7 @@ describe('generateInvoicePdf', () => {
     const { text } = pdfContent(await generateInvoicePdf(creditNote));
 
     const labels = INVOICE_LABELS.de;
-    expect(text).toContain(`Acme Charging${labels.creditNoteTitle}`);
+    expect(text.startsWith(labels.creditNoteTitle)).toBe(true);
     expect(text).toContain('CN-202606-0001');
     expect(text).toContain(`${labels.creditsInvoice}INV-202606-0042`);
     expect(text).toContain(`${labels.reason}Falscher Tarif`);
@@ -364,19 +456,28 @@ describe('generateInvoicePdf', () => {
     'renders %s labels with the regional Noto Sans CJK face',
     async (language, region) => {
       const labels = INVOICE_LABELS[language];
+      settingsRows.rows = FULL_SELLER_ROWS;
       const { text, fonts, missingGlyphs } = pdfContent(await generateInvoicePdf(detail(language)));
 
       // A character outside the fixture subset draws .notdef: regenerate the
       // subset fixtures to include the new label characters.
       expect(missingGlyphs).toEqual([]);
-      expect(fonts).toHaveLength(2);
-      expect(fonts[0]).toMatch(new RegExp(`^[A-Z]{6}\\+NotoSansCJK${region}-Bold$`));
-      expect(fonts[1]).toMatch(new RegExp(`^[A-Z]{6}\\+NotoSansCJK${region}-Regular$`));
+      // No pdf.footer row: the default footer (www.evtivity.com) is drawn in
+      // Helvetica, since the footer font follows the footer text only.
+      expect(fonts).toContain('Helvetica');
+      expect(text).toContain('www.evtivity.com');
+      const cjkFonts = fonts.filter((font) => font !== 'Helvetica');
+      expect(cjkFonts).toHaveLength(2);
+      expect(cjkFonts[0]).toMatch(new RegExp(`^[A-Z]{6}\\+NotoSansCJK${region}-Bold$`));
+      expect(cjkFonts[1]).toMatch(new RegExp(`^[A-Z]{6}\\+NotoSansCJK${region}-Regular$`));
       expect(text).not.toContain('�');
       expect(text).not.toContain('INVOICE');
       for (const label of [
         labels.title,
         labels.billedTo,
+        labels.from,
+        labels.sellerTaxId.replace('{id}', 'DE123456789'),
+        labels.registrationNumber.replace('{id}', 'HRB 12345'),
         labels.statuses.issued,
         labels.taxSummary,
         labels.netAmount,

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { Navigate, useParams, useNavigate } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { BackButton } from '@/components/back-button';
@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { Card, CardContent } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { useHasCompanyWidePermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import type { PricingGroup } from '@/lib/types';
 
@@ -18,6 +19,7 @@ export function FleetAssignPricing(): React.JSX.Element {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const canEdit = useHasCompanyWidePermission('fleets:write');
 
   const [mutatingId, setMutatingId] = useState<string | null>(null);
   const [pendingGroup, setPendingGroup] = useState<PricingGroup | null>(null);
@@ -38,6 +40,8 @@ export function FleetAssignPricing(): React.JSX.Element {
       setMutatingId(null);
     },
   });
+
+  if (!canEdit) return <Navigate to={`/fleets/${id ?? ''}?tab=pricing`} replace />;
 
   return (
     <div className="space-y-6">

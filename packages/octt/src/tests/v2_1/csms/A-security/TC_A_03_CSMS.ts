@@ -5,6 +5,7 @@ import { OcppClient } from '@evtivity/css/ocpp-client';
 import { db, chargingStations } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { hash } from 'argon2';
+import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
 import type { TestCase, StepResult } from '../../../../types.js';
 
 const KNOWN_PASSWORD = 'test-password-tc-a03';
@@ -24,7 +25,7 @@ export const TC_A_03_CSMS: TestCase = {
 
     // The executor provisions the station as SP0 (no auth). Update it to SP1
     // with a known password so the CSMS enforces Basic Auth.
-    const passwordHash = await hash(KNOWN_PASSWORD);
+    const passwordHash = await hash(KNOWN_PASSWORD, { ...STATION_PASSWORD_HASH_OPTIONS });
     await db
       .update(chargingStations)
       .set({ securityProfile: 1, basicAuthPasswordHash: passwordHash })

@@ -837,6 +837,42 @@ describe('WebPaymentsCtrlr values (C25)', () => {
     ).toEqual(['Rejected', 'Accepted', 'Accepted']);
   });
 
+  it('answers the CSMS support check: TOTPVersion and Enabled, no Available variable', async () => {
+    // The default device model of an OCPP 2.1 simulator station.
+    const h = await makeHarness();
+    const res = await h.invoke('GetVariables', {
+      getVariableData: ['TOTPVersion', 'Enabled', 'Available'].map((name) => ({
+        component: { name: 'WebPaymentsCtrlr' },
+        variable: { name },
+      })),
+    });
+    expect(
+      (res['getVariableResult'] as Array<Record<string, unknown>>).map((r) => [
+        r['attributeStatus'],
+        r['attributeValue'],
+      ]),
+    ).toEqual([
+      ['Accepted', 'v1'],
+      ['Accepted', 'false'],
+      ['UnknownVariable', undefined],
+    ]);
+  });
+
+  it('answers UnknownComponent when the station has no WebPaymentsCtrlr (B06.FR.06)', async () => {
+    const h = await makeHarness();
+    for (const key of [...config(h).keys()]) {
+      if (key.startsWith('WebPaymentsCtrlr.')) config(h).delete(key);
+    }
+    const res = await h.invoke('GetVariables', {
+      getVariableData: [
+        { component: { name: 'WebPaymentsCtrlr' }, variable: { name: 'TOTPVersion' } },
+      ],
+    });
+    expect(
+      (res['getVariableResult'] as Array<Record<string, unknown>>)[0]?.['attributeStatus'],
+    ).toBe('UnknownComponent');
+  });
+
   it('no QR code URL when the configuration is incomplete', async () => {
     const h = await makeHarness();
     setVar(h, 'WebPaymentsCtrlr.Enabled', 'true');

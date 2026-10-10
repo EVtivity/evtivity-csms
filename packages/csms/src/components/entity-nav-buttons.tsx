@@ -21,17 +21,26 @@ interface NavButtonProps {
   icon: React.JSX.Element;
 }
 
+/** 44 px touch targets on small screens, the standard icon size from `sm` up. */
+const NAV_BUTTON_CLASS = 'h-11 w-11 sm:h-10 sm:w-10';
+
 function NavButton({ to, label, icon }: NavButtonProps): React.JSX.Element {
   return (
     <div className="flex flex-col items-center gap-1">
       {to != null ? (
         <Link to={to}>
-          <Button variant="outline" size="icon" aria-label={label}>
+          <Button variant="outline" size="icon" className={NAV_BUTTON_CLASS} aria-label={label}>
             {icon}
           </Button>
         </Link>
       ) : (
-        <Button variant="outline" size="icon" aria-label={label} disabled>
+        <Button
+          variant="outline"
+          size="icon"
+          className={NAV_BUTTON_CLASS}
+          aria-label={label}
+          disabled
+        >
           {icon}
         </Button>
       )}
@@ -49,7 +58,7 @@ export function EntityNavButtons({
   const { prevId, nextId } = useEntityNeighbors(resource, currentId);
 
   return (
-    <div className="ml-auto flex items-start gap-2">
+    <div className="ml-auto flex shrink-0 items-start gap-2">
       <NavButton
         to={prevId != null ? `${basePath}/${prevId}` : null}
         label={t('common.prev')}

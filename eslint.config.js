@@ -196,10 +196,24 @@ export default tseslint.config(
       },
     },
   },
+  // AI provider SDKs load only inside their adapter folder (services/ai/providers/<name>/);
+  // the rest of the API talks to the neutral AiAdapter. TC-AI-P-10 checks the per-folder mapping.
   {
-    files: ['packages/api/src/services/ai/anthropic-provider.ts'],
+    files: ['packages/api/src/**/*.ts'],
+    ignores: ['packages/api/src/services/ai/providers/**'],
     rules: {
-      '@typescript-eslint/no-deprecated': 'off',
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              regex: '^(@anthropic-ai/sdk|openai|@google/genai|@google/generative-ai)(/.*)?$',
+              message:
+                'Import AI provider SDKs only in services/ai/providers/<name>/; use the AiAdapter from the provider registry.',
+            },
+          ],
+        },
+      ],
     },
   },
   {

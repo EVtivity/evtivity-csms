@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, isNotNull, asc, inArray } from 'drizzle-orm';
+import { eq, and, desc, count, isNotNull, asc, inArray, exists, sql } from 'drizzle-orm';
 import {
   db,
   configTemplates,
@@ -28,9 +28,24 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { processConfigPush } from '../lib/config-push.js';
-import { findTemplateTargetConfiguration } from '@evtivity/lib';
+import {
+  findTemplateTargetConfiguration,
+  configTemplateTarget,
+  configTemplateMatchesStation,
+} from '@evtivity/lib';
+import type { SQL } from 'drizzle-orm';
 import { getUserSiteIds } from '../lib/site-access.js';
+import {
+  configTemplateInScopeSql,
+  findScopedConfigTemplate,
+  stationInSitesSql,
+  targetFilterNotFound,
+  targetFilterOutOfScope,
+  isRestrictedCompanyWideWrite,
+  TEMPLATE_NOT_FOUND,
+} from '../lib/fleet-operation-scope.js';
 import { authorize } from '../middleware/rbac.js';
+import { siteInScope } from '../lib/site-scope.js';
 
 const templateVariableSchema = z
   .object({
@@ -220,6 +235,20 @@ const updateTemplateBody = z.object({
   targetFilter: targetFilterSchema,
 });
 
+/** Station conditions for the stations a config template targets. */
+function templateTargetConditions(template: {
+  stationId: string | null;
+  targetFilter: unknown;
+}): SQL[] {
+  const target = configTemplateTarget(template);
+  const conds: SQL[] = [];
+  if (target.stationId != null) conds.push(eq(chargingStations.id, target.stationId));
+  if (target.siteId != null) conds.push(eq(chargingStations.siteId, target.siteId));
+  if (target.vendorId != null) conds.push(eq(chargingStations.vendorId, target.vendorId));
+  if (target.model != null) conds.push(eq(chargingStations.model, target.model));
+  return conds;
+}
+
 export function configTemplateRoutes(app: FastifyInstance): void {
   // Filter options for target filter dropdowns
   app.get(
@@ -249,7 +278,14 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         db
           .selectDistinct({ model: chargingStations.model })
           .from(chargingStations)
-          .where(isNotNull(chargingStations.model))
+          .where(
+            accessibleSiteIds != null
+              ? and(
+                  isNotNull(chargingStations.model),
+                  inArray(chargingStations.siteId, accessibleSiteIds),
+                )
+              : isNotNull(chargingStations.model),
+          )
           .orderBy(asc(chargingStations.model)),
       ]);
 
@@ -300,27 +336,30 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      // A restricted user sees company-wide templates and the templates bound
+      // to its own sites or stations, never another site's.
+      const scope =
+        accessibleSiteIds != null ? configTemplateInScopeSql(accessibleSiteIds) : undefined;
+
       const [rows, countResult] = await Promise.all([
         db
           .select()
           .from(configTemplates)
+          .where(scope)
           .orderBy(desc(configTemplates.createdAt), desc(configTemplates.id))
           .limit(limit)
           .offset(offset),
-        db.select({ total: count() }).from(configTemplates),
+        db.select({ total: count() }).from(configTemplates).where(scope),
       ]);
-
-      const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
 
       const data = await Promise.all(
         rows.map(async (template) => {
-          const filter = template.targetFilter as Record<string, string> | null;
-          const conds = [eq(chargingStations.ocppProtocol, `ocpp${template.ocppVersion}`)];
-          if (filter?.siteId) conds.push(eq(chargingStations.siteId, filter.siteId));
-          if (filter?.vendorId) conds.push(eq(chargingStations.vendorId, filter.vendorId));
-          if (filter?.model) conds.push(eq(chargingStations.model, filter.model));
-          if (filter?.stationId) conds.push(eq(chargingStations.id, filter.stationId));
+          const conds = [
+            eq(chargingStations.ocppProtocol, `ocpp${template.ocppVersion}`),
+            ...templateTargetConditions(template),
+          ];
           if (accessibleSiteIds != null) {
             if (accessibleSiteIds.length === 0) return { ...template, matchingStationsCount: 0 };
             conds.push(inArray(chargingStations.siteId, accessibleSiteIds));
@@ -359,7 +398,9 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [template] = await db.select().from(configTemplates).where(eq(configTemplates.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedConfigTemplate(id, accessibleSiteIds);
       if (template == null) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
@@ -380,11 +421,29 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         operationId: 'createConfigTemplate',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createTemplateBody),
-        response: { 201: itemResponse(templateItem) },
+        response: {
+          201: itemResponse(templateItem),
+          404: errorWith('Target not found', [
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+            ERROR_CODES.TEMPLATE_NOT_FOUND,
+          ]),
+        },
       },
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createTemplateBody>;
+      const { userId } = request.user as { userId: string };
+      const createSiteIds = await getUserSiteIds(userId);
+      if (isRestrictedCompanyWideWrite(createSiteIds, body.targetFilter)) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
+        return;
+      }
+      const outOfScope = await targetFilterOutOfScope(body.targetFilter, createSiteIds);
+      if (outOfScope != null) {
+        await reply.status(404).send(targetFilterNotFound(outOfScope));
+        return;
+      }
 
       const [template] = await db
         .insert(configTemplates)
@@ -431,7 +490,12 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         body: zodSchema(updateTemplateBody),
         response: {
           200: itemResponse(templateItem),
-          404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Template, site or station not found', [
+            ERROR_CODES.TEMPLATE_NOT_FOUND,
+            ERROR_CODES.SITE_NOT_FOUND,
+            ERROR_CODES.STATION_NOT_FOUND,
+          ]),
         },
       },
     },
@@ -439,9 +503,35 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof templateParams>;
       const body = request.body as z.infer<typeof updateTemplateBody>;
 
-      const [existing] = await db.select().from(configTemplates).where(eq(configTemplates.id, id));
-      if (existing == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const existing = await findScopedConfigTemplate(id, accessibleSiteIds);
+      if (
+        existing == null ||
+        isRestrictedCompanyWideWrite(
+          accessibleSiteIds,
+          existing.targetFilter,
+          existing.stationId,
+        ) ||
+        (body.targetFilter !== undefined &&
+          isRestrictedCompanyWideWrite(accessibleSiteIds, body.targetFilter, existing.stationId))
+      ) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
+        return;
+      }
+      // A template bound to a station targets that station only: its target
+      // filter cannot be changed (it would widen the template's reach).
+      if (existing.stationId != null && body.targetFilter !== undefined) {
+        await reply.status(400).send({
+          error: 'A station template has no target filter',
+          code: 'VALIDATION_ERROR',
+          details: { targetFilter: 'A template bound to a station targets that station only' },
+        });
+        return;
+      }
+      const outOfScope = await targetFilterOutOfScope(body.targetFilter, accessibleSiteIds);
+      if (outOfScope != null) {
+        await reply.status(404).send(targetFilterNotFound(outOfScope));
         return;
       }
 
@@ -492,8 +582,13 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [original] = await db.select().from(configTemplates).where(eq(configTemplates.id, id));
-      if (original == null) {
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const original = await findScopedConfigTemplate(id, accessibleSiteIds);
+      if (
+        original == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, original.targetFilter, original.stationId)
+      ) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
       }
@@ -505,7 +600,11 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           description: original.description,
           ocppVersion: original.ocppVersion,
           variables: original.variables,
-          targetFilter: original.targetFilter,
+          // The copy is not bound to a station. A copy of a station template
+          // targets that station through its filter, so it never reaches
+          // further than the original.
+          targetFilter:
+            original.stationId != null ? { stationId: original.stationId } : original.targetFilter,
         })
         .returning();
 
@@ -550,9 +649,14 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [existing] = await db.select().from(configTemplates).where(eq(configTemplates.id, id));
-      if (existing == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const existing = await findScopedConfigTemplate(id, accessibleSiteIds);
+      if (
+        existing == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, existing.targetFilter, existing.stationId)
+      ) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
         return;
       }
 
@@ -605,7 +709,9 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
-      const [template] = await db.select().from(configTemplates).where(eq(configTemplates.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedConfigTemplate(id, accessibleSiteIds);
       if (template == null) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
@@ -614,20 +720,16 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const ocppVersion = template.ocppVersion;
       const expectedProtocol = `ocpp${ocppVersion}`;
 
-      const filter = template.targetFilter as Record<string, string> | null;
       // Show all stations matching the filter (online + offline) so this list
       // agrees with the matchingStationsCount shown on the templates list page.
       // The push endpoint applies its own isOnline check separately.
-      const conditions = [eq(chargingStations.ocppProtocol, expectedProtocol)];
-      if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
-      if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
-      if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
-      if (filter?.stationId) conditions.push(eq(chargingStations.id, filter.stationId));
+      const conditions = [
+        eq(chargingStations.ocppProtocol, expectedProtocol),
+        ...templateTargetConditions(template),
+      ];
       if (query.status === 'online') conditions.push(eq(chargingStations.isOnline, true));
       if (query.status === 'offline') conditions.push(eq(chargingStations.isOnline, false));
 
-      const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
       if (accessibleSiteIds != null && accessibleSiteIds.length === 0)
         return { data: [], total: 0 };
       if (accessibleSiteIds != null)
@@ -683,9 +785,16 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
 
-      const [template] = await db.select().from(configTemplates).where(eq(configTemplates.id, id));
-      if (template == null) {
-        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedConfigTemplate(id, accessibleSiteIds);
+      // A company-wide template reaches every site, so pushing it needs
+      // access to every site (owner decision 2026-10-09).
+      if (
+        template == null ||
+        isRestrictedCompanyWideWrite(accessibleSiteIds, template.targetFilter, template.stationId)
+      ) {
+        await reply.status(404).send(TEMPLATE_NOT_FOUND);
         return;
       }
 
@@ -701,19 +810,14 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const ocppVersion = template.ocppVersion;
       const expectedProtocol = `ocpp${ocppVersion}`;
 
-      // Resolve target stations from filter, filtered by OCPP protocol
-      const filter = template.targetFilter as Record<string, string> | null;
+      // Resolve target stations, filtered by OCPP protocol. A template bound
+      // to a station reaches that station only.
       const conditions = [
         eq(chargingStations.isOnline, true),
         eq(chargingStations.ocppProtocol, expectedProtocol),
+        ...templateTargetConditions(template),
       ];
-      if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
-      if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
-      if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
-      if (filter?.stationId) conditions.push(eq(chargingStations.id, filter.stationId));
 
-      const { userId } = request.user as { userId: string };
-      const accessibleSiteIds = await getUserSiteIds(userId);
       if (accessibleSiteIds != null && accessibleSiteIds.length === 0) {
         return { success: true, pushId: '' };
       }
@@ -796,27 +900,47 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const limit = query.limit;
       const offset = (page - 1) * limit;
 
-      const [template] = await db
-        .select({ id: configTemplates.id })
-        .from(configTemplates)
-        .where(eq(configTemplates.id, id));
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const template = await findScopedConfigTemplate(id, accessibleSiteIds);
       if (template == null) {
         await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
       }
 
+      // A restricted user sees only the pushes that reached its stations, with
+      // the counts of those stations only.
+      const stationScope =
+        accessibleSiteIds != null
+          ? stationInSitesSql(configTemplatePushStations.stationId, accessibleSiteIds)
+          : undefined;
+      const pushWhere =
+        stationScope == null
+          ? eq(configTemplatePushes.templateId, id)
+          : and(
+              eq(configTemplatePushes.templateId, id),
+              exists(
+                db
+                  .select({ one: sql`1` })
+                  .from(configTemplatePushStations)
+                  .where(
+                    and(
+                      eq(configTemplatePushStations.pushId, configTemplatePushes.id),
+                      stationScope,
+                    ),
+                  ),
+              ),
+            );
+
       const [pushes, countResult] = await Promise.all([
         db
           .select()
           .from(configTemplatePushes)
-          .where(eq(configTemplatePushes.templateId, id))
+          .where(pushWhere)
           .orderBy(desc(configTemplatePushes.createdAt), desc(configTemplatePushes.id))
           .limit(limit)
           .offset(offset),
-        db
-          .select({ total: count() })
-          .from(configTemplatePushes)
-          .where(eq(configTemplatePushes.templateId, id)),
+        db.select({ total: count() }).from(configTemplatePushes).where(pushWhere),
       ]);
 
       // Batch-fetch status counts for all pushes in one query
@@ -830,7 +954,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
                 count: count(),
               })
               .from(configTemplatePushStations)
-              .where(inArray(configTemplatePushStations.pushId, pushIds))
+              .where(and(inArray(configTemplatePushStations.pushId, pushIds), stationScope))
               .groupBy(configTemplatePushStations.pushId, configTemplatePushStations.status)
           : [];
 
@@ -858,7 +982,11 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           rejectedCount: 0,
           failedCount: 0,
         };
-        return { ...push, ...counts };
+        const stationCount =
+          stationScope == null
+            ? push.stationCount
+            : Object.values(counts).reduce((sum, n) => sum + n, 0);
+        return { ...push, ...counts, stationCount };
       });
 
       return { data, total: countResult[0]?.total ?? 0 } satisfies PaginatedResponse<
@@ -901,6 +1029,18 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A restricted user sees only its own stations of the push, and a push
+      // that reached none of them does not exist for it.
+      const { userId } = request.user as { userId: string };
+      const accessibleSiteIds = await getUserSiteIds(userId);
+      const stationWhere =
+        accessibleSiteIds == null
+          ? eq(configTemplatePushStations.pushId, pushId)
+          : and(
+              eq(configTemplatePushStations.pushId, pushId),
+              stationInSitesSql(configTemplatePushStations.stationId, accessibleSiteIds),
+            );
+
       // Get status counts
       const statusCounts = await db
         .select({
@@ -908,8 +1048,13 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           count: count(),
         })
         .from(configTemplatePushStations)
-        .where(eq(configTemplatePushStations.pushId, pushId))
+        .where(stationWhere)
         .groupBy(configTemplatePushStations.status);
+      const visibleTotal = statusCounts.reduce((sum, row) => sum + row.count, 0);
+      if (accessibleSiteIds != null && visibleTotal === 0) {
+        await reply.status(404).send({ error: 'Push not found', code: 'PUSH_NOT_FOUND' });
+        return;
+      }
 
       const counts: Record<string, number> = {
         acceptedCount: 0,
@@ -932,12 +1077,13 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         })
         .from(configTemplatePushStations)
         .innerJoin(chargingStations, eq(configTemplatePushStations.stationId, chargingStations.id))
-        .where(eq(configTemplatePushStations.pushId, pushId))
+        .where(stationWhere)
         .orderBy(asc(chargingStations.stationId))
         .limit(limit)
         .offset(offset);
 
-      return { ...push, ...counts, stations, stationsTotal: push.stationCount };
+      const stationCount = accessibleSiteIds == null ? push.stationCount : visibleTotal;
+      return { ...push, ...counts, stationCount, stations, stationsTotal: stationCount };
     },
   );
 
@@ -952,10 +1098,13 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         operationId: 'getStationConfigDrift',
         security: [{ bearerAuth: [] }],
         params: zodSchema(z.object({ id: z.string().describe('Station ID') })),
-        response: { 200: arrayResponse(configDriftItem) },
+        response: {
+          200: arrayResponse(configDriftItem),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { id } = request.params as { id: string };
 
       // Get station details for filter matching
@@ -969,31 +1118,24 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
 
-      if (station == null) return [];
+      if (station == null) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
+      }
 
       const { userId } = request.user as { userId: string };
       const accessibleSiteIds = await getUserSiteIds(userId);
-      if (
-        accessibleSiteIds != null &&
-        station.siteId != null &&
-        !accessibleSiteIds.includes(station.siteId)
-      ) {
-        return [];
+      if (!siteInScope(accessibleSiteIds, station.siteId)) {
+        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+        return;
       }
 
       // Get all templates
       const templates = await db.select().from(configTemplates);
 
-      // Find templates whose targetFilter matches this station
-      const matchingTemplates = templates.filter((t) => {
-        const filter = t.targetFilter as Record<string, string> | null;
-        if (filter == null) return true; // No filter = all stations
-        if (filter.siteId && filter.siteId !== station.siteId) return false;
-        if (filter.vendorId && filter.vendorId !== station.vendorId) return false;
-        if (filter.model && filter.model !== station.model) return false;
-        if (filter.stationId && filter.stationId !== station.id) return false;
-        return true;
-      });
+      // Templates that target this station. A template bound to a station
+      // matches that station only.
+      const matchingTemplates = templates.filter((t) => configTemplateMatchesStation(t, station));
 
       if (matchingTemplates.length === 0) return [];
 

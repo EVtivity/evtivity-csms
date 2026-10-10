@@ -69,6 +69,14 @@ export const chargingSessions = pgTable(
     meterStart: integer('meter_start'),
     meterStop: integer('meter_stop'),
     energyDeliveredWh: numeric('energy_delivered_wh'),
+    // Energy register rebase (migration 0331, finding B10): energy is
+    // register + offset - meter_start. A newer reading below the newest
+    // projected register (a meter reset or replacement, OCPP 2.1 J02.FR.16)
+    // adds the drop to the offset; a reading older than
+    // meter_last_register_at never changes the energy (session-energy.ts).
+    meterRegisterOffsetWh: numeric('meter_register_offset_wh').notNull().default('0'),
+    meterLastRegisterWh: numeric('meter_last_register_wh'),
+    meterLastRegisterAt: timestamp('meter_last_register_at', { withTimezone: true }),
     stoppedReason: varchar('stopped_reason', { length: 50 }),
     isRoaming: boolean('is_roaming').notNull().default(false),
     remoteStartId: integer('remote_start_id'),
@@ -84,6 +92,14 @@ export const chargingSessions = pgTable(
     tariffTaxRate: numeric('tariff_tax_rate'),
     // Reservation holding fee per minute of the tariff snapshot (issue #33).
     tariffReservationFeePerMinute: numeric('tariff_reservation_fee_per_minute'),
+    // The pricing group the tariff snapshot was resolved in (migration 0340).
+    // Split billing switches resolve only within it, so an assignment or fleet
+    // membership change applies to the next session. A snapshot (no FK).
+    pricingGroupId: text('pricing_group_id'),
+    // Set by the worker's tariff boundary job when it moved the session from a
+    // free to a paid tariff segment; the OCPP projection runs the payment gate
+    // on the next reading and clears it (migration 0340).
+    paymentGateDueAt: timestamp('payment_gate_due_at', { withTimezone: true }),
     // Tax basis ('net' or 'gross') the snapshot prices were entered in,
     // written with the tariff snapshot. Null when the session has no tariff.
     taxBasis: varchar('tax_basis', { length: 5 }),
@@ -102,6 +118,15 @@ export const chargingSessions = pgTable(
     costCeilingCents: integer('cost_ceiling_cents'),
     // The ceiling last sent to an OCPP 2.1 station as transactionLimit.maxCost.
     costCeilingSentCents: integer('cost_ceiling_sent_cents'),
+    // OCPP 2.1 local cost calculation (I08, I11, I12): the tariffId the
+    // station last reported for the transaction (transactionInfo.tariffId),
+    // its last reported costDetails, its total including tax in cents, and,
+    // once the session ended, that total minus final_cost_cents. The CSMS
+    // bills its own cost; these record what the station showed.
+    stationTariffId: varchar('station_tariff_id', { length: 60 }),
+    stationCostDetails: jsonb('station_cost_details'),
+    stationCostCents: integer('station_cost_cents'),
+    stationCostDifferenceCents: integer('station_cost_difference_cents'),
     idleStartedAt: timestamp('idle_started_at', { withTimezone: true }),
     // Timestamp of the meter reading that last raised energy_delivered_wh by
     // 1 Wh or more. The flat-energy idle fallback opens a period only when the

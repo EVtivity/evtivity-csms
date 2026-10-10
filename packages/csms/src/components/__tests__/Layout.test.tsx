@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, cleanup, waitFor, act } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -30,7 +30,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/hooks/use-event-stream', () => ({ useEventStream: () => undefined }));
-vi.mock('@/components/AiAssistant', () => ({ AiAssistant: () => null }));
+vi.mock('@/components/ai/AiAssistantLauncher', () => ({ AiAssistantLauncher: () => null }));
 vi.mock('@/components/layout/UserDropdown', () => ({ UserDropdown: () => null }));
 
 import { Layout } from '../Layout';
@@ -177,10 +177,14 @@ async function renderLayout(
   return container;
 }
 
+beforeEach(() => {
+  useAuth.setState({ hasAllSiteAccess: true });
+});
+
 afterEach(() => {
   cleanup();
   getMock.mockReset();
-  useAuth.setState({ permissions: [] });
+  useAuth.setState({ permissions: [], hasAllSiteAccess: false });
 });
 
 describe('Layout navigation', () => {
@@ -231,5 +235,14 @@ describe('Layout navigation', () => {
       }
     }
     expect([...seen].sort()).toEqual(ALL_ROUTES.map(([to]) => to).sort());
+  });
+
+  it('hides the company-wide logs entry from a site-restricted user', async () => {
+    useAuth.setState({
+      permissions: ['dashboard:read', 'logs:read', 'audit:read'],
+      hasAllSiteAccess: false,
+    });
+    const container = await renderLayout({});
+    expect(navHrefs(container)).toEqual(['/', '/audit']);
   });
 });

@@ -24,9 +24,9 @@
   <a href="README.zh-TW.md">繁體中文</a>
 </p>
 
-An OCPP 1.6 and 2.1 compliant Charging Station Management System for managing EV charging infrastructure. Handles real-time WebSocket communication with charging stations, OCPI 2.2.1/2.3.0 roaming, ISO 15118 Plug and Charge, a REST API for operators, and two React frontends for operators and drivers.
+EVtivity is an AI-powered EV charging platform. At its core is an OCPP 1.6 and 2.1 compliant Charging Station Management System (CSMS) for EV charging infrastructure. It handles real-time WebSocket communication with charging stations, OCPI 2.2.1/2.3.0 roaming, ISO 15118 Plug and Charge, a REST API for operators, and two React frontends for operators and drivers.
 
-EVtivity integrates AI across the operator experience. A chatbot assistant answers natural-language questions about stations, sessions, revenue, and operations by calling API endpoints as tools. A support AI assistant drafts replies for customer support cases by gathering full case context. Both support multiple LLM providers (Anthropic, OpenAI, Gemini) with configurable parameters at system and per-user levels, respond in the operator's preferred language, and enforce security guardrails that prevent leaking sensitive data.
+AI is built into the operator dashboard. The AI assistant answers questions about stations, sessions, revenue, and operations, reads attachments such as a photo of a charger screen, a PDF, or a log, and proposes changes that run only after the operator confirms. The support assist drafts replies to support cases in the driver's language. Both work with Anthropic, OpenAI, Gemini, or DeepSeek, and secrets and personal data are masked before they reach the model.
 
 ## Architecture
 
@@ -69,6 +69,19 @@ graph TB
 ```
 
 ## Feature Overview
+
+### AI-Powered Operations
+
+| Feature                  | Description                                                                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| AI Assistant             | Ask about stations, sessions, revenue, and operations in plain language. Answers stream, and conversations are kept with search, rename, and delete          |
+| Image and File Analysis  | Attach images (such as a photo of a charger screen), PDF, CSV, text, log, and JSON files                                                                     |
+| Confirmed Changes        | The assistant reads data through API tools. A change it proposes shows a confirmation card and runs only after the operator confirms                         |
+| Support Assist           | Drafts support case replies in the driver's language and internal notes in the operator's, with the sources it read                                          |
+| Provider Choice          | Anthropic, OpenAI, Google Gemini, or DeepSeek, set per surface or per user, with an effort level                                                             |
+| Redaction and Guardrails | Secrets and personal data are masked in tool results before they reach the model. Settings, secrets, users, payments, and station security stay out of reach |
+| Six Languages            | Answers in the operator's language: English, German, Spanish, Korean, Simplified Chinese, and Traditional Chinese                                            |
+| Limits and Audit         | Rate limits per user and per site, a daily token budget per user, and audit entries for changes made through the assistant                                   |
 
 ### OCPP Compliance
 
@@ -146,20 +159,6 @@ graph TB
 | In-app Notifications  | Real-time notification bell with history drawer and per-channel preferences       |
 | Support Cases         | Support tickets with session linking, refund actions, and S3 file attachments     |
 | Notifications         | Email and SMS for session events, payment status, reservations, and support cases |
-
-### AI-Powered Operations
-
-| Feature                  | Description                                                                                            |
-| ------------------------ | ------------------------------------------------------------------------------------------------------ |
-| Chatbot Assistant        | Natural-language operator assistant with access to all API endpoints via auto-generated tool catalog   |
-| Two-tier Tool Selection  | Category-based tool routing keeps per-request tool count under provider limits (128)                   |
-| Support Case AI          | Draft customer replies and internal notes from full case context (messages, sessions, station, driver) |
-| Multi-provider Support   | Anthropic Claude, OpenAI GPT, and Google Gemini with per-user and system-level configuration           |
-| LLM Parameters           | Configurable temperature, top-p, top-k, system prompt, and tone at system and per-user levels          |
-| Language-aware Responses | AI responds in the operator's preferred language across all 6 supported locales                        |
-| Security Guardrails      | Blocks password and API key leaking, requires confirmation before data modifications                   |
-| Auto-generated Tools     | OpenAPI spec codegen produces typed tool definitions for all 500+ operator endpoints                   |
-| Editable Chat            | Edit and resend user messages, copy assistant responses, markdown rendering with scrollable tables     |
 
 ### Sustainability
 

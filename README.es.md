@@ -24,9 +24,9 @@
   <a href="README.zh-TW.md">繁體中文</a>
 </p>
 
-Un sistema de gestión de estaciones de carga (CSMS) compatible con OCPP 1.6 y 2.1 para gestionar infraestructura de carga de vehículos eléctricos. Gestiona la comunicación WebSocket en tiempo real con las estaciones, roaming OCPI 2.2.1/2.3.0, Plug and Charge ISO 15118, una API REST para operadores y dos frontends en React para operadores y conductores.
+EVtivity es una plataforma de carga de vehículos eléctricos impulsada por IA. Su núcleo es un sistema de gestión de estaciones de carga (CSMS) compatible con OCPP 1.6 y 2.1 para infraestructura de carga de vehículos eléctricos. Gestiona la comunicación WebSocket en tiempo real con las estaciones de carga, el roaming OCPI 2.2.1/2.3.0, ISO 15118 Plug and Charge, una API REST para operadores y dos frontends React para operadores y conductores.
 
-EVtivity integra IA en toda la experiencia del operador. Un asistente chatbot responde preguntas en lenguaje natural sobre estaciones, sesiones, ingresos y operaciones llamando a los endpoints de la API como herramientas. Un asistente de IA para soporte redacta respuestas a casos de soporte recopilando el contexto completo del caso. Ambos soportan múltiples proveedores de LLM (Anthropic, OpenAI, Gemini) con parámetros configurables a nivel de sistema y por usuario, responden en el idioma preferido del operador y aplican salvaguardas que evitan la fuga de datos sensibles.
+La IA está integrada en el panel del operador. El asistente de IA responde preguntas sobre estaciones, sesiones, ingresos y operaciones, lee archivos adjuntos como la foto de la pantalla de un cargador, un PDF o un registro, y propone cambios que solo se ejecutan cuando el operador los confirma. La asistencia de soporte redacta respuestas a casos de soporte en el idioma del conductor. Ambos funcionan con Anthropic, OpenAI, Gemini o DeepSeek, y los secretos y datos personales se enmascaran antes de llegar al modelo.
 
 ## Arquitectura
 
@@ -69,6 +69,19 @@ graph TB
 ```
 
 ## Resumen de funciones
+
+### Operaciones impulsadas por IA
+
+| Función                         | Descripción                                                                                                                                                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Asistente de IA                 | Preguntas sobre estaciones, sesiones, ingresos y operaciones en lenguaje natural. Las respuestas se transmiten en streaming y las conversaciones se guardan con búsqueda, cambio de nombre y eliminación                           |
+| Análisis de imágenes y archivos | Adjunta imágenes (como la foto de la pantalla de un cargador) y archivos PDF, CSV, de texto, de registro y JSON                                                                                                                    |
+| Cambios confirmados             | El asistente lee datos mediante herramientas de la API. Un cambio propuesto muestra una tarjeta de confirmación y solo se ejecuta cuando el operador lo confirma                                                                   |
+| Asistencia de soporte           | Redacta respuestas a casos de soporte en el idioma del conductor y notas internas en el del operador, con las fuentes consultadas                                                                                                  |
+| Elección de proveedor           | Anthropic, OpenAI, Google Gemini o DeepSeek, por superficie o por usuario, con un nivel de esfuerzo                                                                                                                                |
+| Enmascaramiento y protecciones  | Los secretos y datos personales se enmascaran en los resultados de las herramientas antes de llegar al modelo. La configuración, los secretos, los usuarios, los pagos y la seguridad de las estaciones quedan fuera de su alcance |
+| Seis idiomas                    | Responde en el idioma del operador: inglés, alemán, español, coreano, chino simplificado y chino tradicional                                                                                                                       |
+| Límites y auditoría             | Límites de frecuencia por usuario y por sitio, un presupuesto diario de tokens por usuario y entradas de auditoría para los cambios hechos con el asistente                                                                        |
 
 ### Cumplimiento OCPP
 
@@ -146,20 +159,6 @@ graph TB
 | Notificaciones in-app | Campana de notificaciones en tiempo real con cajón de historial y preferencias por canal |
 | Casos de soporte      | Tickets de soporte con enlace a sesiones, acciones de reembolso y adjuntos en S3         |
 | Notificaciones        | Email y SMS para eventos de sesión, estado de pago, reservas y casos de soporte          |
-
-### Operaciones impulsadas por IA
-
-| Función                                  | Descripción                                                                                                                           |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Asistente chatbot                        | Asistente en lenguaje natural para operadores con acceso a todos los endpoints API mediante un catálogo de herramientas autogenerado  |
-| Selección de herramientas en dos niveles | Enrutamiento por categoría mantiene el conteo de herramientas por petición bajo el límite del proveedor (128)                         |
-| IA para casos de soporte                 | Redacción de respuestas al cliente y notas internas a partir del contexto completo del caso (mensajes, sesiones, estación, conductor) |
-| Soporte multi-proveedor                  | Anthropic Claude, OpenAI GPT y Google Gemini con configuración a nivel de sistema y por usuario                                       |
-| Parámetros del LLM                       | Temperatura, top-p, top-k, system prompt y tono configurables a nivel de sistema y por usuario                                        |
-| Respuestas según el idioma               | La IA responde en el idioma preferido del operador en los 6 locales soportados                                                        |
-| Salvaguardas de seguridad                | Bloquea fuga de contraseñas y claves API, exige confirmación antes de modificaciones de datos                                         |
-| Herramientas autogeneradas               | El codegen del spec OpenAPI produce definiciones tipadas para los 500+ endpoints del operador                                         |
-| Chat editable                            | Editar y reenviar mensajes del usuario, copiar respuestas del asistente, renderizado Markdown con tablas con scroll                   |
 
 ### Sostenibilidad
 

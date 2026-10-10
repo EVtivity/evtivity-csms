@@ -5,10 +5,11 @@ import * as React from 'react';
 import { useTranslation } from 'react-i18next';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { Check, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
+import { toastDurationMs } from '@evtivity/lib/toast-durations';
 import { cn } from '@/lib/utils';
 
 const toastVariants = cva(
-  'rounded-lg border border-l-4 bg-background p-4 shadow-lg flex items-start gap-3 animate-slide-in-from-bottom',
+  'rounded-lg border border-l-4 bg-background p-4 shadow-lg flex items-start gap-3 animate-slide-in-from-bottom motion-reduce:animate-none',
   {
     variants: {
       variant: {
@@ -45,10 +46,9 @@ interface ToastData {
   title?: string;
   description?: string;
   variant?: ToastVariant;
-  duration?: number;
-  persistent?: boolean;
   action?: ToastAction;
-  onDismiss?: () => void;
+  // Runs only when the user closes the toast, not when it times out.
+  onClose?: () => void;
 }
 
 interface ToastContextValue {
@@ -64,37 +64,64 @@ const ToastContext = React.createContext<ToastContextValue>({
 let toastCounter = 0;
 
 const MAX_VISIBLE = 3;
-const AUTO_DISMISS_MS = 5000;
+
+// Hover and keyboard focus each pause the timer; it runs again when both end.
+type PauseReason = 'hover' | 'focus';
+
+interface ToastTimer {
+  handle: ReturnType<typeof setTimeout> | null;
+  startedAt: number;
+  remainingMs: number;
+  paused: Set<PauseReason>;
+}
 
 function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [toasts, setToasts] = React.useState<ToastData[]>([]);
-  const timersRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const hoveredRef = React.useRef<Set<string>>(new Set());
+  const timersRef = React.useRef<Map<string, ToastTimer>>(new Map());
 
-  const dismiss = React.useCallback((id: string) => {
+  const clearTimer = React.useCallback((id: string) => {
     const timer = timersRef.current.get(id);
-    if (timer != null) {
-      clearTimeout(timer);
-      timersRef.current.delete(id);
-    }
-    hoveredRef.current.delete(id);
-    setToasts((prev) => {
-      const target = prev.find((t) => t.id === id);
-      target?.onDismiss?.();
-      return prev.filter((t) => t.id !== id);
-    });
+    if (timer?.handle != null) clearTimeout(timer.handle);
+    timersRef.current.delete(id);
   }, []);
 
-  const startTimer = React.useCallback(
-    (id: string, variant?: ToastVariant, duration?: number, persistent?: boolean) => {
-      if (persistent === true) return;
-      if (variant === 'destructive' && duration == null) return;
-      const timer = setTimeout(() => {
-        dismiss(id);
-      }, duration ?? AUTO_DISMISS_MS);
-      timersRef.current.set(id, timer);
+  const remove = React.useCallback(
+    (id: string) => {
+      clearTimer(id);
+      setToasts((prev) => prev.filter((t) => t.id !== id));
     },
-    [dismiss],
+    [clearTimer],
+  );
+
+  const run = React.useCallback(
+    (id: string, timer: ToastTimer) => {
+      timer.startedAt = Date.now();
+      timer.handle = setTimeout(() => {
+        remove(id);
+      }, timer.remainingMs);
+    },
+    [remove],
+  );
+
+  const pause = React.useCallback((id: string, reason: PauseReason) => {
+    const timer = timersRef.current.get(id);
+    if (timer == null) return;
+    timer.paused.add(reason);
+    if (timer.handle == null) return;
+    clearTimeout(timer.handle);
+    timer.handle = null;
+    timer.remainingMs = Math.max(0, timer.remainingMs - (Date.now() - timer.startedAt));
+  }, []);
+
+  const resume = React.useCallback(
+    (id: string, reason: PauseReason) => {
+      const timer = timersRef.current.get(id);
+      if (timer == null) return;
+      timer.paused.delete(reason);
+      if (timer.paused.size > 0 || timer.handle != null) return;
+      run(id, timer);
+    },
+    [run],
   );
 
   const toast = React.useCallback(
@@ -105,47 +132,55 @@ function ToastProvider({ children }: { children: React.ReactNode }): React.JSX.E
       setToasts((prev) => {
         const next = [newToast, ...prev];
         if (next.length > MAX_VISIBLE) {
-          const removed = next.slice(MAX_VISIBLE);
-          for (const r of removed) {
-            const t = timersRef.current.get(r.id);
-            if (t != null) {
-              clearTimeout(t);
-              timersRef.current.delete(r.id);
-            }
-          }
+          for (const r of next.slice(MAX_VISIBLE)) clearTimer(r.id);
           return next.slice(0, MAX_VISIBLE);
         }
         return next;
       });
-      startTimer(id, opts.variant, opts.duration, opts.persistent);
+      const timer: ToastTimer = {
+        handle: null,
+        startedAt: Date.now(),
+        remainingMs: toastDurationMs(opts.variant ?? 'default', opts.action != null),
+        paused: new Set(),
+      };
+      timersRef.current.set(id, timer);
+      run(id, timer);
     },
-    [startTimer],
+    [clearTimer, run],
   );
+
+  const toastsRef = React.useRef<ToastData[]>([]);
+  React.useEffect(() => {
+    toastsRef.current = toasts;
+  }, [toasts]);
+
+  // The close button: the only path that runs the toast's onClose, so a
+  // toast that times out is not recorded as closed by the user.
+  const dismiss = React.useCallback(
+    (id: string) => {
+      const target = toastsRef.current.find((t) => t.id === id);
+      remove(id);
+      target?.onClose?.();
+    },
+    [remove],
+  );
+
+  React.useEffect(() => {
+    const timers = timersRef.current;
+    return () => {
+      for (const timer of timers.values()) {
+        if (timer.handle != null) clearTimeout(timer.handle);
+      }
+      timers.clear();
+    };
+  }, []);
 
   const value = React.useMemo(() => ({ toast, dismiss }), [toast, dismiss]);
 
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <ToastContainer
-        toasts={toasts}
-        onDismiss={dismiss}
-        onMouseEnter={(id) => {
-          hoveredRef.current.add(id);
-          const timer = timersRef.current.get(id);
-          if (timer != null) {
-            clearTimeout(timer);
-            timersRef.current.delete(id);
-          }
-        }}
-        onMouseLeave={(id) => {
-          hoveredRef.current.delete(id);
-          const t = toasts.find((toast) => toast.id === id);
-          if (t != null) {
-            startTimer(id, t.variant, t.duration, t.persistent);
-          }
-        }}
-      />
+      <ToastContainer toasts={toasts} onDismiss={dismiss} onPause={pause} onResume={resume} />
     </ToastContext.Provider>
   );
 }
@@ -157,18 +192,23 @@ function useToast(): ToastContextValue {
 interface ToastContainerProps {
   toasts: ToastData[];
   onDismiss: (id: string) => void;
-  onMouseEnter: (id: string) => void;
-  onMouseLeave: (id: string) => void;
+  onPause: (id: string, reason: PauseReason) => void;
+  onResume: (id: string, reason: PauseReason) => void;
 }
 
 function ToastContainer({
   toasts,
   onDismiss,
-  onMouseEnter,
-  onMouseLeave,
+  onPause,
+  onResume,
 }: ToastContainerProps): React.JSX.Element {
+  // The live region stays mounted so screen readers announce each new toast.
   return (
-    <div className="fixed top-4 right-4 z-100 flex flex-col gap-2 max-w-sm">
+    <div
+      aria-live="polite"
+      aria-relevant="additions"
+      className="fixed top-4 right-4 z-100 flex flex-col gap-2 max-w-sm"
+    >
       {toasts.map((t) => (
         <Toast
           key={t.id}
@@ -176,11 +216,11 @@ function ToastContainer({
           onDismiss={() => {
             onDismiss(t.id);
           }}
-          onMouseEnter={() => {
-            onMouseEnter(t.id);
+          onPause={(reason) => {
+            onPause(t.id, reason);
           }}
-          onMouseLeave={() => {
-            onMouseLeave(t.id);
+          onResume={(reason) => {
+            onResume(t.id, reason);
           }}
         />
       ))}
@@ -190,8 +230,8 @@ function ToastContainer({
 
 interface ToastProps extends ToastData {
   onDismiss: () => void;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
+  onPause: (reason: PauseReason) => void;
+  onResume: (reason: PauseReason) => void;
 }
 
 function Toast({
@@ -200,17 +240,28 @@ function Toast({
   variant = 'default',
   action,
   onDismiss,
-  onMouseEnter,
-  onMouseLeave,
+  onPause,
+  onResume,
 }: ToastProps): React.JSX.Element {
   const { t } = useTranslation();
   const icon = VARIANT_ICONS[variant];
 
   return (
     <div
+      role={variant === 'destructive' ? 'alert' : 'status'}
       className={cn(toastVariants({ variant }))}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onMouseEnter={() => {
+        onPause('hover');
+      }}
+      onMouseLeave={() => {
+        onResume('hover');
+      }}
+      onFocus={() => {
+        onPause('focus');
+      }}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) onResume('focus');
+      }}
     >
       {icon}
       <div className="flex-1 grid gap-1">

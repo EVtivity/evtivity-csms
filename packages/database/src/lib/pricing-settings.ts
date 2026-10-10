@@ -12,6 +12,13 @@ let cachedSplitBilling: boolean | undefined;
 let cachedSplitBillingAt = 0;
 const TTL_MS = 60_000;
 
+/**
+ * Cached reader (60 s) for `pricing.splitBillingEnabled`. On by default (the
+ * shipped default, owner decision 2026-10-09): off only when the stored value
+ * is the boolean false. A missing row (an install that skipped the seed), an
+ * invalid value (logged at warn), or a failed read without a cached value
+ * means on.
+ */
 export async function isSplitBillingEnabled(): Promise<boolean> {
   const now = Date.now();
   if (cachedSplitBilling !== undefined && now - cachedSplitBillingAt < TTL_MS) {
@@ -24,7 +31,15 @@ export async function isSplitBillingEnabled(): Promise<boolean> {
       .from(settings)
       .where(eq(settings.key, 'pricing.splitBillingEnabled'));
 
-    cachedSplitBilling = row == null || row.value === true;
+    // On unless the stored value is the boolean false: a missing row or an
+    // invalid value means the shipped default, on.
+    if (row != null && typeof row.value !== 'boolean') {
+      logger.warn(
+        { key: 'pricing.splitBillingEnabled', value: row.value },
+        'Invalid split billing setting, using the default (on)',
+      );
+    }
+    cachedSplitBilling = row?.value !== false;
     cachedSplitBillingAt = now;
     return cachedSplitBilling;
   } catch (err) {

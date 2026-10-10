@@ -115,7 +115,8 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => {
+vi.mock('@evtivity/database', async () => {
+  const rawTimestamp = await import('@evtivity/database/src/lib/raw-timestamp.js');
   const dbMock: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -141,6 +142,7 @@ vi.mock('@evtivity/database', () => {
   // chained query helpers above continue to drive the test.
   dbMock['transaction'] = vi.fn((cb: (tx: unknown) => Promise<unknown>) => cb(dbMock));
   return {
+    ...rawTimestamp,
     db: dbMock,
     client: {},
     setStationDisabled: mockSetStationDisabled,
@@ -1818,7 +1820,8 @@ describe('Station routes - handler logic', () => {
             severity: null,
             remote_address: '1.2.3.4',
             metadata: { reason: 'Invalid password' },
-            created_at: new Date(),
+            // The shared client returns raw timestamps as postgres text.
+            created_at: '2026-10-10 10:49:38.215861+00',
           },
           {
             id: 'security:5',
@@ -1846,6 +1849,7 @@ describe('Station routes - handler logic', () => {
       expect(body.data[0].severity).toBeNull();
       expect(body.data[1].source).toBe('security');
       expect(body.data[1].severity).toBe('critical');
+      expect(body.data[0].createdAt).toBe('2026-10-10T10:49:38.215Z');
     });
   });
 
@@ -1893,7 +1897,61 @@ describe('Station routes - handler logic', () => {
       // Profit is revenue excluding tax minus electricity cost.
       expect(body).toHaveProperty('totalProfitCents', 8480 - 3000);
       expect(body).toHaveProperty('periodMonths');
+      expect(body).toHaveProperty('costMissingSessionCount', 0);
       expect(body).toHaveProperty('currency', 'EUR');
+    });
+
+    it('leaves sessions without an electricity cost out of profit and reports them', async () => {
+      const { aggregateRevenueRows } = await import('@evtivity/services/session-revenue');
+      mockQueryRevenue.mockResolvedValueOnce(
+        aggregateRevenueRows([
+          {
+            key: null,
+            taxRate: '0',
+            grossCents: 1000,
+            source: 'session',
+            costMissing: false,
+            count: 3,
+          },
+          {
+            key: null,
+            taxRate: '0.25',
+            grossCents: 1250,
+            source: 'session',
+            costMissing: true,
+            count: 2,
+          },
+          { key: null, taxRate: '0', grossCents: 200, source: 'fee', costMissing: false, count: 1 },
+        ]),
+      );
+      setupDbResults(
+        [
+          {
+            totalSessions: 5,
+            completedSessions: 5,
+            faultedSessions: 0,
+            totalEnergyWh: 1,
+            avgDurationMinutes: 1,
+          },
+        ],
+        [{ sessionHours: 1, portCount: 1 }],
+        [{ totalElectricityCostCents: 900 }],
+      );
+
+      const response = await app.inject({
+        method: 'GET',
+        url: `/stations/${VALID_STATION_ID}/metrics`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      // Revenue keeps every session; profit only the sessions with a cost and the fee.
+      expect(body).toHaveProperty('totalRevenueCents', 3000 + 2500 + 200);
+      expect(body).toHaveProperty('totalNetRevenueCents', 3000 + 2000 + 200);
+      expect(body).toHaveProperty('totalProfitCents', 3000 + 200 - 900);
+      expect(body).toHaveProperty('costMissingSessionCount', 2);
+      expect(body).toHaveProperty('costMissingRevenueCents', 2500);
     });
   });
 

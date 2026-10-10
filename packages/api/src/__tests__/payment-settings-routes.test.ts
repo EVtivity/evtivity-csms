@@ -55,6 +55,10 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
+vi.mock('../lib/site-access.js', async () =>
+  (await import('./helpers/site-access-mock.js')).siteAccessMock(),
+);
+
 vi.mock('../lib/payments.js', () => ({
   paymentRegistry: { settings: mockRegistrySettings },
 }));
@@ -71,6 +75,7 @@ vi.mock('../lib/provider-switch.js', async (importOriginal) => {
 
 import { registerAuth } from '../plugins/auth.js';
 import { paymentSettingsRoutes } from '../routes/payment-settings.js';
+import { resetSiteAccessMock, setMockUserSiteIds } from './helpers/site-access-mock.js';
 
 const CAPABILITIES: ProviderCatalogEntry['capabilities'] = {
   savedMethods: true,
@@ -146,6 +151,20 @@ describe('Payment settings routes', () => {
   it('requires authentication', async () => {
     const response = await app.inject({ method: 'GET', url: '/settings/payments' });
     expect(response.statusCode).toBe(401);
+  });
+
+  it('answers 404 SETTING_NOT_FOUND to a site-restricted user', async () => {
+    setMockUserSiteIds(['sit_a']);
+    try {
+      for (const res of [await call('GET'), await call('PUT', { provider: 'none' })]) {
+        expect(res.statusCode).toBe(404);
+        expect(res.json()).toMatchObject({ code: 'SETTING_NOT_FOUND' });
+      }
+      expect(mockRegistrySettings).not.toHaveBeenCalled();
+      expect(mockWritePaymentSettings).not.toHaveBeenCalled();
+    } finally {
+      resetSiteAccessMock();
+    }
   });
 
   describe('GET /settings/payments', () => {
