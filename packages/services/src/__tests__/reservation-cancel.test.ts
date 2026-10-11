@@ -108,6 +108,7 @@ describe('applyReservationCancellation', () => {
       cancelled: false,
       feeChargeFailed: false,
       feeCurrency: null,
+      statusBefore: null,
     });
     expect(writeReservationAuditMock).not.toHaveBeenCalled();
     expect(chargeCancellationFeeMock).not.toHaveBeenCalled();
@@ -125,6 +126,7 @@ describe('applyReservationCancellation', () => {
       cancelled: true,
       feeChargeFailed: false,
       feeCurrency: null,
+      statusBefore: 'active',
     });
     expect(writeReservationAuditMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -133,9 +135,54 @@ describe('applyReservationCancellation', () => {
         actor: 'driver',
         statusBefore: 'active',
         statusAfter: 'cancelled',
+        reason: 'driver_initiated',
         notes: 'changed plans',
       }),
     );
+  });
+
+  it('TC-RES-09: returns the status it moved the row from, scheduled included', async () => {
+    executeMock.mockResolvedValueOnce([{ id: 'rsv_1', status_before: 'scheduled' }]);
+    const result = await applyReservationCancellation(
+      baseInput({ chargeFee: false, payments: undefined }),
+    );
+    expect(result.statusBefore).toBe('scheduled');
+  });
+
+  it('TC-RES-22: writes the given audit action with the cancel reason as after.reason', async () => {
+    executeMock.mockResolvedValueOnce([{ id: 'rsv_1', status_before: 'active' }]);
+    await applyReservationCancellation(
+      baseInput({
+        actor: 'system',
+        reason: 'station_rejected_occupied',
+        auditAction: 'station_rejected',
+        chargeFee: false,
+        payments: undefined,
+      }),
+    );
+    expect(writeReservationAuditMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'station_rejected',
+        actor: 'system',
+        reason: 'station_rejected_occupied',
+      }),
+    );
+  });
+
+  it('publishes reservation.changed on the pub/sub client the caller passes', async () => {
+    executeMock.mockResolvedValueOnce([
+      { id: 'rsv_1', status_before: 'active', station_id: 'sta_1' },
+    ]);
+    const publish = vi.fn(async () => undefined);
+    const pubsub = { publish, subscribe: vi.fn() };
+    await applyReservationCancellation(
+      baseInput({ chargeFee: false, payments: undefined, pubsub }),
+    );
+    expect(publish).toHaveBeenCalledWith(
+      'csms_events',
+      expect.stringContaining('reservation.changed'),
+    );
+    expect(alertStationWatchersMock).toHaveBeenCalledWith({ tag: 'client' }, pubsub, 'sta_1');
   });
 
   // A cancelled reservation can free the station with no connector change, so
@@ -253,6 +300,7 @@ describe('applyReservationCancellation', () => {
       cancelled: true,
       feeChargeFailed: false,
       feeCurrency: 'EUR',
+      statusBefore: 'active',
     });
     // The follow-up UPDATE writes the amount charged, tax included.
     expect(updateChain.set).toHaveBeenCalledWith(
@@ -338,6 +386,7 @@ describe('applyReservationCancellation', () => {
       cancelled: true,
       feeChargeFailed: true,
       feeCurrency: null,
+      statusBefore: 'active',
     });
     expect(chargeCancellationFeeMock).not.toHaveBeenCalled();
   });
@@ -360,6 +409,7 @@ describe('applyReservationCancellation', () => {
       cancelled: true,
       feeChargeFailed: false,
       feeCurrency: null,
+      statusBefore: 'active',
     });
     expect(updateChain.set).not.toHaveBeenCalled();
   });
@@ -381,6 +431,7 @@ describe('applyReservationCancellation', () => {
       cancelled: true,
       feeChargeFailed: true,
       feeCurrency: null,
+      statusBefore: 'active',
     });
     expect(errorLog).toHaveBeenCalledWith(
       expect.objectContaining({ reservationId: 'rsv_1', plannedFeeCents: 500 }),
@@ -414,6 +465,7 @@ describe('applyReservationCancellation', () => {
       cancelled: true,
       feeChargeFailed: true,
       feeCurrency: null,
+      statusBefore: 'active',
     });
     expect(warnLog).toHaveBeenCalledWith(
       { reservationId: 'rsv_1', paymentRecordId: 4 },

@@ -19,6 +19,11 @@ import { getModelEntry } from '@evtivity/ai/core';
 import type { AiAdapter, ProviderId } from '@evtivity/ai/core';
 import { getProviderRegistry } from '@evtivity/ai/providers';
 import { frameUntrusted, promptLanguage } from '@evtivity/ai/prompt';
+import {
+  AI_USAGE_REDACTION_SURFACES,
+  redactProviderRequest,
+  redactToolValue,
+} from '@evtivity/ai/redact';
 import type { PromptLanguage } from '@evtivity/ai/prompt';
 import { createLogger } from '@evtivity/lib';
 import { opsSystemPrompt } from './prompts.js';
@@ -114,26 +119,29 @@ export async function runOpsNarrative(
       apiKey: config.apiKey,
       ...(config.baseUrl !== '' ? { baseUrl: config.baseUrl } : {}),
     });
+    // The facts are aggregates and station ids the worker computed; they are
+    // redacted by field like a tool result, then again at the boundary.
+    const facts = JSON.stringify(
+      redactToolValue(request.facts, AI_USAGE_REDACTION_SURFACES.worker).value,
+    );
     const result = await adapter.complete(
-      {
-        model,
-        system: [{ text: system, cacheable: true }],
-        messages: [
-          {
-            role: 'user',
-            parts: [
-              {
-                type: 'text',
-                text: frameUntrusted('worker_facts', request.job, JSON.stringify(request.facts)),
-              },
-            ],
-          },
-        ],
-        tools: [],
-        effort: config.effort,
-        maxOutputTokens: OPS_MODEL_MAX_OUTPUT_TOKENS,
-        cacheKey: `ai-worker:${request.job}:${language}`,
-      },
+      redactProviderRequest(
+        {
+          model,
+          system: [{ text: system, cacheable: true }],
+          messages: [
+            {
+              role: 'user',
+              parts: [{ type: 'text', text: frameUntrusted('worker_facts', request.job, facts) }],
+            },
+          ],
+          tools: [],
+          effort: config.effort,
+          maxOutputTokens: OPS_MODEL_MAX_OUTPUT_TOKENS,
+          cacheKey: `ai-worker:${request.job}:${language}`,
+        },
+        'worker',
+      ),
       AbortSignal.timeout(MODEL_TIMEOUT_MS),
     );
     try {

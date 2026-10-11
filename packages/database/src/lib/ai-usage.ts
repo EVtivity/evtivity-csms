@@ -33,6 +33,7 @@ export type AiBudgetLimits = Pick<
   | 'siteDailyTokens'
   | 'budgetWarnPercent'
   | 'userDailyTokens'
+  | 'driverDailyTokens'
 >;
 import { AI_INTERACTIVE_USAGE_SURFACES, AI_USAGE_SURFACES } from '@evtivity/lib/ai-usage';
 import type {
@@ -137,7 +138,8 @@ type SumKey =
   | { kind: 'company' }
   | { kind: 'site'; siteId: string }
   | { kind: 'siteSystem'; siteId: string }
-  | { kind: 'user'; userId: string };
+  | { kind: 'user'; userId: string }
+  | { kind: 'driver'; driverId: string };
 
 interface CachedSum {
   key: SumKey;
@@ -166,22 +168,37 @@ function scopeCondition(key: SumKey): SQL | undefined {
     );
   }
   if (key.kind === 'user') return eq(aiUsageLedger.userId, key.userId);
+  if (key.kind === 'driver') return eq(aiUsageLedger.driverId, key.driverId);
   return undefined;
 }
 
 function scopeId(key: SumKey): string {
-  return key.kind === 'company' ? '' : key.kind === 'user' ? key.userId : key.siteId;
+  switch (key.kind) {
+    case 'company':
+      return '';
+    case 'user':
+      return key.userId;
+    case 'driver':
+      return key.driverId;
+    default:
+      return key.siteId;
+  }
 }
 
 function cacheKey(key: SumKey, period: AiUsagePeriod): string {
   return `${key.kind}:${scopeId(key)}:${String(period.start.getTime())}:${String(period.end.getTime())}`;
 }
 
+/** The ledger fields that decide which scopes a row counts in. */
+interface AiUsageRowScope {
+  surface: AiUsageSurface;
+  userId: string | null;
+  siteId: string | null;
+  driverId: string | null;
+}
+
 /** Whether a ledger row counts in a scope. */
-function rowInScope(
-  key: SumKey,
-  row: { surface: AiUsageSurface; userId: string | null; siteId: string | null },
-): boolean {
+function rowInScope(key: SumKey, row: AiUsageRowScope): boolean {
   switch (key.kind) {
     case 'company':
       return true;
@@ -191,6 +208,8 @@ function rowInScope(
       return row.siteId === key.siteId && SYSTEM_SURFACES.includes(row.surface);
     case 'user':
       return row.userId === key.userId;
+    case 'driver':
+      return row.driverId === key.driverId;
   }
 }
 
@@ -198,11 +217,7 @@ function rowInScope(
  * Adds a row this process just wrote to every cached sum it counts in, so the
  * next check and the threshold notice read the cache instead of the database.
  */
-function addToCachedSums(
-  row: { surface: AiUsageSurface; userId: string | null; siteId: string | null },
-  occurredAt: Date,
-  tokens: number,
-): void {
+function addToCachedSums(row: AiUsageRowScope, occurredAt: Date, tokens: number): void {
   const t = occurredAt.getTime();
   for (const entry of sumCache.values()) {
     if (t < entry.period.start.getTime() || t >= entry.period.end.getTime()) continue;
@@ -289,8 +304,8 @@ function refuse(
 /**
  * The budget decision for one model call. In order: company monthly, site
  * monthly, site daily (system-initiated surfaces only), user daily
- * (interactive surfaces only). The first refusal wins; a budget of 0 is no
- * limit.
+ * (interactive surfaces only), driver daily (`driver_support` only, the
+ * driver of the case). The first refusal wins; a budget of 0 is no limit.
  */
 export async function evaluateAiBudgets(
   input: AiBudgetCheckInput,
@@ -324,6 +339,16 @@ export async function evaluateAiBudgets(
     const used = await ctx.tokens({ kind: 'user', userId: input.userId }, day);
     if (used >= ctx.limits.userDailyTokens) {
       return refuse('AI_BUDGET_EXCEEDED', 'user', 'day', day.end, now);
+    }
+  }
+  if (
+    input.surface === 'driver_support' &&
+    input.driverId !== undefined &&
+    ctx.limits.driverDailyTokens > 0
+  ) {
+    const used = await ctx.tokens({ kind: 'driver', driverId: input.driverId }, day);
+    if (used >= ctx.limits.driverDailyTokens) {
+      return refuse('AI_BUDGET_EXCEEDED', 'driver', 'day', day.end, now);
     }
   }
   return { allowed: true };
@@ -362,6 +387,10 @@ export interface AiUsageRecord {
   aiMessageId?: string | null;
   insightId?: string | null;
   workerRunId?: string | null;
+  /** The driver a `driver_support` call ran for (the driver daily budget). */
+  driverId?: string | null;
+  /** The support case of a `driver_support` call. */
+  supportCaseId?: string | null;
   provider: string;
   model: string;
   usage: {
@@ -483,6 +512,8 @@ export async function recordAiUsage(record: AiUsageRecord): Promise<void> {
     aiMessageId: record.aiMessageId ?? null,
     insightId: record.insightId ?? null,
     workerRunId: record.workerRunId ?? null,
+    driverId: record.driverId ?? null,
+    supportCaseId: record.supportCaseId ?? null,
     provider: record.provider,
     model: record.model,
     inputTokens: count(record.usage.inputTokens),
@@ -493,7 +524,12 @@ export async function recordAiUsage(record: AiUsageRecord): Promise<void> {
     costMicros: record.costMicros === null ? null : count(record.costMicros),
   });
   addToCachedSums(
-    { surface: record.surface, userId: record.userId ?? null, siteId },
+    {
+      surface: record.surface,
+      userId: record.userId ?? null,
+      siteId,
+      driverId: record.driverId ?? null,
+    },
     occurredAt,
     count(record.usage.inputTokens) + count(record.usage.outputTokens),
   );

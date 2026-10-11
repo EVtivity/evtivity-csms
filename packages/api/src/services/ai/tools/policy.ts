@@ -113,6 +113,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   css_injectFault: N,
   css_plugIn: N,
   css_powerCycle: N,
+  css_reservationReply: N,
   css_resumeCharging: N,
   css_startCharging: N,
   css_stopCharging: N,
@@ -632,6 +633,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   portalGetSupportCase: N,
   portalListSupportCases: N,
   portalRequestAttachmentUploadUrl: N,
+  portalSupportCaseAiFeedback: N,
   // Portal Tokens
   portalCreateToken: N,
   portalDeleteToken: N,
@@ -937,11 +939,15 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // Lane R2 (roadmap v0.1.44, automatic insights), append-only block.
   // List and get are reads (chatbot and MCP); regenerate, dismiss and
   // feedback cost tokens or need the operator's judgment.
+  // Votes never reach a model (v0.1.45): the detail's `feedback` argument is
+  // omitted, so the tool never returns the counts, and the summary is no tool.
   listAiInsights: R,
-  getAiInsight: R,
+  getAiInsight: { ...R, omit: ['feedback'] },
   regenerateAiInsight: N,
   dismissAiInsight: N,
   sendAiInsightFeedback: N,
+  clearAiInsightFeedback: N,
+  getAiInsightFeedbackSummary: N,
   // End lane R2.
 };
 

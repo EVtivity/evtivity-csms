@@ -1,51 +1,47 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 import {
   reservationCancellationFeeSchema,
   reservationCancellationFeeView,
 } from '../lib/reservation-fee-view.js';
-import { eq, and, or, ilike, desc, sql, count, inArray, gt } from 'drizzle-orm';
-import { db, client } from '@evtivity/database';
+import { eq, and, or, ilike, desc, sql, count, inArray } from 'drizzle-orm';
+import { db } from '@evtivity/database';
 import {
   reservations,
   reservationAuditLog,
   chargingStations,
   chargingSessions,
   drivers,
-  driverPaymentMethods,
   driverTokens,
   evses,
   connectors,
   sites,
   ocppMessageLogs,
   users,
-  getReservationSettings,
-  writeReservationAudit,
-  reservationDiffChanged,
-  snapshotReservationFeeTerms,
 } from '@evtivity/database';
-import { dispatchDriverNotification, notificationMoney } from '@evtivity/lib';
+import { notificationMoney } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
-import { getPubSub } from '@evtivity/lib/pubsub-instance';
-import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
-import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
-import { applyReservationCancellation } from '@evtivity/services/reservation-cancel';
 import { paymentContext } from '../lib/payments.js';
-import { assertReservationsAllowed } from '../lib/reservation-eligibility.js';
+import { MaintenanceConflictError } from '@evtivity/services/maintenance-check';
 import {
-  assertNoMaintenanceConflict,
-  MaintenanceConflictError,
-} from '@evtivity/services/maintenance-check';
+  cancelReservationWithStation,
+  createReservation,
+  dispatchReservation,
+  reassignReservation,
+  updateReservation,
+} from '@evtivity/services/reservation.service';
+import type { ReservationRow } from '@evtivity/services/reservation.service';
+import { notifyReservationDriver } from '@evtivity/services/reservation-notify';
 import { authorize } from '../middleware/rbac.js';
 
 const reservationListItem = z
@@ -147,7 +143,11 @@ const reservationDetailItem = z
         'station_rejected_occupied',
         'station_rejected_other',
         'station_offline_at_activation',
+        'evse_in_use_at_activation',
+        'station_faulted_at_activation',
         'system_cleanup',
+        'station_no_response',
+        'station_unavailable_during_hold',
       ])
       .nullable()
       .describe('Typed cancel reason, null if not cancelled'),
@@ -211,7 +211,9 @@ const cancelReservationResponse = z
     warning: z
       .string()
       .optional()
-      .describe('Non-fatal warning message (e.g. station OCPP CancelReservation timed out)'),
+      .describe(
+        'station_cancel_failed when the station refused CancelReservation or did not answer. The reservation is cancelled; the station may still hold the EVSE until the reservation expires.',
+      ),
   })
   .passthrough();
 
@@ -336,11 +338,23 @@ const updateReservationBody = z.object({
     .describe('Driver token ID to bind, or null to unbind. Must belong to the same driver.'),
 });
 
-async function getNextReservationId(): Promise<number> {
-  const [row] = await db.execute<{ next_val: string }>(
-    sql`SELECT nextval('reservation_id_seq')::int AS next_val`,
-  );
-  return Number(row?.next_val);
+/** The station fields the reservation service checks on create and reassign. */
+const reservationStationColumns = {
+  id: chargingStations.id,
+  stationId: chargingStations.stationId,
+  siteId: chargingStations.siteId,
+  isOnline: chargingStations.isOnline,
+  reservationsEnabled: chargingStations.reservationsEnabled,
+  disabledReason: chargingStations.disabledReason,
+  firmwareState: chargingStations.firmwareState,
+  reportedStatus: chargingStations.reportedStatus,
+};
+
+/** Answers a maintenance conflict with its window details; false for any other error. */
+async function sendMaintenanceConflict(reply: FastifyReply, err: unknown): Promise<boolean> {
+  if (!(err instanceof MaintenanceConflictError)) return false;
+  await reply.status(409).send({ error: err.message, code: err.code, ...err.details });
+  return true;
 }
 
 export function reservationRoutes(app: FastifyInstance): void {
@@ -834,7 +848,7 @@ export function reservationRoutes(app: FastifyInstance): void {
         tags: ['Reservations'],
         summary: 'Create a reservation and send ReserveNow to station',
         description:
-          'Creates a charging reservation and dispatches ReserveNow to the station. Future-dated reservations are persisted with status=scheduled and activated by a delayed worker job at startsAt; immediate reservations are sent to the station synchronously. Returns 409 if another active reservation conflicts with the requested EVSE/time window. Returns 502/504 when the station rejects or times out on the synchronous ReserveNow call.',
+          'Creates a charging reservation and dispatches ReserveNow to the station. Future-dated reservations are persisted with status=scheduled and activated by a delayed worker job at startsAt; immediate reservations are sent to the station synchronously and carry the bound driver token. The overlap check and the insert run under a per-station lock, so of two concurrent creates for one window only one succeeds and the other gets 409 RESERVATION_CONFLICT. Returns 400 RESERVATION_REJECTED when the station answers with another status, 502 when the command cannot be sent, and 504 when the station does not answer; each of these cancels the reservation without a fee.',
         operationId: 'createReservation',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createReservationBody),
@@ -851,7 +865,7 @@ export function reservationRoutes(app: FastifyInstance): void {
             ERROR_CODES.STATION_OFFLINE,
             ERROR_CODES.VALIDATION_ERROR,
           ]),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
+          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN, ERROR_CODES.RESERVATION_DISABLED]),
           404: errorWith('Resource not found', [
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -863,7 +877,9 @@ export function reservationRoutes(app: FastifyInstance): void {
             ERROR_CODES.STATION_UNAVAILABLE,
           ]),
           500: errorWith('Reservation create failed', [ERROR_CODES.RESERVATION_CREATE_FAILED]),
-          502: errorWith('Station rejected the command', [ERROR_CODES.RESERVATION_REJECTED]),
+          502: errorWith('The command could not be sent to the station', [
+            ERROR_CODES.RESERVATION_REJECTED,
+          ]),
           504: errorWith('Station did not respond within timeout', [
             ERROR_CODES.RESERVATION_TIMEOUT,
           ]),
@@ -873,17 +889,8 @@ export function reservationRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const body = request.body as z.infer<typeof createReservationBody>;
 
-      // Find station by OCPP stationId string
       const [station] = await db
-        .select({
-          id: chargingStations.id,
-          siteId: chargingStations.siteId,
-          isOnline: chargingStations.isOnline,
-          reservationsEnabled: chargingStations.reservationsEnabled,
-          disabledReason: chargingStations.disabledReason,
-          firmwareState: chargingStations.firmwareState,
-          reportedStatus: chargingStations.reportedStatus,
-        })
+        .select(reservationStationColumns)
         .from(chargingStations)
         .where(eq(chargingStations.stationId, body.stationId));
 
@@ -899,473 +906,51 @@ export function reservationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const reservationStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
-      const reservationEnd = new Date(body.expiresAt);
+      // The service runs every create check and the overlap check plus the
+      // insert under the station lock (G1); its AppErrors carry the status
+      // and code.
+      let reservation: ReservationRow;
       try {
-        await assertNoMaintenanceConflict(station.id, reservationStart, reservationEnd);
+        reservation = await createReservation({
+          station,
+          evseOcppId: body.evseId,
+          driverId: body.driverId ?? null,
+          tokenId: body.tokenId,
+          startsAt: body.startsAt != null ? new Date(body.startsAt) : null,
+          expiresAt: new Date(body.expiresAt),
+          actor: { kind: 'operator', userId },
+          logger: request.log,
+        });
       } catch (err) {
-        if (err instanceof MaintenanceConflictError) {
-          await reply.status(409).send({
-            error: err.message,
-            code: err.code,
-            ...err.details,
-          });
-          return;
-        }
+        if (await sendMaintenanceConflict(reply, err)) return;
         throw err;
       }
 
-      // Window validation. datetime-local inputs only have minute precision,
-      // so a "now"-ish click can produce expiresAt seconds in the past once it
-      // hits the API. Stations parse this and fire their expiry timer at 0ms,
-      // sending StatusNotification(Available) back immediately -- the
-      // reservation looks "expired" the moment it's created. Require at least
-      // 60s of runway, and that startsAt < expiresAt.
-      const MIN_DURATION_MS = 60_000;
-      const expiresAtTime = new Date(body.expiresAt).getTime();
-      const startsAtTime = body.startsAt != null ? new Date(body.startsAt).getTime() : Date.now();
-      if (expiresAtTime - startsAtTime < MIN_DURATION_MS) {
-        await reply.status(400).send({
-          error: 'Reservation must end at least 60 seconds after it starts',
-          code: 'RESERVATION_WINDOW_TOO_SHORT',
-        });
-        return;
-      }
-      // Reject explicit startsAt in the past (beyond the 60s slack). The slack
-      // covers form-submit drift where a "now"-ish startsAt rolls slightly past
-      // by the time the request lands at the API.
-      if (body.startsAt != null && startsAtTime < Date.now() - MIN_DURATION_MS) {
-        await reply.status(400).send({
-          error: 'Reservation start time cannot be in the past',
-          code: 'RESERVATION_STARTS_IN_PAST',
-        });
-        return;
-      }
-      if (expiresAtTime - Date.now() < MIN_DURATION_MS) {
-        await reply.status(400).send({
-          error: 'Reservation must end at least 60 seconds in the future',
-          code: 'RESERVATION_EXPIRES_TOO_SOON',
-        });
-        return;
-      }
-      // System-wide cap on how long a single reservation can run. Stops
-      // operators / drivers from blocking a connector indefinitely.
-      const reservationCfgForLimit = await getReservationSettings();
-      const maxDurationMs = reservationCfgForLimit.maxHours * 60 * 60 * 1000;
-      if (maxDurationMs > 0 && expiresAtTime - startsAtTime > maxDurationMs) {
-        await reply.status(400).send({
-          error: `Reservation cannot exceed ${String(reservationCfgForLimit.maxHours)} hours`,
-          code: 'RESERVATION_TOO_LONG',
-        });
-        return;
-      }
-
-      // Skip online check for future-scheduled reservations (station may come online by startsAt)
-      const hasFutureStart =
-        body.startsAt != null && new Date(body.startsAt).getTime() > Date.now();
-      if (!station.isOnline && !hasFutureStart) {
-        await reply.status(400).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });
-        return;
-      }
-
-      // Check system-wide, station-level, and site-level reservation eligibility
-      try {
-        await assertReservationsAllowed(station);
-      } catch (err) {
-        const e = err as { statusCode?: number; code?: string; message?: string };
-        await reply
-          .status((e.statusCode ?? 500) as 400)
-          .send({ error: e.message ?? 'Reservations not allowed', code: e.code });
-        return;
-      }
-
-      // Resolve evseId from OCPP integer to DB UUID
-      let resolvedEvseId: string | null = null;
-      if (body.evseId != null) {
-        const [evse] = await db
-          .select({ id: evses.id })
-          .from(evses)
-          .where(and(eq(evses.stationId, station.id), eq(evses.evseId, body.evseId)));
-
-        if (evse == null) {
-          await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
-          return;
-        }
-        resolvedEvseId = evse.id;
-      }
-
-      const newStart = body.startsAt != null ? new Date(body.startsAt) : new Date();
-      const newEnd = new Date(body.expiresAt);
-
-      // If the reservation starts within `reservation.activeSessionCheckHours`
-      // of "now", reject when the targeted EVSE (or any EVSE on the station
-      // for station-wide reservations) has a connector in any non-Available
-      // state. OCPP ReserveNow requires the connector to be Available; a
-      // cable plugged in with no active transaction (status `occupied` /
-      // `ev_connected` / `finishing`) still trips the station's Occupied
-      // reply, so checking only the active session table misses that case
-      // and the worker's blind dispatch then triggers a confusing
-      // "cancelled" notification at activation time. Reservations scheduled
-      // far enough in the future are allowed; the worker re-validates the
-      // connector state at activation and decides whether to send
-      // ReserveNow, link to a same-driver session, or cancel up front with
-      // a clearer reason. Setting reservation.activeSessionCheckHours = 0
-      // disables the check.
-      const activeSessionCheckMs = reservationCfgForLimit.activeSessionCheckHours * 60 * 60 * 1000;
-      const startsAtTimeMs = newStart.getTime();
-      if (activeSessionCheckMs > 0 && startsAtTimeMs - Date.now() < activeSessionCheckMs) {
-        const connectorConditions = [
-          eq(evses.stationId, station.id),
-          sql`${connectors.status} <> 'available'`,
-        ];
-        if (resolvedEvseId != null) {
-          connectorConditions.push(eq(evses.id, resolvedEvseId));
-        }
-        const [busyConnector] = await db
-          .select({ status: connectors.status })
-          .from(connectors)
-          .innerJoin(evses, eq(connectors.evseId, evses.id))
-          .where(and(...connectorConditions))
-          .limit(1);
-        if (busyConnector != null) {
-          await reply.status(409).send({
-            error:
-              resolvedEvseId != null
-                ? `EVSE is not available (connector status: ${busyConnector.status})`
-                : `Station has no available connector (status: ${busyConnector.status})`,
-            code: 'EVSE_IN_USE',
-          });
-          return;
-        }
-      }
-
-      // Check for conflicting active or scheduled reservations whose time
-      // window OVERLAPS the requested one. Two windows [aStart, aEnd] and
-      // [bStart, bEnd] overlap iff aStart < bEnd AND bStart < aEnd. The
-      // existing reservation's start defaults to its createdAt when there's
-      // no explicit startsAt (the holder reserved for "now"). The new
-      // reservation's start defaults to NOW() when the caller did not pass
-      // startsAt. Without time-overlap math the check would block any
-      // future reservation just because some other future window exists on
-      // the same EVSE.
-      const conflictConditions = [
-        eq(reservations.stationId, station.id),
-        or(eq(reservations.status, 'active'), eq(reservations.status, 'scheduled')),
-        // existingStart < newEnd. The left side is a raw SQL fragment so
-        // Drizzle has no column type to drive Date serialization; pass an
-        // ISO string explicitly to avoid postgres-js binding a Date as a
-        // generic parameter.
-        sql`COALESCE(${reservations.startsAt}, ${reservations.createdAt}) < ${newEnd.toISOString()}`,
-        // existing.expiresAt > newStart
-        gt(reservations.expiresAt, newStart),
-      ];
-      if (resolvedEvseId != null) {
-        // EVSE-specific request: only conflict with same EVSE OR with
-        // station-level reservations (evseId IS NULL applies to all EVSEs).
-        conflictConditions.push(
-          or(eq(reservations.evseId, resolvedEvseId), sql`${reservations.evseId} IS NULL`),
-        );
-      }
-      // Station-level request (resolvedEvseId is null) conflicts with any
-      // reservation on this station regardless of EVSE -- no extra
-      // condition needed.
-      const [conflict] = await db
-        .select({ id: reservations.id })
-        .from(reservations)
-        .where(and(...conflictConditions))
-        .limit(1);
-
-      if (conflict != null) {
-        await reply.status(409).send({
-          error: 'A reservation already exists for this connector during the requested window',
-          code: 'RESERVATION_CONFLICT',
-        });
-        return;
-      }
-
-      // Validate driverId references a real row before INSERT so we surface a
-      // 400 instead of letting Postgres raise an FK violation (which the
-      // generic error handler would mask as "Internal server error").
-      if (body.driverId != null) {
-        const [driverRow] = await db
-          .select({ id: drivers.id })
-          .from(drivers)
-          .where(eq(drivers.id, body.driverId));
-        if (driverRow == null) {
-          await reply.status(400).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
-          return;
-        }
-
-        // Require a default payment method for driver-attached reservations.
-        // The reservation may incur a no-show holding fee or a cancellation
-        // fee, both of which need a card on file. Operator-comp reservations
-        // (no driver) skip this check.
-        const [pm] = await db
-          .select({ id: driverPaymentMethods.id })
-          .from(driverPaymentMethods)
-          .where(
-            and(
-              eq(driverPaymentMethods.driverId, body.driverId),
-              eq(driverPaymentMethods.isDefault, true),
-            ),
-          )
-          .limit(1);
-        if (pm == null) {
-          await reply.status(400).send({
-            error: 'Driver has no default payment method',
-            code: 'PAYMENT_METHOD_REQUIRED',
-          });
-          return;
-        }
-      }
-
-      const reservationId = await getNextReservationId();
-
-      // Determine if this is a future-scheduled reservation
-      const isFutureScheduled =
-        body.startsAt != null && new Date(body.startsAt).getTime() > Date.now();
-
-      // Validate the optional tokenId belongs to the same driver. Without
-      // this check an operator could bind the reservation to anyone's card.
-      let resolvedTokenId: string | null = null;
-      if (body.tokenId != null) {
-        if (body.driverId == null) {
-          await reply.status(400).send({
-            error: 'tokenId requires driverId',
-            code: 'VALIDATION_ERROR',
-          });
-          return;
-        }
-        const [tokenRow] = await db
-          .select({ id: driverTokens.id, driverId: driverTokens.driverId })
-          .from(driverTokens)
-          .where(eq(driverTokens.id, body.tokenId))
-          .limit(1);
-        if (tokenRow == null || tokenRow.driverId !== body.driverId) {
-          await reply.status(400).send({
-            error: 'tokenId does not belong to driver',
-            code: 'VALIDATION_ERROR',
-          });
-          return;
-        }
-        resolvedTokenId = tokenRow.id;
-      }
-
-      // Insert reservation row. Wrap in try/catch so unexpected DB errors
-      // (e.g. unique-constraint races on reservation_id) bubble back as a
-      // structured 500 with the actual message instead of the generic
-      // "Internal server error" from the global Fastify handler.
-      // The cancellation and no-show fee terms in effect now (tariff the
-      // driver resolves at the station, fee setting, tax basis): a later edit
-      // does not change what this reservation is charged.
-      const feeTerms = await snapshotReservationFeeTerms({
-        stationUuid: station.id,
-        driverUuid: body.driverId ?? null,
+      // A future start goes to the worker; an immediate one waits for the
+      // station, and any answer but Accepted cancels the row as system.
+      const outcome = await dispatchReservation(reservation, {
+        stationOcppId: station.stationId,
+        siteId: station.siteId,
+        notifyCreated: true,
+        logger: request.log,
       });
-
-      let reservation: typeof reservations.$inferSelect | undefined;
-      try {
-        const inserted = await db
-          .insert(reservations)
-          .values({
-            reservationId,
-            stationId: station.id,
-            evseId: resolvedEvseId,
-            driverId: body.driverId ?? null,
-            tokenId: resolvedTokenId,
-            status: isFutureScheduled ? 'scheduled' : 'active',
-            expiresAt: new Date(body.expiresAt),
-            ...(body.startsAt != null ? { startsAt: new Date(body.startsAt) } : {}),
-            ...feeTerms,
-          })
-          .returning();
-        reservation = inserted[0];
-      } catch (err) {
-        request.log.error(
-          { err, stationId: body.stationId, driverId: body.driverId },
-          'Reservation INSERT failed',
-        );
-        const message = err instanceof Error ? err.message : 'Failed to create reservation';
-        await reply.status(500).send({ error: message, code: 'RESERVATION_CREATE_FAILED' });
-        return;
+      switch (outcome.kind) {
+        case 'scheduled':
+        case 'accepted':
+          return reservation;
+        case 'rejected':
+          await reply.status(400).send({
+            error: `Station rejected reservation: ${outcome.status}`,
+            code: 'RESERVATION_REJECTED',
+          });
+          return;
+        case 'no_response':
+          await reply.status(504).send({ error: outcome.error, code: 'RESERVATION_TIMEOUT' });
+          return;
+        case 'failed':
+          await reply.status(502).send({ error: outcome.error, code: 'RESERVATION_REJECTED' });
+          return;
       }
-
-      if (reservation == null) {
-        await reply
-          .status(500)
-          .send({ error: 'Failed to create reservation', code: 'RESERVATION_CREATE_FAILED' });
-        return;
-      }
-
-      await writeReservationAudit(
-        {
-          reservationId: reservation.id,
-          action: 'created',
-          actor: 'operator',
-          actorUserId: userId,
-          driverIdAfter: reservation.driverId,
-          tokenIdAfter: reservation.tokenId,
-          evseIdAfter: reservation.evseId,
-          statusAfter: reservation.status,
-          expiresAtAfter: reservation.expiresAt,
-        },
-        undefined,
-        request.log,
-      );
-
-      // Tell the CSMS so the Reservations page reloads for other operators.
-      void getPubSub()
-        .publish(
-          'csms_events',
-          JSON.stringify({
-            eventType: 'reservation.changed',
-            stationId: null,
-            siteId: station.siteId ?? null,
-            sessionId: null,
-          }),
-        )
-        .catch(() => {
-          /* best-effort */
-        });
-
-      if (isFutureScheduled) {
-        // Enqueue delayed job via pub/sub bridge to the worker
-        const delayMs = new Date(body.startsAt as string).getTime() - Date.now();
-        await getPubSub().publish(
-          'reservation_schedule',
-          JSON.stringify({ reservationDbId: reservation.id, delayMs }),
-        );
-
-        // Notify driver of scheduled reservation
-        if (reservation.driverId != null) {
-          void dispatchDriverNotification(
-            client,
-            'reservation.Created',
-            reservation.driverId,
-            {
-              reservationId: reservation.reservationId,
-              stationId: body.stationId,
-              expiresAt: body.expiresAt,
-            },
-            ALL_TEMPLATES_DIRS,
-            getPubSub(),
-          );
-        }
-
-        return reservation;
-      }
-
-      // Send ReserveNow to station immediately
-      const ocppPayload: Record<string, unknown> = {
-        id: reservationId,
-        expiryDateTime: body.expiresAt,
-        idToken: { idToken: body.driverId ?? 'operator', type: 'Central' },
-      };
-      if (body.evseId != null) {
-        ocppPayload['evseId'] = body.evseId;
-      }
-
-      const result = await sendOcppCommandAndWait(body.stationId, 'ReserveNow', ocppPayload);
-
-      if (result.error != null) {
-        // Station rejected or timed out: roll back through the helper so the
-        // audit row carries actor=system + reason. System path never charges.
-        const rollback = await applyReservationCancellation({
-          reservationDbId: reservation.id,
-          siteId: station.siteId,
-          driverId: reservation.driverId,
-          startsAt: reservation.startsAt ?? reservation.createdAt,
-          createdAt: reservation.createdAt,
-          actor: 'system',
-          reason: 'station_rejected_other',
-          chargeFee: false,
-          logger: request.log,
-        });
-
-        // Tell the driver their reservation was killed. The command.ReserveNow
-        // projection also tries to dispatch on rejection, but its UPDATE will
-        // see no row when this route's UPDATE has already won the race -- so
-        // we must dispatch here when we won, and skip when we didn't.
-        if (rollback.cancelled && reservation.driverId != null) {
-          void dispatchDriverNotification(
-            client,
-            'reservation.Cancelled',
-            reservation.driverId,
-            {
-              reservationId: reservation.reservationId,
-              stationId: body.stationId,
-              cancellationFeeFormatted: '',
-            },
-            ALL_TEMPLATES_DIRS,
-            getPubSub(),
-          );
-        }
-
-        const isTimeout = result.error.includes('No response within');
-        await reply.status(isTimeout ? 504 : 502).send({
-          error: result.error,
-          code: isTimeout ? 'RESERVATION_TIMEOUT' : 'RESERVATION_REJECTED',
-        });
-        return;
-      }
-
-      // Check station response status
-      const responseStatus = result.response?.['status'] as string | undefined;
-      if (responseStatus != null && responseStatus !== 'Accepted') {
-        const rollback = await applyReservationCancellation({
-          reservationDbId: reservation.id,
-          siteId: station.siteId,
-          driverId: reservation.driverId,
-          startsAt: reservation.startsAt ?? reservation.createdAt,
-          createdAt: reservation.createdAt,
-          actor: 'system',
-          reason:
-            responseStatus === 'Occupied' ? 'station_rejected_occupied' : 'station_rejected_other',
-          chargeFee: false,
-          logger: request.log,
-        });
-
-        // Same race rationale as above: the command.ReserveNow projection
-        // would otherwise miss the dispatch when this UPDATE wins.
-        if (rollback.cancelled && reservation.driverId != null) {
-          void dispatchDriverNotification(
-            client,
-            'reservation.Cancelled',
-            reservation.driverId,
-            {
-              reservationId: reservation.reservationId,
-              stationId: body.stationId,
-              cancellationFeeFormatted: '',
-            },
-            ALL_TEMPLATES_DIRS,
-            getPubSub(),
-          );
-        }
-
-        await reply.status(400).send({
-          error: `Station rejected reservation: ${responseStatus}`,
-          code: 'RESERVATION_REJECTED',
-        });
-        return;
-      }
-
-      // Notify driver of confirmed reservation
-      if (reservation.driverId != null) {
-        void dispatchDriverNotification(
-          client,
-          'reservation.Created',
-          reservation.driverId,
-          {
-            reservationId: reservation.reservationId,
-            stationId: body.stationId,
-            expiresAt: body.expiresAt,
-          },
-          ALL_TEMPLATES_DIRS,
-          getPubSub(),
-        );
-      }
-
-      return reservation;
     },
   );
 
@@ -1378,19 +963,36 @@ export function reservationRoutes(app: FastifyInstance): void {
         tags: ['Reservations'],
         summary: 'Update an active reservation',
         description:
-          'Updates the driver, EVSE, or expiration on an active or scheduled reservation. Does not re-send ReserveNow; the row is mutated in place and the worker (for scheduled) or the existing station-side reservation continues. Returns 409 if the new EVSE/time window conflicts with another reservation on the station.',
+          'Updates the driver, token, EVSE, or expiration of an active or scheduled reservation. A new expiration follows the create rules. The overlap check (scheduled and station-wide reservations included) and the update run under a per-station lock with a status guard. An edit of an active reservation that changes what the station holds re-sends ReserveNow with the same id; when the station refuses (502 RESERVATION_REJECTED) or does not answer (504 RESERVATION_TIMEOUT) the reservation keeps its previous values. Returns 409 RESERVATION_CONFLICT when the new window overlaps another reservation and 409 RESERVATION_NOT_ACTIVE when the reservation ended meanwhile.',
         operationId: 'updateReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(reservationIdParams),
         body: zodSchema(updateReservationBody),
         response: {
           200: itemResponse(reservationDetailItem),
-          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith('Bad request', [
+            ERROR_CODES.DRIVER_NOT_FOUND,
+            ERROR_CODES.PAYMENT_METHOD_REQUIRED,
+            ERROR_CODES.RESERVATION_EXPIRES_TOO_SOON,
+            ERROR_CODES.RESERVATION_NOT_ACTIVE,
+            ERROR_CODES.RESERVATION_TOO_LONG,
+            ERROR_CODES.RESERVATION_WINDOW_TOO_SHORT,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Resource not found', [
             ERROR_CODES.RESERVATION_NOT_FOUND,
             ERROR_CODES.EVSE_NOT_FOUND,
           ]),
-          409: errorWith('Reservation conflict', [ERROR_CODES.RESERVATION_CONFLICT]),
+          409: errorWith('Conflict', [
+            ERROR_CODES.RESERVATION_CONFLICT,
+            ERROR_CODES.RESERVATION_NOT_ACTIVE,
+          ]),
+          502: errorWith('Station rejected the re-sent ReserveNow', [
+            ERROR_CODES.RESERVATION_REJECTED,
+          ]),
+          504: errorWith('Station did not respond within timeout', [
+            ERROR_CODES.RESERVATION_TIMEOUT,
+          ]),
         },
       },
     },
@@ -1398,197 +1000,35 @@ export function reservationRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof reservationIdParams>;
       const body = request.body as z.infer<typeof updateReservationBody>;
 
-      // Fetch current reservation
       const [existing] = await db
-        .select({
-          id: reservations.id,
-          stationId: reservations.stationId,
-          evseId: reservations.evseId,
-          status: reservations.status,
-          expiresAt: reservations.expiresAt,
-          driverId: reservations.driverId,
-          tokenId: reservations.tokenId,
-        })
+        .select({ id: reservations.id, siteId: chargingStations.siteId })
         .from(reservations)
+        .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
         .where(eq(reservations.id, id));
 
-      if (existing == null) {
+      const { userId } = request.user as { userId: string };
+      const siteIds = await getUserSiteIds(userId);
+      if (existing == null || !siteInScope(siteIds, existing.siteId)) {
         await reply
           .status(404)
           .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
         return;
       }
 
-      const { userId } = request.user as { userId: string };
-      const siteIds = await getUserSiteIds(userId);
-      if (siteIds != null) {
-        const [station] = await db
-          .select({ siteId: chargingStations.siteId })
-          .from(chargingStations)
-          .where(eq(chargingStations.id, existing.stationId));
-        if (!siteInScope(siteIds, station?.siteId)) {
-          await reply
-            .status(404)
-            .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
-          return;
-        }
-      }
-
-      if (existing.status !== 'active' && existing.status !== 'scheduled') {
-        await reply
-          .status(400)
-          .send({ error: 'Reservation is not active', code: 'RESERVATION_NOT_ACTIVE' });
-        return;
-      }
-
-      const updates: Record<string, unknown> = { updatedAt: new Date() };
-
-      // Handle driverId. If the driver changes and the caller did NOT supply
-      // an explicit new tokenId, clear the existing tokenId to prevent a
-      // cross-driver leak (an old reservation token still pointing at the
-      // previous owner). Caller can re-bind a new token via the same PATCH.
-      if (body.driverId !== undefined) {
-        updates['driverId'] = body.driverId;
-        const driverChanged = body.driverId !== existing.driverId;
-        if (driverChanged && body.tokenId === undefined && existing.tokenId != null) {
-          updates['tokenId'] = null;
-        }
-      }
-
-      // Handle evseId resolution
-      let resolvedEvseId = existing.evseId;
-      if (body.evseId !== undefined) {
-        if (body.evseId === null) {
-          resolvedEvseId = null;
-          updates['evseId'] = null;
-        } else {
-          const [evse] = await db
-            .select({ id: evses.id })
-            .from(evses)
-            .where(and(eq(evses.stationId, existing.stationId), eq(evses.evseId, body.evseId)));
-
-          if (evse == null) {
-            await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
-            return;
-          }
-          resolvedEvseId = evse.id;
-          updates['evseId'] = evse.id;
-        }
-      }
-
-      // Handle expiresAt
-      if (body.expiresAt !== undefined) {
-        updates['expiresAt'] = new Date(body.expiresAt);
-      }
-
-      // Handle tokenId: validate that the token belongs to the reservation's
-      // driver. Allow null to unbind. body.driverId takes precedence as the
-      // new driver if it was just changed in this same PATCH.
-      if (body.tokenId !== undefined) {
-        if (body.tokenId === null) {
-          updates['tokenId'] = null;
-        } else {
-          const targetDriverId = body.driverId !== undefined ? body.driverId : existing.driverId;
-          if (targetDriverId == null) {
-            await reply.status(400).send({
-              error: 'tokenId requires driverId',
-              code: 'VALIDATION_ERROR',
-            });
-            return;
-          }
-          const [tokenRow] = await db
-            .select({ id: driverTokens.id, driverId: driverTokens.driverId })
-            .from(driverTokens)
-            .where(eq(driverTokens.id, body.tokenId))
-            .limit(1);
-          if (tokenRow == null || tokenRow.driverId !== targetDriverId) {
-            await reply.status(400).send({
-              error: 'tokenId does not belong to driver',
-              code: 'VALIDATION_ERROR',
-            });
-            return;
-          }
-          updates['tokenId'] = tokenRow.id;
-        }
-      }
-
-      // Conflict check if evseId or expiresAt changed
-      const evseChanged = body.evseId !== undefined;
-      const expiresChanged = body.expiresAt !== undefined;
-      if (evseChanged || expiresChanged) {
-        const conflictConditions = [
-          eq(reservations.stationId, existing.stationId),
-          eq(reservations.status, 'active'),
-          sql`${reservations.expiresAt} > NOW()`,
-          sql`${reservations.id} != ${id}`,
-        ];
-        if (resolvedEvseId != null) {
-          conflictConditions.push(eq(reservations.evseId, resolvedEvseId));
-        }
-        const [conflict] = await db
-          .select({ id: reservations.id })
-          .from(reservations)
-          .where(and(...conflictConditions))
-          .limit(1);
-
-        if (conflict != null) {
-          await reply.status(409).send({
-            error: 'An active reservation already exists for this station',
-            code: 'RESERVATION_CONFLICT',
-          });
-          return;
-        }
-      }
-
-      // Apply update
-      await db.update(reservations).set(updates).where(eq(reservations.id, id));
-
-      // Audit the diff. Skip the row entirely when no audited field actually
-      // changed -- a PATCH that only bumps updatedAt is noise.
-      const newDriverId =
-        'driverId' in updates ? (updates['driverId'] as string | null) : existing.driverId;
-      const newTokenId =
-        'tokenId' in updates ? (updates['tokenId'] as string | null) : existing.tokenId;
-      const newEvseId =
-        'evseId' in updates ? (updates['evseId'] as string | null) : existing.evseId;
-      const newExpiresAt =
-        'expiresAt' in updates ? (updates['expiresAt'] as Date) : existing.expiresAt;
-      const changed = reservationDiffChanged(
-        {
-          driverId: existing.driverId,
-          tokenId: existing.tokenId,
-          evseId: existing.evseId,
-          expiresAt: existing.expiresAt,
+      // The service validates the edit like a create, checks overlaps under
+      // the station lock, guards the status, and re-sends ReserveNow for an
+      // active hold (G14).
+      await updateReservation({
+        reservationDbId: id,
+        changes: {
+          driverId: body.driverId,
+          evseOcppId: body.evseId,
+          expiresAt: body.expiresAt != null ? new Date(body.expiresAt) : undefined,
+          tokenId: body.tokenId,
         },
-        {
-          driverId: newDriverId,
-          tokenId: newTokenId,
-          evseId: newEvseId,
-          expiresAt: newExpiresAt,
-        },
-      );
-      if (changed) {
-        await writeReservationAudit(
-          {
-            reservationId: id,
-            action: 'updated',
-            actor: 'operator',
-            actorUserId: userId,
-            driverIdBefore: existing.driverId,
-            driverIdAfter: newDriverId,
-            tokenIdBefore: existing.tokenId,
-            tokenIdAfter: newTokenId,
-            evseIdBefore: existing.evseId,
-            evseIdAfter: newEvseId,
-            statusBefore: existing.status,
-            statusAfter: existing.status,
-            expiresAtBefore: existing.expiresAt,
-            expiresAtAfter: newExpiresAt,
-          },
-          undefined,
-          request.log,
-        );
-      }
+        actor: { kind: 'operator', userId },
+        logger: request.log,
+      });
 
       // Re-fetch with joins for response
       const [updated] = await db
@@ -1662,7 +1102,7 @@ export function reservationRoutes(app: FastifyInstance): void {
         tags: ['Reservations'],
         summary: 'Cancel an active reservation',
         description:
-          'Dispatches CancelReservation to the station (skipped for scheduled reservations not yet pushed) and marks the reservation cancelled with actor=operator. When chargeCancellationFee=true and the driver has a default payment method, a fee charge is attempted via Stripe and reflected in the response. Sends a reservation.Cancelled notification to the driver when this caller wins the cancellation race. Returns warning text instead of an error when the OCPP CancelReservation call times out.',
+          'Marks the reservation cancelled with actor=operator, then sends CancelReservation to the station and waits for the answer (skipped for scheduled reservations not yet pushed). When chargeCancellationFee=true and the driver has a default payment method, a fee charge is attempted and reflected in the response. Sends a reservation.Cancelled notification to the driver when this caller wins the cancellation race. When the station refuses the cancel or does not answer, the reservation stays cancelled and the response carries warning station_cancel_failed.',
         operationId: 'cancelReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(reservationIdParams),
@@ -1739,75 +1179,59 @@ export function reservationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const isScheduled = reservation.status === 'scheduled';
+      // Database first (G7): the guarded cancel flips the row (one winner,
+      // which audits and may charge the fee when the operator opts in), then
+      // the winner of an active hold sends CancelReservation and waits for the
+      // answer. A refused or unanswered cancel is audited and returned as a
+      // warning; the row stays cancelled.
+      const result = await cancelReservationWithStation({
+        reservationDbId: reservation.id,
+        siteId: reservation.siteId,
+        driverId: reservation.driverId,
+        startsAt: reservation.startsAt ?? reservation.createdAt,
+        createdAt: reservation.createdAt,
+        actor: 'operator',
+        actorUserId: userId,
+        reason: 'operator_manual',
+        note: operatorReason,
+        chargeFee: chargeCancellationFee,
+        payments: paymentContext(request.log),
+        logger: request.log,
+        stationOcppId: reservation.stationOcppId,
+        reservationOcppId: reservation.reservationId,
+        waitForStation: true,
+      });
 
-      // Skip OCPP CancelReservation for scheduled reservations (not yet sent to station)
-      let result: { error?: string } = {};
-      if (!isScheduled) {
-        result = await sendOcppCommandAndWait(reservation.stationOcppId, 'CancelReservation', {
-          reservationId: reservation.reservationId,
-        });
-      }
-
-      // Apply the cancellation. The helper writes actor/reason metadata,
-      // optionally charges the fee (gated by chargeCancellationFee), and
-      // marks the row cancelled in one place. We pass actor='operator' here;
-      // the helper guarantees system paths can never charge.
-      const { feeChargedCents, cancelled, feeChargeFailed, feeCurrency } =
-        await applyReservationCancellation({
-          reservationDbId: reservation.id,
-          siteId: reservation.siteId,
-          driverId: reservation.driverId,
-          startsAt: reservation.startsAt ?? reservation.createdAt,
-          createdAt: reservation.createdAt,
-          actor: 'operator',
-          actorUserId: userId,
-          reason: 'operator_manual',
-          note: operatorReason,
-          chargeFee: chargeCancellationFee,
-          payments: paymentContext(request.log),
-          logger: request.log,
-        });
-
-      // Only notify the driver when this caller actually flipped the row.
-      // A concurrent cancel (driver/system) winning the race already sent its
-      // own notification; firing another would deliver a misleading
-      // "feeFormatted: ''" message and double-notify.
-      if (cancelled && reservation.driverId != null) {
+      // Only the caller that flipped the row notifies: a concurrent cancel
+      // that won already sent its own notice.
+      if (result.cancelled) {
         // The fee charged (tax included), formatted in the driver's language.
-        const feeCharged = feeChargedCents > 0 && feeCurrency != null;
-        const cancellationFeeFormatted = feeCharged
-          ? notificationMoney(feeChargedCents, feeCurrency)
-          : '';
-        void dispatchDriverNotification(
-          client,
+        const feeCharged = result.feeChargedCents > 0 && result.feeCurrency != null;
+        void notifyReservationDriver(
           'reservation.Cancelled',
-          reservation.driverId,
           {
-            reservationId: reservation.reservationId,
-            stationId: reservation.stationOcppId,
-            cancellationFeeFormatted,
-            cancellationFeeCents: feeChargedCents,
-            currency: feeCurrency ?? '',
+            reservationDbId: reservation.id,
+            reservationOcppId: reservation.reservationId,
+            stationOcppId: reservation.stationOcppId,
+            driverId: reservation.driverId,
           },
-          ALL_TEMPLATES_DIRS,
-          getPubSub(),
+          {
+            cancellationFeeFormatted:
+              feeCharged && result.feeCurrency != null
+                ? notificationMoney(result.feeChargedCents, result.feeCurrency)
+                : '',
+            cancellationFeeCents: result.feeChargedCents,
+            currency: result.feeCurrency ?? '',
+          },
+          { logger: request.log },
         );
-      }
-
-      if (result.error != null) {
-        return {
-          status: 'cancelled',
-          cancellationFeeChargedCents: feeChargedCents,
-          ...(feeChargeFailed ? { feeChargeFailed: true } : {}),
-          warning: result.error,
-        };
       }
 
       return {
         status: 'cancelled',
-        cancellationFeeChargedCents: feeChargedCents,
-        ...(feeChargeFailed ? { feeChargeFailed: true } : {}),
+        cancellationFeeChargedCents: result.feeChargedCents,
+        ...(result.feeChargeFailed ? { feeChargeFailed: true } : {}),
+        ...(result.warning != null ? { warning: result.warning } : {}),
       };
     },
   );
@@ -1821,7 +1245,7 @@ export function reservationRoutes(app: FastifyInstance): void {
         tags: ['Reservations'],
         summary: 'Move an active reservation to a different station',
         description:
-          'Moves a reservation to a different station and optionally a different EVSE. For scheduled reservations the move is a pure DB update; the worker dispatches ReserveNow at startsAt. For active reservations, ReserveNow is sent to the new station first; on success the row is updated and a best-effort CancelReservation is sent to the old station. Returns 400 if the new station rejects the ReserveNow.',
+          'Moves a reservation to a different station and optionally a different EVSE. The new station gets the create checks (online for an active reservation, eligibility, maintenance, EVSE, busy EVSE, overlap). For scheduled reservations the move is a guarded database update; the worker dispatches ReserveNow at startsAt. For active reservations, ReserveNow is sent to the new station first; on success the row moves under a status guard and a best-effort CancelReservation is sent to the old station. Returns 400 if the new station rejects the ReserveNow, 409 RESERVATION_CONFLICT when the window overlaps another reservation on the new station, and 409 RESERVATION_NOT_ACTIVE when the reservation ended meanwhile (the new station then gets CancelReservation).',
         operationId: 'reassignReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(reservationIdParams),
@@ -1834,16 +1258,22 @@ export function reservationRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(reassignReservationResponse),
           400: errorWith('Bad request', [
+            ERROR_CODES.RESERVATION_NOT_ACTIVE,
             ERROR_CODES.RESERVATION_REJECTED,
             ERROR_CODES.STATION_OFFLINE,
+            ERROR_CODES.VALIDATION_ERROR,
           ]),
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
+          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN, ERROR_CODES.RESERVATION_DISABLED]),
           404: errorWith('Resource not found', [
             ERROR_CODES.EVSE_NOT_FOUND,
+            ERROR_CODES.RESERVATION_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
           409: errorWith('Conflict', [
+            ERROR_CODES.EVSE_IN_USE,
+            ERROR_CODES.RESERVATION_CONFLICT,
             ERROR_CODES.RESERVATION_DURING_MAINTENANCE,
+            ERROR_CODES.RESERVATION_NOT_ACTIVE,
             ERROR_CODES.STATION_UNAVAILABLE,
           ]),
         },
@@ -1854,222 +1284,47 @@ export function reservationRoutes(app: FastifyInstance): void {
       const body = request.body as { newStationOcppId: string; newEvseId?: number };
       const { newStationOcppId, newEvseId } = body;
 
-      // 1. Fetch current reservation (with old station OCPP ID)
       const [reservation] = await db
-        .select({
-          id: reservations.id,
-          reservationId: reservations.reservationId,
-          stationId: reservations.stationId,
-          stationOcppId: chargingStations.stationId,
-          siteId: chargingStations.siteId,
-          evseId: reservations.evseId,
-          driverId: reservations.driverId,
-          startsAt: reservations.startsAt,
-          expiresAt: reservations.expiresAt,
-          createdAt: reservations.createdAt,
-          status: reservations.status,
-        })
+        .select({ id: reservations.id, siteId: chargingStations.siteId })
         .from(reservations)
         .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
         .where(eq(reservations.id, id));
 
-      if (reservation == null) {
-        await reply
-          .status(404)
-          .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
-        return;
-      }
-
-      // Site access control on old reservation's station
+      // Site access control on the reservation's current station
       const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
-      if (!siteInScope(siteIds, reservation.siteId)) {
+      if (reservation == null || !siteInScope(siteIds, reservation.siteId)) {
         await reply
           .status(404)
           .send({ error: 'Reservation not found', code: 'RESERVATION_NOT_FOUND' });
         return;
       }
 
-      // 2. Validate reservation is active or scheduled. Scheduled reservations
-      // have no station-side ReserveNow yet (worker fires it at startsAt), so
-      // reassign for those is a pure DB update -- the worker will later target
-      // the updated station.
-      if (reservation.status !== 'active' && reservation.status !== 'scheduled') {
-        await reply
-          .status(400)
-          .send({ error: 'Reservation is not active', code: 'RESERVATION_NOT_ACTIVE' });
-        return;
-      }
-      const isScheduled = reservation.status === 'scheduled';
-
-      // 3. Find new station by OCPP ID
       const [newStation] = await db
-        .select({
-          id: chargingStations.id,
-          siteId: chargingStations.siteId,
-          isOnline: chargingStations.isOnline,
-          reservationsEnabled: chargingStations.reservationsEnabled,
-          disabledReason: chargingStations.disabledReason,
-          firmwareState: chargingStations.firmwareState,
-          reportedStatus: chargingStations.reportedStatus,
-        })
+        .select(reservationStationColumns)
         .from(chargingStations)
         .where(eq(chargingStations.stationId, newStationOcppId));
 
-      if (newStation == null) {
+      // Site access control on the new station
+      if (newStation == null || !siteInScope(siteIds, newStation.siteId)) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
 
-      // Site access control on new station
-      if (!siteInScope(siteIds, newStation.siteId)) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-
-      // 4. Online check applies only to active reassign. Scheduled reassign
-      // mirrors the create-reservation behavior: the new station has time to
-      // come online before startsAt.
-      if (!isScheduled && !newStation.isOnline) {
-        await reply.status(400).send({ error: 'Station is offline', code: 'STATION_OFFLINE' });
-        return;
-      }
-
-      // 5. Check reservation eligibility on new station
+      // The service checks the new station like a create, moves the row
+      // under the new station's lock with a status guard, and sends
+      // ReserveNow and CancelReservation for an active hold (G14).
       try {
-        await assertReservationsAllowed(newStation);
+        await reassignReservation({
+          reservationDbId: id,
+          newStation,
+          newEvseOcppId: newEvseId,
+          actor: { kind: 'operator', userId },
+          logger: request.log,
+        });
       } catch (err) {
-        const e = err as { statusCode?: number; code?: string; message?: string };
-        await reply
-          .status((e.statusCode ?? 500) as 400)
-          .send({ error: e.message ?? 'Reservations not allowed', code: e.code });
-        return;
-      }
-
-      // 5b. Maintenance check on the NEW station for the reservation's window.
-      try {
-        await assertNoMaintenanceConflict(
-          newStation.id,
-          reservation.startsAt ?? reservation.createdAt,
-          reservation.expiresAt,
-        );
-      } catch (err) {
-        if (err instanceof MaintenanceConflictError) {
-          await reply.status(409).send({
-            error: err.message,
-            code: err.code,
-            ...err.details,
-          });
-          return;
-        }
+        if (await sendMaintenanceConflict(reply, err)) return;
         throw err;
-      }
-
-      // 6. Resolve newEvseId integer to DB UUID if provided
-      let resolvedNewEvseId: string | null = null;
-      if (newEvseId != null) {
-        const [evse] = await db
-          .select({ id: evses.id })
-          .from(evses)
-          .where(and(eq(evses.stationId, newStation.id), eq(evses.evseId, newEvseId)));
-
-        if (evse == null) {
-          await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
-          return;
-        }
-        resolvedNewEvseId = evse.id;
-      }
-
-      // 7. Scheduled reassign: pure DB update, no OCPP calls.
-      // The worker activation handler will send ReserveNow to the updated
-      // station at startsAt.
-      if (isScheduled) {
-        await db
-          .update(reservations)
-          .set({
-            stationId: newStation.id,
-            evseId: resolvedNewEvseId,
-            updatedAt: new Date(),
-          })
-          .where(eq(reservations.id, id));
-        await writeReservationAudit(
-          {
-            reservationId: id,
-            action: 'updated',
-            actor: 'operator',
-            actorUserId: userId,
-            evseIdBefore: reservation.evseId,
-            evseIdAfter: resolvedNewEvseId,
-            notes: `reassigned to station ${newStationOcppId} (was ${reservation.stationOcppId})`,
-          },
-          undefined,
-          request.log,
-        );
-        return { status: 'reassigned', newStationOcppId };
-      }
-
-      // 8. Active reassign: send ReserveNow to new station FIRST
-      const ocppPayload: Record<string, unknown> = {
-        id: reservation.reservationId,
-        expiryDateTime: reservation.expiresAt.toISOString(),
-        idToken: { idToken: reservation.driverId ?? 'operator', type: 'Central' },
-      };
-      if (newEvseId != null) {
-        ocppPayload['evseId'] = newEvseId;
-      }
-
-      const result = await sendOcppCommandAndWait(newStationOcppId, 'ReserveNow', ocppPayload);
-
-      if (result.error != null) {
-        await reply.status(400).send({
-          error: result.error,
-          code: 'RESERVATION_REJECTED',
-        });
-        return;
-      }
-
-      const responseStatus = result.response?.['status'] as string | undefined;
-      if (responseStatus != null && responseStatus !== 'Accepted') {
-        await reply.status(400).send({
-          error: `Station rejected reservation: ${responseStatus}`,
-          code: 'RESERVATION_REJECTED',
-        });
-        return;
-      }
-
-      // 9. Update reservation row with new station and evse BEFORE cancelling old
-      await db
-        .update(reservations)
-        .set({
-          stationId: newStation.id,
-          evseId: resolvedNewEvseId,
-          updatedAt: new Date(),
-        })
-        .where(eq(reservations.id, id));
-      await writeReservationAudit(
-        {
-          reservationId: id,
-          action: 'updated',
-          actor: 'operator',
-          actorUserId: userId,
-          evseIdBefore: reservation.evseId,
-          evseIdAfter: resolvedNewEvseId,
-          notes: `reassigned to station ${newStationOcppId} (was ${reservation.stationOcppId})`,
-        },
-        undefined,
-        request.log,
-      );
-
-      // 10. Cancel on old station (best effort, after DB update)
-      try {
-        await sendOcppCommandAndWait(reservation.stationOcppId, 'CancelReservation', {
-          reservationId: reservation.reservationId,
-        });
-      } catch (err) {
-        request.log.warn(
-          { err, reservationId: reservation.id, stationOcppId: reservation.stationOcppId },
-          'CancelReservation to old station failed during reassign (continuing)',
-        );
       }
 
       return { status: 'reassigned', newStationOcppId };

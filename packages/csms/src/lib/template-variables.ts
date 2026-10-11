@@ -66,12 +66,14 @@ export const DRIVER_RESERVATION_EVENTS = [
   'reservation.Expiring',
   'reservation.Expired',
   'reservation.StationFaulted',
+  'reservation.TakenByOther',
 ] as const;
 
 export const DRIVER_SUPPORT_EVENTS = [
   'supportCase.Created',
   'supportCase.OperatorReply',
   'supportCase.Resolved',
+  'supportCase.AiAnswered',
 ] as const;
 
 export const DRIVER_TOKEN_EVENTS = [
@@ -590,7 +592,7 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
     { name: 'email', description: 'Driver email address' },
-    { name: 'reservationId', description: 'Reservation ID' },
+    { name: 'reservationId', description: 'Reservation ID shown on the station (OCPP id)' },
     { name: 'stationId', description: 'Station OCPP identifier' },
     { name: 'expiresAt', description: 'Expiration timestamp' },
   ],
@@ -598,8 +600,9 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
     { name: 'email', description: 'Driver email address' },
-    { name: 'reservationId', description: 'Reservation ID' },
+    { name: 'reservationId', description: 'Reservation ID shown on the station (OCPP id)' },
     { name: 'stationId', description: 'Station OCPP identifier' },
+    { name: 'expiresAt', description: 'Expiration timestamp' },
     {
       name: 'cancellationFeeFormatted',
       description:
@@ -610,6 +613,14 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
       description: 'Cancellation fee charged in cents, tax included',
     },
     { name: 'currency', description: 'Currency code' },
+    {
+      name: 'stationUnavailable',
+      description: 'True when the station went offline or faulted during the hold (no fee)',
+    },
+    {
+      name: 'stationNoResponse',
+      description: 'True when the station did not confirm the reservation (no fee)',
+    },
   ],
   'reservation.CancelledForMaintenance': [
     { name: 'firstName', description: 'Driver first name' },
@@ -631,21 +642,33 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
     { name: 'email', description: 'Driver email address' },
-    { name: 'reservationId', description: 'Reservation ID' },
+    { name: 'reservationId', description: 'Reservation ID shown on the station (OCPP id)' },
+    { name: 'stationId', description: 'Station OCPP identifier' },
     { name: 'expiresAt', description: 'Expiration timestamp' },
   ],
   'reservation.Expired': [
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
     { name: 'email', description: 'Driver email address' },
-    { name: 'reservationId', description: 'Reservation ID' },
+    { name: 'reservationId', description: 'Reservation ID shown on the station (OCPP id)' },
+    { name: 'stationId', description: 'Station OCPP identifier' },
+    { name: 'expiresAt', description: 'Expiration timestamp' },
   ],
   'reservation.StationFaulted': [
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
     { name: 'email', description: 'Driver email address' },
-    { name: 'reservationId', description: 'Reservation ID' },
+    { name: 'reservationId', description: 'Reservation ID shown on the station (OCPP id)' },
     { name: 'stationId', description: 'Station OCPP identifier' },
+    { name: 'expiresAt', description: 'Expiration timestamp' },
+  ],
+  'reservation.TakenByOther': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'reservationId', description: 'Reservation ID shown on the station (OCPP id)' },
+    { name: 'stationId', description: 'Station OCPP identifier' },
+    { name: 'expiresAt', description: 'Expiration timestamp' },
   ],
   'session.Receipt': [
     { name: 'firstName', description: 'Driver first name' },
@@ -774,6 +797,14 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'category', description: 'Case category' },
   ],
   'supportCase.Resolved': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'caseNumber', description: 'Support case number' },
+    { name: 'subject', description: 'Case subject' },
+    { name: 'category', description: 'Case category' },
+  ],
+  'supportCase.AiAnswered': [
     { name: 'firstName', description: 'Driver first name' },
     { name: 'lastName', description: 'Driver last name' },
     { name: 'email', description: 'Driver email address' },

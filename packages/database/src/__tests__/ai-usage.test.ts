@@ -59,14 +59,16 @@ const NOW = new Date('2026-10-10T12:00:00Z');
 
 /** A context with fixed sums: company, per site (month and day) and per user (day). */
 function context(
-  over: Partial<Omit<AiBudgetContext['limits'], 'userDailyTokens'>> & {
+  over: Partial<Omit<AiBudgetContext['limits'], 'userDailyTokens' | 'driverDailyTokens'>> & {
     userDaily?: number;
+    driverDaily?: number;
     siteBudgets?: Record<string, number>;
     used?: {
       company?: number;
       siteMonth?: Record<string, number>;
       siteDay?: Record<string, number>;
       userDay?: Record<string, number>;
+      driverDay?: Record<string, number>;
     };
   } = {},
 ): AiBudgetContext & { calls: string[] } {
@@ -80,6 +82,7 @@ function context(
       siteDailyTokens: over.siteDailyTokens ?? 0,
       budgetWarnPercent: over.budgetWarnPercent ?? 80,
       userDailyTokens: over.userDaily ?? 0,
+      driverDailyTokens: over.driverDaily ?? 0,
     },
     timeZone: 'UTC',
     siteMonthlyBudget: (siteId) =>
@@ -94,6 +97,7 @@ function context(
           (day ? used.siteDay?.[key.siteId] : used.siteMonth?.[key.siteId]) ?? 0,
         );
       }
+      if (key.kind === 'driver') return Promise.resolve(used.driverDay?.[key.driverId] ?? 0);
       return Promise.resolve(used.userDay?.[key.userId] ?? 0);
     },
   };
@@ -105,6 +109,7 @@ const ALL_SURFACES: AiUsageSurface[] = [
   'insight',
   'insight_translation',
   'worker',
+  'driver_support',
 ];
 
 describe('evaluateAiBudgets', () => {
@@ -189,6 +194,13 @@ describe('evaluateAiBudgets', () => {
     expect(
       await evaluateAiBudgets({ surface: 'support', userId: 'u', siteId: 'sit_a', now: NOW }, ctx),
     ).toEqual({ allowed: true });
+    // TC-AI-DR-02: driver support is interactive, so the site daily budget does not apply (E10).
+    expect(
+      await evaluateAiBudgets(
+        { surface: 'driver_support', driverId: 'drv_1', siteId: 'sit_a', now: NOW },
+        ctx,
+      ),
+    ).toEqual({ allowed: true });
   });
 
   it('TC-AI-US-03 the user daily budget applies to interactive surfaces, counting from midnight UTC', async () => {
@@ -208,6 +220,58 @@ describe('evaluateAiBudgets', () => {
     expect(
       await evaluateAiBudgets({ surface: 'worker', userId: 'usr_1', siteId: 's', now: NOW }, ctx),
     ).toEqual({ allowed: true });
+  });
+
+  it('TC-AI-DR-16 the driver daily budget applies to driver support only, per driver', async () => {
+    const ctx = context({ driverDaily: 40_000, used: { driverDay: { drv_1: 40_000 } } });
+    expect(
+      await evaluateAiBudgets(
+        { surface: 'driver_support', driverId: 'drv_1', siteId: 'sit_a', now: NOW },
+        ctx,
+      ),
+    ).toEqual({
+      allowed: false,
+      code: 'AI_BUDGET_EXCEEDED',
+      scope: 'driver',
+      period: 'day',
+      retryAfterSeconds: 12 * 3_600,
+    });
+    expect(
+      await evaluateAiBudgets({ surface: 'driver_support', driverId: 'drv_2', now: NOW }, ctx),
+    ).toEqual({ allowed: true });
+    // Another surface never reads the driver scope.
+    expect(
+      await evaluateAiBudgets(
+        { surface: 'support', userId: 'u', driverId: 'drv_1', now: NOW },
+        ctx,
+      ),
+    ).toEqual({ allowed: true });
+    expect(ctx.calls.filter((c) => c.startsWith('driver'))).toEqual(['driver:day', 'driver:day']);
+  });
+
+  it('TC-AI-DR-16 company and case site monthly budgets refuse driver support before the driver scope', async () => {
+    const ctx = context({
+      companyMonthlyTokens: 100,
+      siteMonthlyTokens: 50,
+      driverDaily: 10,
+      used: { company: 100, siteMonth: { sit_a: 50 }, driverDay: { drv_1: 10 } },
+    });
+    const company = await evaluateAiBudgets(
+      { surface: 'driver_support', driverId: 'drv_1', siteId: 'sit_a', now: NOW },
+      ctx,
+    );
+    expect(company).toMatchObject({ allowed: false, scope: 'company', period: 'month' });
+    const siteOnly = context({
+      siteMonthlyTokens: 50,
+      driverDaily: 10,
+      used: { siteMonth: { sit_a: 50 }, driverDay: { drv_1: 10 } },
+    });
+    expect(
+      await evaluateAiBudgets(
+        { surface: 'driver_support', driverId: 'drv_1', siteId: 'sit_a', now: NOW },
+        siteOnly,
+      ),
+    ).toMatchObject({ allowed: false, scope: 'site', period: 'month' });
   });
 
   it('budgets of 0 read nothing and allow', async () => {

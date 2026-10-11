@@ -94,4 +94,30 @@ describe('redactAccessLogBody', () => {
     });
     expect(redactAccessLogBody('/v1/stations/abc', { value: 'kept' })).toEqual({ value: 'kept' });
   });
+
+  it('masks station passwords in OCPP command bodies (2.1 and 1.6)', () => {
+    const v21 = redactAccessLogBody('/v1/ocpp/commands/v21/SetVariables', {
+      stationId: 'CS-1',
+      setVariableData: [
+        {
+          component: { name: 'SecurityCtrlr' },
+          variable: { name: 'BasicAuthPassword' },
+          attributeValue: 'SeedStationPass1234',
+        },
+      ],
+    });
+    expect(JSON.stringify(v21)).not.toContain('SeedStationPass1234');
+    const v16 = redactAccessLogBody('/v1/ocpp/commands/v16/ChangeConfiguration', {
+      stationId: 'CS-1',
+      key: 'AuthorizationKey',
+      value: '5365656453746174',
+    });
+    expect(v16).toEqual({ stationId: 'CS-1', key: 'AuthorizationKey', value: '[redacted]' });
+    expect(
+      redactAccessLogBody('/v1/ocpp/commands/v16/ChangeConfiguration', {
+        key: 'HeartbeatInterval',
+        value: '300',
+      }),
+    ).toEqual({ key: 'HeartbeatInterval', value: '300' });
+  });
 });

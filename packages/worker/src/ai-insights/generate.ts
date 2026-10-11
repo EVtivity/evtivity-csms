@@ -10,7 +10,8 @@
  * 2. Switches: `opsAi.enabled`, the kind's switch, the site's switch.
  * 3. Debounce re-check: a station back online or no longer faulted ends
  *    `skipped/resolved_before_analysis` at zero cost.
- * 4. Known causes (`RULE_INSIGHTS`) get a rule insight, zero tokens.
+ * 4. Known causes (`RULE_INSIGHTS`) get a rule insight, zero tokens. A
+ *    reservation no-show is always a rule insight (decision E17).
  * 5. Site daily count cap, then the per-subject cooldown claim.
  * 6. The budget check (`CheckAiBudgets`); a refusal ends `budget_exceeded`.
  * 7. Evidence, deterministic scope (SQL), one model call with structured
@@ -27,20 +28,25 @@ import { aiUsageCostMicros } from '@evtivity/lib/pricing-engine';
 import type { Logger, PubSubClient } from '@evtivity/lib';
 import type { AiSettings } from '@evtivity/lib/ai-config';
 import {
+  INSIGHT_KIND_FALLBACKS,
   insightAnswerProblem,
+  isReservationInsightKind,
+  RESERVATION_INSIGHT_ACTIONS,
+  reservationAuditReason,
+  reservationRuleInsightFor,
   ruleInsightFor,
   sanitizeInsightModelOutput,
 } from '@evtivity/lib/ai-insights';
 import type {
-  FixCode,
   InsightKind,
   InsightModelOutput,
   InsightScope,
-  RootCauseCategory,
+  RuleInsight,
 } from '@evtivity/lib/ai-insights';
 import type { CheckAiBudgets } from '@evtivity/lib/ai-usage';
 import { getModelEntry } from '@evtivity/ai/core';
 import type { AiAdapter, AiMessage, AiRequest } from '@evtivity/ai/core';
+import { redactProviderRequest } from '@evtivity/ai/redact';
 import {
   activateInsight,
   claimInsightCooldown,
@@ -51,6 +57,7 @@ import {
 import type { AiInsightRow } from '@evtivity/services/ai-insight.service';
 import {
   collectAttemptAuthorizationEvidence,
+  collectReservationEvidence,
   collectSessionEvidence,
   collectSiteEvidence,
   collectStationEvidence,
@@ -88,31 +95,14 @@ export interface InsightJobDeps {
   checkBudgets: CheckAiBudgets;
   pubsub: PubSubClient;
   now: () => Date;
+  /** Keys the hashes of evidence values (`SETTINGS_ENCRYPTION_KEY`). */
+  subjectSecret: string;
 }
 
 export type InsightJobOutcome = 'noop' | 'skipped' | 'rule' | 'model' | 'fallback' | 'closed';
 
-/** Used when the model answer is unusable or no model can run: low confidence. */
-export const KIND_FALLBACK: Record<InsightKind, { category: RootCauseCategory; fixes: FixCode[] }> =
-  {
-    station_offline: {
-      category: 'connectivity',
-      fixes: ['check_network_connection', 'check_power_supply'],
-    },
-    station_faulted: { category: 'hardware', fixes: ['inspect_connector', 'reboot_station'] },
-    station_alert: { category: 'hardware', fixes: ['contact_station_vendor'] },
-    session_failed: { category: 'unknown', fixes: ['monitor'] },
-    authorization_refused: { category: 'token', fixes: ['review_token_status'] },
-    site_incident: {
-      category: 'connectivity',
-      fixes: ['check_network_connection', 'check_power_supply'],
-    },
-    site_summary: { category: 'unknown', fixes: ['monitor'] },
-    company_summary: { category: 'unknown', fixes: ['monitor'] },
-    tariff_anomaly: { category: 'tariff', fixes: ['review_tariff_assignment'] },
-  };
-
 export function kindEnabled(kind: InsightKind, settings: AiSettings): boolean {
+  if (isReservationInsightKind(kind)) return settings.insights.reservationEnabled;
   if (STATION_INSIGHT_KINDS.has(kind) || kind === 'site_incident') {
     return settings.insights.stationEnabled;
   }
@@ -136,6 +126,58 @@ async function modelInsightsToday(siteId: string): Promise<number> {
     WHERE site_id = ${siteId} AND generated_by = 'model' AND created_at > now() - interval '24 hours'
   `;
   return row?.n ?? 0;
+}
+
+/** Regenerations an insight's trigger key is followed through to its scan trigger. */
+const MAX_REGENERATION_HOPS = 10;
+
+/**
+ * The audit row id that raised a reservation insight: the trigger key is
+ * `<kind>:<audit id>`; a regeneration (`regenerate:<old insight id>:<ts>`) is
+ * followed back to the insight it replaced. Null when it cannot be found.
+ */
+async function reservationTriggerAuditId(row: AiInsightRow): Promise<number | null> {
+  let key = row.triggerKey;
+  for (let hop = 0; hop < MAX_REGENERATION_HOPS; hop++) {
+    const audit = /^reservation_[a-z_]+:(\d+)$/.exec(key);
+    if (audit?.[1] != null) return Number(audit[1]);
+    const regenerated = /^regenerate:([^:]+):/.exec(key);
+    if (regenerated?.[1] == null) return null;
+    const [old] = await client<{ trigger_key: string }[]>`
+      SELECT trigger_key FROM ai_insights WHERE id = ${regenerated[1]}
+    `;
+    if (old == null) return null;
+    key = old.trigger_key;
+  }
+  return null;
+}
+
+/**
+ * The rule of a reservation insight: the cause of the audit row that raised
+ * it (a later row of the same action has its own insight). When that row
+ * cannot be found, the newest row of the kind's action. A no-show is always a
+ * rule insight (decision E17), the kind's fallback when the row is gone.
+ */
+async function reservationRule(row: AiInsightRow): Promise<RuleInsight | undefined> {
+  const kind = row.kind as InsightKind;
+  if (!isReservationInsightKind(kind) || row.reservationId == null) return undefined;
+  const action = RESERVATION_INSIGHT_ACTIONS[kind];
+  const auditId = await reservationTriggerAuditId(row);
+  const [audit] =
+    auditId != null
+      ? await client<{ after: unknown }[]>`
+          SELECT after FROM reservation_audit_log
+          WHERE id = ${auditId} AND reservation_id = ${row.reservationId}
+        `
+      : await client<{ after: unknown }[]>`
+          SELECT after FROM reservation_audit_log
+          WHERE reservation_id = ${row.reservationId} AND action::text = ${action}
+          ORDER BY id DESC LIMIT 1
+        `;
+  const rule = reservationRuleInsightFor(action, reservationAuditReason(audit?.after));
+  if (rule == null && kind === 'reservation_no_show')
+    return INSIGHT_KIND_FALLBACKS.reservation_no_show;
+  return rule;
 }
 
 /** The fixed meaning of the subject, when it has one: a stop reason or a refused outcome. */
@@ -164,6 +206,7 @@ interface CollectedEvidence {
 export async function collectInsightEvidence(
   row: AiInsightRow,
   now: Date,
+  subjectSecret: string,
 ): Promise<CollectedEvidence | null> {
   if (STATION_INSIGHT_KINDS.has(row.kind as InsightKind) && row.stationId != null) {
     const station = await collectStationEvidence(row.stationId, now);
@@ -194,6 +237,12 @@ export async function collectInsightEvidence(
     const scope = await computeInsightScope({ siteId: row.siteId });
     return { pack: auth.pack, scope };
   }
+  if (isReservationInsightKind(row.kind) && row.reservationId != null) {
+    const reservation = await collectReservationEvidence(row.reservationId, subjectSecret, now);
+    if (reservation == null) return null;
+    const scope = await computeInsightScope({ siteId: row.siteId });
+    return { pack: reservation.pack, scope };
+  }
   if (row.kind === 'site_incident' && row.siteId != null) {
     const members = await incidentMemberStationIds(row.id);
     const site = await collectSiteEvidence(row.siteId, members, row.subjectId);
@@ -210,6 +259,7 @@ function subjectRef(row: AiInsightRow) {
     stationId: row.stationId,
     sessionId: row.sessionId,
     authorizeAttemptId: row.authorizeAttemptId,
+    reservationId: row.reservationId,
   };
 }
 
@@ -277,7 +327,10 @@ export async function askInsightModel(input: {
     // The budget is checked before every model call, the repair retry included.
     if (!(await input.allowed())) return { answer: null, refused: attempt === 0 };
     const signal = AbortSignal.timeout(MODEL_CALL_TIMEOUT_MS);
-    const result = await input.adapter.complete({ ...base, messages: [...messages] }, signal);
+    const result = await input.adapter.complete(
+      redactProviderRequest({ ...base, messages: [...messages] }, 'insight'),
+      signal,
+    );
     await recordAiUsage({
       ...input.ledger,
       provider: input.config.provider,
@@ -333,9 +386,11 @@ export async function generateInsight(
 
   const now = deps.now();
   const language = row.primaryLanguage;
-  const rule = ruleInsightFor(await knownCause(row));
+  const rule = isReservationInsightKind(kind)
+    ? await reservationRule(row)
+    : ruleInsightFor(await knownCause(row));
   if (rule != null) {
-    const evidence = await collectInsightEvidence(row, now);
+    const evidence = await collectInsightEvidence(row, now, deps.subjectSecret);
     if (evidence == null) return skip(deps, row, 'resolved_before_analysis');
     const stored = await activateInsight(row.id, {
       category: rule.category,
@@ -368,7 +423,7 @@ export async function generateInsight(
   });
   if (!claimed) return skip(deps, row, 'cooldown');
 
-  const evidence = await collectInsightEvidence(row, now);
+  const evidence = await collectInsightEvidence(row, now, deps.subjectSecret);
   if (evidence == null) return skip(deps, row, 'resolved_before_analysis');
   const basisFingerprint = await currentFingerprint(subjectRef(row));
 
@@ -404,7 +459,7 @@ export async function generateInsight(
     });
     if (asked.refused) {
       // Plan IN-06: skipped for the budget, with the rule fallback's fields.
-      const fallback = KIND_FALLBACK[kind];
+      const fallback = INSIGHT_KIND_FALLBACKS[kind];
       return skip(deps, row, 'budget_exceeded', {
         category: fallback.category,
         confidence: 'low',
@@ -416,7 +471,7 @@ export async function generateInsight(
   }
 
   if (answer == null) {
-    const fallback = KIND_FALLBACK[kind];
+    const fallback = INSIGHT_KIND_FALLBACKS[kind];
     const stored = await activateInsight(row.id, {
       category: fallback.category,
       confidence: 'low',

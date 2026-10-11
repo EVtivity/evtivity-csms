@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
+import { REDACTED, isCredentialName } from '@evtivity/lib/secret-config';
 
 /** One station-reported variable attribute (OCPP 2.1 device model or 1.6 key). */
 export interface StationConfigurationValue {
@@ -25,8 +26,14 @@ export interface StationConfigurationValue {
  */
 export async function upsertStationConfiguration(
   sql: postgres.Sql,
-  v: StationConfigurationValue,
+  reported: StationConfigurationValue,
 ): Promise<void> {
+  // A credential a station reports (BasicAuthPassword, AuthorizationKey) is
+  // stored as `[redacted]`; compliant stations report none (write-only).
+  const v =
+    reported.value != null && reported.value !== '' && isCredentialName(reported.variable)
+      ? { ...reported, value: REDACTED }
+      : reported;
   await sql`
     INSERT INTO station_configurations (station_id, component, instance, evse_id, connector_id, variable, variable_instance, value, attribute_type, source)
     VALUES (${v.stationUuid}, ${v.component}, ${v.componentInstance}, ${v.evseId}, ${v.connectorId}, ${v.variable}, ${v.variableInstance}, ${v.value}, ${v.attributeType}, ${v.source})

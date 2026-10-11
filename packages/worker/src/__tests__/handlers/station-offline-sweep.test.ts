@@ -18,7 +18,11 @@ vi.mock('@evtivity/database', () => ({
   getHeartbeatIntervalSeconds: vi.fn().mockResolvedValue(300),
   isRoamingEnabled: vi.fn().mockResolvedValue(false),
 }));
-vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: [] }));
+vi.mock('@evtivity/services/reservation-expiry', () => ({
+  cancelHoldsForStationOutage: vi.fn(),
+}));
+vi.mock('@evtivity/services/reservation-notify', () => ({ notifyReservationDriver: vi.fn() }));
+vi.mock('../../lib/payments.js', () => ({ paymentContext: vi.fn(() => ({})) }));
 
 import { runStationOfflineSweep } from '../../handlers/station-offline-sweep.js';
 import type { OfflineSweepDeps } from '../../handlers/station-offline-sweep.js';
@@ -32,7 +36,8 @@ function makeLog(): Logger {
 
 function makeDeps(owners: Record<string, string | null>, reservations: unknown[] = []) {
   const publish = vi.fn().mockResolvedValue(undefined);
-  const notifyDriver = vi.fn().mockResolvedValue(undefined);
+  const cancelHolds = vi.fn().mockResolvedValue(0);
+  const notifyStationFaulted = vi.fn().mockResolvedValue(undefined);
   const roamingEnabled = vi.fn().mockResolvedValue(true);
   const sql = vi.fn().mockResolvedValue(reservations) as unknown as postgres.Sql;
   const registry: ConnectionRegistry = {
@@ -46,9 +51,10 @@ function makeDeps(owners: Record<string, string | null>, reservations: unknown[]
     pubsub: { publish } as unknown as PubSubClient,
     heartbeatSeconds: 300,
     roamingEnabled,
-    notifyDriver,
+    cancelHolds,
+    notifyStationFaulted,
   };
-  return { deps, publish, notifyDriver, registry };
+  return { deps, publish, cancelHolds, notifyStationFaulted, sql, registry };
 }
 
 function candidate(id: string, lastActivityAt: Date | null = STALE) {
@@ -87,9 +93,9 @@ describe('runStationOfflineSweep', () => {
   it('marks a stale station without a key offline and publishes the disconnect effects', async () => {
     mockFind.mockResolvedValue([candidate('CS-1')]);
     mockMark.mockResolvedValue({ siteId: 'site-1' });
-    const { deps, publish, notifyDriver } = makeDeps({}, [
-      { id: 'res-1', driver_id: 'drv-1' },
-      { id: 'res-2', driver_id: null },
+    const { deps, publish, notifyStationFaulted } = makeDeps({}, [
+      { id: 'res-1', reservation_id: 11, driver_id: 'drv-1' },
+      { id: 'res-2', reservation_id: 12, driver_id: null },
     ]);
     const result = await runStationOfflineSweep(deps, makeLog());
 
@@ -107,8 +113,13 @@ describe('runStationOfflineSweep', () => {
       'ocpi_push',
       JSON.stringify({ type: 'location', siteId: 'site-1' }),
     );
-    expect(notifyDriver).toHaveBeenCalledTimes(1);
-    expect(notifyDriver).toHaveBeenCalledWith('drv-1', 'res-1', 'CS-1');
+    expect(notifyStationFaulted).toHaveBeenCalledTimes(1);
+    expect(notifyStationFaulted).toHaveBeenCalledWith({
+      reservationDbId: 'res-1',
+      reservationOcppId: 11,
+      stationOcppId: 'CS-1',
+      driverId: 'drv-1',
+    });
     expect(result).toEqual({ candidates: 1, markedOffline: 1 });
   });
 
@@ -150,5 +161,52 @@ describe('runStationOfflineSweep', () => {
     const result = await runStationOfflineSweep(deps, log);
     expect(result.markedOffline).toBe(1);
     expect(log.warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('TC-RES-21: cancels the active holds of a station it marks offline, no fee, StationFaulted only for in_use', async () => {
+    mockFind.mockResolvedValue([candidate('CS-1')]);
+    mockMark.mockResolvedValue({ siteId: 'site-1' });
+    const { deps, cancelHolds, notifyStationFaulted, sql } = makeDeps({}, [
+      { id: 'res-in-use', reservation_id: 21, driver_id: 'drv-2' },
+    ]);
+    cancelHolds.mockResolvedValue(1);
+    await runStationOfflineSweep(deps, makeLog());
+
+    expect(cancelHolds).toHaveBeenCalledTimes(1);
+    expect(cancelHolds).toHaveBeenCalledWith({
+      stationUuid: 'uuid-CS-1',
+      stationOcppId: 'CS-1',
+      siteId: 'site-1',
+      cause: 'offline',
+    });
+    // The fault notice reads only the holds in use: the active ones were cancelled.
+    const sqlCalls = (sql as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const query = (sqlCalls[0]?.[0] as string[]).join('?');
+    expect(query).toContain("status = 'in_use'");
+    expect(query).not.toContain("'active'");
+    expect(notifyStationFaulted).toHaveBeenCalledWith(
+      expect.objectContaining({ reservationDbId: 'res-in-use', reservationOcppId: 21 }),
+    );
+  });
+
+  it('TC-RES-21: does not cancel holds of a station it leaves online', async () => {
+    mockFind.mockResolvedValue([candidate('CS-1')]);
+    const { deps, cancelHolds } = makeDeps({ 'CS-1': 'pod-a' });
+    await runStationOfflineSweep(deps, makeLog());
+    expect(cancelHolds).not.toHaveBeenCalled();
+  });
+
+  it('TC-RES-21: keeps going when cancelling the holds fails (fail-open)', async () => {
+    mockFind.mockResolvedValue([candidate('CS-1')]);
+    mockMark.mockResolvedValue({ siteId: null });
+    const { deps, cancelHolds, notifyStationFaulted } = makeDeps({}, [
+      { id: 'res-in-use', reservation_id: 21, driver_id: 'drv-2' },
+    ]);
+    cancelHolds.mockRejectedValue(new Error('db'));
+    const log = makeLog();
+    const result = await runStationOfflineSweep(deps, log);
+    expect(result.markedOffline).toBe(1);
+    expect(notifyStationFaulted).toHaveBeenCalledTimes(1);
+    expect(log.warn).toHaveBeenCalledTimes(1);
   });
 });

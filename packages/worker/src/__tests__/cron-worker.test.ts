@@ -109,6 +109,7 @@ const handlerMocks = {
   aiProposalSweepHandler: vi.fn().mockResolvedValue(undefined),
   aiProposalDigestHandler: vi.fn().mockResolvedValue(undefined),
   aiInsightScanHandler: vi.fn().mockResolvedValue(undefined),
+  driverAiSweepHandler: vi.fn().mockResolvedValue(undefined),
 };
 
 vi.mock('../handlers/report-scheduler.js', () => ({
@@ -206,6 +207,9 @@ vi.mock('../handlers/ai-tariff-anomalies.js', () => ({
 }));
 vi.mock('../handlers/ai-proposal-sweep.js', () => ({
   aiProposalSweepHandler: (...a: unknown[]) => handlerMocks.aiProposalSweepHandler(...a),
+}));
+vi.mock('../handlers/driver-ai-sweep.js', () => ({
+  driverAiSweepHandler: (...a: unknown[]) => handlerMocks.driverAiSweepHandler(...a),
 }));
 vi.mock('../handlers/ai-proposal-digest.js', () => ({
   aiProposalDigestHandler: (...a: unknown[]) => handlerMocks.aiProposalDigestHandler(...a),
@@ -357,6 +361,7 @@ describe('cron-worker processor dispatch', () => {
       ['ai-proposal-sweep', 'aiProposalSweepHandler'],
       ['ai-proposal-digest', 'aiProposalDigestHandler'],
       ['ai-insight-scan', 'aiInsightScanHandler'],
+      ['driver-ai-sweep', 'driverAiSweepHandler'],
     ];
 
     for (const [jobName, handlerKey] of routes) {

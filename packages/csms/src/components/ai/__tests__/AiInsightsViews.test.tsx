@@ -6,11 +6,17 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import type { AiInsightView } from '../insights/insight-api';
+import en from '@/i18n/locales/en.json';
+import de from '@/i18n/locales/de.json';
+import es from '@/i18n/locales/es.json';
+import ko from '@/i18n/locales/ko.json';
+import zh from '@/i18n/locales/zh.json';
+import zhTW from '@/i18n/locales/zh-TW.json';
 
 const { apiMock, perms, features } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn() },
   perms: new Set<string>(),
-  features: { aiInsightsEnabled: true },
+  features: { aiInsightsEnabled: true, reservationEnabled: true },
 }));
 
 vi.mock('react-i18next', () => ({
@@ -39,6 +45,7 @@ import { InsightCard } from '../insights/InsightCard';
 import { insightHeadline, insightRows } from '../insights/insight-display';
 import { AiInsights } from '@/pages/AiInsights';
 import { AiInsightDetail } from '@/pages/AiInsightDetail';
+import { InsightQualityCard } from '../insights/InsightQualityCard';
 
 function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
   return {
@@ -50,6 +57,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
     stationId: 'st1',
     sessionId: null,
     authorizeAttemptId: null,
+    reservationId: null,
     parentInsightId: null,
     category: 'connectivity',
     confidence: 'high',
@@ -221,7 +229,47 @@ describe('Active insights card', () => {
 });
 
 describe('scope on the insight card', () => {
-  it('is collapsed by default, asks nothing for now until opened, then shows the table', async () => {
+  it('TC-AI-IC-06 the section is titled "Site Context" in every locale', () => {
+    wrap(<InsightCard insight={insight({ scope: { site: { stationsOffline: 3 } } })} />);
+    expect(screen.getByRole('button', { name: /aiInsights\.scopeTable\.title/ })).toBeTruthy();
+    const titles = Object.fromEntries(
+      Object.entries({ en, de, es, ko, zh, 'zh-TW': zhTW }).map(([lang, locale]) => [
+        lang,
+        locale.aiInsights.scopeTable.title,
+      ]),
+    );
+    expect(titles).toEqual({
+      en: 'Site Context',
+      de: 'Standortkontext',
+      es: 'Contexto del sitio',
+      ko: '사이트 현황',
+      zh: '站点概况',
+      'zh-TW': '站點概況',
+    });
+  });
+
+  it('TC-AI-IC-07 rows show the measure label alone, never an all-sites row, even from a stored network key', async () => {
+    // A row stored before v0.1.45 (or answered by an older API) can still carry network counts.
+    const legacy = {
+      ...insight({ scope: { site: { stations: 4 } } }),
+      scope: { site: { stations: 4 }, network: { stations: 900 } },
+    } as AiInsightView;
+    serve([{ ...legacy, scopeNow: { site: { stations: 4 } }, scopeNowAt: '2026-10-10T10:05:00Z' }]);
+    wrap(<InsightCard insight={legacy} />);
+    fireEvent.click(screen.getByRole('button', { name: /aiInsights\.scopeTable\.title/ }));
+    const table = await screen.findByTestId('ai-insight-scope');
+    await waitFor(() => {
+      const rows = [...table.querySelectorAll('tbody tr')].map((tr) =>
+        [...tr.querySelectorAll('td')].map((td) => td.textContent),
+      );
+      expect(rows).toEqual([['aiInsights.scopeTable.measure.stations', '4', '4']]);
+    });
+    expect(table.textContent).not.toContain('900');
+    expect(table.textContent).not.toContain('area');
+    expect(table.textContent).not.toContain('(site)');
+  });
+
+  it('TC-AI-IC-07 TC-AI-IC-08 is collapsed by default, asks nothing for now until opened, then shows the table', async () => {
     serve([
       insight({
         scope: { site: { stationsOffline: 3, stations: 10 } },
@@ -249,12 +297,8 @@ describe('scope on the insight card', () => {
         [...tr.querySelectorAll('td')].map((td) => td.textContent),
       );
       expect(rows).toEqual([
-        ['aiInsights.scopeTable.area.site(aiInsights.scopeTable.measure.stations)', '10', '10'],
-        [
-          'aiInsights.scopeTable.area.site(aiInsights.scopeTable.measure.stationsOffline)',
-          '3',
-          '1',
-        ],
+        ['aiInsights.scopeTable.measure.stations', '10', '10'],
+        ['aiInsights.scopeTable.measure.stationsOffline', '3', '1'],
       ]);
     });
     const head = [...table.querySelectorAll('thead th')].map((th) => th.textContent);
@@ -263,6 +307,16 @@ describe('scope on the insight card', () => {
       'aiInsights.scopeTable.atDetection',
       'aiInsights.scopeTable.now',
     ]);
+    // The header labels and their tooltips are unchanged (TC-AI-IC-08).
+    expect(en.aiInsights.scopeTable).toMatchObject({
+      measureHeader: 'Measure',
+      atDetection: 'At detection',
+      now: 'Now',
+      atDetectionHint: 'What the analysis used',
+      nowHint: 'As of {{time}}',
+    });
+    // Both header tooltips are still there (At detection, and Now once counted).
+    expect(table.querySelectorAll('thead th .cursor-help')).toHaveLength(2);
     // Only a changed value is emphasized, with weight and nothing else.
     const nowCells = table.querySelectorAll('tbody tr td:last-child');
     expect(nowCells[0]?.className).not.toContain('font-medium');
@@ -298,7 +352,7 @@ describe('translation on the insight card', () => {
     );
     // The card asks the detail, which requests the translation on the server.
     await waitFor(() => {
-      expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/ins1?language=en');
+      expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/ins1?language=en&feedback=true');
     });
     const note = await screen.findByTestId('ai-insight-translating');
     expect(note.textContent).toBe('aiInsights.summaryTranslating');
@@ -406,6 +460,42 @@ describe('insights list and detail pages', () => {
     expect(await screen.findByText('insight page')).toBeTruthy();
   });
 
+  it('lists the reservation kinds in the kind filter only while reservations are on', async () => {
+    const options = (): string[] =>
+      Array.from((document.getElementById('ai-insights-kind') as HTMLSelectElement).options).map(
+        (o) => o.value,
+      );
+    try {
+      serve([]);
+      wrap(
+        <Routes>
+          <Route path="/ai/insights" element={<AiInsights />} />
+        </Routes>,
+        '/ai/insights',
+      );
+      await waitFor(() => {
+        expect(options()).toContain('reservation_rejected');
+      });
+      cleanup();
+      features.reservationEnabled = false;
+      serve([]);
+      wrap(
+        <Routes>
+          <Route path="/ai/insights" element={<AiInsights />} />
+        </Routes>,
+        '/ai/insights?kind=reservation_no_show',
+      );
+      await waitFor(() => {
+        expect(apiMock.get).toHaveBeenCalledWith('/v1/portal/features');
+        expect(options()).not.toContain('reservation_rejected');
+      });
+      expect(options()).toContain('station_offline');
+      expect(options().some((o) => o.startsWith('reservation_'))).toBe(false);
+    } finally {
+      features.reservationEnabled = true;
+    }
+  });
+
   it('the detail page has the standard header, the insight card, the records and the history', async () => {
     perms.add('audit:read');
     serve([insight({ sessionId: 'se1' })]);
@@ -425,5 +515,64 @@ describe('insights list and detail pages', () => {
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledWith('/v1/audit/ai_insight/ins1?page=1&limit=20');
     });
+  });
+});
+
+describe('insight feedback views', () => {
+  it('TC-AI-FB-UI-06 the list filters insights marked wrong from the URL and the Feedback select', async () => {
+    serve([insight()]);
+    wrap(
+      <Routes>
+        <Route path="/ai/insights" element={<AiInsights />} />
+      </Routes>,
+      '/ai/insights?feedback=wrong',
+    );
+    await screen.findByTestId('ai-insight-list-row');
+    expect(apiMock.get).toHaveBeenCalledWith(
+      '/v1/ai/insights?feedback=wrong&limit=20&language=en&page=1',
+    );
+    const select = screen.getByLabelText<HTMLSelectElement>('aiInsights.list.feedback');
+    expect(select.value).toBe('wrong');
+    fireEvent.change(select, { target: { value: 'helpful' } });
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenLastCalledWith(
+        '/v1/ai/insights?feedback=helpful&limit=20&language=en&page=1',
+      );
+    });
+  });
+
+  it('TC-AI-FB-UI-07 the quality card shows the helpful rate by kind and links the wrong ones', async () => {
+    apiMock.get.mockResolvedValue({
+      days: 30,
+      data: [
+        { kind: 'station_offline', helpful: 3, wrong: 1 },
+        { kind: 'session_failed', helpful: 2, wrong: 0 },
+      ],
+    });
+    wrap(<InsightQualityCard />);
+    const rows = await screen.findAllByTestId('ai-insight-quality-row');
+    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/feedback-summary');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.textContent).toContain('aiInsights.kind.station_offline');
+    expect(rows[0]?.textContent).toContain('75%');
+    expect(rows[1]?.textContent).toContain('100%');
+    expect(
+      screen
+        .getByRole('link', { name: 'settings.aiInsightsSettings.quality.viewWrong' })
+        .getAttribute('href'),
+    ).toBe('/ai/insights?feedback=wrong');
+  });
+
+  it('TC-AI-FB-UI-07 the quality card says when there are no votes, and is hidden without aiInsights:read', async () => {
+    apiMock.get.mockResolvedValue({ days: 30, data: [] });
+    wrap(<InsightQualityCard />);
+    expect((await screen.findByTestId('ai-insight-quality-empty')).textContent).toBe(
+      'settings.aiInsightsSettings.quality.empty(30)',
+    );
+    expect(screen.queryByRole('link')).toBeNull();
+    cleanup();
+    perms.clear();
+    wrap(<InsightQualityCard />);
+    expect(screen.queryByTestId('ai-insight-quality')).toBeNull();
   });
 });

@@ -448,7 +448,20 @@
     "cancellationPolicy": "取消政策",
     "cancellationPolicyText": "如果在开始时间前 {{minutes}} 分钟内取消，将收取 {{fee}} 取消费用。",
     "upcoming": "即将开始",
-    "past": "历史"
+    "past": "历史",
+    "cancelReason": {
+      "driver_initiated": "由您取消",
+      "operator_manual": "由运营商取消",
+      "expired_no_show": "已过期（未到场）",
+      "station_rejected_occupied": "充电站已被占用",
+      "station_rejected_other": "充电站拒绝了预约",
+      "station_no_response": "充电站未响应",
+      "station_offline_at_activation": "充电站离线",
+      "evse_in_use_at_activation": "充电枪正在使用",
+      "station_faulted_at_activation": "充电站发生故障",
+      "station_unavailable_during_hold": "充电站变为不可用，未收取费用",
+      "system_cleanup": "由系统取消"
+    }
   },
   "reservationDetail": {
     "title": "预约",
@@ -493,7 +506,57 @@
       "in_progress": "处理中",
       "waiting_on_driver": "等待您的回复",
       "resolved": "已解决",
-      "closed": "已关闭"
+      "closed": "已关闭",
+      "ai_assist": "自动回答"
+    },
+    "ai": {
+      "choiceTitle": "我们应如何处理您的请求？",
+      "choiceAi": "先问 AI",
+      "choiceTeam": "发送给团队",
+      "yourChoice": "您的选择",
+      "changeChoice": "更改",
+      "dataNotice": {
+        "title": "AI 会收到什么",
+        "body": "AI 会读取您的请求，以及您作为驾驶员本人的充电会话、支付、预约和您使用过的充电站。密码等已存储的凭据绝不会发送。卡号和 IBAN 仅保留后 4 位。电子邮件地址和电话号码会被遮盖。充电卡和 Token 的 ID 仅保留后 4 位。"
+      },
+      "notice": {
+        "v1": {
+          "title": "关于 AI 分析",
+          "automated": "AI 会自动给出初步回答。这不是承诺，例如退款承诺。",
+          "provider": "您的请求和下列数据会发送给外部 AI 提供商。",
+          "person": "您仍可联系人工客服：选择“否”或发送消息，支持团队就会接手。",
+          "choice": "每个请求都由您决定。如果发送给支持团队，不会向 AI 发送任何内容。",
+          "privacy": "隐私政策",
+          "readsTitle": "AI 读取的内容",
+          "reads": {
+            "case": "本次请求：类别、主题、描述和关联的充电会话",
+            "sessions": "您过去 30 天内最近 10 次充电会话：时间、状态、电量、费用和支付状态",
+            "tokens": "您的充电卡和 Token，仅显示后 4 位",
+            "payments": "您过去 30 天的支付：类型、金额、状态和失败原因",
+            "stations": "您使用过的充电站：名称、站点、当前可用性和最近一次故障时间",
+            "reservations": "您过去 30 天的预约：状态、时间、取消原因和费用"
+          }
+        }
+      },
+      "analyzing": "正在分析您的问题",
+      "answerTitle": "自动回答",
+      "feedbackQuestion": "这解决了您的问题吗？",
+      "feedbackYes": "是",
+      "feedbackNo": "否",
+      "feedbackNoHint": "如果您选择“否”，我们会转给支持团队。",
+      "feedbackFailed": "无法发送您的回答，请重试。",
+      "resolved": "已解决。给我们发消息即可重新打开。",
+      "escalated": "已发送给支持团队。",
+      "sentToTeam": "我们已将您的请求发送给支持团队。",
+      "driverAction": {
+        "try_other_connector": "尝试其他充电枪",
+        "check_payment_method": "检查支付方式",
+        "retry_start": "重新开始充电",
+        "check_vehicle_settings": "检查车辆的充电设置",
+        "contact_operator": "联系支持团队",
+        "wait_and_retry": "等待几分钟后重试",
+        "check_token_active": "检查卡或 Token 是否有效"
+      }
     }
   },
   "errors": {
@@ -546,6 +609,7 @@
     "CSS_ACTION_REJECTED": "Charging Station Simulator 拒绝该操作",
     "CSS_ACTION_TIMEOUT": "模拟器在 5 秒内未响应",
     "DOWNTIME_NOT_FOUND": "未找到排除的停机记录",
+    "DRIVER_AI_NOTICE_OUTDATED": "AI 说明已更新，请阅读后重新选择",
     "DRIVER_ALREADY_IN_FLEET": "驾驶员已在此车队中",
     "DRIVER_CREATE_FAILED": "创建驾驶员失败",
     "DRIVER_NOT_FOUND": "未找到驾驶员",
@@ -745,6 +809,7 @@
     "STORAGE_CONNECTION_FAILED": "存储连接测试失败",
     "STORAGE_NOT_CONFIGURED": "附件存储未配置",
     "SUPPORT_AI_NOT_CONFIGURED": "支持 AI 未配置",
+    "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "此支持工单未在等待对自动回答的反馈",
     "SUPPORT_CASE_NOT_FOUND": "未找到支持工单",
     "SUPPORT_DISABLED": "支持功能已禁用",
     "TARIFF_IN_USE": "费率已被充电会话引用，无法删除",
@@ -786,6 +851,7 @@
     "SECURITY_PROFILE_DOWNGRADE": "已连接的充电站不能降级到更低的安全配置文件",
     "STATION_TLS_URL_NOT_CONFIGURED": "未配置充电站的公共 TLS 地址 (OCPP_STATION_TLS_URL)",
     "STATION_SECURITY_CHANGE_REJECTED": "充电站未接受安全更改，当前设置保持不变",
+    "STATION_CREDENTIALS_ROUTE_REQUIRED": "充电站密码须通过 POST /v1/stations/:id/credentials 更改，不能使用通用 OCPP 命令",
     "WEB_PAYMENTS_NOT_SUPPORTED": "充电站不支持动态二维码",
     "PORTAL_ALREADY_ACTIVE": "驾驶员已拥有门户访问权限",
     "EMAID_PREFIX_NOT_CONFIGURED": "请先设置 eMAID 国家代码和提供商 ID",
@@ -1076,5 +1142,11 @@
     "sessionLine": "{{fleet}}：{{state}}",
     "paymentMethodsNote": "您的充电费用记账到 {{fleet}}，充电无需支付方式。",
     "noMethods": "暂无支付方式。"
+  },
+  "ai": {
+    "dataNotice": {
+      "title": "AI 提供商收到的内容",
+      "body": "AI 提供商绝不会收到已存储的凭据，例如密码、API 密钥、机密信息和充电站密码。卡号和 IBAN 会截短为最后 4 个字符。支持草稿、自动洞察、后台任务和驾驶员支持还会遮盖电子邮件地址和电话号码，并对驾驶员的 Token ID 进行哈希或截短。助手仅为有权查看驾驶员联系方式的用户，按存储原样发送这些信息。您输入的文本和附加的文本文件会检查是否包含密钥和卡号。您附加的图片和 PDF 会按原样发送。"
+    }
   }
 }

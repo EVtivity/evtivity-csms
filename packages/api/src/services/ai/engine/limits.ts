@@ -79,6 +79,28 @@ function secondsToWindowEnd(now: Date): number {
 }
 
 /**
+ * Counts one driver AI case against `ai.rateLimit.driverPerMinute` (key
+ * `ai:rl:driver:<driverId>:<window>`, plan v0.1.45 section 2.7). True when the
+ * case may be analyzed. A limit of 0 or below never refuses. A Redis failure
+ * allows it (logged, fail-open): the daily case cap and the token budgets
+ * still apply in the worker.
+ */
+export async function allowDriverAiCase(
+  driverId: string,
+  perMinute: number,
+  now: Date = new Date(),
+): Promise<boolean> {
+  if (perMinute <= 0) return true;
+  try {
+    const count = await store.increment(windowKey('driver', driverId, now), WINDOW_SECONDS);
+    return count <= perMinute;
+  } catch (err) {
+    logger.warn({ err, driverId }, 'Driver AI rate limit counter failed, the case is analyzed');
+    return true;
+  }
+}
+
+/**
  * Counts one turn against the limits. Null when the turn may run, else the
  * refusal (429). The budgets are checked first, so a refused turn does not
  * use up the rate limit. A budget read failure throws (fail closed).

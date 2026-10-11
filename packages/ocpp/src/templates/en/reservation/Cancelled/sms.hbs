@@ -1,1 +1,1 @@
-{{companyName}} - Your reservation ({{reservationId}}) at {{stationId}} has been cancelled.{{#if cancellationFeeFormatted}} Fee: {{cancellationFeeFormatted}}.{{/if}}
+{{companyName}} - Your reservation ({{reservationId}}) at {{stationId}} has been cancelled.{{#if cancellationFeeFormatted}} Fee: {{cancellationFeeFormatted}}.{{/if}}{{#if stationUnavailable}} The station went offline or reported a fault during your reservation, so no fee applies.{{/if}}{{#if stationNoResponse}} The station did not confirm your reservation, so no fee applies.{{/if}}

@@ -30,6 +30,7 @@ const SUBJECT: ExplainSubject = {
   stationId: 'sta_1',
   sessionId: null,
   authorizeAttemptId: null,
+  reservationId: null,
   facts: {
     stationId: 'CS-0001',
     isOnline: false,
@@ -52,14 +53,12 @@ const INSIGHT: AiInsightDto = {
   stationId: 'sta_1',
   sessionId: null,
   authorizeAttemptId: null,
+  reservationId: null,
   parentInsightId: null,
   category: 'connectivity',
   confidence: 'high',
   fixes: [{ code: 'check_network_connection' }],
-  scope: {
-    site: { stations: 4, stationsOffline: 1 },
-    network: { stations: 900, stationsOffline: 30 },
-  },
+  scope: { site: { stations: 4, stationsOffline: 1 } },
   generatedBy: 'model',
   language: 'de',
   summary: 'Die Station ist offline.',
@@ -122,14 +121,44 @@ describe('Explain prompt block', () => {
     expect(d?.text).not.toContain('Explain context');
   });
 
-  it('TC-AI-EX-02 carries the latest insight with site counts only, asked in the user language', async () => {
+  it('TC-AI-EX-02 TC-AI-IC-05 carries the latest insight with the site counts only, asked in the user language', async () => {
     const src = source(null, INSIGHT);
     const block = await explainPromptBlock(OK, 'de', src);
     expect(src.latestInsight).toHaveBeenCalledWith(SUBJECT, 'de');
     expect(block).toContain('"category":"connectivity"');
     expect(block).toContain('Die Station ist offline.');
     expect(block).toContain('"siteScope":{"stations":4,"stationsOffline":1}');
-    expect(block).not.toContain('900');
+    expect(block).not.toContain('"network"');
+  });
+
+  it('TC-AI-RI-13 frames a reservation record with its reservation insight', async () => {
+    const subject: ExplainSubject = {
+      kind: 'reservation',
+      id: 'res_1',
+      siteId: 'site_1',
+      stationId: 'sta_1',
+      sessionId: null,
+      authorizeAttemptId: null,
+      reservationId: 'res_1',
+      facts: { reservationId: 7, status: 'cancelled', cancelReason: 'station_rejected_other' },
+    };
+    const insight: AiInsightDto = {
+      ...INSIGHT,
+      kind: 'reservation_rejected',
+      reservationId: 'res_1',
+      category: 'configuration',
+      fixes: [{ code: 'reservation_check_evse_status' }],
+    };
+    const src = source({ facts: { status: 'cancelled' } }, insight);
+    const block = await explainPromptBlock(
+      { kind: 'reservation', id: 'res_1', resolution: { status: 'ok', subject } },
+      'en',
+      src,
+    );
+    expect(src.latestInsight).toHaveBeenCalledWith(subject, 'en');
+    expect(block).toContain('<untrusted source="explain_context" id="reservation:res_1">');
+    expect(block).toContain('"cancelReason":"station_rejected_other"');
+    expect(block).toContain('"kind":"reservation_rejected"');
   });
 
   it('TC-AI-EX-02 an evidence pack over the size cap is left out, the record stays', async () => {

@@ -259,3 +259,34 @@ describe('startReservationBridge', () => {
     );
   });
 });
+
+describe('enqueueOverdueReservationActivation (G6)', () => {
+  function fakeQueue(
+    existing: { isFailed: () => Promise<boolean>; retry: () => Promise<void> } | null,
+  ) {
+    return {
+      add: vi.fn(async () => undefined),
+      getJob: vi.fn(async () => existing ?? undefined),
+    };
+  }
+
+  it('TC-RES-08: adds the activation now under the bridge job id', async () => {
+    const queue = fakeQueue(null);
+    reservationWorkerModule.setReservationQueue(queue as never);
+    await reservationWorkerModule.enqueueOverdueReservationActivation('rsv_1');
+    expect(queue.add).toHaveBeenCalledWith(
+      'reservation-activate',
+      { reservationDbId: 'rsv_1' },
+      expect.objectContaining({ jobId: 'reservation-activate-rsv_1', delay: 0 }),
+    );
+  });
+
+  it('TC-RES-08: retries a job that failed all attempts instead of a no-op add', async () => {
+    const retry = vi.fn(async () => undefined);
+    const queue = fakeQueue({ isFailed: async () => true, retry });
+    reservationWorkerModule.setReservationQueue(queue as never);
+    await reservationWorkerModule.enqueueOverdueReservationActivation('rsv_2');
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(queue.add).not.toHaveBeenCalled();
+  });
+});

@@ -30,6 +30,8 @@ export interface AiDefaults {
   support: AiSurfaceDefaults;
   /** System-initiated runs (insights, workers); settings route only. */
   ops?: AiSurfaceDefaults;
+  /** Driver support analyses; settings route only. */
+  driver?: AiSurfaceDefaults;
   providers: AiProviderModels[];
 }
 

@@ -115,14 +115,14 @@
     "scanQr": "Scan QR Code"
   },
   "sessions": {
-    "title": "Charging sessions",
+    "title": "Charging Sessions",
     "noSessions": "No sessions yet.",
     "unknownStation": "Unknown station",
     "pageOf": "{{page}} / {{total}}",
     "co2Avoided": "CO₂ Avoided"
   },
   "sessionDetail": {
-    "title": "Session details",
+    "title": "Session Details",
     "notFound": "Session not found.",
     "unknownStation": "Unknown station",
     "started": "Started",
@@ -188,7 +188,7 @@
     "cardSetupFailed": "Card setup failed",
     "failedSave": "Failed to save payment method",
     "providerNotConfigured": "Payment processing is not available at this time.",
-    "confirmRemoveTitle": "Remove payment method",
+    "confirmRemoveTitle": "Remove Payment Method",
     "confirmRemoveDescription": "Are you sure you want to remove this payment method? You will need to add it again to use it for charging.",
     "removeFailed": "Failed to remove payment method. Please try again.",
     "setDefaultFailed": "Failed to set default payment method. Please try again."
@@ -303,7 +303,7 @@
     "reservedUntil": "Reserved until {{time}}",
     "reserved": "Reserved",
     "connectorReserved": "Connector is reserved",
-    "maintenanceTitle": "Site under maintenance",
+    "maintenanceTitle": "Site Under Maintenance",
     "maintenanceUntil": "Expected to resume around {{time}}"
   },
   "chargerSearch": {
@@ -329,7 +329,7 @@
     "nearbyError": "Failed to load nearby stations."
   },
   "guest": {
-    "checkoutTitle": "Guest checkout",
+    "checkoutTitle": "Guest Checkout",
     "stationPort": "Station {{stationId}}, Port {{evseId}}",
     "emailForReceipt": "Email (for receipt)",
     "card": "Card",
@@ -400,7 +400,7 @@
     "cancelled": "Cancelled"
   },
   "activeSessions": {
-    "title": "Active sessions",
+    "title": "Active Sessions",
     "noActiveSessions": "No active sessions.",
     "stopCharging": "Stop Charging",
     "stopping": "Stopping...",
@@ -435,11 +435,11 @@
     "cancelFailed": "Failed to cancel reservation.",
     "createSuccess": "Reservation created.",
     "createFailed": "Failed to create reservation.",
-    "confirmCancelTitle": "Cancel this reservation?",
+    "confirmCancelTitle": "Cancel This Reservation?",
     "confirmCancelDescription": "Cancel your reservation at {{station}} expiring {{time}}? This cannot be undone.",
     "confirmCancelScheduledDescription": "Cancel your reservation at {{station}} starting {{startsTime}} (expires {{expiresTime}})? This cannot be undone.",
     "noShowFeeNote": "A holding fee may apply even if you don't show up.",
-    "noShowFeeTitle": "No-show fee",
+    "noShowFeeTitle": "No-Show Fee",
     "noShowFeeAmount": "If you do not start charging before the reservation expires, a no-show fee of {{fee}} is charged to your default payment method.",
     "maxHoursHint": "Maximum reservation duration is {{hours}} hours.",
     "paymentMethodRequired": "A payment method is required to create a reservation.",
@@ -448,7 +448,20 @@
     "cancellationPolicy": "Cancellation policy",
     "cancellationPolicyText": "If you cancel within {{minutes}} minutes of the start time, a {{fee}} cancellation fee will be charged.",
     "upcoming": "Upcoming",
-    "past": "Past"
+    "past": "Past",
+    "cancelReason": {
+      "driver_initiated": "Cancelled by you",
+      "operator_manual": "Cancelled by the operator",
+      "expired_no_show": "Expired (no-show)",
+      "station_rejected_occupied": "The station was occupied",
+      "station_rejected_other": "The station refused the reservation",
+      "station_no_response": "The station did not respond",
+      "station_offline_at_activation": "The station was offline",
+      "evse_in_use_at_activation": "The connector was in use",
+      "station_faulted_at_activation": "The station had a fault",
+      "station_unavailable_during_hold": "The station became unavailable. No fee was charged",
+      "system_cleanup": "Cancelled by the system"
+    }
   },
   "reservationDetail": {
     "title": "Reservation",
@@ -493,7 +506,57 @@
       "in_progress": "In Progress",
       "waiting_on_driver": "Awaiting Your Reply",
       "resolved": "Resolved",
-      "closed": "Closed"
+      "closed": "Closed",
+      "ai_assist": "Automatic answer"
+    },
+    "ai": {
+      "choiceTitle": "How Should We Handle Your Request?",
+      "choiceAi": "Ask AI first",
+      "choiceTeam": "Send to the team",
+      "yourChoice": "Your choice",
+      "changeChoice": "Change",
+      "dataNotice": {
+        "title": "What the AI Receives",
+        "body": "The AI reads your request and your own charging sessions, payments, reservations and the stations you used. Stored credentials, such as passwords, are never sent. Card numbers and IBANs are cut to their last 4 characters. Email addresses and phone numbers are masked. Charging card and token ids are shortened to their last 4 characters."
+      },
+      "notice": {
+        "v1": {
+          "title": "About the AI Analysis",
+          "automated": "An AI gives an automatic first answer. It is not a promise, for example of a refund.",
+          "provider": "Your request and the data listed below are sent to an external AI provider.",
+          "person": "You can still reach a person: answer No or write a message, and the support team takes over.",
+          "choice": "You decide for each request. If you send it to the support team, nothing is sent to the AI.",
+          "privacy": "Privacy policy",
+          "readsTitle": "What the AI Reads",
+          "reads": {
+            "case": "This request: category, subject, description and linked sessions",
+            "sessions": "Your last 10 charging sessions of the past 30 days: times, status, energy, cost and payment status",
+            "tokens": "Your charging cards and tokens, shortened to the last 4 characters",
+            "payments": "Your payments of the past 30 days: type, amount, status and failure reason",
+            "stations": "The stations you used: name, site, current availability and last fault time",
+            "reservations": "Your reservations of the past 30 days: status, times, cancel reason and fee"
+          }
+        }
+      },
+      "analyzing": "Analyzing your issue",
+      "answerTitle": "Automatic Answer",
+      "feedbackQuestion": "Did this solve your issue?",
+      "feedbackYes": "Yes",
+      "feedbackNo": "No",
+      "feedbackNoHint": "We will pass this to the support team if you choose No.",
+      "feedbackFailed": "Your answer could not be sent. Try again.",
+      "resolved": "Resolved. You can reopen it by writing to us.",
+      "escalated": "Sent to the support team.",
+      "sentToTeam": "We sent your request to the support team.",
+      "driverAction": {
+        "try_other_connector": "Try another connector",
+        "check_payment_method": "Check the payment method",
+        "retry_start": "Start charging again",
+        "check_vehicle_settings": "Check the vehicle's charging settings",
+        "contact_operator": "Contact the support team",
+        "wait_and_retry": "Wait a few minutes and try again",
+        "check_token_active": "Check that the card or token is active"
+      }
     }
   },
   "errors": {
@@ -546,6 +609,7 @@
     "CSS_ACTION_REJECTED": "Charging Station Simulator rejected the action",
     "CSS_ACTION_TIMEOUT": "Simulator did not respond within 5s",
     "DOWNTIME_NOT_FOUND": "Excluded downtime record not found",
+    "DRIVER_AI_NOTICE_OUTDATED": "The AI notice has changed. Read it and choose again",
     "DRIVER_ALREADY_IN_FLEET": "Driver is already in this fleet",
     "DRIVER_CREATE_FAILED": "Failed to create driver",
     "DRIVER_NOT_FOUND": "Driver not found",
@@ -745,6 +809,7 @@
     "STORAGE_CONNECTION_FAILED": "Storage connection test failed",
     "STORAGE_NOT_CONFIGURED": "Attachment storage not configured",
     "SUPPORT_AI_NOT_CONFIGURED": "Support AI is not configured",
+    "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "This support case is not waiting for feedback on an automatic answer",
     "SUPPORT_CASE_NOT_FOUND": "Support case not found",
     "SUPPORT_DISABLED": "Support is disabled",
     "TARIFF_IN_USE": "Tariff is referenced by charging sessions and cannot be deleted",
@@ -786,6 +851,7 @@
     "SECURITY_PROFILE_DOWNGRADE": "A connected station cannot be moved to a lower security profile",
     "STATION_TLS_URL_NOT_CONFIGURED": "The public TLS address for stations (OCPP_STATION_TLS_URL) is not configured",
     "STATION_SECURITY_CHANGE_REJECTED": "The station did not accept the security change; its current settings are unchanged",
+    "STATION_CREDENTIALS_ROUTE_REQUIRED": "Station passwords are changed with POST /v1/stations/:id/credentials, not with a generic OCPP command",
     "WEB_PAYMENTS_NOT_SUPPORTED": "The station does not support dynamic QR codes",
     "PORTAL_ALREADY_ACTIVE": "Driver already has portal access",
     "EMAID_PREFIX_NOT_CONFIGURED": "Set the eMAID country code and provider ID first",
@@ -904,7 +970,7 @@
     "addToFavorites": "Add to Favorites",
     "alreadyFavorited": "Added to Favorites",
     "removeFromFavorites": "Remove from Favorites",
-    "confirmRemoveTitle": "Remove from favorites?",
+    "confirmRemoveTitle": "Remove From Favorites?",
     "confirmRemoveDescription": "This station will be removed from your favorites list.",
     "added": "Station added to favorites.",
     "removed": "Station removed from favorites.",
@@ -972,7 +1038,7 @@
   },
   "qr": {
     "checking": "Checking QR code",
-    "invalidTitle": "QR code not valid",
+    "invalidTitle": "QR Code Not Valid",
     "invalidMessage": "This QR code is not valid or has expired. Scan the QR code shown on the charging station again."
   },
   "watch": {
@@ -983,7 +1049,7 @@
     "addFailed": "Could not start watching this station.",
     "title": "Watching",
     "empty": "You are not watching any stations.",
-    "removeTitle": "Remove from Watching",
+    "removeTitle": "Remove From Watching",
     "removeMessage": "You will no longer be notified when this station is free."
   },
   "authFooter": {
@@ -1021,7 +1087,7 @@
     "simulated": {
       "testMode": "Test mode, no real money. Pick a test card.",
       "testCard": "Test card",
-      "challengeTitle": "Authentication required",
+      "challengeTitle": "Authentication Required",
       "challengeDescription": "This test card asks for authentication, as a bank would with 3-D Secure. Approve or fail it to continue.",
       "challengeApprove": "Approve",
       "challengeFail": "Fail",
@@ -1065,7 +1131,7 @@
   "fleetBilling": {
     "billedTo": "Billed to {{fleet}}",
     "startHint": "Your fleet pays for this session. You need no payment method.",
-    "title": "Fleet billing",
+    "title": "Fleet Billing",
     "fleet": "Billed to",
     "status": "Status",
     "state": {
@@ -1076,5 +1142,11 @@
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "Your charging is billed to {{fleet}}. You need no payment method to charge.",
     "noMethods": "No payment methods yet."
+  },
+  "ai": {
+    "dataNotice": {
+      "title": "What the AI Provider Receives",
+      "body": "The AI provider never receives stored credentials, such as passwords, API keys, secrets and station passwords. Card numbers and IBANs are cut to their last 4 characters. Support drafts, automatic insights, background workers and driver support also mask email addresses and phone numbers, and hash or shorten driver token ids. The assistant sends driver contact details as stored, only to users allowed to read them. Text you type and text files you attach are checked for keys and card numbers. Images and PDFs you attach are sent as they are."
+    }
   }
 }

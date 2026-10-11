@@ -77,6 +77,33 @@ const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 
 // The payment service (@evtivity/payments): the gate's hold and the
 // settlement on Ended. The mode classification stays real.
+// The shared reservation services (@evtivity/services): the reservation
+// projections themselves are covered in event-projections-reservations.test.ts.
+const mockCancelHoldsForStationOutage = vi.fn().mockResolvedValue(0);
+const mockExpireStationReportedReservation = vi.fn().mockResolvedValue(false);
+const mockApplyReservationCancellation = vi.fn().mockResolvedValue({
+  cancelled: false,
+  statusBefore: null,
+  feeChargedCents: 0,
+  feeChargeFailed: false,
+  feeCurrency: null,
+});
+const mockNotifyReservationDriver = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/services/reservation-expiry', () => ({
+  cancelHoldsForStationOutage: (...args: unknown[]) =>
+    mockCancelHoldsForStationOutage(...args) as unknown,
+  expireStationReportedReservation: (...args: unknown[]) =>
+    mockExpireStationReportedReservation(...args) as unknown,
+}));
+vi.mock('@evtivity/services/reservation-cancel', () => ({
+  applyReservationCancellation: (...args: unknown[]) =>
+    mockApplyReservationCancellation(...args) as unknown,
+}));
+vi.mock('@evtivity/services/reservation-notify', () => ({
+  notifyReservationDriver: (...args: unknown[]) => mockNotifyReservationDriver(...args) as unknown,
+  cancelReasonNoticeFlags: () => ({}),
+}));
+
 const mockAuthorizeSessionHold = vi.fn();
 const mockSettleSessionPayment = vi.fn();
 const mockRecordTerminalSettlement = vi.fn();
@@ -161,6 +188,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
   )),
+  // The real raw timestamp readers (reservation rows).
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/raw-timestamp.js')),
   // The real Postgres error readers (the projection retry classifies errors).
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
@@ -561,12 +590,11 @@ describe('Event projections - coverage expansion', () => {
       [{ count: 1 }], // INSERT connection_logs
       [], // INSERT INTO port_status_log
       [{ site_id: null }], // resolveSiteId
-      [{ id: 'rsv_1', driver_id: 'drv_1' }], // SELECT reservations
+      [{ id: 'rsv_1', reservation_id: 5, driver_id: 'drv_1', expires_at: null }], // in_use holds
     ];
 
-    it('tells the reserving driver and tracks the dispatch for the shutdown drain', async () => {
+    it('tells the driver of an in_use hold and cancels the active holds', async () => {
       await setup();
-      const track = vi.spyOn(eventBus, 'track');
       setupSqlResults(...disconnectedRows());
 
       await eventBus.emit(
@@ -574,15 +602,16 @@ describe('Event projections - coverage expansion', () => {
         makeDomainEvent('station.Disconnected', 'CS-RSV', { remoteAddress: '10.0.0.1' }),
       );
 
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
+      expect(mockNotifyReservationDriver).toHaveBeenCalledWith(
         'reservation.StationFaulted',
-        'drv_1',
-        { reservationId: 'rsv_1', stationId: 'CS-RSV' },
-        expect.anything(),
-        mockPubSub,
+        expect.objectContaining({ reservationDbId: 'rsv_1', driverId: 'drv_1' }),
+        {},
+        expect.objectContaining({ pubsub: mockPubSub }),
       );
-      expect(track).toHaveBeenCalledTimes(1);
+      expect(mockCancelHoldsForStationOutage).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ stationOcppId: 'CS-RSV', cause: 'offline' }),
+      );
       expect(findSql(/INSERT INTO connection_logs/)?.values).toContain(null);
     });
 
@@ -604,6 +633,7 @@ describe('Event projections - coverage expansion', () => {
       });
       expect(findSql(/FROM reservations/)).toBeUndefined();
       expect(mockDispatchDriver).not.toHaveBeenCalled();
+      expect(mockCancelHoldsForStationOutage).not.toHaveBeenCalled();
     });
   });
 
@@ -945,7 +975,9 @@ describe('Event projections - coverage expansion', () => {
       );
 
       // No driver_tokens lookup should happen
-      const tokenLookup = sqlCalls.find((c) => c.strings.some((s) => s.includes('driver_tokens')));
+      const tokenLookup = sqlCalls.find((c) =>
+        c.strings.some((s) => s.includes('prepaid_balance_cents FROM driver_tokens')),
+      );
       expect(tokenLookup).toBeUndefined();
     });
   });
@@ -2553,6 +2585,7 @@ describe('Event projections - coverage expansion', () => {
       [], // SELECT pricing_holidays (loadHolidays)
       [], // UPDATE charging_sessions SET tariff_id
       [], // INSERT session_tariff_segments
+      [], // reservation link candidates (no hold on the station)
       [{ site_id: 'site-pay' }], // resolveSiteId
       [{ name: 'Site Pay' }], // resolveSiteName
       // runPaymentGate: no SQL of its own, the hold goes through the service

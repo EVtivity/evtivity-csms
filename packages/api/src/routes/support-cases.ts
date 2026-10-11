@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, desc, sql, count, ilike, or, inArray } from 'drizzle-orm';
-import { db, client, writeAudit, supportCaseAuditLog } from '@evtivity/database';
+import { db, client } from '@evtivity/database';
 import {
   supportCases,
   supportCaseMessages,
@@ -37,8 +37,22 @@ import {
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
-import { notifySupportCaseEvent } from '../lib/support-case-events.js';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
+import {
+  addOperatorMessage,
+  createSupportCase,
+  deleteSupportCaseAttachment,
+  markSupportCaseRead,
+  recordSupportCaseAttachmentAdded,
+  recordSupportCaseRefund,
+  updateSupportCase,
+} from '@evtivity/services/support-case.service';
+import {
+  DRIVER_AI_STATES,
+  SUPPORT_CASE_AI_ASSIST_STATUS,
+  SUPPORT_CASE_RESOLUTION_SOURCES,
+  driverAiConsentRecordSchema,
+} from '@evtivity/lib/driver-ai';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import type { JwtPayload } from '../plugins/auth.js';
@@ -65,10 +79,20 @@ const supportCaseListItem = z
     subject: z.string().max(255).describe('Case subject line'),
     status: z
       .enum(supportCaseStatusEnum.enumValues)
-      .describe('Case status (open, in_progress, waiting_on_driver, resolved, closed)'),
+      .describe(
+        'Case status (open, in_progress, waiting_on_driver, resolved, closed; ai_assist while the driver AI handles it)',
+      ),
     category: z.enum(supportCaseCategoryEnum.enumValues).describe('Case category'),
     priority: z.enum(supportCasePriorityEnum.enumValues).describe('Case priority level'),
     createdByDriver: z.boolean().describe('True if the case was created by the driver'),
+    aiState: z
+      .enum(DRIVER_AI_STATES)
+      .nullable()
+      .describe('Driver AI step state; null when the case had no AI step'),
+    resolutionSource: z
+      .enum(SUPPORT_CASE_RESOLUTION_SOURCES)
+      .nullable()
+      .describe('Who resolved the case (operator or ai); null while it is not resolved'),
     driverName: z.string().nullable().describe('Full name of the linked driver'),
     assignedToName: z.string().nullable().describe('Full name of the assigned operator'),
     assignedTo: z.string().nullable().describe('Operator user ID assigned to handle this case'),
@@ -120,7 +144,7 @@ const supportCaseMessageItem = z
     id: z.number().int().describe('Message ID'),
     senderType: z
       .enum(supportCaseMessageSenderEnum.enumValues)
-      .describe('Message sender (driver, operator, system)'),
+      .describe('Message sender (driver, operator, system, assistant: the automatic answer)'),
     senderId: z
       .string()
       .nullable()
@@ -150,7 +174,26 @@ const supportCaseDetail = supportCaseItem
     sessions: z.array(sessionRef).describe('Charging sessions linked to this case'),
     messages: z
       .array(supportCaseMessageItem)
-      .describe('Messages on this case in chronological order'),
+      .describe(
+        'Messages on this case in chronological order; the automatic answer has senderType assistant',
+      ),
+    aiConsent: driverAiConsentRecordSchema
+      .nullable()
+      .describe('The driver consent to the AI analysis; null when the driver was not asked'),
+    aiState: z
+      .enum(DRIVER_AI_STATES)
+      .nullable()
+      .describe('Driver AI step state; null when the case had no AI step'),
+    aiStateReason: z.string().nullable().describe('Reason of the AI step state, when any'),
+    aiAnsweredAt: z.coerce.date().nullable().describe('When the automatic answer was stored'),
+    aiFeedbackAt: z.coerce
+      .date()
+      .nullable()
+      .describe('When the driver answered the feedback question'),
+    resolutionSource: z
+      .enum(SUPPORT_CASE_RESOLUTION_SOURCES)
+      .nullable()
+      .describe('Who resolved the case (operator or ai); null while it is not resolved'),
   })
   .passthrough();
 
@@ -225,9 +268,19 @@ const attachmentIdParams = z.object({
 
 const listCasesQuery = paginationQuery.extend({
   status: z
-    .enum(['open', 'in_progress', 'waiting_on_driver', 'resolved', 'closed'])
+    .enum(['open', 'in_progress', 'waiting_on_driver', 'resolved', 'closed', 'ai_assist'])
     .optional()
-    .describe('Filter by case status'),
+    .describe(
+      'Filter by case status. Cases the driver AI still handles (ai_assist) are listed only with status ai_assist or an aiState filter',
+    ),
+  aiState: z
+    .enum(DRIVER_AI_STATES)
+    .optional()
+    .describe('Filter by driver AI step state (includes ai_assist cases)'),
+  resolutionSource: z
+    .enum(SUPPORT_CASE_RESOLUTION_SOURCES)
+    .optional()
+    .describe('Filter by who resolved the case (operator or ai)'),
   category: z
     .enum([
       'billing_dispute',
@@ -342,12 +395,6 @@ const refundBody = z.object({
     .optional()
     .describe('Partial refund amount in cents. Omit for full refund.'),
 });
-
-async function getNextCaseNumber(): Promise<string> {
-  const result = await db.execute(sql`SELECT nextval('support_case_number_seq') as val`);
-  const seq = Number((result as unknown as Array<{ val: string }>)[0]?.val ?? 1);
-  return `CASE-${String(seq).padStart(5, '0')}`;
-}
 
 // "Is this case unread for `userId`?" -- no read row at all, OR a driver
 // message arrived after the last read timestamp. Shared by the list endpoint
@@ -483,6 +530,15 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       }
       if (query.status != null) {
         conditions.push(eq(supportCases.status, query.status));
+      } else if (query.aiState == null) {
+        // Cases the driver AI still handles are not in the default list (E4).
+        conditions.push(sql`${supportCases.status} <> ${SUPPORT_CASE_AI_ASSIST_STATUS}`);
+      }
+      if (query.aiState != null) {
+        conditions.push(eq(supportCases.aiState, query.aiState));
+      }
+      if (query.resolutionSource != null) {
+        conditions.push(eq(supportCases.resolutionSource, query.resolutionSource));
       }
       if (query.category != null) {
         conditions.push(eq(supportCases.category, query.category));
@@ -515,6 +571,8 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             category: supportCases.category,
             priority: supportCases.priority,
             createdByDriver: supportCases.createdByDriver,
+            aiState: supportCases.aiState,
+            resolutionSource: supportCases.resolutionSource,
             driverName: sql<
               string | null
             >`CASE WHEN ${drivers.id} IS NOT NULL THEN ${drivers.firstName} || ' ' || ${drivers.lastName} ELSE NULL END`,
@@ -572,7 +630,8 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       const conditions = [
         eq(supportCases.assignedTo, userId),
-        sql`${supportCases.status} NOT IN ('resolved', 'closed')`,
+        // ai_assist: the driver AI still handles it (not in operator counts, E4).
+        sql`${supportCases.status} NOT IN ('resolved', 'closed', 'ai_assist')`,
         unreadCondition(userId),
       ];
 
@@ -671,6 +730,15 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           closedAt: supportCases.closedAt,
           createdAt: supportCases.createdAt,
           updatedAt: supportCases.updatedAt,
+          aiConsentDecision: supportCases.aiConsent,
+          aiConsentAt: supportCases.aiConsentAt,
+          aiConsentLanguage: supportCases.aiConsentLanguage,
+          aiConsentNoticeVersion: supportCases.aiConsentNoticeVersion,
+          aiState: supportCases.aiState,
+          aiStateReason: supportCases.aiStateReason,
+          aiAnsweredAt: supportCases.aiAnsweredAt,
+          aiFeedbackAt: supportCases.aiFeedbackAt,
+          resolutionSource: supportCases.resolutionSource,
         })
         .from(supportCases)
         .leftJoin(drivers, eq(supportCases.driverId, drivers.id))
@@ -772,7 +840,26 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         attachments: attachmentsByMessage.get(m.id) ?? [],
       }));
 
-      return { ...supportCase, sessions, messages: messagesWithAttachments };
+      const {
+        aiConsentDecision,
+        aiConsentAt,
+        aiConsentLanguage,
+        aiConsentNoticeVersion,
+        ...caseFields
+      } = supportCase;
+      const aiConsent =
+        (aiConsentDecision === 'granted' || aiConsentDecision === 'declined') &&
+        aiConsentAt != null &&
+        aiConsentLanguage != null &&
+        aiConsentNoticeVersion != null
+          ? {
+              decision: aiConsentDecision,
+              at: aiConsentAt.toISOString(),
+              language: aiConsentLanguage,
+              noticeVersion: aiConsentNoticeVersion,
+            }
+          : null;
+      return { ...caseFields, aiConsent, sessions, messages: messagesWithAttachments };
     },
   );
 
@@ -817,13 +904,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      await db
-        .insert(supportCaseReads)
-        .values({ userId, caseId: id, lastReadAt: new Date() })
-        .onConflictDoUpdate({
-          target: [supportCaseReads.userId, supportCaseReads.caseId],
-          set: { lastReadAt: new Date() },
-        });
+      await markSupportCaseRead(userId, id);
 
       return { success: true };
     },
@@ -889,90 +970,19 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const caseNumber = await getNextCaseNumber();
-
-      const [newCase] = await db
-        .insert(supportCases)
-        .values({
-          caseNumber,
-          subject: body.subject,
-          description: body.description,
-          category: body.category,
-          priority: body.priority,
-          driverId: body.driverId ?? null,
-          stationId: body.stationId ?? null,
-          assignedTo: body.assignedTo ?? null,
-          createdByDriver: false,
-        })
-        .returning();
-
-      if (newCase == null) {
-        throw new Error('Failed to create support case');
-      }
-
-      // Link sessions via junction table
-      if (body.sessionIds != null && body.sessionIds.length > 0) {
-        await db
-          .insert(supportCaseSessions)
-          .values(body.sessionIds.map((sid) => ({ caseId: newCase.id, sessionId: sid })));
-      }
-
-      // Create initial message from the description
-      await db.insert(supportCaseMessages).values({
-        caseId: newCase.id,
-        senderType: 'operator',
-        senderId: userId,
-        body: body.description,
-        isInternal: false,
+      return createSupportCase({
+        subject: body.subject,
+        description: body.description,
+        category: body.category,
+        priority: body.priority,
+        driverId: body.driverId ?? null,
+        stationId: body.stationId ?? null,
+        assignedTo: body.assignedTo ?? null,
+        sessionIds: body.sessionIds ?? [],
+        openedBy: { type: 'operator', userId },
+        actor: getAuditActor(request),
+        log: request.log,
       });
-
-      // Notify driver if linked
-      if (body.driverId != null) {
-        void dispatchDriverNotification(
-          client,
-          'supportCase.Created',
-          body.driverId,
-          {
-            caseNumber,
-            subject: body.subject,
-            category: body.category,
-          },
-          ALL_TEMPLATES_DIRS,
-          getPubSub(),
-        );
-      }
-
-      void notifySupportCaseEvent('supportCase.created', newCase.id, body.driverId ?? null);
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-        {
-          entityId: newCase.id,
-          entityIdSnapshot: newCase.id,
-          action: 'created',
-          ...actor,
-          after: newCase,
-        },
-        db,
-        request.log,
-      );
-      if (body.sessionIds != null && body.sessionIds.length > 0) {
-        await writeAudit(
-          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-          {
-            entityId: newCase.id,
-            entityIdSnapshot: newCase.id,
-            action: 'sessions_linked',
-            ...actor,
-            after: { sessionIds: body.sessionIds },
-          },
-          db,
-          request.log,
-        );
-      }
-
-      return newCase;
     },
   );
 
@@ -1034,46 +1044,11 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const updates: Record<string, unknown> = { updatedAt: new Date() };
-      const systemMessages: string[] = [];
-
-      if (body.status != null && body.status !== existing.status) {
-        updates['status'] = body.status;
-        systemMessages.push(`Status changed from ${existing.status} to ${body.status}`);
-        if (body.status === 'resolved') {
-          updates['resolvedAt'] = new Date();
-        }
-        if (body.status === 'closed') {
-          updates['closedAt'] = new Date();
-        }
-      }
-
-      if (body.priority != null && body.priority !== existing.priority) {
-        updates['priority'] = body.priority;
-        systemMessages.push(`Priority changed from ${existing.priority} to ${body.priority}`);
-      }
-
-      if (body.category != null && body.category !== existing.category) {
-        updates['category'] = body.category;
-        systemMessages.push(`Category changed from ${existing.category} to ${body.category}`);
-      }
-
-      if (body.assignedTo !== undefined && body.assignedTo !== existing.assignedTo) {
-        updates['assignedTo'] = body.assignedTo;
-        if (assignee != null) {
-          const name = `${assignee.firstName ?? ''} ${assignee.lastName ?? ''}`.trim();
-          systemMessages.push(`Assigned to ${name}`);
-        } else {
-          systemMessages.push('Assignment removed');
-        }
-      }
-
-      // Handle session link changes. Validate site access on every added
-      // sessionId — without it an operator could link sessions from a
-      // station they have no access to, then refund cross-site via the
-      // case's refund endpoint.
-      // Removed ids are checked the same way, so a restricted operator cannot
-      // unlink (or probe for) a session of another site.
+      // Validate site access on every added sessionId -- without it an
+      // operator could link sessions from a station they have no access to,
+      // then refund cross-site via the case's refund endpoint. Removed ids are
+      // checked the same way, so a restricted operator cannot unlink (or probe
+      // for) a session of another site.
       if (
         (body.addSessionIds != null && !(await sessionsInScope(body.addSessionIds, siteIds))) ||
         (body.removeSessionIds != null && !(await sessionsInScope(body.removeSessionIds, siteIds)))
@@ -1088,152 +1063,23 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         await reply.status(400).send(SESSION_OF_OTHER_DRIVER);
         return;
       }
-      if (body.addSessionIds != null && body.addSessionIds.length > 0) {
-        await db
-          .insert(supportCaseSessions)
-          .values(body.addSessionIds.map((sid) => ({ caseId: id, sessionId: sid })))
-          .onConflictDoNothing();
-      }
-      if (body.removeSessionIds != null && body.removeSessionIds.length > 0) {
-        await db
-          .delete(supportCaseSessions)
-          .where(
-            and(
-              eq(supportCaseSessions.caseId, id),
-              inArray(supportCaseSessions.sessionId, body.removeSessionIds),
-            ),
-          );
-      }
 
-      const [updated] = await db
-        .update(supportCases)
-        .set(updates)
-        .where(eq(supportCases.id, id))
-        .returning();
-
-      // Create system messages for each change (single round-trip for up to
-      // four field changes in one PATCH).
-      if (systemMessages.length > 0) {
-        await db.insert(supportCaseMessages).values(
-          systemMessages.map((msg) => ({
-            caseId: id,
-            senderType: 'system' as const,
-            senderId: userId,
-            body: msg,
-            isInternal: false,
-          })),
-        );
-      }
-
-      // Notify driver on resolve
-      if (body.status === 'resolved' && existing.driverId != null) {
-        void dispatchDriverNotification(
-          client,
-          'supportCase.Resolved',
-          existing.driverId,
-          {
-            caseNumber: existing.caseNumber,
-            subject: existing.subject,
-            category: existing.category,
-          },
-          ALL_TEMPLATES_DIRS,
-          getPubSub(),
-        );
-      }
-
-      void notifySupportCaseEvent('supportCase.updated', id, existing.driverId);
-
-      const actor = getAuditActor(request);
-      if (body.status != null && body.status !== existing.status) {
-        await writeAudit(
-          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'status_changed',
-            ...actor,
-            before: { status: existing.status },
-            after: { status: body.status },
-          },
-          db,
-          request.log,
-        );
-      }
-      if (body.priority != null && body.priority !== existing.priority) {
-        await writeAudit(
-          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'priority_changed',
-            ...actor,
-            before: { priority: existing.priority },
-            after: { priority: body.priority },
-          },
-          db,
-          request.log,
-        );
-      }
-      if (body.category != null && body.category !== existing.category) {
-        await writeAudit(
-          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'category_changed',
-            ...actor,
-            before: { category: existing.category },
-            after: { category: body.category },
-          },
-          db,
-          request.log,
-        );
-      }
-      if (body.assignedTo !== undefined && body.assignedTo !== existing.assignedTo) {
-        await writeAudit(
-          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'assigned',
-            ...actor,
-            before: { assignedTo: existing.assignedTo },
-            after: { assignedTo: body.assignedTo },
-          },
-          db,
-          request.log,
-        );
-      }
-      if (body.addSessionIds != null && body.addSessionIds.length > 0) {
-        await writeAudit(
-          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'sessions_linked',
-            ...actor,
-            after: { sessionIds: body.addSessionIds },
-          },
-          db,
-          request.log,
-        );
-      }
-      if (body.removeSessionIds != null && body.removeSessionIds.length > 0) {
-        await writeAudit(
-          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'sessions_unlinked',
-            ...actor,
-            before: { sessionIds: body.removeSessionIds },
-          },
-          db,
-          request.log,
-        );
-      }
-
-      return updated;
+      return updateSupportCase({
+        existing,
+        status: body.status,
+        priority: body.priority,
+        category: body.category,
+        assignedTo: body.assignedTo,
+        assigneeName:
+          assignee != null
+            ? `${assignee.firstName ?? ''} ${assignee.lastName ?? ''}`.trim()
+            : undefined,
+        addSessionIds: body.addSessionIds,
+        removeSessionIds: body.removeSessionIds,
+        userId,
+        actor: getAuditActor(request),
+        log: request.log,
+      });
     },
   );
 
@@ -1277,55 +1123,14 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [message] = await db
-        .insert(supportCaseMessages)
-        .values({
-          caseId: id,
-          senderType: 'operator',
-          senderId: userId,
-          body: body.body,
-          isInternal: body.isInternal,
-        })
-        .returning();
-
-      // Notify driver if not internal
-      if (!body.isInternal && supportCase.driverId != null) {
-        void dispatchDriverNotification(
-          client,
-          'supportCase.OperatorReply',
-          supportCase.driverId,
-          {
-            caseNumber: supportCase.caseNumber,
-            subject: supportCase.subject,
-            category: supportCase.category,
-          },
-          ALL_TEMPLATES_DIRS,
-          getPubSub(),
-        );
-      }
-
-      // Internal notes stay operator-only. Driver only sees public replies.
-      void notifySupportCaseEvent(
-        'supportCase.newMessage',
-        id,
-        body.isInternal ? null : supportCase.driverId,
-      );
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'message_added',
-          ...actor,
-          after: { messageId: message?.id, isInternal: body.isInternal },
-        },
-        db,
-        request.log,
-      );
-
-      return message;
+      return addOperatorMessage({
+        supportCase,
+        userId,
+        body: body.body,
+        isInternal: body.isInternal,
+        actor: getAuditActor(request),
+        log: request.log,
+      });
     },
   );
 
@@ -1482,24 +1287,13 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       );
 
       if (created) {
-        const actor = getAuditActor(request);
-        await writeAudit(
-          { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'attachment_added',
-            ...actor,
-            after: {
-              messageId,
-              fileName: attachment.fileName,
-              fileSize: attachment.fileSize,
-              contentType: attachment.contentType,
-            },
-          },
-          db,
-          request.log,
-        );
+        await recordSupportCaseAttachmentAdded({
+          caseId: id,
+          messageId,
+          attachment,
+          actor: getAuditActor(request),
+          log: request.log,
+        });
       }
 
       return attachment;
@@ -1673,7 +1467,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         await deleteObject(s3, attachment.s3Bucket, attachment.s3Key);
       }
 
-      await db.delete(supportCaseAttachments).where(eq(supportCaseAttachments.id, attachmentId));
+      await deleteSupportCaseAttachment(attachmentId);
 
       await reply.status(204).send();
     },
@@ -1848,20 +1642,6 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       // the payment record was updated.
       const amountDisplay = formatCurrencyAmount(refundAmount, record.currency);
       const txLabel = sessionStation?.transactionId ?? body.sessionId;
-      try {
-        await db.insert(supportCaseMessages).values({
-          caseId: id,
-          senderType: 'system',
-          senderId: userId,
-          body: pending
-            ? `Refund of ${amountDisplay} requested for session ${txLabel}; awaiting the payment provider's confirmation`
-            : `Refund of ${amountDisplay} issued for session ${txLabel}`,
-          isInternal: false,
-        });
-      } catch (err) {
-        request.log.warn({ err, caseId: id }, 'Failed to write refund system message');
-      }
-
       // Notify driver (a pending refund notifies when the provider confirms it)
       if (record.driverId != null && !pending) {
         void dispatchDriverNotification(
@@ -1879,25 +1659,16 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         );
       }
 
-      void notifySupportCaseEvent('supportCase.updated', id, supportCase.driverId);
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: supportCaseAuditLog, idColumn: 'support_case_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'refund_issued',
-          ...actor,
-          after: {
-            sessionId: body.sessionId,
-            amountCents: refundAmount,
-            currency: record.currency,
-          },
-        },
-        db,
-        request.log,
-      );
+      await recordSupportCaseRefund({
+        supportCase,
+        userId,
+        message: pending
+          ? `Refund of ${amountDisplay} requested for session ${txLabel}; awaiting the payment provider's confirmation`
+          : `Refund of ${amountDisplay} issued for session ${txLabel}`,
+        audit: { sessionId: body.sessionId, amountCents: refundAmount, currency: record.currency },
+        actor: getAuditActor(request),
+        log: request.log,
+      });
 
       return { ...updatedPayment, refundStatus: outcome.refundStatus };
     },

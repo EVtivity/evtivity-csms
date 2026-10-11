@@ -30,8 +30,12 @@ interface PaginatedResponse {
   total: number;
 }
 
-function statusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
+function statusVariant(
+  status: string,
+): 'default' | 'secondary' | 'destructive' | 'outline' | 'info' {
   switch (status) {
+    case 'ai_assist':
+      return 'info';
     case 'open':
       return 'default';
     case 'in_progress':

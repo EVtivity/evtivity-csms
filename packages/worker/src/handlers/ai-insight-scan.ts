@@ -17,6 +17,11 @@
  * - `charging_sessions` that reached `failed` or `faulted` -> `session_failed`;
  *   sessions with the same stop reason at a site within an hour group under
  *   the first
+ * - `reservation_audit_log` trigger rows (`RESERVATION_INSIGHT_TRIGGERS`) ->
+ *   the reservation kinds, one per audit row; an `expired` row only with
+ *   reason `no_show`. No-shows of a site within an hour group under the
+ *   first; a station fault during a hold joins the open site incident its
+ *   station is a member of
  *
  * Each pending insight is inserted first (unique trigger key, P7), then a
  * job with the insight id as job id is queued, delayed by the debounce (P4).
@@ -33,10 +38,16 @@
  * later id is not seen (a projection commits in milliseconds).
  */
 
-import { client, getAiSettings, stationAvailabilitySql } from '@evtivity/database';
+import { client, getInsightAiSettings, stationAvailabilitySql } from '@evtivity/database';
 import type { Logger, PubSubClient } from '@evtivity/lib';
 import type { AiSettings } from '@evtivity/lib/ai-config';
-import type { InsightKind } from '@evtivity/lib/ai-insights';
+import {
+  isReservationInsightKind,
+  RESERVATION_INSIGHT_TRIGGERS,
+  reservationAuditRaisesInsight,
+  reservationAuditReason,
+} from '@evtivity/lib/ai-insights';
+import type { InsightKind, ReservationInsightTriggerAction } from '@evtivity/lib/ai-insights';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
   attachToIncident,
@@ -62,6 +73,11 @@ const SESSION_BATCH = 500;
 const STUCK_MARGIN_MINUTES = 10;
 /** Sessions with the same stop reason at a site group within this window. */
 const SESSION_GROUP_MINUTES = 60;
+/** Reservation no-shows at a site group within this window (decision E17). */
+const NO_SHOW_GROUP_MINUTES = 60;
+const RESERVATION_TRIGGER_ACTIONS = Object.keys(
+  RESERVATION_INSIGHT_TRIGGERS,
+) as ReservationInsightTriggerAction[];
 
 export interface AiInsightScanDeps {
   getSettings: () => Promise<AiSettings>;
@@ -389,6 +405,102 @@ async function sessionCandidates(
   return out;
 }
 
+interface ReservationAuditCandidateRow {
+  id: number;
+  action: ReservationInsightTriggerAction;
+  after: unknown;
+  reservation_id: string;
+  station_id: string;
+  site_id: string | null;
+}
+
+/**
+ * Reservation trigger rows of `reservation_audit_log` (decision E16): one
+ * insight per audit row (the trigger key is the row id). An `expired` row
+ * raises a no-show only with reason `no_show`.
+ */
+async function reservationCandidates(
+  language: string,
+  on: boolean,
+  marks: Marks,
+): Promise<Candidate[]> {
+  const window = await serialWindow('reservation_audit_log', 'reservation_audit_log');
+  if (window == null) return [];
+  const rows = on
+    ? await client<ReservationAuditCandidateRow[]>`
+        SELECT a.id, a.action::text AS action, a.after, r.id AS reservation_id, r.station_id,
+          cs.site_id
+        FROM reservation_audit_log a
+        JOIN reservations r ON r.id = a.reservation_id
+        JOIN charging_stations cs ON cs.id = r.station_id
+        LEFT JOIN sites s ON s.id = cs.site_id
+        WHERE a.id > ${window.last} AND a.id <= ${window.upper}
+          AND a.action::text = ANY(${RESERVATION_TRIGGER_ACTIONS}::text[])
+          AND (s.id IS NULL OR s.ai_insights_enabled)
+        ORDER BY a.id
+      `
+    : [];
+  marks.push(() =>
+    writeScanWatermark('reservation_audit_log', {
+      lastId: window.upper,
+      lastAt: null,
+      lastKey: null,
+    }),
+  );
+  const out: Candidate[] = [];
+  for (const r of rows) {
+    if (!reservationAuditRaisesInsight(r.action, reservationAuditReason(r.after))) continue;
+    const kind = RESERVATION_INSIGHT_TRIGGERS[r.action];
+    out.push({
+      incidentMember: false,
+      insight: {
+        kind,
+        subjectType: 'reservation',
+        subjectId: r.reservation_id,
+        triggerKey: `${kind}:${String(r.id)}`,
+        stationId: r.station_id,
+        reservationId: r.reservation_id,
+        siteId: r.site_id,
+        primaryLanguage: language,
+      },
+    });
+  }
+  return out;
+}
+
+/**
+ * The first no-show insight at the same site in the last hour: a new one
+ * groups under it (rule-only either way, decision E17).
+ */
+async function noShowGroupParent(insight: NewInsight): Promise<string | null> {
+  if (insight.siteId == null || insight.reservationId == null) return null;
+  const [row] = await client<{ id: string }[]>`
+    SELECT id FROM ai_insights
+    WHERE kind = 'reservation_no_show' AND site_id = ${insight.siteId}
+      AND parent_insight_id IS NULL AND status IN ('pending', 'active')
+      AND reservation_id IS DISTINCT FROM ${insight.reservationId}
+      AND created_at > now() - make_interval(mins => ${NO_SHOW_GROUP_MINUTES})
+    ORDER BY created_at ASC, id ASC LIMIT 1
+  `;
+  return row?.id ?? null;
+}
+
+/**
+ * The open site incident the station of a reservation fault belongs to: a
+ * station insight of the same station is one of its members.
+ */
+async function stationIncidentParent(insight: NewInsight): Promise<string | null> {
+  if (insight.stationId == null) return null;
+  const [row] = await client<{ id: string }[]>`
+    SELECT p.id FROM ai_insights m
+    JOIN ai_insights p ON p.id = m.parent_insight_id
+    WHERE m.station_id = ${insight.stationId} AND p.kind = 'site_incident'
+      AND p.status IN ('pending', 'active') AND p.site_id IS NOT DISTINCT FROM ${insight.siteId}
+    ORDER BY p.created_at DESC LIMIT 1
+  `;
+  return row?.id ?? null;
+}
+
 async function siteSwitches(ids: readonly (string | null)[]): Promise<Map<string, boolean>> {
   const siteIds = [...new Set(ids.filter((id): id is string => id != null))];
   if (siteIds.length === 0) return new Map();
@@ -521,7 +633,11 @@ async function enqueueOrWarn(
   }
 }
 
-/** Active station insights whose condition cleared, and recovered incidents, end resolved. */
+/**
+ * Active station insights whose condition cleared, recovered incidents, a
+ * station fault during a reservation once the station recovered, and a
+ * failed reservation fee captured later end resolved.
+ */
 async function resolveCleared(deps: AiInsightScanDeps): Promise<number> {
   const cleared = await client<{ id: string }[]>`
     SELECT i.id FROM ai_insights i
@@ -530,6 +646,18 @@ async function resolveCleared(deps: AiInsightScanDeps): Promise<number> {
       (i.kind = 'station_offline' AND cs.is_online)
       OR (i.kind = 'station_faulted' AND ${client.unsafe(stationAvailabilitySql('cs'))} <> 'faulted')
     )
+    UNION ALL
+    SELECT i.id FROM ai_insights i
+    JOIN charging_stations cs ON cs.id = i.station_id
+    WHERE i.status = 'active' AND i.kind = 'reservation_station_faulted' AND cs.is_online
+      AND ${client.unsafe(stationAvailabilitySql('cs'))} <> 'faulted'
+    UNION ALL
+    SELECT i.id FROM ai_insights i
+    WHERE i.status = 'active' AND i.kind = 'reservation_fee_failed'
+      AND EXISTS (
+        SELECT 1 FROM payment_records p
+        WHERE p.reservation_id = i.reservation_id AND p.status = 'captured'
+      )
     UNION ALL
     SELECT i.id FROM ai_insights i
     WHERE i.status = 'active' AND i.kind = 'site_incident'
@@ -568,6 +696,7 @@ async function resolveCleared(deps: AiInsightScanDeps): Promise<number> {
 }
 
 function kindOn(kind: InsightKind, settings: AiSettings): boolean {
+  if (isReservationInsightKind(kind)) return settings.insights.reservationEnabled;
   if (kind === 'session_failed') return settings.insights.sessionEnabled;
   if (kind === 'authorization_refused') return settings.insights.authorizationEnabled;
   return settings.insights.stationEnabled;
@@ -596,6 +725,7 @@ export async function runAiInsightScan(
       deps.subjectSecret,
     )),
     ...(await sessionCandidates(language, on('session_failed'), marks)),
+    ...(await reservationCandidates(language, on('reservation_rejected'), marks)),
   ];
 
   const debounceMs = settings.insights.debounceSeconds * 1000;
@@ -604,10 +734,15 @@ export async function runAiInsightScan(
   let created = 0;
   for (const c of candidates) {
     let insight = c.insight;
-    if (insight.kind === 'session_failed') {
-      const parent = await sessionGroupParent(insight);
-      if (parent != null) insight = { ...insight, parentInsightId: parent, status: 'superseded' };
-    }
+    const parent =
+      insight.kind === 'session_failed'
+        ? await sessionGroupParent(insight)
+        : insight.kind === 'reservation_no_show'
+          ? await noShowGroupParent(insight)
+          : insight.kind === 'reservation_station_faulted'
+            ? await stationIncidentParent(insight)
+            : null;
+    if (parent != null) insight = { ...insight, parentInsightId: parent, status: 'superseded' };
     const id = await createInsight(insight);
     if (id == null) continue;
     created++;
@@ -634,7 +769,8 @@ export async function runAiInsightScan(
 export async function aiInsightScanHandler(log: Logger): Promise<void> {
   await runAiInsightScan(
     {
-      getSettings: getAiSettings,
+      // Reservation triggers only while reservations are on (getInsightAiSettings).
+      getSettings: getInsightAiSettings,
       enqueue: enqueueAiInsightJob,
       pubsub: getPubSub(),
       subjectSecret: config.SETTINGS_ENCRYPTION_KEY,

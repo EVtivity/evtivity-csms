@@ -3,7 +3,8 @@
 
 /**
  * Explain conversations (AI roadmap v0.1.44, item 2): a chatbot conversation
- * opened from a station, session or authorization attempt.
+ * opened from a station, session, authorization attempt or (v0.1.45)
+ * reservation.
  *
  * - The record is checked on the server with the rules of its detail route
  *   (read permission, then site scope; an unsited record is visible to
@@ -18,7 +19,15 @@
 
 import { eq } from 'drizzle-orm';
 import { createLogger } from '@evtivity/lib';
-import { db, chargingStations, chargingSessions, authorizeAttempts } from '@evtivity/database';
+import {
+  db,
+  chargingStations,
+  chargingSessions,
+  authorizeAttempts,
+  evses,
+  isReservationEnabled,
+  reservations,
+} from '@evtivity/database';
 import type { AiContextKind } from '@evtivity/lib/ai-insights';
 import { frameUntrusted } from '@evtivity/ai/prompt';
 import { redactToolValue } from '@evtivity/ai/redact';
@@ -34,6 +43,7 @@ export const EXPLAIN_READ_PERMISSION: Readonly<Record<AiContextKind, string>> = 
   station: 'stations:read',
   session: 'sessions:read',
   authorization: 'drivers:read',
+  reservation: 'reservations:read',
 };
 
 /** Characters of the framed JSON before the evidence pack is left out (about 6k tokens). */
@@ -52,6 +62,7 @@ export interface ExplainSubject {
   stationId: string | null;
   sessionId: string | null;
   authorizeAttemptId: number | null;
+  reservationId: string | null;
   /** Whitelisted fields of the record itself (never `SELECT *`). */
   facts: Record<string, unknown>;
 }
@@ -97,6 +108,7 @@ async function loadStation(id: string): Promise<ExplainSubject | null> {
     stationId: row.id,
     sessionId: null,
     authorizeAttemptId: null,
+    reservationId: null,
     facts: {
       stationId: row.ocppStationId,
       model: row.model,
@@ -135,6 +147,7 @@ async function loadSession(id: string): Promise<ExplainSubject | null> {
     stationId: row.stationDbId,
     sessionId: row.id,
     authorizeAttemptId: null,
+    reservationId: null,
     facts: {
       sessionId: row.id,
       stationId: row.ocppStationId,
@@ -177,6 +190,7 @@ async function loadAuthorization(id: string): Promise<ExplainSubject | null> {
     stationId: row.stationDbId,
     sessionId: null,
     authorizeAttemptId: row.id,
+    reservationId: null,
     facts: {
       attemptId: row.id,
       stationId: row.ocppStationId,
@@ -189,10 +203,61 @@ async function loadAuthorization(id: string): Promise<ExplainSubject | null> {
   };
 }
 
+async function loadReservation(id: string): Promise<ExplainSubject | null> {
+  // No reservation Explain while the reservation feature is off (owner rule v0.1.45).
+  if (!(await isReservationEnabled())) return null;
+  const [row] = await db
+    .select({
+      id: reservations.id,
+      reservationId: reservations.reservationId,
+      stationDbId: reservations.stationId,
+      ocppStationId: chargingStations.stationId,
+      siteId: chargingStations.siteId,
+      evseId: evses.evseId,
+      status: reservations.status,
+      startsAt: reservations.startsAt,
+      expiresAt: reservations.expiresAt,
+      createdAt: reservations.createdAt,
+      cancelledBy: reservations.cancelledBy,
+      cancelReason: reservations.cancelReason,
+      stationAckAt: reservations.stationAckAt,
+      noShowFeeState: reservations.noShowFeeState,
+    })
+    .from(reservations)
+    .leftJoin(chargingStations, eq(chargingStations.id, reservations.stationId))
+    .leftJoin(evses, eq(evses.id, reservations.evseId))
+    .where(eq(reservations.id, id))
+    .limit(1);
+  if (row === undefined) return null;
+  return {
+    kind: 'reservation',
+    id,
+    siteId: row.siteId,
+    stationId: row.stationDbId,
+    sessionId: null,
+    authorizeAttemptId: null,
+    reservationId: row.id,
+    facts: {
+      reservationId: row.reservationId,
+      stationId: row.ocppStationId,
+      evseId: row.evseId,
+      status: row.status,
+      startsAt: iso(row.startsAt),
+      expiresAt: iso(row.expiresAt),
+      createdAt: iso(row.createdAt),
+      cancelledBy: row.cancelledBy,
+      cancelReason: row.cancelReason,
+      stationAckAt: iso(row.stationAckAt),
+      noShowFeeState: row.noShowFeeState,
+    },
+  };
+}
+
 const LOADERS: Readonly<Record<AiContextKind, (id: string) => Promise<ExplainSubject | null>>> = {
   station: loadStation,
   session: loadSession,
   authorization: loadAuthorization,
+  reservation: loadReservation,
 };
 
 /**
@@ -282,8 +347,7 @@ export async function explainPromptBlock(
       category: insight.category,
       confidence: insight.confidence,
       fixes: insight.fixes,
-      // Site counts only: network counts are for all-site users (3.4), and
-      // the prompt stays the same whoever asks.
+      // The site counts are the only scope an insight carries.
       ...(insight.scope.site !== undefined ? { siteScope: insight.scope.site } : {}),
       summary: insight.summary,
       basisAt: insight.basisAt,

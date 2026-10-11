@@ -22,6 +22,7 @@
 import { tryParseJson } from '@evtivity/lib';
 import type { AiAdapter, AiUsage } from '@evtivity/ai/core';
 import { emptyUsage } from '@evtivity/ai/core';
+import { redactProviderRequest } from '@evtivity/ai/redact';
 import type { AiCatalogCategory } from '../tools/catalog-types.js';
 import { OCPP_COMMAND_CATEGORIES, keywordCategories } from './router-keywords.js';
 
@@ -145,39 +146,43 @@ export async function routeCategories(input: RouteInput): Promise<RouteResult> {
     input.recentUserMessages.length > 0
       ? `Earlier messages:\n${input.recentUserMessages.map((m) => `- ${m.slice(0, 500)}`).join('\n')}\n\n`
       : '';
+  // The router runs only for the chatbot, on the operator's own messages.
   const result = await input.adapter.complete(
-    {
-      model: input.model,
-      system: [{ text: `${ROUTER_SYSTEM}\n\nCategories:\n${list}`, cacheable: true }],
-      messages: [
-        {
-          role: 'user',
-          parts: [{ type: 'text', text: `${context}Message:\n${input.message.slice(0, 4000)}` }],
-        },
-      ],
-      tools: [],
-      effort: 'low',
-      maxOutputTokens: ROUTER_MAX_OUTPUT_TOKENS,
-      ...(caps.structuredOutput
-        ? {
-            responseSchema: {
-              name: 'tool_categories',
-              schema: {
-                type: 'object',
-                properties: {
-                  categories: {
-                    type: 'array',
-                    items: { type: 'string', enum: input.categories.map((c) => c.tag) },
-                    maxItems: MAX_ROUTED_CATEGORIES,
+    redactProviderRequest(
+      {
+        model: input.model,
+        system: [{ text: `${ROUTER_SYSTEM}\n\nCategories:\n${list}`, cacheable: true }],
+        messages: [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: `${context}Message:\n${input.message.slice(0, 4000)}` }],
+          },
+        ],
+        tools: [],
+        effort: 'low',
+        maxOutputTokens: ROUTER_MAX_OUTPUT_TOKENS,
+        ...(caps.structuredOutput
+          ? {
+              responseSchema: {
+                name: 'tool_categories',
+                schema: {
+                  type: 'object',
+                  properties: {
+                    categories: {
+                      type: 'array',
+                      items: { type: 'string', enum: input.categories.map((c) => c.tag) },
+                      maxItems: MAX_ROUTED_CATEGORIES,
+                    },
                   },
+                  required: ['categories'],
+                  additionalProperties: false,
                 },
-                required: ['categories'],
-                additionalProperties: false,
               },
-            },
-          }
-        : {}),
-    },
+            }
+          : {}),
+      },
+      'chatbot',
+    ),
     input.signal,
   );
   const parsed =

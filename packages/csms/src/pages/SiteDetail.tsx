@@ -11,6 +11,7 @@ import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { CreateButton } from '@/components/create-button';
 import { Badge } from '@/components/ui/badge';
+import { Toggle } from '@/components/ui/toggle';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
@@ -23,11 +24,12 @@ import { FilterPopover } from '@/components/FilterBar';
 import { api } from '@/lib/api';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useGoogleMapsSettings } from '@/hooks/use-google-maps-settings';
-import { useHasPermission } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { Pagination } from '@/components/ui/pagination';
 import { SessionsTable, type Session } from '@/components/SessionsTable';
 import { ReservationsTable } from '@/components/ReservationsTable';
 import { SiteDetailsTab } from '@/components/site/SiteDetailsTab';
+import { SiteAiCard } from '@/components/ai/usage/SiteAiCard';
 import { SiteMetricsTab } from '@/components/site/SiteMetricsTab';
 import { SiteQrCodesTab } from '@/components/site/SiteQrCodesTab';
 import { SitePricingTab } from '@/components/site/SitePricingTab';
@@ -92,6 +94,14 @@ export function SiteDetail(): React.JSX.Element {
   const { t } = useTranslation();
   const canReadAudit = useHasPermission('audit:read');
   const canReadMaintenance = useHasPermission('maintenance:read');
+  // The AI tab follows the card's own gates: usage readers, or users with
+  // every site and sites:write who edit the budget and the insights switch.
+  const canReadAiUsage = useHasPermission('aiUsage:read');
+  const canWriteSites = useHasPermission('sites:write');
+  const allSites = useHasAllSiteAccess();
+  const showAiTab = canReadAiUsage || (allSites && canWriteSites);
+  // A ?tab=ai link opened by someone without the tab shows Details.
+  const shownTab = activeTab === 'ai' && !showAiTab ? 'details' : activeTab;
 
   const { data: site, isLoading } = useQuery({
     queryKey: ['sites', id],
@@ -200,7 +210,7 @@ export function SiteDetail(): React.JSX.Element {
         />
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={shownTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="details">{t('common.details')}</TabsTrigger>
           <TabsTrigger value="metrics">{t('sites.metrics')}</TabsTrigger>
@@ -214,6 +224,7 @@ export function SiteDetail(): React.JSX.Element {
           {reservationEnabled && (
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
+          {showAiTab && <TabsTrigger value="ai">{t('sites.tabs.ai')}</TabsTrigger>}
           <TabsTrigger value="free-vend">{t('sites.freeVend')}</TabsTrigger>
           {canReadMaintenance && (
             <TabsTrigger value="maintenance">{t('nav.maintenance')}</TabsTrigger>
@@ -375,24 +386,25 @@ export function SiteDetail(): React.JSX.Element {
                       {t('sites.reservationsEnabledHelp')}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={site.reservationsEnabled}
-                    onClick={() => {
+                  <Toggle
+                    aria-label={t('sites.reservationsEnabled')}
+                    size="lg"
+                    checked={site.reservationsEnabled}
+                    onCheckedChange={() => {
                       reservationToggleMutation.mutate(!site.reservationsEnabled);
                     }}
                     disabled={reservationToggleMutation.isPending}
-                    className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${site.reservationsEnabled ? 'bg-primary' : 'bg-muted'}`}
-                  >
-                    <span
-                      className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${site.reservationsEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                    />
-                  </button>
+                  />
                 </div>
               </CardContent>
             </Card>
             <ReservationsTable siteId={id} timezone={site.timezone} />
+          </TabsContent>
+        )}
+
+        {showAiTab && (
+          <TabsContent value="ai">
+            <SiteAiCard siteId={id ?? ''} site={site} />
           </TabsContent>
         )}
 

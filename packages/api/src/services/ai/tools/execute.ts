@@ -27,13 +27,13 @@ import type { ValidateFunction } from 'ajv';
 import { runWithAuditViaAi } from '@evtivity/database';
 import { aiArgsHash, tryParseJson } from '@evtivity/lib';
 import type { AiToolRefusalReason } from '@evtivity/lib/ai-stream';
-import type { AiAuditVia } from '@evtivity/lib/ai-proposals';
+import type { AiAuditVia, AiProposalRefusalReason } from '@evtivity/lib/ai-proposals';
 import type { AiToolDefinition } from '@evtivity/ai/core';
 import { findCommandStation } from '../../../lib/command-station.js';
 import type { CommandStation } from '../../../lib/command-station.js';
 import type { AiCatalogTool, AiToolMethod } from './catalog-types.js';
 import { AI_TOOL_CATALOG } from './catalog.js';
-import { mapOcppCommand, ocppVersionLabel, toolOcppVersion } from './ocpp-version.js';
+import { mapOcppCommand, toolOcppVersion } from './ocpp-version.js';
 import type { OcppVersion } from './ocpp-version.js';
 import { surfaceOffers, toolPolicy } from './policy.js';
 import type { AiSurface } from './policy.js';
@@ -415,16 +415,14 @@ export interface ConfirmedToolCall {
   precondition?: () => Promise<boolean>;
 }
 
-export type ConfirmedRefusalReason =
-  | 'args_mismatch'
-  | 'no_longer_available'
-  | 'invalid_arguments'
-  | 'ocpp_version_mismatch';
+/** The refusal reasons of a confirmed call (`AI_PROPOSAL_REFUSAL_REASONS`). */
+export type ConfirmedRefusalReason = AiProposalRefusalReason;
 
 export type ConfirmedToolCallResult =
   | { kind: 'expired' }
   | { kind: 'stale' }
-  | { kind: 'refused'; reason: ConfirmedRefusalReason; message: string }
+  /** A code only: the caller logs it and the CSMS localizes it. */
+  | { kind: 'refused'; reason: ConfirmedRefusalReason }
   | {
       kind: 'ran';
       /** The operation that ran (after the OCPP version mapping). */
@@ -502,17 +500,13 @@ export async function executeConfirmedToolCall(
   const now = deps.now?.() ?? new Date();
   if (now.getTime() >= call.expiresAt.getTime()) return { kind: 'expired' };
   if (aiArgsHash(call.args) !== call.argsHash) {
-    return { kind: 'refused', reason: 'args_mismatch', message: 'The arguments changed' };
+    return { kind: 'refused', reason: 'args_mismatch' };
   }
   const allowed = (operationId: string, args: Record<string, unknown>): boolean =>
     call.allowAction === undefined || call.allowAction(operationId, args);
   let entry = confirmableEntry(call.operationId);
   if (entry === null || !allowed(call.operationId, call.args)) {
-    return {
-      kind: 'refused',
-      reason: 'no_longer_available',
-      message: `${call.operationId} can no longer run from an AI proposal`,
-    };
+    return { kind: 'refused', reason: 'no_longer_available' };
   }
   if (call.precondition !== undefined && !(await call.precondition())) return { kind: 'stale' };
 
@@ -527,16 +521,12 @@ export async function executeConfirmedToolCall(
     if (station !== null && isOcppVersion(station.ocppProtocol)) {
       const mapping = mapOcppCommand(entry.tool, args, station.ocppProtocol);
       if (mapping.kind === 'unsupported') {
-        return { kind: 'refused', reason: 'ocpp_version_mismatch', message: mapping.message };
+        return { kind: 'refused', reason: 'ocpp_version_mismatch' };
       }
       if (mapping.kind === 'mapped') {
         const target = confirmableEntry(mapping.operationId);
         if (target === null || !allowed(mapping.operationId, mapping.args)) {
-          return {
-            kind: 'refused',
-            reason: 'ocpp_version_mismatch',
-            message: `Station ${stationId} uses ${ocppVersionLabel(station.ocppProtocol)} and its equivalent command cannot run from an AI proposal`,
-          };
+          return { kind: 'refused', reason: 'ocpp_version_mismatch' };
         }
         entry = target;
         args = mapping.args;
@@ -546,7 +536,7 @@ export async function executeConfirmedToolCall(
 
   const prepared = prepareToolCall(createToolset([entry]), entry.tool.name, args);
   if (!prepared.ok) {
-    return { kind: 'refused', reason: 'invalid_arguments', message: prepared.refusal.modelText };
+    return { kind: 'refused', reason: 'invalid_arguments' };
   }
   const result = await injectToolCall(app, prepared, caller.authorization, {
     surface: 'chatbot',

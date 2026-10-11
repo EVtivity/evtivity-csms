@@ -95,10 +95,163 @@ describe('AI tool result redactor', () => {
     expect(support.counts.pii).toBe(6);
   });
 
+  it('TC-AI-DR-02 driver surface masks emails and phones and cuts token values to the last 4', () => {
+    const input = {
+      note: 'card 4242 4242 4242 4242, mail jane.doe@example.com',
+      phone: '+1 415 555 0100',
+      tokens: [{ idToken: 'AABBCCDD1234', tokenType: 'ISO14443', active: true }],
+      groupIdToken: 'GROUP-9876',
+      password: 'p',
+      apiKey: 'k',
+      description: 'Bearer abcdefghijkl1234 sk_live_abcdefghijk',
+    };
+    const driver = redactToolValue(input, 'driver');
+    const d = driver.value as {
+      note: string;
+      phone: string;
+      tokens: { idToken: string; tokenType: string; active: boolean }[];
+      groupIdToken: string;
+      description: string;
+    };
+    expect(d.note).toContain('j***@example.com');
+    expect(d.note).toContain('****4242');
+    expect(d.phone).toBe('****0100');
+    expect(d.tokens[0]).toEqual({ idToken: '****1234', tokenType: 'ISO14443', active: true });
+    expect(d.groupIdToken).toBe('****9876');
+    expect(d).not.toHaveProperty('password');
+    expect(d).not.toHaveProperty('apiKey');
+    expect(d.description).not.toContain('abcdefghijkl1234');
+    expect(d.description).not.toContain('sk_live_');
+    expect(driver.counts.pii).toBe(5);
+    expect(redactToolText('mail jane.doe@example.com', 'driver').text).toBe(
+      'mail j***@example.com',
+    );
+  });
+
   it('never mutates its input', () => {
     const input = { password: 'p', nested: { token: 't' } };
     const copy = structuredClone(input);
     redactToolValue(input, 'support');
     expect(input).toEqual(copy);
+  });
+});
+
+describe('AI redactor rules added by the data handling audit (A0)', () => {
+  it('masks the value of a configuration entry whose name is secret-shaped', () => {
+    const input = {
+      setVariableData: [
+        {
+          component: { name: 'SecurityCtrlr' },
+          variable: { name: 'BasicAuthPassword' },
+          attributeValue: 'SeedStationPass1234',
+        },
+        {
+          component: { name: 'OCPPCommCtrlr' },
+          variable: { name: 'HeartbeatInterval' },
+          attributeValue: '300',
+        },
+      ],
+      configurationKey: [
+        { key: 'AuthorizationKey', readonly: false, value: '5365656453746174' },
+        { key: 'HeartbeatInterval', readonly: false, value: '300' },
+      ],
+      settings: [{ key: 'smtp.passwordEnc', value: 'v1:cipher' }],
+      report: {
+        variable: { name: 'BasicAuthPassword' },
+        variableAttribute: [{ type: 'Actual', value: 'leaked' }],
+      },
+      station: { name: 'My Token Reader', value: 'kept' },
+    };
+    const { value, counts } = redactToolValue(input, 'chatbot');
+    const v = value as typeof input;
+    expect(v.setVariableData[0]?.attributeValue).toBe(REDACTED);
+    expect(v.setVariableData[1]?.attributeValue).toBe('300');
+    expect(v.configurationKey[0]?.value).toBe(REDACTED);
+    expect(v.configurationKey[1]?.value).toBe('300');
+    expect(v.settings[0]?.value).toBe(REDACTED);
+    expect(v.report.variableAttribute[0]?.value).toBe(REDACTED);
+    expect(v.station.value).toBe('kept');
+    expect(counts.values).toBe(4);
+  });
+
+  it('keeps the values of auth settings that are not secrets, and never spreads into nested data', () => {
+    const input = {
+      getVariableResult: [
+        {
+          component: { name: 'AuthCtrlr' },
+          variable: { name: 'LocalPreAuthorization' },
+          attributeValue: 'true',
+        },
+        {
+          component: { name: 'AuthCtrlr' },
+          variable: { name: 'DisableRemoteAuthorization' },
+          attributeValue: 'false',
+        },
+      ],
+      configurationKey: [{ key: 'AuthorizationCacheEnabled', value: 'true' }],
+      site: { name: 'Basalt', meterValues: [{ value: '12.5' }] },
+      entry: {
+        key: 'AuthorizationKey',
+        value: 'abc',
+        meta: { value: 'kept', variableAttribute: [{ value: 'kept too' }] },
+      },
+    };
+    const v = redactToolValue(input, 'chatbot').value as typeof input;
+    expect(v.getVariableResult.map((r) => r.attributeValue)).toEqual(['true', 'false']);
+    expect(v.configurationKey[0]?.value).toBe('true');
+    expect(v.site.meterValues[0]?.value).toBe('12.5');
+    expect(v.entry.value).toBe(REDACTED);
+    expect(v.entry.meta).toEqual({ value: 'kept', variableAttribute: [{ value: 'kept too' }] });
+  });
+
+  it('treats the OCPP 1.6 idTag like an idToken', () => {
+    const input = { idTag: 'SEEDTAG7788', idTagInfo: { parentIdTag: 'PARENT0001' } };
+    expect(redactToolValue(input, 'chatbot').value).toEqual(input);
+    const support = redactToolValue(input, 'support').value as typeof input;
+    expect(support.idTag).toMatch(/^sha256:[0-9a-f]{12}$/);
+    expect(support.idTagInfo.parentIdTag).toMatch(/^sha256:/);
+    const driver = redactToolValue(input, 'driver').value as typeof input;
+    expect(driver.idTag).toBe('****7788');
+    expect(isSecretShapedKey('idTag')).toBe(false);
+  });
+
+  it('masks contiguous card numbers in text, but not timestamps, short numbers or id fields', () => {
+    const text =
+      'card 4242424242424242 amex 378282246310005 ms 1760140800000 n 4242424242424241 v 0.4242424242424242';
+    const out = redactToolText(text, 'chatbot').text;
+    expect(out).toContain('card ****4242');
+    expect(out).toContain('amex ****0005');
+    expect(out).toContain('1760140800000');
+    expect(out).toContain('4242424242424241');
+    expect(out).toContain('0.4242424242424242');
+    const record = {
+      transactionId: '4111111111111111',
+      imsi: '262011234567890',
+      ids: ['4111111111111111'],
+      note: 'paid 4111111111111111',
+    };
+    const value = redactToolValue(record, 'chatbot').value as typeof record;
+    expect(value.transactionId).toBe('4111111111111111');
+    expect(value.imsi).toBe('262011234567890');
+    expect(value.ids).toEqual(['4111111111111111']);
+    expect(value.note).toBe('paid ****1111');
+  });
+
+  it('masks international phone numbers in text on support and driver only', () => {
+    const text = 'call +49 151 23456789 or +1 (555) 123-4567, 20 kWh at +5 C';
+    expect(redactToolText(text, 'chatbot').text).toBe(text);
+    const support = redactToolText(text, 'support');
+    expect(support.text).toBe('call ****6789 or ****4567, 20 kWh at +5 C');
+    expect(support.counts.pii).toBe(2);
+    const notPhones = 'up +1234.56 (12.3%) since +2026-10-11';
+    expect(redactToolText(notPhones, 'support').text).toBe(notPhones);
+  });
+
+  it('serializes dates as ISO strings', () => {
+    const at = new Date('2026-10-11T08:00:00.000Z');
+    expect(redactToolValue({ at, bad: new Date('x') }, 'support').value).toEqual({
+      at: '2026-10-11T08:00:00.000Z',
+      bad: null,
+    });
   });
 });

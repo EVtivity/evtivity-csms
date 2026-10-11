@@ -261,7 +261,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     sellerTaxId: '사업자등록번호: {id}',
     registrationNumber: '법인등록번호: {id}',
     driverSubtotal: '{driver} 소계',
-    unknownDriver: '알 수 없는 드라이버',
+    unknownDriver: '알 수 없는 운전자',
     description: '설명',
     quantity: '수량',
     unitPrice: '단가',

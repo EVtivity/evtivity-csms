@@ -7,7 +7,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { isRequiredDriverEventType } from '@evtivity/lib/notification-events';
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, string>) =>
+      opts?.['event'] == null
+        ? key
+        : opts['channel'] == null
+          ? `${key}:${opts['event']}`
+          : `${key}:${opts['event']}:${opts['channel']}`,
+  }),
 }));
 
 const access = vi.hoisted(() => ({ canWrite: true }));
@@ -22,6 +29,12 @@ vi.mock('@/components/ui/language-select', () => ({
 }));
 
 import { EventSettingsLayout, type EventSwitch } from '../EventSettingsLayout';
+import en from '@/i18n/locales/en.json';
+import de from '@/i18n/locales/de.json';
+import es from '@/i18n/locales/es.json';
+import ko from '@/i18n/locales/ko.json';
+import zh from '@/i18n/locales/zh.json';
+import zhTW from '@/i18n/locales/zh-TW.json';
 
 afterEach(() => {
   cleanup();
@@ -132,6 +145,53 @@ describe('EventSettingsLayout event switch', () => {
     );
     fireEvent.click(screen.getByText('operator.UserCreated'));
     expect(screen.queryByRole('switch')).toBeNull();
+  });
+});
+
+describe('EventSettingsLayout template toggle', () => {
+  it('names the template switch after the event and channel it controls', () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <EventSettingsLayout
+          sidebarTitle="OCPP"
+          emptyMessage="Pick one"
+          sections={[{ title: 'Stations', events: ['station.Offline'] }]}
+          channels={['email', 'sms']}
+          toggleEndpoint="/v1/notifications/ocpp-events"
+          toggleQueryKey={['ocpp-events']}
+          enabledMap={new Map([['station.Offline:email', true]])}
+        />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByText('station.Offline'));
+    const toggle = screen.getByRole('switch', {
+      name: 'notifications.channelToggleLabel:station.Offline:Email',
+    });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'SMS' }));
+    expect(
+      screen.getByRole('switch', { name: 'notifications.channelToggleLabel:station.Offline:SMS' }),
+    ).toBeTruthy();
+  });
+
+  it('has the switch names in all six locales with their variables', () => {
+    for (const [lang, locale] of Object.entries({ en, de, es, ko, zh, 'zh-TW': zhTW })) {
+      const text = locale.notifications.channelToggleLabel;
+      expect(text, lang).toContain('{{event}}');
+      expect(text, lang).toContain('{{channel}}');
+      expect(locale.notifications.eventToggleLabel, lang).toContain('{{event}}');
+    }
+  });
+
+  it('names the event switch after its event and keeps the state as the visible label', () => {
+    renderLayout(makeSwitch());
+    fireEvent.click(screen.getByText('session.Receipt'));
+    const toggle = screen.getByRole('switch', {
+      name: 'notifications.eventToggleLabel:session.Receipt',
+    });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+    expect(screen.getByText('common.inactive')).toBeTruthy();
   });
 });
 

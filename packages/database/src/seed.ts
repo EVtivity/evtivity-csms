@@ -733,9 +733,19 @@ async function seed(): Promise<void> {
     'opsAi.model': '',
     'opsAi.effort': 'low',
     'opsAi.systemPrompt': '',
+    'driverAi.enabled': false,
+    'driverAi.provider': 'anthropic',
+    'driverAi.model': '',
+    'driverAi.effort': 'low',
+    'driverAi.systemPrompt': '',
+    'driverAi.maxCasesPerDriverPerDay': 3,
+    'driverAi.feedbackTimeoutHours': 24,
+    'ai.budget.driverDailyTokens': 40000,
+    'ai.rateLimit.driverPerMinute': 2,
     'aiInsights.station.enabled': true,
     'aiInsights.session.enabled': true,
     'aiInsights.authorization.enabled': true,
+    'aiInsights.reservation.enabled': true,
     'aiInsights.debounceSeconds': 120,
     'aiInsights.cooldownMinutes': 60,
     'aiInsights.siteIncidentThreshold': 3,
@@ -2716,6 +2726,26 @@ async function seed(): Promise<void> {
       now: seedNow,
     });
     console.log(`  Fleet billing demo created (${String(accountSessions)} account sessions).`);
+  }
+
+  // ------ Reservation insights ------
+  // One reservation audit trigger of each kind and its stored rule insight
+  // (seed-reservation-insights.ts), so the insight lists show reservation
+  // insights without a model call. On an SP3 station past the ones holding
+  // the seeded active sessions: its simulator is disabled, so the station
+  // never comes online and the station fault insight stays open.
+  {
+    const insightStation = at(createdStations, 990);
+    const insightEvse = createdEvses.find((e) => e.stationId === insightStation.id);
+    const { seedReservationInsightsDemo } = await import('./seed-reservation-insights.js');
+    const reservationInsights = await seedReservationInsightsDemo(client, {
+      stationId: insightStation.id,
+      evseId: insightEvse?.id ?? null,
+      driverId: at(createdDrivers, 1).id,
+      currency: companyCurrency,
+      now: seedNow,
+    });
+    console.log(`  ${String(reservationInsights)} reservation insights created.`);
   }
 
   // Portal driver support cases (the portal Support page should show data)

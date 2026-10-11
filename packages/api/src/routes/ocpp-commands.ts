@@ -25,6 +25,7 @@ import { ocppCommandQueued, ocppCommandQueuedBody } from '../lib/ocpp-command-qu
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { assertFirmwareSignature } from '../lib/firmware-signature.js';
+import { assertNoStationCredentialWrite } from '../lib/station-credential-guard.js';
 
 // --- v21 type imports ---
 import {
@@ -407,6 +408,8 @@ function commandRoute(
     async (request, reply) => {
       const body = request.body as { stationId: string } & Record<string, unknown>;
       const { stationId, ...payload } = body;
+      // Station passwords change only through the station security service (P3).
+      assertNoStationCredentialWrite(commandName, payload);
       validatePayload?.(payload);
       return dispatchCommand(
         app,
@@ -1319,7 +1322,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set station variables',
     setVariablesV21Body,
-    'Sets one or more OCPP 2.1 configuration variables on the station. The CSMS must respect the station-reported ItemsPerMessageSetVariables limit; oversized batches must be split by the caller. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time.',
+    'Sets one or more OCPP 2.1 configuration variables on the station. A write to SecurityCtrlr.BasicAuthPassword is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials, which keeps the stored password hash in step with the station. The CSMS must respect the station-reported ItemsPerMessageSetVariables limit; oversized batches must be split by the caller. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time.',
   );
 
   commandRoute(
@@ -1449,7 +1452,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set network connection profile',
     setNetworkProfileV21Body,
-    'Configures a network connection profile (e.g., OCPP server URL, security profile, APN) for the station to use on next boot. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time. The station applies the profile after a reset.',
+    'Configures a network connection profile (e.g., OCPP server URL, security profile, APN) for the station to use on next boot. A profile with connectionData.basicAuthPassword is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords and security profiles with POST /v1/stations/{id}/credentials and PATCH /v1/stations/{id}. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time. The station applies the profile after a reset.',
   );
 
   commandRoute(
@@ -1863,7 +1866,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Change a station configuration key',
     changeConfigurationV16Body,
-    'Sets a single OCPP 1.6 configuration key on the station. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time. Some keys require a station reset to take effect.',
+    'Sets a single OCPP 1.6 configuration key on the station. The AuthorizationKey is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials, which keeps the stored password hash in step with the station. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time. Some keys require a station reset to take effect.',
   );
 
   commandRoute(

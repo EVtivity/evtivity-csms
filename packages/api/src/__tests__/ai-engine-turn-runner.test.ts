@@ -169,6 +169,7 @@ function baseInput(
     adapter,
     provider: 'anthropic',
     model: MODEL,
+    usageSurface: 'chatbot',
     system: [{ text: 'system', cacheable: true }],
     history: [{ role: 'user', parts: [{ type: 'text', text: 'hi' }] }],
     toolset: TOOLSET,

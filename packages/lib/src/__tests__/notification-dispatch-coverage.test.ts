@@ -507,6 +507,88 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       clock.restore();
     });
 
+    it('TC-RES-23: stores the reservation id of a reservation notice in every row', async () => {
+      const { dispatchDriverNotification } = notificationDispatchModule;
+      const clock = advanceClock();
+
+      setupSqlResults(
+        [{ is_enabled: true }], // driver_event_settings
+        [
+          {
+            first_name: 'Both',
+            last_name: 'Channels',
+            email: 'both@test.com',
+            phone: '+15551234567',
+            language: 'en',
+            timezone: 'UTC',
+          },
+        ], // drivers
+        [{ email_enabled: true, sms_enabled: true }], // prefs
+        [{ key: 'company.name', value: 'BothCo' }], // company.*
+        [
+          { key: 'smtp.host', value: 'smtp.example.com' },
+          { key: 'smtp.port', value: '587' },
+          { key: 'smtp.username', value: 'user' },
+          { key: 'smtp.passwordEnc', value: '' },
+          { key: 'smtp.from', value: 'from@example.com' },
+          { key: 'twilio.accountSid', value: 'AC999' },
+          { key: 'twilio.authTokenEnc', value: '' },
+          { key: 'twilio.fromNumber', value: '+15550000000' },
+        ], // settings
+        [], // email DB template miss
+        [], // INSERT email
+        [], // sms DB template miss
+        [], // INSERT sms
+        [], // INSERT push
+      );
+
+      const result = await dispatchDriverNotification(
+        sql as never,
+        'reservation.Expiring',
+        'drv_99',
+        {
+          stationId: 'CS-1',
+          reservationId: 17,
+          reservationDbId: 'rsv_abc',
+        },
+        [],
+      );
+
+      // The accepted email and SMS are the deliveries; the push drawer row is not.
+      expect(result).toEqual({
+        delivered: [
+          { channel: 'email', recipient: 'both@test.com' },
+          { channel: 'sms', recipient: '+15551234567' },
+        ],
+      });
+      expect(mockSendMail).toHaveBeenCalledTimes(1);
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('twilio.com'),
+        expect.objectContaining({ method: 'POST' }),
+      );
+
+      const email = decodeInsert(findInsert('email')!);
+      expect(email.status).toBe('sent');
+      expect(email.recipient).toBe('both@test.com');
+      expect(email.metadata).toEqual({ driverId: 'drv_99', reservationId: 'rsv_abc' });
+
+      const smsRow = decodeInsert(findInsert('sms')!);
+      expect(smsRow.status).toBe('sent');
+      expect(smsRow.recipient).toBe('+15551234567');
+
+      const push = decodeInsert(findInsert('push')!);
+      expect(push.status).toBe('sent');
+      expect(push.recipient).toBe('drv_99');
+      expect(push.metadata).toEqual({ driverId: 'drv_99', reservationId: 'rsv_abc' });
+      expect(smsRow.metadata).toEqual({ driverId: 'drv_99', reservationId: 'rsv_abc' });
+      // push body is JSON { title, message }
+      const parsed = JSON.parse(push.body) as { title: string; message: string };
+      expect(parsed).toHaveProperty('title');
+      expect(parsed).toHaveProperty('message');
+
+      clock.restore();
+    });
+
     it('publishes notification.created to portal_events when pubsub provided', async () => {
       const { dispatchDriverNotification } = notificationDispatchModule;
       const clock = advanceClock();

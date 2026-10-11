@@ -70,13 +70,18 @@ const mocks = vi.hoisted(() => {
     };
     return chain;
   }
-  return {
+  const dbHolder: { db: unknown } = { db: null };
+  const mocksDb = (): unknown => dbHolder.db;
+  const result = {
     db: {
       select: vi.fn(() => makeChain('select', undefined)),
       insert: vi.fn((t: unknown) => makeChain('insert', t)),
       update: vi.fn((t: unknown) => makeChain('update', t)),
       delete: vi.fn((t: unknown) => makeChain('delete', t)),
       execute: vi.fn(),
+      // The support case service runs creates in a transaction: the callback
+      // gets the same mock, so the queued results keep their order.
+      transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(mocksDb())),
     },
     writeAudit: vi.fn(),
     dispatchDriverNotification: vi.fn(),
@@ -106,6 +111,8 @@ const mocks = vi.hoisted(() => {
     ilike: vi.fn((a: unknown, b: unknown) => ({ ilike: [a, b] })),
     inArray: vi.fn((a: unknown, b: unknown) => ({ inArray: [a, b] })),
   };
+  dbHolder.db = result.db;
+  return result;
 });
 
 vi.mock('@evtivity/database', () => {
@@ -130,6 +137,8 @@ vi.mock('@evtivity/database', () => {
       'driverId',
       'stationId',
       'createdAt',
+      'aiState',
+      'resolutionSource',
     ]),
     supportCaseMessages: t('supportCaseMessages', ['id', 'caseId', 'senderType', 'createdAt']),
     supportCaseAttachments: t('supportCaseAttachments', ['id', 'messageId', 's3Key', 's3Bucket']),
@@ -204,7 +213,8 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   setPubSub: vi.fn(),
 }));
 
-vi.mock('../lib/support-case-events.js', () => ({
+vi.mock('@evtivity/services/support-case-notify', () => ({
+  dispatchOperatorNotification: vi.fn(),
   notifySupportCaseEvent: mocks.notifySupportCaseEvent,
 }));
 
@@ -307,6 +317,11 @@ function baseCase(overrides: Record<string, unknown> = {}): Record<string, unkno
     stationId: null,
     assignedTo: null,
     createdByDriver: false,
+    aiState: null,
+    aiStateReason: null,
+    aiAnsweredAt: null,
+    aiFeedbackAt: null,
+    resolutionSource: null,
     createdAt: NOW,
     updatedAt: NOW,
     ...overrides,
@@ -470,7 +485,24 @@ describe('support case routes', () => {
       expect(res.json()).toEqual({ data: [], total: 0 });
       expect(mocks.eq).not.toHaveBeenCalledWith('supportCases.status', expect.anything());
       expect(mocks.ilike).not.toHaveBeenCalled();
-      expect(firstArg(state.calls[0], 'where')).toBeUndefined();
+      // TC-AI-DR-05: only the default exclusion of ai_assist cases (E4).
+      expect(firstArg(state.calls[0], 'where')).toEqual({ and: ['sql'] });
+    });
+
+    it('TC-AI-DR-05 lists ai_assist cases only when status or aiState asks for them', async () => {
+      queue([], [{ count: 0 }]);
+      await inject('GET', '/support-cases?status=ai_assist');
+      expect(mocks.eq).toHaveBeenCalledWith('supportCases.status', 'ai_assist');
+      expect(firstArg(state.calls[0], 'where')).toEqual({
+        and: [{ eq: ['supportCases.status', 'ai_assist'] }],
+      });
+
+      mocks.eq.mockClear();
+      queue([], [{ count: 0 }]);
+      await inject('GET', '/support-cases?aiState=resolved_by_ai&resolutionSource=ai');
+      expect(mocks.eq).toHaveBeenCalledWith('supportCases.aiState', 'resolved_by_ai');
+      expect(mocks.eq).toHaveBeenCalledWith('supportCases.resolutionSource', 'ai');
+      expect(mocks.eq).not.toHaveBeenCalledWith('supportCases.status', expect.anything());
     });
 
     it('restricts to the accessible sites when the operator has site limits', async () => {
@@ -480,8 +512,8 @@ describe('support case routes', () => {
       expect(res.statusCode).toBe(200);
       // The site condition is one SQL fragment over the case station and its
       // linked sessions, built from the user's site list.
-      expect(firstArg(state.calls[0], 'where')).toEqual({ and: ['sql'] });
-      expect(firstArg(state.calls[1], 'where')).toEqual({ and: ['sql'] });
+      expect(firstArg(state.calls[0], 'where')).toEqual({ and: ['sql', 'sql'] });
+      expect(firstArg(state.calls[1], 'where')).toEqual({ and: ['sql', 'sql'] });
     });
 
     it('returns no cases when the operator has no sites', async () => {
@@ -490,7 +522,7 @@ describe('support case routes', () => {
       const res = await inject('GET', '/support-cases');
       expect(res.statusCode).toBe(200);
       expect(mocks.inArray).not.toHaveBeenCalled();
-      expect(firstArg(state.calls[0], 'where')).toEqual({ and: ['sql'] });
+      expect(firstArg(state.calls[0], 'where')).toEqual({ and: ['sql', 'sql'] });
     });
 
     it('rejects an invalid status filter', async () => {
@@ -820,6 +852,7 @@ describe('support case routes', () => {
         stationId: STATION_ID,
         assignedTo: ASSIGNEE_ID,
         createdByDriver: false,
+        status: 'open',
       });
       expect(firstArg(callsOf('insert', 'supportCaseSessions')[0], 'values')).toEqual([
         { caseId: CASE_ID, sessionId: SESSION_ID },

@@ -63,7 +63,11 @@ function renderMessages(isOnline: boolean): void {
 }
 
 async function clearMessage(): Promise<void> {
-  fireEvent.click(await screen.findByRole('button', { name: 'stations.clearMessage' }));
+  // The message list renders after its query resolves; a full parallel run can
+  // take longer than the 1 s findBy default (failed once under load, v0.1.45).
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'stations.clearMessage' }, { timeout: 5000 }),
+  );
   const dialog = screen.getByRole('dialog', { name: 'stations.clearMessage' });
   const confirm = Array.from(dialog.querySelectorAll('button')).find(
     (b) => b.textContent === 'stations.clearMessage',

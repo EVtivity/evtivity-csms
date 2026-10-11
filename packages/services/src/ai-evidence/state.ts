@@ -11,6 +11,7 @@
  * - Session: status and updated_at (a re-bill changes it).
  * - Authorization: the latest refusal of the token at the station in the bucket.
  * - Site incident: the online flag and availability of every member station.
+ * - Reservation kinds: the reservation's status and updated_at.
  */
 
 import { createHash } from 'node:crypto';
@@ -21,6 +22,7 @@ import {
   toIsoOrNull,
 } from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
+import { isReservationInsightKind } from '@evtivity/lib/ai-insights';
 import type { InsightKind } from '@evtivity/lib/ai-insights';
 
 export interface InsightSubjectRef {
@@ -29,6 +31,7 @@ export interface InsightSubjectRef {
   stationId: string | null;
   sessionId: string | null;
   authorizeAttemptId: number | null;
+  reservationId?: string | null;
 }
 
 export const STATION_INSIGHT_KINDS: ReadonlySet<InsightKind> = new Set([
@@ -69,6 +72,15 @@ async function sessionFingerprints(ids: readonly string[]): Promise<Map<string, 
   if (ids.length === 0) return new Map();
   const rows = await client<{ id: string; status: string; updated_at: RawTimestamp }[]>`
     SELECT id, status::text AS status, updated_at FROM charging_sessions
+    WHERE id = ANY(${[...ids]}::text[])
+  `;
+  return new Map(rows.map((r) => [r.id, hash([r.status, toIsoOrNull(r.updated_at)])]));
+}
+
+async function reservationFingerprints(ids: readonly string[]): Promise<Map<string, string>> {
+  if (ids.length === 0) return new Map();
+  const rows = await client<{ id: string; status: string; updated_at: RawTimestamp }[]>`
+    SELECT id, status::text AS status, updated_at FROM reservations
     WHERE id = ANY(${[...ids]}::text[])
   `;
   return new Map(rows.map((r) => [r.id, hash([r.status, toIsoOrNull(r.updated_at)])]));
@@ -125,8 +137,15 @@ export async function currentFingerprints(
       .filter((r) => r.kind === 'session_failed' && r.sessionId != null)
       .map((r) => r.sessionId as string),
   );
+  const reservations = await reservationFingerprints(
+    refs
+      .filter((r) => isReservationInsightKind(r.kind) && r.reservationId != null)
+      .map((r) => r.reservationId as string),
+  );
   for (const r of refs) {
-    if (STATION_INSIGHT_KINDS.has(r.kind) && r.stationId != null) {
+    if (isReservationInsightKind(r.kind)) {
+      out.set(r.id, r.reservationId == null ? null : (reservations.get(r.reservationId) ?? null));
+    } else if (STATION_INSIGHT_KINDS.has(r.kind) && r.stationId != null) {
       const s = stations.get(r.stationId);
       out.set(r.id, s == null ? null : stationFingerprint(s));
     } else if (r.kind === 'session_failed' && r.sessionId != null) {
@@ -147,12 +166,33 @@ export async function currentFingerprint(ref: InsightSubjectRef): Promise<string
   return (await currentFingerprints([ref])).get(ref.id) ?? null;
 }
 
+/** A fee of the reservation was captured after all (a resumed or retried charge). */
+async function reservationFeeCaptured(reservationId: string): Promise<boolean> {
+  const [row] = await client<{ captured: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM payment_records
+      WHERE reservation_id = ${reservationId} AND status = 'captured'
+    ) AS captured
+  `;
+  return row?.captured === true;
+}
+
 /**
  * Whether the condition that raised the insight is gone: the station is back
- * online (offline), no longer faulted (faulted), or every incident station
- * recovered. Alerts, sessions and refusals are events: never cleared.
+ * online (offline), no longer faulted (faulted, and a station that faulted
+ * during a reservation), every incident station recovered, or a failed
+ * reservation fee was captured later. Alerts, sessions, refusals and the
+ * other reservation events are events: never cleared.
  */
 export async function conditionCleared(ref: InsightSubjectRef): Promise<boolean> {
+  if (ref.kind === 'reservation_station_faulted') {
+    if (ref.stationId == null) return false;
+    const s = (await stationStates([ref.stationId])).get(ref.stationId);
+    return s == null || (s.is_online && s.availability !== 'faulted');
+  }
+  if (ref.kind === 'reservation_fee_failed') {
+    return ref.reservationId != null && (await reservationFeeCaptured(ref.reservationId));
+  }
   if (ref.kind === 'station_offline' || ref.kind === 'station_faulted') {
     if (ref.stationId == null) return false;
     const s = (await stationStates([ref.stationId])).get(ref.stationId);

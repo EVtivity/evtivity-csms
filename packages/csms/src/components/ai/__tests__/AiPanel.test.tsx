@@ -528,7 +528,7 @@ describe('AiPanel Explain (roadmap v0.1.44 item 2)', () => {
       .openWithContext({ kind: 'station', id: 'st1' }, { insightId: 'fresh' });
     renderPanel();
     expect(await screen.findByText('Connector 2 reports a ground fault.')).toBeTruthy();
-    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/fresh?language=en');
+    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/fresh?language=en&feedback=true');
     expect(apiMock.post).not.toHaveBeenCalled();
     expect(postStreamMock).not.toHaveBeenCalled();
     expect(screen.getByLabelText<HTMLTextAreaElement>('ai.inputLabel').value).toBe('');

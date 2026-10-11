@@ -20,12 +20,14 @@ export const LANGUAGE_NAMES: Record<PromptLanguage, string> = {
 };
 
 /**
- * Chinese terms the platform uses (the CSMS locale files); the model is told
- * to use them. Every AI surface adds this note: the chat, the insights, their
+ * Chinese and Korean terms the platform uses (the CSMS locale files); the
+ * model is told to use them. Korean: a driver is 운전자, never 드라이버
+ * (owner decision 2026-10-11). Every AI surface adds this note: the chat, the insights, their
  * translations and the background workers. A station is never called a site:
  * DeepSeek wrote 站点 for a charging station (2026-10-11).
  */
 const TERMINOLOGY: Partial<Record<PromptLanguage, string>> = {
+  ko: 'In Korean, call a driver 운전자 (never 드라이버) and a charging station 충전소.',
   zh: 'In Chinese, call a charging station 充电站 (never 站点, which means a site), a site 站点, a driver 驾驶员 and firmware 固件.',
   'zh-TW':
     'In Chinese, call a charging station 充電站 (never 站點, which means a site), a site 站點, a driver 駕駛員 and firmware 固件.',

@@ -158,7 +158,8 @@
     "smartCharging": "Carga Inteligente",
     "configTemplates": "Plantillas de configuración",
     "supportCases": "Casos de Soporte",
-    "unreadCases": "Casos de soporte no leídos",
+    "unreadCasesCount_one": "{{count}} caso de soporte no leído",
+    "unreadCasesCount_other": "{{count}} casos de soporte no leídos",
     "settings": "Configuración",
     "profile": "Perfil",
     "language": "Idioma",
@@ -583,7 +584,10 @@
     "electricityCostRecalculateRemaining_one": "{{count}} sesión sigue sin costo de electricidad: ninguna tarifa aplica cuando finalizó.",
     "electricityCostRecalculateRemaining_other": "{{count}} sesiones siguen sin costo de electricidad: ninguna tarifa aplica cuando finalizaron.",
     "electricityCostRecalculateMore_one": "{{count}} sesión aún no tiene costo de electricidad. Vuelva a recalcular para continuar.",
-    "electricityCostRecalculateMore_other": "{{count}} sesiones aún no tienen costo de electricidad. Vuelva a recalcular para continuar."
+    "electricityCostRecalculateMore_other": "{{count}} sesiones aún no tienen costo de electricidad. Vuelva a recalcular para continuar.",
+    "tabs": {
+      "ai": "IA"
+    }
   },
   "stations": {
     "title": "Estaciones",
@@ -2513,6 +2517,11 @@
         "title": "Análisis automáticos y procesos",
         "description": "El modelo de los análisis automáticos y los procesos en segundo plano. Se ejecutan sin usuario y usan la clave del proveedor de la empresa.",
         "enabled": "Activar la IA iniciada por el sistema"
+      },
+      "driver": {
+        "title": "Soporte a conductores",
+        "description": "El modelo que responde primero a una solicitud de soporte de un conductor, si el conductor lo permite. Usa la clave del proveedor de la empresa y no tiene herramientas.",
+        "enabled": "Ofrecer análisis con IA a los conductores"
       }
     },
     "aiLimitsTitle": "Límites de IA",
@@ -2543,7 +2552,22 @@
       "siteIncidentThreshold": "Estaciones caídas en un sitio que forman un incidente del sitio",
       "maxPerSitePerDay": "Análisis por sitio y día",
       "primaryLanguage": "Idioma del resumen",
-      "retentionDays": "Conservar análisis (días)"
+      "retentionDays": "Conservar análisis (días)",
+      "reservation": "Análisis de reservas",
+      "reservationOff": "El análisis de reservas está desactivado mientras las reservas estén desactivadas.",
+      "reservationOffLink": "Activar las reservas",
+      "quality": {
+        "title": "Calidad de los análisis",
+        "description": "Porcentaje de valoraciones útiles por tipo de análisis, según las valoraciones de los últimos {{days}} días sobre análisis de tus sitios.",
+        "columns": {
+          "kind": "Tipo de análisis",
+          "helpful": "Útil",
+          "wrong": "Incorrecto",
+          "rate": "Porcentaje útil"
+        },
+        "empty": "No hay valoraciones en los últimos {{days}} días.",
+        "viewWrong": "Ver análisis marcados como incorrectos"
+      }
     },
     "aiMcp": {
       "title": "Servidor MCP",
@@ -2563,9 +2587,40 @@
       "writesHint": "Los cambios se convierten en propuestas que el mismo usuario aprueba en la bandeja de IA.",
       "protocolNote": "Sirve MCP 2026-07-28; los clientes antiguos aprueban mediante sondeo."
     },
-    "aiUsageTab": "Uso",
     "aiLimitZeroNoLimit": "0 significa sin límite.",
-    "aiConfigTab": "Configuración"
+    "aiTabs": {
+      "providers": "Proveedores y claves",
+      "providersDescription": "Claves de API y endpoints de los proveedores de IA. Todas las funciones de IA usan estas claves.",
+      "assistant": "Asistente",
+      "assistantDescription": "El asistente de IA con el que los usuarios conversan en el panel.",
+      "support": "Borradores de soporte",
+      "supportDescription": "Borradores de respuestas con IA para casos de soporte, que un operador revisa antes de enviar.",
+      "driver": "Soporte a conductores",
+      "driverDescription": "Una primera respuesta automática a una solicitud de soporte de un conductor, solo si el conductor lo permite.",
+      "insights": "Análisis automáticos",
+      "insightsDescription": "El modelo de las ejecuciones iniciadas por el sistema y cuándo se generan análisis de estaciones, sesiones, autorizaciones y reservas.",
+      "workers": "Procesos en segundo plano",
+      "workersDescription": "Tareas programadas que informan sobre la red y proponen acciones que un operador aprueba. Usan el modelo de los análisis automáticos.",
+      "mcp": "MCP",
+      "mcpDescription": "El servidor MCP que permite a agentes de IA externos usar EVtivity con una clave de API.",
+      "usage": "Uso y límites",
+      "usageDescription": "Límites de solicitudes y presupuestos de tokens, y el uso de IA de la empresa y de cada sitio.",
+      "workersModelLink": "Elegir el modelo que usan en Análisis automáticos"
+    },
+    "aiDriverSettings": {
+      "title": "Límites del soporte a conductores",
+      "maxCasesPerDriverPerDay": "Solicitudes analizadas con IA por conductor por día",
+      "feedbackTimeoutHours": "Esperar la valoración del conductor (horas)",
+      "feedbackTimeoutHelp": "Una solicitud sin valoración pasa al equipo de soporte después de este tiempo.",
+      "driverDailyTokens": "Tokens por conductor por día",
+      "driverPerMinute": "Solicitudes con IA por conductor por minuto",
+      "overLimitHelp": "Las solicitudes que superan un límite pasan directamente al equipo de soporte."
+    },
+    "aiDriverDataWarning": "Si esto está activado y un conductor lo permite, el texto de la solicitud y las propias sesiones, pagos, reservas, estaciones usadas y tokens (últimos 4 caracteres) del conductor se envían al proveedor configurado.",
+    "aiAdvancedOptions": "Opciones avanzadas",
+    "aiPromptCustomSummary": "Prompt del sistema personalizado",
+    "aiPromptDefaultSummary": "Prompt del sistema integrado",
+    "aiBaseUrlDefaultSummary": "Endpoint predeterminado"
   },
   "pnc": {
     "certificates": "Certificados",
@@ -2717,6 +2772,7 @@
       "fleet.AccountBillingChanged": "Facturación a cuenta cambiada",
       "reservation.Expiring": "Reserva por Expirar",
       "reservation.Expired": "Reserva Expirada",
+      "reservation.TakenByOther": "Reserva ocupada por otro conductor",
       "session.Receipt": "Recibo de Sesión",
       "supportCase.Created": "Caso de Soporte Creado",
       "supportCase.OperatorReply": "Respuesta del Operador",
@@ -2736,7 +2792,9 @@
     },
     "templatePreviewInvalid": "La plantilla tiene un error:",
     "htmlPreview": "Vista previa HTML",
-    "aiEvents": "IA"
+    "aiEvents": "IA",
+    "channelToggleLabel": "Notificaciones de {{event}} por {{channel}}",
+    "eventToggleLabel": "Notificaciones de {{event}}"
   },
   "reservations": {
     "title": "Reservas",
@@ -2788,7 +2846,11 @@
       "station_rejected_occupied": "Estación rechazó: ocupada",
       "station_rejected_other": "Estación rechazó",
       "station_offline_at_activation": "Estación sin conexión al activar",
-      "system_cleanup": "Limpieza del sistema"
+      "system_cleanup": "Limpieza del sistema",
+      "station_no_response": "La estación no respondió",
+      "station_unavailable_during_hold": "Estación no disponible durante la reserva",
+      "evse_in_use_at_activation": "EVSE en uso al activar",
+      "station_faulted_at_activation": "Estación con falla al activar"
     },
     "scheduled": "Programado",
     "active": "Activa",
@@ -2898,6 +2960,7 @@
     "CSS_ACTION_REJECTED": "El Charging Station Simulator rechazó la acción",
     "CSS_ACTION_TIMEOUT": "El simulador no respondió en 5s",
     "DOWNTIME_NOT_FOUND": "Registro de inactividad excluida no encontrado",
+    "DRIVER_AI_NOTICE_OUTDATED": "El aviso sobre la IA ha cambiado. Léalo y vuelva a elegir",
     "DRIVER_ALREADY_IN_FLEET": "El conductor ya está en esta flota",
     "DRIVER_CREATE_FAILED": "Error al crear el conductor",
     "DRIVER_NOT_FOUND": "Conductor no encontrado",
@@ -3097,6 +3160,7 @@
     "STORAGE_CONNECTION_FAILED": "La prueba de conexión del almacenamiento falló",
     "STORAGE_NOT_CONFIGURED": "Almacenamiento de adjuntos no configurado",
     "SUPPORT_AI_NOT_CONFIGURED": "La IA de soporte no está configurada",
+    "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "Este caso de soporte no está esperando su valoración de una respuesta automática",
     "SUPPORT_CASE_NOT_FOUND": "Caso de soporte no encontrado",
     "SUPPORT_DISABLED": "El soporte está deshabilitado",
     "TARIFF_IN_USE": "La tarifa está referenciada por sesiones de carga y no se puede eliminar",
@@ -3138,6 +3202,7 @@
     "SECURITY_PROFILE_DOWNGRADE": "Una estación conectada no puede pasar a un perfil de seguridad inferior",
     "STATION_TLS_URL_NOT_CONFIGURED": "La dirección TLS pública para estaciones (OCPP_STATION_TLS_URL) no está configurada",
     "STATION_SECURITY_CHANGE_REJECTED": "La estación no aceptó el cambio de seguridad; su configuración actual no cambió",
+    "STATION_CREDENTIALS_ROUTE_REQUIRED": "Las contraseñas de la estación se cambian con POST /v1/stations/:id/credentials, no con un comando OCPP genérico",
     "WEB_PAYMENTS_NOT_SUPPORTED": "La estación no admite códigos QR dinámicos",
     "PORTAL_ALREADY_ACTIVE": "El conductor ya tiene acceso al portal",
     "EMAID_PREFIX_NOT_CONFIGURED": "Configure primero el código de país y el ID de proveedor del eMAID",
@@ -3403,7 +3468,8 @@
       "in_progress": "En Progreso",
       "waiting_on_driver": "Esperando al Conductor",
       "resolved": "Resuelto",
-      "closed": "Cerrado"
+      "closed": "Cerrado",
+      "ai_assist": "Con la IA"
     },
     "priorities": {
       "low": "Baja",
@@ -3418,7 +3484,63 @@
     "aiAssistOverwriteConfirm": "Reemplazar",
     "attachmentUploadFailed": "No se pudo subir el archivo adjunto. Intente nuevamente.",
     "sendFailed": "No se pudo enviar el mensaje. Intente nuevamente.",
-    "aiAssistStop": "Detener borrador"
+    "aiAssistStop": "Detener borrador",
+    "ai": {
+      "consentTitle": "Consentimiento del conductor",
+      "consentDecision": "Decisión",
+      "consent": {
+        "granted": "Permitió el análisis con IA",
+        "declined": "Rechazó el análisis con IA",
+        "notAsked": "No se preguntó"
+      },
+      "consentAt": "Respondido el",
+      "consentLanguage": "Idioma del aviso",
+      "noticeVersion": "Versión del aviso",
+      "automaticAnswer": "Respuesta automática",
+      "answeredAt": "Respuesta automática el",
+      "feedbackAt": "Respuesta del conductor el",
+      "resolvedByAi": "Resuelto por IA",
+      "stateLabel": "Estado de la IA",
+      "filterAiState": "Estado de la IA",
+      "allAiStates": "Todos los estados de IA",
+      "filterResolvedBy": "Resuelto por",
+      "allResolvedBy": "Cualquiera",
+      "state": {
+        "queued": "En cola",
+        "analyzing": "Analizando",
+        "awaiting_feedback": "Esperando la valoración del conductor",
+        "resolved_by_ai": "Resuelto por IA",
+        "escalated": "Pasado a soporte",
+        "failed": "Falló el análisis con IA",
+        "skipped": "Análisis con IA omitido"
+      },
+      "reason": {
+        "disabled": "El soporte con IA para conductores está desactivado",
+        "driver_limit": "El conductor alcanzó el límite diario",
+        "rate_limited": "Demasiadas solicitudes",
+        "budget_exceeded": "Presupuesto de IA alcanzado",
+        "no_evidence": "No hay datos para analizar",
+        "provider_error": "Error del proveedor de IA",
+        "invalid_output": "La respuesta no superó los controles de seguridad",
+        "no_feedback": "Sin valoración del conductor",
+        "driver_replied": "El conductor escribió un mensaje",
+        "driver_declined_answer": "La respuesta no ayudó al conductor",
+        "driver_inactive": "La cuenta del conductor está inactiva"
+      },
+      "resolutionSource": {
+        "operator": "Equipo de soporte",
+        "ai": "IA"
+      },
+      "driverAction": {
+        "try_other_connector": "Probar otro conector",
+        "check_payment_method": "Revisar el método de pago",
+        "retry_start": "Volver a iniciar la carga",
+        "check_vehicle_settings": "Revisar la configuración de carga del vehículo",
+        "contact_operator": "Contactar al equipo de soporte",
+        "wait_and_retry": "Esperar unos minutos y volver a intentar",
+        "check_token_active": "Comprobar que la tarjeta o el token esté activo"
+      }
+    }
   },
   "vehicles": {
     "title": "Vehículos",
@@ -3906,8 +4028,14 @@
       "kind": {
         "station": "la estación",
         "session": "la sesión",
-        "authorization": "la autorización"
-      }
+        "authorization": "la autorización",
+        "reservation": "reserva"
+      },
+      "reservation": "¿Por qué falló esta reserva, y qué debo hacer?"
+    },
+    "dataNotice": {
+      "title": "Qué recibe el proveedor de IA",
+      "body": "El proveedor de IA nunca recibe credenciales almacenadas, como contraseñas, claves de API, secretos y contraseñas de estaciones. Los números de tarjeta y los IBAN se acortan a sus últimos 4 caracteres. Los borradores de soporte, los análisis automáticos, los procesos en segundo plano y el soporte a conductores también enmascaran las direcciones de correo electrónico y los números de teléfono, y aplican un hash a los identificadores de token de los conductores o los acortan. El asistente envía los datos de contacto de los conductores tal como están almacenados, solo para los usuarios autorizados a leerlos. El texto que escribe y los archivos de texto que adjunta se revisan en busca de claves y números de tarjeta. Las imágenes y los PDF que adjunta se envían tal cual."
     }
   },
   "sustainability": {
@@ -4140,11 +4268,24 @@
       "dismissed": "Descartado",
       "feedback_helpful": "Marcado como útil",
       "feedback_wrong": "Marcado como incorrecto",
+      "feedback_cleared": "Valoración quitada",
       "confirmed": "Confirmado",
       "executed": "Ejecutado",
       "failed": "Fallido",
       "rejected": "Rechazado",
-      "stale": "Ya no aplica"
+      "stale": "Ya no aplica",
+      "ai_consent_granted": "Análisis con IA permitido",
+      "ai_consent_declined": "Análisis con IA rechazado",
+      "ai_answered": "Respuesta automática enviada",
+      "resolved_by_ai": "Resuelto por IA",
+      "escalated_from_ai": "Pasado de la IA a soporte",
+      "ai_failed": "Falló el análisis con IA",
+      "station_rejected": "Estación rechazó",
+      "station_cancel_failed": "Falló la cancelación en la estación",
+      "station_faulted": "Estación con falla",
+      "fee_charged": "Tarifa cobrada",
+      "fee_failed": "Falló el cobro de la tarifa",
+      "taken_by_other": "Ocupada por otro conductor"
     },
     "entities": {
       "site": "Sitio",
@@ -4520,13 +4661,10 @@
     "categoryLabel": "Causa raíz",
     "confidenceLabel": "Confianza",
     "fixesLabel": "Soluciones sugeridas",
-    "siteScopeLabel": "En este sitio",
-    "networkScopeLabel": "En todos los sitios",
     "regenerate": "Regenerar",
     "dismiss": "Descartar",
     "helpful": "Útil",
     "wrong": "Incorrecto",
-    "feedbackThanks": "Gracias por tu opinión",
     "badge": {
       "resolved": "Resuelto",
       "outOfDate": "Desactualizado"
@@ -4567,7 +4705,12 @@
       "site_incident": "Incidente del sitio",
       "site_summary": "Resumen del sitio",
       "company_summary": "Resumen de la red",
-      "tariff_anomaly": "Anomalía de tarifa"
+      "tariff_anomaly": "Anomalía de tarifa",
+      "reservation_rejected": "Reserva rechazada",
+      "reservation_no_show": "Reserva no utilizada",
+      "reservation_cancel_failed": "Falló la cancelación de la reserva",
+      "reservation_fee_failed": "Falló la tarifa de reserva",
+      "reservation_station_faulted": "Estación con falla durante la reserva"
     },
     "skipReason": {
       "resolved_before_analysis": "Resuelto antes del análisis",
@@ -4596,7 +4739,12 @@
       "check_vehicle_compatibility": "Revisar la compatibilidad del vehículo",
       "end_concurrent_session": "Finalizar la sesión simultánea",
       "check_csms_status": "Revisar el estado del CSMS",
-      "monitor": "Seguir observando"
+      "monitor": "Seguir observando",
+      "reservation_check_evse_status": "Revisar el estado del EVSE reservado",
+      "reservation_check_station_connectivity": "Revisar la conexión de la estación",
+      "reservation_retry_cancel": "Volver a cancelar la reserva en la estación",
+      "reservation_review_fee_payment": "Revisar el pago de la tarifa de reserva",
+      "reservation_review_holding_settings": "Revisar la configuración de reservas del sitio"
     },
     "scope": {
       "stations_one": "{{count}} estación",
@@ -4643,7 +4791,12 @@
       "site_summary": "Resumen diario de {{site}}",
       "company_summary": "Resumen diario de la red",
       "noStation": "una estación desconocida",
-      "noSite": "sin sitio"
+      "noSite": "sin sitio",
+      "reservation_rejected": "{{station}} rechazó una reserva",
+      "reservation_no_show": "Reserva no utilizada en {{site}}",
+      "reservation_cancel_failed": "{{station}} no canceló una reserva",
+      "reservation_fee_failed": "Falló la tarifa de reserva en {{site}}",
+      "reservation_station_faulted": "{{station}} falló durante una reserva"
     },
     "list": {
       "title": "Análisis de IA",
@@ -4655,7 +4808,11 @@
       "site": "Sitio",
       "allSites": "Todos los sitios",
       "insight": "Análisis",
-      "station": "Estación"
+      "station": "Estación",
+      "feedback": "Valoración",
+      "allFeedback": "Cualquier valoración",
+      "feedbackWrong": "Marcado como incorrecto",
+      "feedbackHelpful": "Marcado como útil"
     },
     "detail": {
       "recordTitle": "Detalles",
@@ -4667,16 +4824,12 @@
     "failedNote": "El análisis no terminó.",
     "skippedNote": "No analizado: {{reason}}",
     "scopeTable": {
-      "title": "Alcance",
+      "title": "Contexto del sitio",
       "measureHeader": "Medida",
       "atDetection": "Al detectarse",
       "now": "Ahora",
       "atDetectionHint": "Lo que usó el análisis",
       "nowHint": "A fecha de {{time}}",
-      "area": {
-        "site": "{{measure}} (sitio)",
-        "network": "{{measure}} (todos los sitios)"
-      },
       "measure": {
         "stations": "Estaciones",
         "stationsOffline": "Estaciones desconectadas",
@@ -4688,6 +4841,17 @@
       },
       "summaryAtDetection": "{{value}} al detectarse",
       "summaryChanged": "{{value}} al detectarse, {{now}} ahora"
+    },
+    "feedback": {
+      "helpfulCount_one": "A {{count}} persona le resultó útil",
+      "helpfulCount_other": "A {{count}} personas les resultó útil",
+      "removeVote": "Quitar tu valoración",
+      "wrongPrompt": "Marcado como incorrecto. Vuelve a generar el análisis con datos actuales o descártalo.",
+      "reasonLabel": "¿Qué es incorrecto? (opcional)",
+      "reasonPlaceholder": "Por ejemplo: la estación estaba desconectada por un mantenimiento programado.",
+      "reasonHint": "Se guarda solo con tu valoración. Nunca se envía a un proveedor de IA.",
+      "saveReason": "Guardar nota",
+      "reasonSaved": "Nota guardada."
     }
   },
   "aiInbox": {
@@ -4775,6 +4939,12 @@
       "timing": "Fechas",
       "decided": "Decidida",
       "executedAt": "Ejecutada"
+    },
+    "refused": {
+      "args_mismatch": "Los argumentos guardados ya no coinciden con la propuesta, así que no se ejecutó nada.",
+      "no_longer_available": "Esta acción ya no puede ejecutarse desde una propuesta de IA, así que no se ejecutó nada.",
+      "invalid_arguments": "Los argumentos ya no son válidos para esta acción, así que no se ejecutó nada.",
+      "ocpp_version_mismatch": "La versión OCPP de la estación cambió y no hay un comando equivalente, así que no se ejecutó nada."
     }
   },
   "aiWorkers": {
@@ -4835,7 +5005,8 @@
       "support": "Borradores de soporte",
       "insight": "Análisis",
       "insight_translation": "Traducciones de análisis",
-      "worker": "Procesos en segundo plano"
+      "worker": "Procesos en segundo plano",
+      "driver_support": "Soporte a conductores"
     },
     "tokens": {
       "total": "Tokens",

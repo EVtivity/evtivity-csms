@@ -186,6 +186,18 @@ describe('OcppClient calls', () => {
     expect(await frame).toEqual([3, 'csms-1', { status: 'Accepted', action: 'Reset' }]);
   });
 
+  it('TC-RES-29: sends no CALLRESULT when the handler resolves to null', async () => {
+    const { client, socket } = await connected();
+    client.setIncomingCallHandler((_id, action) =>
+      Promise.resolve(action === 'ReserveNow' ? null : { status: 'Accepted' }),
+    );
+    const frame = nextFrame(socket);
+    socket.send(JSON.stringify([2, 'csms-r', 'ReserveNow', { id: 1 }]));
+    socket.send(JSON.stringify([2, 'csms-3', 'Reset', {}]));
+    // The first frame the station sends answers the Reset: the ReserveNow got none.
+    expect(await frame).toEqual([3, 'csms-3', { status: 'Accepted' }]);
+  });
+
   it('answers a handler failure that is not an OCPP error code with InternalError', async () => {
     const { client, socket } = await connected();
     client.setIncomingCallHandler(() => Promise.reject(new Error('database gone')));

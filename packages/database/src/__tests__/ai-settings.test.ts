@@ -10,6 +10,10 @@ vi.mock('drizzle-orm', () => ({
   or: vi.fn(() => ({ type: 'or' })),
 }));
 vi.mock('../schema/settings.js', () => ({ settings: { key: 'key', value: 'value' } }));
+const reservationFeature = vi.hoisted(() => ({ enabled: true }));
+vi.mock('../lib/reservation-setting.js', () => ({
+  isReservationEnabled: vi.fn(() => Promise.resolve(reservationFeature.enabled)),
+}));
 
 function rows(result: unknown[] | Error) {
   const chain: Record<string, unknown> = {};
@@ -109,6 +113,7 @@ describe('AI roadmap readers (TC-AI-C-11)', () => {
       'chatbotAi.%',
       'supportAi.%',
       'opsAi.%',
+      'driverAi.%',
       'aiInsights.%',
       'aiWorkers.%',
     ]);
@@ -171,8 +176,19 @@ describe('AI roadmap readers (TC-AI-C-11)', () => {
           'aiInsights.station.enabled': false,
           'aiInsights.session.enabled': false,
           'aiInsights.authorization.enabled': false,
+          'aiInsights.reservation.enabled': false,
         },
         false,
+      ],
+      [
+        {
+          'opsAi.enabled': true,
+          'aiInsights.station.enabled': false,
+          'aiInsights.session.enabled': false,
+          'aiInsights.authorization.enabled': false,
+          'aiInsights.reservation.enabled': true,
+        },
+        true,
       ],
       [
         {
@@ -194,11 +210,84 @@ describe('AI roadmap readers (TC-AI-C-11)', () => {
     }
   });
 
+  it('counts reservation insights as on only while the reservation feature is on', async () => {
+    const m = await import('../lib/ai-settings.js');
+    const onlyReservations = [
+      { key: 'opsAi.enabled', value: true },
+      { key: 'aiInsights.station.enabled', value: false },
+      { key: 'aiInsights.session.enabled', value: false },
+      { key: 'aiInsights.authorization.enabled', value: false },
+      { key: 'aiInsights.reservation.enabled', value: true },
+    ];
+    try {
+      mockSelect.mockReturnValue(rows(onlyReservations));
+      m.clearAiSettingsCache();
+      reservationFeature.enabled = true;
+      expect((await m.getAiInsightSettings()).reservationEnabled).toBe(true);
+      expect((await m.getInsightAiSettings()).insights.reservationEnabled).toBe(true);
+      expect(await m.isAiInsightsEnabled()).toBe(true);
+
+      reservationFeature.enabled = false;
+      expect((await m.getAiInsightSettings()).reservationEnabled).toBe(false);
+      expect((await m.getInsightAiSettings()).insights.reservationEnabled).toBe(false);
+      expect(await m.isAiInsightsEnabled()).toBe(false);
+      // The stored switch is unchanged: the settings page still shows it.
+      expect((await m.getAiSettings()).insights.reservationEnabled).toBe(true);
+      // Both readers are cached: still the one settings query.
+      expect(mockSelect).toHaveBeenCalledTimes(1);
+    } finally {
+      reservationFeature.enabled = true;
+    }
+  });
+
+  it('TC-CFG-04 serves the driver surface and reloads it after clearAiSettingsCache', async () => {
+    mockSelect.mockReturnValue(rows([]));
+    const m = await import('../lib/ai-settings.js');
+    expect(await m.getDriverAiSettings()).toEqual({
+      enabled: false,
+      provider: null,
+      model: '',
+      effort: 'low',
+      systemPrompt: '',
+      maxCasesPerDriverPerDay: 3,
+      feedbackTimeoutHours: 24,
+    });
+    expect(await m.isDriverAiEnabled()).toBe(false);
+    expect((await m.getAiInsightSettings()).reservationEnabled).toBe(true);
+
+    // A settings write calls clearAiSettingsCache (routes/settings.ts); the
+    // next read sees the new values.
+    mockSelect.mockReturnValue(
+      rows([
+        { key: 'driverAi.enabled', value: true },
+        { key: 'driverAi.provider', value: 'anthropic' },
+        { key: 'driverAi.maxCasesPerDriverPerDay', value: 5 },
+        { key: 'ai.budget.driverDailyTokens', value: 1000 },
+        { key: 'ai.rateLimit.driverPerMinute', value: 4 },
+        { key: 'aiInsights.reservation.enabled', value: false },
+      ]),
+    );
+    expect(await m.isDriverAiEnabled()).toBe(false);
+    m.clearAiSettingsCache();
+    expect(await m.isDriverAiEnabled()).toBe(true);
+    const settings = await m.getAiSettings();
+    expect(settings.driver).toMatchObject({
+      enabled: true,
+      provider: 'anthropic',
+      maxCasesPerDriverPerDay: 5,
+    });
+    expect(settings.limits).toMatchObject({ driverDailyTokens: 1000, driverPerMinute: 4 });
+    expect(settings.insights.reservationEnabled).toBe(false);
+    expect(mockSelect).toHaveBeenCalledTimes(2);
+  });
+
   it('fails closed for the ops and MCP switches and throws for the threshold readers', async () => {
     mockSelect.mockReturnValue(rows(new Error('db down')));
     const m = await import('../lib/ai-settings.js');
     expect(await m.isOpsAiEnabled()).toBe(false);
     expect((await m.getOpsAiSettings()).enabled).toBe(false);
+    expect(await m.isDriverAiEnabled()).toBe(false);
+    expect((await m.getDriverAiSettings()).enabled).toBe(false);
     expect(await m.isAiMcpEnabled()).toBe(false);
     expect(await m.isAiInboxEnabled()).toBe(false);
     expect(await m.isAiInsightsEnabled()).toBe(false);

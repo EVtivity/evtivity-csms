@@ -3,7 +3,7 @@
 
 import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Sparkles, Square, X } from 'lucide-react';
+import { Bot, Download, Sparkles, Square, X } from 'lucide-react';
 import { FileUploadButton } from '@/components/ui/file-upload-button';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
@@ -34,7 +34,7 @@ interface Attachment {
 
 interface Message {
   id: number;
-  senderType: 'driver' | 'operator' | 'system';
+  senderType: 'driver' | 'operator' | 'system' | 'assistant';
   senderId: string | null;
   body: string;
   isInternal: boolean;
@@ -377,6 +377,7 @@ function MessageBubble({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const isSystem = message.senderType === 'system';
+  const isAssistant = message.senderType === 'assistant';
   const isInternal = message.isInternal;
 
   if (isSystem) {
@@ -393,16 +394,26 @@ function MessageBubble({
       className={`rounded-lg p-3 text-sm ${
         isInternal
           ? 'bg-yellow-50 border border-yellow-200 dark:bg-yellow-950 dark:border-yellow-800'
-          : message.senderType === 'driver'
-            ? 'bg-muted'
-            : 'bg-primary/5'
+          : isAssistant
+            ? 'border border-dashed border-info/50 bg-info/5'
+            : message.senderType === 'driver'
+              ? 'bg-muted'
+              : 'bg-primary/5'
       }`}
+      data-sender={message.senderType}
     >
       <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
         <span className="font-medium">
-          {message.senderType === 'driver'
-            ? t('supportCases.driverMessage')
-            : t('supportCases.operatorMessage')}
+          {isAssistant ? (
+            <span className="inline-flex items-center gap-1">
+              <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+              {t('supportCases.ai.automaticAnswer')}
+            </span>
+          ) : message.senderType === 'driver' ? (
+            t('supportCases.driverMessage')
+          ) : (
+            t('supportCases.operatorMessage')
+          )}
           {isInternal && (
             <span className="ml-2 text-yellow-600 dark:text-yellow-400">
               ({t('supportCases.internalNote')})

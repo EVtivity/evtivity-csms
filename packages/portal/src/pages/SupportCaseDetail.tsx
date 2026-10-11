@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Download } from 'lucide-react';
+import { ArrowLeft, Bot, Download } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,6 +16,9 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatDate } from '@/lib/utils';
 import { useDriverTimezone } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+import { AiCaseStatus } from '@/components/support/AiCaseStatus';
+import { isAiAnalyzing } from '@/components/support/driver-ai';
+import type { PortalCaseAi } from '@/components/support/driver-ai';
 
 interface Attachment {
   id: number;
@@ -28,7 +31,7 @@ interface Attachment {
 
 interface Message {
   id: number;
-  senderType: 'driver' | 'operator' | 'system';
+  senderType: 'driver' | 'operator' | 'system' | 'assistant';
   body: string;
   createdAt: string;
   attachments: Attachment[];
@@ -53,7 +56,13 @@ interface CaseDetail {
   createdAt: string;
   updatedAt: string;
   messages: Message[];
+  /** The driver AI step; consent null when the driver was not asked. */
+  ai?: PortalCaseAi | null;
 }
+
+// While the answer is prepared, poll as well as the SSE event (a lost event
+// must not leave the driver waiting).
+const ANALYZING_POLL_MS = 4000;
 
 export function SupportCaseDetail(): React.JSX.Element {
   const { t } = useTranslation();
@@ -68,6 +77,7 @@ export function SupportCaseDetail(): React.JSX.Element {
     queryKey: ['portal-support-case', id],
     queryFn: () => api.get<CaseDetail>(`/v1/portal/support-cases/${id ?? ''}`),
     enabled: id != null,
+    refetchInterval: (query) => (isAiAnalyzing(query.state.data?.ai) ? ANALYZING_POLL_MS : false),
   });
 
   const messageMutation = useMutation({
@@ -109,6 +119,15 @@ export function SupportCaseDetail(): React.JSX.Element {
   if (caseDetail == null) {
     return <p className="text-sm text-destructive">{t('supportCases.notFound')}</p>;
   }
+
+  const ai = caseDetail.ai ?? null;
+  const lastAssistantId = [...caseDetail.messages]
+    .reverse()
+    .find((m) => m.senderType === 'assistant')?.id;
+  // A case the automatic answer resolved can be reopened by writing to us.
+  const canWrite =
+    caseDetail.status !== 'closed' &&
+    (caseDetail.status !== 'resolved' || ai?.resolutionSource === 'ai');
 
   return (
     <div className="flex flex-col h-[calc(100dvh-8rem)]">
@@ -163,6 +182,31 @@ export function SupportCaseDetail(): React.JSX.Element {
           >
             {msg.senderType === 'system' ? (
               <div className="text-xs text-muted-foreground italic py-1">{msg.body}</div>
+            ) : msg.senderType === 'assistant' ? (
+              <div
+                data-testid="ai-answer"
+                className="max-w-[85%] rounded-lg border border-primary/30 bg-primary/5 p-3 text-sm"
+              >
+                <div className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                  <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('supportCases.ai.answerTitle')}
+                </div>
+                <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+                {msg.id === lastAssistantId && ai != null && ai.driverActions.length > 0 && (
+                  <ul className="mt-2 flex flex-wrap gap-1">
+                    {ai.driverActions.map((code) => (
+                      <li key={code}>
+                        <Badge variant="outline" className="whitespace-normal normal-case">
+                          {t(`supportCases.ai.driverAction.${code}`)}
+                        </Badge>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="text-[10px] mt-1 opacity-70">
+                  {formatDate(msg.createdAt, timezone)}
+                </div>
+              </div>
             ) : (
               <div
                 className={`max-w-[85%] rounded-lg p-3 text-sm ${
@@ -196,8 +240,10 @@ export function SupportCaseDetail(): React.JSX.Element {
         ))}
       </div>
 
+      {ai != null && <AiCaseStatus caseId={caseDetail.id} ai={ai} />}
+
       {/* Message input */}
-      {caseDetail.status !== 'closed' && caseDetail.status !== 'resolved' && (
+      {canWrite && (
         <form onSubmit={handleSendMessage} className="flex gap-2 border-t pt-3">
           <Input
             value={messageBody}

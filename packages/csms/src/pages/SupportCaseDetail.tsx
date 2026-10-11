@@ -28,6 +28,8 @@ import {
 } from '@/components/ui/table';
 import { MessageThread } from '@/components/support/MessageThread';
 import { CaseInfoSidebar } from '@/components/support/CaseInfoSidebar';
+import { SupportCaseAiBadge, SupportCaseAiCard } from '@/components/support/SupportCaseAiCard';
+import type { SupportCaseAiFields } from '@/components/support/SupportCaseAiCard';
 import { SupportCaseInsights } from '@/components/ai/insights/SupportCaseInsights';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { parseMajorInputToCents } from '@evtivity/lib/currency';
@@ -47,7 +49,7 @@ interface Attachment {
 
 interface Message {
   id: number;
-  senderType: 'driver' | 'operator' | 'system';
+  senderType: 'driver' | 'operator' | 'system' | 'assistant';
   senderId: string | null;
   body: string;
   isInternal: boolean;
@@ -63,7 +65,7 @@ interface SessionRef {
   status: string | null;
 }
 
-interface CaseDetail {
+interface CaseDetail extends SupportCaseAiFields {
   id: string;
   caseNumber: string;
   subject: string;
@@ -270,6 +272,10 @@ export function SupportCaseDetail(): React.JSX.Element {
           <CopyableId id={caseDetail.id} />
         </div>
         <Badge>{t(`supportCases.statuses.${caseDetail.status}`, caseDetail.status)}</Badge>
+        <SupportCaseAiBadge
+          aiState={caseDetail.aiState ?? null}
+          resolutionSource={caseDetail.resolutionSource ?? null}
+        />
         <EntityNavButtons resource="support-cases" basePath="/support-cases" currentId={id} />
       </div>
 
@@ -512,6 +518,7 @@ export function SupportCaseDetail(): React.JSX.Element {
         {/* Sidebar controls */}
         <div className="space-y-4">
           <CaseInfoSidebar caseDetail={caseDetail} operatorUsers={operatorUsers?.data} />
+          <SupportCaseAiCard fields={caseDetail} timezone={timezone} />
           <SupportCaseInsights caseId={caseDetail.id} />
         </div>
       </div>

@@ -256,6 +256,25 @@ describe('command-translation', () => {
         });
       });
 
+      it('TC-RES-02: sends the bound token of a reservation as the 1.6 idTag', () => {
+        // The 2.1-shaped payload of reserveNowPayload: the bound RFID token with its type.
+        const result = translateCommand('ReserveNow', 'ocpp1.6', {
+          id: 42,
+          expiryDateTime: '2026-12-31T00:00:00.000Z',
+          idToken: { idToken: '04A1B2C3D4E5F6', type: 'ISO14443' },
+          evseId: 1,
+        });
+        expect(result).toEqual({
+          action: 'ReserveNow',
+          payload: {
+            connectorId: 1,
+            expiryDate: '2026-12-31T00:00:00.000Z',
+            idTag: '04A1B2C3D4E5F6',
+            reservationId: 42,
+          },
+        });
+      });
+
       it('defaults connectorId to 0 when no evseId for ocpp1.6', () => {
         const result = translateCommand('ReserveNow', 'ocpp1.6', {
           idToken: { idToken: 'TAG001' },

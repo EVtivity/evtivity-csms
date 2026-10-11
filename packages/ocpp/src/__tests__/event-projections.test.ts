@@ -122,6 +122,8 @@ vi.mock('@evtivity/database', async () => ({
   getCompanyCurrency: vi.fn().mockResolvedValue('USD'),
   getCompanyPriceDisplay: vi.fn().mockResolvedValue('net'),
   writeReservationAudit: vi.fn().mockResolvedValue(undefined),
+  // The real raw timestamp readers (reservation rows).
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/raw-timestamp.js')),
   // The real Postgres error readers.
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
 }));
@@ -135,6 +137,33 @@ vi.mock('../server/notification-dispatcher.js', () => ({
   dispatchDriverNotification: mockDispatchDriver,
   dispatchSystemNotification: mockDispatchSystem,
   ALL_TEMPLATES_DIRS: ['/mock/templates'],
+}));
+
+// The shared reservation services (@evtivity/services): the reservation
+// projections themselves are covered in event-projections-reservations.test.ts.
+const mockCancelHoldsForStationOutage = vi.fn().mockResolvedValue(0);
+const mockExpireStationReportedReservation = vi.fn().mockResolvedValue(false);
+const mockApplyReservationCancellation = vi.fn().mockResolvedValue({
+  cancelled: false,
+  statusBefore: null,
+  feeChargedCents: 0,
+  feeChargeFailed: false,
+  feeCurrency: null,
+});
+const mockNotifyReservationDriver = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/services/reservation-expiry', () => ({
+  cancelHoldsForStationOutage: (...args: unknown[]) =>
+    mockCancelHoldsForStationOutage(...args) as unknown,
+  expireStationReportedReservation: (...args: unknown[]) =>
+    mockExpireStationReportedReservation(...args) as unknown,
+}));
+vi.mock('@evtivity/services/reservation-cancel', () => ({
+  applyReservationCancellation: (...args: unknown[]) =>
+    mockApplyReservationCancellation(...args) as unknown,
+}));
+vi.mock('@evtivity/services/reservation-notify', () => ({
+  notifyReservationDriver: (...args: unknown[]) => mockNotifyReservationDriver(...args) as unknown,
+  cancelReasonNoticeFlags: () => ({}),
 }));
 
 // The payment service (@evtivity/payments): the gate's hold, the settlement on
@@ -497,7 +526,7 @@ describe('Event projections', () => {
       expect(sqlCalls.length).toBe(1);
     });
 
-    it('dispatches reservation.StationFaulted notification when station disconnects with active reservations', async () => {
+    it('tells the driver of an in_use hold and cancels the active holds of a station that went offline', async () => {
       await setup();
 
       setupSqlResults(
@@ -506,7 +535,7 @@ describe('Event projections', () => {
         [], // INSERT connection_logs
         [], // SELECT connectors JOIN evses
         [{ site_id: null }], // resolveSiteId
-        [{ id: 'res_001', driver_id: 'drv_001' }], // SELECT reservations
+        [{ id: 'res_001', reservation_id: 11, driver_id: 'drv_001', expires_at: null }], // in_use holds
       );
 
       await eventBus.emit(
@@ -514,17 +543,29 @@ describe('Event projections', () => {
         makeDomainEvent('station.Disconnected', 'CS-001', {}),
       );
 
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
+      expect(mockNotifyReservationDriver).toHaveBeenCalledWith(
         'reservation.StationFaulted',
-        'drv_001',
-        { reservationId: 'res_001', stationId: 'CS-001' },
+        expect.objectContaining({
+          reservationDbId: 'res_001',
+          reservationOcppId: 11,
+          stationOcppId: 'CS-001',
+          driverId: 'drv_001',
+        }),
+        {},
         expect.anything(),
+      );
+      expect(mockCancelHoldsForStationOutage).toHaveBeenCalledWith(
         expect.anything(),
+        expect.objectContaining({
+          stationUuid: 'sta_000000000001',
+          stationOcppId: 'CS-001',
+          cause: 'offline',
+          evseUuid: null,
+        }),
       );
     });
 
-    it('does not dispatch notification when disconnected station has no active reservations', async () => {
+    it('sends no in_use notice when the disconnected station has no hold in use', async () => {
       await setup();
 
       setupSqlResults(
@@ -533,7 +574,7 @@ describe('Event projections', () => {
         [], // INSERT connection_logs
         [], // SELECT connectors JOIN evses
         [{ site_id: null }], // resolveSiteId
-        [], // SELECT reservations (empty)
+        [], // in_use holds (none)
       );
 
       await eventBus.emit(
@@ -541,41 +582,8 @@ describe('Event projections', () => {
         makeDomainEvent('station.Disconnected', 'CS-001', {}),
       );
 
-      expect(mockDispatchDriver).not.toHaveBeenCalledWith(
-        expect.anything(),
-        'reservation.StationFaulted',
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-      );
-    });
-
-    it('does not dispatch notification when reservation has no driver', async () => {
-      await setup();
-
-      setupSqlResults(
-        [{ id: 'sta_000000000001' }], // resolveStationId
-        [], // UPDATE charging_stations
-        [], // INSERT connection_logs
-        [], // SELECT connectors JOIN evses
-        [{ site_id: null }], // resolveSiteId
-        [{ id: 'res_002', driver_id: null }], // SELECT reservations (driver_id is null)
-      );
-
-      await eventBus.emit(
-        'station.Disconnected',
-        makeDomainEvent('station.Disconnected', 'CS-001', {}),
-      );
-
-      expect(mockDispatchDriver).not.toHaveBeenCalledWith(
-        expect.anything(),
-        'reservation.StationFaulted',
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-      );
+      expect(mockNotifyReservationDriver).not.toHaveBeenCalled();
+      expect(mockCancelHoldsForStationOutage).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -751,21 +759,6 @@ describe('Event projections', () => {
         }),
       );
       expect(watchSignals()).toHaveLength(1);
-    });
-
-    it('checks the watches when the station expires or removes a reservation', async () => {
-      await setup();
-      routeWatch();
-      for (const reservationUpdateStatus of ['Expired', 'Removed']) {
-        await eventBus.emit(
-          'ocpp.ReservationStatusUpdate',
-          makeDomainEvent('ocpp.ReservationStatusUpdate', 'CS-001', {
-            reservationId: 7,
-            reservationUpdateStatus,
-          }),
-        );
-      }
-      expect(watchSignals()).toHaveLength(2);
     });
   });
 

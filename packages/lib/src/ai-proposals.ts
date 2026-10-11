@@ -26,6 +26,25 @@ export const AI_PROPOSAL_STATUSES = [
 ] as const;
 export type AiProposalStatus = (typeof AI_PROPOSAL_STATUSES)[number];
 
+/**
+ * Why a confirmed proposal was refused before its route ran. Stored as
+ * `result.body.refused` of a failed proposal (no English text); the CSMS
+ * localizes it as `aiInbox.refused.<reason>`.
+ */
+export const AI_PROPOSAL_REFUSAL_REASONS = [
+  'args_mismatch',
+  'no_longer_available',
+  'invalid_arguments',
+  'ocpp_version_mismatch',
+] as const;
+export type AiProposalRefusalReason = (typeof AI_PROPOSAL_REFUSAL_REASONS)[number];
+
+export function isAiProposalRefusalReason(value: unknown): value is AiProposalRefusalReason {
+  return (
+    typeof value === 'string' && (AI_PROPOSAL_REFUSAL_REASONS as readonly string[]).includes(value)
+  );
+}
+
 /** Every status but `pending` is final: a status update only moves a proposal out of `pending`. */
 export const AI_PROPOSAL_TERMINAL_STATUSES: readonly AiProposalStatus[] = [
   'executed',

@@ -5,10 +5,12 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { AI_SETTING_DEFAULTS, permissionCatalog } from '@evtivity/lib';
+import { AI_INSIGHT_SETTING_KEYS } from '@evtivity/lib/ai-insights';
+import { DRIVER_AI_SETTING_KEYS } from '@evtivity/lib/driver-ai';
 
 // The AI setting defaults live in four places that must agree (P10):
 // AI_SETTING_DEFAULTS (the readers' fallback), defaultSettings in seed.ts,
-// seed.config.default.json, and the seed migrations (0370, 0441).
+// seed.config.default.json, and the seed migrations (0370, 0441, 0469).
 
 const DB_DIR = resolve(import.meta.dirname, '../..');
 const MIGRATIONS_DIR = resolve(DB_DIR, 'src/migrations');
@@ -81,6 +83,22 @@ describe('AI setting defaults (TC-AI-C-08)', () => {
   it('covers the v0.1.44 keys', () => {
     expect(keys).toEqual(expect.arrayContaining(['opsAi.enabled', 'ai.mcp.allowedOrigins']));
     expect(keys.length).toBeGreaterThanOrEqual(36);
+  });
+
+  it('TC-CFG-02 covers the v0.1.45 driver AI and reservation insight keys', () => {
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        ...Object.values(DRIVER_AI_SETTING_KEYS),
+        AI_INSIGHT_SETTING_KEYS.reservationEnabled,
+      ]),
+    );
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, '0469_seed_driver_ai_settings.sql'), 'utf-8');
+    for (const key of [
+      ...Object.values(DRIVER_AI_SETTING_KEYS),
+      AI_INSIGHT_SETTING_KEYS.reservationEnabled,
+    ]) {
+      expect(sql, key).toContain(`('${key}',`);
+    }
   });
 
   it.each(keys)(

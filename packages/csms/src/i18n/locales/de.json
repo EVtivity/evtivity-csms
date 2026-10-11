@@ -158,7 +158,8 @@
     "smartCharging": "Smart Charging",
     "configTemplates": "Konfigurationsvorlagen",
     "supportCases": "Supportfälle",
-    "unreadCases": "Ungelesene Supportfälle",
+    "unreadCasesCount_one": "{{count}} ungelesener Supportfall",
+    "unreadCasesCount_other": "{{count}} ungelesene Supportfälle",
     "settings": "Einstellungen",
     "profile": "Profil",
     "language": "Sprache",
@@ -583,7 +584,10 @@
     "electricityCostRecalculateRemaining_one": "{{count}} Ladevorgang hat weiterhin keine Stromkosten: Zu seinem Ende gilt kein Tarif.",
     "electricityCostRecalculateRemaining_other": "{{count}} Ladevorgänge haben weiterhin keine Stromkosten: Zu ihrem Ende gilt kein Tarif.",
     "electricityCostRecalculateMore_one": "{{count}} Ladevorgang hat noch keine Stromkosten. Berechnen Sie erneut, um fortzufahren.",
-    "electricityCostRecalculateMore_other": "{{count}} Ladevorgänge haben noch keine Stromkosten. Berechnen Sie erneut, um fortzufahren."
+    "electricityCostRecalculateMore_other": "{{count}} Ladevorgänge haben noch keine Stromkosten. Berechnen Sie erneut, um fortzufahren.",
+    "tabs": {
+      "ai": "KI"
+    }
   },
   "stations": {
     "title": "Stationen",
@@ -2513,6 +2517,11 @@
         "title": "Automatische Analysen und Worker",
         "description": "Das Modell für automatische Analysen und Hintergrund-Worker. Sie laufen ohne Benutzer und verwenden den Anbieterschlüssel des Unternehmens.",
         "enabled": "Systemgesteuerte KI einschalten"
+      },
+      "driver": {
+        "title": "Fahrer-Support",
+        "description": "Das Modell, das eine Support-Anfrage eines Fahrers zuerst beantwortet, wenn der Fahrer zustimmt. Es verwendet den Anbieterschlüssel des Unternehmens und hat keine Werkzeuge.",
+        "enabled": "Fahrern KI-Analyse anbieten"
       }
     },
     "aiLimitsTitle": "KI-Limits",
@@ -2543,7 +2552,22 @@
       "siteIncidentThreshold": "Ausgefallene Stationen an einem Standort für einen Standortvorfall",
       "maxPerSitePerDay": "Analysen pro Standort und Tag",
       "primaryLanguage": "Sprache der Zusammenfassung",
-      "retentionDays": "Analysen aufbewahren (Tage)"
+      "retentionDays": "Analysen aufbewahren (Tage)",
+      "reservation": "Reservierungsanalysen",
+      "reservationOff": "Reservierungsanalysen sind aus, solange Reservierungen ausgeschaltet sind.",
+      "reservationOffLink": "Reservierungen einschalten",
+      "quality": {
+        "title": "Qualität der Analysen",
+        "description": "Anteil hilfreicher Bewertungen je Analysetyp, aus den Bewertungen der letzten {{days}} Tage zu Analysen Ihrer Standorte.",
+        "columns": {
+          "kind": "Analysetyp",
+          "helpful": "Hilfreich",
+          "wrong": "Falsch",
+          "rate": "Anteil hilfreich"
+        },
+        "empty": "Keine Bewertungen in den letzten {{days}} Tagen.",
+        "viewWrong": "Als falsch markierte Analysen anzeigen"
+      }
     },
     "aiMcp": {
       "title": "MCP-Server",
@@ -2563,9 +2587,40 @@
       "writesHint": "Änderungen werden zu Vorschlägen, die derselbe Benutzer im KI-Posteingang bestätigt.",
       "protocolNote": "Unterstützt MCP 2026-07-28; ältere Clients bestätigen per Abfrage."
     },
-    "aiUsageTab": "Nutzung",
     "aiLimitZeroNoLimit": "0 bedeutet kein Limit.",
-    "aiConfigTab": "Konfiguration"
+    "aiTabs": {
+      "providers": "Anbieter und Schlüssel",
+      "providersDescription": "API-Schlüssel und Endpunkte der KI-Anbieter. Jede KI-Funktion verwendet diese Schlüssel.",
+      "assistant": "Assistent",
+      "assistantDescription": "Der KI-Assistent, mit dem Benutzer im Dashboard chatten.",
+      "support": "Support-Entwürfe",
+      "supportDescription": "KI-Entwürfe für Antworten auf Supportfälle, die ein Betreiber vor dem Senden prüft.",
+      "driver": "Fahrer-Support",
+      "driverDescription": "Eine automatische erste Antwort auf eine Support-Anfrage eines Fahrers, nur wenn der Fahrer zustimmt.",
+      "insights": "Automatische Analysen",
+      "insightsDescription": "Das Modell für systemgestartete Läufe und wann Analysen für Stationen, Sitzungen, Autorisierungen und Reservierungen erstellt werden.",
+      "workers": "Hintergrund-Worker",
+      "workersDescription": "Geplante Jobs, die über das Netz berichten und Aktionen vorschlagen, die ein Betreiber genehmigt. Sie verwenden das Modell der automatischen Analysen.",
+      "mcp": "MCP",
+      "mcpDescription": "Der MCP-Server, über den externe KI-Agenten EVtivity mit einem API-Schlüssel nutzen.",
+      "usage": "Nutzung und Limits",
+      "usageDescription": "Anfragelimits und Token-Budgets sowie die KI-Nutzung des Unternehmens und jedes Standorts.",
+      "workersModelLink": "Das verwendete Modell unter Automatische Analysen wählen"
+    },
+    "aiDriverSettings": {
+      "title": "Limits für Fahrer-Support",
+      "maxCasesPerDriverPerDay": "KI-analysierte Anfragen pro Fahrer und Tag",
+      "feedbackTimeoutHours": "Auf Rückmeldung des Fahrers warten (Stunden)",
+      "feedbackTimeoutHelp": "Eine Anfrage ohne Rückmeldung geht nach dieser Zeit an das Support-Team.",
+      "driverDailyTokens": "Tokens pro Fahrer und Tag",
+      "driverPerMinute": "KI-Anfragen pro Fahrer und Minute",
+      "overLimitHelp": "Anfragen über einem Limit gehen direkt an das Support-Team."
+    },
+    "aiDriverDataWarning": "Wenn dies aktiv ist und ein Fahrer zustimmt, werden der Anfragetext und die eigenen Sitzungen, Zahlungen, Reservierungen, genutzten Stationen und Tokens (letzte 4 Zeichen) des Fahrers an den konfigurierten Anbieter gesendet.",
+    "aiAdvancedOptions": "Erweiterte Optionen",
+    "aiPromptCustomSummary": "Eigener Systemprompt",
+    "aiPromptDefaultSummary": "Integrierter Systemprompt",
+    "aiBaseUrlDefaultSummary": "Standard-Endpunkt"
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -2717,6 +2772,7 @@
       "fleet.AccountBillingChanged": "Abrechnung auf Rechnung geändert",
       "reservation.Expiring": "Reservierung läuft ab",
       "reservation.Expired": "Reservierung abgelaufen",
+      "reservation.TakenByOther": "Reservierung von anderem Fahrer belegt",
       "session.Receipt": "Ladevorgangsbeleg",
       "supportCase.Created": "Supportfall erstellt",
       "supportCase.OperatorReply": "Betreiber-Antwort",
@@ -2736,7 +2792,9 @@
     },
     "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
     "htmlPreview": "HTML-Vorschau",
-    "aiEvents": "KI"
+    "aiEvents": "KI",
+    "channelToggleLabel": "{{event}}-Benachrichtigungen per {{channel}}",
+    "eventToggleLabel": "{{event}}-Benachrichtigungen"
   },
   "reservations": {
     "title": "Reservierungen",
@@ -2788,7 +2846,11 @@
       "station_rejected_occupied": "Station abgelehnt: belegt",
       "station_rejected_other": "Station abgelehnt",
       "station_offline_at_activation": "Station bei Aktivierung offline",
-      "system_cleanup": "System-Bereinigung"
+      "system_cleanup": "System-Bereinigung",
+      "station_no_response": "Station hat nicht geantwortet",
+      "station_unavailable_during_hold": "Station während der Reservierung nicht verfügbar",
+      "evse_in_use_at_activation": "EVSE bei Aktivierung belegt",
+      "station_faulted_at_activation": "Station bei Aktivierung gestört"
     },
     "scheduled": "Geplant",
     "active": "Aktiv",
@@ -2898,6 +2960,7 @@
     "CSS_ACTION_REJECTED": "Der Charging Station Simulator hat die Aktion abgelehnt",
     "CSS_ACTION_TIMEOUT": "Simulator hat nicht innerhalb von 5 Sekunden geantwortet",
     "DOWNTIME_NOT_FOUND": "Ausgeschlossener Ausfallzeitraum nicht gefunden",
+    "DRIVER_AI_NOTICE_OUTDATED": "Der KI-Hinweis wurde geändert. Lesen Sie ihn und wählen Sie erneut",
     "DRIVER_ALREADY_IN_FLEET": "Fahrer ist bereits in dieser Flotte",
     "DRIVER_CREATE_FAILED": "Fahrer konnte nicht erstellt werden",
     "DRIVER_NOT_FOUND": "Fahrer nicht gefunden",
@@ -3097,6 +3160,7 @@
     "STORAGE_CONNECTION_FAILED": "Speicher-Verbindungstest fehlgeschlagen",
     "STORAGE_NOT_CONFIGURED": "Anhang-Speicher nicht konfiguriert",
     "SUPPORT_AI_NOT_CONFIGURED": "Support-AI ist nicht konfiguriert",
+    "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "Dieser Supportfall wartet nicht auf eine Rückmeldung zu einer automatischen Antwort",
     "SUPPORT_CASE_NOT_FOUND": "Supportfall nicht gefunden",
     "SUPPORT_DISABLED": "Support ist deaktiviert",
     "TARIFF_IN_USE": "Tarif wird von Ladevorgängen referenziert und kann nicht gelöscht werden",
@@ -3138,6 +3202,7 @@
     "SECURITY_PROFILE_DOWNGRADE": "Eine verbundene Station kann nicht auf ein niedrigeres Sicherheitsprofil gesetzt werden",
     "STATION_TLS_URL_NOT_CONFIGURED": "Die öffentliche TLS-Adresse für Stationen (OCPP_STATION_TLS_URL) ist nicht konfiguriert",
     "STATION_SECURITY_CHANGE_REJECTED": "Die Station hat die Sicherheitsänderung nicht angenommen; die aktuellen Einstellungen bleiben unverändert",
+    "STATION_CREDENTIALS_ROUTE_REQUIRED": "Passwoerter von Ladestationen werden mit POST /v1/stations/:id/credentials geaendert, nicht mit einem allgemeinen OCPP-Befehl",
     "WEB_PAYMENTS_NOT_SUPPORTED": "Die Ladestation unterstützt keine dynamischen QR-Codes",
     "PORTAL_ALREADY_ACTIVE": "Fahrer hat bereits Zugang zum Portal",
     "EMAID_PREFIX_NOT_CONFIGURED": "Legen Sie zuerst Ländercode und Provider-ID der eMAID fest",
@@ -3403,7 +3468,8 @@
       "in_progress": "In Bearbeitung",
       "waiting_on_driver": "Wartet auf Fahrer",
       "resolved": "Gelöst",
-      "closed": "Geschlossen"
+      "closed": "Geschlossen",
+      "ai_assist": "Bei der KI"
     },
     "priorities": {
       "low": "Niedrig",
@@ -3418,7 +3484,63 @@
     "aiAssistOverwriteConfirm": "Ersetzen",
     "attachmentUploadFailed": "Anhang konnte nicht hochgeladen werden. Bitte erneut versuchen.",
     "sendFailed": "Nachricht konnte nicht gesendet werden. Bitte erneut versuchen.",
-    "aiAssistStop": "Entwurf stoppen"
+    "aiAssistStop": "Entwurf stoppen",
+    "ai": {
+      "consentTitle": "Einwilligung des Fahrers",
+      "consentDecision": "Entscheidung",
+      "consent": {
+        "granted": "KI-Analyse erlaubt",
+        "declined": "KI-Analyse abgelehnt",
+        "notAsked": "Nicht gefragt"
+      },
+      "consentAt": "Beantwortet am",
+      "consentLanguage": "Sprache des Hinweises",
+      "noticeVersion": "Version des Hinweises",
+      "automaticAnswer": "Automatische Antwort",
+      "answeredAt": "Automatische Antwort am",
+      "feedbackAt": "Rückmeldung des Fahrers am",
+      "resolvedByAi": "Durch KI gelöst",
+      "stateLabel": "KI-Status",
+      "filterAiState": "KI-Status",
+      "allAiStates": "Alle KI-Status",
+      "filterResolvedBy": "Gelöst durch",
+      "allResolvedBy": "Alle",
+      "state": {
+        "queued": "In Warteschlange",
+        "analyzing": "Wird analysiert",
+        "awaiting_feedback": "Wartet auf Rückmeldung des Fahrers",
+        "resolved_by_ai": "Durch KI gelöst",
+        "escalated": "An Support übergeben",
+        "failed": "KI-Analyse fehlgeschlagen",
+        "skipped": "KI-Analyse übersprungen"
+      },
+      "reason": {
+        "disabled": "KI-Support für Fahrer ist aus",
+        "driver_limit": "Der Fahrer hat das Tageslimit erreicht",
+        "rate_limited": "Zu viele Anfragen",
+        "budget_exceeded": "KI-Budget erreicht",
+        "no_evidence": "Keine Daten zum Analysieren",
+        "provider_error": "Fehler beim KI-Anbieter",
+        "invalid_output": "Die Antwort hat die Sicherheitsprüfung nicht bestanden",
+        "no_feedback": "Keine Rückmeldung vom Fahrer",
+        "driver_replied": "Der Fahrer hat eine Nachricht geschrieben",
+        "driver_declined_answer": "Die Antwort hat dem Fahrer nicht geholfen",
+        "driver_inactive": "Das Fahrerkonto ist inaktiv"
+      },
+      "resolutionSource": {
+        "operator": "Support-Team",
+        "ai": "KI"
+      },
+      "driverAction": {
+        "try_other_connector": "Anderen Anschluss versuchen",
+        "check_payment_method": "Zahlungsmethode prüfen",
+        "retry_start": "Laden erneut starten",
+        "check_vehicle_settings": "Ladeeinstellungen des Fahrzeugs prüfen",
+        "contact_operator": "Support-Team kontaktieren",
+        "wait_and_retry": "Einige Minuten warten und erneut versuchen",
+        "check_token_active": "Prüfen, ob Karte oder Token aktiv ist"
+      }
+    }
   },
   "vehicles": {
     "title": "Fahrzeuge",
@@ -3906,8 +4028,14 @@
       "kind": {
         "station": "Station",
         "session": "Ladevorgang",
-        "authorization": "Autorisierung"
-      }
+        "authorization": "Autorisierung",
+        "reservation": "Reservierung"
+      },
+      "reservation": "Warum ist diese Reservierung fehlgeschlagen, und was sollte ich tun?"
+    },
+    "dataNotice": {
+      "title": "Was der KI-Anbieter erhält",
+      "body": "Der KI-Anbieter erhält nie gespeicherte Zugangsdaten wie Passwörter, API-Schlüssel, Geheimnisse und Stationspasswörter. Kartennummern und IBANs werden auf ihre letzten 4 Zeichen gekürzt. Support-Entwürfe, automatische Analysen, Hintergrund-Worker und der Fahrer-Support maskieren außerdem E-Mail-Adressen und Telefonnummern und hashen oder kürzen die Token-IDs von Fahrern. Der Assistent sendet Kontaktdaten von Fahrern so, wie sie gespeichert sind, und nur für Benutzer, die sie lesen dürfen. Von Ihnen eingegebener Text und angehängte Textdateien werden auf Schlüssel und Kartennummern geprüft. Von Ihnen angehängte Bilder und PDFs werden unverändert gesendet."
     }
   },
   "sustainability": {
@@ -4140,11 +4268,24 @@
       "dismissed": "Verworfen",
       "feedback_helpful": "Als hilfreich markiert",
       "feedback_wrong": "Als falsch markiert",
+      "feedback_cleared": "Bewertung entfernt",
       "confirmed": "Bestätigt",
       "executed": "Ausgeführt",
       "failed": "Fehlgeschlagen",
       "rejected": "Abgelehnt",
-      "stale": "Nicht mehr zutreffend"
+      "stale": "Nicht mehr zutreffend",
+      "ai_consent_granted": "KI-Analyse erlaubt",
+      "ai_consent_declined": "KI-Analyse abgelehnt",
+      "ai_answered": "Automatische Antwort gegeben",
+      "resolved_by_ai": "Durch KI gelöst",
+      "escalated_from_ai": "Von KI an Support übergeben",
+      "ai_failed": "KI-Analyse fehlgeschlagen",
+      "station_rejected": "Station abgelehnt",
+      "station_cancel_failed": "Stornierung an der Station fehlgeschlagen",
+      "station_faulted": "Station gestört",
+      "fee_charged": "Gebühr berechnet",
+      "fee_failed": "Gebührenbelastung fehlgeschlagen",
+      "taken_by_other": "Von einem anderen Fahrer belegt"
     },
     "entities": {
       "site": "Standort",
@@ -4520,13 +4661,10 @@
     "categoryLabel": "Ursache",
     "confidenceLabel": "Sicherheit",
     "fixesLabel": "Vorgeschlagene Maßnahmen",
-    "siteScopeLabel": "An diesem Standort",
-    "networkScopeLabel": "An allen Standorten",
     "regenerate": "Neu erstellen",
     "dismiss": "Verwerfen",
     "helpful": "Hilfreich",
     "wrong": "Falsch",
-    "feedbackThanks": "Danke für Ihr Feedback",
     "badge": {
       "resolved": "Behoben",
       "outOfDate": "Veraltet"
@@ -4567,7 +4705,12 @@
       "site_incident": "Standortvorfall",
       "site_summary": "Standortübersicht",
       "company_summary": "Netzwerkübersicht",
-      "tariff_anomaly": "Tarifauffälligkeit"
+      "tariff_anomaly": "Tarifauffälligkeit",
+      "reservation_rejected": "Reservierung abgelehnt",
+      "reservation_no_show": "Reservierung nicht wahrgenommen",
+      "reservation_cancel_failed": "Reservierungsstornierung fehlgeschlagen",
+      "reservation_fee_failed": "Reservierungsgebühr fehlgeschlagen",
+      "reservation_station_faulted": "Station während Reservierung gestört"
     },
     "skipReason": {
       "resolved_before_analysis": "Vor der Analyse behoben",
@@ -4596,7 +4739,12 @@
       "check_vehicle_compatibility": "Fahrzeugkompatibilität prüfen",
       "end_concurrent_session": "Parallele Sitzung beenden",
       "check_csms_status": "CSMS-Status prüfen",
-      "monitor": "Weiter beobachten"
+      "monitor": "Weiter beobachten",
+      "reservation_check_evse_status": "Status des reservierten EVSE prüfen",
+      "reservation_check_station_connectivity": "Verbindung der Station prüfen",
+      "reservation_retry_cancel": "Reservierung an der Station erneut stornieren",
+      "reservation_review_fee_payment": "Zahlung der Reservierungsgebühr prüfen",
+      "reservation_review_holding_settings": "Reservierungseinstellungen des Standorts prüfen"
     },
     "scope": {
       "stations_one": "{{count}} Station",
@@ -4643,7 +4791,12 @@
       "site_summary": "Tageszusammenfassung von {{site}}",
       "company_summary": "Tageszusammenfassung des Netzes",
       "noStation": "einer unbekannten Station",
-      "noSite": "ohne Standort"
+      "noSite": "ohne Standort",
+      "reservation_rejected": "{{station}} hat eine Reservierung abgelehnt",
+      "reservation_no_show": "Reservierung an {{site}} nicht genutzt",
+      "reservation_cancel_failed": "{{station}} hat eine Reservierung nicht storniert",
+      "reservation_fee_failed": "Reservierungsgebühr an {{site}} fehlgeschlagen",
+      "reservation_station_faulted": "{{station}} während einer Reservierung gestört"
     },
     "list": {
       "title": "KI-Erkenntnisse",
@@ -4655,7 +4808,11 @@
       "site": "Standort",
       "allSites": "Alle Standorte",
       "insight": "Erkenntnis",
-      "station": "Station"
+      "station": "Station",
+      "feedback": "Bewertung",
+      "allFeedback": "Alle Bewertungen",
+      "feedbackWrong": "Als falsch markiert",
+      "feedbackHelpful": "Als hilfreich markiert"
     },
     "detail": {
       "recordTitle": "Details",
@@ -4667,16 +4824,12 @@
     "failedNote": "Die Analyse wurde nicht abgeschlossen.",
     "skippedNote": "Nicht analysiert: {{reason}}",
     "scopeTable": {
-      "title": "Umfang",
+      "title": "Standortkontext",
       "measureHeader": "Messgröße",
       "atDetection": "Bei Erkennung",
       "now": "Jetzt",
       "atDetectionHint": "Was die Analyse verwendet hat",
       "nowHint": "Stand {{time}}",
-      "area": {
-        "site": "{{measure}} (Standort)",
-        "network": "{{measure}} (alle Standorte)"
-      },
       "measure": {
         "stations": "Stationen",
         "stationsOffline": "Stationen offline",
@@ -4688,6 +4841,17 @@
       },
       "summaryAtDetection": "{{value}} bei Erkennung",
       "summaryChanged": "{{value}} bei Erkennung, jetzt {{now}}"
+    },
+    "feedback": {
+      "helpfulCount_one": "{{count}} fand dies hilfreich",
+      "helpfulCount_other": "{{count}} fanden dies hilfreich",
+      "removeVote": "Bewertung entfernen",
+      "wrongPrompt": "Als falsch markiert. Erstellen Sie die Analyse mit aktuellen Daten neu oder verwerfen Sie sie.",
+      "reasonLabel": "Was ist falsch? (optional)",
+      "reasonPlaceholder": "Zum Beispiel: Die Station war wegen geplanter Wartung offline.",
+      "reasonHint": "Wird nur mit Ihrer Bewertung gespeichert und nie an einen KI-Anbieter gesendet.",
+      "saveReason": "Notiz speichern",
+      "reasonSaved": "Notiz gespeichert."
     }
   },
   "aiInbox": {
@@ -4775,6 +4939,12 @@
       "timing": "Zeitpunkte",
       "decided": "Entschieden",
       "executedAt": "Ausgeführt"
+    },
+    "refused": {
+      "args_mismatch": "Die gespeicherten Argumente passen nicht mehr zum Vorschlag, daher wurde nichts ausgeführt.",
+      "no_longer_available": "Diese Aktion kann nicht mehr aus einem KI-Vorschlag ausgeführt werden, daher wurde nichts ausgeführt.",
+      "invalid_arguments": "Die Argumente sind für diese Aktion nicht mehr gültig, daher wurde nichts ausgeführt.",
+      "ocpp_version_mismatch": "Die OCPP-Version der Station hat sich geändert und es gibt keinen passenden Befehl, daher wurde nichts ausgeführt."
     }
   },
   "aiWorkers": {
@@ -4835,7 +5005,8 @@
       "support": "Support-Entwürfe",
       "insight": "Analysen",
       "insight_translation": "Übersetzungen von Analysen",
-      "worker": "Hintergrund-Worker"
+      "worker": "Hintergrund-Worker",
+      "driver_support": "Fahrer-Support"
     },
     "tokens": {
       "total": "Tokens",

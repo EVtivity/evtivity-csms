@@ -67,6 +67,33 @@ const mockSettleSessionPayment = vi.fn();
 const mockRecordTerminalSettlement = vi.fn();
 const mockDispatchFleetCreditNotices = vi.fn().mockResolvedValue(null);
 const mockReadFleetCreditLimit = vi.fn().mockResolvedValue(null);
+// The shared reservation services (@evtivity/services): the reservation
+// projections themselves are covered in event-projections-reservations.test.ts.
+const mockCancelHoldsForStationOutage = vi.fn().mockResolvedValue(0);
+const mockExpireStationReportedReservation = vi.fn().mockResolvedValue(false);
+const mockApplyReservationCancellation = vi.fn().mockResolvedValue({
+  cancelled: false,
+  statusBefore: null,
+  feeChargedCents: 0,
+  feeChargeFailed: false,
+  feeCurrency: null,
+});
+const mockNotifyReservationDriver = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/services/reservation-expiry', () => ({
+  cancelHoldsForStationOutage: (...args: unknown[]) =>
+    mockCancelHoldsForStationOutage(...args) as unknown,
+  expireStationReportedReservation: (...args: unknown[]) =>
+    mockExpireStationReportedReservation(...args) as unknown,
+}));
+vi.mock('@evtivity/services/reservation-cancel', () => ({
+  applyReservationCancellation: (...args: unknown[]) =>
+    mockApplyReservationCancellation(...args) as unknown,
+}));
+vi.mock('@evtivity/services/reservation-notify', () => ({
+  notifyReservationDriver: (...args: unknown[]) => mockNotifyReservationDriver(...args) as unknown,
+  cancelReasonNoticeFlags: () => ({}),
+}));
+
 const mockFleetCreditNoticesClaimed = vi.fn().mockResolvedValue(false);
 // No credit left by default: the ceiling stays and the cost loop stops at it.
 const mockExtendFleetSessionCeiling = vi.fn();
@@ -149,6 +176,8 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/tariff-resolution.js',
   )),
+  // The real raw timestamp readers (reservation rows).
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/raw-timestamp.js')),
   // The real Postgres error readers (the projection retry classifies errors).
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   getCompanyTaxBasis: vi.fn().mockResolvedValue('net'),
@@ -1132,83 +1161,6 @@ describe('Event projections - coverage round 2', () => {
       await emit('command.GetDiagnostics', 'CS-1', { request: { location: 'ftp://d' } });
       const ins = findSql(/INSERT INTO log_uploads/);
       expect(ins?.values).toContain('ftp://d');
-    });
-  });
-
-  // ---- command.ReserveNow ----
-
-  describe('command.ReserveNow', () => {
-    it('returns immediately when status is Accepted', async () => {
-      await setup();
-      setupSqlResults();
-      await emit('command.ReserveNow', 'CS-1', {
-        request: { id: 1 },
-        response: { status: 'Accepted' },
-      });
-      expect(sqlCalls.length).toBe(0);
-    });
-
-    it('returns when reservation id cannot be derived', async () => {
-      await setup();
-      setupSqlResults();
-      await emit('command.ReserveNow', 'CS-1', {
-        request: {},
-        response: { status: 'Rejected' },
-      });
-      expect(sqlCalls.length).toBe(0);
-    });
-
-    it('cancels reservation as occupied and notifies driver', async () => {
-      await setup();
-      setupSqlResults(STA, [{ driver_id: 'drv_1' }]);
-      await emit('command.ReserveNow', 'CS-1', {
-        request: { id: 88 },
-        response: { status: 'Occupied' },
-      });
-      const upd = findSql(/UPDATE reservations\s+SET status = 'cancelled'/);
-      expect(upd).toBeDefined();
-      expect(upd?.values).toContain('station_rejected_occupied');
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'reservation.Cancelled',
-        'drv_1',
-        expect.objectContaining({ reservationId: 88 }),
-        expect.anything(),
-        expect.anything(),
-      );
-    });
-
-    it('uses reservationId fallback and skips notify when no driver', async () => {
-      await setup();
-      setupSqlResults(STA, [{ driver_id: null }]);
-      await emit('command.ReserveNow', 'CS-1', {
-        request: { reservationId: 99 },
-        response: { status: 'Faulted' },
-      });
-      const upd = findSql(/UPDATE reservations\s+SET status = 'cancelled'/);
-      expect(upd?.values).toContain('station_rejected_other');
-      expect(mockDispatchDriver).not.toHaveBeenCalled();
-    });
-
-    it('swallows driver notification failure (fail-open)', async () => {
-      await setup();
-      mockDispatchDriver.mockRejectedValueOnce(new Error('smtp down'));
-      setupSqlResults(STA, [{ driver_id: 'drv_2' }]);
-      await emit('command.ReserveNow', 'CS-1', {
-        request: { id: 5 },
-        response: { status: 'Unavailable' },
-      });
-      expect(mockLoggerWarn).toHaveBeenCalled();
-    });
-
-    it('returns when station unresolvable but id present', async () => {
-      await setup();
-      setupSqlResults([]); // resolveStationUuid null
-      await emit('command.ReserveNow', 'CS-1', {
-        request: { id: 5 },
-        response: { status: 'Rejected' },
-      });
-      expect(findSql(/UPDATE reservations/)).toBeUndefined();
     });
   });
 
@@ -2604,89 +2556,6 @@ describe('Event projections - coverage round 2', () => {
       setupSqlResults(STA, [], [{ site_id: null }]);
       await emit('ocpp.SecurityEventNotification', 'CS-1', { type: 'InvalidFirmwareSignature' });
       expect(findSql(/SET disabled_reason = 'security'/)).toBeUndefined();
-    });
-  });
-
-  // ---- ocpp.ReservationStatusUpdate ----
-
-  describe('ocpp.ReservationStatusUpdate', () => {
-    it('Expired: updates to expired and writes audit', async () => {
-      await setup();
-      setupSqlResults([{ id: 'rsv_1', driver_id: 'drv_1' }]);
-      await emit('ocpp.ReservationStatusUpdate', 'CS-1', {
-        reservationId: 5,
-        reservationUpdateStatus: 'Expired',
-      });
-      expect(findSql(/UPDATE reservations\s+SET status = 'expired'/)).toBeDefined();
-      expect(mockWriteReservationAudit).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'expired', reservationId: 'rsv_1' }),
-        undefined,
-        expect.anything(),
-      );
-    });
-
-    it('Expired: no audit when no row transitioned', async () => {
-      await setup();
-      setupSqlResults([]); // UPDATE returns nothing
-      await emit('ocpp.ReservationStatusUpdate', 'CS-1', {
-        reservationId: 5,
-        reservationUpdateStatus: 'Expired',
-      });
-      expect(mockWriteReservationAudit).not.toHaveBeenCalled();
-    });
-
-    it('Removed: cancels reservation, audits, and notifies driver', async () => {
-      await setup();
-      setupSqlResults(STA, [{ id: 'rsv_2', driver_id: 'drv_2' }]);
-      await emit('ocpp.ReservationStatusUpdate', 'CS-1', {
-        reservationId: 6,
-        reservationUpdateStatus: 'Removed',
-      });
-      expect(findSql(/UPDATE reservations\s+SET status = 'cancelled'/)).toBeDefined();
-      expect(mockWriteReservationAudit).toHaveBeenCalledWith(
-        expect.objectContaining({ action: 'cancelled', reservationId: 'rsv_2' }),
-        undefined,
-        expect.anything(),
-      );
-      expect(mockDispatchDriver).toHaveBeenCalledWith(
-        expect.anything(),
-        'reservation.Cancelled',
-        'drv_2',
-        expect.anything(),
-        expect.anything(),
-        expect.anything(),
-      );
-    });
-
-    it('Removed: returns when station unresolvable', async () => {
-      await setup();
-      setupSqlResults([]); // resolveStationUuid null
-      await emit('ocpp.ReservationStatusUpdate', 'CS-1', {
-        reservationId: 6,
-        reservationUpdateStatus: 'Removed',
-      });
-      expect(findSql(/UPDATE reservations/)).toBeUndefined();
-    });
-
-    it('Removed: swallows notification failure', async () => {
-      await setup();
-      mockDispatchDriver.mockRejectedValueOnce(new Error('boom'));
-      setupSqlResults(STA, [{ id: 'rsv_3', driver_id: 'drv_3' }]);
-      await emit('ocpp.ReservationStatusUpdate', 'CS-1', {
-        reservationId: 7,
-        reservationUpdateStatus: 'Removed',
-      });
-      expect(mockLoggerWarn).toHaveBeenCalled();
-    });
-
-    it('ignores other update statuses', async () => {
-      await setup();
-      setupSqlResults();
-      await emit('ocpp.ReservationStatusUpdate', 'CS-1', {
-        reservationId: 8,
-        reservationUpdateStatus: 'NoTransaction',
-      });
-      expect(sqlCalls.length).toBe(0);
     });
   });
 

@@ -36,8 +36,8 @@ interface ExplainButtonProps {
   context: AiPanelContext;
   /**
    * The record's insight when the caller already has it (authorize log rows).
-   * Omitted for stations and sessions: the button reads it from the same
-   * cached query the insight card uses.
+   * Omitted for stations, sessions and reservations: the button reads it
+   * from the same cached query the insight card uses.
    */
   insight?: AiInsightView | null | undefined;
   /** An icon button for table rows. */
@@ -47,8 +47,9 @@ interface ExplainButtonProps {
 
 /**
  * The Explain button.
- * The caller decides when the record qualifies
- * (failed session, refused authorization, faulted or offline station); this
+ * The caller decides when the record qualifies (failed session, refused
+ * authorization, faulted or offline station, a reservation the station
+ * refused or cancelled, that expired, or whose fee failed); this
  * hides the button unless the assistant is available and the user may write
  * to it. With a fresh insight the panel shows it and spends no tokens.
  */
@@ -63,7 +64,7 @@ export function ExplainButton({
   const open = useOpenExplain();
   const lookup = insight === undefined && context.kind !== 'authorization';
   const { insights } = useInsights(
-    lookup ? insightFilterFor(context.kind === 'station' ? 'station' : 'session', context.id) : {},
+    lookup && context.kind !== 'authorization' ? insightFilterFor(context.kind, context.id) : {},
     canExplain && lookup,
   );
   if (!canExplain) return null;

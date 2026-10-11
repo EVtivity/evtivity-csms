@@ -5,8 +5,19 @@ import { useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { INSIGHT_KINDS, INSIGHT_STATUSES, ROOT_CAUSE_CATEGORIES } from '@evtivity/lib/ai-insights';
-import type { InsightKind, InsightStatus, RootCauseCategory } from '@evtivity/lib/ai-insights';
+import {
+  INSIGHT_FEEDBACK_FILTERS,
+  INSIGHT_KINDS,
+  INSIGHT_STATUSES,
+  ROOT_CAUSE_CATEGORIES,
+  isReservationInsightKind,
+} from '@evtivity/lib/ai-insights';
+import type {
+  InsightFeedbackFilter,
+  InsightKind,
+  InsightStatus,
+  RootCauseCategory,
+} from '@evtivity/lib/ai-insights';
 import type { InsightFilter } from '@/components/ai/insights/insight-api';
 import { INSIGHTS_PAGE_SIZE, useInsightPage } from '@/components/ai/insights/insight-api';
 import {
@@ -33,6 +44,7 @@ import {
 } from '@/components/ui/table';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
 interface SiteOption {
@@ -49,7 +61,8 @@ function pick<T extends string>(values: readonly T[], raw: string | null): T | u
 /**
  * Insights list (`/ai/insights`, `aiInsights:read`): every insight in the
  * user's sites, newest first, with the standard filter bar and table. The
- * filters live in the URL so the dashboard card can open a filtered list.
+ * filters live in the URL so the dashboard card can open a filtered list
+ * (`feedback=wrong`: insights someone marked wrong, linked from Settings).
  * A row opens the insight's page.
  */
 export function AiInsights(): React.JSX.Element {
@@ -61,15 +74,23 @@ export function AiInsights(): React.JSX.Element {
   const [page, setPage] = useState(1);
 
   const status = pick<InsightStatus>(INSIGHT_STATUSES, params.get('status'));
-  const kind = pick<InsightKind>(INSIGHT_KINDS, params.get('kind'));
+  // Reservation kinds only while reservations are on: the same switch the
+  // insight routes use to leave reservation insights out (`reservation.enabled`).
+  const { flags } = useFeatureFlags();
+  const kinds = flags.reservationEnabled
+    ? INSIGHT_KINDS
+    : INSIGHT_KINDS.filter((k) => !isReservationInsightKind(k));
+  const kind = pick<InsightKind>(kinds, params.get('kind'));
   const category = pick<RootCauseCategory>(ROOT_CAUSE_CATEGORIES, params.get('category'));
   const siteId = params.get('siteId') ?? '';
+  const feedback = pick<InsightFeedbackFilter>(INSIGHT_FEEDBACK_FILTERS, params.get('feedback'));
 
   const filter: Omit<InsightFilter, 'limit'> = {};
   if (status != null) filter.status = status;
   if (kind != null) filter.kind = kind;
   if (category != null) filter.category = category;
   if (siteId !== '') filter.siteId = siteId;
+  if (feedback != null) filter.feedback = feedback;
   const { insights, total, isLoading, isError } = useInsightPage(filter, page);
   const totalPages = Math.max(1, Math.ceil(total / INSIGHTS_PAGE_SIZE));
 
@@ -96,7 +117,7 @@ export function AiInsights(): React.JSX.Element {
       </div>
 
       <Card>
-        <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-5">
           <div className="space-y-2">
             <Label htmlFor="ai-insights-status" className="leading-6">
               {t('common.status')}
@@ -130,7 +151,7 @@ export function AiInsights(): React.JSX.Element {
               }}
             >
               <option value="">{t('aiInsights.list.allKinds')}</option>
-              {INSIGHT_KINDS.map((k) => (
+              {kinds.map((k) => (
                 <option key={k} value={k}>
                   {t(`aiInsights.kind.${k}`)}
                 </option>
@@ -155,6 +176,23 @@ export function AiInsights(): React.JSX.Element {
                   {t(`aiInsights.category.${c}`)}
                 </option>
               ))}
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ai-insights-feedback" className="leading-6">
+              {t('aiInsights.list.feedback')}
+            </Label>
+            <Select
+              id="ai-insights-feedback"
+              className="h-9"
+              value={feedback ?? ''}
+              onChange={(e) => {
+                setFilter('feedback', e.target.value);
+              }}
+            >
+              <option value="">{t('aiInsights.list.allFeedback')}</option>
+              <option value="wrong">{t('aiInsights.list.feedbackWrong')}</option>
+              <option value="helpful">{t('aiInsights.list.feedbackHelpful')}</option>
             </Select>
           </div>
           {canReadSites && (

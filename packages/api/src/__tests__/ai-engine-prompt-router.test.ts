@@ -81,6 +81,13 @@ describe('AI system prompt', () => {
     expect(b.dynamic).toContain('固件');
   });
 
+  it('tells the model the Korean driver term (운전자, never 드라이버)', () => {
+    const b = blocks({ language: 'ko' });
+    expect(b.dynamic).toContain('Korean (한국어)');
+    expect(b.dynamic).toContain('운전자');
+    expect(b.dynamic).toContain('never 드라이버');
+  });
+
   it('falls back to English for an unknown language', () => {
     expect(blocks({ language: 'fr' }).dynamic).toContain('Always answer in English');
   });

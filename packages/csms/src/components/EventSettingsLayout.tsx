@@ -308,6 +308,11 @@ export function EventSettingsLayout({
                               <div className="flex h-10 items-center">
                                 <Toggle
                                   id="event-switch"
+                                  // The visible label is the state (Active or Inactive); the
+                                  // name says what the switch controls.
+                                  aria-label={t('notifications.eventToggleLabel', {
+                                    event: selectedEvent,
+                                  })}
                                   checked={on}
                                   disabled={
                                     required || !eventSwitch.canEdit || !canWrite || switchSaving
@@ -350,28 +355,21 @@ export function EventSettingsLayout({
                             {isActive ? t('common.active') : t('common.inactive')}
                           </Label>
                           <div className="flex h-10 items-center">
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={isActive}
+                            <Toggle
+                              aria-label={t('notifications.channelToggleLabel', {
+                                event: selectedEvent,
+                                channel: CHANNEL_LABELS[channel] ?? channel,
+                              })}
+                              checked={isActive}
                               disabled={!canWrite}
-                              onClick={() => {
+                              onCheckedChange={() => {
                                 setLocalToggle((prev) => {
                                   const next = new Map(prev);
                                   next.set(toggleKey, !isActive);
                                   return next;
                                 });
                               }}
-                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full disabled:cursor-not-allowed disabled:opacity-50 border-2 border-transparent transition-colors ${
-                                isActive ? 'bg-primary' : 'bg-muted'
-                              }`}
-                            >
-                              <span
-                                className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${
-                                  isActive ? 'translate-x-4' : 'translate-x-0'
-                                }`}
-                              />
-                            </button>
+                            />
                           </div>
                         </div>
                       )}

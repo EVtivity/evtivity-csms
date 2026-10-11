@@ -13,6 +13,7 @@ import {
   staleRebillCharges,
 } from './payment-records.js';
 import type { PaymentRecord } from './payment-records.js';
+import { resumeStaleReservationFees } from './reservation-fees.js';
 import { resumeStaleAdjustments } from './session-payments.js';
 import { paymentCharges } from './top-ups.js';
 import type { PaymentCharge } from './top-ups.js';
@@ -214,6 +215,7 @@ export async function reconcilePayments(
   }
 
   await resumeAdjustments(result, ctx);
+  await resumeReservationFees(result, ctx);
   await addPendingConfirmations(result, ctx);
   await addStaleRebillCharges(result, ctx);
 
@@ -347,6 +349,33 @@ async function resumeAdjustments(result: ReconciliationResult, ctx: PaymentConte
   } catch (err) {
     ctx.logger.warn({ err }, 'Stale adjustment lookup failed');
     result.errors.push(`Stale adjustment lookup failed: ${errorMessage(err, 'Unknown error')}`);
+  }
+}
+
+/**
+ * Resumes reservation fee records a crash left `pending` without a provider
+ * payment (G11, `resumeStaleReservationFees`: the same key inside 23 hours,
+ * else failed with a reason). A record that cannot be resumed is an error of
+ * the run. Fail-open: a failed lookup is one error.
+ */
+async function resumeReservationFees(
+  result: ReconciliationResult,
+  ctx: PaymentContext,
+): Promise<void> {
+  try {
+    const resumed = await resumeStaleReservationFees(ctx);
+    result.errors.push(...resumed.errors);
+    if (resumed.resumed > 0 || resumed.expired > 0) {
+      ctx.logger.info(
+        { resumed: resumed.resumed, expired: resumed.expired },
+        'Stale reservation fee records resumed',
+      );
+    }
+  } catch (err) {
+    ctx.logger.warn({ err }, 'Stale reservation fee lookup failed');
+    result.errors.push(
+      `Stale reservation fee lookup failed: ${errorMessage(err, 'Unknown error')}`,
+    );
   }
 }
 

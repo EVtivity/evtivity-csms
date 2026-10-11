@@ -84,6 +84,8 @@ export interface SiteFixture {
   aiProposal2: string;
   /** An active automatic insight of the site's station. */
   insight: string;
+  /** A reservation insight of the site's reservation. */
+  reservationInsight: string;
 }
 
 /** Company-wide fixtures shared by both sites. */
@@ -281,6 +283,70 @@ const NO_S3 = 'no S3 storage is configured in the test database';
 const st = (f: SiteFixture): string => `/stations/${f.station}`;
 const sit = (f: SiteFixture): string => `/sites/${f.site}`;
 
+/**
+ * Variants of `POST /ocpp/commands/{version}/{action}` (one matrix entry for every
+ * `commandRoute`): the configuration writes, which also run the station
+ * credential guard. A station credential in the body is refused with 400
+ * STATION_CREDENTIALS_ROUTE_REQUIRED before any lookup, for every station
+ * (`109-station-credential-route.integration.test.ts`); any other write keeps
+ * the site check. Run with the matrix by the isolation integration test.
+ */
+export const SITE_ISOLATION_COMMAND_VARIANTS: MatrixEntry[] = [
+  s(
+    'POST',
+    '/ocpp/commands/v21/SetVariables',
+    'stations:write',
+    () => '/ocpp/commands/v21/SetVariables',
+    'STATION_NOT_FOUND',
+    {
+      unsited: true,
+      body: (f) => ({
+        stationId: f.ocpp,
+        setVariableData: [
+          {
+            component: { name: 'OCPPCommCtrlr' },
+            variable: { name: 'HeartbeatInterval' },
+            attributeValue: '300',
+          },
+        ],
+      }),
+    },
+  ),
+  s(
+    'POST',
+    '/ocpp/commands/v16/ChangeConfiguration',
+    'stations:write',
+    () => '/ocpp/commands/v16/ChangeConfiguration',
+    'STATION_NOT_FOUND',
+    {
+      unsited: true,
+      body: (f) => ({ stationId: f.ocpp, key: 'HeartbeatInterval', value: '300' }),
+    },
+  ),
+  s(
+    'POST',
+    '/ocpp/commands/v21/SetNetworkProfile',
+    'stations:write',
+    () => '/ocpp/commands/v21/SetNetworkProfile',
+    'STATION_NOT_FOUND',
+    {
+      unsited: true,
+      body: (f) => ({
+        stationId: f.ocpp,
+        configurationSlot: 2,
+        connectionData: {
+          ocppVersion: 'OCPP20',
+          ocppTransport: 'JSON',
+          ocppCsmsUrl: 'wss://csms.example.com/ocpp',
+          messageTimeout: 30,
+          securityProfile: 1,
+          ocppInterface: 'Wired0',
+        },
+      }),
+    },
+  ),
+];
+
 export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   // access-logs, worker-logs: operator-wide logs, all-site only (route not found)
   c('GET', '/access-logs', 'logs:read', () => '/access-logs', 'ROUTE_NOT_FOUND'),
@@ -396,8 +462,10 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
 
-  // automatic insights (network counts for all-site users only)
-  l('/ai/insights', 'aiInsights:read', undefined, { unsited: true, hidden: ['network'] }),
+  // automatic insights: no answer carries all-sites counts (`network`, TC-AI-IC-01)
+  // TC-AI-RI-12: each site also has a reservation insight (`reservationInsight`), which the
+  // restricted actor must not see; the reservationId filter is in 105-ai-insights.
+  l('/ai/insights', 'aiInsights:read', undefined, { unsited: true }),
   s(
     'GET',
     '/ai/insights/:id',
@@ -431,6 +499,19 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'AI_INSIGHT_NOT_FOUND',
     { unsited: true, body: () => ({ helpful: true }) },
   ),
+  s(
+    'DELETE',
+    '/ai/insights/:id/feedback',
+    'aiInsights:write',
+    (f) => `/ai/insights/${f.insight}/feedback`,
+    'AI_INSIGHT_NOT_FOUND',
+    { unsited: true },
+  ),
+  // Votes by kind, no ids in the answer: the dedicated case proves the site filter.
+  l('/ai/insights/feedback-summary', 'aiInsights:read', undefined, {
+    noLimit: true,
+    provenBy: 'TC-AI-FB-17 counts insight votes only at the user sites',
+  }),
   s(
     'POST',
     '/ai/insights/:id/dismiss',
@@ -2062,7 +2143,9 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'RESERVATION_NOT_FOUND',
     {
       unsited: true,
-      body: () => ({ expiresAt: iso(3) }),
+      // Inside reservation.maxHours (3) from the seeded start: an edit
+      // follows the create window rules.
+      body: () => ({ expiresAt: iso(2.5) }),
       control: ctl(
         409,
         'RESERVATION_CONFLICT',
@@ -2089,7 +2172,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     {
       unsited: true,
       body: (_f, w) => ({ newStationOcppId: w.A.ocpp }),
-      control: ctl(400, 'STATION_OFFLINE', OFFLINE),
+      control: ctl(400, 'VALIDATION_ERROR', 'the reservation is already on station A'),
       mixed: [
         {
           url: (a) => `/reservations/${a.reservation}/reassign`,

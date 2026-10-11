@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
 interface CollapsibleProps {
   /** The trigger label. */
   title: string;
-  /** One line shown after the title (while closed, or always). */
+  /** Short text after the title; wraps under it when the row is too narrow, never truncated. */
   summary?: React.ReactNode;
   defaultOpen?: boolean;
   /** Called when the user opens or closes it (for lazy loading the content). */
@@ -20,7 +20,7 @@ interface CollapsibleProps {
 }
 
 /**
- * A disclosure: a full-width trigger row (chevron, title, one-line summary)
+ * A disclosure: a full-width trigger row (chevron, title, short summary)
  * that shows or hides its content in place. The trigger is a real button
  * with `aria-expanded` and `aria-controls`, so Enter and Space toggle it.
  * The content renders only while open, so it can load lazily.
@@ -42,6 +42,7 @@ export function Collapsible({
         type="button"
         variant="outline"
         size="row"
+        className="items-start"
         aria-expanded={open}
         aria-controls={contentId}
         onClick={() => {
@@ -51,13 +52,20 @@ export function Collapsible({
         }}
       >
         <ChevronRight
-          className={cn('h-4 w-4 shrink-0 transition-transform', open && 'rotate-90')}
+          className={cn('mt-0.5 h-4 w-4 shrink-0 transition-transform', open && 'rotate-90')}
           aria-hidden="true"
         />
-        <span className="shrink-0">{title}</span>
-        {summary != null && (
-          <span className="min-w-0 truncate text-muted-foreground">{summary}</span>
-        )}
+        {/* The summary sits beside the title while it fits and wraps under it
+            otherwise (375 px phones), never cut off. The chevron stays on the
+            first line (items-start). */}
+        <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+          <span>{title}</span>
+          {summary != null && (
+            <span className="min-w-0 break-words text-muted-foreground" data-collapsible-summary>
+              {summary}
+            </span>
+          )}
+        </span>
       </Button>
       {open && (
         <div id={contentId} className="min-w-0 pt-2">

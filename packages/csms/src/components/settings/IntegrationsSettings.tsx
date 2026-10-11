@@ -8,6 +8,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Send, ChevronDown } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
 import { Spinner } from '@/components/ui/spinner';
+import { Toggle } from '@/components/ui/toggle';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
@@ -594,19 +595,14 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                     {t('settings.ocppApprovalRequiredHelp')}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={ocppApprovalRequired}
-                  onClick={() => {
+                <Toggle
+                  aria-label={t('settings.ocppApprovalRequired')}
+                  size="lg"
+                  checked={ocppApprovalRequired}
+                  onCheckedChange={() => {
                     setOcppApprovalRequired(!ocppApprovalRequired);
                   }}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${ocppApprovalRequired ? 'bg-primary' : 'bg-muted'}`}
-                >
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${ocppApprovalRequired ? 'translate-x-5' : 'translate-x-0'}`}
-                  />
-                </button>
+                />
               </div>
             </div>
           </CardContent>
@@ -652,20 +648,15 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <div className="space-y-0.5">
                 <Label className="leading-6">{t('settings.roamingEnabled')}</Label>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={roamingEnabled}
-                onClick={() => {
+              <Toggle
+                aria-label={t('settings.roamingEnabled')}
+                size="lg"
+                checked={roamingEnabled}
+                onCheckedChange={() => {
                   roamingMutation.mutate(!roamingEnabled);
                 }}
                 disabled={roamingMutation.isPending}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${roamingEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${roamingEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              />
             </div>
           </CardContent>
         </Card>
@@ -682,20 +673,15 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <div className="space-y-0.5">
                 <Label className="leading-6">{t('settings.pncEnabled')}</Label>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={pncEnabled}
-                onClick={() => {
+              <Toggle
+                aria-label={t('settings.pncEnabled')}
+                size="lg"
+                checked={pncEnabled}
+                onCheckedChange={() => {
                   pncToggleMutation.mutate(!pncEnabled);
                 }}
                 disabled={pncToggleMutation.isPending}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${pncEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${pncEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              />
             </div>
 
             {pncEnabled && (
@@ -910,21 +896,16 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   {t('settings.reservationEnabledDesc')}
                 </p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={reservationEnabled}
-                onClick={() => {
+              <Toggle
+                aria-label={t('settings.reservationEnabled')}
+                size="lg"
+                checked={reservationEnabled}
+                onCheckedChange={() => {
                   setReservationEnabled(!reservationEnabled);
                   reservationMutation.mutate(!reservationEnabled);
                 }}
                 disabled={reservationMutation.isPending}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${reservationEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${reservationEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              />
             </div>
             <div className="mt-4">
               <ReservationSettings settings={settings} />
@@ -943,21 +924,16 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 <Label className="leading-6">{t('settings.supportEnabled')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.supportEnabledDesc')}</p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={supportEnabled}
-                onClick={() => {
+              <Toggle
+                aria-label={t('settings.supportEnabled')}
+                size="lg"
+                checked={supportEnabled}
+                onCheckedChange={() => {
                   setSupportEnabled(!supportEnabled);
                   supportMutation.mutate(!supportEnabled);
                 }}
                 disabled={supportMutation.isPending}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${supportEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${supportEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              />
             </div>
           </CardContent>
         </Card>
@@ -973,21 +949,16 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 <Label className="leading-6">{t('settings.fleetEnabled')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.fleetEnabledDesc')}</p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={fleetEnabled}
-                onClick={() => {
+              <Toggle
+                aria-label={t('settings.fleetEnabled')}
+                size="lg"
+                checked={fleetEnabled}
+                onCheckedChange={() => {
                   setFleetEnabled(!fleetEnabled);
                   fleetMutation.mutate(!fleetEnabled);
                 }}
                 disabled={fleetMutation.isPending}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${fleetEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${fleetEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              />
             </div>
             <div className="mt-4">
               <FleetCreditReservationSettings settings={settings} />
@@ -1008,21 +979,16 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                   {t('settings.guestChargingEnabledDesc')}
                 </p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={guestChargingEnabled}
-                onClick={() => {
+              <Toggle
+                aria-label={t('settings.guestChargingEnabled')}
+                size="lg"
+                checked={guestChargingEnabled}
+                onCheckedChange={() => {
                   setGuestChargingEnabled(!guestChargingEnabled);
                   guestChargingMutation.mutate(!guestChargingEnabled);
                 }}
                 disabled={guestChargingMutation.isPending}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${guestChargingEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${guestChargingEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              />
             </div>
           </CardContent>
         </Card>
@@ -1149,19 +1115,14 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
                 <Label className="leading-6">{t('settings.splitBilling')}</Label>
                 <p className="text-xs text-muted-foreground">{t('settings.splitBillingDesc')}</p>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={splitBillingEnabled}
-                onClick={() => {
+              <Toggle
+                aria-label={t('settings.splitBilling')}
+                size="lg"
+                checked={splitBillingEnabled}
+                onCheckedChange={() => {
                   setSplitBillingEnabled((v) => !v);
                 }}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${splitBillingEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${splitBillingEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              />
             </div>
 
             <SaveButton
@@ -1580,19 +1541,14 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
               <div className="space-y-0.5">
                 <Label className="leading-6">{t('settings.sentryEnabled')}</Label>
               </div>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={sentryEnabled}
-                onClick={() => {
+              <Toggle
+                aria-label={t('settings.sentryEnabled')}
+                size="lg"
+                checked={sentryEnabled}
+                onCheckedChange={() => {
                   setSentryEnabled(!sentryEnabled);
                 }}
-                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${sentryEnabled ? 'bg-primary' : 'bg-muted'}`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${sentryEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-                />
-              </button>
+              />
             </div>
 
             <div className="grid gap-4 max-w-md">

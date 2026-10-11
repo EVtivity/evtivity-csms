@@ -3,7 +3,8 @@
 
 /**
  * Automatic insights: the only writer of `ai_insights`, `ai_insight_texts`,
- * `ai_insight_cooldowns` and `ai_insight_scan_state` (P3; the retention cron
+ * `ai_insight_cooldowns`, `ai_insight_scan_state`, `ai_insight_feedback` and
+ * `ai_insight_audit_log` (P3; the retention cron
  * deletes expired rows), and the reads the API, Explain and the support
  * draft share.
  *
@@ -13,9 +14,10 @@
  * insight.
  */
 
-import { and, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
 import {
   aiInsightAuditLog,
+  aiInsightFeedback,
   aiInsights,
   aiInsightTexts,
   client,
@@ -29,10 +31,14 @@ import {
   INSIGHT_KINDS,
   insightFixSchema,
   insightScopeSchema,
+  RESERVATION_INSIGHT_KINDS,
 } from '@evtivity/lib/ai-insights';
 import type {
   AiInsightDto,
   InsightConfidence,
+  InsightFeedbackFilter,
+  InsightFeedbackRate,
+  InsightFeedbackSummary,
   InsightFix,
   InsightGenerator,
   InsightKind,
@@ -43,7 +49,6 @@ import type {
   RootCauseCategory,
 } from '@evtivity/lib/ai-insights';
 import type { InsightSubjectType } from './ai-evidence/pack.js';
-import { scopeForViewer } from './ai-evidence/scope.js';
 import { currentFingerprints } from './ai-evidence/state.js';
 
 const log = createLogger('ai-insight-service');
@@ -81,6 +86,7 @@ export interface NewInsight {
   stationId?: string | null;
   sessionId?: string | null;
   authorizeAttemptId?: number | null;
+  reservationId?: string | null;
   parentInsightId?: string | null;
   /** `superseded`: a member of a site incident, never generated on its own. */
   status?: 'pending' | 'superseded';
@@ -105,6 +111,7 @@ export async function createInsight(input: NewInsight): Promise<string | null> {
       stationId: input.stationId ?? null,
       sessionId: input.sessionId ?? null,
       authorizeAttemptId: input.authorizeAttemptId ?? null,
+      reservationId: input.reservationId ?? null,
       parentInsightId: input.parentInsightId ?? null,
       status: input.status ?? 'pending',
       requestedBy: input.requestedBy ?? null,
@@ -330,20 +337,160 @@ export async function dismissInsight(id: string, actor: InsightAuditActor): Prom
   return true;
 }
 
-/** Records an operator's verdict on an insight (audit only). */
-export async function recordInsightFeedback(
-  id: string,
-  helpful: boolean,
+export interface InsightFeedbackInput {
+  helpful: boolean;
+  /**
+   * The note on a wrong vote (untrusted, stored only). Undefined keeps the
+   * stored note while the vote stays wrong; null or blank removes it. A
+   * helpful vote has none.
+   */
+  reason?: string | null | undefined;
+}
+
+export type InsightFeedbackResult = 'created' | 'changed' | 'unchanged';
+
+function cleanReason(reason: string | null | undefined): string | null | undefined {
+  if (reason === undefined) return undefined;
+  const trimmed = reason?.trim() ?? '';
+  return trimmed === '' ? null : trimmed;
+}
+
+/**
+ * Sets or changes a user's vote on an insight: one row per user and insight
+ * (idempotent upsert on `(insight_id, user_id)`, P7). Audited only when the
+ * vote or its note changed: a repeated identical vote writes nothing. The
+ * audit holds whether a note was given, never the note.
+ */
+export async function setInsightFeedback(
+  insightId: string,
+  userId: string,
+  input: InsightFeedbackInput,
   actor: InsightAuditActor,
-): Promise<void> {
-  await auditInsight(id, helpful ? 'feedback_helpful' : 'feedback_wrong', actor, { helpful });
+): Promise<InsightFeedbackResult> {
+  const given = cleanReason(input.reason);
+  const outcome = await db.transaction(async (tx) => {
+    const [prev] = await tx
+      .select({ helpful: aiInsightFeedback.helpful, reason: aiInsightFeedback.reason })
+      .from(aiInsightFeedback)
+      .where(and(eq(aiInsightFeedback.insightId, insightId), eq(aiInsightFeedback.userId, userId)))
+      .for('update')
+      .limit(1);
+    let reason: string | null = null;
+    if (!input.helpful) {
+      if (given !== undefined) reason = given;
+      else if (prev != null && !prev.helpful) reason = prev.reason;
+    }
+    if (prev != null && prev.helpful === input.helpful && prev.reason === reason) {
+      return { result: 'unchanged' as const, prev, reason };
+    }
+    const rows = await tx
+      .insert(aiInsightFeedback)
+      .values({ insightId, userId, helpful: input.helpful, reason })
+      .onConflictDoUpdate({
+        target: [aiInsightFeedback.insightId, aiInsightFeedback.userId],
+        set: { helpful: input.helpful, reason, updatedAt: sql`now()` },
+        // A concurrent identical vote changes nothing (no second audit row).
+        setWhere: sql`(${aiInsightFeedback.helpful}, ${aiInsightFeedback.reason}) IS DISTINCT FROM (excluded.helpful, excluded.reason)`,
+      })
+      .returning({ insightId: aiInsightFeedback.insightId });
+    if (rows.length === 0) return { result: 'unchanged' as const, prev, reason };
+    return { result: prev == null ? ('created' as const) : ('changed' as const), prev, reason };
+  });
+  if (outcome.result === 'unchanged') return 'unchanged';
+  await auditInsight(
+    insightId,
+    input.helpful ? 'feedback_helpful' : 'feedback_wrong',
+    actor,
+    { helpful: input.helpful, reasonGiven: outcome.reason != null },
+    outcome.prev == null
+      ? null
+      : { helpful: outcome.prev.helpful, reasonGiven: outcome.prev.reason != null },
+  );
+  return outcome.result;
+}
+
+/** Removes a user's vote, audited as `feedback_cleared`. False when there was none. */
+export async function clearInsightFeedback(
+  insightId: string,
+  userId: string,
+  actor: InsightAuditActor,
+): Promise<boolean> {
+  const [removed] = await db
+    .delete(aiInsightFeedback)
+    .where(and(eq(aiInsightFeedback.insightId, insightId), eq(aiInsightFeedback.userId, userId)))
+    .returning({ helpful: aiInsightFeedback.helpful, reason: aiInsightFeedback.reason });
+  if (removed == null) return false;
+  await auditInsight(
+    insightId,
+    'feedback_cleared',
+    actor,
+    { helpful: null },
+    { helpful: removed.helpful, reasonGiven: removed.reason != null },
+  );
+  return true;
+}
+
+/** The vote counts of an insight and the viewer's own vote, in one aggregate query. */
+export async function insightFeedbackSummary(
+  insightId: string,
+  userId: string,
+): Promise<InsightFeedbackSummary> {
+  const [row] = await db
+    .select({
+      helpfulCount: sql<number>`count(*) FILTER (WHERE ${aiInsightFeedback.helpful})::int`,
+      wrongCount: sql<number>`count(*) FILTER (WHERE NOT ${aiInsightFeedback.helpful})::int`,
+      mine: sql<
+        boolean | null
+      >`bool_or(${aiInsightFeedback.helpful}) FILTER (WHERE ${aiInsightFeedback.userId} = ${userId})`,
+    })
+    .from(aiInsightFeedback)
+    .where(eq(aiInsightFeedback.insightId, insightId));
+  return {
+    helpfulCount: row?.helpfulCount ?? 0,
+    wrongCount: row?.wrongCount ?? 0,
+    mine: row?.mine ?? null,
+  };
+}
+
+/**
+ * Votes given in the last `days` days by insight kind, on insights in the
+ * user's sites (unsited ones for all-site users only). The Settings quality
+ * summary. Read only: votes never feed any prompt.
+ */
+export async function insightFeedbackRates(
+  siteIds: readonly string[] | null,
+  options: { days: number; excludeReservations: boolean },
+): Promise<InsightFeedbackRate[]> {
+  const conditions: SQL[] = [
+    sql`${aiInsightFeedback.updatedAt} >= now() - make_interval(days => ${options.days})`,
+  ];
+  const scope = insightSiteCondition(siteIds);
+  if (scope != null) conditions.push(scope);
+  if (options.excludeReservations) {
+    conditions.push(notInArray(aiInsights.kind, [...RESERVATION_INSIGHT_KINDS]));
+  }
+  const rows = await db
+    .select({
+      kind: aiInsights.kind,
+      helpful: sql<number>`count(*) FILTER (WHERE ${aiInsightFeedback.helpful})::int`,
+      wrong: sql<number>`count(*) FILTER (WHERE NOT ${aiInsightFeedback.helpful})::int`,
+    })
+    .from(aiInsightFeedback)
+    .innerJoin(aiInsights, eq(aiInsights.id, aiInsightFeedback.insightId))
+    .where(and(...conditions))
+    .groupBy(aiInsights.kind)
+    .orderBy(aiInsights.kind);
+  return rows.flatMap((r) =>
+    isKind(r.kind) ? [{ kind: r.kind, helpful: r.helpful, wrong: r.wrong }] : [],
+  );
 }
 
 async function auditInsight(
   id: string,
-  action: 'regenerated' | 'dismissed' | 'feedback_helpful' | 'feedback_wrong',
+  action: 'regenerated' | 'dismissed' | 'feedback_helpful' | 'feedback_wrong' | 'feedback_cleared',
   actor: InsightAuditActor,
   after: Record<string, unknown>,
+  before: Record<string, unknown> | null = null,
 ): Promise<void> {
   await writeAudit(
     { table: aiInsightAuditLog, idColumn: 'ai_insight_id' },
@@ -354,6 +501,7 @@ async function auditInsight(
       actor: actor.actor,
       actorUserId: actor.actorUserId ?? null,
       actorApiKeyId: actor.actorApiKeyId ?? null,
+      before,
       after,
     },
     db,
@@ -420,6 +568,7 @@ export async function regenerateInsight(
         stationId: old.stationId,
         sessionId: old.sessionId,
         authorizeAttemptId: old.authorizeAttemptId,
+        reservationId: old.reservationId,
         primaryLanguage: old.primaryLanguage,
         status: 'pending',
         requestedBy: actor.actorUserId,
@@ -602,6 +751,7 @@ export async function getInsightRow(id: string): Promise<AiInsightRow | null> {
 export interface InsightListFilter {
   stationId?: string;
   sessionId?: string;
+  reservationId?: string;
   siteId?: string;
   kind?: InsightKind;
   status?: InsightStatus;
@@ -614,6 +764,13 @@ export interface InsightListFilter {
    * insight's first attempt, so grouped refusals match too).
    */
   authorizeAttemptIds?: readonly number[];
+  /**
+   * Leaves out reservation insights: set while the reservation feature is off
+   * (`reservation.enabled`). The rows stay stored and show again once it is on.
+   */
+  excludeReservations?: boolean;
+  /** Insights someone marked helpful, or wrong (any user's vote). */
+  feedback?: InsightFeedbackFilter;
 }
 
 /** The SQL test that an attempt `a` belongs to the authorization insight's group. */
@@ -672,12 +829,31 @@ export async function listInsightRows(
   const conditions: SQL[] = [];
   const scope = insightSiteCondition(siteIds);
   if (scope != null) conditions.push(scope);
-  if (filter.stationId != null) conditions.push(eq(aiInsights.stationId, filter.stationId));
+  if (filter.stationId != null) {
+    conditions.push(eq(aiInsights.stationId, filter.stationId));
+    // A station's insights are about the station and its sessions: reservation
+    // insights (a no-show says nothing about the station) are read by reservation.
+    if (filter.reservationId == null && filter.kind == null) {
+      conditions.push(notInArray(aiInsights.kind, [...RESERVATION_INSIGHT_KINDS]));
+    }
+  }
+  if (filter.excludeReservations === true) {
+    conditions.push(notInArray(aiInsights.kind, [...RESERVATION_INSIGHT_KINDS]));
+  }
   if (filter.sessionId != null) conditions.push(eq(aiInsights.sessionId, filter.sessionId));
+  if (filter.reservationId != null) {
+    conditions.push(eq(aiInsights.reservationId, filter.reservationId));
+  }
   if (filter.siteId != null) conditions.push(eq(aiInsights.siteId, filter.siteId));
   if (filter.kind != null) conditions.push(eq(aiInsights.kind, filter.kind));
   if (filter.status != null) conditions.push(eq(aiInsights.status, filter.status));
   if (filter.category != null) conditions.push(eq(aiInsights.category, filter.category));
+  if (filter.feedback != null) {
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM ai_insight_feedback f
+      WHERE f.insight_id = ${aiInsights.id} AND f.helpful = ${filter.feedback === 'helpful'}
+    )`);
+  }
   if (filter.authorizeAttemptIds != null) {
     if (filter.authorizeAttemptIds.length === 0) {
       conditions.push(sql`false`);
@@ -757,8 +933,6 @@ export async function insightTexts(
 
 export interface InsightViewOptions {
   language: string;
-  /** All-site viewer: sees `scope.network`. */
-  allSites: boolean;
   stale: boolean;
 }
 
@@ -796,7 +970,8 @@ export function toInsightDto(
   } else if (row.status === 'pending') {
     textStatus = 'pending';
   }
-  const scope = scopeForViewer(parseJson(insightScopeSchema, row.scope, {}), options.allSites);
+  // The schema keeps the site counts only: a key left from an older release is dropped.
+  const scope = parseJson(insightScopeSchema, row.scope, {});
   const fixes = Array.isArray(row.fixes)
     ? (row.fixes as unknown[]).flatMap((f) => {
         const parsed = insightFixSchema.safeParse(f);
@@ -812,6 +987,7 @@ export function toInsightDto(
     stationId: row.stationId,
     sessionId: row.sessionId,
     authorizeAttemptId: row.authorizeAttemptId,
+    reservationId: row.reservationId,
     parentInsightId: row.parentInsightId,
     category: row.category,
     confidence: row.confidence,
@@ -851,6 +1027,7 @@ export async function staleFlags(rows: readonly AiInsightRow[]): Promise<Map<str
       stationId: r.stationId,
       sessionId: r.sessionId,
       authorizeAttemptId: r.authorizeAttemptId,
+      reservationId: r.reservationId,
     })),
   );
   const out = new Map<string, boolean>();
@@ -862,18 +1039,18 @@ export async function staleFlags(rows: readonly AiInsightRow[]): Promise<Map<str
 }
 
 export interface InsightSubjectQuery {
-  kind: 'station' | 'session' | 'authorization';
+  kind: 'station' | 'session' | 'authorization' | 'reservation';
   stationId: string | null;
   sessionId: string | null;
   authorizeAttemptId: number | null;
+  reservationId: string | null;
 }
 
 /**
  * The newest active, not stale insight of a record, for Explain: its text in
  * `language` when that translation is ready, else the canonical text. Reads
  * only: no model call and no translation request (Explain spends no tokens
- * on the insight). The caller has checked the record's site scope; network
- * counts are left out.
+ * on the insight). The caller has checked the record's site scope.
  */
 export async function latestActiveInsight(
   subject: InsightSubjectQuery,
@@ -889,6 +1066,12 @@ export async function latestActiveInsight(
   } else if (subject.kind === 'session') {
     if (subject.sessionId == null) return null;
     conditions.push(eq(aiInsights.sessionId, subject.sessionId));
+  } else if (subject.kind === 'reservation') {
+    if (subject.reservationId == null) return null;
+    conditions.push(
+      eq(aiInsights.reservationId, subject.reservationId),
+      inArray(aiInsights.kind, [...RESERVATION_INSIGHT_KINDS]),
+    );
   } else {
     if (subject.authorizeAttemptId == null || subject.stationId == null) return null;
     // The insights of the same token at the station: their first refused
@@ -918,7 +1101,6 @@ export async function latestActiveInsight(
   const shown = requestedReady || texts?.primary == null ? texts : { requested: texts.primary };
   return toInsightDto(row, shown, {
     language: requestedReady ? language : row.primaryLanguage,
-    allSites: false,
     stale: false,
   });
 }

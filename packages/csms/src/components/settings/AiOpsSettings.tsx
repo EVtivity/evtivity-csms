@@ -1,8 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import type { ParseKeys } from 'i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
@@ -28,6 +29,7 @@ import { AiModelField } from '@/components/ai/AiModelField';
 import type { AiDefaults } from '@/components/ai/use-ai-defaults';
 import { isCustomModel, isDefaultPrompt } from '@/components/ai/use-ai-defaults';
 import { AiSystemPromptField } from '@/components/ai/AiSystemPromptField';
+import { InsightQualityCard } from '@/components/ai/insights/InsightQualityCard';
 import { SaveButton } from '@/components/save-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,10 +38,13 @@ import { Label } from '@/components/ui/label';
 import { LanguageSelect } from '@/components/ui/language-select';
 import { Textarea } from '@/components/ui/textarea';
 import { Toggle } from '@/components/ui/toggle';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { api } from '@/lib/api';
 import { API_BASE_URL } from '@/lib/config';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
+import { AiAdvancedOptions, AiPromptSummary } from './AiAdvancedOptions';
+import { useLoadedValues } from './ai-settings-save';
 
 /**
  * Settings > AI panels: the system-initiated surface (`opsAi.*`), automatic insights (`aiInsights.*`),
@@ -55,7 +60,7 @@ type FieldSpec =
   | { kind: 'flag'; key: AiFlagSettingKey; label: ParseKeys; help?: ParseKeys }
   | { kind: 'number'; key: AiThresholdSettingKey; label: ParseKeys }
   | { kind: 'language'; key: string; label: ParseKeys }
-  | { kind: 'origins'; key: string; label: ParseKeys; help: ParseKeys };
+  | { kind: 'origins'; key: string; label: ParseKeys; help: ParseKeys; advanced: true };
 
 function storedValue(settings: Record<string, unknown> | undefined, key: string): unknown {
   return settings?.[key] ?? AI_SETTING_DEFAULTS[key];
@@ -92,27 +97,6 @@ function fieldValue(f: FieldSpec, v: FieldValue): unknown {
       return parseAiMcpAllowedOrigins(lines) ?? undefined;
     }
   }
-}
-
-/**
- * Form values loaded from the settings. A settings refetch (another card's
- * save, a toggle, window focus) replaces them only while the form is clean,
- * so edits in progress survive it; after this form's own save they equal
- * the new values.
- */
-function useLoadedValues<T extends Record<string, unknown>>(
-  loaded: T,
-): [T, React.Dispatch<React.SetStateAction<T>>] {
-  const [values, setValues] = useState<T>(loaded);
-  const loadedKey = JSON.stringify(loaded);
-  const previous = useRef(loadedKey);
-  useEffect(() => {
-    if (previous.current === loadedKey) return;
-    const before = previous.current;
-    previous.current = loadedKey;
-    setValues((current) => (JSON.stringify(current) === before ? loaded : current));
-  }, [loadedKey, loaded]);
-  return [values, setValues];
 }
 
 interface KeysCardProps {
@@ -166,6 +150,13 @@ function AiKeysCard({
     fields.filter((f) => fieldValue(f, values[f.key] ?? '') === undefined).map((f) => f.key),
   );
   const dirty = fields.some((f) => values[f.key] !== loaded[f.key]);
+  const basicFields = fields.filter(
+    (f): f is Exclude<FieldSpec, { kind: 'origins' }> => f.kind !== 'origins',
+  );
+  const advancedFields = fields.filter(
+    (f): f is Extract<FieldSpec, { kind: 'origins' }> => f.kind === 'origins',
+  );
+  const advancedError = hasSubmitted && advancedFields.some((f) => invalid.has(f.key));
   const set = (key: string, v: FieldValue): void => {
     setValues((prev) => ({ ...prev, [key]: v }));
     save.reset();
@@ -180,7 +171,7 @@ function AiKeysCard({
       <CardContent className="space-y-6">
         {intro}
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {fields.map((f) => {
+          {basicFields.map((f) => {
             const id = `ai-setting-${f.key.replace(/\./g, '-')}`;
             const showError = hasSubmitted && invalid.has(f.key);
             if (f.kind === 'flag') {
@@ -223,33 +214,6 @@ function AiKeysCard({
                 </div>
               );
             }
-            if (f.kind === 'origins') {
-              return (
-                <div key={f.key} className="space-y-2 md:col-span-2">
-                  <Label htmlFor={id} className="leading-6">
-                    {t(f.label)}
-                  </Label>
-                  <Textarea
-                    id={id}
-                    rows={3}
-                    disabled={!canWrite}
-                    aria-invalid={showError}
-                    className={showError ? 'border-destructive font-mono' : 'font-mono'}
-                    value={String(values[f.key] ?? '')}
-                    onChange={(e) => {
-                      set(f.key, e.target.value);
-                    }}
-                  />
-                  <p
-                    className={
-                      showError ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'
-                    }
-                  >
-                    {showError ? t('settings.aiMcp.allowedOriginsInvalid') : t(f.help)}
-                  </p>
-                </div>
-              );
-            }
             const { min, max } = AI_THRESHOLD_SETTINGS[f.key];
             return (
               <div key={f.key} className="space-y-2">
@@ -285,6 +249,51 @@ function AiKeysCard({
             );
           })}
         </div>
+        {advancedFields.length > 0 && (
+          // A refused value stays visible in the summary while the disclosure is closed.
+          <AiAdvancedOptions
+            summary={
+              advancedError ? (
+                <span className="text-destructive">
+                  {t('settings.aiMcp.allowedOriginsInvalid')}
+                </span>
+              ) : undefined
+            }
+            data-testid={`${testId}-advanced`}
+          >
+            <div className="space-y-4">
+              {advancedFields.map((f) => {
+                const id = `ai-setting-${f.key.replace(/\./g, '-')}`;
+                const showError = hasSubmitted && invalid.has(f.key);
+                return (
+                  <div key={f.key} className="space-y-2">
+                    <Label htmlFor={id} className="leading-6">
+                      {t(f.label)}
+                    </Label>
+                    <Textarea
+                      id={id}
+                      rows={3}
+                      disabled={!canWrite}
+                      aria-invalid={showError}
+                      className={showError ? 'border-destructive font-mono' : 'font-mono'}
+                      value={String(values[f.key] ?? '')}
+                      onChange={(e) => {
+                        set(f.key, e.target.value);
+                      }}
+                    />
+                    <p
+                      className={
+                        showError ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'
+                      }
+                    >
+                      {showError ? t('settings.aiMcp.allowedOriginsInvalid') : t(f.help)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </AiAdvancedOptions>
+        )}
         {save.isError && (
           <p className="text-sm text-destructive">
             {getErrorMessage(save.error, t, 'settings.aiSaveFailed')}
@@ -329,6 +338,11 @@ const INSIGHT_FIELDS: readonly FieldSpec[] = [
     kind: 'flag',
     key: AI_INSIGHT_SETTING_KEYS.authorizationEnabled,
     label: 'settings.aiInsightsSettings.authorization',
+  },
+  {
+    kind: 'flag',
+    key: AI_INSIGHT_SETTING_KEYS.reservationEnabled,
+    label: 'settings.aiInsightsSettings.reservation',
   },
   {
     kind: 'language',
@@ -420,6 +434,7 @@ const MCP_FIELDS: readonly FieldSpec[] = [
     key: AI_MCP_SETTING_KEYS.allowedOrigins,
     label: 'settings.aiMcp.allowedOrigins',
     help: 'settings.aiMcp.allowedOriginsHint',
+    advanced: true,
   },
 ];
 
@@ -581,18 +596,25 @@ function AiOpsSurfaceCard({
             />
           </div>
         </div>
-        <AiSystemPromptField
-          id="opsAi-system-prompt"
-          defaults={aiDefaults?.ops}
-          disabled={!canWrite}
-          value={values[OPS_AI_SETTING_KEYS.systemPrompt] ?? ''}
-          savedValue={loaded[OPS_AI_SETTING_KEYS.systemPrompt] ?? ''}
-          onChange={set(OPS_AI_SETTING_KEYS.systemPrompt)}
-          resetPending={resetPrompt.isPending}
-          onReset={() => {
-            resetPrompt.mutate();
-          }}
-        />
+        <AiAdvancedOptions
+          summary={
+            <AiPromptSummary custom={(values[OPS_AI_SETTING_KEYS.systemPrompt] ?? '') !== ''} />
+          }
+          data-testid="opsAi-advanced"
+        >
+          <AiSystemPromptField
+            id="opsAi-system-prompt"
+            defaults={aiDefaults?.ops}
+            disabled={!canWrite}
+            value={values[OPS_AI_SETTING_KEYS.systemPrompt] ?? ''}
+            savedValue={loaded[OPS_AI_SETTING_KEYS.systemPrompt] ?? ''}
+            onChange={set(OPS_AI_SETTING_KEYS.systemPrompt)}
+            resetPending={resetPrompt.isPending}
+            onReset={() => {
+              resetPrompt.mutate();
+            }}
+          />
+        </AiAdvancedOptions>
         {resetPrompt.isError && (
           <p className="text-sm text-destructive">
             {getErrorMessage(resetPrompt.error, t, 'settings.aiSaveFailed')}
@@ -656,16 +678,35 @@ function McpConnectionInfo(): React.JSX.Element {
   );
 }
 
-/** The four v0.1.44 panels, in the order they apply: surface, insights, workers, MCP. */
-export function AiOpsSettings({
+interface OpsTabProps {
+  settings: Record<string, unknown> | undefined;
+  canWrite: boolean;
+}
+
+/**
+ * Settings > AI > Automatic insights: the system-initiated surface, which
+ * insights and background workers share, then the insight settings and the
+ * quality summary (helpful rate by kind, last 30 days).
+ */
+export function AiInsightsSettings({
   settings,
   canWrite,
   aiDefaults,
-}: {
-  settings: Record<string, unknown> | undefined;
-  canWrite: boolean;
-  aiDefaults: AiDefaults | undefined;
-}): React.JSX.Element {
+}: OpsTabProps & { aiDefaults: AiDefaults | undefined }): React.JSX.Element {
+  const { t } = useTranslation();
+  // Reservation insights exist only while reservations are on (owner rule
+  // v0.1.45): the switch shows then, else a line that links to the setting.
+  const { flags, isLoaded } = useFeatureFlags();
+  const reservationsOff = isLoaded && !flags.reservationEnabled;
+  // The switch waits for the answer, so it never flashes before disappearing.
+  const showReservationSwitch = isLoaded && flags.reservationEnabled;
+  const fields = useMemo(
+    () =>
+      showReservationSwitch
+        ? INSIGHT_FIELDS
+        : INSIGHT_FIELDS.filter((f) => f.key !== AI_INSIGHT_SETTING_KEYS.reservationEnabled),
+    [showReservationSwitch],
+  );
   return (
     <>
       <AiOpsSurfaceCard settings={settings} canWrite={canWrite} aiDefaults={aiDefaults} />
@@ -673,26 +714,52 @@ export function AiOpsSettings({
         settings={settings}
         canWrite={canWrite}
         title="settings.aiInsightsSettings.title"
-        fields={INSIGHT_FIELDS}
+        fields={fields}
         testId="ai-insights-settings"
+        intro={
+          reservationsOff ? (
+            <p className="text-sm text-muted-foreground" data-testid="ai-reservation-insights-off">
+              {t('settings.aiInsightsSettings.reservationOff')}{' '}
+              <Link
+                to="/settings?tab=integrations&sub=reservation"
+                className="text-link hover:underline"
+              >
+                {t('settings.aiInsightsSettings.reservationOffLink')}
+              </Link>
+            </p>
+          ) : undefined
+        }
       />
-      <AiKeysCard
-        settings={settings}
-        canWrite={canWrite}
-        title="aiWorkers.title"
-        description="aiWorkers.description"
-        fields={WORKER_FIELDS}
-        testId="ai-workers-settings"
-      />
-      <AiKeysCard
-        settings={settings}
-        canWrite={canWrite}
-        title="settings.aiMcp.title"
-        description="settings.aiMcp.description"
-        fields={MCP_FIELDS}
-        testId="ai-mcp-settings"
-        intro={<McpConnectionInfo />}
-      />
+      <InsightQualityCard />
     </>
+  );
+}
+
+/** Settings > AI > Background workers. They run on the Automatic insights surface. */
+export function AiWorkersSettings({ settings, canWrite }: OpsTabProps): React.JSX.Element {
+  return (
+    <AiKeysCard
+      settings={settings}
+      canWrite={canWrite}
+      title="aiWorkers.title"
+      description="aiWorkers.description"
+      fields={WORKER_FIELDS}
+      testId="ai-workers-settings"
+    />
+  );
+}
+
+/** Settings > AI > MCP: the server settings and how to connect a client. */
+export function AiMcpSettings({ settings, canWrite }: OpsTabProps): React.JSX.Element {
+  return (
+    <AiKeysCard
+      settings={settings}
+      canWrite={canWrite}
+      title="settings.aiMcp.title"
+      description="settings.aiMcp.description"
+      fields={MCP_FIELDS}
+      testId="ai-mcp-settings"
+      intro={<McpConnectionInfo />}
+    />
   );
 }

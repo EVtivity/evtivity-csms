@@ -11,10 +11,10 @@
  * `idToken`, which the redactor replaces by a short hash.
  */
 
-import { createHmac } from 'node:crypto';
 import { client, toIsoOrNull } from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
 import type { EvidenceItem, EvidencePack } from './pack.js';
+import { keyedSubjectHash } from './subject-hash.js';
 
 export const AUTHORIZATION_ATTEMPT_LIMIT = 10;
 
@@ -29,7 +29,7 @@ export function authorizationSubjectId(
   idToken: string,
   secret: string,
 ): string {
-  return `${stationDbId}:${createHmac('sha256', secret).update(idToken).digest('hex').slice(0, 24)}`;
+  return `${stationDbId}:${keyedSubjectHash(idToken, secret)}`;
 }
 
 export interface AuthorizationAttemptRow {

@@ -57,6 +57,9 @@ const aiDefaultsResponse = z
     ops: surfaceDefaults.describe(
       'System-initiated AI defaults (automatic insights, background workers): the built-in opsAi prompt',
     ),
+    driver: surfaceDefaults.describe(
+      'Driver support defaults (portal and mobile app): the built-in driverAi prompt and the rules always added',
+    ),
     providers: z.array(providerModels).describe('Known models per provider'),
   })
   .passthrough();

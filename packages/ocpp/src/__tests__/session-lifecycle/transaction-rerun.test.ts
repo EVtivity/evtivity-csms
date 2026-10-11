@@ -120,7 +120,8 @@ function route(text: string, values: unknown[]): unknown[] {
   if (text.includes('INSERT INTO charging_sessions')) return [{ id: 'session-1' }];
   if (text.includes('SELECT is_roaming')) return [{ is_roaming: false }];
   if (text.includes('SELECT driver_id FROM charging_sessions')) return [{ driver_id: db.driverId }];
-  if (text.includes('FROM driver_tokens')) return db.tokenRow != null ? [db.tokenRow] : [];
+  if (text.includes('FROM driver_tokens') && !text.includes('JOIN reservations r'))
+    return db.tokenRow != null ? [db.tokenRow] : [];
   if (text.includes('UPDATE charging_sessions SET driver_id')) return [];
   if (text.includes('FROM guest_sessions')) {
     // TransactionStarted moves the guest session to charging, so a second
@@ -135,13 +136,32 @@ function route(text: string, values: unknown[]): unknown[] {
       },
     ];
   }
-  if (text.includes('token_id FROM reservations')) {
-    // The active reservation, or the one the session is already linked to
-    // when the statement matches that too.
-    const linkedMatch = text.includes('r.id = (SELECT cs.reservation_id');
+  if (text.includes('JOIN reservations r ON r.station_id = cs.station_id')) {
+    // The echoed reservation while active, or the one the session is already
+    // linked to. The holder (drv-1) started it with another of their cards.
+    // A Started without a reservation id finds no hold in its window.
+    const echoed = text.includes('AND r.reservation_id = ?');
     const found =
-      db.reservationStatus === 'active' || (linkedMatch && db.sessionReservationId === 'res-1');
-    return found ? [{ id: 'res-1', token_id: 'tok-1' }] : [];
+      (echoed && db.reservationStatus === 'active') || db.sessionReservationId === 'res-1';
+    return found
+      ? [
+          {
+            id: 'res-1',
+            reservation_id: 7,
+            driver_id: 'drv-1',
+            token_id: 'tok-0',
+            evse_id: null,
+            status: db.reservationStatus,
+            expires_at: '2030-01-01 00:00:00+00',
+            session_driver_id: 'drv-1',
+            session_token_id: 'tok-1',
+            session_evse_id: 'evse-1',
+            session_reservation_id: db.sessionReservationId,
+            id_token_id: 'tok-1',
+            id_token_driver_id: 'drv-1',
+          },
+        ]
+      : [];
   }
   if (text.includes('UPDATE charging_sessions SET reservation_id')) {
     db.sessionReservationId = 'res-1';
@@ -150,9 +170,8 @@ function route(text: string, values: unknown[]): unknown[] {
   if (text.includes("UPDATE reservations SET status = 'in_use'")) {
     if (db.reservationStatus !== 'active') return [];
     db.reservationStatus = 'in_use';
-    return [{ id: 'res-1', driver_id: 'drv-1' }];
+    return [{ id: 'res-1' }];
   }
-  if (text.includes('SELECT token_id FROM charging_sessions')) return [{ token_id: 'tok-1' }];
   if (text.includes('SELECT reservation_id FROM charging_sessions')) {
     return [{ reservation_id: db.sessionReservationId }];
   }
@@ -495,13 +514,13 @@ describe('TransactionEvent Started tariff time (B5)', () => {
 describe('TransactionEvent Started run again after a lost connection', () => {
   it('keeps the reservation link and writes each effect once when the reservation step fails', async () => {
     db.tokenRow = { id: 'tok-1', driver_id: 'drv-1', prepaid_balance_cents: null };
-    // The reservation token check runs after the transaction event, the
-    // tariff segment and the reservation moving to in_use.
-    failOn = { match: 'SELECT token_id FROM charging_sessions', code: 'CONNECT_TIMEOUT', left: 1 };
+    // The reservation token mismatch marker is written after the transaction
+    // event, the tariff segment and the reservation moving to in_use.
+    failOn = { match: 'reservationTokenMismatch', code: 'CONNECT_TIMEOUT', left: 1 };
 
     await projectWithRetry(startedEvent({ reservationId: 7 }));
 
-    expect(countCalls('SELECT token_id FROM charging_sessions')).toBe(2);
+    expect(countCalls('reservationTokenMismatch')).toBe(2);
     expect(countCalls('INSERT INTO transaction_events')).toBe(1);
     expect(countCalls('INSERT INTO session_tariff_segments')).toBe(1);
     expect(mockWriteReservationAudit).toHaveBeenCalledTimes(1);
@@ -668,11 +687,11 @@ describe('TransactionEvent Started run again after a lost connection', () => {
 
   it('gates the session on the last run when the reservation link keeps failing', async () => {
     db.tokenRow = { id: 'tok-1', driver_id: 'drv-1', prepaid_balance_cents: null };
-    failOn = { match: 'SELECT token_id FROM charging_sessions', code: 'CONNECT_TIMEOUT', left: 3 };
+    failOn = { match: 'reservationTokenMismatch', code: 'CONNECT_TIMEOUT', left: 3 };
 
     await projectWithRetry(startedEvent({ reservationId: 7 }));
 
-    expect(countCalls('SELECT token_id FROM charging_sessions')).toBe(3);
+    expect(countCalls('reservationTokenMismatch')).toBe(3);
     expect(mockAuthorizeSessionHold).toHaveBeenCalledTimes(1);
     expect(drain).toHaveBeenCalledTimes(1);
   });

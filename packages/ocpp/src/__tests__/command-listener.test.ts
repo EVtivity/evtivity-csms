@@ -284,6 +284,42 @@ describe('CommandListener', () => {
     );
   });
 
+  it('never queues a station credential change for an offline station', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new Error('Station CS-001 is not connected'),
+    );
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-pw',
+        stationId: 'CS-001',
+        action: 'SetVariables',
+        payload: {
+          setVariableData: [
+            {
+              component: { name: 'SecurityCtrlr' },
+              variable: { name: 'BasicAuthPassword' },
+              attributeValue: 'SeedStationPass1234',
+            },
+          ],
+        },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    const types = eventBus.publish.mock.calls.map((c) => c[0].eventType);
+    expect(types).not.toContain('command.Queued');
+    expect(mockPublish).toHaveBeenCalledWith(
+      'ocpp_command_results',
+      JSON.stringify({
+        commandId: 'cmd-pw',
+        error: 'Station offline, a station credential change is not queued',
+      }),
+    );
+    // The outbound CALL row is logged masked.
+    expect(JSON.stringify(eventBus.publish.mock.calls)).not.toContain('SeedStationPass1234');
+  });
+
   it('sends queued result via pubsub when station offline', async () => {
     dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
       new Error('Station CS-001 is not connected'),

@@ -39,10 +39,39 @@ vi.stubGlobal(
   },
 );
 
-import { AiOpsSettings, mcpEndpointUrl } from '../AiOpsSettings';
+import {
+  AiInsightsSettings,
+  AiMcpSettings,
+  AiWorkersSettings,
+  mcpEndpointUrl,
+} from '../AiOpsSettings';
+import type { AiDefaults } from '@/components/ai/use-ai-defaults';
 import { ApiError } from '@/lib/api';
 import { AiSettings } from '../AiSettings';
 import { ProfileNotifications } from '../../profile/ProfileNotifications';
+
+/** The three ops tabs (Automatic insights, Background workers, MCP) on one page. */
+function AiOpsSettings({
+  settings,
+  canWrite,
+  aiDefaults,
+}: {
+  settings: Record<string, unknown>;
+  canWrite: boolean;
+  aiDefaults: AiDefaults | undefined;
+}): React.JSX.Element {
+  return (
+    <>
+      <AiInsightsSettings settings={settings} canWrite={canWrite} aiDefaults={aiDefaults} />
+      <AiWorkersSettings settings={settings} canWrite={canWrite} />
+      <AiMcpSettings settings={settings} canWrite={canWrite} />
+    </>
+  );
+}
+
+function openAdvanced(container: HTMLElement): void {
+  fireEvent.click(within(container).getByRole('button', { name: /settings.aiAdvancedOptions/ }));
+}
 
 function wrap(ui: React.ReactNode): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -91,12 +120,14 @@ describe('Settings > AI roadmap panels', () => {
   it('shows defaults for unset keys and saves only the changed insight values', async () => {
     wrap(<AiOpsSettings settings={SETTINGS} canWrite aiDefaults={undefined} />);
     const panel = screen.getByTestId('ai-insights-settings');
-    // D4: per-trigger switches default on.
+    // The reservation switch shows once the features answer says reservations are on.
+    await within(panel).findByLabelText('settings.aiInsightsSettings.reservation');
+    // D4: per-trigger switches default on (station, session, authorization, reservation).
     expect(
       within(panel)
         .getAllByRole('switch')
         .map((s) => s.getAttribute('aria-checked')),
-    ).toEqual(['true', 'true', 'true']);
+    ).toEqual(['true', 'true', 'true', 'true']);
     const cooldown = document.getElementById(
       'ai-setting-aiInsights-cooldownMinutes',
     ) as HTMLInputElement;
@@ -106,6 +137,47 @@ describe('Settings > AI roadmap panels', () => {
     await waitFor(() => {
       expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/aiInsights.cooldownMinutes', {
         value: 90,
+      });
+    });
+    expect(apiMock.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('TC-UI-LY-10 the reservation insights switch saves aiInsights.reservation.enabled', async () => {
+    wrap(<AiOpsSettings settings={SETTINGS} canWrite aiDefaults={undefined} />);
+    const panel = screen.getByTestId('ai-insights-settings');
+    const toggle = await within(panel).findByLabelText('settings.aiInsightsSettings.reservation');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle);
+    fireEvent.click(within(panel).getByRole('button', { name: /save/i }));
+    await waitFor(() => {
+      expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/aiInsights.reservation.enabled', {
+        value: false,
+      });
+    });
+    expect(apiMock.put).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the reservation insights switch while reservations are off and links to that setting', async () => {
+    apiMock.get.mockImplementation((url: string) =>
+      Promise.resolve(url === '/v1/portal/features' ? { reservationEnabled: false } : {}),
+    );
+    wrap(<AiOpsSettings settings={SETTINGS} canWrite aiDefaults={undefined} />);
+    const panel = screen.getByTestId('ai-insights-settings');
+    const off = await within(panel).findByTestId('ai-reservation-insights-off');
+    expect(off.textContent).toContain('settings.aiInsightsSettings.reservationOff');
+    expect(
+      within(off)
+        .getByRole('link', { name: 'settings.aiInsightsSettings.reservationOffLink' })
+        .getAttribute('href'),
+    ).toBe('/settings?tab=integrations&sub=reservation');
+    expect(within(panel).queryByLabelText('settings.aiInsightsSettings.reservation')).toBeNull();
+    expect(within(panel).getAllByRole('switch')).toHaveLength(3);
+    // Saving the card never writes the hidden reservation switch.
+    fireEvent.click(within(panel).getAllByRole('switch')[0] as HTMLElement);
+    fireEvent.click(within(panel).getByRole('button', { name: /save/i }));
+    await waitFor(() => {
+      expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/aiInsights.station.enabled', {
+        value: false,
       });
     });
     expect(apiMock.put).toHaveBeenCalledTimes(1);
@@ -126,10 +198,14 @@ describe('Settings > AI roadmap panels', () => {
   it('saves MCP origins as a normalized list and refuses an origin with a path', async () => {
     wrap(<AiOpsSettings settings={SETTINGS} canWrite aiDefaults={undefined} />);
     const panel = screen.getByTestId('ai-mcp-settings');
+    // TC-UI-LY-10: the origins are an advanced option, closed by default.
+    expect(within(panel).queryByLabelText('settings.aiMcp.allowedOrigins')).toBeNull();
+    openAdvanced(panel);
     const origins = within(panel).getByLabelText('settings.aiMcp.allowedOrigins');
     fireEvent.change(origins, { target: { value: 'https://app.example.com/path' } });
     fireEvent.click(within(panel).getByRole('button', { name: /save/i }));
-    expect(within(panel).getByText('settings.aiMcp.allowedOriginsInvalid')).toBeTruthy();
+    // Under the field, and in the disclosure summary so a closed disclosure still shows it.
+    expect(within(panel).getAllByText('settings.aiMcp.allowedOriginsInvalid')).toHaveLength(2);
     expect(apiMock.put).not.toHaveBeenCalled();
     fireEvent.change(origins, {
       target: { value: 'https://app.example.com/\n\nhttp://localhost:3000' },
@@ -152,6 +228,10 @@ describe('Settings > AI roadmap panels', () => {
     };
     wrap(<AiOpsSettings settings={SETTINGS} canWrite aiDefaults={aiDefaults} />);
     const ops = screen.getByTestId('ai-ops-settings');
+    // TC-UI-LY-10: the prompt override sits behind the disclosure, which says it is the default.
+    expect(within(ops).queryByDisplayValue('Built-in ops prompt')).toBeNull();
+    expect(within(ops).getByText('settings.aiPromptDefaultSummary')).toBeTruthy();
+    openAdvanced(ops);
     expect(within(ops).getByDisplayValue('Built-in ops prompt')).toBeTruthy();
     fireEvent.click(within(ops).getByRole('button', { name: 'common.edit' }));
     // The copied default is not a change: nothing to save.
@@ -235,15 +315,27 @@ describe('Settings > AI roadmap panels', () => {
     }
   });
 
-  it('TC-AI-US-11: the Usage sub-tab shows for all-site users with aiUsage:read only', () => {
+  it('TC-AI-US-11 TC-UI-LY-09: the usage dashboard shows for all-site users with aiUsage:read only', () => {
     perms.add('aiUsage:read');
     wrap(<AiSettings settings={{ ...SETTINGS, 'ai.budget.warnPercent': 75 }} />);
-    fireEvent.click(screen.getByRole('tab', { name: 'settings.aiUsageTab' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'settings.aiTabs.usage' }));
     expect(screen.getByTestId('usage-tab').textContent).toBe('75');
+    expect(screen.getByText('settings.aiLimitsTitle')).toBeTruthy();
     cleanup();
+    // Without access to every site: the Limits card only.
     access.allSites = false;
     wrap(<AiSettings settings={SETTINGS} />);
-    expect(screen.queryByRole('tab', { name: 'settings.aiUsageTab' })).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'settings.aiTabs.usage' }));
+    expect(screen.getByText('settings.aiLimitsTitle')).toBeTruthy();
+    expect(screen.queryByTestId('usage-tab')).toBeNull();
+    cleanup();
+    // Without aiUsage:read: the Limits card only.
+    access.allSites = true;
+    perms.delete('aiUsage:read');
+    wrap(<AiSettings settings={SETTINGS} />);
+    fireEvent.click(screen.getByRole('tab', { name: 'settings.aiTabs.usage' }));
+    expect(screen.getByText('settings.aiLimitsTitle')).toBeTruthy();
+    expect(screen.queryByTestId('usage-tab')).toBeNull();
   });
 });
 

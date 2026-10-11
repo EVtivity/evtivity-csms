@@ -265,6 +265,13 @@ export const supportCaseAuditActionEnum = pgEnum('support_case_audit_action', [
   'refund_issued',
   'sessions_linked',
   'sessions_unlinked',
+  // Driver AI support (0445).
+  'ai_consent_granted',
+  'ai_consent_declined',
+  'ai_answered',
+  'resolved_by_ai',
+  'escalated_from_ai',
+  'ai_failed',
 ]);
 
 export const supportCaseAuditLog = pgTable(
@@ -668,6 +675,15 @@ export const reservationAuditActionEnum = pgEnum('reservation_audit_action', [
   'expired',
   'used',
   'session_failed',
+  // v0.1.45 (migration 0452). The reservation insights read these rows; the
+  // reason of a trigger row lives in after.reason (writeReservationAudit).
+  'station_rejected',
+  'station_cancel_failed',
+  'station_faulted',
+  'fee_charged',
+  'fee_failed',
+  'taken_by_other',
+  'activated',
 ]);
 
 export const reservationAuditLog = pgTable(
@@ -1002,13 +1018,15 @@ export const aiProposalAuditLog = pgTable(
 );
 
 // Automatic insight audit (migration 0423): an operator regenerated or
-// dismissed an insight, or marked it helpful or wrong. Written only by the
+// dismissed an insight, or marked it helpful or wrong; `feedback_cleared`
+// (migration 0471) when the operator took the vote back. Written only by the
 // insight service (`@evtivity/services/ai-insight.service`).
 export const aiInsightAuditActionEnum = pgEnum('ai_insight_audit_action', [
   'regenerated',
   'dismissed',
   'feedback_helpful',
   'feedback_wrong',
+  'feedback_cleared',
 ]);
 
 export const aiInsightAuditLog = pgTable(

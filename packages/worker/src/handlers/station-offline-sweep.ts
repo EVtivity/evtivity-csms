@@ -13,14 +13,17 @@ import {
 } from '@evtivity/database';
 import {
   createRedisClient,
-  dispatchDriverNotification,
   offlineSweepThresholdMs,
   RedisConnectionRegistry,
   shouldMarkStationOffline,
 } from '@evtivity/lib';
 import type { ConnectionRegistry, PubSubClient } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
-import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
+import { cancelHoldsForStationOutage } from '@evtivity/services/reservation-expiry';
+import type { StationOutageInput } from '@evtivity/services/reservation-expiry';
+import { notifyReservationDriver } from '@evtivity/services/reservation-notify';
+import type { ReservationNoticeTarget } from '@evtivity/services/reservation-notify';
+import { paymentContext } from '../lib/payments.js';
 
 let redis: Redis | null = null;
 
@@ -41,7 +44,10 @@ export interface OfflineSweepDeps {
   pubsub: PubSubClient;
   heartbeatSeconds: number;
   roamingEnabled: () => Promise<boolean>;
-  notifyDriver: (driverId: string, reservationId: string, stationId: string) => Promise<void>;
+  /** Cancels the station's active holds (G16), returns how many. */
+  cancelHolds: (input: StationOutageInput) => Promise<number>;
+  /** Tells the driver of a hold in use that the station went away. */
+  notifyStationFaulted: (target: ReservationNoticeTarget) => Promise<void>;
 }
 
 export interface OfflineSweepResult {
@@ -105,7 +111,8 @@ export async function runStationOfflineSweep(
 }
 
 // The effects the station.Disconnected projection has after its database
-// writes: SSE, OCPI location push, reservation fault notifications. All
+// writes: SSE, OCPI location push, the active holds cancelled as system with
+// no fee (G16, decision E12), and the fault notice for holds in use. All
 // fail-open: the station is already stored offline.
 async function publishStationOffline(
   deps: OfflineSweepDeps,
@@ -137,14 +144,29 @@ async function publishStationOffline(
     }
   }
   try {
-    const reservations = await deps.sql<{ id: string; driver_id: string | null }[]>`
-      SELECT id, driver_id FROM reservations
-      WHERE station_id = ${stationUuid} AND status IN ('active', 'in_use')
+    await deps.cancelHolds({ stationUuid, stationOcppId, siteId, cause: 'offline' });
+  } catch (err) {
+    log.warn(
+      { err, stationId: stationOcppId },
+      'Cancelling the holds of the offline station failed',
+    );
+  }
+  try {
+    const reservations = await deps.sql<
+      { id: string; reservation_id: number; driver_id: string | null }[]
+    >`
+      SELECT id, reservation_id, driver_id FROM reservations
+      WHERE station_id = ${stationUuid} AND status = 'in_use'
     `;
     for (const r of reservations) {
       if (r.driver_id == null) continue;
       try {
-        await deps.notifyDriver(r.driver_id, r.id, stationOcppId);
+        await deps.notifyStationFaulted({
+          reservationDbId: r.id,
+          reservationOcppId: r.reservation_id,
+          stationOcppId,
+          driverId: r.driver_id,
+        });
       } catch (err) {
         log.warn({ err, reservationId: r.id }, 'reservation.StationFaulted notification failed');
       }
@@ -159,6 +181,7 @@ async function publishStationOffline(
 
 export async function stationOfflineSweepHandler(log: Logger): Promise<void> {
   const pubsub = getPubSub();
+  const expiryDeps = { pubsub, payments: paymentContext(log), logger: log };
   const result = await runStationOfflineSweep(
     {
       sql: client,
@@ -166,16 +189,9 @@ export async function stationOfflineSweepHandler(log: Logger): Promise<void> {
       pubsub,
       heartbeatSeconds: await getHeartbeatIntervalSeconds(),
       roamingEnabled: isRoamingEnabled,
-      notifyDriver: async (driverId, reservationId, stationId) => {
-        await dispatchDriverNotification(
-          client,
-          'reservation.StationFaulted',
-          driverId,
-          { reservationId, stationId },
-          ALL_TEMPLATES_DIRS,
-          pubsub,
-        );
-      },
+      cancelHolds: (input) => cancelHoldsForStationOutage(expiryDeps, input),
+      notifyStationFaulted: (target) =>
+        notifyReservationDriver('reservation.StationFaulted', target, {}, { pubsub, logger: log }),
     },
     log,
   );

@@ -158,13 +158,14 @@
     "smartCharging": "Smart Charging",
     "configTemplates": "Configuration Templates",
     "supportCases": "Support Cases",
-    "unreadCases": "Unread support cases",
+    "unreadCasesCount_one": "{{count}} unread support case",
+    "unreadCasesCount_other": "{{count}} unread support cases",
     "settings": "Settings",
     "profile": "Profile",
     "language": "Language",
     "theme": "Theme",
     "back": "Back",
-    "logOut": "Log out",
+    "logOut": "Log Out",
     "sustainability": "Sustainability",
     "conformance": "Conformance",
     "poweredBy": "Powered by EVtivity CSMS",
@@ -179,7 +180,7 @@
   "roaming": {
     "subtitle": "Configure OCPI roaming partners, location publishing, sessions, CDRs, and tariff mappings.",
     "disabled": {
-      "title": "Roaming is off",
+      "title": "Roaming Is Off",
       "description": "Turn on roaming (OCPI) in Settings > Integrations & Features to manage partners, locations, sessions, CDRs, and tariffs."
     },
     "partners": {
@@ -452,7 +453,7 @@
     "billedOnAccount": "Billed on Account",
     "billedOnAccountSessions": "Unpaid Account Sessions",
     "costMissingNotice": "Sessions without an electricity cost are left out of profit: {{count}} ({{revenue}} revenue).",
-    "costMissingTitle": "Electricity cost missing",
+    "costMissingTitle": "Electricity Cost Missing",
     "costMissingNoRates": "Set electricity rates for: {{site}}",
     "costMissingSessions_one": "{{count}} session at {{site}} has no electricity cost",
     "costMissingSessions_other": "{{count}} sessions at {{site}} have no electricity cost",
@@ -575,7 +576,7 @@
     "electricityRatesNoDefault": "This site has no default electricity rate. Sessions that end outside its rate periods get no electricity cost and are left out of profit.",
     "electricityRatesOpen": "Set electricity rates",
     "electricityCostRecalculate": "Recalculate electricity cost",
-    "electricityCostRecalculateTitle": "Recalculate electricity cost?",
+    "electricityCostRecalculateTitle": "Recalculate Electricity Cost?",
     "electricityCostRecalculateConfirm": "Sessions at {{site}} without an electricity cost get one from the site's current rates, at the rate in force when each session ended. Existing costs are not changed.",
     "electricityCostRecalculated_one": "Electricity cost added to {{count}} session",
     "electricityCostRecalculated_other": "Electricity cost added to {{count}} sessions",
@@ -583,7 +584,10 @@
     "electricityCostRecalculateRemaining_one": "{{count}} session still has no electricity cost: no rate applies when it ended.",
     "electricityCostRecalculateRemaining_other": "{{count}} sessions still have no electricity cost: no rate applies when they ended.",
     "electricityCostRecalculateMore_one": "{{count}} session still has no electricity cost. Recalculate again to continue.",
-    "electricityCostRecalculateMore_other": "{{count}} sessions still have no electricity cost. Recalculate again to continue."
+    "electricityCostRecalculateMore_other": "{{count}} sessions still have no electricity cost. Recalculate again to continue.",
+    "tabs": {
+      "ai": "AI"
+    }
   },
   "stations": {
     "title": "Stations",
@@ -831,7 +835,7 @@
     "pendingApproval": "This station is pending approval. Approve to allow it to accept charging sessions, or reject to block it.",
     "simulatorConflict": "On {{time}} a connection that did not come from the simulator reached this station. If a real charging station uses this station ID, confirm it so the simulator stops connecting as this station.",
     "confirmRealStation": "This is a real station",
-    "confirmRealStationTitle": "Confirm a real station",
+    "confirmRealStationTitle": "Confirm a Real Station",
     "confirmRealStationDescription": "The simulator flag is cleared and the simulator stops connecting as {{stationId}}. You can turn the simulator back on later by editing the station.",
     "confirmRealStationSuccess": "Simulator flag cleared",
     "approve": "Approve",
@@ -934,9 +938,9 @@
     },
     "enableStation": "Enable Station",
     "disableStation": "Disable Station",
-    "enableStationTitle": "Enable this station?",
+    "enableStationTitle": "Enable This Station?",
     "enableStationDescription": "Drivers can start charging again. The station is told to become operative, and any stored firmware install state is cleared.",
-    "disableStationTitle": "Disable this station?",
+    "disableStationTitle": "Disable This Station?",
     "disableStationDescription": "Drivers cannot start charging until you enable it. The station is told to become inoperative. Sessions in progress are not stopped.",
     "enabledSuccess": "Station enabled",
     "disabledSuccess": "Station disabled",
@@ -963,7 +967,7 @@
     "title": "Sessions",
     "subtitle": "Recent and historical charging sessions across the fleet. Filter by station, driver, status, or date range.",
     "search": "Search",
-    "reservationTokenMismatchTitle": "Reservation token mismatch",
+    "reservationTokenMismatchTitle": "Reservation Token Mismatch",
     "reservationTokenMismatchDescription": "This session was started with a different token than the one the reservation was bound to. The session was allowed to proceed; review for billing or fraud signals.",
     "expectedToken": "Expected",
     "actualToken": "Actual",
@@ -1056,7 +1060,7 @@
       "billedHelp": "An operator billed this session after the CSMS could not end it.",
       "manualHelp": "The CSMS could not end this session and it could not be charged automatically. Collect {{cost}} outside the platform.",
       "button": "Bill session",
-      "confirmTitle": "Bill this session?",
+      "confirmTitle": "Bill This Session?",
       "confirmDescription": "The cost is recomputed from the meter values and charged to the driver's default saved card or prepaid balance. If the session cannot be charged, it is marked for manual billing.",
       "inProgress": "The session is being billed.",
       "paymentPending": "The session has a payment the provider has not settled yet.",
@@ -1502,18 +1506,18 @@
       "helpOff": "Members pay their sessions by card. Unbilled sessions are still billed to this fleet.",
       "enable": "Turn On",
       "disable": "Turn Off",
-      "enableTitle": "Turn on charge on account",
+      "enableTitle": "Turn on Charge on Account",
       "enableConfirm": "New sessions of members who have not opted out are billed to this fleet, with no card and no hold. Each affected driver is notified.",
-      "disableTitle": "Turn off charge on account",
+      "disableTitle": "Turn Off Charge on Account",
       "disableConfirm": "New sessions are paid by card. Running sessions keep how they started, and unbilled sessions are still billed to this fleet. Each affected driver is notified.",
       "updated": "Account billing updated",
       "updateFailed": "Could not update account billing",
       "memberUpdated": "Member billing updated",
       "memberColumn": "Charge on Account",
       "memberNoteOff": "Charge on account is off for this fleet: members pay by card.",
-      "optOutTitle": "Pay by card",
+      "optOutTitle": "Pay by Card",
       "optOutConfirm": "This member pays by card although the fleet bills on account. The driver is notified when the fleet bills on account.",
-      "optInTitle": "Charge on account",
+      "optInTitle": "Charge on Account",
       "optInConfirm": "This member's new sessions are billed to the fleet when it bills on account. The driver is notified when the fleet bills on account."
     },
     "billingProfile": {
@@ -1574,7 +1578,7 @@
       "total": "Total",
       "driver": "Driver",
       "noUnbilled": "No unbilled sessions with a cost in this month.",
-      "excludedTitle": "Left off the invoice ({{count}})",
+      "excludedTitle": "Left Off the Invoice ({{count}})",
       "excludedReasons": {
         "other_currency": "Other currency",
         "zero_cost": "No cost",
@@ -1582,14 +1586,14 @@
       },
       "existingInvoice": "An invoice already bills this month. Credit it to bill the month again:",
       "generate": "Generate Invoice",
-      "generateTitle": "Generate fleet invoice",
+      "generateTitle": "Generate Fleet Invoice",
       "generateConfirm": "Issue the invoice for {{period}} over {{total}} and email it with its PDF to the billing contacts? An issued invoice can only be corrected with a credit note.",
       "generated": "Fleet invoice issued and emailed",
       "generatedNotEmailed": "Fleet invoice issued but not emailed. Add a billing contact, then send it.",
       "listTitle": "Fleet Invoices",
       "noInvoices": "No fleet invoices yet.",
       "send": "Send",
-      "sendTitle": "Email fleet invoice",
+      "sendTitle": "Email Fleet Invoice",
       "sendConfirm": "Email {{number}} with its PDF to the fleet billing contacts?",
       "sent": "Invoice emailed"
     }
@@ -1988,7 +1992,7 @@
     "companyTaxBasisNet": "Excluding tax (net)",
     "companyTaxBasisGross": "Including tax (gross)",
     "companyTaxBasisHelper": "Net: the tariff tax rate is added to each session's cost. Gross: tariff prices include tax, a session costs the gross price times the quantity, and the tax is taken out of that amount. Sessions keep the setting they started with. Changing it does not convert existing tariff prices.",
-    "companyTaxBasisConfirmTitle": "Change how tariff prices are entered?",
+    "companyTaxBasisConfirmTitle": "Change How Tariff Prices Are Entered?",
     "companyTaxBasisConfirmDescription": "Every tariff price will be read as: {{basis}}. Existing prices are not converted, so re-enter each tariff price after saving. Sessions that already started keep the current setting.",
     "companyTaxBasisConfirm": "Change and save",
     "companyContactEmail": "Contact Email",
@@ -2382,7 +2386,7 @@
     "stripeWebhookDescription": "Stripe sends payment events to the platform endpoint and site host account events to the Connect endpoint. Both use the URL below.",
     "stripeWebhookCreate": "Create webhook",
     "stripeWebhookCreated": "Stripe webhooks created. Both signing secrets are stored.",
-    "stripeWebhookReplaceTitle": "Replace the existing webhooks?",
+    "stripeWebhookReplaceTitle": "Replace the Existing Webhooks?",
     "stripeWebhookReplaceBody": "Replace the EVtivity webhooks at this URL? Stripe issues new signing secrets. Webhooks of other EVtivity deployments on this account are not changed.",
     "webhookReplaceConfirm": "Replace",
     "stripeWebhookEndpoints": "Endpoints",
@@ -2445,7 +2449,7 @@
     "adyenWebhookUrl": "Webhook URL",
     "adyenWebhookUrlHint": "The API URL of this deployment plus /v1/webhooks/payments/adyen. Edit the host to use a tunnel. The URL must use https.",
     "adyenWebhookCreated": "Adyen webhook created and switched on.",
-    "adyenWebhookReplaceTitle": "Update the existing webhook?",
+    "adyenWebhookReplaceTitle": "Update the Existing Webhook?",
     "adyenWebhookReplaceBody": "Update the EVtivity webhook at this URL in Adyen? It gets a new username, password, and HMAC key. The previous HMAC key stays valid during the change. Webhooks of other EVtivity deployments on this account are not changed.",
     "adyenWebhookUpdate": "Update",
     "adyenWebhookTestSuccess": "Adyen delivered a test event (HTTP {{code}}).",
@@ -2461,7 +2465,7 @@
     "copyCode": "Copy code",
     "themeColorPicker": "Theme color picker",
     "emailLayoutPreviewFrame": "Email layout preview",
-    "aiProvidersTitle": "AI providers",
+    "aiProvidersTitle": "AI Providers",
     "aiProvidersDescription": "One API key per provider. The AI assistant and support AI each pick a provider below.",
     "aiDataLeavesWarning": "Messages, tool results and attachments are sent to the selected provider and leave this deployment. Check the provider's data retention terms.",
     "aiApiKey": "API key",
@@ -2500,7 +2504,7 @@
     "aiSaveFailed": "Failed to save the AI settings.",
     "aiSurface": {
       "chatbot": {
-        "title": "AI assistant",
+        "title": "AI Assistant",
         "description": "The chat panel operators open with the AI button or Ctrl+K.",
         "enabled": "Enable the AI assistant"
       },
@@ -2510,12 +2514,17 @@
         "enabled": "Enable support AI"
       },
       "ops": {
-        "title": "Automatic insights and workers",
+        "title": "Automatic Insights and Workers",
         "description": "The model for automatic insights and background workers. They run without a user and use the company provider key.",
         "enabled": "Turn on system-initiated AI"
+      },
+      "driver": {
+        "title": "Driver Support",
+        "description": "The model that answers a driver support request first, when the driver allows it. It uses the company provider key and has no tools.",
+        "enabled": "Offer AI analysis to drivers"
       }
     },
-    "aiLimitsTitle": "AI limits",
+    "aiLimitsTitle": "AI Limits",
     "aiLimitsDescription": "These apply to both surfaces and every provider.",
     "aiLimits": {
       "userPerMinute": "Requests per user per minute",
@@ -2534,7 +2543,7 @@
     "aiLimitZeroNoBudget": "0 means no daily limit.",
     "aiOpsDataWarning": "When this is on, station, session and token status data is sent to the configured provider without a user action.",
     "aiInsightsSettings": {
-      "title": "Automatic insights",
+      "title": "Automatic Insights",
       "station": "Station insights",
       "session": "Session insights",
       "authorization": "Authorization insights",
@@ -2543,10 +2552,25 @@
       "siteIncidentThreshold": "Stations down at one site that make one site incident",
       "maxPerSitePerDay": "Insights per site per day",
       "primaryLanguage": "Summary language",
-      "retentionDays": "Keep insights (days)"
+      "retentionDays": "Keep insights (days)",
+      "reservation": "Reservation insights",
+      "reservationOff": "Reservation insights are off while reservations are turned off.",
+      "reservationOffLink": "Turn on reservations",
+      "quality": {
+        "title": "Insight Quality",
+        "description": "Helpful rate by insight type, from the votes given in the last {{days}} days on insights in your sites.",
+        "columns": {
+          "kind": "Insight Type",
+          "helpful": "Helpful",
+          "wrong": "Wrong",
+          "rate": "Helpful Rate"
+        },
+        "empty": "No votes in the last {{days}} days.",
+        "viewWrong": "View Insights Marked Wrong"
+      }
     },
     "aiMcp": {
-      "title": "MCP server",
+      "title": "MCP Server",
       "description": "Lets MCP clients use the AI tools with an API key that has MCP access. Every change needs your confirmation in the AI Inbox.",
       "enabled": "Turn on the MCP server",
       "rateLimitPerMinute": "Calls per API key per minute",
@@ -2563,9 +2587,40 @@
       "writesHint": "Changes become proposals that the same user approves in the AI Inbox.",
       "protocolNote": "Serves MCP 2026-07-28; older clients approve by polling."
     },
-    "aiUsageTab": "Usage",
     "aiLimitZeroNoLimit": "0 means no limit.",
-    "aiConfigTab": "Configuration"
+    "aiTabs": {
+      "providers": "Providers and Keys",
+      "providersDescription": "API keys and endpoints of the AI providers. Every AI feature uses these keys.",
+      "assistant": "Assistant",
+      "assistantDescription": "The AI assistant that users chat with in the dashboard.",
+      "support": "Support Drafts",
+      "supportDescription": "AI drafts of replies to support cases, which an operator reviews before sending.",
+      "driver": "Driver Support",
+      "driverDescription": "An automatic first answer to a driver support request, only when the driver allows it.",
+      "insights": "Automatic Insights",
+      "insightsDescription": "The model for system-initiated runs, and when insights are raised for stations, sessions, authorizations and reservations.",
+      "workers": "Background Workers",
+      "workersDescription": "Scheduled jobs that report on the network and propose actions an operator approves. They use the automatic insights model.",
+      "mcp": "MCP",
+      "mcpDescription": "The MCP server that lets external AI agents use EVtivity with an API key.",
+      "usage": "Usage and Limits",
+      "usageDescription": "Rate limits and token budgets, and the AI usage of the company and each site.",
+      "workersModelLink": "Choose the model they use in Automatic insights"
+    },
+    "aiDriverSettings": {
+      "title": "Driver Support Limits",
+      "maxCasesPerDriverPerDay": "AI-analyzed requests per driver per day",
+      "feedbackTimeoutHours": "Wait for the driver's feedback (hours)",
+      "feedbackTimeoutHelp": "A request without feedback after this time goes to the support team.",
+      "driverDailyTokens": "Tokens per driver per day",
+      "driverPerMinute": "AI requests per driver per minute",
+      "overLimitHelp": "Requests over a limit go straight to the support team."
+    },
+    "aiDriverDataWarning": "When this is on and a driver allows it, the request text and the driver's own sessions, payments, reservations, used stations and tokens (last 4 characters) are sent to the configured provider.",
+    "aiAdvancedOptions": "Advanced Options",
+    "aiPromptCustomSummary": "Custom system prompt",
+    "aiPromptDefaultSummary": "Built-in system prompt",
+    "aiBaseUrlDefaultSummary": "Default endpoint"
   },
   "pnc": {
     "certificates": "Certificates",
@@ -2717,6 +2772,7 @@
       "fleet.AccountBillingChanged": "Account Billing Changed",
       "reservation.Expiring": "Reservation Expiring",
       "reservation.Expired": "Reservation Expired",
+      "reservation.TakenByOther": "Reservation Taken by Another Driver",
       "session.Receipt": "Session Receipt",
       "supportCase.Created": "Support Case Created",
       "supportCase.OperatorReply": "Operator Reply",
@@ -2736,7 +2792,9 @@
     },
     "templatePreviewInvalid": "The template has an error:",
     "htmlPreview": "HTML preview",
-    "aiEvents": "AI"
+    "aiEvents": "AI",
+    "channelToggleLabel": "{{event}} {{channel}} notifications",
+    "eventToggleLabel": "{{event}} notifications"
   },
   "reservations": {
     "title": "Reservations",
@@ -2788,7 +2846,11 @@
       "station_rejected_occupied": "Station rejected: occupied",
       "station_rejected_other": "Station rejected",
       "station_offline_at_activation": "Station offline at activation",
-      "system_cleanup": "System cleanup"
+      "system_cleanup": "System cleanup",
+      "station_no_response": "Station did not respond",
+      "station_unavailable_during_hold": "Station unavailable during the reservation",
+      "evse_in_use_at_activation": "EVSE in use at activation",
+      "station_faulted_at_activation": "Station faulted at activation"
     },
     "scheduled": "Scheduled",
     "active": "Active",
@@ -2898,6 +2960,7 @@
     "CSS_ACTION_REJECTED": "Charging Station Simulator rejected the action",
     "CSS_ACTION_TIMEOUT": "Simulator did not respond within 5s",
     "DOWNTIME_NOT_FOUND": "Excluded downtime record not found",
+    "DRIVER_AI_NOTICE_OUTDATED": "The AI notice has changed. Read it and choose again",
     "DRIVER_ALREADY_IN_FLEET": "Driver is already in this fleet",
     "DRIVER_CREATE_FAILED": "Failed to create driver",
     "DRIVER_NOT_FOUND": "Driver not found",
@@ -3097,6 +3160,7 @@
     "STORAGE_CONNECTION_FAILED": "Storage connection test failed",
     "STORAGE_NOT_CONFIGURED": "Attachment storage not configured",
     "SUPPORT_AI_NOT_CONFIGURED": "Support AI is not configured",
+    "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "This support case is not waiting for feedback on an automatic answer",
     "SUPPORT_CASE_NOT_FOUND": "Support case not found",
     "SUPPORT_DISABLED": "Support is disabled",
     "TARIFF_IN_USE": "Tariff is referenced by charging sessions and cannot be deleted",
@@ -3138,6 +3202,7 @@
     "SECURITY_PROFILE_DOWNGRADE": "A connected station cannot be moved to a lower security profile",
     "STATION_TLS_URL_NOT_CONFIGURED": "The public TLS address for stations (OCPP_STATION_TLS_URL) is not configured",
     "STATION_SECURITY_CHANGE_REJECTED": "The station did not accept the security change; its current settings are unchanged",
+    "STATION_CREDENTIALS_ROUTE_REQUIRED": "Station passwords are changed with POST /v1/stations/:id/credentials, not with a generic OCPP command",
     "WEB_PAYMENTS_NOT_SUPPORTED": "The station does not support dynamic QR codes",
     "PORTAL_ALREADY_ACTIVE": "Driver already has portal access",
     "EMAID_PREFIX_NOT_CONFIGURED": "Set the eMAID country code and provider ID first",
@@ -3403,7 +3468,8 @@
       "in_progress": "In Progress",
       "waiting_on_driver": "Waiting on Driver",
       "resolved": "Resolved",
-      "closed": "Closed"
+      "closed": "Closed",
+      "ai_assist": "With the AI"
     },
     "priorities": {
       "low": "Low",
@@ -3413,12 +3479,68 @@
     },
     "aiAssist": "AI Draft",
     "aiAssistTooltip": "Generate an AI draft reply",
-    "aiAssistOverwriteTitle": "Replace existing draft?",
+    "aiAssistOverwriteTitle": "Replace Existing Draft?",
     "aiAssistOverwriteDescription": "Generating an AI draft will overwrite the text already in the message box. Continue?",
     "aiAssistOverwriteConfirm": "Replace",
     "attachmentUploadFailed": "Failed to upload attachment. Please try again.",
     "sendFailed": "Failed to send message. Please try again.",
-    "aiAssistStop": "Stop draft"
+    "aiAssistStop": "Stop draft",
+    "ai": {
+      "consentTitle": "Driver Consent",
+      "consentDecision": "Decision",
+      "consent": {
+        "granted": "Allowed AI analysis",
+        "declined": "Declined AI analysis",
+        "notAsked": "Not asked"
+      },
+      "consentAt": "Answered at",
+      "consentLanguage": "Notice Language",
+      "noticeVersion": "Notice Version",
+      "automaticAnswer": "Automatic Answer",
+      "answeredAt": "Automatic Answer at",
+      "feedbackAt": "Driver Feedback at",
+      "resolvedByAi": "Resolved by AI",
+      "stateLabel": "AI State",
+      "filterAiState": "AI State",
+      "allAiStates": "All AI states",
+      "filterResolvedBy": "Resolved by",
+      "allResolvedBy": "Anyone",
+      "state": {
+        "queued": "Queued",
+        "analyzing": "Analyzing",
+        "awaiting_feedback": "Waiting for Driver Feedback",
+        "resolved_by_ai": "Resolved by AI",
+        "escalated": "Passed to Support",
+        "failed": "AI Analysis Failed",
+        "skipped": "AI Analysis Skipped"
+      },
+      "reason": {
+        "disabled": "Driver AI support is off",
+        "driver_limit": "The driver reached the daily limit",
+        "rate_limited": "Too many requests",
+        "budget_exceeded": "AI budget reached",
+        "no_evidence": "No data to analyze",
+        "provider_error": "AI provider error",
+        "invalid_output": "The answer failed the safety checks",
+        "no_feedback": "No feedback from the driver",
+        "driver_replied": "The driver wrote a message",
+        "driver_declined_answer": "The answer did not help the driver",
+        "driver_inactive": "The driver account is inactive"
+      },
+      "resolutionSource": {
+        "operator": "Support team",
+        "ai": "AI"
+      },
+      "driverAction": {
+        "try_other_connector": "Try another connector",
+        "check_payment_method": "Check the payment method",
+        "retry_start": "Start charging again",
+        "check_vehicle_settings": "Check the vehicle's charging settings",
+        "contact_operator": "Contact the support team",
+        "wait_and_retry": "Wait a few minutes and try again",
+        "check_token_active": "Check that the card or token is active"
+      }
+    }
   },
   "vehicles": {
     "title": "Vehicles",
@@ -3762,7 +3884,7 @@
       "rejected": "rejected"
     },
     "durationMs": "{{ms}} ms",
-    "confirmTitle": "Confirm this change",
+    "confirmTitle": "Confirm This Change",
     "confirmArguments": "Details",
     "confirmSummary": {
       "POST": "Create or run: {{tool}}",
@@ -3833,7 +3955,7 @@
     "errors": {
       "generic": "The AI assistant could not answer. Try again."
     },
-    "suggestionsTitle": "Try asking",
+    "suggestionsTitle": "Try Asking",
     "searchConversations": "Search conversations",
     "noConversations": "No conversations yet.",
     "noConversationsMatch": "No conversations match.",
@@ -3841,7 +3963,7 @@
     "renameLabel": "Conversation title",
     "renameConversation": "Rename {{title}}",
     "deleteConversation": "Delete {{title}}",
-    "deleteTitle": "Delete conversation?",
+    "deleteTitle": "Delete Conversation?",
     "deleteDescription": "Delete \"{{title}}\" and its attachments? This cannot be undone.",
     "deleteFailed": "Failed to delete the conversation",
     "renameFailed": "Failed to rename the conversation",
@@ -3906,8 +4028,14 @@
       "kind": {
         "station": "station",
         "session": "session",
-        "authorization": "authorization"
-      }
+        "authorization": "authorization",
+        "reservation": "reservation"
+      },
+      "reservation": "Why did this reservation fail, and what should I do?"
+    },
+    "dataNotice": {
+      "title": "What the AI Provider Receives",
+      "body": "The AI provider never receives stored credentials, such as passwords, API keys, secrets and station passwords. Card numbers and IBANs are cut to their last 4 characters. Support drafts, automatic insights, background workers and driver support also mask email addresses and phone numbers, and hash or shorten driver token ids. The assistant sends driver contact details as stored, only to users allowed to read them. Text you type and text files you attach are checked for keys and card numbers. Images and PDFs you attach are sent as they are."
     }
   },
   "sustainability": {
@@ -3959,7 +4087,7 @@
     "runStarted": "Test run started"
   },
   "updateCheck": {
-    "title": "Update available",
+    "title": "Update Available",
     "description": "EVtivity CSMS {{version}} is now available.",
     "viewRelease": "View release notes"
   },
@@ -4140,11 +4268,24 @@
       "dismissed": "Dismissed",
       "feedback_helpful": "Marked helpful",
       "feedback_wrong": "Marked wrong",
+      "feedback_cleared": "Vote removed",
       "confirmed": "Confirmed",
       "executed": "Executed",
       "failed": "Failed",
       "rejected": "Rejected",
-      "stale": "No longer applies"
+      "stale": "No longer applies",
+      "ai_consent_granted": "AI analysis allowed",
+      "ai_consent_declined": "AI analysis declined",
+      "ai_answered": "Automatic answer given",
+      "resolved_by_ai": "Resolved by AI",
+      "escalated_from_ai": "Passed from AI to support",
+      "ai_failed": "AI analysis failed",
+      "station_rejected": "Station rejected",
+      "station_cancel_failed": "Station cancel failed",
+      "station_faulted": "Station faulted",
+      "fee_charged": "Fee charged",
+      "fee_failed": "Fee charge failed",
+      "taken_by_other": "Taken by another driver"
     },
     "entities": {
       "site": "Site",
@@ -4199,7 +4340,7 @@
     "statusCompleted": "Completed",
     "statusCancelled": "Cancelled",
     "empty": "No maintenance windows",
-    "statusTitle": "Maintenance status",
+    "statusTitle": "Maintenance Status",
     "schedule": "Schedule maintenance",
     "activeNow": "Site is currently under maintenance",
     "endNow": "End now",
@@ -4221,7 +4362,7 @@
     "createdToast": "Maintenance scheduled",
     "createFailed": "Failed to schedule maintenance",
     "cancelledToast": "Maintenance cancelled",
-    "confirmCancelTitle": "Cancel maintenance?",
+    "confirmCancelTitle": "Cancel Maintenance?",
     "confirmCancelDescription": "This ends an active window or removes a scheduled one. Stations will return to normal availability.",
     "affectedStations": "Affected stations",
     "allStations": "All stations at this site",
@@ -4448,7 +4589,7 @@
       "failureRate": "Random Failure Rate",
       "failureRateHint": "Share of payments that fail for cards without a test scenario, from 0 to 1.",
       "testCard": "Test card",
-      "challengeTitle": "Authentication required",
+      "challengeTitle": "Authentication Required",
       "challengeDescription": "This test card asks for authentication, as a bank would with 3-D Secure. Approve or fail it to continue.",
       "challengeApprove": "Approve",
       "challengeFail": "Fail",
@@ -4509,7 +4650,7 @@
     "htmlSource": "HTML source"
   },
   "aiInsights": {
-    "title": "Automatic insight",
+    "title": "Automatic Insight",
     "activeInsights": "Active insights",
     "empty": "No insights",
     "summaryTranslating": "Translating…",
@@ -4520,13 +4661,10 @@
     "categoryLabel": "Root cause",
     "confidenceLabel": "Confidence",
     "fixesLabel": "Suggested fixes",
-    "siteScopeLabel": "At this site",
-    "networkScopeLabel": "Across all sites",
     "regenerate": "Regenerate",
     "dismiss": "Dismiss",
     "helpful": "Helpful",
     "wrong": "Wrong",
-    "feedbackThanks": "Thanks for the feedback",
     "badge": {
       "resolved": "Resolved",
       "outOfDate": "Out of date"
@@ -4567,7 +4705,12 @@
       "site_incident": "Site incident",
       "site_summary": "Site summary",
       "company_summary": "Network summary",
-      "tariff_anomaly": "Tariff anomaly"
+      "tariff_anomaly": "Tariff anomaly",
+      "reservation_rejected": "Reservation rejected",
+      "reservation_no_show": "Reservation no-show",
+      "reservation_cancel_failed": "Reservation cancel failed",
+      "reservation_fee_failed": "Reservation fee failed",
+      "reservation_station_faulted": "Station faulted while reserved"
     },
     "skipReason": {
       "resolved_before_analysis": "Resolved before the analysis",
@@ -4596,7 +4739,12 @@
       "check_vehicle_compatibility": "Check vehicle compatibility",
       "end_concurrent_session": "End the concurrent session",
       "check_csms_status": "Check the CSMS status",
-      "monitor": "Keep monitoring"
+      "monitor": "Keep monitoring",
+      "reservation_check_evse_status": "Check the reserved EVSE's status",
+      "reservation_check_station_connectivity": "Check the station's connection",
+      "reservation_retry_cancel": "Cancel the reservation on the station again",
+      "reservation_review_fee_payment": "Review the reservation fee payment",
+      "reservation_review_holding_settings": "Review the reservation settings of the site"
     },
     "scope": {
       "stations_one": "{{count}} station",
@@ -4643,7 +4791,12 @@
       "site_summary": "Daily summary of {{site}}",
       "company_summary": "Daily network summary",
       "noStation": "an unknown station",
-      "noSite": "no site"
+      "noSite": "no site",
+      "reservation_rejected": "{{station}} rejected a reservation",
+      "reservation_no_show": "Reservation not used at {{site}}",
+      "reservation_cancel_failed": "{{station}} did not cancel a reservation",
+      "reservation_fee_failed": "Reservation fee failed at {{site}}",
+      "reservation_station_faulted": "{{station}} faulted during a reservation"
     },
     "list": {
       "title": "AI Insights",
@@ -4655,7 +4808,11 @@
       "site": "Site",
       "allSites": "All sites",
       "insight": "Insight",
-      "station": "Station"
+      "station": "Station",
+      "feedback": "Feedback",
+      "allFeedback": "Any feedback",
+      "feedbackWrong": "Marked wrong",
+      "feedbackHelpful": "Marked helpful"
     },
     "detail": {
       "recordTitle": "Details",
@@ -4667,16 +4824,12 @@
     "failedNote": "The analysis did not finish.",
     "skippedNote": "Not analyzed: {{reason}}",
     "scopeTable": {
-      "title": "Scope",
+      "title": "Site Context",
       "measureHeader": "Measure",
       "atDetection": "At detection",
       "now": "Now",
       "atDetectionHint": "What the analysis used",
       "nowHint": "As of {{time}}",
-      "area": {
-        "site": "{{measure}} (site)",
-        "network": "{{measure}} (all sites)"
-      },
       "measure": {
         "stations": "Stations",
         "stationsOffline": "Stations offline",
@@ -4688,6 +4841,17 @@
       },
       "summaryAtDetection": "{{value}} at detection",
       "summaryChanged": "{{value}} at detection, {{now}} now"
+    },
+    "feedback": {
+      "helpfulCount_one": "{{count}} found this helpful",
+      "helpfulCount_other": "{{count}} found this helpful",
+      "removeVote": "Remove your vote",
+      "wrongPrompt": "Marked wrong. Generate the insight again from fresh data, or dismiss it.",
+      "reasonLabel": "What is wrong? (optional)",
+      "reasonPlaceholder": "For example: the station was offline for planned maintenance.",
+      "reasonHint": "Stored with your vote only. It is never sent to an AI provider.",
+      "saveReason": "Save Note",
+      "reasonSaved": "Note saved."
     }
   },
   "aiInbox": {
@@ -4754,11 +4918,11 @@
     },
     "rejectedToast": "Proposal rejected",
     "confirmDialog": {
-      "title": "Run this action?",
+      "title": "Run This Action?",
       "note": "It runs once, now, with your permissions."
     },
     "rejectDialog": {
-      "title": "Reject this proposal?"
+      "title": "Reject This Proposal?"
     },
     "measured": {
       "idleTime": "Idle time",
@@ -4775,24 +4939,30 @@
       "timing": "Timing",
       "decided": "Decided",
       "executedAt": "Ran at"
+    },
+    "refused": {
+      "args_mismatch": "The stored arguments no longer match the proposal, so nothing ran.",
+      "no_longer_available": "This action can no longer run from an AI proposal, so nothing ran.",
+      "invalid_arguments": "The arguments are no longer valid for this action, so nothing ran.",
+      "ocpp_version_mismatch": "The station's OCPP version changed and has no matching command, so nothing ran."
     }
   },
   "aiWorkers": {
-    "title": "Background AI workers",
+    "title": "Background AI Workers",
     "description": "Optional jobs that find issues and propose actions. They never act on their own.",
     "proposalTtlHours": "Proposal lifetime (hours)",
     "networkSummary": {
-      "title": "Nightly network summary",
+      "title": "Nightly Network Summary",
       "description": "A short daily summary per site, with proposed actions."
     },
     "stuckSessions": {
-      "title": "Stuck sessions",
+      "title": "Stuck Sessions",
       "description": "Proposes to stop sessions that stopped reporting.",
       "idleMinutes": "Idle time before a session counts as stuck (minutes)",
       "useModel": "Write the rationale with AI"
     },
     "tariffAnomalies": {
-      "title": "Tariff anomalies",
+      "title": "Tariff Anomalies",
       "description": "Finds prices that look wrong. Findings only, no proposals."
     },
     "rationale": {
@@ -4808,7 +4978,7 @@
     }
   },
   "aiUsage": {
-    "title": "AI usage",
+    "title": "AI Usage",
     "month": "Month",
     "period": "Period",
     "budget": "Budget",
@@ -4835,7 +5005,8 @@
       "support": "Support drafts",
       "insight": "Insights",
       "insight_translation": "Insight translations",
-      "worker": "Background workers"
+      "worker": "Background workers",
+      "driver_support": "Driver support"
     },
     "tokens": {
       "total": "Tokens",

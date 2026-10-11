@@ -19,7 +19,7 @@ import { Worker, type ConnectionOptions, type Job, type Queue } from 'bullmq';
 import { z } from 'zod';
 import { createLogger, type PubSubClient } from '@evtivity/lib';
 import type { Logger } from '@evtivity/lib';
-import { checkAiBudgets, getAiSettings } from '@evtivity/database';
+import { checkAiBudgets, getInsightAiSettings } from '@evtivity/database';
 import {
   AI_INSIGHT_REQUESTS_CHANNEL,
   failInsight,
@@ -104,13 +104,15 @@ export async function startAiInsightBridge(pubsub: PubSubClient): Promise<() => 
 export function defaultInsightJobDeps(pubsub: PubSubClient): InsightJobDeps {
   const nodeEnv = process.env['NODE_ENV'];
   return {
-    getSettings: getAiSettings,
+    // Reservation insights only while reservations are on (getInsightAiSettings).
+    getSettings: getInsightAiSettings,
     resolveConfig: (settings) =>
       resolveOpsAiConfig(settings, config.SETTINGS_ENCRYPTION_KEY, nodeEnv === 'development'),
     createAdapter: createOpsAdapter,
     checkBudgets: checkAiBudgets,
     pubsub,
     now: () => new Date(),
+    subjectSecret: config.SETTINGS_ENCRYPTION_KEY,
   };
 }
 

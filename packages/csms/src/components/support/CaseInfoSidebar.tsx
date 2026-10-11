@@ -30,7 +30,7 @@ interface Attachment {
 
 interface Message {
   id: number;
-  senderType: 'driver' | 'operator' | 'system';
+  senderType: 'driver' | 'operator' | 'system' | 'assistant';
   senderId: string | null;
   body: string;
   isInternal: boolean;
@@ -159,6 +159,12 @@ export function CaseInfoSidebar({
                 setEditStatus(e.target.value);
               }}
             >
+              {/* ai_assist is set by the driver AI only: shown, never chosen. */}
+              {caseDetail.status === 'ai_assist' && (
+                <option value="ai_assist" disabled>
+                  {t('supportCases.statuses.ai_assist')}
+                </option>
+              )}
               {STATUS_OPTIONS.map((s) => (
                 <option key={s} value={s}>
                   {t(`supportCases.statuses.${s}`)}

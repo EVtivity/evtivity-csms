@@ -812,6 +812,19 @@ export async function isDriverEventDisabled(
 
 // --- Driver notification dispatch ---
 
+/**
+ * Ids of the record a driver notice is about, kept in the notification log's
+ * metadata so a sender can find its earlier notices: `reservationId` from the
+ * `reservationDbId` variable of the reservation notices (the Expiring warning
+ * dedups per reservation, v0.1.45 G17).
+ */
+function subjectMetadata(variables: Record<string, unknown>): Record<string, string> {
+  const reservationDbId = variables['reservationDbId'];
+  return typeof reservationDbId === 'string' && reservationDbId !== ''
+    ? { reservationId: reservationDbId }
+    : {};
+}
+
 export async function dispatchDriverNotification(
   sql: postgres.Sql,
   eventType: string,
@@ -934,7 +947,7 @@ export async function dispatchDriverNotification(
       }
 
       const recipientForRow = email != null && email !== '' ? email : '';
-      const metadata: Record<string, string> = { driverId };
+      const metadata: Record<string, string> = { driverId, ...subjectMetadata(variables) };
       if (failureReason != null) metadata['failureReason'] = failureReason;
       await recordNotificationAttempt(sql, {
         channel: 'email',
@@ -985,7 +998,7 @@ export async function dispatchDriverNotification(
       }
 
       const recipientForRow = phone != null && phone !== '' ? phone : '';
-      const metadata: Record<string, string> = { driverId };
+      const metadata: Record<string, string> = { driverId, ...subjectMetadata(variables) };
       if (failureReason != null) metadata['failureReason'] = failureReason;
       await recordNotificationAttempt(sql, {
         channel: 'sms',
@@ -1012,7 +1025,7 @@ export async function dispatchDriverNotification(
       body: pushBody,
       status: 'sent',
       eventType,
-      metadata: { driverId },
+      metadata: { driverId, ...subjectMetadata(variables) },
     });
 
     // Deliver native push to the driver's registered devices. The drawer row

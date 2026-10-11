@@ -123,11 +123,12 @@ export interface OcppClientOptions {
   reconnectSpreadMs?: number | undefined;
 }
 
+/** Resolves to the CALLRESULT payload, or null to send no reply (the CSMS times out). */
 export type IncomingCallHandler = (
   messageId: string,
   action: string,
   payload: Record<string, unknown>,
-) => Promise<Record<string, unknown>>;
+) => Promise<Record<string, unknown> | null>;
 
 /**
  * OCPP 2.x reconnect back-off (Part 4 5.4): the first attempt after
@@ -591,6 +592,10 @@ export class OcppClient {
 
       this.onIncomingCall(messageId, action, payload)
         .then((response) => {
+          if (response == null) {
+            console.log(`[${this._stationId}] ${action} left unanswered on purpose`);
+            return;
+          }
           this.sendCallResult(messageId, response);
         })
         .catch((err: unknown) => {

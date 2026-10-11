@@ -179,6 +179,10 @@ vi.mock('../lib/payments.js', async (importOriginal) => ({
   clearPaymentCaches: vi.fn(),
 }));
 
+vi.mock('../lib/driver-ai-availability.js', () => ({
+  readDriverAiAvailability: () => Promise.resolve({ available: false, perMinute: 2 }),
+}));
+
 vi.mock('@evtivity/services/station-message.service', () => ({
   requestStationMessageRepush: vi.fn().mockResolvedValue(undefined),
 }));
@@ -254,6 +258,9 @@ describe('settings routes (cov2)', () => {
       chatbotAiEnabled: true,
       aiInboxEnabled: true,
       aiInsightsEnabled: false,
+      // TC-AI-DR-03: off by default.
+      driverAiSupport: false,
+      driverAiNoticeVersion: 1,
       reservationCancellationFeeCents: 250,
       reservationCancellationWindowMinutes: 15,
       reservationMaxHours: 4,
@@ -476,6 +483,56 @@ describe('settings routes (cov2)', () => {
         payload: { value },
       });
       expect(res.statusCode).toBe(400);
+      expect(rec.values).toEqual([]);
+      expect(mocks.clearAiSettingsCache).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['driverAi.enabled', true],
+      ['driverAi.provider', 'gemini'],
+      ['driverAi.model', 'gemini-x'],
+      ['driverAi.effort', 'medium'],
+      ['driverAi.systemPrompt', 'Be brief.'],
+      ['driverAi.maxCasesPerDriverPerDay', 5],
+      ['driverAi.feedbackTimeoutHours', 48],
+      ['ai.budget.driverDailyTokens', 0],
+      ['ai.rateLimit.driverPerMinute', 4],
+      ['aiInsights.reservation.enabled', false],
+    ] as const)(
+      'TC-CFG-04: PUT %s stores the value and clears the AI settings cache',
+      async (key, value) => {
+        setupDbResults([], [{ key, value }]);
+        const res = await app.inject({
+          method: 'PUT',
+          url: `/settings/${key}`,
+          headers: auth,
+          payload: { value },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(rec.values[0]).toEqual({ key, value });
+        expect(mocks.clearAiSettingsCache).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      ['driverAi.enabled', 'yes', 'driverAi.enabled must be true or false'],
+      ['driverAi.provider', 'mistral', 'driverAi.provider must be one of: (empty), anthropic'],
+      ['driverAi.effort', 'max', 'driverAi.effort must be one of: low, medium, high'],
+      ['driverAi.maxCasesPerDriverPerDay', 0, 'from 1 to 100'],
+      ['driverAi.feedbackTimeoutHours', 169, 'from 1 to 168'],
+      ['ai.budget.driverDailyTokens', -1, 'from 0 to 10000000000'],
+      ['ai.rateLimit.driverPerMinute', 0, 'from 1 to 1000'],
+      ['aiInsights.reservation.enabled', 1, 'must be true or false'],
+    ] as const)('TC-CFG-04: refuses %s = %j and keeps the cache', async (key, value, message) => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/settings/${key}`,
+        headers: auth,
+        payload: { value },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+      expect(res.json().error).toContain(message);
       expect(rec.values).toEqual([]);
       expect(mocks.clearAiSettingsCache).not.toHaveBeenCalled();
     });

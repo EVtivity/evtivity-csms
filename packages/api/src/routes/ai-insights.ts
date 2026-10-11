@@ -5,10 +5,12 @@
  * Automatic insight routes.
  * Reads need
  * `aiInsights:read`, regenerate, dismiss and feedback `aiInsights:write`.
+ * Feedback is one vote per user and insight (`ai_insight_feedback`); votes
+ * and their notes never feed any prompt.
  * Site scope: a list holds the user's sites only (unsited insights for
  * all-site users only); a detail outside the user's sites answers the same
- * 404 `AI_INSIGHT_NOT_FOUND` as a missing one; `scope.network` is returned to
- * all-site users only. Not cached (per-user scope, `response-cache.md`).
+ * 404 `AI_INSIGHT_NOT_FOUND` as a missing one. Scope counts are the
+ * subject site's only. Not cached (per-user scope, `response-cache.md`).
  */
 
 import type { FastifyInstance, FastifyReply } from 'fastify';
@@ -19,6 +21,7 @@ import {
   chargingStations,
   checkAiBudgets,
   getAiInsightSettings,
+  isReservationEnabled,
   isOpsAiEnabled,
   sites,
   supportCases,
@@ -30,20 +33,28 @@ import type { AiInsightSettings } from '@evtivity/lib/ai-config';
 import {
   FIX_CODES,
   INSIGHT_CONFIDENCES,
+  INSIGHT_FEEDBACK_FILTERS,
+  INSIGHT_FEEDBACK_REASON_MAX_LENGTH,
+  INSIGHT_FEEDBACK_SUMMARY_DAYS,
   INSIGHT_GENERATORS,
   INSIGHT_KINDS,
   INSIGHT_SKIP_REASONS,
   INSIGHT_STATUSES,
   INSIGHT_TEXT_STATUSES,
+  isReservationInsightKind,
+  RESERVATION_INSIGHT_KINDS,
   ROOT_CAUSE_CATEGORIES,
 } from '@evtivity/lib/ai-insights';
 import type { InsightKind, InsightScope } from '@evtivity/lib/ai-insights';
-import { computeLiveInsightScope, scopeForViewer } from '@evtivity/services/ai-evidence';
+import { computeLiveInsightScope } from '@evtivity/services/ai-evidence';
 import type { CheckAiBudgets } from '@evtivity/lib/ai-usage';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
+  clearInsightFeedback,
   dismissInsight,
   getInsightRow,
+  insightFeedbackRates,
+  insightFeedbackSummary,
   insightCooldownUntil,
   insightCoveredAttempts,
   insightTexts,
@@ -51,9 +62,9 @@ import {
   originalSummary,
   publishInsightRequest,
   publishInsightUpdated,
-  recordInsightFeedback,
   regenerateInsight,
   requestInsightTranslation,
+  setInsightFeedback,
   staleFlags,
   toInsightDto,
 } from '@evtivity/services/ai-insight.service';
@@ -116,6 +127,7 @@ const insightSchema = z
       .int()
       .nullable()
       .describe('First refused attempt of an authorization insight'),
+    reservationId: z.string().nullable().describe('Reservation of a reservation insight'),
     parentInsightId: z.string().nullable().describe('The site incident this insight belongs to'),
     category: z
       .enum(ROOT_CAUSE_CATEGORIES)
@@ -135,7 +147,6 @@ const insightSchema = z
     scope: z
       .object({
         site: countsSchema.optional().describe('Counts at the subject site'),
-        network: countsSchema.optional().describe('Counts across every site; all-site users only'),
       })
       .passthrough()
       .describe(
@@ -171,9 +182,6 @@ const insightSchema = z
     scopeNow: z
       .object({
         site: countsSchema.optional().describe('Counts at the subject site now'),
-        network: countsSchema
-          .optional()
-          .describe('Counts across every site now (users with access to every site only)'),
       })
       .passthrough()
       .nullable()
@@ -186,6 +194,16 @@ const insightSchema = z
       .nullable()
       .optional()
       .describe('Detail with scopeNow=true only: ISO time scopeNow was computed'),
+    feedback: z
+      .object({
+        helpfulCount: z.number().int().describe('Users who marked the insight helpful'),
+        wrongCount: z.number().int().describe('Users who marked the insight wrong'),
+        mine: z.boolean().nullable().describe('Your vote: true helpful, false wrong, null none'),
+      })
+      .optional()
+      .describe(
+        'Detail with feedback=true only: the votes on the insight (one per user) and yours; notes are never returned',
+      ),
   })
   .passthrough();
 
@@ -195,8 +213,14 @@ const languageField = z
   .describe("Language of the summary (en, de, es, ko, zh, zh-TW); default the user's language");
 
 const listQuery = paginationQuery.extend({
-  stationId: z.string().optional().describe('Insights of a station'),
+  stationId: z
+    .string()
+    .optional()
+    .describe(
+      'Insights of a station and its sessions; reservation insights only with kind or reservationId',
+    ),
   sessionId: z.string().optional().describe('Insights of a session'),
+  reservationId: z.string().optional().describe('Insights of a reservation'),
   siteId: z.string().optional().describe('Insights of a site'),
   supportCaseId: z
     .string()
@@ -212,6 +236,10 @@ const listQuery = paginationQuery.extend({
   kind: z.enum(INSIGHT_KINDS).optional().describe('Filter by kind'),
   status: z.enum(INSIGHT_STATUSES).optional().describe('Filter by status'),
   category: z.enum(ROOT_CAUSE_CATEGORIES).optional().describe('Filter by root cause category'),
+  feedback: z
+    .enum(INSIGHT_FEEDBACK_FILTERS)
+    .optional()
+    .describe('helpful or wrong: insights at least one user marked so'),
   language: languageField,
 });
 
@@ -222,10 +250,27 @@ const detailQuery = z.object({
     .enum(['true', 'false'])
     .optional()
     .describe('true: also count the scope now (scopeNow, scopeNowAt); SQL only, no model call'),
+  feedback: z
+    .enum(['true', 'false'])
+    .optional()
+    .describe('true: also return the vote counts and your vote (feedback)'),
 });
-const feedbackBody = z.object({
-  helpful: z.boolean().describe('true: the insight was helpful; false: it was wrong'),
-});
+const feedbackBody = z
+  .object({
+    helpful: z.boolean().describe('true: the insight was helpful; false: it was wrong'),
+    reason: z
+      .string()
+      .max(INSIGHT_FEEDBACK_REASON_MAX_LENGTH)
+      .nullable()
+      .optional()
+      .describe(
+        'Wrong votes only: a short note on what is wrong (stored only, never sent to a model); omitted keeps the stored note, null or empty removes it',
+      ),
+  })
+  .refine((b) => !b.helpful || b.reason == null || b.reason.trim() === '', {
+    message: 'A reason is only taken with a wrong vote',
+    path: ['reason'],
+  });
 
 /** The insight kinds an operator can regenerate (the scan's kinds). */
 const REGENERATABLE: ReadonlySet<InsightKind> = new Set([
@@ -235,9 +280,11 @@ const REGENERATABLE: ReadonlySet<InsightKind> = new Set([
   'session_failed',
   'authorization_refused',
   'site_incident',
+  ...RESERVATION_INSIGHT_KINDS,
 ]);
 
 function kindSwitch(kind: InsightKind, settings: AiInsightSettings): boolean {
+  if (isReservationInsightKind(kind)) return settings.reservationEnabled;
   if (kind === 'session_failed') return settings.sessionEnabled;
   if (kind === 'authorization_refused') return settings.authorizationEnabled;
   return settings.stationEnabled;
@@ -254,9 +301,18 @@ async function viewerLanguage(userId: string, requested: string | undefined): Pr
   return isUiLanguage(language) ? language : 'en';
 }
 
+/**
+ * The insight when the caller may see it: in their sites, and a reservation
+ * insight only while the reservation feature is on (owner rule v0.1.45; the
+ * row stays stored and shows again once it is on).
+ */
 async function insightInScope(id: string, siteIds: string[] | null): Promise<AiInsightRow | null> {
   const row = await getInsightRow(id);
-  return row != null && siteInScope(siteIds, row.siteId) ? row : null;
+  if (row == null || !siteInScope(siteIds, row.siteId)) return null;
+  if (isReservationInsightKind(row.kind) && !(await isReservationEnabled())) {
+    return null;
+  }
+  return row;
 }
 
 /** Display names of the insights' stations (OCPP identity) and sites. */
@@ -282,11 +338,7 @@ async function recordNames(
   };
 }
 
-async function toView(
-  rows: AiInsightRow[],
-  language: string,
-  allSites: boolean,
-): Promise<Record<string, unknown>[]> {
+async function toView(rows: AiInsightRow[], language: string): Promise<Record<string, unknown>[]> {
   const [texts, stale, names] = await Promise.all([
     insightTexts(rows, language),
     staleFlags(rows),
@@ -295,7 +347,7 @@ async function toView(
   return rows.map((row) => {
     const t = texts.get(row.id);
     return {
-      ...toInsightDto(row, t, { language, allSites, stale: stale.get(row.id) ?? false }),
+      ...toInsightDto(row, t, { language, stale: stale.get(row.id) ?? false }),
       originalSummary: originalSummary(t),
       stationName: row.stationId != null ? (names.stations.get(row.stationId) ?? null) : null,
       siteName: row.siteId != null ? (names.sites.get(row.siteId) ?? null) : null,
@@ -362,12 +414,16 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
       const filter: InsightListFilter = {};
+      // Reservation insights only while reservations are on (cached reader, P6).
+      if (!(await isReservationEnabled())) filter.excludeReservations = true;
       if (query.stationId != null) filter.stationId = query.stationId;
       if (query.sessionId != null) filter.sessionId = query.sessionId;
+      if (query.reservationId != null) filter.reservationId = query.reservationId;
       if (query.siteId != null) filter.siteId = query.siteId;
       if (query.kind != null) filter.kind = query.kind;
       if (query.status != null) filter.status = query.status;
       if (query.category != null) filter.category = query.category;
+      if (query.feedback != null) filter.feedback = query.feedback;
       const attemptIds = query.authorizeAttemptIds?.split(',').map((id) => Number(id)) ?? null;
       if (attemptIds != null) filter.authorizeAttemptIds = attemptIds;
       if (query.supportCaseId != null) {
@@ -380,7 +436,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
         offset: (query.page - 1) * query.limit,
       });
       const language = await viewerLanguage(userId, query.language);
-      const data = await toView(rows, language, siteIds == null);
+      const data = await toView(rows, language);
       if (attemptIds != null) {
         const covered = await insightCoveredAttempts(
           rows.map((r) => r.id),
@@ -389,6 +445,51 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
         for (const item of data) item['matchedAttemptIds'] = covered.get(String(item['id'])) ?? [];
       }
       return { data, total };
+    },
+  );
+
+  app.get(
+    '/ai/insights/feedback-summary',
+    {
+      onRequest: [authorize('aiInsights:read')],
+      schema: {
+        tags: ['AI Insights'],
+        summary: 'Helpful and wrong votes on automatic insights by kind, last 30 days',
+        operationId: 'getAiInsightFeedbackSummary',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                days: z
+                  .number()
+                  .int()
+                  .describe('Window in days, counted by when the vote was given'),
+                data: z
+                  .array(
+                    z
+                      .object({
+                        kind: z.enum(INSIGHT_KINDS).describe('Insight kind'),
+                        helpful: z.number().int().describe('Helpful votes'),
+                        wrong: z.number().int().describe('Wrong votes'),
+                      })
+                      .passthrough(),
+                  )
+                  .describe('Kinds with at least one vote, insights in your sites only'),
+              })
+              .passthrough(),
+          ),
+        },
+      },
+    },
+    async (request) => {
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      const data = await insightFeedbackRates(siteIds, {
+        days: INSIGHT_FEEDBACK_SUMMARY_DAYS,
+        excludeReservations: !(await isReservationEnabled()),
+      });
+      return { days: INSIGHT_FEEDBACK_SUMMARY_DAYS, data };
     },
   );
 
@@ -411,10 +512,11 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
     },
     async (request, reply) => {
       const { id } = parseZodRequest(idParams, request.params);
-      const { language: requested, scopeNow: wantScopeNow } = parseZodRequest(
-        detailQuery,
-        request.query,
-      );
+      const {
+        language: requested,
+        scopeNow: wantScopeNow,
+        feedback: wantFeedback,
+      } = parseZodRequest(detailQuery, request.query);
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
       const row = await insightInScope(id, siteIds);
@@ -433,14 +535,18 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
           language,
         });
       }
-      const [view] = await toView([row], language, siteIds == null);
+      const [rendered] = await toView([row], language);
+      // Counts and the viewer's vote in one aggregate query, only when asked.
+      const view =
+        wantFeedback === 'true'
+          ? { ...rendered, feedback: await insightFeedbackSummary(row.id, userId) }
+          : rendered;
       if (wantScopeNow !== 'true') return view;
       // The live counts beside the snapshot: SQL only, fail-open (the snapshot still shows).
       const scopeNowAt = new Date().toISOString();
       let scopeNow: InsightScope | null = null;
       try {
-        const live = await computeLiveInsightScope(row);
-        scopeNow = live == null ? null : scopeForViewer(live, siteIds == null);
+        scopeNow = await computeLiveInsightScope(row);
       } catch (err) {
         request.log.warn({ err, insightId: row.id }, 'Live insight scope failed');
       }
@@ -552,7 +658,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       }
       const fresh = (await getInsightRow(row.id)) ?? row;
       const language = await viewerLanguage(userId, undefined);
-      const [view] = await toView([fresh], language, siteIds == null);
+      const [view] = await toView([fresh], language);
       return view;
     },
   );
@@ -563,25 +669,54 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       onRequest: [authorize('aiInsights:write')],
       schema: {
         tags: ['AI Insights'],
-        summary: 'Mark an automatic insight helpful or wrong',
+        summary: 'Set or change your vote on an automatic insight: helpful or wrong',
+        description:
+          'One vote per user and insight. Voting again replaces your vote; the same vote again changes nothing. A wrong vote can carry a short note, stored only and never sent to a model.',
         operationId: 'sendAiInsightFeedback',
         security: [{ bearerAuth: [] }],
         params: zodSchema(idParams),
         body: zodSchema(feedbackBody),
         response: {
-          204: { type: 'null', description: 'Feedback recorded' },
+          204: { type: 'null', description: 'Vote stored' },
           404: errorWith('Insight not found', [ERROR_CODES.AI_INSIGHT_NOT_FOUND]),
         },
       },
     },
     async (request, reply) => {
       const { id } = parseZodRequest(idParams, request.params);
-      const { helpful } = parseZodRequest(feedbackBody, request.body);
+      const { helpful, reason } = parseZodRequest(feedbackBody, request.body);
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
       const row = await insightInScope(id, siteIds);
       if (row == null) return reply.status(404).send(NOT_FOUND);
-      await recordInsightFeedback(row.id, helpful, getAuditActor(request));
+      await setInsightFeedback(row.id, userId, { helpful, reason }, getAuditActor(request));
+      return reply.status(204).send();
+    },
+  );
+
+  app.delete(
+    '/ai/insights/:id/feedback',
+    {
+      onRequest: [authorize('aiInsights:write')],
+      schema: {
+        tags: ['AI Insights'],
+        summary: 'Remove your vote on an automatic insight',
+        operationId: 'clearAiInsightFeedback',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(idParams),
+        response: {
+          204: { type: 'null', description: 'Vote removed, or there was none' },
+          404: errorWith('Insight not found', [ERROR_CODES.AI_INSIGHT_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = parseZodRequest(idParams, request.params);
+      const { userId } = request.user as JwtPayload;
+      const siteIds = await getUserSiteIds(userId);
+      const row = await insightInScope(id, siteIds);
+      if (row == null) return reply.status(404).send(NOT_FOUND);
+      await clearInsightFeedback(row.id, userId, getAuditActor(request));
       return reply.status(204).send();
     },
   );

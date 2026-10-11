@@ -13,7 +13,6 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { TabsContent } from '@/components/ui/tabs';
-import { SiteAiCard } from '@/components/ai/usage/SiteAiCard';
 import { Select } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { LANGUAGES } from '@/components/ui/language-select';
@@ -44,8 +43,6 @@ interface Site {
   freeVendTemplateId16: string | null;
   carbonRegionCode: string | null;
   stationMessageLanguage: string | null;
-  aiInsightsEnabled?: boolean;
-  aiMonthlyTokenBudget?: number | null;
   stationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -559,7 +556,6 @@ export function SiteDetailsTab({
           </CardContent>
         </Card>
       )}
-      {!editing && <SiteAiCard siteId={siteId} site={site} />}
       {googleMapsApiKey !== '' && site.latitude != null && site.longitude != null && (
         <Card>
           <CardHeader>

@@ -279,7 +279,10 @@ export function AiUsageTab({ warnPercent }: { warnPercent: number }): React.JSX.
                   {data.sites.map((site) => (
                     <TableRow key={site.siteId}>
                       <TableCell className="font-medium">
-                        <Link to={`/sites/${site.siteId}`} className="text-link hover:underline">
+                        <Link
+                          to={`/sites/${site.siteId}?tab=ai`}
+                          className="text-link hover:underline"
+                        >
                           {site.siteName}
                         </Link>
                       </TableCell>

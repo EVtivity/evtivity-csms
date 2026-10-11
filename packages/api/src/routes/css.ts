@@ -106,6 +106,7 @@ export const HIGH_LEVEL_ACTIONS = [
   'powerCycle',
   'goOffline',
   'comeOnline',
+  'reservationReply',
 ] as const;
 
 // Station-initiated messages registered under both v16/ and v21/ prefixes
@@ -134,6 +135,7 @@ export const ACTION_VERSIONS: Record<string, 'all' | 'ocpp1.6' | 'ocpp2.1'> = {
   powerCycle: 'all',
   goOffline: 'all',
   comeOnline: 'all',
+  reservationReply: 'all',
 
   // OCPP 2.1 only
   createPncEv: 'ocpp2.1',
@@ -436,6 +438,14 @@ const startPncChargingBody = z.object({
 const goOfflineBody = z.object({});
 
 const comeOnlineBody = z.object({});
+
+const reservationReplyBody = z.object({
+  reply: z
+    .enum(['Rejected', 'Occupied', 'NoReply', 'Accepted'])
+    .describe(
+      'Answer of the next ReserveNow only: Rejected or Occupied answer that status, NoReply sends no reply (the CSMS times out), Accepted clears the override',
+    ),
+});
 
 // --- Station-initiated messages (all versions) ---
 
@@ -1714,6 +1724,13 @@ export function cssRoutes(app: FastifyInstance): void {
     'all',
     'Reconnect station to OCPP server without a reboot: reports connector statuses and replays queued transaction messages',
     comeOnlineBody,
+  );
+  actionRoute(
+    app,
+    'reservationReply',
+    'all',
+    'Force the answer of the next ReserveNow (test control)',
+    reservationReplyBody,
   );
 
   // --- Station-initiated messages (version-specific endpoints) ---

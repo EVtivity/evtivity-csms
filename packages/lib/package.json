@@ -44,6 +44,9 @@
     "./station-password": {
       "import": "./src/station-password.ts"
     },
+    "./secret-config": {
+      "import": "./src/secret-config.ts"
+    },
     "./uuid": {
       "import": "./src/uuid.ts"
     },
@@ -91,6 +94,9 @@
     },
     "./ai-usage": {
       "import": "./src/ai-usage.ts"
+    },
+    "./driver-ai": {
+      "import": "./src/driver-ai.ts"
     },
     "./notification-test-sink": {
       "import": "./src/notification-test-sink.ts"

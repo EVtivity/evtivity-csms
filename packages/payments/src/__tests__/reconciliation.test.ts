@@ -19,6 +19,7 @@ const m = vi.hoisted(() => {
     recordsAwaitingConfirmation: vi.fn(),
     staleRebillCharges: vi.fn(),
     resumeStaleAdjustments: vi.fn(),
+    resumeStaleReservationFees: vi.fn(),
   };
 });
 
@@ -29,6 +30,10 @@ vi.mock('@evtivity/database', () => ({
 
 vi.mock('../session-payments.js', () => ({
   resumeStaleAdjustments: m.resumeStaleAdjustments,
+}));
+
+vi.mock('../reservation-fees.js', () => ({
+  resumeStaleReservationFees: m.resumeStaleReservationFees,
 }));
 
 vi.mock('../payment-records.js', () => ({
@@ -98,6 +103,7 @@ beforeEach(() => {
   m.recordsAwaitingConfirmation.mockResolvedValue([]);
   m.staleRebillCharges.mockResolvedValue([]);
   m.resumeStaleAdjustments.mockResolvedValue({ resumed: 0, skipped: [] });
+  m.resumeStaleReservationFees.mockResolvedValue({ resumed: 0, expired: 0, errors: [] });
   registry.getPaymentProvider.mockImplementation((id: string) =>
     Promise.resolve(id === 'stripe' ? stripe : simulated),
   );
@@ -530,6 +536,26 @@ describe('reconcilePayments: stale adjustment claims', () => {
     m.resumeStaleAdjustments.mockRejectedValue(new Error('db down'));
     const result = await reconcilePayments(ctx);
     expect(result.errors).toEqual(['Stale adjustment lookup failed: db down']);
+    expect(m.recordsAwaitingConfirmation).toHaveBeenCalled();
+  });
+});
+
+describe('TC-RES-15: reconcilePayments resumes stale reservation fee records', () => {
+  it('runs the resume and reports the records it could not resume', async () => {
+    m.resumeStaleReservationFees.mockResolvedValue({
+      resumed: 1,
+      expired: 1,
+      errors: ['Reservation fee record 9: reservation rsv_gone not found'],
+    });
+    const result = await reconcilePayments(ctx);
+    expect(m.resumeStaleReservationFees).toHaveBeenCalledWith(ctx);
+    expect(result.errors).toEqual(['Reservation fee record 9: reservation rsv_gone not found']);
+  });
+
+  it('keeps going when the lookup fails', async () => {
+    m.resumeStaleReservationFees.mockRejectedValue(new Error('db down'));
+    const result = await reconcilePayments(ctx);
+    expect(result.errors).toEqual(['Stale reservation fee lookup failed: db down']);
     expect(m.recordsAwaitingConfirmation).toHaveBeenCalled();
   });
 });

@@ -140,6 +140,8 @@ import { isAllSiteUser, requireAllSiteAccess } from '../lib/site-access.js';
 import { config as apiConfig } from '../lib/config.js';
 import { storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { readDriverAiAvailability } from '../lib/driver-ai-availability.js';
+import { DRIVER_AI_NOTICE_VERSION } from '@evtivity/lib/driver-ai';
 import { decryptForRead, encryptForWrite, isServerManagedSetting } from '../lib/settings-crypto.js';
 
 const settingParams = z.object({
@@ -189,6 +191,9 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
   }
   if (typeof value === 'string' && key === 'opsAi.systemPrompt') {
     return { value: storedSystemPrompt('ops', value) };
+  }
+  if (typeof value === 'string' && key === 'driverAi.systemPrompt') {
+    return { value: storedSystemPrompt('driver', value) };
   }
   if (key === COMPANY_PRICE_DISPLAY_KEY) return isPriceDisplay(value) ? { value } : null;
   if (key === STATION_MESSAGE_LANGUAGE_KEY) {
@@ -385,6 +390,8 @@ function invalidAiSettingError(key: string): { error: string; code: string } | n
     'supportAi.tone': AI_SUPPORT_TONES,
     'opsAi.provider': ['', ...AI_PROVIDER_IDS],
     'opsAi.effort': AI_EFFORTS,
+    'driverAi.provider': ['', ...AI_PROVIDER_IDS],
+    'driverAi.effort': AI_EFFORTS,
     'aiInsights.primaryLanguage': UI_LANGUAGES,
   };
   const values = allowed[key];
@@ -581,6 +588,17 @@ export function settingsRoutes(app: FastifyInstance): void {
                   .describe(
                     'Whether automatic insights are generated (opsAi.enabled and an insight kind on), so the CSMS dashboard shows the Active insights card',
                   ),
+                driverAiSupport: z
+                  .boolean()
+                  .describe(
+                    'Whether new support cases offer the AI analysis with consent (driverAi.enabled and a configured provider; false when the settings cannot be read)',
+                  ),
+                driverAiNoticeVersion: z
+                  .number()
+                  .int()
+                  .describe(
+                    'Current version of the driver AI consent notice (send it back as aiConsent.noticeVersion)',
+                  ),
                 reservationCancellationFeeCents: z
                   .number()
                   .int()
@@ -621,6 +639,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const chatbotAiEnabled = await isChatbotAiEnabled();
       const aiInboxEnabled = await isAiInboxEnabled();
       const aiInsightsEnabled = await isAiInsightsEnabled();
+      const driverAi = await readDriverAiAvailability();
       const reservationConfig = await getReservationSettings();
       const currency = await getCompanyCurrency();
       return {
@@ -633,6 +652,8 @@ export function settingsRoutes(app: FastifyInstance): void {
         chatbotAiEnabled,
         aiInboxEnabled,
         aiInsightsEnabled,
+        driverAiSupport: driverAi.available,
+        driverAiNoticeVersion: DRIVER_AI_NOTICE_VERSION,
         reservationCancellationFeeCents: reservationConfig.cancellationFeeCents,
         reservationCancellationWindowMinutes: reservationConfig.cancellationWindowMinutes,
         reservationMaxHours: reservationConfig.maxHours,

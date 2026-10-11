@@ -237,7 +237,6 @@ import { portalChargerRoutes } from '../routes/portal/charger.js';
 import {
   db,
   resolveReservationFeeTerms,
-  snapshotReservationFeeTerms,
   resolveStationTariff,
   resolveStationPricing,
   isSplitBillingEnabled,
@@ -1883,103 +1882,6 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.statusCode).toBe(409);
       expect(response.json().code).toBe('STATION_UNAVAILABLE');
     });
-
-    it('returns 400 PAYMENT_METHOD_REQUIRED when driver has no default card', async () => {
-      // Station -> PM lookup (empty) -> 400
-      setupDbResults(
-        [
-          {
-            id: VALID_STATION_ID,
-            isOnline: true,
-            onboardingStatus: 'accepted',
-            reservationsEnabled: true,
-          },
-        ],
-        [],
-      );
-      const response = await app.inject({
-        method: 'POST',
-        url: '/portal/reservations',
-        headers: { authorization: `Bearer ${driverToken}` },
-        payload: {
-          stationId: 'CS-001',
-          expiresAt: new Date(Date.now() + 3600000).toISOString(),
-        },
-      });
-      expect(response.statusCode).toBe(400);
-      expect(response.json().code).toBe('PAYMENT_METHOD_REQUIRED');
-    });
-
-    it('creates a reservation', async () => {
-      const reservationData = {
-        id: VALID_RESERVATION_ID,
-        reservationId: 1,
-        stationId: VALID_STATION_ID,
-        driverId: null,
-        status: 'active',
-        expiresAt: '2024-01-01T00:00:00.000Z',
-        createdAt: '2024-01-01T00:00:00.000Z',
-      };
-      // DB call 1: station lookup
-      // DB call 2: default payment method check (always required for portal)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: driverTokens lookup for preferredTokenId (empty)
-      // DB call 5: insert returning reservation
-      // The new active-session pre-check is gated on activeSessionCheckHours
-      // > 0 in settings; the global mock leaves it undefined so the check is
-      // skipped and consumes no DB slot.
-      // getNextReservationId uses db.execute (sequence) and does not consume a slot.
-      setupDbResults(
-        [
-          {
-            id: VALID_STATION_ID,
-            isOnline: true,
-            onboardingStatus: 'accepted',
-            reservationsEnabled: true,
-          },
-        ],
-        [{ id: 1, isDefault: true }],
-        [],
-        [],
-        [reservationData],
-      );
-      const response = await app.inject({
-        method: 'POST',
-        url: '/portal/reservations',
-        headers: { authorization: `Bearer ${driverToken}` },
-        payload: {
-          stationId: 'CS-001',
-          expiresAt: new Date(Date.now() + 3600000).toISOString(),
-        },
-      });
-      expect(response.statusCode).toBe(200);
-      expect(response.json().id).toBe(VALID_RESERVATION_ID);
-      // TC-T3-24: the fee terms in effect now are stored on the row.
-      expect(snapshotReservationFeeTerms).toHaveBeenCalledWith({
-        stationUuid: VALID_STATION_ID,
-        driverUuid: DRIVER_ID,
-      });
-      const insertChain = vi
-        .mocked(db.insert)
-        .mock.results.map((r) => r.value as { values: ReturnType<typeof vi.fn> })
-        .find((c) => c.values.mock.calls.length > 0);
-      expect(insertChain?.values).toHaveBeenCalledWith(
-        expect.objectContaining({
-          feeTaxBasis: 'gross',
-          feeTaxRate: '0.19',
-          feePerMinute: '0.10',
-          feeCancellationCents: 300,
-        }),
-      );
-      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
-      expect(Object.keys(message)).toEqual(['commandId', 'stationId', 'action', 'payload']);
-      expect(message).toMatchObject({
-        stationId: 'CS-001',
-        action: 'ReserveNow',
-        payload: { id: expect.any(Number), idToken: { idToken: DRIVER_ID, type: 'Central' } },
-      });
-    });
   });
 
   describe('DELETE /v1/portal/reservations/:id', () => {
@@ -2033,13 +1935,9 @@ describe('Portal charger routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().status).toBe('cancelled');
-      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
-      expect(Object.keys(message)).toEqual(['commandId', 'stationId', 'action', 'payload']);
-      expect(message).toMatchObject({
-        stationId: 'CS-001',
-        action: 'CancelReservation',
-        payload: { reservationId: 1 },
+      // G7: the portal cancel waits for the station's answer.
+      expect(sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'CancelReservation', {
+        reservationId: 1,
       });
     });
   });

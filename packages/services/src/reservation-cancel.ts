@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { ServiceLogger } from '@evtivity/lib';
+import type { PubSubClient, ServiceLogger } from '@evtivity/lib';
 import { eq, sql } from 'drizzle-orm';
 import { db, reservations } from '@evtivity/database';
 import {
@@ -40,7 +40,17 @@ export type ReservationCancelReason =
   | 'station_offline_at_activation'
   | 'evse_in_use_at_activation'
   | 'station_faulted_at_activation'
-  | 'system_cleanup';
+  | 'system_cleanup'
+  | 'station_no_response'
+  | 'station_unavailable_during_hold';
+
+/**
+ * The audit action of a cancellation: a plain `cancelled`, a hold the station
+ * refused or never answered (`station_rejected`), or a hold the station could
+ * not keep because it went offline or faulted (`station_faulted`). The
+ * reservation insights read the last two (`RESERVATION_INSIGHT_TRIGGERS`).
+ */
+export type ReservationCancelAuditAction = 'cancelled' | 'station_rejected' | 'station_faulted';
 
 interface ReservationCancelBase {
   /** Internal reservation row id (text PK). */
@@ -65,6 +75,14 @@ interface ReservationCancelBase {
   reason: ReservationCancelReason;
   /** Optional free-text note; persisted for operator-initiated cancels. */
   note?: string | undefined;
+  /** The audit action of the cancellation (default `cancelled`). */
+  auditAction?: ReservationCancelAuditAction | undefined;
+  /**
+   * The pub/sub client of the calling process for the `reservation.changed`
+   * SSE and the station-watch alert (default `getPubSub()`, which the OCPP
+   * process does not set).
+   */
+  pubsub?: PubSubClient | undefined;
   /**
    * Whether the caller wants to charge the cancellation fee. The actual
    * decision is gated by:
@@ -99,6 +117,12 @@ export interface ReservationCancelResult {
   feeChargeFailed: boolean;
   /** Currency the fee was charged in; null when no fee was charged. */
   feeCurrency: string | null;
+  /**
+   * The status the winning cancel moved the row from (`active` or
+   * `scheduled`); null when the row was already terminal. Only an `active`
+   * hold exists on the station, so only its cancel sends CancelReservation.
+   */
+  statusBefore: 'active' | 'scheduled' | null;
 }
 
 /**
@@ -132,6 +156,7 @@ export async function applyReservationCancellation(
   input: ReservationCancelInput,
 ): Promise<ReservationCancelResult> {
   const settings = await getReservationSettings();
+  const pubsub = input.pubsub ?? getPubSub();
 
   // The system actor never pays a fee, whatever the caller passed.
   const feePayments = input.chargeFee && input.actor !== 'system' ? input.payments : undefined;
@@ -176,16 +201,23 @@ export async function applyReservationCancellation(
   const winningRow = (updated as unknown as CancelledRow[])[0];
   if (winningRow == null) {
     // Lost the race or the row was already terminal.
-    return { feeChargedCents: 0, cancelled: false, feeChargeFailed: false, feeCurrency: null };
+    return {
+      feeChargedCents: 0,
+      cancelled: false,
+      feeChargeFailed: false,
+      feeCurrency: null,
+      statusBefore: null,
+    };
   }
+  const statusBefore = winningRow.status_before === 'scheduled' ? 'scheduled' : 'active';
 
   // Exactly one writer (the conditional-UPDATE winner) writes the audit row.
   // Concurrent cancels that lose the race above return early and skip this.
-  // notes carries only the optional free-text note; the reason enum already
-  // lives on reservations.cancel_reason and would be duplicated here.
+  // notes carries only the optional free-text note; the reason enum is
+  // after.reason, which the reservation insights read.
   await writeReservationAudit({
     reservationId: input.reservationDbId,
-    action: 'cancelled',
+    action: input.auditAction ?? 'cancelled',
     actor: input.actor,
     actorUserId: input.actorUserId ?? null,
     actorDriverId: input.actorDriverId ?? null,
@@ -193,12 +225,13 @@ export async function applyReservationCancellation(
     driverIdAfter: input.driverId,
     statusBefore: winningRow.status_before,
     statusAfter: 'cancelled',
+    reason: input.reason,
     notes: input.note != null && input.note !== '' ? input.note : null,
   });
 
   // Tell the CSMS so the Reservations page reloads itself. Covers every cancel
   // path (operator, portal, fleet, maintenance). Best-effort.
-  void getPubSub()
+  void pubsub
     .publish(
       'csms_events',
       JSON.stringify({
@@ -216,7 +249,7 @@ export async function applyReservationCancellation(
   // until the station reports one, so a watching driver is alerted here when the
   // station is now free by the shared rule. Fail-open: the cancel is stored.
   try {
-    await alertStationWatchersIfAvailable(client, getPubSub(), winningRow.station_id);
+    await alertStationWatchersIfAvailable(client, pubsub, winningRow.station_id);
   } catch (err) {
     input.logger?.warn(
       { err, reservationId: input.reservationDbId },
@@ -225,7 +258,13 @@ export async function applyReservationCancellation(
   }
 
   if (!feeDue || feePayments == null || input.driverId == null) {
-    return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };
+    return {
+      feeChargedCents: 0,
+      cancelled: true,
+      feeChargeFailed: false,
+      feeCurrency: null,
+      statusBefore,
+    };
   }
 
   // The fee is a payment record priced by the pricing engine in the tax basis
@@ -249,7 +288,13 @@ export async function applyReservationCancellation(
     });
     plannedFeeCents = terms.cancellationFeeCents;
     if (plannedFeeCents <= 0) {
-      return { feeChargedCents: 0, cancelled: true, feeChargeFailed: false, feeCurrency: null };
+      return {
+        feeChargedCents: 0,
+        cancelled: true,
+        feeChargeFailed: false,
+        feeCurrency: null,
+        statusBefore,
+      };
     }
     const result = await chargeReservationFee(
       {
@@ -287,5 +332,5 @@ export async function applyReservationCancellation(
     // Row already shows cancellation_fee_cents = 0; nothing to patch.
   }
 
-  return { feeChargedCents, cancelled: true, feeChargeFailed, feeCurrency };
+  return { feeChargedCents, cancelled: true, feeChargeFailed, feeCurrency, statusBefore };
 }

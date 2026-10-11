@@ -7,6 +7,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Toggle } from '@/components/ui/toggle';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DecimalInput } from '@/components/ui/decimal-input';
 import { Input } from '@/components/ui/input';
@@ -95,19 +96,14 @@ export function SecurityRecaptchaSettings({ settings }: Props): React.JSX.Elemen
             <div className="space-y-0.5">
               <Label className="leading-6">{t('settings.recaptchaEnabled')}</Label>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={enabled}
-              onClick={() => {
+            <Toggle
+              aria-label={t('settings.recaptchaEnabled')}
+              size="lg"
+              checked={enabled}
+              onCheckedChange={() => {
                 setEnabled((v) => !v);
               }}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${enabled ? 'bg-primary' : 'bg-muted'}`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`}
-              />
-            </button>
+            />
           </div>
 
           <div className="space-y-2">

@@ -41,6 +41,7 @@ import type {
 } from '@evtivity/ai/core';
 import { prepareToolCall } from '../tools/execute.js';
 import type { AiToolRefusal, Toolset, ToolsetEntry, ToolOutcome } from '../tools/execute.js';
+import { redactProviderRequest } from '@evtivity/ai/redact';
 import type { RedactionCounts } from '@evtivity/ai/redact';
 import type { ToolCallStatus } from '../conversation.service.js';
 
@@ -140,6 +141,8 @@ export interface TurnRunInput {
   adapter: AiAdapter;
   provider: ProviderId;
   model: string;
+  /** The usage surface: sets the provider boundary redaction (`redactProviderRequest`). */
+  usageSurface: 'chatbot' | 'support';
   system: AiSystemBlock[];
   /** The conversation so far, ending with the new user message or tool results. */
   history: AiMessage[];
@@ -293,17 +296,20 @@ export async function runTurn(input: TurnRunInput): Promise<TurnRunResult> {
     let providerError: unknown = null;
     try {
       for await (const event of input.adapter.stream(
-        {
-          model: input.model,
-          system: input.system,
-          messages: stripForeignProviderState(history, input.provider, input.model),
-          tools: input.toolset.definitions,
-          effort: input.effort,
-          ...(input.cacheKey !== undefined ? { cacheKey: input.cacheKey } : {}),
-          ...(input.resolveAttachment !== undefined
-            ? { resolveAttachment: input.resolveAttachment }
-            : {}),
-        },
+        redactProviderRequest(
+          {
+            model: input.model,
+            system: input.system,
+            messages: stripForeignProviderState(history, input.provider, input.model),
+            tools: input.toolset.definitions,
+            effort: input.effort,
+            ...(input.cacheKey !== undefined ? { cacheKey: input.cacheKey } : {}),
+            ...(input.resolveAttachment !== undefined
+              ? { resolveAttachment: input.resolveAttachment }
+              : {}),
+          },
+          input.usageSurface,
+        ),
         signal,
       )) {
         acc.push(event);

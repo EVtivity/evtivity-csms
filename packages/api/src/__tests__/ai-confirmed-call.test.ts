@@ -123,7 +123,7 @@ describe('executeConfirmedToolCall', () => {
 
   it('refuses arguments that no longer match the stored hash', async () => {
     const result = await executeConfirmedToolCall(app, caller(), call({ argsHash: 'tampered' }));
-    expect(result).toMatchObject({ kind: 'refused', reason: 'args_mismatch' });
+    expect(result).toEqual({ kind: 'refused', reason: 'args_mismatch' });
     expect(seen).toHaveLength(0);
   });
 
@@ -134,7 +134,7 @@ describe('executeConfirmedToolCall', () => {
       caller(),
       call({ operationId: 'updateTariff', args, argsHash: aiArgsHash(args) }),
     );
-    expect(result).toMatchObject({ kind: 'refused', reason: 'no_longer_available' });
+    expect(result).toEqual({ kind: 'refused', reason: 'no_longer_available' });
     expect(seen).toHaveLength(0);
   });
 
@@ -150,7 +150,7 @@ describe('executeConfirmedToolCall', () => {
         allowAction: workerAllowed,
       }),
     );
-    expect(result).toMatchObject({ kind: 'refused', reason: 'no_longer_available' });
+    expect(result).toEqual({ kind: 'refused', reason: 'no_longer_available' });
   });
 
   it('maps the command to the station version at confirm time (TC-AI-WK-04)', async () => {
@@ -174,7 +174,7 @@ describe('executeConfirmedToolCall', () => {
       call({ args: { stationId: 'CS-1', transactionId: 'not-a-number' } }),
       { findStation: station('ocpp1.6') },
     );
-    expect(result).toMatchObject({ kind: 'refused', reason: 'ocpp_version_mismatch' });
+    expect(result).toEqual({ kind: 'refused', reason: 'ocpp_version_mismatch' });
     expect(seen).toHaveLength(0);
   });
 
@@ -194,6 +194,6 @@ describe('executeConfirmedToolCall', () => {
       call({ args, argsHash: aiArgsHash(args) }),
       { findStation: station('ocpp2.1') },
     );
-    expect(result).toMatchObject({ kind: 'refused', reason: 'invalid_arguments' });
+    expect(result).toEqual({ kind: 'refused', reason: 'invalid_arguments' });
   });
 });

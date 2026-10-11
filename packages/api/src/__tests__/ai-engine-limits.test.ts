@@ -12,6 +12,7 @@ import type { Redis } from 'ioredis';
 import type { AiBudgetCheckInput, AiBudgetDecision } from '@evtivity/lib/ai-usage';
 import {
   AI_RATE_LIMIT_KEY_PREFIX,
+  allowDriverAiCase,
   checkAiLimits,
   redisCounterStore,
   setAiCounterStore,
@@ -29,6 +30,8 @@ const LIMITS = {
   companyMonthlyTokens: 0,
   siteMonthlyTokens: 0,
   siteDailyTokens: 0,
+  driverDailyTokens: 0,
+  driverPerMinute: 2,
   budgetWarnPercent: 80,
 };
 
@@ -191,6 +194,31 @@ describe('AI limits', () => {
         now: NOW,
       }),
     ).toBeNull();
+  });
+});
+
+describe('allowDriverAiCase', () => {
+  afterEach(() => {
+    setAiCounterStore(null);
+  });
+
+  it('TC-AI-DR-18 counts per driver per minute under ai:rl:driver:<id>:<window>', async () => {
+    const store = memoryStore();
+    setAiCounterStore(store);
+    expect(await allowDriverAiCase('drv_1', 2, NOW)).toBe(true);
+    expect(await allowDriverAiCase('drv_1', 2, NOW)).toBe(true);
+    expect(await allowDriverAiCase('drv_1', 2, NOW)).toBe(false);
+    expect(await allowDriverAiCase('drv_2', 2, NOW)).toBe(true);
+    const window = String(Math.floor(NOW.getTime() / 60_000));
+    expect([...store.keys.keys()]).toEqual([
+      `${AI_RATE_LIMIT_KEY_PREFIX}driver:drv_1:${window}`,
+      `${AI_RATE_LIMIT_KEY_PREFIX}driver:drv_2:${window}`,
+    ]);
+  });
+
+  it('TC-AI-DR-18 allows the case when the counter fails (fail-open)', async () => {
+    setAiCounterStore({ increment: () => Promise.reject(new Error('redis down')) });
+    expect(await allowDriverAiCase('drv_1', 2, NOW)).toBe(true);
   });
 });
 

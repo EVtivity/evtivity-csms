@@ -112,6 +112,15 @@ describe('insight model output', () => {
         'concurrent_tx',
         'expired',
         'no_credit',
+        // Reservation audit rows (v0.1.45), keyed <action>:<reason>.
+        'expired:no_show',
+        'fee_failed:declined',
+        'fee_failed:no_payment_method',
+        'station_cancel_failed:station_offline',
+        'station_rejected:evse_in_use_at_activation',
+        'station_rejected:station_faulted_at_activation',
+        'station_rejected:station_offline_at_activation',
+        'station_rejected:station_rejected_occupied',
       ].sort(),
     );
     expect(ruleInsightFor('AccountCreditLimit')?.category).toBe('payment');
@@ -205,7 +214,8 @@ describe('reserved error codes and setting keys', () => {
       AI_MCP_SETTING_KEYS,
       AI_BUDGET_SETTING_KEYS,
     ].flatMap((group) => Object.values(group) as string[]);
-    expect(keys).toHaveLength(29);
+    // 29 in v0.1.44, plus the reservation insight switch (v0.1.45).
+    expect(keys).toHaveLength(30);
     expect(new Set(keys).size).toBe(keys.length);
     // The v0.1.43 limit keys. AI_LIMIT_SETTINGS now also holds the numeric new keys (R7).
     const existing = [

@@ -18,13 +18,18 @@ import {
   clearSystemSettingsCache,
 } from '@evtivity/database';
 import { setPubSub } from '@evtivity/lib/pubsub-instance';
+import { createDriverAiWorker, setDriverAiQueue, startDriverAiBridge } from './driver-ai/queue.js';
 import { createQueues, QUEUE_NAMES } from './queues.js';
 import { createCronWorker } from './cron-worker.js';
 import { scheduleCronJobs, scheduleLoadManagementCoordinator } from './scheduler.js';
 import { rebuildDelayedJobs, startRedisRecoveryWatch } from './redis-recovery.js';
 import { createLoadManagementWorker } from './load-management-worker.js';
 import { createGuestSessionWorker, startGuestSessionBridge } from './guest-session-worker.js';
-import { createReservationWorker, startReservationBridge } from './reservation-worker.js';
+import {
+  createReservationWorker,
+  setReservationQueue,
+  startReservationBridge,
+} from './reservation-worker.js';
 import {
   createMaintenanceFanoutWorker,
   startMaintenanceFanoutBridge,
@@ -94,12 +99,15 @@ async function start(): Promise<void> {
     reportQueue,
     aiWorkerQueue,
     aiInsightQueue,
+    driverAiQueue,
   } = createQueues(REDIS_URL);
   setSimulatedEventSink(queueSimulatedSink(paymentWebhookQueue));
   setReportQueue(reportQueue);
   setAiWorkerQueue(aiWorkerQueue);
   setFleetInvoiceQueue(fleetInvoiceQueue);
+  setReservationQueue(reservationQueue);
   setAiInsightQueue(aiInsightQueue);
+  setDriverAiQueue(driverAiQueue);
 
   // Schedule cron jobs from database
   await scheduleCronJobs(cronQueue);
@@ -160,6 +168,7 @@ async function start(): Promise<void> {
   const reportWorker = createReportWorker(createBullMQConnection(REDIS_URL));
   const aiWorker = createAiWorker(createBullMQConnection(REDIS_URL), aiWorkerLockRedis);
   const aiInsightWorker = createAiInsightWorker(createBullMQConnection(REDIS_URL), pubsub);
+  const driverAiWorker = createDriverAiWorker(createBullMQConnection(REDIS_URL));
 
   // OCTT conformance test worker
   const octtWorker = new Worker<OcttJobData>(
@@ -188,6 +197,7 @@ async function start(): Promise<void> {
     reportWorker,
     aiWorker,
     aiInsightWorker,
+    driverAiWorker,
     octtWorker,
   })) {
     // BullMQ re-emits Redis errors on every Worker; unheard, it prints each one
@@ -215,6 +225,7 @@ async function start(): Promise<void> {
   const stopStationMessageBridge = await startStationMessageBridge(pubsub, stationMessageQueue);
   const stopReportBridge = await startReportBridge(pubsub);
   const stopAiInsightBridge = await startAiInsightBridge(pubsub);
+  const stopDriverAiBridge = await startDriverAiBridge(pubsub);
 
   // Listen for credential-rotation invalidations from the API so the next
   // dispatchDriverNotification / scheduled report email reads fresh SMTP and
@@ -267,6 +278,7 @@ async function start(): Promise<void> {
     await stopStationMessageBridge();
     await stopReportBridge();
     await stopAiInsightBridge();
+    await stopDriverAiBridge();
     await octtSubscription.unsubscribe();
     await cacheInvalidateSubscription.unsubscribe();
     await cronWorker.close();
@@ -283,6 +295,7 @@ async function start(): Promise<void> {
     await reportWorker.close();
     await aiWorker.close();
     await aiInsightWorker.close();
+    await driverAiWorker.close();
     await octtWorker.close();
     await cronQueue.close();
     await loadQueue.close();
@@ -303,6 +316,8 @@ async function start(): Promise<void> {
     await aiWorkerQueue.close();
     setAiInsightQueue(null);
     await aiInsightQueue.close();
+    setDriverAiQueue(null);
+    await driverAiQueue.close();
     for (const lockRedis of [
       cronLockRedis,
       maintenanceLockRedis,

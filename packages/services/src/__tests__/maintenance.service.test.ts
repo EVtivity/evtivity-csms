@@ -74,6 +74,7 @@ const h = vi.hoisted(() => {
       ) => {},
     ),
     renderMaintenanceMessage: vi.fn(async () => 'MAINT MSG'),
+    publishCancelReservation: vi.fn(async (..._args: unknown[]) => {}),
     publish: vi.fn(async (_channel: string, _payload: string) => {}),
   };
 });
@@ -111,6 +112,7 @@ vi.mock('@evtivity/database', () => {
         return chain;
       },
       where: () => chain,
+      innerJoin: () => chain,
       // Make the chain awaitable (thenable). Resolves to the next queued
       // result set for whichever table was selected.
       then: (resolve: (v: unknown[]) => unknown) => {
@@ -189,6 +191,10 @@ vi.mock('../ocpp-command.js', () => ({
 
 vi.mock('../reservation-cancel.js', () => ({
   applyReservationCancellation: h.applyReservationCancellation,
+}));
+
+vi.mock('../reservation.service.js', () => ({
+  publishCancelReservation: h.publishCancelReservation,
 }));
 
 vi.mock('../maintenance-check.js', () => ({
@@ -661,6 +667,83 @@ describe('enterMaintenance', () => {
     setSelect('reservations', overrides.reservations ?? []);
     setSelect('chargingSessions', overrides.sessions ?? []);
   }
+
+  it('TC-RES-11: sends CancelReservation for each won cancel of an active hold', async () => {
+    activeEnterSetup({
+      policy: 'ignore',
+      reservations: [
+        {
+          id: 'rsv_1',
+          reservationOcppId: 71,
+          stationId: 'sta_1',
+          stationOcppId: 'CS-001',
+          driverId: null,
+          startsAt: null,
+          createdAt: new Date('2026-06-01T00:00:00Z'),
+        },
+        {
+          id: 'rsv_2',
+          reservationOcppId: 72,
+          stationId: 'sta_1',
+          stationOcppId: 'CS-001',
+          driverId: null,
+          startsAt: new Date('2026-06-10T10:30:00Z'),
+          createdAt: new Date('2026-06-01T00:00:00Z'),
+        },
+      ],
+    });
+    h.applyReservationCancellation
+      .mockResolvedValueOnce({
+        cancelled: true,
+        feeChargedCents: 0,
+        feeChargeFailed: false,
+        statusBefore: 'active',
+      } as never)
+      .mockResolvedValueOnce({
+        cancelled: true,
+        feeChargedCents: 0,
+        feeChargeFailed: false,
+        statusBefore: 'scheduled',
+      } as never);
+
+    await enterMaintenance('mne_1', SYSTEM_ACTOR);
+
+    // Only the active hold exists on the station; the scheduled one never reached it.
+    expect(h.publishCancelReservation).toHaveBeenCalledTimes(1);
+    expect(h.publishCancelReservation).toHaveBeenCalledWith(
+      expect.objectContaining({ publish: h.publish }),
+      'CS-001',
+      71,
+      undefined,
+    );
+  });
+
+  it('TC-RES-11: sends no CancelReservation when the cancel lost the race', async () => {
+    activeEnterSetup({
+      policy: 'ignore',
+      reservations: [
+        {
+          id: 'rsv_1',
+          reservationOcppId: 71,
+          stationId: 'sta_1',
+          stationOcppId: 'CS-001',
+          driverId: null,
+          startsAt: null,
+          createdAt: new Date('2026-06-01T00:00:00Z'),
+        },
+      ],
+    });
+    h.applyReservationCancellation.mockResolvedValueOnce({
+      cancelled: false,
+      feeChargedCents: 0,
+      feeChargeFailed: false,
+      statusBefore: null,
+    } as never);
+
+    await enterMaintenance('mne_1', SYSTEM_ACTOR);
+
+    expect(h.publishCancelReservation).not.toHaveBeenCalled();
+  });
 
   it('does not count a reservation when the cancel helper reports cancelled:false', async () => {
     activeEnterSetup({

@@ -12,6 +12,7 @@
 
 import { recordAiUsage } from '@evtivity/database';
 import { frameUntrusted } from '@evtivity/ai/prompt';
+import { redactProviderRequest } from '@evtivity/ai/redact';
 import { getModelEntry } from '@evtivity/ai/core';
 import type { Logger } from '@evtivity/lib';
 import { aiUsageCostMicros } from '@evtivity/lib/pricing-engine';
@@ -72,20 +73,23 @@ export async function translateInsight(
 
   const adapter = deps.createAdapter(config);
   const result = await adapter.complete(
-    {
-      model: config.model,
-      system: translationSystemBlocks(language),
-      messages: [
-        {
-          role: 'user',
-          parts: [{ type: 'text', text: frameUntrusted('insight_summary', insightId, original) }],
-        },
-      ],
-      tools: [],
-      effort: 'low',
-      maxOutputTokens: INSIGHT_MAX_OUTPUT_TOKENS,
-      cacheKey: `insight-translation:${language}`,
-    },
+    redactProviderRequest(
+      {
+        model: config.model,
+        system: translationSystemBlocks(language),
+        messages: [
+          {
+            role: 'user',
+            parts: [{ type: 'text', text: frameUntrusted('insight_summary', insightId, original) }],
+          },
+        ],
+        tools: [],
+        effort: 'low',
+        maxOutputTokens: INSIGHT_MAX_OUTPUT_TOKENS,
+        cacheKey: `insight-translation:${language}`,
+      },
+      'insight_translation',
+    ),
     AbortSignal.timeout(TRANSLATION_TIMEOUT_MS),
   );
   const prices = getModelEntry(config.provider, config.model)?.prices ?? null;

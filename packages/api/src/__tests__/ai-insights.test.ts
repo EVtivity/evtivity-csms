@@ -13,6 +13,11 @@ const svc = vi.hoisted(() => ({
   publishInsightUpdated: vi.fn(),
 }));
 vi.mock('@evtivity/services/ai-insight.service', () => svc);
+const reservations = vi.hoisted(() => ({ enabled: true }));
+vi.mock('@evtivity/database', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/database')>()),
+  isReservationEnabled: () => Promise.resolve(reservations.enabled),
+}));
 
 const { renderSupportInsights, supportInsightContext } =
   await import('../services/ai/engine/support-insights.js');
@@ -75,6 +80,25 @@ describe('support draft insights', () => {
     expect(text?.match(/<\/untrusted>/g)).toHaveLength(1);
   });
 
+  it('leaves out reservation insights while the reservation feature is off', async () => {
+    reservations.enabled = false;
+    try {
+      svc.listInsightRows.mockResolvedValue({ rows: [], total: 0 });
+      await supportInsightContext({ stationId: 'sta_a', sessionIds: [] }, null);
+      expect(svc.listInsightRows).toHaveBeenLastCalledWith(
+        {
+          status: 'active',
+          supportCase: { stationId: 'sta_a', sessionIds: [] },
+          excludeReservations: true,
+        },
+        null,
+        expect.any(Object),
+      );
+    } finally {
+      reservations.enabled = true;
+    }
+  });
+
   it('TC-AI-IN-23 no insight, no block', () => {
     expect(renderSupportInsights([], new Map())).toBeNull();
   });
@@ -96,5 +120,23 @@ describe('insight SSE event', () => {
     const unsited = { ...event, siteId: null };
     expect(isEventVisible(['sit_a'], unsited)).toBe(false);
     expect(isEventVisible(null, unsited)).toBe(true);
+  });
+});
+
+describe('insight feedback never reaches a model', () => {
+  it('TC-AI-FB-18 the getAiInsight tool omits the feedback argument; the summary and the vote writes are no tools', async () => {
+    const { toolPolicy } = await import('../services/ai/tools/policy.js');
+    const { AI_TOOL_CATALOG } = await import('../services/ai/tools/catalog.js');
+    expect(toolPolicy('getAiInsight').omit).toContain('feedback');
+    for (const op of [
+      'getAiInsightFeedbackSummary',
+      'sendAiInsightFeedback',
+      'clearAiInsightFeedback',
+    ]) {
+      expect(toolPolicy(op).exposure, op).toBe('never');
+    }
+    const tool = AI_TOOL_CATALOG.find((t) => t.operationId === 'getAiInsight');
+    expect(tool).toBeDefined();
+    expect(JSON.stringify(tool)).not.toContain('"feedback"');
   });
 });

@@ -287,6 +287,39 @@ describe('AI Inbox (TC-AI-WK-UI-*)', () => {
     });
   });
 
+  it('the detail page localizes a refusal reason and shows no stored text', async () => {
+    apiMock.get.mockResolvedValue(
+      proposal({
+        status: 'failed',
+        result: { httpStatus: 0, body: { refused: 'ocpp_version_mismatch' } },
+      }),
+    );
+    wrap(
+      <Routes>
+        <Route path="/ai/inbox/:id" element={<AiInboxDetail />} />
+      </Routes>,
+      '/ai/inbox/p1',
+    );
+    expect((await screen.findByTestId('ai-proposal-refusal')).textContent).toBe(
+      'aiInbox.refused.ocpp_version_mismatch',
+    );
+    expect(screen.getByText('aiInbox.confirmFailed')).toBeTruthy();
+  });
+
+  it('the detail page shows no refusal line for an unknown or missing reason', async () => {
+    apiMock.get.mockResolvedValue(
+      proposal({ status: 'failed', result: { httpStatus: 0, body: { error: 'confirm_error' } } }),
+    );
+    wrap(
+      <Routes>
+        <Route path="/ai/inbox/:id" element={<AiInboxDetail />} />
+      </Routes>,
+      '/ai/inbox/p1',
+    );
+    expect(await screen.findByText('aiInbox.confirmFailed')).toBeTruthy();
+    expect(screen.queryByTestId('ai-proposal-refusal')).toBeNull();
+  });
+
   it('the detail page shows the rationale with the measured values and links the target', async () => {
     apiMock.get.mockResolvedValue(
       proposal({

@@ -11,6 +11,7 @@
 import { PROMPT_LANGUAGES } from '@evtivity/ai/prompt';
 import type { PromptLanguage } from '@evtivity/ai/prompt';
 import { isDefaultOpsPrompt } from '@evtivity/services/ai-ops-prompt';
+import { isDefaultDriverAiPrompt } from '@evtivity/services/driver-ai-prompt';
 import type { AiSurface } from '../tools/policy.js';
 
 const CHATBOT: Record<PromptLanguage, string> = {
@@ -46,10 +47,11 @@ function comparable(text: string): string {
  * text is a built-in prompt of the surface (any language), so a saved but
  * unchanged default keeps following the built-in prompt and its updates.
  */
-export function storedSystemPrompt(surface: AiSurface | 'ops', text: string): string {
+export function storedSystemPrompt(surface: AiSurface | 'ops' | 'driver', text: string): string {
   const value = comparable(text);
   if (value === '') return '';
   if (surface === 'ops') return isDefaultOpsPrompt(text) ? '' : text;
+  if (surface === 'driver') return isDefaultDriverAiPrompt(text) ? '' : text;
   const defaults = surface === 'support' ? SUPPORT : CHATBOT;
   return PROMPT_LANGUAGES.some((lang) => comparable(defaults[lang]) === value) ? '' : text;
 }

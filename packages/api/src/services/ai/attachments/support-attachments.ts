@@ -6,6 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
 import { db, supportCaseAttachments } from '@evtivity/database';
 import { AppError } from '@evtivity/lib';
+import { insertSupportCaseAttachment } from '@evtivity/services/support-case.service';
 import {
   buildS3Key,
   buildSupportQuarantineKey,
@@ -133,17 +134,14 @@ export async function confirmSupportAttachment(
   const { maxBytes } = await attachmentLimits();
   const processed = await finalizeUpload({ s3, quarantineKey: s3Key, cleanKey, maxBytes }, log);
 
-  const [attachment] = await db
-    .insert(supportCaseAttachments)
-    .values({
-      messageId,
-      fileName: displayFileName(fileName, processed.contentType),
-      fileSize: processed.bytes.length,
-      contentType: processed.contentType,
-      s3Key: cleanKey,
-      s3Bucket: s3.bucket,
-    })
-    .returning();
+  const attachment = await insertSupportCaseAttachment({
+    messageId,
+    fileName: displayFileName(fileName, processed.contentType),
+    fileSize: processed.bytes.length,
+    contentType: processed.contentType,
+    s3Key: cleanKey,
+    s3Bucket: s3.bucket,
+  });
   if (attachment == null) throw new Error('support attachment insert returned no row');
   return { attachment, created: true };
 }

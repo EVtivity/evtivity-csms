@@ -142,8 +142,10 @@ export function eventTypeVariant(
 /** Support case status -> badge variant */
 export function supportCaseStatusVariant(
   status: string,
-): 'default' | 'secondary' | 'destructive' | 'outline' {
+): 'default' | 'secondary' | 'destructive' | 'outline' | 'info' {
   switch (status) {
+    case 'ai_assist':
+      return 'info';
     case 'open':
       return 'default';
     case 'in_progress':

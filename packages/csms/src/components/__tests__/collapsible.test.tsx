@@ -31,6 +31,22 @@ describe('Collapsible', () => {
     expect(onOpenChange).toHaveBeenLastCalledWith(false);
   });
 
+  it('wraps a long summary under the title instead of cutting it off (375 px phones)', () => {
+    render(
+      <Collapsible title="Site Context" summary="3 stations offline at detection, 1 now">
+        <p>table</p>
+      </Collapsible>,
+    );
+    const summary = screen.getByText('3 stations offline at detection, 1 now');
+    expect(summary.className).not.toMatch(/\btruncate\b|whitespace-nowrap|text-ellipsis/);
+    expect(summary.className).toContain('break-words');
+    // Title and summary share a wrapping row; the chevron stays on the first line.
+    expect(summary.parentElement?.className).toContain('flex-wrap');
+    const trigger = screen.getByRole('button', { name: /Site Context/ });
+    expect(trigger.className).toContain('items-start');
+    expect(trigger.className).not.toMatch(/\bitems-center\b|whitespace-nowrap/);
+  });
+
   it('is a native button, so the keyboard toggles it', () => {
     render(
       <Collapsible title="Scope">

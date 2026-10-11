@@ -6,6 +6,10 @@ import {
   AlertOctagon,
   AlertTriangle,
   BellRing,
+  CalendarClock,
+  CalendarOff,
+  CalendarX,
+  CreditCard,
   FileText,
   Receipt,
   ShieldX,
@@ -30,10 +34,15 @@ export const INSIGHT_SEVERITY: Readonly<Record<InsightKind, number>> = {
   station_offline: 2,
   session_failed: 3,
   station_alert: 4,
-  authorization_refused: 5,
-  tariff_anomaly: 6,
-  site_summary: 7,
-  company_summary: 8,
+  reservation_station_faulted: 5,
+  authorization_refused: 6,
+  reservation_rejected: 7,
+  reservation_cancel_failed: 8,
+  reservation_fee_failed: 9,
+  reservation_no_show: 10,
+  tariff_anomaly: 11,
+  site_summary: 12,
+  company_summary: 13,
 };
 
 export type InsightTone = 'destructive' | 'warning' | 'info' | 'muted';
@@ -49,6 +58,11 @@ export const INSIGHT_ICONS: Readonly<Record<InsightKind, { icon: LucideIcon; ton
     tariff_anomaly: { icon: Receipt, tone: 'info' },
     site_summary: { icon: FileText, tone: 'muted' },
     company_summary: { icon: FileText, tone: 'muted' },
+    reservation_rejected: { icon: CalendarX, tone: 'warning' },
+    reservation_no_show: { icon: CalendarClock, tone: 'info' },
+    reservation_cancel_failed: { icon: CalendarOff, tone: 'warning' },
+    reservation_fee_failed: { icon: CreditCard, tone: 'warning' },
+    reservation_station_faulted: { icon: AlertTriangle, tone: 'destructive' },
   };
 
 /** Station detail tabs a suggested fix leads to (`?tab=`). */
@@ -60,8 +74,28 @@ const FIX_TABS: Readonly<Partial<Record<FixCode, string>>> = {
   review_tariff_assignment: 'pricing',
 };
 
-/** The page a suggested fix is done on, when it maps to one (a station tab). */
-export function fixPath(code: FixCode, insight: Pick<AiInsightView, 'stationId'>): string | null {
+/**
+ * Reservation detail tabs a suggested fix leads to: the commands tab to send
+ * CancelReservation again, the details tab with the fee payments.
+ */
+const RESERVATION_FIX_TABS: Readonly<Partial<Record<FixCode, string>>> = {
+  reservation_retry_cancel: 'commands',
+  reservation_review_fee_payment: 'details',
+};
+
+/**
+ * The page a suggested fix is done on, when it maps to one: a station tab,
+ * or a reservation tab for a reservation insight.
+ */
+export function fixPath(
+  code: FixCode,
+  insight: Pick<AiInsightView, 'stationId' | 'reservationId'>,
+): string | null {
+  const reservationTab = RESERVATION_FIX_TABS[code];
+  if (reservationTab != null) {
+    if (insight.reservationId == null) return null;
+    return `/reservations/${encodeURIComponent(insight.reservationId)}?tab=${reservationTab}`;
+  }
   const tab = FIX_TABS[code];
   if (tab == null || insight.stationId == null) return null;
   return `/stations/${encodeURIComponent(insight.stationId)}?tab=${tab}`;

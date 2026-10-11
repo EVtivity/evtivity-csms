@@ -3,98 +3,22 @@
 
 /**
  * Deterministic scope counts of an insight, computed in SQL and never by the
- * model. `site` counts the subject's site,
- * `network` every site. The same-error-code count reads the StatusNotification
- * log and is computed for the site only (a network count would scan every
- * station's message log). The network counts are stored but returned only to
- * users with access to every site.
+ * model: the counts of the subject's site (`site`), from the one shared query
+ * `computeInsightScopeCounts` in `@evtivity/database` (the demo seed uses it too). A subject without a site
+ * has no counts. No count spans every site (v0.1.45, plan section 5: the
+ * all-sites counts were removed).
  */
 
-import { client, stationAvailabilitySql } from '@evtivity/database';
-import type { InsightScope, InsightScopeCounts } from '@evtivity/lib/ai-insights';
+import { client, computeInsightScopeCounts } from '@evtivity/database';
+import type { InsightScopeInput } from '@evtivity/database';
+import { RESERVATION_INSIGHT_KINDS } from '@evtivity/lib/ai-insights';
+import type { InsightScope } from '@evtivity/lib/ai-insights';
 
-export interface ScopeInput {
-  siteId: string | null;
-  /** The subject station's latest StatusNotification error code (24 h). */
-  errorCode?: string | null;
-  /** The subject session's stop reason. */
-  stoppedReason?: string | null;
-}
+export type ScopeInput = InsightScopeInput;
 
-interface CountsRow {
-  stations: number;
-  stations_offline: number;
-  stations_faulted: number;
-  same_error_code: number | null;
-  sessions_interrupted: number;
-  sessions_failed_same_reason: number | null;
-  token_refusals: number;
-}
-
-/** Counts for one site, or for every site when `siteId` is null. */
-async function scopeCounts(siteId: string | null, input: ScopeInput): Promise<InsightScopeCounts> {
-  const errorCode = input.errorCode ?? null;
-  const reason = input.stoppedReason ?? null;
-  const [row] = await client<CountsRow[]>`
-    WITH st AS (
-      SELECT cs.id, cs.station_id, cs.is_online,
-        ${client.unsafe(stationAvailabilitySql('cs'))} AS availability
-      FROM charging_stations cs
-      WHERE ${siteId}::text IS NULL OR cs.site_id = ${siteId}
-    )
-    SELECT
-      (SELECT count(*)::int FROM st) AS stations,
-      (SELECT count(*)::int FROM st WHERE NOT is_online) AS stations_offline,
-      (SELECT count(*)::int FROM st WHERE availability = 'faulted') AS stations_faulted,
-      CASE WHEN ${errorCode}::text IS NULL OR ${siteId}::text IS NULL THEN NULL ELSE (
-        SELECT count(DISTINCT l.station_id)::int FROM ocpp_message_logs l
-        WHERE l.station_id IN (SELECT id FROM st)
-          AND l.action = 'StatusNotification' AND l.direction = 'inbound'
-          AND l.created_at > now() - interval '24 hours'
-          AND l.payload ->> 'errorCode' = ${errorCode}
-      ) END AS same_error_code,
-      (SELECT count(*)::int FROM charging_sessions s
-        WHERE s.station_id IN (SELECT id FROM st)
-          AND s.status IN ('failed', 'faulted')
-          AND s.updated_at > now() - interval '24 hours') AS sessions_interrupted,
-      CASE WHEN ${reason}::text IS NULL THEN NULL ELSE (
-        SELECT count(*)::int FROM charging_sessions s
-        WHERE s.station_id IN (SELECT id FROM st)
-          AND s.status IN ('failed', 'faulted') AND s.stopped_reason = ${reason}
-          AND s.updated_at > now() - interval '24 hours'
-      ) END AS sessions_failed_same_reason,
-      (SELECT count(*)::int FROM authorize_attempts a
-        WHERE a.station_id IN (SELECT station_id FROM st)
-          AND a.outcome <> 'accepted'
-          AND a.created_at > now() - interval '24 hours') AS token_refusals
-  `;
-  const counts: InsightScopeCounts = {
-    stations: row?.stations ?? 0,
-    stationsOffline: row?.stations_offline ?? 0,
-    stationsFaulted: row?.stations_faulted ?? 0,
-    sessionsInterrupted: row?.sessions_interrupted ?? 0,
-    tokenRefusals: row?.token_refusals ?? 0,
-  };
-  if (row?.same_error_code != null) counts.sameErrorCode = row.same_error_code;
-  if (row?.sessions_failed_same_reason != null) {
-    counts.sessionsFailedSameReason24h = row.sessions_failed_same_reason;
-  }
-  return counts;
-}
-
-/** The site counts (when the subject has a site) and the network counts. */
+/** The site counts of the subject; empty for a subject without a site. */
 export async function computeInsightScope(input: ScopeInput): Promise<InsightScope> {
-  const [site, network] = await Promise.all([
-    input.siteId == null ? Promise.resolve(undefined) : scopeCounts(input.siteId, input),
-    scopeCounts(null, input),
-  ]);
-  return site === undefined ? { network } : { site, network };
-}
-
-/** Removes the network counts for a user restricted to some sites. */
-export function scopeForViewer(scope: InsightScope, allSites: boolean): InsightScope {
-  if (allSites) return scope;
-  return scope.site === undefined ? {} : { site: scope.site };
+  return computeInsightScopeCounts(input);
 }
 
 /** The record an insight is about, for its live scope. */
@@ -117,13 +41,14 @@ const LIVE_SCOPE_KINDS: ReadonlySet<string> = new Set([
   'session_failed',
   'authorization_refused',
   'site_incident',
+  ...RESERVATION_INSIGHT_KINDS,
 ]);
 
 /**
  * The same counts as the stored snapshot, computed now with the same SQL and
  * the same inputs the analysis used (the station's latest error code, the
  * session's stop reason). SQL only: no model call. Null for kinds without a
- * scope. The caller applies `scopeForViewer`.
+ * scope.
  */
 export async function computeLiveInsightScope(
   subject: LiveScopeSubject,

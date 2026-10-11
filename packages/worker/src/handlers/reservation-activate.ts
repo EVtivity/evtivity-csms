@@ -1,7 +1,6 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import type { Job } from 'bullmq';
 import { eq, and, desc, isNull } from 'drizzle-orm';
 import {
@@ -16,37 +15,68 @@ import {
   alertStationWatchersIfAvailable,
 } from '@evtivity/database';
 import type { OcppCommand, PubSubClient } from '@evtivity/lib';
-import { createLogger, dispatchDriverNotification, publishOcppCommand } from '@evtivity/lib';
+import { createLogger, publishOcppCommand } from '@evtivity/lib';
+import { applyReservationCancellation } from '@evtivity/services/reservation-cancel';
+import type { ReservationCancelReason } from '@evtivity/services/reservation-cancel';
+import { notifyReservationDriver } from '@evtivity/services/reservation-notify';
+import { reserveNowPayload } from '@evtivity/services/reservation.service';
 
 const log = createLogger('reservation-activate');
 
-async function notifyDriverCancelled(
-  driverId: string,
-  reservationId: number,
-  stationOcppId: string,
-  reservationDbId: string,
-  context: string,
+interface ActivationRow {
+  id: string;
+  reservationId: number;
+  status: string;
+  startsAt: Date | null;
+  createdAt: Date;
+  expiresAt: Date;
+  driverId: string | null;
+  tokenId: string | null;
+  stationDbId: string;
+  stationOcppId: string;
+  siteId: string | null;
+  isOnline: boolean;
+  evseDbId: string | null;
+}
+
+/**
+ * Cancels a scheduled reservation the station cannot take at activation
+ * (offline, EVSE in use, faulted) as system through the shared cancel
+ * (audit `station_rejected` with the reason, SSE, station-watch alert, no
+ * fee), then tells the driver. A lost race (the row is no longer scheduled)
+ * does nothing.
+ */
+async function cancelAtActivation(
+  reservation: ActivationRow,
+  reason: ReservationCancelReason,
   pubsub: PubSubClient,
 ): Promise<void> {
-  try {
-    await dispatchDriverNotification(
-      client,
-      'reservation.Cancelled',
-      driverId,
-      {
-        reservationId,
-        stationId: stationOcppId,
-        cancellationFeeFormatted: '',
-      },
-      ALL_TEMPLATES_DIRS,
-      pubsub,
-    );
-  } catch (err) {
-    log.warn(
-      { err, driverId, reservationDbId, context },
-      'Failed to dispatch reservation.Cancelled notification',
-    );
-  }
+  const result = await applyReservationCancellation({
+    reservationDbId: reservation.id,
+    siteId: reservation.siteId,
+    driverId: reservation.driverId,
+    startsAt: reservation.startsAt ?? reservation.createdAt,
+    createdAt: reservation.createdAt,
+    actor: 'system',
+    reason,
+    auditAction: 'station_rejected',
+    chargeFee: false,
+    pubsub,
+    logger: log,
+  });
+  if (!result.cancelled) return;
+  await notifyReservationDriver(
+    'reservation.Cancelled',
+    {
+      reservationDbId: reservation.id,
+      reservationOcppId: reservation.reservationId,
+      stationOcppId: reservation.stationOcppId,
+      driverId: reservation.driverId,
+      expiresAt: reservation.expiresAt,
+    },
+    { cancellationFeeFormatted: '' },
+    { pubsub, logger: log },
+  );
 }
 
 export async function handleReservationActivate(job: Job, pubsub: PubSubClient): Promise<void> {
@@ -58,8 +88,11 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
       id: reservations.id,
       reservationId: reservations.reservationId,
       status: reservations.status,
+      startsAt: reservations.startsAt,
+      createdAt: reservations.createdAt,
       expiresAt: reservations.expiresAt,
       driverId: reservations.driverId,
+      tokenId: reservations.tokenId,
       stationDbId: reservations.stationId,
       stationOcppId: chargingStations.stationId,
       siteId: chargingStations.siteId,
@@ -95,8 +128,9 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
           sessionId: null,
         }),
       )
-      .catch(() => {
-        /* best-effort */
+      .catch((err: unknown) => {
+        // fail-open: the Reservations page refreshes on its next fetch (P9).
+        log.warn({ err, reservationDbId }, 'reservation.changed publish failed');
       });
   };
 
@@ -116,6 +150,8 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
         driverIdAfter: reservation.driverId,
         statusBefore: 'scheduled',
         statusAfter: 'expired',
+        // Never on the station: not a no-show (RESERVATION_EXPIRY_REASONS).
+        reason: 'not_on_station',
         notes: 'expired before scheduled activation',
       });
       notifyReservationChanged();
@@ -131,65 +167,26 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     return;
   }
 
-  // Check station is online
+  // An offline station cannot take the hold: cancel so the driver knows,
+  // instead of a scheduled reservation silently disappearing.
   if (!reservation.isOnline) {
-    // System-path cancel: write actor + reason metadata so the audit reflects
-    // why the reservation was killed. RETURNING driver_id lets us notify the
-    // driver -- without this, a scheduled reservation against an offline
-    // station would silently disappear from the portal.
-    const cancelled = await db
-      .update(reservations)
-      .set({
-        status: 'cancelled',
-        cancelledBy: 'system',
-        cancelReason: 'station_offline_at_activation',
-        cancellationFeeCents: 0,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(reservations.id, reservationDbId), eq(reservations.status, 'scheduled')))
-      .returning({ driverId: reservations.driverId });
     log.warn(
       { reservationDbId, stationId: reservation.stationOcppId },
       'Station offline, cancelling scheduled reservation',
     );
-
-    if (cancelled.length > 0) {
-      await writeReservationAudit({
-        reservationId: reservationDbId,
-        action: 'cancelled',
-        actor: 'system',
-        driverIdBefore: reservation.driverId,
-        driverIdAfter: reservation.driverId,
-        statusBefore: 'scheduled',
-        statusAfter: 'cancelled',
-        notes: 'station_offline_at_activation',
-      });
-      notifyReservationChanged();
-    }
-
-    const driverId = cancelled[0]?.driverId ?? null;
-    if (driverId != null) {
-      await notifyDriverCancelled(
-        driverId,
-        reservation.reservationId,
-        reservation.stationOcppId,
-        reservationDbId,
-        'station_offline_at_activation',
-        pubsub,
-      );
-    }
+    await cancelAtActivation(reservation, 'station_offline_at_activation', pubsub);
     return;
   }
 
-  // Re-validate connector state at activation time. The create-time guard in
-  // packages/api/src/routes/reservations.ts only fires when the start is
-  // within `reservation.activeSessionCheckHours` of "now"; far-future
-  // reservations skip that check on the assumption the EVSE will free up by
-  // activation. If the assumption breaks (in-flight session ran long, driver
-  // showed up early and plugged in, station fault), the worker must catch it
-  // here -- otherwise ReserveNow lands on a busy/faulted connector, the
-  // station rejects, the projection cancels, and the driver gets a
-  // "cancelled" notification at exactly the moment they expected to charge.
+  // Re-validate connector state at activation time. The create-time guard
+  // only fires when the start is within `reservation.activeSessionCheckHours`
+  // of "now"; far-future reservations skip that check on the assumption the
+  // EVSE will free up by activation. If the assumption breaks (in-flight
+  // session ran long, driver showed up early and plugged in, station fault),
+  // the worker must catch it here -- otherwise ReserveNow lands on a
+  // busy/faulted connector, the station rejects, the projection cancels, and
+  // the driver gets a "cancelled" notification at exactly the moment they
+  // expected to charge.
   const targetConditions = [eq(evses.stationId, reservation.stationDbId)];
   if (reservation.evseDbId != null) {
     targetConditions.push(eq(evses.id, reservation.evseDbId));
@@ -272,32 +269,6 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
       ? ('station_faulted_at_activation' as const)
       : ('evse_in_use_at_activation' as const);
 
-    const cancelled = await db
-      .update(reservations)
-      .set({
-        status: 'cancelled',
-        cancelledBy: 'system',
-        cancelReason,
-        cancellationFeeCents: 0,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(reservations.id, reservationDbId), eq(reservations.status, 'scheduled')))
-      .returning({ driverId: reservations.driverId });
-
-    if (cancelled.length > 0) {
-      await writeReservationAudit({
-        reservationId: reservationDbId,
-        action: 'cancelled',
-        actor: 'system',
-        driverIdBefore: reservation.driverId,
-        driverIdAfter: reservation.driverId,
-        statusBefore: 'scheduled',
-        statusAfter: 'cancelled',
-        notes: cancelReason,
-      });
-      notifyReservationChanged();
-    }
-
     log.warn(
       {
         reservationDbId,
@@ -307,64 +278,28 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
       },
       'Reserved EVSE not available at activation, cancelling',
     );
-
-    const driverId = cancelled[0]?.driverId ?? null;
-    if (driverId != null) {
-      await notifyDriverCancelled(
-        driverId,
-        reservation.reservationId,
-        reservation.stationOcppId,
-        reservationDbId,
-        cancelReason,
-        pubsub,
-      );
-    }
+    await cancelAtActivation(reservation, cancelReason, pubsub);
     return;
   }
 
-  // Resolve EVSE OCPP integer ID if an EVSE is assigned
-  let evseOcppId: number | undefined;
-  if (reservation.evseDbId != null) {
-    const [evse] = await db
-      .select({ evseId: evses.evseId })
-      .from(evses)
-      .where(eq(evses.id, reservation.evseDbId));
-    if (evse != null) {
-      evseOcppId = evse.evseId;
-    }
-  }
-
-  // Build and send ReserveNow command
-  const ocppPayload: Record<string, unknown> = {
-    id: reservation.reservationId,
-    expiryDateTime: reservation.expiresAt.toISOString(),
-    idToken: {
-      idToken: reservation.driverId ?? 'operator',
-      type: 'Central',
-    },
-  };
-  if (evseOcppId != null) {
-    ocppPayload['evseId'] = evseOcppId;
-  }
-
-  // Do NOT include `version` here. CommandListener treats a present `version`
-  // as "caller already shaped the payload for that wire protocol -- skip
-  // translation". This payload is in OCPP 2.1 form (id/evseId/idToken object/
-  // expiryDateTime); for an OCPP 1.6 station those fields must be translated
-  // to reservationId/connectorId/idTag/expiryDate. Omitting `version` routes
-  // through `sendVersionAwareCommand`, which looks up the station's actual
-  // protocol from the open connection and applies the right mapper.
+  // ReserveNow carries the bound token (E14), or the driver id as Central
+  // for a driver without one. No `version`: the command listener translates
+  // the 2.1 payload for an OCPP 1.6 station (reservationId, connectorId,
+  // idTag, expiryDate).
   const command: OcppCommand = {
     stationId: reservation.stationOcppId,
     action: 'ReserveNow',
-    payload: ocppPayload,
+    payload: await reserveNowPayload({
+      reservationId: reservation.reservationId,
+      expiresAt: reservation.expiresAt,
+      evseId: reservation.evseDbId,
+      tokenId: reservation.tokenId,
+      driverId: reservation.driverId,
+    }),
   };
 
-  // Flip status BEFORE publish so retries can't double-send. The guarded
-  // update only succeeds when the row is still 'scheduled'; on retry after a
-  // partial failure we'll see status='active' and skip the publish entirely.
-  // BullMQ jobId dedup already guards against duplicate enqueues, but worker
-  // retries (attempts: 3 in reservation-worker) can re-run the handler.
+  // Flip status BEFORE publish so a concurrent run cannot double-send: the
+  // guarded update succeeds only while the row is still 'scheduled'.
   const updated = await db
     .update(reservations)
     .set({ status: 'active', updatedAt: new Date() })
@@ -378,13 +313,12 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     );
     return;
   }
-  notifyReservationChanged();
 
   // Conditional UPDATE guarantees exactly one writer wins, so audit fires
-  // exactly once per scheduled→active transition.
+  // exactly once per scheduled->active transition.
   await writeReservationAudit({
     reservationId: reservationDbId,
-    action: 'updated',
+    action: 'activated',
     actor: 'system',
     driverIdBefore: reservation.driverId,
     driverIdAfter: reservation.driverId,
@@ -393,7 +327,46 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     notes: 'scheduled activation',
   });
 
-  await publishOcppCommand(pubsub, command);
+  try {
+    await publishOcppCommand(pubsub, command);
+  } catch (err) {
+    // Nothing reached the station (G5): put the row back to `scheduled` so
+    // the BullMQ retry sends ReserveNow once. The guard leaves a row the
+    // station already accepted, or one cancelled meanwhile, alone.
+    const reverted = await db
+      .update(reservations)
+      .set({ status: 'scheduled', updatedAt: new Date() })
+      .where(
+        and(
+          eq(reservations.id, reservationDbId),
+          eq(reservations.status, 'active'),
+          isNull(reservations.stationAckAt),
+        ),
+      )
+      .returning({ id: reservations.id });
+    if (reverted.length > 0) {
+      await writeReservationAudit(
+        {
+          reservationId: reservationDbId,
+          action: 'updated',
+          actor: 'system',
+          driverIdBefore: reservation.driverId,
+          driverIdAfter: reservation.driverId,
+          statusBefore: 'active',
+          statusAfter: 'scheduled',
+          notes: 'activation reverted: ReserveNow publish failed',
+        },
+        undefined,
+        log,
+      );
+    }
+    log.warn(
+      { err, reservationDbId, reverted: reverted.length > 0 },
+      'ReserveNow publish failed; rethrown for the BullMQ retry',
+    );
+    throw err;
+  }
+  notifyReservationChanged();
 
   log.info(
     {

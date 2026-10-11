@@ -3,6 +3,7 @@
 
 import { Queue } from 'bullmq';
 import { createBullMQConnection, logBullMQErrors } from '@evtivity/lib';
+import { DRIVER_AI_QUEUE } from '@evtivity/lib/driver-ai';
 
 export const QUEUE_NAMES = {
   CRON_JOBS: 'cron-jobs',
@@ -20,6 +21,7 @@ export const QUEUE_NAMES = {
   REPORTS: 'reports',
   AI_WORKERS: 'ai-workers',
   AI_INSIGHTS: 'ai-insights',
+  DRIVER_AI: DRIVER_AI_QUEUE,
 } as const;
 
 /** How long finished fleet invoice jobs keep their job id (40 days). */
@@ -34,6 +36,10 @@ export const FLEET_INVOICE_JOB_BACKOFF_MS = 5 * 60_000;
 /** Attempts of one automatic insight job (exponential from 30 s: 30 s, 60 s). */
 export const AI_INSIGHT_JOB_ATTEMPTS = 3;
 export const AI_INSIGHT_JOB_BACKOFF_MS = 30_000;
+
+/** Attempts of one driver AI analysis (exponential from 30 s: 30 s, 60 s). */
+export const DRIVER_AI_JOB_ATTEMPTS = 3;
+export const DRIVER_AI_JOB_BACKOFF_MS = 30_000;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -53,6 +59,7 @@ export interface WorkerQueues {
   reportQueue: Queue;
   aiWorkerQueue: Queue;
   aiInsightQueue: Queue;
+  driverAiQueue: Queue;
 }
 
 /**
@@ -222,6 +229,15 @@ export function createQueues(redisUrl: string): WorkerQueues {
         removeOnFail: { count: 500 },
         attempts: AI_INSIGHT_JOB_ATTEMPTS,
         backoff: { type: 'exponential', delay: AI_INSIGHT_JOB_BACKOFF_MS },
+      },
+    }),
+    driverAiQueue: new Queue(QUEUE_NAMES.DRIVER_AI, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 500,
+        removeOnFail: { count: 500 },
+        attempts: DRIVER_AI_JOB_ATTEMPTS,
+        backoff: { type: 'exponential', delay: DRIVER_AI_JOB_BACKOFF_MS },
       },
     }),
   };

@@ -8,6 +8,7 @@ import { CodeBlock } from '@/components/ai/CodeBlock';
 import { aiRequestErrorText } from '@/components/ai/ai-error-text';
 import { proposalActionLabel, proposalSentence } from '@/components/ai/inbox/ProposalCard';
 import { ProposalDecision } from '@/components/ai/inbox/ProposalDecision';
+import { isAiProposalRefusalReason } from '@evtivity/lib/ai-proposals';
 import { useProposal } from '@/components/ai/inbox/proposal-api';
 import type { AiProposalView } from '@/components/ai/inbox/proposal-api';
 import { readProposalSummary } from '@/components/ai/inbox/proposal-summary';
@@ -138,6 +139,9 @@ export function AiInboxDetail(): React.JSX.Element {
   const keyArgs = keyArguments(proposal.args, proposal.path);
   const clientName = proposal.clientName ?? structured.clientName;
   const argsText = JSON.stringify(proposal.args, null, 2);
+  // A proposal refused at confirm stores only the reason code (no English text).
+  const refused = (proposal.result?.body as { refused?: unknown } | null | undefined)?.refused;
+  const refusal = isAiProposalRefusalReason(refused) ? refused : null;
 
   return (
     <div className="space-y-6">
@@ -192,6 +196,11 @@ export function AiInboxDetail(): React.JSX.Element {
                     : t('aiInbox.confirmFailed')}
                   {proposal.result.httpStatus > 0 &&
                     ` (HTTP ${String(proposal.result.httpStatus)})`}
+                  {refusal !== null && (
+                    <span className="block" data-testid="ai-proposal-refusal">
+                      {t(`aiInbox.refused.${refusal}`)}
+                    </span>
+                  )}
                 </AlertDescription>
               </Alert>
             )}

@@ -188,6 +188,7 @@ import {
   recordGuestHold,
   recordHold,
   recordPendingCharge,
+  reservationFeeRequest,
   recordsWithPayments,
   recordTerminalSettlement,
   settlePrepaidSession,
@@ -351,6 +352,7 @@ describe('inserts', () => {
       methodId: 'pm_sim_1',
       currency: 'USD',
       taxRate: 0.19,
+      feeRequest: { grossCents: 595, platformFeePercent: 10, payoutAccountId: null },
     };
     h.results.push([{ id: 11 }]);
     expect(await recordPendingCharge(input)).toBe(11);
@@ -367,6 +369,8 @@ describe('inserts', () => {
       currency: 'USD',
       taxRate: '0.19',
       status: 'pending',
+      // TC-RES-15: the stored request a resume sends again with the same key.
+      metadata: { feeRequest: { grossCents: 595, platformFeePercent: 10, payoutAccountId: null } },
     });
     expect(call.conflict).toEqual({
       target: ['pr.reservation_id', 'pr.charge_type'],
@@ -1612,5 +1616,18 @@ describe('invoice claims of reservation fee charges', () => {
       set: { invoiceId: null },
       where: { op: 'eq', col: 'pr.invoice_id', value: 'inv_1' },
     });
+  });
+});
+
+describe('reservationFeeRequest', () => {
+  it('TC-RES-15: reads the stored request of a fee record, null for an older record', () => {
+    expect(
+      reservationFeeRequest({
+        feeRequest: { grossCents: 300, platformFeePercent: 5, payoutAccountId: 'acct_1' },
+      }),
+    ).toEqual({ grossCents: 300, platformFeePercent: 5, payoutAccountId: 'acct_1' });
+    expect(reservationFeeRequest(null)).toBeNull();
+    expect(reservationFeeRequest({ rebill: {} })).toBeNull();
+    expect(reservationFeeRequest({ feeRequest: { grossCents: '3' } })).toBeNull();
   });
 });

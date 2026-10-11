@@ -20,11 +20,19 @@
  * the contracts in `ai-insights.ts`, `ai-proposals.ts` and `ai-usage.ts`; the
  * defaults live here (`AI_SETTING_DEFAULTS`), in the seed and in migration
  * 0441.
+ *
+ * v0.1.45 (plan 2026-10-11): the `driverAi.*` surface of driver support
+ * analyses (off by default, decision E7), its per-driver limits
+ * (`ai.budget.driverDailyTokens`, `ai.rateLimit.driverPerMinute`) and the
+ * reservation insight switch (`aiInsights.reservation.enabled`). Key names
+ * come from `driver-ai.ts` and `ai-insights.ts`; defaults are here, in the
+ * seed and in migration 0469.
  */
 
 import { AI_INSIGHT_SETTING_KEYS, OPS_AI_SETTING_KEYS } from './ai-insights.js';
 import { AI_MCP_SETTING_KEYS, AI_WORKER_SETTING_KEYS } from './ai-proposals.js';
 import { AI_BUDGET_SETTING_KEYS } from './ai-usage.js';
+import { DRIVER_AI_SETTING_KEYS } from './driver-ai.js';
 import { isUiLanguage } from './languages.js';
 import type { UiLanguage } from './languages.js';
 
@@ -36,16 +44,22 @@ export type AiEffort = (typeof AI_EFFORTS)[number];
 export const DEFAULT_AI_EFFORT: AiEffort = 'medium';
 /** System-initiated runs default to the cheapest effort. */
 export const DEFAULT_OPS_AI_EFFORT: AiEffort = 'low';
+/** Driver support analyses default to the cheapest effort (decision E7). */
+export const DEFAULT_DRIVER_AI_EFFORT: AiEffort = 'low';
 
 export const AI_SUPPORT_TONES = ['professional', 'friendly', 'formal'] as const;
 export type AiSupportTone = (typeof AI_SUPPORT_TONES)[number];
 export const DEFAULT_AI_SUPPORT_TONE: AiSupportTone = 'professional';
 
-/** Settings prefix of each AI surface. `ops`: insights and background workers. */
+/**
+ * Settings prefix of each AI surface. `ops`: insights and background workers.
+ * `driver`: driver support analyses (portal and mobile app).
+ */
 export const AI_SURFACE_PREFIXES = {
   chatbot: 'chatbotAi',
   support: 'supportAi',
   ops: 'opsAi',
+  driver: 'driverAi',
 } as const;
 export type AiSurface = keyof typeof AI_SURFACE_PREFIXES;
 
@@ -132,11 +146,30 @@ export const AI_THRESHOLD_SETTINGS = {
 } as const satisfies Record<string, AiLimitDefinition>;
 export type AiThresholdSettingKey = keyof typeof AI_THRESHOLD_SETTINGS;
 
-/** Every whole-number AI setting: the limits and the thresholds. */
+/**
+ * Whole-number limits of driver support (decision E7), shown on the Driver
+ * support tab of Settings > AI. The token budget of 0 means no limit.
+ */
+export const AI_DRIVER_NUMBER_SETTINGS = {
+  [DRIVER_AI_SETTING_KEYS.maxCasesPerDriverPerDay]: { defaultValue: 3, min: 1, max: 100 },
+  [DRIVER_AI_SETTING_KEYS.feedbackTimeoutHours]: { defaultValue: 24, min: 1, max: 168 },
+  [DRIVER_AI_SETTING_KEYS.driverDailyTokens]: {
+    defaultValue: 40_000,
+    min: 0,
+    max: 10_000_000_000,
+  },
+  [DRIVER_AI_SETTING_KEYS.driverPerMinute]: { defaultValue: 2, min: 1, max: 1000 },
+} as const satisfies Record<string, AiLimitDefinition>;
+export type AiDriverNumberSettingKey = keyof typeof AI_DRIVER_NUMBER_SETTINGS;
+
+/** Every whole-number AI setting: the limits, the thresholds and the driver limits. */
 export const AI_NUMBER_SETTINGS: Readonly<
-  Record<AiLimitSettingKey | AiThresholdSettingKey, AiLimitDefinition>
-> = { ...AI_LIMIT_SETTINGS, ...AI_THRESHOLD_SETTINGS };
-export type AiNumberSettingKey = AiLimitSettingKey | AiThresholdSettingKey;
+  Record<AiLimitSettingKey | AiThresholdSettingKey | AiDriverNumberSettingKey, AiLimitDefinition>
+> = { ...AI_LIMIT_SETTINGS, ...AI_THRESHOLD_SETTINGS, ...AI_DRIVER_NUMBER_SETTINGS };
+export type AiNumberSettingKey =
+  | AiLimitSettingKey
+  | AiThresholdSettingKey
+  | AiDriverNumberSettingKey;
 
 export function isAiNumberSettingKey(key: string): key is AiNumberSettingKey {
   return Object.hasOwn(AI_NUMBER_SETTINGS, key);
@@ -157,13 +190,16 @@ export function parseAiLimitValue(key: AiNumberSettingKey, value: unknown): numb
 /**
  * On and off switches with their defaults (decision D4): system-initiated AI
  * and MCP are off until an operator turns them on; the insight triggers are on
- * once `opsAi.enabled` is; every background worker job is off.
+ * once `opsAi.enabled` is; every background worker job is off. Driver support
+ * is off until an operator turns it on (decision E7).
  */
 export const AI_FLAG_SETTINGS = {
   [OPS_AI_SETTING_KEYS.enabled]: false,
+  [DRIVER_AI_SETTING_KEYS.enabled]: false,
   [AI_INSIGHT_SETTING_KEYS.stationEnabled]: true,
   [AI_INSIGHT_SETTING_KEYS.sessionEnabled]: true,
   [AI_INSIGHT_SETTING_KEYS.authorizationEnabled]: true,
+  [AI_INSIGHT_SETTING_KEYS.reservationEnabled]: true,
   [AI_WORKER_SETTING_KEYS.networkSummaryEnabled]: false,
   [AI_WORKER_SETTING_KEYS.stuckSessionsEnabled]: false,
   [AI_WORKER_SETTING_KEYS.stuckSessionsUseModel]: false,
@@ -210,7 +246,8 @@ export function parseAiMcpAllowedOrigins(value: unknown): string[] | null {
 
 /**
  * The default of every AI setting with a fixed default: the limits, the
- * switches, the `opsAi` surface, the insight language and the MCP origins.
+ * switches, the `opsAi` and `driverAi` surfaces, the insight language and the
+ * MCP origins.
  * The seed (`defaultSettings`, `seed.config.default.json`) and the seed
  * migrations hold the same values; a test keeps them equal.
  */
@@ -223,6 +260,10 @@ export const AI_SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
   [OPS_AI_SETTING_KEYS.model]: '',
   [OPS_AI_SETTING_KEYS.effort]: DEFAULT_OPS_AI_EFFORT,
   [OPS_AI_SETTING_KEYS.systemPrompt]: '',
+  [DRIVER_AI_SETTING_KEYS.provider]: 'anthropic',
+  [DRIVER_AI_SETTING_KEYS.model]: '',
+  [DRIVER_AI_SETTING_KEYS.effort]: DEFAULT_DRIVER_AI_EFFORT,
+  [DRIVER_AI_SETTING_KEYS.systemPrompt]: '',
   [AI_INSIGHT_SETTING_KEYS.primaryLanguage]: 'en',
   [AI_MCP_SETTING_KEYS.allowedOrigins]: [],
 };
@@ -249,6 +290,7 @@ export const AI_SETTING_KEY_PREFIXES = [
   'chatbotAi.',
   'supportAi.',
   'opsAi.',
+  'driverAi.',
   'aiInsights.',
   'aiWorkers.',
 ] as const;
@@ -275,14 +317,16 @@ export function normalizeAiSettingValue(
   if (
     key === 'chatbotAi.provider' ||
     key === 'supportAi.provider' ||
-    key === OPS_AI_SETTING_KEYS.provider
+    key === OPS_AI_SETTING_KEYS.provider ||
+    key === DRIVER_AI_SETTING_KEYS.provider
   ) {
     return value === '' || isAiProviderId(value) ? { value } : null;
   }
   if (
     key === 'chatbotAi.effort' ||
     key === 'supportAi.effort' ||
-    key === OPS_AI_SETTING_KEYS.effort
+    key === OPS_AI_SETTING_KEYS.effort ||
+    key === DRIVER_AI_SETTING_KEYS.effort
   ) {
     return isAiEffort(value) ? { value } : null;
   }
@@ -316,6 +360,14 @@ export interface AiSupportSurfaceSettings extends AiSurfaceSettings {
   tone: AiSupportTone;
 }
 
+/** Driver support analyses (`driverAi.*`). The per-driver budgets are in `AiLimits`. */
+export interface AiDriverSurfaceSettings extends AiSurfaceSettings {
+  /** AI-analyzed cases per driver per system-timezone day; more go straight to operators. */
+  maxCasesPerDriverPerDay: number;
+  /** Hours an answer waits for the driver's feedback before the case escalates. */
+  feedbackTimeoutHours: number;
+}
+
 /** One provider's credentials. The key stays encrypted: callers decrypt it. */
 export interface AiProviderSettings {
   /** `ai.<provider>.apiKeyEnc` ciphertext, empty when unset. */
@@ -335,6 +387,10 @@ export interface AiLimits {
   siteMonthlyTokens: number;
   /** System-initiated surfaces only; 0 means no limit. */
   siteDailyTokens: number;
+  /** Driver support tokens per driver per day; 0 means no limit. */
+  driverDailyTokens: number;
+  /** Driver support cases per driver per minute (checked at create). */
+  driverPerMinute: number;
   /** A usage notice is raised when a scope crosses this percent of its budget. */
   budgetWarnPercent: number;
   maxToolCallsPerTurn: number;
@@ -348,6 +404,8 @@ export interface AiInsightSettings {
   stationEnabled: boolean;
   sessionEnabled: boolean;
   authorizationEnabled: boolean;
+  /** Reservation insights (`aiInsights.reservation.enabled`). */
+  reservationEnabled: boolean;
   debounceSeconds: number;
   cooldownMinutes: number;
   siteIncidentThreshold: number;
@@ -382,6 +440,8 @@ export interface AiSettings {
   support: AiSupportSurfaceSettings;
   /** System-initiated runs: insights and background workers. */
   ops: AiSurfaceSettings;
+  /** Driver support analyses. */
+  driver: AiDriverSurfaceSettings;
   providers: Record<AiProviderId, AiProviderSettings>;
   limits: AiLimits;
   insights: AiInsightSettings;
@@ -439,6 +499,11 @@ export function buildAiSettings(rows: { key: string; value: unknown }[]): AiSett
       tone: isAiSupportTone(tone) ? tone : DEFAULT_AI_SUPPORT_TONE,
     },
     ops: surface(values, AI_SURFACE_PREFIXES.ops, DEFAULT_OPS_AI_EFFORT),
+    driver: {
+      ...surface(values, AI_SURFACE_PREFIXES.driver, DEFAULT_DRIVER_AI_EFFORT),
+      maxCasesPerDriverPerDay: limit(values, DRIVER_AI_SETTING_KEYS.maxCasesPerDriverPerDay),
+      feedbackTimeoutHours: limit(values, DRIVER_AI_SETTING_KEYS.feedbackTimeoutHours),
+    },
     providers,
     limits: {
       userPerMinute: limit(values, 'ai.rateLimit.userPerMinute'),
@@ -447,6 +512,8 @@ export function buildAiSettings(rows: { key: string; value: unknown }[]): AiSett
       companyMonthlyTokens: limit(values, AI_BUDGET_SETTING_KEYS.companyMonthlyTokens),
       siteMonthlyTokens: limit(values, AI_BUDGET_SETTING_KEYS.siteMonthlyTokens),
       siteDailyTokens: limit(values, AI_BUDGET_SETTING_KEYS.siteDailyTokens),
+      driverDailyTokens: limit(values, DRIVER_AI_SETTING_KEYS.driverDailyTokens),
+      driverPerMinute: limit(values, DRIVER_AI_SETTING_KEYS.driverPerMinute),
       budgetWarnPercent: limit(values, AI_BUDGET_SETTING_KEYS.warnPercent),
       maxToolCallsPerTurn: limit(values, 'ai.maxToolCallsPerTurn'),
       conversationRetentionDays: limit(values, 'ai.conversationRetentionDays'),
@@ -457,6 +524,7 @@ export function buildAiSettings(rows: { key: string; value: unknown }[]): AiSett
       stationEnabled: flag(values, AI_INSIGHT_SETTING_KEYS.stationEnabled),
       sessionEnabled: flag(values, AI_INSIGHT_SETTING_KEYS.sessionEnabled),
       authorizationEnabled: flag(values, AI_INSIGHT_SETTING_KEYS.authorizationEnabled),
+      reservationEnabled: flag(values, AI_INSIGHT_SETTING_KEYS.reservationEnabled),
       debounceSeconds: limit(values, AI_INSIGHT_SETTING_KEYS.debounceSeconds),
       cooldownMinutes: limit(values, AI_INSIGHT_SETTING_KEYS.cooldownMinutes),
       siteIncidentThreshold: limit(values, AI_INSIGHT_SETTING_KEYS.siteIncidentThreshold),

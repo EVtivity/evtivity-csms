@@ -10,11 +10,19 @@ import { CopyableId } from '@/components/copyable-id';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ReservationDetailsTab } from '@/components/reservation/ReservationDetailsTab';
-import { ReservationFeePayments } from '@/components/reservation/ReservationFeePayments';
+import {
+  ReservationFeePayments,
+  useReservationFeePayments,
+} from '@/components/reservation/ReservationFeePayments';
+import { reservationExplainable } from '@/components/reservation/reservation-explain';
 import { ReservationSessionTab } from '@/components/reservation/ReservationSessionTab';
 import { ReservationCommandsTab } from '@/components/reservation/ReservationCommandsTab';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
+import { ExplainButton } from '@/components/ai/ExplainButton';
+import { RecordInsight } from '@/components/ai/insights/RecordInsight';
+import { useInsights } from '@/components/ai/insights/insight-api';
 import { useTab } from '@/hooks/use-tab';
+import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { api } from '@/lib/api';
 import type { ReservationCancellationFee } from '@/lib/reservation-fee';
 import { useHasPermission } from '@/lib/auth';
@@ -90,6 +98,12 @@ export function ReservationDetail(): React.JSX.Element {
     queryFn: () => api.get<ReservationDetail>(`/v1/reservations/${id ?? ''}`),
     enabled: id != null,
   });
+  // The same queries the fee list and the insight card read (cached once).
+  const feePayments = useReservationFeePayments(id ?? '');
+  // Reservation insights and Explain exist only while reservations are on (owner rule v0.1.45).
+  const { flags, isLoaded: flagsLoaded } = useFeatureFlags();
+  const aiOn = id != null && flagsLoaded && flags.reservationEnabled;
+  const { insights } = useInsights({ reservationId: id ?? '' }, aiOn);
 
   if (isLoading) {
     return <LoadingLogo />;
@@ -116,8 +130,15 @@ export function ReservationDetail(): React.JSX.Element {
         <Badge variant={reservationStatusVariant(reservation.status)}>
           {getStatusLabel(reservation.status, t as (key: string) => string)}
         </Badge>
+        {aiOn && reservationExplainable(reservation, feePayments, insights) && (
+          <ExplainButton context={{ kind: 'reservation', id }} />
+        )}
         <EntityNavButtons resource="reservations" basePath="/reservations" currentId={id} />
       </div>
+
+      {aiOn && (
+        <RecordInsight filter={{ reservationId: id }} context={{ kind: 'reservation', id }} />
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

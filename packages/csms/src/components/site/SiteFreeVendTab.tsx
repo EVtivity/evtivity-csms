@@ -5,6 +5,7 @@ import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Label } from '@/components/ui/label';
+import { Toggle } from '@/components/ui/toggle';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
@@ -41,20 +42,15 @@ export function SiteFreeVendTab({ site, siteId }: SiteFreeVendTabProps): React.J
               <Label>{t('sites.freeVend')}</Label>
               <p className="text-xs text-muted-foreground">{t('sites.freeVendDescription')}</p>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={site.freeVendEnabled}
-              onClick={() => {
+            <Toggle
+              aria-label={t('sites.freeVend')}
+              size="lg"
+              checked={site.freeVendEnabled}
+              onCheckedChange={() => {
                 freeVendMutation.mutate(!site.freeVendEnabled);
               }}
               disabled={freeVendMutation.isPending}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${site.freeVendEnabled ? 'bg-primary' : 'bg-muted'}`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${site.freeVendEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-              />
-            </button>
+            />
           </div>
         </CardContent>
       </Card>

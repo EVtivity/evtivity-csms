@@ -38,6 +38,7 @@ import { aiNetworkSummaryHandler } from './handlers/ai-network-summary.js';
 import { aiStuckSessionsHandler } from './handlers/ai-stuck-sessions.js';
 import { aiTariffAnomaliesHandler } from './handlers/ai-tariff-anomalies.js';
 import { aiProposalSweepHandler } from './handlers/ai-proposal-sweep.js';
+import { driverAiSweepHandler } from './handlers/driver-ai-sweep.js';
 import { aiProposalDigestHandler } from './handlers/ai-proposal-digest.js';
 import { aiInsightScanHandler } from './handlers/ai-insight-scan.js';
 
@@ -78,6 +79,7 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['ai-stuck-sessions', (log) => aiStuckSessionsHandler(log)],
   ['ai-tariff-anomalies', (log) => aiTariffAnomaliesHandler(log)],
   ['ai-proposal-sweep', aiProposalSweepHandler],
+  ['driver-ai-sweep', driverAiSweepHandler],
   ['ai-proposal-digest', (log) => aiProposalDigestHandler(log)],
   ['ai-insight-scan', aiInsightScanHandler],
 ]);

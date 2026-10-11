@@ -19,6 +19,7 @@ import {
 import { AI_INSIGHT_SETTING_KEYS, OPS_AI_SETTING_KEYS } from '../ai-insights.js';
 import { AI_MCP_SETTING_KEYS, AI_WORKER_SETTING_KEYS } from '../ai-proposals.js';
 import { AI_BUDGET_SETTING_KEYS } from '../ai-usage.js';
+import { DRIVER_AI_SETTING_KEYS } from '../driver-ai.js';
 
 const CONTRACT_KEYS = [
   ...Object.values(OPS_AI_SETTING_KEYS),
@@ -26,6 +27,8 @@ const CONTRACT_KEYS = [
   ...Object.values(AI_WORKER_SETTING_KEYS),
   ...Object.values(AI_MCP_SETTING_KEYS),
   ...Object.values(AI_BUDGET_SETTING_KEYS),
+  // v0.1.45 (lane K1).
+  ...Object.values(DRIVER_AI_SETTING_KEYS),
 ];
 import { validateAiBaseUrl } from '../url-validation.js';
 
@@ -128,6 +131,8 @@ describe('buildAiSettings', () => {
       companyMonthlyTokens: 0,
       siteMonthlyTokens: 0,
       siteDailyTokens: 300_000,
+      driverDailyTokens: 40_000,
+      driverPerMinute: 2,
       budgetWarnPercent: 80,
       maxToolCallsPerTurn: 20,
       conversationRetentionDays: 30,
@@ -166,7 +171,7 @@ describe('buildAiSettings', () => {
 
 describe('AI roadmap settings (TC-AI-C-11)', () => {
   it('has a default for every setting key of the contracts', () => {
-    expect(CONTRACT_KEYS).toHaveLength(29);
+    expect(CONTRACT_KEYS).toHaveLength(39);
     for (const key of CONTRACT_KEYS) {
       expect(Object.hasOwn(AI_SETTING_DEFAULTS, key), key).toBe(true);
       expect(isAiSettingKey(key), key).toBe(true);
@@ -234,6 +239,88 @@ describe('AI roadmap settings (TC-AI-C-11)', () => {
     expect(normalizeAiSettingValue('opsAi.systemPrompt', 'x')).toBeUndefined();
   });
 
+  it('TC-CFG-03 validates the driver support and reservation insight keys', () => {
+    expect(AI_SETTING_DEFAULTS).toMatchObject({
+      'driverAi.enabled': false,
+      'driverAi.provider': 'anthropic',
+      'driverAi.model': '',
+      'driverAi.effort': 'low',
+      'driverAi.systemPrompt': '',
+      'driverAi.maxCasesPerDriverPerDay': 3,
+      'driverAi.feedbackTimeoutHours': 24,
+      'ai.budget.driverDailyTokens': 40_000,
+      'ai.rateLimit.driverPerMinute': 2,
+      'aiInsights.reservation.enabled': true,
+    });
+    for (const key of ['driverAi.enabled', 'aiInsights.reservation.enabled']) {
+      expect(normalizeAiSettingValue(key, false), key).toEqual({ value: false });
+      expect(normalizeAiSettingValue(key, 'false'), key).toBeNull();
+      expect(normalizeAiSettingValue(key, 0), key).toBeNull();
+    }
+    expect(normalizeAiSettingValue('driverAi.provider', 'deepseek')).toEqual({
+      value: 'deepseek',
+    });
+    expect(normalizeAiSettingValue('driverAi.provider', '')).toEqual({ value: '' });
+    expect(normalizeAiSettingValue('driverAi.provider', 'mistral')).toBeNull();
+    expect(normalizeAiSettingValue('driverAi.effort', 'high')).toEqual({ value: 'high' });
+    expect(normalizeAiSettingValue('driverAi.effort', 'max')).toBeNull();
+    // Positive whole numbers; the driver token budget also takes 0 (no limit).
+    expect(normalizeAiSettingValue('driverAi.maxCasesPerDriverPerDay', '5')).toEqual({ value: 5 });
+    expect(normalizeAiSettingValue('driverAi.maxCasesPerDriverPerDay', 0)).toBeNull();
+    expect(normalizeAiSettingValue('driverAi.maxCasesPerDriverPerDay', 1.5)).toBeNull();
+    expect(normalizeAiSettingValue('driverAi.feedbackTimeoutHours', 168)).toEqual({ value: 168 });
+    expect(normalizeAiSettingValue('driverAi.feedbackTimeoutHours', 169)).toBeNull();
+    expect(normalizeAiSettingValue('ai.budget.driverDailyTokens', 0)).toEqual({ value: 0 });
+    expect(normalizeAiSettingValue('ai.budget.driverDailyTokens', -1)).toBeNull();
+    expect(normalizeAiSettingValue('ai.rateLimit.driverPerMinute', 0)).toBeNull();
+    expect(normalizeAiSettingValue('ai.rateLimit.driverPerMinute', 1000)).toEqual({ value: 1000 });
+    // Free text: no constraint here.
+    expect(normalizeAiSettingValue('driverAi.model', 'x')).toBeUndefined();
+    expect(normalizeAiSettingValue('driverAi.systemPrompt', 'x')).toBeUndefined();
+  });
+
+  it('TC-CFG-03 builds the driver surface, its limits and the reservation switch', () => {
+    const defaults = buildAiSettings([]);
+    expect(defaults.driver).toEqual({
+      enabled: false,
+      provider: null,
+      model: '',
+      effort: 'low',
+      systemPrompt: '',
+      maxCasesPerDriverPerDay: 3,
+      feedbackTimeoutHours: 24,
+    });
+    expect(defaults.limits.driverDailyTokens).toBe(40_000);
+    expect(defaults.limits.driverPerMinute).toBe(2);
+    expect(defaults.insights.reservationEnabled).toBe(true);
+
+    const s = buildAiSettings([
+      { key: 'driverAi.enabled', value: true },
+      { key: 'driverAi.provider', value: 'openai' },
+      { key: 'driverAi.model', value: ' gpt-x ' },
+      { key: 'driverAi.effort', value: 'medium' },
+      { key: 'driverAi.systemPrompt', value: 'Be brief.' },
+      { key: 'driverAi.maxCasesPerDriverPerDay', value: 5 },
+      { key: 'driverAi.feedbackTimeoutHours', value: 'bad' },
+      { key: 'ai.budget.driverDailyTokens', value: 0 },
+      { key: 'ai.rateLimit.driverPerMinute', value: 7 },
+      { key: 'aiInsights.reservation.enabled', value: false },
+    ]);
+    expect(s.driver).toEqual({
+      enabled: true,
+      provider: 'openai',
+      model: 'gpt-x',
+      effort: 'medium',
+      systemPrompt: 'Be brief.',
+      maxCasesPerDriverPerDay: 5,
+      feedbackTimeoutHours: 24,
+    });
+    expect(s.limits.driverDailyTokens).toBe(0);
+    expect(s.limits.driverPerMinute).toBe(7);
+    expect(s.insights.reservationEnabled).toBe(false);
+    expect(isAiSettingKey('driverAi.enabled')).toBe(true);
+  });
+
   it('parses the MCP allowed origins', () => {
     expect(parseAiMcpAllowedOrigins([])).toEqual([]);
     expect(
@@ -279,6 +366,7 @@ describe('AI roadmap settings (TC-AI-C-11)', () => {
       stationEnabled: true,
       sessionEnabled: true,
       authorizationEnabled: true,
+      reservationEnabled: true,
       debounceSeconds: 120,
       cooldownMinutes: 60,
       siteIncidentThreshold: 3,

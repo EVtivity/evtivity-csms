@@ -54,6 +54,7 @@ import {
 import type { ConnectionAuthLimits, ConnectionAuthStats } from './connection-auth-limiter.js';
 import { MessageLifecycle } from './message-lifecycle.js';
 import { CommandDispatcher } from './command-dispatcher.js';
+import { MESSAGE_LOG_EVENT, publishMessageLog } from './message-log.js';
 import { registerHandlers } from '../handlers/handler-registry.js';
 import {
   isCall,
@@ -196,7 +197,7 @@ export class OcppServer {
         // (ocpp_message_logs, meter_values, charging_stations.last_heartbeat)
         // via projections; archiving it again in domain_events accounted for
         // ~87% of that table's rows with no readers.
-        persistDenylist: ['ocpp.MessageLog', 'ocpp.MeterValues', 'ocpp.Heartbeat'],
+        persistDenylist: [MESSAGE_LOG_EVENT, 'ocpp.MeterValues', 'ocpp.Heartbeat'],
       });
     this.lifecycle = new MessageLifecycle(this.logger);
     this.dispatcher = new CommandDispatcher(this.connectionManager, this.correlator, this.logger);
@@ -663,36 +664,26 @@ export class OcppServer {
         // returned for CSMS-initiated commands. Without this the OCPP log
         // tab only carries the outbound CALL row (logged by
         // command-listener.ts) and the response is invisible.
-        void this.eventBus.publish({
-          eventType: 'ocpp.MessageLog',
-          aggregateType: 'ChargingStation',
-          aggregateId: session.stationId,
-          payload: {
-            stationId: session.stationId,
-            stationDbId: session.stationDbId,
-            direction: 'inbound',
-            messageType: MESSAGE_TYPE_CALLRESULT,
-            messageId: parsed[1],
-            action: null,
-            payload: parsed[2],
-          },
+        publishMessageLog(this.eventBus, {
+          stationId: session.stationId,
+          stationDbId: session.stationDbId,
+          direction: 'inbound',
+          messageType: MESSAGE_TYPE_CALLRESULT,
+          messageId: parsed[1],
+          action: null,
+          payload: parsed[2],
         });
         this.correlator.handleResponse(session, parsed);
       } else if (isCallError(parsed)) {
-        void this.eventBus.publish({
-          eventType: 'ocpp.MessageLog',
-          aggregateType: 'ChargingStation',
-          aggregateId: session.stationId,
-          payload: {
-            stationId: session.stationId,
-            stationDbId: session.stationDbId,
-            direction: 'inbound',
-            messageType: MESSAGE_TYPE_CALLERROR,
-            messageId: parsed[1],
-            action: null,
-            errorCode: parsed[2],
-            errorDescription: parsed[3],
-          },
+        publishMessageLog(this.eventBus, {
+          stationId: session.stationId,
+          stationDbId: session.stationDbId,
+          direction: 'inbound',
+          messageType: MESSAGE_TYPE_CALLERROR,
+          messageId: parsed[1],
+          action: null,
+          errorCode: parsed[2],
+          errorDescription: parsed[3],
         });
         this.correlator.handleResponse(session, parsed);
       }
@@ -718,19 +709,14 @@ export class OcppServer {
     session.lastHeartbeat = new Date();
 
     // Log inbound CALL from station
-    void this.eventBus.publish({
-      eventType: 'ocpp.MessageLog',
-      aggregateType: 'ChargingStation',
-      aggregateId: session.stationId,
-      payload: {
-        stationId: session.stationId,
-        stationDbId: session.stationDbId,
-        direction: 'inbound',
-        messageType: MESSAGE_TYPE_CALL,
-        messageId,
-        action,
-        payload,
-      },
+    publishMessageLog(this.eventBus, {
+      stationId: session.stationId,
+      stationDbId: session.stationDbId,
+      direction: 'inbound',
+      messageType: MESSAGE_TYPE_CALL,
+      messageId,
+      action,
+      payload,
     });
 
     const ctx: HandlerContext = {
@@ -758,19 +744,14 @@ export class OcppServer {
         this.announceReady(session, action);
 
         // Log outbound CALLRESULT to station
-        void this.eventBus.publish({
-          eventType: 'ocpp.MessageLog',
-          aggregateType: 'ChargingStation',
-          aggregateId: session.stationId,
-          payload: {
-            stationId: session.stationId,
-            stationDbId: session.stationDbId,
-            direction: 'outbound',
-            messageType: MESSAGE_TYPE_CALLRESULT,
-            messageId,
-            action,
-            payload: ctx.response,
-          },
+        publishMessageLog(this.eventBus, {
+          stationId: session.stationId,
+          stationDbId: session.stationDbId,
+          direction: 'outbound',
+          messageType: MESSAGE_TYPE_CALLRESULT,
+          messageId,
+          action,
+          payload: ctx.response,
         });
       }
     } catch (err: unknown) {
@@ -785,20 +766,15 @@ export class OcppServer {
         this.lifecycle.errored(messageId, err.errorCode);
 
         // Log outbound CALLERROR to station
-        void this.eventBus.publish({
-          eventType: 'ocpp.MessageLog',
-          aggregateType: 'ChargingStation',
-          aggregateId: session.stationId,
-          payload: {
-            stationId: session.stationId,
-            stationDbId: session.stationDbId,
-            direction: 'outbound',
-            messageType: MESSAGE_TYPE_CALLERROR,
-            messageId,
-            action,
-            errorCode: err.errorCode,
-            errorDescription: err.errorDescription,
-          },
+        publishMessageLog(this.eventBus, {
+          stationId: session.stationId,
+          stationDbId: session.stationDbId,
+          direction: 'outbound',
+          messageType: MESSAGE_TYPE_CALLERROR,
+          messageId,
+          action,
+          errorCode: err.errorCode,
+          errorDescription: err.errorDescription,
         });
       } else {
         this.logger.error(
@@ -814,20 +790,15 @@ export class OcppServer {
         this.lifecycle.errored(messageId, OcppErrorCode.InternalError);
 
         // Log outbound CALLERROR to station
-        void this.eventBus.publish({
-          eventType: 'ocpp.MessageLog',
-          aggregateType: 'ChargingStation',
-          aggregateId: session.stationId,
-          payload: {
-            stationId: session.stationId,
-            stationDbId: session.stationDbId,
-            direction: 'outbound',
-            messageType: MESSAGE_TYPE_CALLERROR,
-            messageId,
-            action,
-            errorCode: OcppErrorCode.InternalError,
-            errorDescription: 'Internal server error',
-          },
+        publishMessageLog(this.eventBus, {
+          stationId: session.stationId,
+          stationDbId: session.stationDbId,
+          direction: 'outbound',
+          messageType: MESSAGE_TYPE_CALLERROR,
+          messageId,
+          action,
+          errorCode: OcppErrorCode.InternalError,
+          errorDescription: 'Internal server error',
         });
       }
     }

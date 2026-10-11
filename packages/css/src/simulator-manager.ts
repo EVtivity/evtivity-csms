@@ -4,7 +4,11 @@
 import { readFileSync } from 'node:fs';
 import type postgres from 'postgres';
 import { CSS_RECONNECT_SPREAD_S, tryParseJson, type PubSubClient } from '@evtivity/lib';
-import { StationSimulator, type StationConfig } from './station-simulator.js';
+import {
+  StationSimulator,
+  type ReservationReply,
+  type StationConfig,
+} from './station-simulator.js';
 import { ClockAlignedScheduler } from './clock-aligned-scheduler.js';
 import { isTlsReachable } from './tls-probe.js';
 import { config as cssConfig } from './lib/config.js';
@@ -487,6 +491,9 @@ export class SimulatorManager {
           break;
         case 'clearFault':
           await sim.clearFault(params.evseId as number);
+          break;
+        case 'reservationReply':
+          sim.setNextReservationReply(params.reply as ReservationReply);
           break;
         case 'goOffline':
           await sim.goOffline();

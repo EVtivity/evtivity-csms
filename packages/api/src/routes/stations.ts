@@ -123,6 +123,7 @@ import {
   validateStationPassword,
 } from '@evtivity/lib';
 import { authorize } from '../middleware/rbac.js';
+import { assertNoCredentialVariables } from '../lib/station-credential-guard.js';
 import type { JwtPayload } from '../plugins/auth.js';
 
 // Statuses that mean a connector is actively in use and blocks deletion
@@ -5296,7 +5297,7 @@ export function stationRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Push a configuration template to this station',
         description:
-          'Iterates the template variables and dispatches SetVariables (OCPP 2.1, batched) or one ChangeConfiguration per variable (OCPP 1.6). Per-variable results are returned with the per-variable status. After a successful push, a refresh (GetBaseReport on 2.1, GetConfiguration on 1.6) updates the CSMS mirror. Returns success=true only when every variable was Accepted.',
+          'Iterates the template variables and dispatches SetVariables (OCPP 2.1, batched) or one ChangeConfiguration per variable (OCPP 1.6). Per-variable results are returned with the per-variable status. After a successful push, a refresh (GetBaseReport on 2.1, GetConfiguration on 1.6) updates the CSMS mirror. Returns success=true only when every variable was Accepted. A template that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials.',
         operationId: 'pushStationConfiguration',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -5328,7 +5329,10 @@ export function stationRoutes(app: FastifyInstance): void {
               })
               .passthrough(),
           ),
-          400: errorWith('Station offline', [ERROR_CODES.STATION_OFFLINE]),
+          400: errorWith('Station offline or a station credential variable', [
+            ERROR_CODES.STATION_OFFLINE,
+            ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
+          ]),
           404: errorWith('Resource not found', [
             ERROR_CODES.STATION_NOT_FOUND,
             ERROR_CODES.TEMPLATE_NOT_FOUND,
@@ -5390,6 +5394,8 @@ export function stationRoutes(app: FastifyInstance): void {
       if (variables.length === 0) {
         return { success: true, results: [] };
       }
+      // A template saved before v0.1.45 can still name a credential.
+      assertNoCredentialVariables(variables);
 
       const ocppVersion = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
       const results: Array<{ component: string; variable: string; status: string }> = [];

@@ -1,7 +1,6 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyServerOptions } from 'fastify';
 import cookie from '@fastify/cookie';
@@ -20,6 +19,7 @@ import { drivers } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { registerApiAccessLog } from './plugins/api-access-log.js';
 import { registerCors } from './plugins/cors.js';
+import { CSRF_SKIP_METHODS, csrfTokensMatch, registerPortalCsrf } from './plugins/csrf.js';
 import { registerHelmet } from './plugins/helmet.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
 import { registerAiToolCallContext } from './services/ai/tools/execute.js';
@@ -117,13 +117,6 @@ import { assistantAttachmentRoutes } from './routes/assistant-attachments.js';
 import { octtRoutes } from './routes/octt.js';
 import { auditRoutes } from './routes/audit.js';
 import { entityNeighborRoutes } from './routes/entity-neighbors.js';
-
-function csrfTokensMatch(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return crypto.timingSafeEqual(bufA, bufB);
-}
 
 export async function buildApp(opts: FastifyServerOptions = {}): Promise<FastifyInstance> {
   // Default body size limit: 1 MB. Individual routes can override with
@@ -359,55 +352,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
   });
 
   // CSRF validation for portal mutating requests
-  const CSRF_SKIP_PATHS = new Set([
-    '/v1/portal/auth/login',
-    '/v1/portal/auth/register',
-    '/v1/portal/auth/refresh',
-    '/v1/portal/auth/verify-email',
-    '/v1/portal/auth/forgot-password',
-    '/v1/portal/auth/reset-password',
-    '/v1/portal/auth/activate',
-    '/v1/portal/payout-onboarding/link',
-    '/v1/portal/payout-onboarding/status',
-    '/v1/portal/auth/mfa/verify',
-    '/v1/portal/auth/mfa/resend',
-    '/v1/portal/auth/attest/challenge',
-    '/v1/portal/auth/attest/register',
-  ]);
-  const CSRF_SKIP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-
-  app.addHook('onRequest', async (request, reply) => {
-    const url = request.url.split('?')[0] ?? request.url;
-    if (!url.startsWith('/v1/portal/')) return;
-    if (CSRF_SKIP_METHODS.has(request.method)) return;
-    if (CSRF_SKIP_PATHS.has(url)) return;
-    if (url.startsWith('/v1/portal/guest/')) return;
-
-    // Bearer-authenticated, cookie-less clients (native mobile app) are not
-    // subject to CSRF: CSRF defends ambient cookie sessions, and a Bearer token
-    // is never auto-attached by a browser to a cross-site request. Requiring no
-    // portal_token cookie keeps CSRF in force for any cookie session.
-    const authz = request.headers.authorization;
-    if (
-      typeof authz === 'string' &&
-      authz.startsWith('Bearer ') &&
-      request.cookies['portal_token'] == null
-    ) {
-      return;
-    }
-
-    const cookieToken = request.cookies['portal_csrf'];
-    const headerToken = request.headers['x-csrf-token'];
-    if (
-      cookieToken == null ||
-      headerToken == null ||
-      typeof headerToken !== 'string' ||
-      cookieToken === '' ||
-      !csrfTokensMatch(cookieToken, headerToken)
-    ) {
-      await reply.status(403).send({ error: 'Invalid CSRF token', code: 'CSRF_INVALID' });
-    }
-  });
+  registerPortalCsrf(app);
 
   // CSRF validation for CSMS cookie-authenticated mutating requests
   const CSMS_CSRF_SKIP_PATHS = new Set([

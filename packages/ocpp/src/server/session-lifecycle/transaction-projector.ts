@@ -4,7 +4,6 @@
 import type postgres from 'postgres';
 import type { DomainEvent } from '@evtivity/lib';
 import {
-  writeReservationAudit,
   isSiteFreeVendEnabledByStation,
   getElectricityRatePeriodsForSite,
   getCompanyCurrency,
@@ -26,6 +25,7 @@ import {
 import type { TariffPriceSnapshot } from '@evtivity/database';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import type { ProjectionAttempt } from '../projection-retry.js';
+import { linkStartedReservation, markReservationUsed } from '../reservation-projections.js';
 import { runPaymentGate } from './payment-gate.js';
 import { noteCostLimitReached } from './payment-stop.js';
 import { settleTransactionEnded } from './settlement.js';
@@ -662,108 +662,29 @@ export class TransactionProjector {
       }
     }
 
-    // Link reservation to session if reservationId present
+    // Link the session to its reservation: the echoed reservation id, or the
+    // holder's live hold on this EVSE (G12). A start by someone else leaves
+    // the hold active with its fee waived (G13, reservation-projections.ts).
     let linkedReservationId: string | null = null;
-    const ocppReservationId = payload.reservationId as number | undefined;
-    if (ocppReservationId != null) {
-      try {
-        // The active reservation, or the one this session is already linked
-        // to: a rerun after the first run moved it to in_use, or a remote
-        // start the reservation activation linked before Started (that first
-        // run now passes reserved: true to the gate, so the holding fee is
-        // billed).
-        const reservationRows = await this.deps.sql`
-              SELECT r.id, r.token_id FROM reservations r
-              WHERE r.reservation_id = ${ocppReservationId}
-                AND r.station_id = ${stationUuid}
-                AND (
-                  r.status = 'active'
-                  OR r.id = (SELECT cs.reservation_id FROM charging_sessions cs WHERE cs.id = ${sessionId})
-                )
-              ORDER BY (r.status = 'active') ASC
-              LIMIT 1
-            `;
-        const reservationUuid = reservationRows[0]?.id as string | undefined;
-        const reservationTokenId = reservationRows[0]?.token_id as string | null | undefined;
-        if (reservationUuid != null) {
-          await this.deps.sql`
-                UPDATE charging_sessions SET reservation_id = ${reservationUuid}, updated_at = now()
-                WHERE id = ${sessionId}
-              `;
-          linkedReservationId = reservationUuid;
-          // Conditional UPDATE -- only one writer flips active→in_use. Audit
-          // the transition iff we won the race (RETURNING is empty when
-          // the row was already in_use/cancelled/expired).
-          const usedRows = await this.deps.sql`
-                UPDATE reservations SET status = 'in_use', updated_at = now()
-                WHERE id = ${reservationUuid} AND status = 'active'
-                RETURNING id, driver_id
-              `;
-          if (usedRows.length > 0) {
-            await writeReservationAudit({
-              reservationId: reservationUuid,
-              action: 'used',
-              actor: 'system',
-              driverIdBefore: (usedRows[0]?.driver_id as string | null) ?? null,
-              driverIdAfter: (usedRows[0]?.driver_id as string | null) ?? null,
-              statusBefore: 'active',
-              statusAfter: 'in_use',
-              notes: `session ${sessionId}`,
-            });
-            await this.deps.notify.notifyChange(
-              'reservation.changed',
-              stationUuid,
-              await this.deps.lookups.resolveSiteId(stationUuid),
-              sessionId,
-            );
-          }
-
-          // If the reservation was bound to a specific token, verify the
-          // session was started with that token. We log + persist a metadata
-          // marker rather than blocking the session: the OCPP transaction
-          // is already underway and tearing it down here would just leave
-          // the EV charging without a billable session record.
-          if (reservationTokenId != null) {
-            const sessionRow = await this.deps.sql`
-                  SELECT token_id FROM charging_sessions WHERE id = ${sessionId} LIMIT 1
-                `;
-            const actualTokenId = (sessionRow[0]?.token_id as string | null | undefined) ?? null;
-            if (actualTokenId !== reservationTokenId) {
-              this.deps.logger.warn(
-                {
-                  sessionId,
-                  reservationUuid,
-                  expectedTokenId: reservationTokenId,
-                  actualTokenId,
-                },
-                'Reservation fulfilled by different token than reserved',
-              );
-              await this.deps.sql`
-                    UPDATE charging_sessions
-                    SET metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object(
-                      'reservationTokenMismatch', jsonb_build_object(
-                        'expected', ${reservationTokenId},
-                        'actual', ${actualTokenId}
-                      )
-                    ),
-                    updated_at = now()
-                    WHERE id = ${sessionId}
-                  `;
-            }
-          }
-        }
-      } catch (err) {
-        // A lost connection goes to the projection retry. These statements
-        // run outside a `once` step, so even an interrupted one is retried,
-        // and the rerun finds the reservation through the session's link.
-        // On the last run it continues: the gate must still run (P11), at
-        // the cost of a missing reservation link.
-        if (pgConnectionErrorKind(err) != null && !tx.attempt.isLast) throw err;
-        this.deps.logger.debug(
-          { err, sessionId },
-          'Reservation linking failed; continuing session creation',
-        );
-      }
+    try {
+      linkedReservationId = await linkStartedReservation(this.deps, {
+        sessionId,
+        stationUuid,
+        stationOcppId: stationId,
+        ocppReservationId: typeof payload.reservationId === 'number' ? payload.reservationId : null,
+        idToken: (payload.idToken as string | null | undefined) ?? null,
+      });
+    } catch (err) {
+      // A lost connection goes to the projection retry. These statements run
+      // outside a `once` step, so even an interrupted one is retried, and the
+      // rerun finds the reservation through the session's link (the taken
+      // hold through its waiver guard). On the last run it continues: the
+      // gate must still run (P11), at the cost of a missing reservation link.
+      if (pgConnectionErrorKind(err) != null && !tx.attempt.isLast) throw err;
+      this.deps.logger.debug(
+        { err, sessionId },
+        'Reservation linking failed; continuing session creation',
+      );
     }
 
     return {
@@ -2016,18 +1937,19 @@ export class TransactionProjector {
       await this.deps.notify.notifyChange('session.ended', stationUuid, siteId, sessionId);
       await this.deps.notify.notifyOcpiPush('session', { sessionId });
 
-      // Transition in_use reservation to used when session ends
+      // The session of an in_use hold ended: in_use -> used, audited (G17).
       const reservationUuidForEnd = sessionRow.reservation_id as string | null;
       if (reservationUuidForEnd != null) {
-        await this.deps.sql`
-            UPDATE reservations SET status = 'used', updated_at = now()
-            WHERE id = ${reservationUuidForEnd} AND status = 'in_use'
-          `.catch((err: unknown) => {
+        await markReservationUsed(this.deps, {
+          reservationDbId: reservationUuidForEnd,
+          sessionId,
+          stationUuid,
+          siteId,
+        }).catch((err: unknown) => {
           // A lost connection goes to the projection retry (guarded UPDATE).
           if (pgConnectionErrorKind(err) != null && !tx.attempt.isLast) throw err;
           this.deps.logger.error({ err }, 'failed to transition reservation to used');
         });
-        await this.deps.notify.notifyChange('reservation.changed', stationUuid, siteId, sessionId);
       }
 
       // Notify guest session service for payment finalization

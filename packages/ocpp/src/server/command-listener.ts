@@ -12,6 +12,8 @@ import type {
 import { OCPP_COMMANDS_CHANNEL, OCPP_COMMAND_RESULTS_CHANNEL, tryParseJson } from '@evtivity/lib';
 import type { CommandDispatcher } from './command-dispatcher.js';
 import { RetryPolicy } from './retry-policy.js';
+import { publishMessageLog } from './message-log.js';
+import { holdsStationCredential, maskStationCredentials } from '@evtivity/lib/secret-config';
 import {
   MESSAGE_TYPE_CALL,
   MESSAGE_TYPE_CALLRESULT,
@@ -88,7 +90,8 @@ export class CommandListener {
   private async handleNotification(raw: string): Promise<void> {
     const parsed = tryParseJson(raw);
     if (typeof parsed !== 'object' || parsed === null) {
-      this.logger.error({ raw }, 'Invalid command payload from event source');
+      // The raw text can hold a station password: log its size only.
+      this.logger.error({ rawLength: raw.length }, 'Invalid command payload from event source');
       return;
     }
     const command = parsed as CommandPayload;
@@ -99,12 +102,18 @@ export class CommandListener {
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- runtime check for untrusted JSON
       command.payload == null
     ) {
-      this.logger.error({ raw }, 'Malformed command payload: missing required fields');
+      this.logger.error(
+        { command: maskStationCredentials(command) },
+        'Malformed command payload: missing required fields',
+      );
       return;
     }
 
     if (command.commandId != null && typeof command.commandId !== 'string') {
-      this.logger.error({ raw }, 'Malformed command payload: commandId must be a string');
+      this.logger.error(
+        { command: maskStationCredentials(command) },
+        'Malformed command payload: commandId must be a string',
+      );
       return;
     }
 
@@ -132,18 +141,13 @@ export class CommandListener {
 
     // Log outbound CALL to station
     const messageId = commandId ?? crypto.randomUUID();
-    void this.eventBus.publish({
-      eventType: 'ocpp.MessageLog',
-      aggregateType: 'ChargingStation',
-      aggregateId: stationId,
-      payload: {
-        stationId,
-        direction: 'outbound',
-        messageType: MESSAGE_TYPE_CALL,
-        messageId,
-        action,
-        payload,
-      },
+    publishMessageLog(this.eventBus, {
+      stationId,
+      direction: 'outbound',
+      messageType: MESSAGE_TYPE_CALL,
+      messageId,
+      action,
+      payload,
     });
 
     try {
@@ -162,21 +166,19 @@ export class CommandListener {
       const response = isRetryable
         ? await this.retryPolicy.execute(action, dispatch, shouldRetry)
         : await dispatch();
-      this.logger.info({ stationId, action, response }, 'Command completed');
+      this.logger.info(
+        { stationId, action, response: maskStationCredentials(response) },
+        'Command completed',
+      );
 
       // Log inbound CALLRESULT from station
-      void this.eventBus.publish({
-        eventType: 'ocpp.MessageLog',
-        aggregateType: 'ChargingStation',
-        aggregateId: stationId,
-        payload: {
-          stationId,
-          direction: 'inbound',
-          messageType: MESSAGE_TYPE_CALLRESULT,
-          messageId,
-          action,
-          payload: response,
-        },
+      publishMessageLog(this.eventBus, {
+        stationId,
+        direction: 'inbound',
+        messageType: MESSAGE_TYPE_CALLRESULT,
+        messageId,
+        action,
+        payload: response,
       });
 
       // Publish domain events for certificate commands so projections can save results
@@ -198,18 +200,19 @@ export class CommandListener {
           payload: { request: payload, response },
         });
       } else if (action === 'GetVariables') {
+        // Persisted in domain_events: a credential a station returns is masked.
         void this.eventBus.publish({
           eventType: 'command.GetVariables',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: { request: payload, response },
+          payload: maskStationCredentials({ request: payload, response }),
         });
       } else if (action === 'GetConfiguration') {
         void this.eventBus.publish({
           eventType: 'command.GetConfiguration',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
-          payload: { request: payload, response },
+          payload: maskStationCredentials({ request: payload, response }),
         });
       } else if (action === 'UpdateFirmware' || action === 'SignedUpdateFirmware') {
         // 1.6 SignedUpdateFirmware has the 2.1 UpdateFirmware payload shape.
@@ -262,6 +265,26 @@ export class CommandListener {
       const errorMessage = err instanceof Error ? err.message : String(err);
 
       // Queue command for later delivery if station is offline
+      // A station credential change is never queued: the queue row and its
+      // domain event would hold the password, and a late delivery would set a
+      // password the stored hash no longer matches (lockout).
+      if (errorMessage.includes('is not connected') && holdsStationCredential(payload)) {
+        this.logger.warn(
+          { stationId, commandId, action },
+          'Station offline, credential change not queued',
+        );
+        if (commandId != null) {
+          await this.pubsub.publish(
+            RESULTS_CHANNEL,
+            JSON.stringify({
+              commandId,
+              error: 'Station offline, a station credential change is not queued',
+            }),
+          );
+        }
+        return;
+      }
+
       if (errorMessage.includes('is not connected') && commandId != null) {
         this.logger.warn({ stationId, commandId, action }, 'Station offline, queuing command');
         void this.eventBus.publish({
@@ -280,19 +303,14 @@ export class CommandListener {
       this.logger.error({ stationId, action, error: errorMessage }, 'Command failed');
 
       // Log inbound CALLERROR from station
-      void this.eventBus.publish({
-        eventType: 'ocpp.MessageLog',
-        aggregateType: 'ChargingStation',
-        aggregateId: stationId,
-        payload: {
-          stationId,
-          direction: 'inbound',
-          messageType: MESSAGE_TYPE_CALLERROR,
-          messageId,
-          action,
-          errorCode: 'InternalError',
-          errorDescription: errorMessage,
-        },
+      publishMessageLog(this.eventBus, {
+        stationId,
+        direction: 'inbound',
+        messageType: MESSAGE_TYPE_CALLERROR,
+        messageId,
+        action,
+        errorCode: 'InternalError',
+        errorDescription: errorMessage,
       });
 
       if (commandId != null) {

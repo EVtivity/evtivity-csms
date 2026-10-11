@@ -17,13 +17,22 @@ export const AI_USAGE_SURFACES = [
   'insight',
   'insight_translation',
   'worker',
+  'driver_support',
 ] as const;
 export type AiUsageSurface = (typeof AI_USAGE_SURFACES)[number];
 
-/** Surfaces a user starts. The others run without a user and count against site budgets. */
-export const AI_INTERACTIVE_USAGE_SURFACES: readonly AiUsageSurface[] = ['chatbot', 'support'];
+/**
+ * Surfaces a person starts (an operator, or a driver for `driver_support`).
+ * The others run without a person and count against site daily budgets.
+ */
+export const AI_INTERACTIVE_USAGE_SURFACES: readonly AiUsageSurface[] = [
+  'chatbot',
+  'support',
+  'driver_support',
+];
 
-export const AI_BUDGET_SCOPES = ['company', 'site', 'user'] as const;
+/** `driver`: the driver daily budget of `driver_support` (`ai.budget.driverDailyTokens`). */
+export const AI_BUDGET_SCOPES = ['company', 'site', 'user', 'driver'] as const;
 export type AiBudgetScope = (typeof AI_BUDGET_SCOPES)[number];
 
 export const AI_BUDGET_PERIODS = ['day', 'month'] as const;
@@ -32,11 +41,13 @@ export type AiBudgetPeriod = (typeof AI_BUDGET_PERIODS)[number];
 export interface AiBudgetCheckInput {
   surface: AiUsageSurface;
   userId?: string;
+  /** The driver a `driver_support` call runs for: checked against the driver daily budget. */
+  driverId?: string;
   siteId?: string | null;
   now?: Date;
 }
 
-/** Error code of a refusal: monthly (company or site), site daily, or user daily. */
+/** Error code of a refusal: monthly (company or site), site daily, or user or driver daily. */
 export type AiBudgetRefusalCode =
   | 'AI_MONTHLY_BUDGET_EXCEEDED'
   | 'AI_SITE_BUDGET_EXCEEDED'
@@ -54,8 +65,9 @@ export type AiBudgetDecision =
 
 /**
  * Runs before every model call. Checks, in order, the company monthly, site
- * monthly, site daily (system-initiated surfaces only) and user daily
- * (interactive surfaces only) budgets; the first refusal wins.
+ * monthly, site daily (system-initiated surfaces only), user daily
+ * (interactive surfaces with a user) and driver daily (`driver_support` with a
+ * driver) budgets; the first refusal wins.
  */
 export type CheckAiBudgets = (input: AiBudgetCheckInput) => Promise<AiBudgetDecision>;
 

@@ -18,7 +18,6 @@ import {
   getSampledMeasurands,
   getAlignedMeasurands,
   getTxEndedMeasurands,
-  writeReservationAudit,
   writeAudit,
   firmwareCampaignAuditLog,
   stationAuditLog,
@@ -75,11 +74,12 @@ import {
   LIVENESS_WRITE_INTERVAL_SECONDS,
 } from '@evtivity/lib';
 import { OCPP_NOTIFICATION_EVENT_TYPES, publishOcppCommand } from '@evtivity/lib';
+import { dispatchOcppNotification } from './notification-dispatcher.js';
 import {
-  dispatchOcppNotification,
-  dispatchDriverNotification,
-  ALL_TEMPLATES_DIRS,
-} from './notification-dispatcher.js';
+  projectReservationStatusUpdate,
+  projectReserveNowResult,
+  projectStationOutageHolds,
+} from './reservation-projections.js';
 import { TransactionBuffer } from './transaction-buffer.js';
 import { projectionLane, projectionQueueFor } from './projection-queue.js';
 import { PROJECTION_RETRY_DEFAULTS, runProjectionWithRetry } from './projection-retry.js';
@@ -667,41 +667,16 @@ export function registerProjections(
         await notify.notifyOcpiPush('location', { siteId });
       }
 
-      // Notify drivers with active or in_use reservations on the disconnected
-      // station. Not on a server shutdown: the station did not fault and
-      // reconnects within seconds, so every deploy would email those drivers.
+      // Holds of a station that went offline (G16): active holds are cancelled
+      // as system without a fee and drivers on an in_use hold are told. Not on
+      // a server shutdown: the station did not fail and reconnects within
+      // seconds, so every deploy would cancel holds.
       if (serverShutdown) return;
-      const stationOcppId = event.aggregateId;
-      try {
-        const affectedReservations = await sql`
-        SELECT id, driver_id FROM reservations
-        WHERE station_id = ${stationUuid}
-          AND status IN ('active', 'in_use')
-      `;
-        for (const reservation of affectedReservations) {
-          if (reservation.driver_id == null) continue;
-          void eventBus.track(
-            dispatchDriverNotification(
-              sql,
-              'reservation.StationFaulted',
-              reservation.driver_id as string,
-              {
-                reservationId: reservation.id as string,
-                stationId: stationOcppId,
-              },
-              ALL_TEMPLATES_DIRS,
-              pubsub,
-            ).catch((err: unknown) => {
-              logger.error(
-                { err, reservationId: reservation.id },
-                'reservation.StationFaulted notification failed',
-              );
-            }),
-          );
-        }
-      } catch (err) {
-        logger.error({ err }, 'failed to query reservations for station fault notification');
-      }
+      await projectStationOutageHolds(deps, {
+        stationUuid,
+        stationOcppId: event.aggregateId,
+        cause: 'offline',
+      });
     },
     { retryOnConnectionError: true },
   );
@@ -1075,6 +1050,14 @@ export function registerProjections(
           await notify.notifyOcpiPush('location', { siteId: stationSiteId });
         }
         if (reported === 'available') await checkStationWatches(stationUuid);
+        // A faulted station ends its active holds (G16), guarded per hold.
+        if (reported === 'faulted') {
+          await projectStationOutageHolds(deps, {
+            stationUuid,
+            stationOcppId: event.aggregateId,
+            cause: 'faulted',
+          });
+        }
         return;
       }
 
@@ -1239,6 +1222,18 @@ export function registerProjections(
         WHERE station_id = ${stationUuid} AND status = 'active' AND idle_started_at IS NOT NULL
           AND evse_id = ${resolvedEvseUuid}
       `;
+      }
+
+      // A connector that faulted ends the active holds of its EVSE (G16): a
+      // system cancel without a fee, and the driver is told. Guarded, so a
+      // retried projection cancels nothing twice.
+      if (dbStatus === 'faulted' && previousDbStatus !== 'faulted') {
+        await projectStationOutageHolds(deps, {
+          stationUuid,
+          stationOcppId: event.aggregateId,
+          cause: 'faulted',
+          evseUuid: resolvedEvseUuid,
+        });
       }
 
       // Station-watch alert: a connector just became available. Only on this
@@ -2208,116 +2203,7 @@ export function registerProjections(
   });
 
   safeSubscribe('ocpp.ReservationStatusUpdate', async (event: DomainEvent) => {
-    const payload = event.payload;
-    const reservationOcppId = payload.reservationId as number;
-    const updateStatus = payload.reservationUpdateStatus as string;
-
-    if (updateStatus === 'Expired') {
-      // Expired reservations stay on the dedicated 'expired' status path,
-      // which has its own no-show fee handling in the worker. Conditional
-      // UPDATE so we only audit on the actual transition.
-      const expired = await sql<
-        Array<{ id: string; driver_id: string | null; station_id: string }>
-      >`
-        UPDATE reservations
-        SET status = 'expired', updated_at = now()
-        WHERE reservation_id = ${reservationOcppId}
-          AND status IN ('active', 'scheduled', 'in_use')
-        RETURNING id, driver_id, station_id
-      `;
-      const expiredRow = expired[0];
-      if (expiredRow != null) {
-        await writeReservationAudit(
-          {
-            reservationId: expiredRow.id,
-            action: 'expired',
-            actor: 'system',
-            driverIdBefore: expiredRow.driver_id,
-            driverIdAfter: expiredRow.driver_id,
-            statusAfter: 'expired',
-            notes: 'station-reported expiry',
-          },
-          undefined,
-          logger,
-        );
-        await notify.notifyChange(
-          'reservation.changed',
-          expiredRow.station_id,
-          await lookups.resolveSiteId(expiredRow.station_id),
-        );
-        await checkStationWatches(expiredRow.station_id);
-      }
-      return;
-    }
-
-    if (updateStatus === 'Removed') {
-      // Station-initiated removal (operator pressed cancel on the station,
-      // physical fault, etc.). Treat as a system cancel: write metadata,
-      // never charge a fee. Scope the UPDATE to the reporting station to
-      // avoid touching a stale row at a different station with the same
-      // OCPP reservation id (no DB-level uniqueness across stations).
-      const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
-      if (stationUuid == null) return;
-
-      const cancelled = await sql<Array<{ id: string; driver_id: string | null }>>`
-        UPDATE reservations
-        SET status = 'cancelled',
-            cancelled_by = 'system',
-            cancel_reason = 'system_cleanup'::reservation_cancel_reason,
-            cancellation_fee_cents = 0,
-            updated_at = now()
-        WHERE reservation_id = ${reservationOcppId}
-          AND station_id = ${stationUuid}
-          AND status IN ('active', 'scheduled')
-        RETURNING id, driver_id
-      `;
-
-      const cancelledRow = cancelled[0];
-      if (cancelledRow != null) {
-        await writeReservationAudit(
-          {
-            reservationId: cancelledRow.id,
-            action: 'cancelled',
-            actor: 'system',
-            driverIdBefore: cancelledRow.driver_id,
-            driverIdAfter: cancelledRow.driver_id,
-            statusAfter: 'cancelled',
-            notes: 'station-reported removal',
-          },
-          undefined,
-          logger,
-        );
-        await notify.notifyChange(
-          'reservation.changed',
-          stationUuid,
-          await lookups.resolveSiteId(stationUuid),
-        );
-        await checkStationWatches(stationUuid);
-      }
-
-      const driverId = cancelled[0]?.driver_id ?? null;
-      if (driverId != null) {
-        try {
-          await dispatchDriverNotification(
-            sql,
-            'reservation.Cancelled',
-            driverId,
-            {
-              reservationId: reservationOcppId,
-              stationId: event.aggregateId,
-              cancellationFeeFormatted: '',
-            },
-            ALL_TEMPLATES_DIRS,
-            pubsub,
-          );
-        } catch (err) {
-          logger.warn(
-            { err, driverId, reservationOcppId },
-            'Failed to dispatch station-removed driver notification',
-          );
-        }
-      }
-    }
+    await projectReservationStatusUpdate(deps, event);
   });
 
   // ---- Payment Projections ----
@@ -3072,83 +2958,11 @@ export function registerProjections(
     `;
   });
 
-  // command.ReserveNow: roll back the reservation when the station did not
-  // accept the request. Scheduled reservations are dispatched fire-and-forget
-  // by the worker (no response wait), so without this projection a station
-  // reply of `Occupied` (EVSE busy at activation time), `Faulted`, `Rejected`,
-  // or `Unavailable` would leave the DB row showing `active` even though no
-  // reservation exists on the station. The immediate-start path in
-  // packages/api/src/routes/reservations.ts already handles its own response
-  // synchronously, but it's a no-op for that path because by the time this
-  // projection runs the row will already be `cancelled` (the WHERE clause
-  // filters to `active`/`scheduled` only).
+  // command.ReserveNow: Accepted records the station's acknowledgement, any
+  // other answer rolls back a hold the station never accepted
+  // (reservation-projections.ts).
   safeSubscribe('command.ReserveNow', async (event: DomainEvent) => {
-    const request = event.payload.request as Record<string, unknown>;
-    const response = event.payload.response as Record<string, unknown> | undefined;
-    const status = response != null ? (response['status'] as string | undefined) : undefined;
-    if (status == null || status === 'Accepted') return;
-
-    // Worker builds the payload in OCPP 2.1 shape (`id`, `idToken`,
-    // `expiryDateTime`, `evseId?`); CommandListener translates to 1.6 on the
-    // wire but the event payload preserves the pre-translation form, so `id`
-    // is always the OCPP reservation id.
-    const reservationOcppId =
-      typeof request['id'] === 'number'
-        ? request['id']
-        : typeof request['reservationId'] === 'number'
-          ? request['reservationId']
-          : null;
-    if (reservationOcppId == null) return;
-
-    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
-    if (stationUuid == null) return;
-
-    // System-path cancellation: write the cancelled_by/cancel_reason metadata
-    // and force the cancellation fee to 0. The cancel_reason values must
-    // match the reservation_cancel_reason enum in the schema. RETURNING
-    // gives us the driver_id so we can dispatch the cancellation
-    // notification -- otherwise the driver sees the reservation silently
-    // disappear from the portal.
-    const cancelReason =
-      status === 'Occupied' ? 'station_rejected_occupied' : 'station_rejected_other';
-    const cancelled = await sql<Array<{ driver_id: string | null }>>`
-      UPDATE reservations
-      SET status = 'cancelled',
-          cancelled_by = 'system',
-          cancel_reason = ${cancelReason}::reservation_cancel_reason,
-          cancellation_fee_cents = 0,
-          updated_at = now()
-      WHERE reservation_id = ${reservationOcppId}
-        AND station_id = ${stationUuid}
-        AND status IN ('active', 'scheduled')
-      RETURNING driver_id
-    `;
-    logger.warn(
-      { stationId: event.aggregateId, reservationOcppId, status, cancelReason },
-      `Station rejected ReserveNow with status: ${status}; reservation cancelled`,
-    );
-    const driverId = cancelled[0]?.driver_id ?? null;
-    if (driverId != null) {
-      try {
-        await dispatchDriverNotification(
-          sql,
-          'reservation.Cancelled',
-          driverId,
-          {
-            reservationId: reservationOcppId,
-            stationId: event.aggregateId,
-            cancellationFeeFormatted: '',
-          },
-          ALL_TEMPLATES_DIRS,
-          pubsub,
-        );
-      } catch (err) {
-        logger.warn(
-          { err, driverId, reservationOcppId },
-          'Failed to dispatch system-cancel driver notification',
-        );
-      }
-    }
+    await projectReserveNowResult(deps, event);
   });
 
   // ---- EV Charging Needs and Schedules ----

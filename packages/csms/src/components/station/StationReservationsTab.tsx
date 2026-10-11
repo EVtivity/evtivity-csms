@@ -4,6 +4,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
+import { Toggle } from '@/components/ui/toggle';
 import { Card, CardContent } from '@/components/ui/card';
 import { ReservationsTable } from '@/components/ReservationsTable';
 import { api } from '@/lib/api';
@@ -45,20 +46,15 @@ export function StationReservationsTab({
                 {t('stations.reservationsEnabledHelp')}
               </p>
             </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={station.reservationsEnabled}
-              onClick={() => {
+            <Toggle
+              aria-label={t('stations.reservationsEnabled')}
+              size="lg"
+              checked={station.reservationsEnabled}
+              onCheckedChange={() => {
                 reservationToggleMutation.mutate(!station.reservationsEnabled);
               }}
               disabled={reservationToggleMutation.isPending}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${station.reservationsEnabled ? 'bg-primary' : 'bg-muted'}`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${station.reservationsEnabled ? 'translate-x-5' : 'translate-x-0'}`}
-              />
-            </button>
+            />
           </div>
         </CardContent>
       </Card>

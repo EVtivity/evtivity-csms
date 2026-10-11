@@ -1,6 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { maskStationCredentials } from '@evtivity/lib/secret-config';
+
 export const REDACTED = '[REDACTED]';
 
 /**
@@ -52,7 +54,10 @@ export function redactAccessLogBody(
   path: string,
   body: Record<string, unknown>,
 ): Record<string, unknown> {
-  const sanitized = redact(body, 0) as Record<string, unknown>;
+  // A station password in an OCPP command body (SetVariables BasicAuthPassword,
+  // ChangeConfiguration AuthorizationKey) sits under a value field, not a
+  // secret name: the shared station credential rule masks it first.
+  const sanitized = redact(maskStationCredentials(body), 0) as Record<string, unknown>;
   if (path.startsWith('/v1/settings/') && 'value' in sanitized) {
     sanitized['value'] = REDACTED;
   }

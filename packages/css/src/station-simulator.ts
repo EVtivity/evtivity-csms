@@ -206,6 +206,13 @@ export function clampStatusForAdminAvailability(status: string, adminUnavailable
   return 'Unavailable';
 }
 
+/** Forced answer of the next ReserveNow: a status, or no CALLRESULT at all. */
+export type ReservationReplyOverride = 'Rejected' | 'Occupied' | 'NoReply';
+
+/** Replies the reservationReply action accepts. 'Accepted' clears the override. */
+export const RESERVATION_REPLIES = ['Rejected', 'Occupied', 'NoReply', 'Accepted'] as const;
+export type ReservationReply = (typeof RESERVATION_REPLIES)[number];
+
 export class StationSimulator {
   readonly client: OcppClient;
   private readonly config: StationConfig;
@@ -216,6 +223,9 @@ export class StationSimulator {
   // Live setTimeout handles paired with each persisted reservation; rebuilt
   // from the cache on boot via scheduleReservationExpiry().
   private readonly reservationTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  // One-shot reply override for the next ReserveNow (reservationReply action).
+  // In memory only: a test control, not station state.
+  private nextReservationReply: ReservationReplyOverride | null = null;
   private readonly evseContexts = new Map<number, EvseContext>();
 
   // Device-storage-backed config variables. Reads are local; .set/.delete
@@ -1125,6 +1135,16 @@ export class StationSimulator {
   // ---------------------------------------------------------------------------
   // Group 1: Driver simulation actions
   // ---------------------------------------------------------------------------
+
+  /**
+   * Force the answer of the next ReserveNow (one-shot). 'Rejected' and 'Occupied'
+   * answer that status without holding the EVSE, 'NoReply' sends no CALLRESULT so
+   * the CSMS times out, 'Accepted' clears the override (normal handling).
+   */
+  setNextReservationReply(reply: ReservationReply): void {
+    this.nextReservationReply = reply === 'Accepted' ? null : reply;
+    console.log(`[${this.config.stationId}] Next ReserveNow reply: ${reply}`);
+  }
 
   async plugIn(evseId: number): Promise<void> {
     const ctx = this.evseContexts.get(evseId) as EvseContext;
@@ -3938,11 +3958,12 @@ export class StationSimulator {
   // CSMS Command Handler (private)
   // ---------------------------------------------------------------------------
 
+  /** Resolves to the CALLRESULT payload, or null to send no reply (forced ReserveNow NoReply). */
   private async handleCsmsCommand(
     _messageId: string,
     action: string,
     payload: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
+  ): Promise<Record<string, unknown> | null> {
     console.log(`[${this.config.stationId}] Received ${action} from CSMS`);
 
     // Per OCPP spec: a station in Rejected boot state must not accept CSMS commands.
@@ -5197,6 +5218,15 @@ export class StationSimulator {
       }
 
       case 'ReserveNow': {
+        // Test control (reservationReply action): answer the forced reply once.
+        const forcedReply = this.nextReservationReply;
+        if (forcedReply != null) {
+          this.nextReservationReply = null;
+          console.log(`[${this.config.stationId}] ReserveNow answered with forced ${forcedReply}`);
+          if (forcedReply === 'NoReply') return null;
+          return { status: forcedReply };
+        }
+
         // Check if reservation feature is supported
         if (this.is16) {
           const profiles = this.getConfigValue('SupportedFeatureProfiles') ?? '';

@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-// Automatic insights (roadmap v0.1.44, item 1; migrations 0421 to 0423). The
+// Automatic insights (roadmap v0.1.44, item 1; migrations 0421 to 0423;
+// reservation insights 0458, feedback 0471, v0.1.45). The
 // insight service (`@evtivity/services/ai-insight.service`) is the only writer
 // of these tables; the `ai-retention-prune` cron deletes expired rows.
 
@@ -16,6 +17,7 @@ import {
   integer,
   jsonb,
   bigint,
+  boolean,
   check,
   primaryKey,
   unique,
@@ -23,10 +25,14 @@ import {
 import { chargingStations, sites } from './assets.js';
 import { chargingSessions } from './charging.js';
 import { authorizeAttempts } from './drivers.js';
+import { reservations } from './reservations.js';
 import { users } from './identity.js';
 import { createId } from '../lib/id.js';
 
-/** One automatic insight: a root-cause note about a station, session, token refusal or site. */
+/**
+ * One automatic insight: a root-cause note about a station, session, token
+ * refusal, reservation or site.
+ */
 export const aiInsights = pgTable(
   'ai_insights',
   {
@@ -35,13 +41,17 @@ export const aiInsights = pgTable(
       .$defaultFn(() => createId('aiInsight')),
     /** `INSIGHT_KINDS` of `@evtivity/lib/ai-insights`. */
     kind: varchar('kind', { length: 32 }).notNull(),
-    /** `station`, `session`, `authorization`, `site` or `company`. */
+    /** `station`, `session`, `authorization`, `reservation`, `site` or `company`. */
     subjectType: varchar('subject_type', { length: 20 }).notNull(),
     subjectId: text('subject_id').notNull(),
     stationId: text('station_id').references(() => chargingStations.id, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => chargingSessions.id, { onDelete: 'cascade' }),
     authorizeAttemptId: integer('authorize_attempt_id').references(() => authorizeAttempts.id, {
       onDelete: 'set null',
+    }),
+    /** The reservation of a reservation insight (migration 0458). */
+    reservationId: text('reservation_id').references(() => reservations.id, {
+      onDelete: 'cascade',
     }),
     /** Copied from the station (or the site) at creation; null: all-site users only. */
     siteId: text('site_id').references(() => sites.id, { onDelete: 'set null' }),
@@ -93,18 +103,46 @@ export const aiInsights = pgTable(
     index('idx_ai_insights_parent').on(table.parentInsightId),
     index('idx_ai_insights_status_created').on(table.status, table.createdAt),
     index('idx_ai_insights_authorize_attempt').on(table.authorizeAttemptId),
+    index('idx_ai_insights_reservation').on(table.reservationId),
     check(
       'ai_insights_status_check',
       sql`${table.status} IN ('pending', 'active', 'resolved', 'superseded', 'skipped', 'failed', 'dismissed')`,
     ),
     check(
       'ai_insights_subject_type_check',
-      sql`${table.subjectType} IN ('station', 'session', 'authorization', 'site', 'company')`,
+      sql`${table.subjectType} IN ('station', 'session', 'authorization', 'reservation', 'site', 'company')`,
     ),
     check(
       'ai_insights_generated_by_check',
       sql`${table.generatedBy} IS NULL OR ${table.generatedBy} IN ('model', 'rule')`,
     ),
+  ],
+);
+
+/**
+ * One operator's verdict on an insight (migration 0471): one row per user and
+ * insight, changed or cleared by the user. `reason` is the operator's optional
+ * note on a wrong insight: untrusted text, never sent to a model and never in
+ * an API answer. Votes never feed any prompt.
+ */
+export const aiInsightFeedback = pgTable(
+  'ai_insight_feedback',
+  {
+    insightId: text('insight_id')
+      .notNull()
+      .references(() => aiInsights.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    helpful: boolean('helpful').notNull(),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    unique('uq_ai_insight_feedback_insight_user').on(table.insightId, table.userId),
+    index('idx_ai_insight_feedback_user').on(table.userId),
+    index('idx_ai_insight_feedback_updated').on(table.updatedAt),
   ],
 );
 

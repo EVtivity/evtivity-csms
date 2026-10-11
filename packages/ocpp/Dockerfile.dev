@@ -26,6 +26,8 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
 COPY packages/payments/ packages/payments/
+COPY packages/services/ packages/services/
+COPY packages/ai/ packages/ai/
 COPY packages/v2g-exi/ packages/v2g-exi/
 COPY packages/ocpp/ packages/ocpp/
 # Notification templates of events the OCPP process sends from the API template

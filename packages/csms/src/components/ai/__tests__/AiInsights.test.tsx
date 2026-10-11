@@ -8,7 +8,7 @@ import { MemoryRouter } from 'react-router';
 import type { AiInsightView } from '../insights/insight-api';
 
 const { apiMock, perms, status } = vi.hoisted(() => ({
-  apiMock: { get: vi.fn(), post: vi.fn() },
+  apiMock: { get: vi.fn(), post: vi.fn(), delete: vi.fn() },
   perms: new Set<string>(),
   status: { chatbot: true },
 }));
@@ -52,6 +52,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
     stationId: 'st1',
     sessionId: null,
     authorizeAttemptId: null,
+    reservationId: null,
     parentInsightId: null,
     category: 'connectivity',
     confidence: 'high',
@@ -265,17 +266,93 @@ describe('InsightCard', () => {
     expect(screen.queryByRole('button', { name: 'aiInsights.helpful' })).toBeNull();
   });
 
-  it('feedback posts helpful and thanks the user', async () => {
+  it('TC-AI-FB-UI-01 the chosen thumb is pressed and the helpful count shows', () => {
+    perms.add('aiInsights:write');
+    wrap(
+      <InsightCard
+        insight={insight({ feedback: { helpfulCount: 3, wrongCount: 1, mine: true } })}
+      />,
+    );
+    const helpful = screen.getByRole('button', { name: 'aiInsights.helpful' });
+    const wrong = screen.getByRole('button', { name: 'aiInsights.wrong' });
+    expect(helpful.getAttribute('aria-pressed')).toBe('true');
+    expect(wrong.getAttribute('aria-pressed')).toBe('false');
+    expect(screen.getByTestId('ai-insight-helpful-count').textContent).toBe(
+      'aiInsights.feedback.helpfulCount:3',
+    );
+  });
+
+  it('TC-AI-FB-UI-02 pressing the chosen thumb again removes the vote', async () => {
+    perms.add('aiInsights:write');
+    apiMock.delete.mockResolvedValue(undefined);
+    wrap(
+      <InsightCard
+        insight={insight({ feedback: { helpfulCount: 1, wrongCount: 0, mine: true } })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'aiInsights.helpful' }));
+    await waitFor(() => {
+      expect(apiMock.delete).toHaveBeenCalledWith('/v1/ai/insights/ins1/feedback');
+    });
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
+  it('TC-AI-FB-UI-03 Wrong opens an optional note with Regenerate and Dismiss; the note is posted with the vote', async () => {
     perms.add('aiInsights:write');
     apiMock.post.mockResolvedValue({});
-    wrap(<InsightCard insight={insight()} />);
+    wrap(
+      <InsightCard
+        insight={insight({ feedback: { helpfulCount: 0, wrongCount: 0, mine: null } })}
+      />,
+    );
+    expect(screen.queryByTestId('ai-insight-helpful-count')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'aiInsights.wrong' }));
     await waitFor(() => {
       expect(apiMock.post).toHaveBeenCalledWith('/v1/ai/insights/ins1/feedback', {
         helpful: false,
       });
     });
-    expect(await screen.findByText('aiInsights.feedbackThanks')).toBeTruthy();
+    const panel = screen.getByTestId('ai-insight-wrong-panel');
+    expect(panel.textContent).toContain('aiInsights.feedback.wrongPrompt');
+    expect(panel.textContent).toContain('aiInsights.feedback.reasonHint');
+    const reason = screen.getByLabelText('aiInsights.feedback.reasonLabel');
+    expect(reason.getAttribute('maxLength')).toBe('500');
+    expect(screen.getByTestId('ai-insight-wrong-regenerate')).toBeTruthy();
+    expect(screen.getByTestId('ai-insight-wrong-dismiss')).toBeTruthy();
+    fireEvent.change(reason, { target: { value: 'Planned maintenance' } });
+    fireEvent.click(screen.getByTestId('ai-insight-wrong-save'));
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenLastCalledWith('/v1/ai/insights/ins1/feedback', {
+        helpful: false,
+        reason: 'Planned maintenance',
+      });
+    });
+    expect(await screen.findByText('aiInsights.feedback.reasonSaved')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('ai-insight-wrong-regenerate'));
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenLastCalledWith('/v1/ai/insights/ins1/regenerate', {});
+    });
+  });
+
+  it('TC-AI-FB-UI-04 a reader sees the helpful count but no vote buttons or note', () => {
+    wrap(
+      <InsightCard
+        insight={insight({ feedback: { helpfulCount: 2, wrongCount: 0, mine: null } })}
+      />,
+    );
+    expect(screen.getByTestId('ai-insight-helpful-count')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'aiInsights.wrong' })).toBeNull();
+    expect(screen.queryByTestId('ai-insight-wrong-panel')).toBeNull();
+  });
+
+  it('TC-AI-IC-10 the Site Context summary is not truncated, so it wraps on a phone', () => {
+    wrap(<InsightCard insight={insight()} />);
+    const section = screen.getByTestId('ai-insight-scope-section');
+    const summary = screen.getByText(/aiInsights\.scopeTable\.summaryAtDetection/, {
+      selector: 'button span',
+    });
+    expect(section.contains(summary)).toBe(true);
+    expect(summary.className).not.toMatch(/\btruncate\b|whitespace-nowrap|text-ellipsis/);
   });
 });
 
@@ -436,5 +513,90 @@ describe('ExplainButton (TC-AI-EX-05)', () => {
     status.chatbot = false;
     wrap(<ExplainButton context={{ kind: 'station', id: 'st1' }} />);
     expect(screen.queryByTestId('ai-explain')).toBeNull();
+  });
+});
+
+describe('reservation insights', () => {
+  const reservationInsight = (overrides: Partial<AiInsightView> = {}): AiInsightView =>
+    insight({
+      id: 'rins1',
+      kind: 'reservation_cancel_failed',
+      reservationId: 'res1',
+      category: 'connectivity',
+      fixes: [
+        { code: 'reservation_retry_cancel' },
+        { code: 'reservation_review_fee_payment' },
+        { code: 'reservation_check_station_connectivity' },
+      ],
+      scope: { site: { stations: 2 } },
+      ...overrides,
+    });
+
+  it('TC-AI-RI-UI-01 the reservation page card reads the reservation insights and shows one', async () => {
+    apiMock.get.mockResolvedValue({ data: [reservationInsight()], total: 1 });
+    wrap(
+      <RecordInsight
+        filter={{ reservationId: 'res1' }}
+        context={{ kind: 'reservation', id: 'res1' }}
+      />,
+    );
+    expect(await screen.findByTestId('ai-insight-card')).toBeTruthy();
+    expect(apiMock.get).toHaveBeenCalledWith(
+      '/v1/ai/insights?reservationId=res1&limit=10&language=ko',
+    );
+  });
+
+  it('TC-AI-RI-UI-01 renders nothing for a reservation without an insight', async () => {
+    apiMock.get.mockResolvedValue({ data: [], total: 0 });
+    wrap(<RecordInsight filter={{ reservationId: 'res1' }} />);
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId('ai-insight-card')).toBeNull();
+  });
+
+  it('TC-AI-RI-UI-03 renders the headline, category and fixes through locale keys', () => {
+    wrap(<InsightCard insight={reservationInsight()} />);
+    expect(screen.getByTestId('ai-insight-headline').textContent).toBe(
+      'aiInsights.headline.reservation_cancel_failed',
+    );
+    expect(screen.getByTestId('ai-insight-category').textContent).toBe(
+      'aiInsights.category.connectivity',
+    );
+    expect(screen.getByText('aiInsights.fix.reservation_check_station_connectivity')).toBeTruthy();
+  });
+
+  it('TC-AI-RI-UI-04 a reservation fix links the commands tab or the fee payments', () => {
+    wrap(<InsightCard insight={reservationInsight()} />);
+    expect(
+      screen
+        .getByRole('link', { name: 'aiInsights.fix.reservation_retry_cancel' })
+        .getAttribute('href'),
+    ).toBe('/reservations/res1?tab=commands');
+    expect(
+      screen
+        .getByRole('link', { name: 'aiInsights.fix.reservation_review_fee_payment' })
+        .getAttribute('href'),
+    ).toBe('/reservations/res1?tab=details');
+    // A fix with no page stays plain text.
+    expect(
+      screen.queryByRole('link', { name: 'aiInsights.fix.reservation_check_station_connectivity' }),
+    ).toBeNull();
+  });
+
+  it('Explain on a reservation looks up the reservation insight', async () => {
+    perms.add('aiAssistant:write');
+    apiMock.get.mockResolvedValue({ data: [reservationInsight({ id: 'fresh' })], total: 1 });
+    wrap(<ExplainButton context={{ kind: 'reservation', id: 'res1' }} />);
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith(
+        '/v1/ai/insights?reservationId=res1&limit=10&language=ko',
+      );
+    });
+    fireEvent.click(await screen.findByTestId('ai-explain'));
+    expect(useAiPanelStore.getState().request).toMatchObject({
+      context: { kind: 'reservation', id: 'res1' },
+      insightId: 'fresh',
+    });
   });
 });

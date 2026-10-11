@@ -29,6 +29,7 @@ import { sleep } from './sleep.js';
 import { sendOcppCommandAndWait } from './ocpp-command.js';
 import { sendAvailabilityCommand } from './availability-command.js';
 import { applyReservationCancellation } from './reservation-cancel.js';
+import { publishCancelReservation } from './reservation.service.js';
 import { invalidateMaintenanceCheckCache } from './maintenance-check.js';
 import {
   pushStationMessageSlot,
@@ -632,12 +633,15 @@ async function cancelOverlappingReservations(
   const candidates = await db
     .select({
       id: reservations.id,
+      reservationOcppId: reservations.reservationId,
       stationId: reservations.stationId,
+      stationOcppId: chargingStations.stationId,
       driverId: reservations.driverId,
       startsAt: reservations.startsAt,
       createdAt: reservations.createdAt,
     })
     .from(reservations)
+    .innerJoin(chargingStations, eq(reservations.stationId, chargingStations.id))
     .where(
       and(
         inArray(reservations.stationId, stationIds),
@@ -663,6 +667,16 @@ async function cancelOverlappingReservations(
           ...(logger != null ? { logger } : {}),
         });
         if (!result.cancelled) return false;
+        // The station holds an active reservation until told (G8). A
+        // scheduled one never reached it. Fail-open: the row is cancelled.
+        if (result.statusBefore === 'active') {
+          await publishCancelReservation(
+            getPubSub(),
+            row.stationOcppId,
+            row.reservationOcppId,
+            logger,
+          );
+        }
         if (row.driverId != null) {
           try {
             await dispatchDriverNotification(

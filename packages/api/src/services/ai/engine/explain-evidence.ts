@@ -9,7 +9,7 @@
  *
  * - `collectEvidence` returns the same whitelisted pack insights use (facts,
  *   items, and the station-supplied strings kept apart), read for the
- *   subject's own station, session or token refusals only, so it holds no
+ *   subject's own station, session, token refusals or reservation only, so it holds no
  *   other site's data. The caller redacts it (support level), frames it as
  *   untrusted and caps its size.
  * - `latestInsight` returns the subject's newest `active` insight that is not
@@ -23,11 +23,13 @@
 import type { AiInsightDto } from '@evtivity/lib/ai-insights';
 import {
   collectAttemptAuthorizationEvidence,
+  collectReservationEvidence,
   collectSessionEvidence,
   collectStationEvidence,
 } from '@evtivity/services/ai-evidence';
 import type { EvidencePack } from '@evtivity/services/ai-evidence';
 import { latestActiveInsight } from '@evtivity/services/ai-insight.service';
+import { config } from '../../../lib/config.js';
 import type { ExplainSubject } from './explain-context.js';
 
 export type ExplainEvidencePack = Record<string, unknown>;
@@ -45,6 +47,13 @@ async function subjectPack(subject: ExplainSubject): Promise<EvidencePack | null
   if (subject.kind === 'session') {
     if (subject.sessionId == null) return null;
     return (await collectSessionEvidence(subject.sessionId))?.pack ?? null;
+  }
+  if (subject.kind === 'reservation') {
+    if (subject.reservationId == null) return null;
+    return (
+      (await collectReservationEvidence(subject.reservationId, config.SETTINGS_ENCRYPTION_KEY))
+        ?.pack ?? null
+    );
   }
   if (subject.authorizeAttemptId == null || subject.stationId == null) return null;
   return (
@@ -72,6 +81,7 @@ export const explainEvidenceSource: ExplainEvidenceSource = {
         stationId: subject.stationId,
         sessionId: subject.sessionId,
         authorizeAttemptId: subject.authorizeAttemptId,
+        reservationId: subject.reservationId,
       },
       language,
     ),

@@ -38,7 +38,7 @@ describe('createQueues', () => {
     }
   });
 
-  it('creates all fifteen queues with the expected names', async () => {
+  it('creates all sixteen queues with the expected names', async () => {
     const { createQueues, QUEUE_NAMES } = queuesModule;
     const queues = createQueues('redis://localhost:6379');
 
@@ -57,6 +57,7 @@ describe('createQueues', () => {
     expect(queues.reportQueue).toBeDefined();
     expect(queues.aiWorkerQueue).toBeDefined();
     expect(queues.aiInsightQueue).toBeDefined();
+    expect(queues.driverAiQueue).toBeDefined();
 
     const names = queueCalls.map((c) => c.name);
     expect(names).toEqual([
@@ -75,6 +76,7 @@ describe('createQueues', () => {
       QUEUE_NAMES.REPORTS,
       QUEUE_NAMES.AI_WORKERS,
       QUEUE_NAMES.AI_INSIGHTS,
+      QUEUE_NAMES.DRIVER_AI,
     ]);
     expect(names).toEqual([
       'cron-jobs',
@@ -92,6 +94,7 @@ describe('createQueues', () => {
       'reports',
       'ai-workers',
       'ai-insights',
+      'driver-ai',
     ]);
   });
 
@@ -100,7 +103,7 @@ describe('createQueues', () => {
     const { createQueues } = queuesModule;
     createQueues('redis://localhost:6379');
 
-    expect(createBullMQConnection).toHaveBeenCalledTimes(15);
+    expect(createBullMQConnection).toHaveBeenCalledTimes(16);
     expect(createBullMQConnection).toHaveBeenCalledWith('redis://localhost:6379');
     for (const call of queueCalls) {
       expect(call.opts.connection).toBe(mockConnection);

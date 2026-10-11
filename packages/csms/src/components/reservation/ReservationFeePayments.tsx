@@ -23,6 +23,21 @@ export function reservationFeePaymentsKey(reservationId: string): readonly unkno
   return ['reservation-fee-payments', reservationId];
 }
 
+/**
+ * The fee payments of a reservation (`payments:read`; empty without it). The
+ * page and the fee list share the query.
+ */
+export function useReservationFeePayments(reservationId: string): FeePaymentRecord[] {
+  const canRead = useHasPermission('payments:read');
+  const { data } = useQuery({
+    queryKey: reservationFeePaymentsKey(reservationId),
+    queryFn: () => api.get<FeePaymentRecord[]>(`/v1/reservations/${reservationId}/fee-payments`),
+    enabled: canRead && reservationId !== '',
+    staleTime: 30_000,
+  });
+  return canRead ? (data ?? []) : [];
+}
+
 export interface ReservationFeePaymentsProps {
   reservationId: string;
   timezone: string;
@@ -37,18 +52,11 @@ export function ReservationFeePayments({
   timezone,
 }: ReservationFeePaymentsProps): React.JSX.Element | null {
   const { t } = useTranslation();
-  const canRead = useHasPermission('payments:read');
   const canWrite = useHasPermission('payments:write');
   const queryKey = reservationFeePaymentsKey(reservationId);
+  const data = useReservationFeePayments(reservationId);
 
-  const { data } = useQuery({
-    queryKey,
-    queryFn: () => api.get<FeePaymentRecord[]>(`/v1/reservations/${reservationId}/fee-payments`),
-    enabled: canRead,
-    staleTime: 30_000,
-  });
-
-  if (!canRead || data == null || data.length === 0) return null;
+  if (data.length === 0) return null;
 
   return (
     <div className="space-y-6">

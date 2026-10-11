@@ -4,6 +4,7 @@
 import { like, or } from 'drizzle-orm';
 import { AI_SETTING_KEY_PREFIXES, buildAiSettings, createLogger } from '@evtivity/lib';
 import type {
+  AiDriverSurfaceSettings,
   AiInsightSettings,
   AiMcpSettings,
   AiSettings,
@@ -12,6 +13,7 @@ import type {
 } from '@evtivity/lib';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
+import { isReservationEnabled } from './reservation-setting.js';
 
 const logger = createLogger('ai-settings');
 
@@ -21,7 +23,7 @@ let cachedAt = 0;
 
 /**
  * Every AI setting (`ai.*`, `chatbotAi.*`, `supportAi.*`, `opsAi.*`,
- * `aiInsights.*`, `aiWorkers.*`) in one query,
+ * `driverAi.*`, `aiInsights.*`, `aiWorkers.*`) in one query,
  * cached for 60 seconds. On a read failure the last cached value is served;
  * with none, the error propagates (a turn cannot run without its config).
  */
@@ -82,11 +84,45 @@ export async function isOpsAiEnabled(): Promise<boolean> {
 }
 
 /**
- * The insight settings. Throws when settings cannot be read and nothing is
- * cached: a caller decides (the scan skips the minute, P9).
+ * The `driverAi` surface of driver support analyses. Fails closed: when
+ * settings cannot be read, the surface is reported off (no consent offered,
+ * no analysis run; P9).
+ */
+export async function getDriverAiSettings(): Promise<AiDriverSurfaceSettings> {
+  try {
+    return (await getAiSettings()).driver;
+  } catch (err) {
+    logger.warn({ err, surface: 'driverAi' }, 'getDriverAiSettings failed, using off');
+    // The built-in defaults: the switch is off (decision E7).
+    return buildAiSettings([]).driver;
+  }
+}
+
+/** Whether driver support analyses are on. Fails closed (false). */
+export async function isDriverAiEnabled(): Promise<boolean> {
+  return (await getDriverAiSettings()).enabled;
+}
+
+/**
+ * The AI settings the insight paths run on (scan, generation, translation,
+ * the insight routes): reservation insights count as on only while the
+ * reservation feature is on too (`reservation.enabled`, owner rule v0.1.45),
+ * so `insights.reservationEnabled` is the effective switch. Both readers are
+ * cached (P6). Throws like `getAiSettings`.
+ */
+export async function getInsightAiSettings(): Promise<AiSettings> {
+  const all = await getAiSettings();
+  if (!all.insights.reservationEnabled || (await isReservationEnabled())) return all;
+  return { ...all, insights: { ...all.insights, reservationEnabled: false } };
+}
+
+/**
+ * The insight settings, with the effective reservation switch
+ * (`getInsightAiSettings`). Throws when settings cannot be read and nothing
+ * is cached: a caller decides (the scan skips the minute, P9).
  */
 export async function getAiInsightSettings(): Promise<AiInsightSettings> {
-  return (await getAiSettings()).insights;
+  return (await getInsightAiSettings()).insights;
 }
 
 /** The background worker settings. Throws like `getAiInsightSettings`. */
@@ -130,14 +166,18 @@ export async function isAiInboxEnabled(): Promise<boolean> {
 /**
  * Whether automatic insights are generated, so the CSMS dashboard shows the
  * Active insights card even while none is open: `opsAi.enabled` and at least
- * one insight kind switch. Fails closed (false) when settings cannot be read.
+ * one insight kind switch (reservation insights only while reservations are
+ * on). Fails closed (false) when settings cannot be read.
  */
 export async function isAiInsightsEnabled(): Promise<boolean> {
   try {
-    const { ops, insights } = await getAiSettings();
+    const { ops, insights } = await getInsightAiSettings();
     return (
       ops.enabled &&
-      (insights.stationEnabled || insights.sessionEnabled || insights.authorizationEnabled)
+      (insights.stationEnabled ||
+        insights.sessionEnabled ||
+        insights.authorizationEnabled ||
+        insights.reservationEnabled)
     );
   } catch (err) {
     logger.warn({ err }, 'isAiInsightsEnabled failed, using false');

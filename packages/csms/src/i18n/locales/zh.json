@@ -158,7 +158,8 @@
     "smartCharging": "智能充电",
     "configTemplates": "配置模板",
     "supportCases": "工单管理",
-    "unreadCases": "未读工单",
+    "unreadCasesCount_one": "{{count}} 个未读工单",
+    "unreadCasesCount_other": "{{count}} 个未读工单",
     "settings": "设置",
     "profile": "个人资料",
     "language": "语言",
@@ -583,7 +584,10 @@
     "electricityCostRecalculateRemaining_one": "{{count}} 个会话仍没有电力成本：其结束时没有适用的电价。",
     "electricityCostRecalculateRemaining_other": "{{count}} 个会话仍没有电力成本：其结束时没有适用的电价。",
     "electricityCostRecalculateMore_one": "{{count}} 个会话仍没有电力成本。请再次重新计算以继续。",
-    "electricityCostRecalculateMore_other": "{{count}} 个会话仍没有电力成本。请再次重新计算以继续。"
+    "electricityCostRecalculateMore_other": "{{count}} 个会话仍没有电力成本。请再次重新计算以继续。",
+    "tabs": {
+      "ai": "AI"
+    }
   },
   "stations": {
     "title": "充电站",
@@ -2513,6 +2517,11 @@
         "title": "自动洞察与后台任务",
         "description": "自动洞察和后台任务使用的模型。它们在没有用户的情况下运行，并使用公司的提供商密钥。",
         "enabled": "开启系统发起的 AI"
+      },
+      "driver": {
+        "title": "驾驶员支持",
+        "description": "在驾驶员允许时先回答驾驶员支持请求的模型。它使用公司的提供商密钥，不能调用工具。",
+        "enabled": "向驾驶员提供 AI 分析"
       }
     },
     "aiLimitsTitle": "AI 限制",
@@ -2543,7 +2552,22 @@
       "siteIncidentThreshold": "一个站点内合并为一个站点事件的故障充电桩数",
       "maxPerSitePerDay": "每个站点每天的洞察数",
       "primaryLanguage": "摘要语言",
-      "retentionDays": "洞察保留天数"
+      "retentionDays": "洞察保留天数",
+      "reservation": "预约洞察",
+      "reservationOff": "预约功能关闭期间，预约洞察也会关闭。",
+      "reservationOffLink": "开启预约",
+      "quality": {
+        "title": "洞察质量",
+        "description": "按洞察类型统计的有用率，依据最近 {{days}} 天内对你所属站点洞察的评价。",
+        "columns": {
+          "kind": "洞察类型",
+          "helpful": "有用",
+          "wrong": "错误",
+          "rate": "有用率"
+        },
+        "empty": "最近 {{days}} 天内没有评价。",
+        "viewWrong": "查看标记为错误的洞察"
+      }
     },
     "aiMcp": {
       "title": "MCP 服务器",
@@ -2563,9 +2587,40 @@
       "writesHint": "更改会成为提议，由同一用户在 AI 收件箱中批准。",
       "protocolNote": "支持 MCP 2026-07-28；旧版客户端通过轮询批准。"
     },
-    "aiUsageTab": "用量",
     "aiLimitZeroNoLimit": "0 表示不设上限。",
-    "aiConfigTab": "配置"
+    "aiTabs": {
+      "providers": "提供商和密钥",
+      "providersDescription": "AI 提供商的 API 密钥和端点。所有 AI 功能都使用这些密钥。",
+      "assistant": "助手",
+      "assistantDescription": "用户在控制台中与之对话的 AI 助手。",
+      "support": "支持草稿",
+      "supportDescription": "AI 生成的支持工单回复草稿，由运营人员审核后发送。",
+      "driver": "驾驶员支持",
+      "driverDescription": "仅在驾驶员允许时，对驾驶员的支持请求给出自动的初步回答。",
+      "insights": "自动洞察",
+      "insightsDescription": "系统发起运行所用的模型，以及何时为充电站、会话、授权和预约生成洞察。",
+      "workers": "后台任务",
+      "workersDescription": "定时任务，报告网络情况并提出由运营人员批准的操作。它们使用自动洞察的模型。",
+      "mcp": "MCP",
+      "mcpDescription": "让外部 AI 代理通过 API 密钥使用 EVtivity 的 MCP 服务器。",
+      "usage": "用量和限制",
+      "usageDescription": "请求限制和 Token 预算，以及公司和各站点的 AI 用量。",
+      "workersModelLink": "在自动洞察中选择它们使用的模型"
+    },
+    "aiDriverSettings": {
+      "title": "驾驶员支持限制",
+      "maxCasesPerDriverPerDay": "每位驾驶员每天 AI 分析的请求数",
+      "feedbackTimeoutHours": "等待驾驶员反馈（小时）",
+      "feedbackTimeoutHelp": "超过此时间仍未反馈的请求会转给支持团队。",
+      "driverDailyTokens": "每位驾驶员每天 Token 数",
+      "driverPerMinute": "每位驾驶员每分钟 AI 请求数",
+      "overLimitHelp": "超出限制的请求直接转给支持团队。"
+    },
+    "aiDriverDataWarning": "开启后，若驾驶员允许，请求内容以及该驾驶员自己的会话、支付、预约、使用过的充电站和 Token（后 4 位）会发送给所配置的提供商。",
+    "aiAdvancedOptions": "高级选项",
+    "aiPromptCustomSummary": "自定义系统提示词",
+    "aiPromptDefaultSummary": "内置系统提示词",
+    "aiBaseUrlDefaultSummary": "默认端点"
   },
   "pnc": {
     "certificates": "证书",
@@ -2717,6 +2772,7 @@
       "fleet.AccountBillingChanged": "记账计费已变更",
       "reservation.Expiring": "预约即将到期",
       "reservation.Expired": "预约已过期",
+      "reservation.TakenByOther": "预约被其他驾驶员占用",
       "session.Receipt": "充电收据",
       "supportCase.Created": "支持工单已创建",
       "supportCase.OperatorReply": "运营商回复",
@@ -2736,7 +2792,9 @@
     },
     "templatePreviewInvalid": "模板存在错误：",
     "htmlPreview": "HTML 预览",
-    "aiEvents": "AI"
+    "aiEvents": "AI",
+    "channelToggleLabel": "{{event}} {{channel}} 通知",
+    "eventToggleLabel": "{{event}} 通知"
   },
   "reservations": {
     "title": "预约",
@@ -2788,7 +2846,11 @@
       "station_rejected_occupied": "充电站拒绝：占用中",
       "station_rejected_other": "充电站拒绝",
       "station_offline_at_activation": "激活时充电站离线",
-      "system_cleanup": "系统清理"
+      "system_cleanup": "系统清理",
+      "station_no_response": "充电站未响应",
+      "station_unavailable_during_hold": "预约期间充电站不可用",
+      "evse_in_use_at_activation": "激活时 EVSE 正在使用",
+      "station_faulted_at_activation": "激活时充电站故障"
     },
     "scheduled": "已安排",
     "active": "活跃",
@@ -2898,6 +2960,7 @@
     "CSS_ACTION_REJECTED": "Charging Station Simulator 拒绝该操作",
     "CSS_ACTION_TIMEOUT": "模拟器在 5 秒内未响应",
     "DOWNTIME_NOT_FOUND": "未找到排除的停机记录",
+    "DRIVER_AI_NOTICE_OUTDATED": "AI 说明已更新，请阅读后重新选择",
     "DRIVER_ALREADY_IN_FLEET": "驾驶员已在此车队中",
     "DRIVER_CREATE_FAILED": "创建驾驶员失败",
     "DRIVER_NOT_FOUND": "未找到驾驶员",
@@ -3097,6 +3160,7 @@
     "STORAGE_CONNECTION_FAILED": "存储连接测试失败",
     "STORAGE_NOT_CONFIGURED": "附件存储未配置",
     "SUPPORT_AI_NOT_CONFIGURED": "支持 AI 未配置",
+    "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "此支持工单未在等待对自动回答的反馈",
     "SUPPORT_CASE_NOT_FOUND": "未找到支持工单",
     "SUPPORT_DISABLED": "支持功能已禁用",
     "TARIFF_IN_USE": "费率已被充电会话引用，无法删除",
@@ -3138,6 +3202,7 @@
     "SECURITY_PROFILE_DOWNGRADE": "已连接的充电站不能降级到更低的安全配置文件",
     "STATION_TLS_URL_NOT_CONFIGURED": "未配置充电站的公共 TLS 地址 (OCPP_STATION_TLS_URL)",
     "STATION_SECURITY_CHANGE_REJECTED": "充电站未接受安全更改，当前设置保持不变",
+    "STATION_CREDENTIALS_ROUTE_REQUIRED": "充电站密码须通过 POST /v1/stations/:id/credentials 更改，不能使用通用 OCPP 命令",
     "WEB_PAYMENTS_NOT_SUPPORTED": "充电站不支持动态二维码",
     "PORTAL_ALREADY_ACTIVE": "驾驶员已拥有门户访问权限",
     "EMAID_PREFIX_NOT_CONFIGURED": "请先设置 eMAID 国家代码和提供商 ID",
@@ -3403,7 +3468,8 @@
       "in_progress": "处理中",
       "waiting_on_driver": "等待驾驶员回复",
       "resolved": "已解决",
-      "closed": "已关闭"
+      "closed": "已关闭",
+      "ai_assist": "AI 处理中"
     },
     "priorities": {
       "low": "低",
@@ -3418,7 +3484,63 @@
     "aiAssistOverwriteConfirm": "替换",
     "attachmentUploadFailed": "上传附件失败，请重试。",
     "sendFailed": "发送消息失败，请重试。",
-    "aiAssistStop": "停止草稿"
+    "aiAssistStop": "停止草稿",
+    "ai": {
+      "consentTitle": "驾驶员同意",
+      "consentDecision": "选择",
+      "consent": {
+        "granted": "已允许 AI 分析",
+        "declined": "已拒绝 AI 分析",
+        "notAsked": "未询问"
+      },
+      "consentAt": "回答时间",
+      "consentLanguage": "说明语言",
+      "noticeVersion": "说明版本",
+      "automaticAnswer": "自动回答",
+      "answeredAt": "自动回答时间",
+      "feedbackAt": "驾驶员反馈时间",
+      "resolvedByAi": "由 AI 解决",
+      "stateLabel": "AI 状态",
+      "filterAiState": "AI 状态",
+      "allAiStates": "全部 AI 状态",
+      "filterResolvedBy": "解决方",
+      "allResolvedBy": "全部",
+      "state": {
+        "queued": "排队中",
+        "analyzing": "分析中",
+        "awaiting_feedback": "等待驾驶员反馈",
+        "resolved_by_ai": "由 AI 解决",
+        "escalated": "已转给支持团队",
+        "failed": "AI 分析失败",
+        "skipped": "已跳过 AI 分析"
+      },
+      "reason": {
+        "disabled": "驾驶员 AI 支持已关闭",
+        "driver_limit": "驾驶员已达到每日上限",
+        "rate_limited": "请求过多",
+        "budget_exceeded": "已达到 AI 预算",
+        "no_evidence": "没有可分析的数据",
+        "provider_error": "AI 提供商错误",
+        "invalid_output": "回答未通过安全检查",
+        "no_feedback": "驾驶员未反馈",
+        "driver_replied": "驾驶员发送了消息",
+        "driver_declined_answer": "回答没有帮到驾驶员",
+        "driver_inactive": "驾驶员账户已停用"
+      },
+      "resolutionSource": {
+        "operator": "支持团队",
+        "ai": "AI"
+      },
+      "driverAction": {
+        "try_other_connector": "尝试其他充电枪",
+        "check_payment_method": "检查支付方式",
+        "retry_start": "重新开始充电",
+        "check_vehicle_settings": "检查车辆的充电设置",
+        "contact_operator": "联系支持团队",
+        "wait_and_retry": "等待几分钟后重试",
+        "check_token_active": "检查卡或 Token 是否有效"
+      }
+    }
   },
   "vehicles": {
     "title": "车辆",
@@ -3906,8 +4028,14 @@
       "kind": {
         "station": "充电站",
         "session": "会话",
-        "authorization": "授权"
-      }
+        "authorization": "授权",
+        "reservation": "预约"
+      },
+      "reservation": "这个预约为什么失败，我应该怎么做？"
+    },
+    "dataNotice": {
+      "title": "AI 提供商收到的内容",
+      "body": "AI 提供商绝不会收到已存储的凭据，例如密码、API 密钥、机密信息和充电站密码。卡号和 IBAN 会截短为最后 4 个字符。支持草稿、自动洞察、后台任务和驾驶员支持还会遮盖电子邮件地址和电话号码，并对驾驶员的 Token ID 进行哈希或截短。助手仅为有权查看驾驶员联系方式的用户，按存储原样发送这些信息。您输入的文本和附加的文本文件会检查是否包含密钥和卡号。您附加的图片和 PDF 会按原样发送。"
     }
   },
   "sustainability": {
@@ -4140,11 +4268,24 @@
       "dismissed": "已忽略",
       "feedback_helpful": "标记为有用",
       "feedback_wrong": "标记为错误",
+      "feedback_cleared": "撤销评价",
       "confirmed": "已确认",
       "executed": "已执行",
       "failed": "失败",
       "rejected": "已驳回",
-      "stale": "不再适用"
+      "stale": "不再适用",
+      "ai_consent_granted": "已允许 AI 分析",
+      "ai_consent_declined": "已拒绝 AI 分析",
+      "ai_answered": "已给出自动回答",
+      "resolved_by_ai": "由 AI 解决",
+      "escalated_from_ai": "已从 AI 转给支持团队",
+      "ai_failed": "AI 分析失败",
+      "station_rejected": "充电站拒绝",
+      "station_cancel_failed": "充电站取消失败",
+      "station_faulted": "充电站故障",
+      "fee_charged": "已收取费用",
+      "fee_failed": "收费失败",
+      "taken_by_other": "被其他驾驶员占用"
     },
     "entities": {
       "site": "站点",
@@ -4520,13 +4661,10 @@
     "categoryLabel": "根本原因",
     "confidenceLabel": "置信度",
     "fixesLabel": "建议措施",
-    "siteScopeLabel": "本站点",
-    "networkScopeLabel": "所有站点",
     "regenerate": "重新生成",
     "dismiss": "忽略",
     "helpful": "有用",
     "wrong": "错误",
-    "feedbackThanks": "感谢您的反馈",
     "badge": {
       "resolved": "已解决",
       "outOfDate": "已过时"
@@ -4567,7 +4705,12 @@
       "site_incident": "站点事件",
       "site_summary": "站点摘要",
       "company_summary": "网络摘要",
-      "tariff_anomaly": "费率异常"
+      "tariff_anomaly": "费率异常",
+      "reservation_rejected": "预约被拒绝",
+      "reservation_no_show": "预约未到场",
+      "reservation_cancel_failed": "预约取消失败",
+      "reservation_fee_failed": "预约费用收取失败",
+      "reservation_station_faulted": "预约期间充电站故障"
     },
     "skipReason": {
       "resolved_before_analysis": "分析前已解决",
@@ -4596,7 +4739,12 @@
       "check_vehicle_compatibility": "检查车辆兼容性",
       "end_concurrent_session": "结束并发会话",
       "check_csms_status": "检查 CSMS 状态",
-      "monitor": "继续观察"
+      "monitor": "继续观察",
+      "reservation_check_evse_status": "检查被预约 EVSE 的状态",
+      "reservation_check_station_connectivity": "检查充电站的连接",
+      "reservation_retry_cancel": "在充电站上再次取消预约",
+      "reservation_review_fee_payment": "检查预约费用的支付",
+      "reservation_review_holding_settings": "检查站点的预约设置"
     },
     "scope": {
       "stations_one": "{{count}} 个充电站",
@@ -4643,7 +4791,12 @@
       "site_summary": "{{site}} 每日摘要",
       "company_summary": "网络每日摘要",
       "noStation": "未知充电站",
-      "noSite": "无站点"
+      "noSite": "无站点",
+      "reservation_rejected": "{{station}} 拒绝了预约",
+      "reservation_no_show": "{{site}} 的预约未使用",
+      "reservation_cancel_failed": "{{station}} 未取消预约",
+      "reservation_fee_failed": "{{site}} 的预约费用收取失败",
+      "reservation_station_faulted": "{{station}} 在预约期间故障"
     },
     "list": {
       "title": "AI 洞察",
@@ -4655,7 +4808,11 @@
       "site": "站点",
       "allSites": "所有站点",
       "insight": "洞察",
-      "station": "充电站"
+      "station": "充电站",
+      "feedback": "评价",
+      "allFeedback": "所有评价",
+      "feedbackWrong": "标记为错误",
+      "feedbackHelpful": "标记为有用"
     },
     "detail": {
       "recordTitle": "详细信息",
@@ -4667,16 +4824,12 @@
     "failedNote": "分析未完成。",
     "skippedNote": "未分析：{{reason}}",
     "scopeTable": {
-      "title": "范围",
+      "title": "站点概况",
       "measureHeader": "指标",
       "atDetection": "检测时",
       "now": "当前",
       "atDetectionHint": "分析所用的数据",
       "nowHint": "截至 {{time}}",
-      "area": {
-        "site": "{{measure}}（站点）",
-        "network": "{{measure}}（所有站点）"
-      },
       "measure": {
         "stations": "充电站",
         "stationsOffline": "离线充电站",
@@ -4688,6 +4841,17 @@
       },
       "summaryAtDetection": "检测时 {{value}}",
       "summaryChanged": "检测时 {{value}}，当前 {{now}}"
+    },
+    "feedback": {
+      "helpfulCount_one": "{{count}} 人认为有用",
+      "helpfulCount_other": "{{count}} 人认为有用",
+      "removeVote": "撤销你的评价",
+      "wrongPrompt": "已标记为错误。可以根据最新数据重新生成洞察，或将其关闭。",
+      "reasonLabel": "哪里有误？（可选）",
+      "reasonPlaceholder": "例如：充电站因计划维护而离线。",
+      "reasonHint": "仅与你的评价一起保存，绝不会发送给 AI 提供商。",
+      "saveReason": "保存备注",
+      "reasonSaved": "备注已保存。"
     }
   },
   "aiInbox": {
@@ -4775,6 +4939,12 @@
       "timing": "时间",
       "decided": "已决定",
       "executedAt": "执行时间"
+    },
+    "refused": {
+      "args_mismatch": "已存储的参数与提议不再一致，因此未执行任何操作。",
+      "no_longer_available": "此操作已无法从 AI 提议执行，因此未执行任何操作。",
+      "invalid_arguments": "参数对此操作已不再有效，因此未执行任何操作。",
+      "ocpp_version_mismatch": "充电站的 OCPP 版本已变更且没有对应的命令，因此未执行任何操作。"
     }
   },
   "aiWorkers": {
@@ -4835,7 +5005,8 @@
       "support": "支持草稿",
       "insight": "洞察",
       "insight_translation": "洞察翻译",
-      "worker": "后台任务"
+      "worker": "后台任务",
+      "driver_support": "驾驶员支持"
     },
     "tokens": {
       "total": "Token",

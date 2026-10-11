@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
+import { maskStationCredentials } from '@evtivity/lib/secret-config';
 
 interface ReportDataEntry {
   component?: { name?: string };
@@ -53,7 +54,8 @@ export async function handleNotifyReport(ctx: HandlerContext): Promise<Record<st
       generatedAt: request.generatedAt,
       seqNo: request.seqNo,
       tbc: request.tbc,
-      reportData: request.reportData,
+      // A station credential never leaves this handler (station_configurations, domain_events).
+      reportData: maskStationCredentials(request.reportData),
     },
   });
 

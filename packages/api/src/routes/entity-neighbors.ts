@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { z } from 'zod';
-import { and, eq, sql, asc, desc, inArray } from 'drizzle-orm';
+import { and, eq, ne, sql, asc, desc, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import type { PgColumn } from 'drizzle-orm/pg-core';
 import type { FastifyInstance } from 'fastify';
@@ -70,6 +70,10 @@ interface NeighborTarget {
   // True when scopeWhere does not depend on the sites: a restricted user with
   // no site is then scoped like any restricted user instead of answered 404.
   scopeServesNoSites?: boolean;
+  // A condition on the siblings for every user, matching the default list
+  // (rows the list leaves out are skipped when paging; the current row may be
+  // one of them).
+  baseWhere?: SQL;
   // True for a company-wide resource: only a user with access to every site
   // may page through it; a site-restricted user gets 404.
   allSitesOnly?: boolean;
@@ -193,8 +197,10 @@ const TARGETS: NeighborTarget[] = [
     notFoundCode: 'SUPPORT_CASE_NOT_FOUND',
     idColumn: supportCases.id,
     createdAtColumn: supportCases.createdAt,
-    // The same visibility as the case list and detail.
+    // The same visibility as the case list and detail. The default list leaves
+    // out cases the AI still handles (ai_assist, decision E4 of the v0.1.45 plan).
     scopeWhere: (siteIds) => supportCaseSiteCondition(siteIds),
+    baseWhere: ne(supportCases.status, 'ai_assist'),
   },
   {
     path: '/pricing-groups/:id/neighbors',
@@ -283,6 +289,7 @@ async function findNeighbors(
   // "newer" and broke prev/next for bulk-created rows. The inner subquery's
   // unqualified id resolves to the subquery's own table scope.
   const curTuple = sql`(SELECT ${createdAtColumn}, ${idColumn} FROM ${table} WHERE ${idColumn} = ${id})`;
+  const siblings = target.baseWhere == null ? scope : and(scope, target.baseWhere);
   const newer = sql`(${createdAtColumn}, ${idColumn}) > ${curTuple}`;
   const older = sql`(${createdAtColumn}, ${idColumn}) < ${curTuple}`;
 
@@ -290,13 +297,13 @@ async function findNeighbors(
     db
       .select({ id: idColumn })
       .from(table)
-      .where(scope == null ? newer : and(newer, scope))
+      .where(siblings == null ? newer : and(newer, siblings))
       .orderBy(asc(createdAtColumn), asc(idColumn))
       .limit(1),
     db
       .select({ id: idColumn })
       .from(table)
-      .where(scope == null ? older : and(older, scope))
+      .where(siblings == null ? older : and(older, siblings))
       .orderBy(desc(createdAtColumn), desc(idColumn))
       .limit(1),
   ]);

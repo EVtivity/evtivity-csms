@@ -6,4 +6,4 @@
 >Reservierung storniert</h2>
 <p
   style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
->Deine Reservierung (ID: {{reservationId}}) an <strong>{{stationId}}</strong> wurde storniert.{{#if cancellationFeeFormatted}} Es wurde eine Stornogebühr von {{cancellationFeeFormatted}} berechnet.{{/if}}</p>
+>Deine Reservierung (ID: {{reservationId}}) an <strong>{{stationId}}</strong> wurde storniert.{{#if cancellationFeeFormatted}} Es wurde eine Stornogebühr von {{cancellationFeeFormatted}} berechnet.{{/if}}{{#if stationUnavailable}} Die Station war während deiner Reservierung offline oder hat eine Störung gemeldet, daher fällt keine Gebühr an.{{/if}}{{#if stationNoResponse}} Die Station hat deine Reservierung nicht bestätigt, daher fällt keine Gebühr an.{{/if}}</p>

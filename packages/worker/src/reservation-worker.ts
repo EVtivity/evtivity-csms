@@ -31,6 +31,30 @@ export async function enqueueReservationActivation(
   );
 }
 
+let reservationQueue: Queue | null = null;
+
+/** Sets the reservation queue the expiry cron adds overdue activations to. Call once at startup. */
+export function setReservationQueue(queue: Queue | null): void {
+  reservationQueue = queue;
+}
+
+/**
+ * Adds the activation of a scheduled reservation whose start has passed
+ * (G6: the reservation_schedule message was lost), to run now. The job id is
+ * the one the bridge uses, so a job that already exists is not added again.
+ * A job that failed all its attempts (kept by BullMQ under that id, so an add
+ * is a no-op) is retried instead, so the row does not stay scheduled.
+ */
+export async function enqueueOverdueReservationActivation(reservationDbId: string): Promise<void> {
+  if (reservationQueue == null) throw new Error('Reservation queue is not set');
+  const existing = await reservationQueue.getJob(`reservation-activate-${reservationDbId}`);
+  if (existing != null && (await existing.isFailed())) {
+    await existing.retry();
+    return;
+  }
+  await enqueueReservationActivation(reservationQueue, reservationDbId, 0);
+}
+
 /**
  * Subscribes to the reservation_schedule pub/sub channel and enqueues delayed
  * BullMQ jobs that fire at the reservation's startsAt time.

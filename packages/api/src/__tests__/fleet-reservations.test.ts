@@ -55,36 +55,14 @@ vi.mock('@evtivity/database', () => ({
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
-    execute: vi.fn(() => Promise.resolve([{ next_val: '1' }, { next_val: '2' }])),
-    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
-      const tx = {
-        select: vi.fn(() => makeChain()),
-        insert: vi.fn(() => makeChain()),
-        update: vi.fn(() => makeChain()),
-        delete: vi.fn(() => makeChain()),
-      };
-      return fn(tx);
-    }),
   },
   reservations: {},
   chargingStations: {},
   evses: {},
+  driverTokens: {},
   fleetReservations: {},
   fleets: {},
   writeReservationAudit: vi.fn().mockResolvedValue(undefined),
-  snapshotReservationFeeTerms: vi.fn().mockResolvedValue({
-    feeTaxBasis: 'gross',
-    feeTaxRate: '0.19',
-    feePerMinute: '0.10',
-    feeCancellationCents: 300,
-  }),
-  resolveReservationFeeTerms: vi.fn().mockResolvedValue({
-    basis: 'gross',
-    taxRate: '0.19',
-    feePerMinute: '0.10',
-    cancellationFeeCents: 300,
-  }),
-  reservationDiffChanged: vi.fn().mockReturnValue(false),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -97,20 +75,41 @@ vi.mock('drizzle-orm', () => ({
   count: vi.fn(),
   asc: vi.fn(),
   inArray: vi.fn(),
+  gt: vi.fn(),
+  isNull: vi.fn(),
+  ne: vi.fn(),
 }));
 
-const mockSendOcppCommandAndWait = vi.fn();
+const mockPublish = vi.fn((_channel: string, _message: string) => Promise.resolve(undefined));
+vi.mock('@evtivity/lib/pubsub-instance', () => ({
+  getPubSub: vi.fn(() => ({ publish: mockPublish, subscribe: vi.fn() })),
+  setPubSub: vi.fn(),
+}));
+
+// The station side of the reservation service runs for real (dispatch and
+// cancel order, rollback reasons); its database-heavy create, the OCPP round
+// trip, the guarded cancel and the driver notices are mocked.
+const mockSendCommand = vi.fn();
 vi.mock('@evtivity/services/ocpp-command', () => ({
-  sendOcppCommandAndWait: (...args: unknown[]) => mockSendOcppCommandAndWait(...args),
+  sendOcppCommandAndWait: (...args: unknown[]) => mockSendCommand(...args),
 }));
-
-vi.mock('../lib/reservation-eligibility.js', () => ({
-  assertReservationsAllowed: vi.fn().mockResolvedValue(undefined),
+const mockApplyCancellation = vi.fn();
+vi.mock('@evtivity/services/reservation-cancel', () => ({
+  applyReservationCancellation: (...args: unknown[]) => mockApplyCancellation(...args),
 }));
-
-vi.mock('@evtivity/services/maintenance-check', () => ({
-  assertNoMaintenanceConflict: vi.fn().mockResolvedValue(undefined),
+const mockNotify = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/services/reservation-notify', () => ({
+  notifyReservationDriver: (...args: unknown[]) => mockNotify(...args),
+  cancelReasonNoticeFlags: () => ({}),
 }));
+const mockCreateReservation = vi.fn();
+vi.mock('@evtivity/services/reservation.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/services/reservation.service')>();
+  return {
+    ...actual,
+    createReservation: (...args: unknown[]) => mockCreateReservation(...args),
+  };
+});
 
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
@@ -135,10 +134,11 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { fleetReservationRoutes } from '../routes/fleet-reservations.js';
-import { snapshotReservationFeeTerms } from '@evtivity/database';
+import { AppError } from '@evtivity/lib';
 
 const VALID_FLEET_ID = 'flt_000000000001';
 const VALID_FLEET_RES_ID = 'frs_000000000001';
+const EXPIRES = '2030-01-01T00:00:00Z';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
@@ -146,6 +146,56 @@ async function buildApp(): Promise<FastifyInstance> {
   await app.register(fleetReservationRoutes);
   await app.ready();
   return app;
+}
+
+function station(stationId: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: `sta-${stationId}`,
+    stationId,
+    siteId: null,
+    isOnline: true,
+    reservationsEnabled: true,
+    disabledReason: null,
+    firmwareState: null,
+    reportedStatus: null,
+    ...overrides,
+  };
+}
+
+function reservationRow(
+  id: string,
+  reservationId: number,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    reservationId,
+    stationId: 'sta-CS-001',
+    evseId: null,
+    driverId: null,
+    tokenId: null,
+    status: 'active',
+    startsAt: null,
+    expiresAt: new Date(EXPIRES),
+    createdAt: new Date('2024-01-01T00:00:00Z'),
+    ...overrides,
+  };
+}
+
+function cancelledResult(statusBefore: 'active' | 'scheduled' | null = 'active') {
+  return {
+    feeChargedCents: 0,
+    cancelled: statusBefore != null,
+    feeChargeFailed: false,
+    feeCurrency: null,
+    statusBefore,
+  };
+}
+
+function commandsPublished(): Array<{ stationId: string; action: string; payload: unknown }> {
+  return mockPublish.mock.calls
+    .filter((c) => c[0] === 'ocpp_commands')
+    .map((c) => JSON.parse(c[1]) as { stationId: string; action: string; payload: unknown });
 }
 
 describe('Fleet reservation routes', () => {
@@ -163,215 +213,285 @@ describe('Fleet reservation routes', () => {
 
   beforeEach(() => {
     setupDbResults();
-    mockSendOcppCommandAndWait.mockReset();
+    mockPublish.mockReset();
+    mockPublish.mockResolvedValue(undefined);
+    mockSendCommand.mockReset();
+    mockSendCommand.mockResolvedValue({ commandId: 'c1', response: { status: 'Accepted' } });
+    mockApplyCancellation.mockReset();
+    mockApplyCancellation.mockResolvedValue(cancelledResult());
+    mockNotify.mockClear();
+    mockCreateReservation.mockReset();
   });
 
   // ------------------------------------------------------------------
   // POST /fleets/:fleetId/reservations
   // ------------------------------------------------------------------
   describe('POST /fleets/:fleetId/reservations', () => {
+    function post(payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'POST',
+        url: `/fleets/${VALID_FLEET_ID}/reservations`,
+        headers: { authorization: `Bearer ${token}` },
+        payload,
+      });
+    }
+
+    // DB calls: fleet lookup, station batch, fleet_reservations insert, then
+    // the station acks and the final aggregate update (all empty).
+    function seed(stations: Array<ReturnType<typeof station>>) {
+      setupDbResults([{ id: VALID_FLEET_ID }], stations, [
+        { id: VALID_FLEET_RES_ID, fleetId: VALID_FLEET_ID, status: 'active' },
+      ]);
+    }
+
     it('returns 401 without token', async () => {
       const res = await app.inject({
         method: 'POST',
         url: `/fleets/${VALID_FLEET_ID}/reservations`,
-        payload: {
-          slots: [{ stationOcppId: 'CS-001' }],
-          expiresAt: '2030-01-01T00:00:00Z',
-        },
+        payload: { slots: [{ stationOcppId: 'CS-001' }], expiresAt: EXPIRES },
       });
       expect(res.statusCode).toBe(401);
     });
 
     it('returns 404 when fleet not found', async () => {
-      // 1st db call: fleet lookup returns empty
       setupDbResults([]);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/fleets/${VALID_FLEET_ID}/reservations`,
-        headers: { authorization: `Bearer ${token}` },
-        payload: {
-          slots: [{ stationOcppId: 'CS-001' }],
-          expiresAt: '2030-01-01T00:00:00Z',
-        },
-      });
+      const res = await post({ slots: [{ stationOcppId: 'CS-001' }], expiresAt: EXPIRES });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('FLEET_NOT_FOUND');
     });
 
-    it('creates reservations for all stations in bulk', async () => {
-      const fleetResId = VALID_FLEET_RES_ID;
-      const stationDbId = 'sta_000000000001';
-      const reservationDbId = 'rsv_000000000001';
+    it('TC-RES-20: creates every slot through the service with the fleet link', async () => {
+      seed([station('CS-001'), station('CS-002')]);
+      mockCreateReservation
+        .mockResolvedValueOnce(reservationRow('rsv_1', 11))
+        .mockResolvedValueOnce(reservationRow('rsv_2', 12, { stationId: 'sta-CS-002' }));
 
-      // Mock OCPP response: accepted
-      mockSendOcppCommandAndWait.mockResolvedValue({
-        commandId: 'cmd-1',
-        response: { status: 'Accepted' },
-      });
-
-      // DB calls:
-      // 1. fleet lookup
-      // 2. insert fleet_reservations
-      // 3. db.execute: nextval('reservation_id_seq') for each slot
-      // 4. batch station lookup
-      // 5. batch EVSE lookup (skipped when stationUuids empty - but actually not empty)
-      // 6. db.transaction -> tx.insert(reservations).returning()
-      // 7. OCPP commands (mocked)
-      // 8. update fleet_reservations status
-      setupDbResults(
-        [{ id: VALID_FLEET_ID }], // fleet exists
-        // db.execute returns sequence IDs (mocked above)
-        [
-          {
-            id: stationDbId,
-            stationId: 'CS-001',
-            siteId: null,
-            isOnline: true,
-            reservationsEnabled: true,
-          },
-        ], // batch station lookup
-        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }], // insert fleet_reservation
-        [], // batch EVSE lookup
-        [{ id: reservationDbId, reservationId: 1, stationId: stationDbId, status: 'active' }], // tx.insert reservation
-        [], // update fleet_reservations (final status)
-      );
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/fleets/${VALID_FLEET_ID}/reservations`,
-        headers: { authorization: `Bearer ${token}` },
-        payload: {
-          slots: [{ stationOcppId: 'CS-001' }],
-          expiresAt: '2030-01-01T00:00:00Z',
-        },
+      const res = await post({
+        slots: [
+          { stationOcppId: 'CS-001', evseId: 1, driverId: 'drv_000000000001' },
+          { stationOcppId: 'CS-002' },
+        ],
+        expiresAt: EXPIRES,
       });
 
       expect(res.statusCode).toBe(201);
-      const body = res.json();
-      expect(body.status).toBe('active');
-      expect(body.confirmed).toBe(1);
-      expect(body.failed).toBe(0);
-      expect(body.total).toBe(1);
-      expect(body.results).toHaveLength(1);
-      expect(body.results[0].status).toBe('confirmed');
-      // TC-T3-24: each slot stores the fee terms its driver resolves now.
-      expect(snapshotReservationFeeTerms).toHaveBeenCalledWith({
-        stationUuid: stationDbId,
-        driverUuid: null,
+      expect(res.json()).toMatchObject({
+        id: VALID_FLEET_RES_ID,
+        status: 'active',
+        confirmed: 2,
+        failed: 0,
+        total: 2,
+        results: [
+          { stationOcppId: 'CS-001', evseId: 1, reservationId: 'rsv_1', status: 'confirmed' },
+          { stationOcppId: 'CS-002', evseId: null, reservationId: 'rsv_2', status: 'confirmed' },
+        ],
       });
-    });
-
-    it('returns partial status when some stations reject', async () => {
-      const fleetResId = VALID_FLEET_RES_ID;
-      const stationDbId1 = 'sta_000000000001';
-      const stationDbId2 = 'sta_000000000002';
-      const reservationDbId1 = 'rsv_000000000001';
-      const reservationDbId2 = 'rsv_000000000002';
-
-      // First station accepts, second rejects
-      mockSendOcppCommandAndWait
-        .mockResolvedValueOnce({ commandId: 'cmd-1', response: { status: 'Accepted' } })
-        .mockResolvedValueOnce({ commandId: 'cmd-2', response: { status: 'Rejected' } });
-
-      // DB calls: fleet, insert fleet_res, batch stations, EVSE lookup, tx.insert, updates
-      setupDbResults(
-        [{ id: VALID_FLEET_ID }], // fleet exists
-        // Batch station lookup (both stations)
-        [
-          {
-            id: stationDbId1,
-            stationId: 'CS-001',
-            siteId: null,
-            isOnline: true,
-            reservationsEnabled: true,
-          },
-          {
-            id: stationDbId2,
-            stationId: 'CS-002',
-            siteId: null,
-            isOnline: true,
-            reservationsEnabled: true,
-          },
-        ],
-        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }], // insert fleet_reservation
-        [], // batch EVSE lookup
-        // tx.insert reservations (both)
-        [
-          { id: reservationDbId1, reservationId: 1, stationId: stationDbId1, status: 'active' },
-          { id: reservationDbId2, reservationId: 2, stationId: stationDbId2, status: 'active' },
-        ],
-        [], // cancel rejected reservation
-        [], // update fleet_reservations
+      expect(mockCreateReservation).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          station: station('CS-001'),
+          evseOcppId: 1,
+          driverId: 'drv_000000000001',
+          startsAt: null,
+          expiresAt: new Date(EXPIRES),
+          actor: { kind: 'operator', userId: 'test-id' },
+          fleet: { fleetId: VALID_FLEET_ID, fleetReservationId: VALID_FLEET_RES_ID },
+          auditNotes: `fleet reservation ${VALID_FLEET_RES_ID}`,
+        }),
       );
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/fleets/${VALID_FLEET_ID}/reservations`,
-        headers: { authorization: `Bearer ${token}` },
-        payload: {
-          slots: [{ stationOcppId: 'CS-001' }, { stationOcppId: 'CS-002' }],
-          expiresAt: '2030-01-01T00:00:00Z',
-        },
-      });
-
-      expect(res.statusCode).toBe(201);
-      const body = res.json();
-      expect(body.total).toBe(2);
-      // At least one confirmed and one failed (order may vary in parallel execution)
-      expect((body.confirmed as number) + (body.failed as number)).toBe(2);
-    });
-
-    it('sends SetChargingProfile when chargingProfile provided', async () => {
-      const fleetResId = VALID_FLEET_RES_ID;
-      const stationDbId = 'sta_000000000001';
-      const reservationDbId = 'rsv_000000000001';
-
-      // Both ReserveNow and SetChargingProfile succeed
-      mockSendOcppCommandAndWait.mockResolvedValue({
-        commandId: 'cmd-1',
-        response: { status: 'Accepted' },
-      });
-
-      // reservation IDs allocated via db.execute (sequence)
-      setupDbResults(
-        [{ id: VALID_FLEET_ID }],
-        [
-          {
-            id: stationDbId,
-            stationId: 'CS-001',
-            siteId: null,
-            isOnline: true,
-            reservationsEnabled: true,
-          },
-        ],
-        [{ id: fleetResId, fleetId: VALID_FLEET_ID, status: 'active' }],
-        [], // EVSE lookup
-        [{ id: reservationDbId, reservationId: 1, stationId: stationDbId, status: 'active' }], // tx.insert
-        [], // final update
-      );
-
-      const chargingProfile = { chargingProfileId: 1, stackLevel: 0 };
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/fleets/${VALID_FLEET_ID}/reservations`,
-        headers: { authorization: `Bearer ${token}` },
-        payload: {
-          slots: [{ stationOcppId: 'CS-001' }],
-          expiresAt: '2030-01-01T00:00:00Z',
-          chargingProfile,
-        },
-      });
-
-      expect(res.statusCode).toBe(201);
-      // ReserveNow + SetChargingProfile = 2 calls
-      expect(mockSendOcppCommandAndWait).toHaveBeenCalledTimes(2);
-      expect(mockSendOcppCommandAndWait).toHaveBeenCalledWith(
+      expect(mockSendCommand).toHaveBeenCalledWith(
         'CS-001',
-        'SetChargingProfile',
-        expect.objectContaining({ chargingProfile }),
+        'ReserveNow',
+        expect.objectContaining({ id: 11 }),
       );
+      // A fleet create does not send the driver a reservation.Created notice.
+      expect(mockNotify).not.toHaveBeenCalled();
+    });
+
+    it('TC-RES-20: rejects a slot the service refuses with its message', async () => {
+      seed([station('CS-001')]);
+      mockCreateReservation
+        .mockResolvedValueOnce(reservationRow('rsv_1', 11))
+        .mockRejectedValueOnce(
+          new AppError(
+            'A reservation already exists for this connector during the requested window',
+            409,
+            'RESERVATION_CONFLICT',
+          ),
+        )
+        .mockRejectedValueOnce(
+          new AppError('Driver is not a member of this fleet', 400, 'VALIDATION_ERROR'),
+        );
+
+      const res = await post({
+        slots: [
+          { stationOcppId: 'CS-001', evseId: 1 },
+          { stationOcppId: 'CS-001', evseId: 1 },
+          { stationOcppId: 'CS-001', driverId: 'drv_000000000009' },
+        ],
+        expiresAt: EXPIRES,
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({
+        status: 'partial',
+        confirmed: 1,
+        failed: 2,
+        results: [
+          { status: 'confirmed', reservationId: 'rsv_1' },
+          {
+            status: 'rejected',
+            reservationId: null,
+            error: 'A reservation already exists for this connector during the requested window',
+          },
+          { status: 'rejected', error: 'Driver is not a member of this fleet' },
+        ],
+      });
+      // Only the created slot reaches its station.
+      expect(mockSendCommand).toHaveBeenCalledTimes(1);
+    });
+
+    it('TC-RES-20: a future start is scheduled and confirmed without ReserveNow', async () => {
+      seed([station('CS-001')]);
+      const startsAt = new Date(Date.now() + 3_600_000);
+      mockCreateReservation.mockResolvedValueOnce(
+        reservationRow('rsv_1', 11, { status: 'scheduled', startsAt }),
+      );
+
+      const res = await post({
+        slots: [{ stationOcppId: 'CS-001' }],
+        startsAt: startsAt.toISOString(),
+        expiresAt: EXPIRES,
+        chargingProfile: { id: 1 },
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({ status: 'active', confirmed: 1 });
+      expect(mockCreateReservation).toHaveBeenCalledWith(expect.objectContaining({ startsAt }));
+      expect(mockPublish).toHaveBeenCalledWith('reservation_schedule', expect.any(String));
+      // Neither ReserveNow nor the charging profile go out before the start.
+      expect(mockSendCommand).not.toHaveBeenCalled();
+    });
+
+    it('TC-RES-04: a ReserveNow timeout cancels the slot in the database, then publishes CancelReservation', async () => {
+      seed([station('CS-001'), station('CS-002')]);
+      mockCreateReservation
+        .mockResolvedValueOnce(reservationRow('rsv_1', 11))
+        .mockResolvedValueOnce(reservationRow('rsv_2', 12));
+      mockSendCommand.mockImplementation((stationId: string) =>
+        Promise.resolve(
+          stationId === 'CS-002'
+            ? { commandId: 'c2', error: 'No response within 35s' }
+            : { commandId: 'c1', response: { status: 'Accepted' } },
+        ),
+      );
+      const order: string[] = [];
+      mockApplyCancellation.mockImplementation(() => {
+        order.push('cancel');
+        return Promise.resolve(cancelledResult());
+      });
+      mockPublish.mockImplementation((channel: string) => {
+        if (channel === 'ocpp_commands') order.push('publish');
+        return Promise.resolve(undefined);
+      });
+
+      const res = await post({
+        slots: [{ stationOcppId: 'CS-001' }, { stationOcppId: 'CS-002' }],
+        expiresAt: EXPIRES,
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json()).toMatchObject({
+        status: 'partial',
+        confirmed: 1,
+        failed: 1,
+        results: [
+          { stationOcppId: 'CS-001', status: 'confirmed' },
+          { stationOcppId: 'CS-002', status: 'rejected', error: 'No response within 35s' },
+        ],
+      });
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reservationDbId: 'rsv_2',
+          actor: 'system',
+          reason: 'station_no_response',
+          auditAction: 'station_rejected',
+          chargeFee: false,
+        }),
+      );
+      expect(commandsPublished()).toEqual([
+        expect.objectContaining({
+          stationId: 'CS-002',
+          action: 'CancelReservation',
+          payload: { reservationId: 12 },
+        }),
+      ]);
+      expect(order).toEqual(['cancel', 'publish']);
+    });
+
+    it('sends SetChargingProfile only to accepted slots', async () => {
+      seed([station('CS-001'), station('CS-002')]);
+      mockCreateReservation
+        .mockResolvedValueOnce(reservationRow('rsv_1', 11))
+        .mockResolvedValueOnce(reservationRow('rsv_2', 12));
+      mockSendCommand.mockImplementation((stationId: string, action: string) =>
+        Promise.resolve(
+          stationId === 'CS-002' && action === 'ReserveNow'
+            ? { commandId: 'c2', response: { status: 'Occupied' } }
+            : { commandId: 'c1', response: { status: 'Accepted' } },
+        ),
+      );
+      const chargingProfile = { id: 1, chargingProfilePurpose: 'TxDefaultProfile' };
+
+      const res = await post({
+        slots: [
+          { stationOcppId: 'CS-001', evseId: 2 },
+          { stationOcppId: 'CS-002', evseId: 1 },
+        ],
+        expiresAt: EXPIRES,
+        chargingProfile,
+      });
+
+      expect(res.statusCode).toBe(201);
+      expect(res.json().results[1]).toMatchObject({
+        status: 'rejected',
+        error: 'Station rejected reservation: Occupied',
+      });
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({ reservationDbId: 'rsv_2', reason: 'station_rejected_occupied' }),
+      );
+      const profiles = mockSendCommand.mock.calls.filter((c) => c[1] === 'SetChargingProfile');
+      expect(profiles).toEqual([['CS-001', 'SetChargingProfile', { evseId: 2, chargingProfile }]]);
+    });
+
+    it('keeps an accepted slot when SetChargingProfile fails', async () => {
+      seed([station('CS-001')]);
+      mockCreateReservation.mockResolvedValueOnce(reservationRow('rsv_1', 11));
+      mockSendCommand
+        .mockResolvedValueOnce({ commandId: 'c1', response: { status: 'Accepted' } })
+        .mockResolvedValueOnce({ commandId: 'c2', error: 'No response within 35s' });
+
+      const res = await post({
+        slots: [{ stationOcppId: 'CS-001' }],
+        expiresAt: EXPIRES,
+        chargingProfile: { id: 1 },
+      });
+
+      expect(res.json()).toMatchObject({ status: 'active', confirmed: 1 });
+    });
+
+    it('reports cancelled when no slot is confirmed', async () => {
+      seed([station('CS-001')]);
+      mockCreateReservation.mockRejectedValueOnce(
+        new AppError('Station is offline', 400, 'STATION_OFFLINE'),
+      );
+      const res = await post({ slots: [{ stationOcppId: 'CS-001' }], expiresAt: EXPIRES });
+      expect(res.json()).toMatchObject({
+        status: 'cancelled',
+        confirmed: 0,
+        failed: 1,
+        results: [{ status: 'rejected', error: 'Station is offline' }],
+      });
     });
   });
 
@@ -394,12 +514,11 @@ describe('Fleet reservation routes', () => {
         name: 'Morning charge',
         status: 'active',
         startsAt: null,
-        expiresAt: new Date('2030-01-01T00:00:00Z'),
+        expiresAt: new Date(EXPIRES),
         createdAt: new Date('2024-01-01T00:00:00Z'),
         updatedAt: new Date('2024-01-01T00:00:00Z'),
         reservationCount: 3,
       };
-
       setupDbResults([item], [{ count: 1 }]);
 
       const res = await app.inject({
@@ -420,6 +539,14 @@ describe('Fleet reservation routes', () => {
   // DELETE /fleet-reservations/:id
   // ------------------------------------------------------------------
   describe('DELETE /fleet-reservations/:id', () => {
+    function del() {
+      return app.inject({
+        method: 'DELETE',
+        url: `/fleet-reservations/${VALID_FLEET_RES_ID}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+    }
+
     it('returns 401 without token', async () => {
       const res = await app.inject({
         method: 'DELETE',
@@ -430,71 +557,121 @@ describe('Fleet reservation routes', () => {
 
     it('returns 404 when fleet reservation not found', async () => {
       setupDbResults([]);
-
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/fleet-reservations/${VALID_FLEET_RES_ID}`,
-        headers: { authorization: `Bearer ${token}` },
-      });
-
+      const res = await del();
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('FLEET_RESERVATION_NOT_FOUND');
     });
 
     it('returns 400 when already cancelled', async () => {
       setupDbResults([{ id: VALID_FLEET_RES_ID, status: 'cancelled' }]);
-
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/fleet-reservations/${VALID_FLEET_RES_ID}`,
-        headers: { authorization: `Bearer ${token}` },
-      });
-
+      const res = await del();
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('FLEET_RESERVATION_ALREADY_CANCELLED');
     });
 
-    it('cancels all active reservations in fleet reservation', async () => {
-      mockSendOcppCommandAndWait.mockResolvedValue({
-        commandId: 'cmd-1',
-        response: { status: 'Accepted' },
-      });
-
-      // DB calls:
-      // 1. fleet reservation lookup
-      // 2. active reservations query
-      // 3. update reservation status (per reservation)
-      // 4. update fleet reservation status
+    it('cancels every live slot in the database first, then tells the station of active holds', async () => {
+      const createdAt = new Date('2024-01-01T00:00:00Z');
+      const startsAt = new Date('2030-01-01T00:00:00Z');
       setupDbResults(
         [{ id: VALID_FLEET_RES_ID, status: 'active' }],
         [
           {
-            id: 'rsv_000000000001',
-            reservationId: 1,
+            id: 'rsv_1',
+            reservationId: 31,
             stationOcppId: 'CS-001',
+            siteId: null,
+            driverId: null,
+            startsAt: null,
+            createdAt,
           },
           {
-            id: 'rsv_000000000002',
-            reservationId: 2,
+            id: 'rsv_2',
+            reservationId: 32,
             stationOcppId: 'CS-002',
+            siteId: null,
+            driverId: 'drv_000000000001',
+            startsAt,
+            createdAt,
           },
         ],
-        [], // update reservation 1
-        [], // update reservation 2
-        [], // update fleet reservation
       );
-
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/fleet-reservations/${VALID_FLEET_RES_ID}`,
-        headers: { authorization: `Bearer ${token}` },
+      const order: string[] = [];
+      mockApplyCancellation.mockImplementation((input: { reservationDbId: string }) => {
+        order.push(`cancel ${input.reservationDbId}`);
+        return Promise.resolve(
+          cancelledResult(input.reservationDbId === 'rsv_2' ? 'scheduled' : 'active'),
+        );
+      });
+      mockPublish.mockImplementation((channel: string, message: string) => {
+        if (channel === 'ocpp_commands') {
+          order.push(`publish ${(JSON.parse(message) as { stationId: string }).stationId}`);
+        }
+        return Promise.resolve(undefined);
       });
 
+      const res = await del();
+
       expect(res.statusCode).toBe(200);
-      const body = res.json();
-      expect(body.status).toBe('cancelled');
-      expect(body.cancelledCount).toBe(2);
-      expect(mockSendOcppCommandAndWait).toHaveBeenCalledTimes(2);
+      expect(res.json()).toEqual({ status: 'cancelled', cancelledCount: 2 });
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reservationDbId: 'rsv_1',
+          startsAt: createdAt,
+          actor: 'operator',
+          actorUserId: 'test-id',
+          reason: 'operator_manual',
+          chargeFee: false,
+        }),
+      );
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({ reservationDbId: 'rsv_2', startsAt, chargeFee: false }),
+      );
+      // Only the active hold reached its station; the scheduled one never did.
+      expect(commandsPublished()).toEqual([
+        expect.objectContaining({
+          stationId: 'CS-001',
+          action: 'CancelReservation',
+          payload: { reservationId: 31 },
+        }),
+      ]);
+      expect(order.indexOf('cancel rsv_1')).toBeLessThan(order.indexOf('publish CS-001'));
+      // Fleet cancel never waits for the station.
+      expect(mockSendCommand).not.toHaveBeenCalled();
+    });
+
+    it('cancels the other slots when one cancel fails', async () => {
+      setupDbResults(
+        [{ id: VALID_FLEET_RES_ID, status: 'partial' }],
+        [
+          {
+            id: 'rsv_1',
+            reservationId: 31,
+            stationOcppId: 'CS-001',
+            siteId: null,
+            driverId: null,
+            startsAt: null,
+            createdAt: new Date('2024-01-01T00:00:00Z'),
+          },
+          {
+            id: 'rsv_2',
+            reservationId: 32,
+            stationOcppId: 'CS-002',
+            siteId: null,
+            driverId: null,
+            startsAt: null,
+            createdAt: new Date('2024-01-01T00:00:00Z'),
+          },
+        ],
+      );
+      mockApplyCancellation
+        .mockRejectedValueOnce(new Error('db down'))
+        .mockResolvedValueOnce(cancelledResult());
+
+      const res = await del();
+
+      expect(res.statusCode).toBe(200);
+      expect(mockApplyCancellation).toHaveBeenCalledTimes(2);
+      expect(commandsPublished()).toHaveLength(1);
     });
   });
 });

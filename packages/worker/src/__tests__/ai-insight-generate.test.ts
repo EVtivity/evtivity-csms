@@ -10,6 +10,7 @@ import type { Logger, PubSubClient } from '@evtivity/lib';
 import { buildAiSettings } from '@evtivity/lib/ai-config';
 import type { AiSettings } from '@evtivity/lib/ai-config';
 import {
+  INSIGHT_KIND_FALLBACKS,
   INSIGHT_SUMMARY_MAX_LENGTH,
   INSIGHT_TRANSLATION_MAX_LENGTH,
   RULE_INSIGHTS,
@@ -36,6 +37,7 @@ const ev = vi.hoisted(() => ({
   collectStationEvidence: vi.fn(),
   collectSessionEvidence: vi.fn(),
   collectAttemptAuthorizationEvidence: vi.fn(),
+  collectReservationEvidence: vi.fn(),
   collectSiteEvidence: vi.fn(),
   computeInsightScope: vi.fn(),
   currentFingerprint: vi.fn(),
@@ -47,6 +49,8 @@ const dbState = vi.hoisted(() => ({
   modelToday: 0,
   stoppedReason: null as string | null,
   outcome: null as string | null,
+  /** The `after` of the reservation trigger audit row; null: no row. */
+  reservationAfter: null as Record<string, unknown> | null,
 }));
 
 vi.mock('@evtivity/services/ai-insight.service', () => ({
@@ -75,12 +79,16 @@ vi.mock('@evtivity/database', () => ({
     if (text.includes('FROM authorize_attempts')) {
       return Promise.resolve(dbState.outcome == null ? [] : [{ outcome: dbState.outcome }]);
     }
+    if (text.includes('FROM reservation_audit_log')) {
+      return Promise.resolve(
+        dbState.reservationAfter == null ? [] : [{ after: dbState.reservationAfter }],
+      );
+    }
     return Promise.resolve([]);
   },
 }));
 
-const { generateInsight, KIND_FALLBACK, INSIGHT_MAX_OUTPUT_TOKENS } =
-  await import('../ai-insights/generate.js');
+const { generateInsight, INSIGHT_MAX_OUTPUT_TOKENS } = await import('../ai-insights/generate.js');
 const { translateInsight } = await import('../ai-insights/translate.js');
 type Deps = import('../ai-insights/generate.js').InsightJobDeps;
 const { handleAiInsightJobFailed } = await import('../ai-insight-worker.js');
@@ -100,6 +108,7 @@ function row(overrides: Record<string, unknown> = {}) {
     kind: 'station_offline',
     subjectType: 'station',
     subjectId: 'sta_1',
+    triggerKey: 'station_offline:sta_1:1',
     stationId: 'sta_1',
     sessionId: null,
     authorizeAttemptId: null,
@@ -147,7 +156,7 @@ const STATION_ROWS = {
     },
   ],
 };
-const SCOPE = { site: { stations: 4, stationsOffline: 1 }, network: { stations: 10 } };
+const SCOPE = { site: { stations: 4, stationsOffline: 1 } };
 
 function answer(obj: unknown): AiStreamEvent[] {
   return [
@@ -214,6 +223,7 @@ function deps(
     checkBudgets,
     pubsub,
     now: () => new Date('2026-10-10T10:05:00Z'),
+    subjectSecret: 'test-subject-secret',
   };
   return { d, adapter, recordUsage, checkBudgets };
 }
@@ -224,6 +234,7 @@ beforeEach(() => {
   dbState.modelToday = 0;
   dbState.stoppedReason = null;
   dbState.outcome = null;
+  dbState.reservationAfter = null;
   svc.getInsightRow.mockResolvedValue(row());
   svc.activateInsight.mockResolvedValue(true);
   svc.skipInsight.mockResolvedValue(true);
@@ -264,9 +275,9 @@ describe('insight generation', () => {
     );
     // TC-AI-IN-06: skipped for the budget, with the rule fallback's fields.
     expect(svc.skipInsight).toHaveBeenCalledWith('ain_1', 'budget_exceeded', {
-      category: KIND_FALLBACK.station_offline.category,
+      category: INSIGHT_KIND_FALLBACKS.station_offline.category,
       confidence: 'low',
-      fixes: KIND_FALLBACK.station_offline.fixes.map((code) => ({ code })),
+      fixes: INSIGHT_KIND_FALLBACKS.station_offline.fixes.map((code) => ({ code })),
       scope: SCOPE,
     });
     expect(adapter.calls).toHaveLength(0);
@@ -316,7 +327,8 @@ describe('insight generation', () => {
   });
 
   describe('TC-AI-IN-10 known-cause short-circuit', () => {
-    for (const [reason, rule] of Object.entries(RULE_INSIGHTS)) {
+    // Reservation keys (<action>:<reason>) are covered by the reservation tests.
+    for (const [reason, rule] of Object.entries(RULE_INSIGHTS).filter(([k]) => !k.includes(':'))) {
       it(`TC-AI-IN-10 ${reason} gives a rule insight with zero tokens`, async () => {
         const session = !['no_credit', 'expired', 'blocked', 'concurrent_tx'].includes(reason);
         svc.getInsightRow.mockResolvedValue(
@@ -378,7 +390,7 @@ describe('insight generation', () => {
       expect.objectContaining({
         generatedBy: 'rule',
         confidence: 'low',
-        category: KIND_FALLBACK.station_offline.category,
+        category: INSIGHT_KIND_FALLBACKS.station_offline.category,
         summary: null,
       }),
     );
@@ -535,6 +547,176 @@ describe('insight generation', () => {
     const second = deps([{ events: answer(GOOD) }]);
     expect(await generateInsight('ain_1', second.d, log)).toBe('closed');
     expect(pubsub.publish).not.toHaveBeenCalled();
+  });
+});
+
+describe('reservation insights', () => {
+  const RESERVATION_PACK = {
+    subject: { type: 'reservation', id: 'res_1', siteId: 'sit_a' },
+    facts: { status: 'cancelled', cancelReason: 'station_rejected_other' },
+    items: [{ id: 'audit:31', kind: 'reservation_audit', data: { action: 'station_rejected' } }],
+    untrusted: [],
+  };
+  const reservationRow = (kind: string) =>
+    row({
+      kind,
+      subjectType: 'reservation',
+      subjectId: 'res_1',
+      reservationId: 'res_1',
+      stationId: 'sta_1',
+    });
+
+  beforeEach(() => {
+    ev.collectReservationEvidence.mockResolvedValue({ pack: RESERVATION_PACK, stationId: 'sta_1' });
+  });
+
+  for (const [kind, action, reason] of [
+    ['reservation_rejected', 'station_rejected', 'station_rejected_occupied'],
+    ['reservation_rejected', 'station_rejected', 'evse_in_use_at_activation'],
+    ['reservation_rejected', 'station_rejected', 'station_offline_at_activation'],
+    ['reservation_rejected', 'station_rejected', 'station_faulted_at_activation'],
+    ['reservation_no_show', 'expired', 'no_show'],
+    ['reservation_cancel_failed', 'station_cancel_failed', 'station_offline'],
+    ['reservation_fee_failed', 'fee_failed', 'declined'],
+    ['reservation_fee_failed', 'fee_failed', 'no_payment_method'],
+  ] as const) {
+    it(`TC-AI-RI-02 TC-AI-RI-06 ${action} ${reason} is a known cause: rule insight, zero tokens`, async () => {
+      svc.getInsightRow.mockResolvedValue(reservationRow(kind));
+      dbState.reservationAfter = { status: 'cancelled', reason };
+      const { d, adapter, recordUsage, checkBudgets } = deps([], { budget: false });
+      expect(await generateInsight('ain_1', d, log)).toBe('rule');
+      expect(adapter.calls).toHaveLength(0);
+      expect(recordUsage).not.toHaveBeenCalled();
+      expect(checkBudgets).not.toHaveBeenCalled();
+      const rule = RULE_INSIGHTS[`${action}:${reason}`];
+      expect(svc.activateInsight).toHaveBeenCalledWith(
+        'ain_1',
+        expect.objectContaining({
+          generatedBy: 'rule',
+          category: rule?.category,
+          fixes: rule?.fixes.map((code) => ({ code })),
+          scope: SCOPE,
+          summary: null,
+        }),
+      );
+      expect(ev.collectReservationEvidence).toHaveBeenCalledWith(
+        'res_1',
+        'test-subject-secret',
+        expect.any(Date),
+      );
+      expect(ev.computeInsightScope).toHaveBeenCalledWith({ siteId: 'sit_a' });
+    });
+  }
+
+  it('TC-AI-RI-04 a no-show is a rule insight even when its audit row is gone (E17)', async () => {
+    svc.getInsightRow.mockResolvedValue(reservationRow('reservation_no_show'));
+    const { d, adapter } = deps([]);
+    expect(await generateInsight('ain_1', d, log)).toBe('rule');
+    expect(adapter.calls).toHaveLength(0);
+    expect(svc.activateInsight).toHaveBeenCalledWith(
+      'ain_1',
+      expect.objectContaining({
+        generatedBy: 'rule',
+        fixes: INSIGHT_KIND_FALLBACKS.reservation_no_show.fixes.map((code) => ({ code })),
+      }),
+    );
+  });
+
+  for (const reason of ['station_rejected_other', 'station_no_response']) {
+    it(`TC-AI-RI-03 ${reason} calls the model once with the reservation evidence pack`, async () => {
+      svc.getInsightRow.mockResolvedValue(reservationRow('reservation_rejected'));
+      dbState.reservationAfter = { status: 'cancelled', reason };
+      const { d, adapter } = deps([
+        {
+          events: answer({
+            category: 'configuration',
+            confidence: 'medium',
+            summary: 'The station refused the hold.',
+            fixes: [{ code: 'reservation_check_evse_status' }],
+            evidenceRefs: ['audit:31'],
+          }),
+        },
+      ]);
+      expect(await generateInsight('ain_1', d, log)).toBe('model');
+      expect(adapter.calls).toHaveLength(1);
+      const sent = JSON.stringify(adapter.calls[0]?.messages);
+      expect(sent).toContain('audit:31');
+      expect(JSON.stringify(adapter.calls[0]?.system)).toContain('rejected a reservation');
+      expect(svc.activateInsight).toHaveBeenCalledWith(
+        'ain_1',
+        expect.objectContaining({
+          generatedBy: 'model',
+          fixes: [{ code: 'reservation_check_evse_status' }],
+          evidenceRefs: ['audit:31'],
+          scope: SCOPE,
+        }),
+      );
+    });
+  }
+
+  it('TC-AI-RI-06 a fee provider error goes to the model', async () => {
+    svc.getInsightRow.mockResolvedValue(reservationRow('reservation_fee_failed'));
+    dbState.reservationAfter = { reason: 'provider_error' };
+    const { d, adapter } = deps([{ events: answer({ ...GOOD, category: 'payment' }) }]);
+    expect(await generateInsight('ain_1', d, log)).toBe('model');
+    expect(adapter.calls).toHaveLength(1);
+  });
+
+  it('TC-AI-RI-07 a station fault during a hold goes to the model with the reservation pack', async () => {
+    svc.getInsightRow.mockResolvedValue(reservationRow('reservation_station_faulted'));
+    dbState.reservationAfter = { reason: 'station_unavailable_during_hold' };
+    const { d, adapter } = deps([{ events: answer(GOOD) }]);
+    expect(await generateInsight('ain_1', d, log)).toBe('model');
+    expect(adapter.calls).toHaveLength(1);
+    expect(ev.collectReservationEvidence).toHaveBeenCalled();
+  });
+
+  it('TC-AI-RI-08 the reservation switch off skips as disabled while station insights continue', async () => {
+    const off = { overrides: { 'aiInsights.reservation.enabled': false } };
+    svc.getInsightRow.mockResolvedValue(reservationRow('reservation_rejected'));
+    const first = deps([], off);
+    expect(await generateInsight('ain_1', first.d, log)).toBe('skipped');
+    expect(svc.skipInsight).toHaveBeenCalledWith('ain_1', 'disabled');
+    expect(first.adapter.calls).toHaveLength(0);
+    // A station insight with the same settings still runs.
+    svc.getInsightRow.mockResolvedValue(row());
+    const second = deps([{ events: answer(GOOD) }], off);
+    expect(await generateInsight('ain_1', second.d, log)).toBe('model');
+  });
+
+  it('TC-AI-RI-08 a site with insights off skips a reservation insight as site_disabled', async () => {
+    dbState.siteEnabled = false;
+    svc.getInsightRow.mockResolvedValue(reservationRow('reservation_cancel_failed'));
+    const { d, adapter } = deps([]);
+    expect(await generateInsight('ain_1', d, log)).toBe('skipped');
+    expect(svc.skipInsight).toHaveBeenCalledWith('ain_1', 'site_disabled');
+    expect(adapter.calls).toHaveLength(0);
+  });
+
+  it('TC-AI-RI-14 one ledger row per model call with the insight surface, the site and the insight', async () => {
+    svc.getInsightRow.mockResolvedValue(reservationRow('reservation_cancel_failed'));
+    dbState.reservationAfter = { reason: 'station_no_response' };
+    const { d, recordUsage } = deps([{ events: answer(GOOD) }]);
+    await generateInsight('ain_1', d, log);
+    expect(recordUsage).toHaveBeenCalledTimes(1);
+    expect(recordUsage).toHaveBeenCalledWith(
+      expect.objectContaining({ surface: 'insight', siteId: 'sit_a', insightId: 'ain_1' }),
+    );
+  });
+
+  it('TC-AI-IC-04 the stored scope is the site counts only (rule and model paths)', async () => {
+    svc.getInsightRow.mockResolvedValue(reservationRow('reservation_cancel_failed'));
+    dbState.reservationAfter = { reason: 'station_offline' };
+    const rule = deps([]);
+    await generateInsight('ain_1', rule.d, log);
+    dbState.reservationAfter = { reason: 'station_rejected' };
+    const model = deps([{ events: answer(GOOD) }]);
+    await generateInsight('ain_1', model.d, log);
+    const scopes = svc.activateInsight.mock.calls.map(
+      (c) => (c[1] as { scope: Record<string, unknown> }).scope,
+    );
+    expect(scopes).toHaveLength(2);
+    for (const scope of scopes) expect(Object.keys(scope)).toEqual(['site']);
   });
 });
 

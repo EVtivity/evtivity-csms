@@ -47,6 +47,14 @@ export function formatNumberUpTo(value: number, maxFractionDigits: number): stri
   }).format(value);
 }
 
+/** Format a ratio (0 to 1) as a whole percent in the UI language, e.g. 0.75 as "75%". */
+export function formatPercent(ratio: number): string {
+  return new Intl.NumberFormat(resolveLocale(uiLocale()), {
+    style: 'percent',
+    maximumFractionDigits: 0,
+  }).format(ratio);
+}
+
 /**
  * Show a stored decimal string ("0.49") with the decimal separator of the UI
  * language, without rounding. Returns 'n/a' for null/undefined values.

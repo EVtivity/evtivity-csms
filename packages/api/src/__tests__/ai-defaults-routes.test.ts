@@ -32,6 +32,11 @@ import {
   OPS_SECURITY_RULES,
 } from '@evtivity/services/ai-ops-prompt';
 import {
+  DRIVER_AI_DEFAULT_PROMPTS,
+  DRIVER_AI_RULES,
+  defaultDriverAiPrompt,
+} from '@evtivity/services/driver-ai-prompt';
+import {
   OCPP_VERSION_RULE,
   SECURITY_RULES,
   SUPPORT_BODY_ONLY,
@@ -43,6 +48,7 @@ interface DefaultsBody {
   chatbot: { prompt: string; fixedRules: string };
   support: { prompt: string; fixedRules: string };
   ops: { prompt: string; fixedRules: string };
+  driver: { prompt: string; fixedRules: string };
   providers: Array<{
     id: string;
     defaultModel: string;
@@ -105,6 +111,8 @@ describe('AI defaults routes', () => {
     expect(body.support.prompt).toBe(defaultSystemPrompt('support', language));
     // The built-in opsAi prompt (insights and background workers) in the same language.
     expect(body.ops.prompt).toBe(defaultOpsPrompt(language));
+    // The built-in driverAi prompt (driver support, Settings > AI > Driver support).
+    expect(body.driver.prompt).toBe(defaultDriverAiPrompt(language));
   });
 
   it('defaults to English and refuses an unknown language', async () => {
@@ -124,6 +132,7 @@ describe('AI defaults routes', () => {
     expect(body.chatbot.fixedRules).toBe(`${SECURITY_RULES}\n\n${OCPP_VERSION_RULE}`);
     expect(body.support.fixedRules).toBe(`${SECURITY_RULES}\n\n${SUPPORT_BODY_ONLY}`);
     expect(body.ops.fixedRules).toBe(OPS_SECURITY_RULES);
+    expect(body.driver.fixedRules).toBe(`${OPS_SECURITY_RULES}\n\n${DRIVER_AI_RULES}`);
   });
 
   it('returns the model registry per provider with a docs link', async () => {
@@ -162,6 +171,15 @@ describe('storedSystemPrompt ops', () => {
       expect(storedSystemPrompt('ops', OPS_DEFAULT_PROMPTS[language])).toBe('');
     }
     expect(storedSystemPrompt('ops', 'Focus on connectivity.')).toBe('Focus on connectivity.');
+  });
+});
+
+describe('storedSystemPrompt driver', () => {
+  it('stores a saved built-in driver prompt of any language as empty, and a custom one as typed', () => {
+    for (const language of PROMPT_LANGUAGES) {
+      expect(storedSystemPrompt('driver', `${DRIVER_AI_DEFAULT_PROMPTS[language]}\n`)).toBe('');
+    }
+    expect(storedSystemPrompt('driver', 'Be brief.')).toBe('Be brief.');
   });
 });
 

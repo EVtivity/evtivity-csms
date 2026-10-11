@@ -28,6 +28,7 @@ import {
 } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { processConfigPush } from '../lib/config-push.js';
+import { assertNoCredentialVariables } from '../lib/station-credential-guard.js';
 import {
   findTemplateTargetConfiguration,
   configTemplateTarget,
@@ -418,11 +419,16 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Fleet Operations'],
         summary: 'Create a configuration template',
+        description:
+          'Creates a configuration template. A variable that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials.',
         operationId: 'createConfigTemplate',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createTemplateBody),
         response: {
           201: itemResponse(templateItem),
+          400: errorWith('Station credential variable', [
+            ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
+          ]),
           404: errorWith('Target not found', [
             ERROR_CODES.SITE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
@@ -433,6 +439,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const body = request.body as z.infer<typeof createTemplateBody>;
+      assertNoCredentialVariables(body.variables);
       const { userId } = request.user as { userId: string };
       const createSiteIds = await getUserSiteIds(userId);
       if (isRestrictedCompanyWideWrite(createSiteIds, body.targetFilter)) {
@@ -490,7 +497,10 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         body: zodSchema(updateTemplateBody),
         response: {
           200: itemResponse(templateItem),
-          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          400: errorWith('Validation error or a station credential variable', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
+          ]),
           404: errorWith('Template, site or station not found', [
             ERROR_CODES.TEMPLATE_NOT_FOUND,
             ERROR_CODES.SITE_NOT_FOUND,
@@ -502,6 +512,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof templateParams>;
       const body = request.body as z.infer<typeof updateTemplateBody>;
+      if (body.variables !== undefined) assertNoCredentialVariables(body.variables);
 
       const { userId } = request.user as { userId: string };
       const accessibleSiteIds = await getUserSiteIds(userId);
@@ -772,12 +783,15 @@ export function configTemplateRoutes(app: FastifyInstance): void {
         tags: ['Fleet Operations'],
         summary: 'Push configuration template variables to matching stations via SetVariables',
         description:
-          'Resolves online stations matching the template target filter and dispatches SetVariables (OCPP 2.1) or ChangeConfiguration (OCPP 1.6) for every variable. Creates a config_template_pushes row plus one config_template_push_stations row per target. Per-variable results stream back asynchronously. Returns the pushId so the caller can poll progress.',
+          'Resolves online stations matching the template target filter and dispatches SetVariables (OCPP 2.1) or ChangeConfiguration (OCPP 1.6) for every variable. Creates a config_template_pushes row plus one config_template_push_stations row per target. Per-variable results stream back asynchronously. Returns the pushId so the caller can poll progress. A template that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED.',
         operationId: 'pushConfigTemplate',
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
         response: {
           200: itemResponse(z.object({ success: z.boolean(), pushId: z.string() }).passthrough()),
+          400: errorWith('Station credential variable', [
+            ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
+          ]),
           404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
         },
       },
@@ -806,6 +820,8 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       if (variables.length === 0) {
         return { success: true, pushId: '' };
       }
+      // A template saved before v0.1.45 can still name a credential.
+      assertNoCredentialVariables(variables);
 
       const ocppVersion = template.ocppVersion;
       const expectedProtocol = `ocpp${ocppVersion}`;

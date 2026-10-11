@@ -11,6 +11,11 @@ import { PageHeader } from '@/components/PageHeader';
 import { Input } from '@/components/ui/input';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { ApiError } from '@/lib/api';
+import { LoadingLogo } from '@/components/loading-logo';
+import type { DriverAiConsentDecision } from '@evtivity/lib/driver-ai';
+import { AiConsentStep } from '@/components/support/AiConsentStep';
+import { consentLanguage, useDriverAiFeature } from '@/components/support/driver-ai';
 
 const CATEGORY_OPTIONS = [
   'billing_dispute',
@@ -23,7 +28,7 @@ const CATEGORY_OPTIONS = [
 ] as const;
 
 export function NewSupportCase(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -35,6 +40,14 @@ export function NewSupportCase(): React.JSX.Element {
   const [subject, setSubject] = useState(stationName != null ? `Issue at ${stationName}` : '');
   const [description, setDescription] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  // The AI consent choice of this request, with the notice version the driver
+  // saw: none until the driver presses one.
+  const [aiChoice, setAiChoice] = useState<{
+    decision: DriverAiConsentDecision;
+    noticeVersion: number;
+  } | null>(null);
+  const aiDecision = aiChoice?.decision ?? null;
+  const driverAi = useDriverAiFeature();
 
   const queryClient = useQueryClient();
 
@@ -44,6 +57,15 @@ export function NewSupportCase(): React.JSX.Element {
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['portal-support-cases'] });
       void navigate(`/support/${result.id}`);
+    },
+    onError: (err: unknown) => {
+      // A newer notice: reload the features and ask again with its text.
+      const code =
+        err instanceof ApiError ? (err.body as { code?: unknown } | null)?.code : undefined;
+      if (code === 'DRIVER_AI_NOTICE_OUTDATED') {
+        setAiChoice(null);
+        void queryClient.invalidateQueries({ queryKey: ['portal-features'] });
+      }
     },
   });
 
@@ -63,14 +85,63 @@ export function NewSupportCase(): React.JSX.Element {
     const body: Record<string, unknown> = { category, subject, description };
     if (sessionId != null) body.sessionId = sessionId;
     else if (stationId != null) body.stationId = stationId;
+    if (driverAi.available && aiChoice != null) {
+      body.aiConsent = {
+        decision: aiChoice.decision,
+        noticeVersion: aiChoice.noticeVersion,
+        language: consentLanguage(i18n.resolvedLanguage ?? i18n.language),
+      };
+    }
     createMutation.mutate(body);
   }
+
+  // Consent comes first: the form waits until the features are known.
+  if (driverAi.isLoading) {
+    return <LoadingLogo />;
+  }
+
+  const noticeVersion = driverAi.noticeVersion;
+  if (driverAi.available && noticeVersion != null && aiChoice == null) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title={t('supportCases.newCase')} backTo="/support" />
+        <AiConsentStep
+          noticeVersion={noticeVersion}
+          onChoose={(decision) => {
+            setAiChoice({ decision, noticeVersion });
+          }}
+        />
+      </div>
+    );
+  }
+  const choiceText =
+    aiDecision === 'granted' ? t('supportCases.ai.choiceAi') : t('supportCases.ai.choiceTeam');
 
   return (
     <div className="space-y-4">
       <PageHeader title={t('supportCases.newCase')} backTo="/support" />
 
       <form onSubmit={handleSubmit} className="space-y-4">
+        {driverAi.available && aiDecision != null && (
+          <div className="flex items-center justify-between gap-3 rounded-md border p-3 text-sm">
+            <div className="min-w-0">
+              <span className="text-muted-foreground">{t('supportCases.ai.yourChoice')}: </span>
+              <span className="font-medium">{choiceText}</span>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={`${t('supportCases.ai.changeChoice')}: ${choiceText}`}
+              onClick={() => {
+                setAiChoice(null);
+              }}
+            >
+              {t('supportCases.ai.changeChoice')}
+            </Button>
+          </div>
+        )}
+
         <div>
           <label htmlFor="portal-case-category" className="text-sm font-medium">
             {t('supportCases.selectCategory')}
@@ -97,6 +168,8 @@ export function NewSupportCase(): React.JSX.Element {
           </label>
           <Input
             id="portal-case-subject"
+            // After the AI choice the step unmounts: keep focus in the form.
+            autoFocus={aiChoice != null}
             value={subject}
             onChange={(e) => {
               setSubject(e.target.value);

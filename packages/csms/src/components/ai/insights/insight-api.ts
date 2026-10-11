@@ -7,6 +7,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { UseMutationResult } from '@tanstack/react-query';
 import type {
   AiInsightDto,
+  InsightFeedbackFilter,
+  InsightFeedbackRate,
+  InsightFeedbackSummary,
   InsightKind,
   InsightScope,
   InsightStatus,
@@ -40,11 +43,14 @@ export interface AiInsightView extends AiInsightDto {
   scopeNow?: InsightScope | null;
   /** Detail only: when `scopeNow` was computed. */
   scopeNowAt?: string | null;
+  /** Detail only: the votes (one per user) and the viewer's own vote. */
+  feedback?: InsightFeedbackSummary;
 }
 
 export interface InsightFilter {
   stationId?: string;
   sessionId?: string;
+  reservationId?: string;
   siteId?: string;
   supportCaseId?: string;
   /** Comma-separated authorize attempt ids, at most 100. */
@@ -52,6 +58,8 @@ export interface InsightFilter {
   kind?: InsightKind;
   status?: InsightStatus;
   category?: RootCauseCategory;
+  /** Insights someone marked helpful, or wrong. */
+  feedback?: InsightFeedbackFilter;
   limit?: number;
 }
 
@@ -157,7 +165,7 @@ export function useInsight(id: string | null): {
     queryKey: [...AI_INSIGHTS_KEY, 'detail', id, language],
     queryFn: () =>
       api.get<AiInsightView>(
-        `/v1/ai/insights/${encodeURIComponent(id ?? '')}?language=${encodeURIComponent(language)}`,
+        `/v1/ai/insights/${encodeURIComponent(id ?? '')}?language=${encodeURIComponent(language)}&feedback=true`,
       ),
     enabled: canRead && id != null,
     staleTime: INSIGHT_STALE_TIME_MS,
@@ -236,7 +244,11 @@ export function pickShownInsight(
 }
 
 /** Insight filter of an Explain context, for the records that have one. */
-export function insightFilterFor(kind: 'station' | 'session', id: string): InsightFilter {
+export function insightFilterFor(
+  kind: 'station' | 'session' | 'reservation',
+  id: string,
+): InsightFilter {
+  if (kind === 'reservation') return { reservationId: id };
   return kind === 'station' ? { stationId: id } : { sessionId: id };
 }
 
@@ -291,6 +303,51 @@ export function useDismissInsight(): InsightMutation<never> {
   return useInsightMutation<never>('dismiss');
 }
 
-export function useInsightFeedback(): InsightMutation<{ helpful: boolean }> {
-  return useInsightMutation<{ helpful: boolean }>('feedback');
+/** The body of a vote: a wrong vote can carry a short note (stored only, never sent to a model). */
+export interface InsightFeedbackBody {
+  helpful: boolean;
+  reason?: string | null;
+}
+
+/** Sets or changes the viewer's vote (one per user and insight). */
+export function useInsightFeedback(): InsightMutation<InsightFeedbackBody> {
+  return useInsightMutation<InsightFeedbackBody>('feedback');
+}
+
+/** Removes the viewer's vote. */
+export function useClearInsightFeedback(): InsightMutation<never> {
+  const queryClient = useQueryClient();
+  return useMutation<unknown, unknown, { id: string; body?: never }>({
+    mutationFn: ({ id }) => api.delete(`/v1/ai/insights/${encodeURIComponent(id)}/feedback`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: AI_INSIGHTS_KEY });
+    },
+  });
+}
+
+/** Votes by insight kind over the last days, in the user's sites (Settings quality summary). */
+export function useInsightFeedbackSummary(): {
+  days: number | null;
+  rates: InsightFeedbackRate[];
+  isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
+} {
+  const canRead = useHasPermission('aiInsights:read');
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: [...AI_INSIGHTS_KEY, 'feedback-summary'],
+    queryFn: () =>
+      api.get<{ days: number; data: InsightFeedbackRate[] }>('/v1/ai/insights/feedback-summary'),
+    enabled: canRead,
+    staleTime: 60_000,
+  });
+  return {
+    days: data?.days ?? null,
+    rates: data?.data ?? [],
+    isLoading: canRead && isLoading,
+    isError,
+    refetch: () => {
+      void refetch();
+    },
+  };
 }

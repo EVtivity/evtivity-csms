@@ -448,7 +448,20 @@
     "cancellationPolicy": "Stornierungsbedingungen",
     "cancellationPolicyText": "Bei Stornierung innerhalb von {{minutes}} Minuten vor der Startzeit wird eine Stornogebühr von {{fee}} erhoben.",
     "upcoming": "Anstehend",
-    "past": "Vergangen"
+    "past": "Vergangen",
+    "cancelReason": {
+      "driver_initiated": "Von dir storniert",
+      "operator_manual": "Vom Betreiber storniert",
+      "expired_no_show": "Abgelaufen (nicht erschienen)",
+      "station_rejected_occupied": "Die Station war belegt",
+      "station_rejected_other": "Die Station hat die Reservierung abgelehnt",
+      "station_no_response": "Die Station hat nicht geantwortet",
+      "station_offline_at_activation": "Die Station war offline",
+      "evse_in_use_at_activation": "Der Anschluss war belegt",
+      "station_faulted_at_activation": "Die Station hatte eine Störung",
+      "station_unavailable_during_hold": "Die Station war nicht mehr verfügbar. Es wurde keine Gebühr berechnet",
+      "system_cleanup": "Vom System storniert"
+    }
   },
   "reservationDetail": {
     "title": "Reservierung",
@@ -493,7 +506,57 @@
       "in_progress": "In Bearbeitung",
       "waiting_on_driver": "Wartet auf deine Antwort",
       "resolved": "Gelöst",
-      "closed": "Geschlossen"
+      "closed": "Geschlossen",
+      "ai_assist": "Automatische Antwort"
+    },
+    "ai": {
+      "choiceTitle": "Wie sollen wir deine Anfrage bearbeiten?",
+      "choiceAi": "Zuerst die KI fragen",
+      "choiceTeam": "An das Team senden",
+      "yourChoice": "Ihre Auswahl",
+      "changeChoice": "Ändern",
+      "dataNotice": {
+        "title": "Was die KI erhält",
+        "body": "Die KI liest deine Anfrage sowie deine eigenen Ladevorgänge, Zahlungen, Reservierungen und die Stationen, die du genutzt hast. Gespeicherte Zugangsdaten wie Passwörter werden nie gesendet. Kartennummern und IBANs werden auf die letzten 4 Zeichen gekürzt. E-Mail-Adressen und Telefonnummern werden maskiert. IDs von Ladekarten und Tokens werden auf die letzten 4 Zeichen gekürzt."
+      },
+      "notice": {
+        "v1": {
+          "title": "Zur KI-Analyse",
+          "automated": "Eine KI gibt eine automatische erste Antwort. Sie ist keine Zusage, zum Beispiel einer Erstattung.",
+          "provider": "Deine Anfrage und die unten genannten Daten werden an einen externen KI-Anbieter gesendet.",
+          "person": "Du erreichst weiterhin einen Menschen: Antworte mit Nein oder schreibe eine Nachricht, dann übernimmt das Support-Team.",
+          "choice": "Du entscheidest bei jeder Anfrage. Wenn du sie an das Support-Team sendest, geht nichts an die KI.",
+          "privacy": "Datenschutzerklärung",
+          "readsTitle": "Was die KI liest",
+          "reads": {
+            "case": "Diese Anfrage: Kategorie, Betreff, Beschreibung und verknüpfte Ladevorgänge",
+            "sessions": "Deine letzten 10 Ladevorgänge der vergangenen 30 Tage: Zeiten, Status, Energie, Kosten und Zahlungsstatus",
+            "tokens": "Deine Ladekarten und Tokens, gekürzt auf die letzten 4 Zeichen",
+            "payments": "Deine Zahlungen der vergangenen 30 Tage: Art, Betrag, Status und Fehlergrund",
+            "stations": "Die von dir genutzten Stationen: Name, Standort, aktuelle Verfügbarkeit und Zeit der letzten Störung",
+            "reservations": "Deine Reservierungen der vergangenen 30 Tage: Status, Zeiten, Stornierungsgrund und Gebühr"
+          }
+        }
+      },
+      "analyzing": "Dein Anliegen wird analysiert",
+      "answerTitle": "Automatische Antwort",
+      "feedbackQuestion": "Hat das dein Problem gelöst?",
+      "feedbackYes": "Ja",
+      "feedbackNo": "Nein",
+      "feedbackNoHint": "Wenn du Nein wählst, geben wir das an das Support-Team weiter.",
+      "feedbackFailed": "Deine Antwort konnte nicht gesendet werden. Versuche es erneut.",
+      "resolved": "Gelöst. Du kannst die Anfrage wieder öffnen, indem du uns schreibst.",
+      "escalated": "An das Support-Team gesendet.",
+      "sentToTeam": "Wir haben deine Anfrage an das Support-Team gesendet.",
+      "driverAction": {
+        "try_other_connector": "Anderen Anschluss versuchen",
+        "check_payment_method": "Zahlungsmethode prüfen",
+        "retry_start": "Laden erneut starten",
+        "check_vehicle_settings": "Ladeeinstellungen des Fahrzeugs prüfen",
+        "contact_operator": "Support-Team kontaktieren",
+        "wait_and_retry": "Einige Minuten warten und erneut versuchen",
+        "check_token_active": "Prüfen, ob Karte oder Token aktiv ist"
+      }
     }
   },
   "errors": {
@@ -546,6 +609,7 @@
     "CSS_ACTION_REJECTED": "Der Charging Station Simulator hat die Aktion abgelehnt",
     "CSS_ACTION_TIMEOUT": "Simulator hat nicht innerhalb von 5 Sekunden geantwortet",
     "DOWNTIME_NOT_FOUND": "Ausgeschlossener Ausfallzeitraum nicht gefunden",
+    "DRIVER_AI_NOTICE_OUTDATED": "Der KI-Hinweis wurde geändert. Lesen Sie ihn und wählen Sie erneut",
     "DRIVER_ALREADY_IN_FLEET": "Fahrer ist bereits in dieser Flotte",
     "DRIVER_CREATE_FAILED": "Fahrer konnte nicht erstellt werden",
     "DRIVER_NOT_FOUND": "Fahrer nicht gefunden",
@@ -745,6 +809,7 @@
     "STORAGE_CONNECTION_FAILED": "Speicher-Verbindungstest fehlgeschlagen",
     "STORAGE_NOT_CONFIGURED": "Anhang-Speicher nicht konfiguriert",
     "SUPPORT_AI_NOT_CONFIGURED": "Support-AI ist nicht konfiguriert",
+    "SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK": "Dieser Supportfall wartet nicht auf eine Rückmeldung zu einer automatischen Antwort",
     "SUPPORT_CASE_NOT_FOUND": "Supportfall nicht gefunden",
     "SUPPORT_DISABLED": "Support ist deaktiviert",
     "TARIFF_IN_USE": "Tarif wird von Ladevorgängen referenziert und kann nicht gelöscht werden",
@@ -786,6 +851,7 @@
     "SECURITY_PROFILE_DOWNGRADE": "Eine verbundene Station kann nicht auf ein niedrigeres Sicherheitsprofil gesetzt werden",
     "STATION_TLS_URL_NOT_CONFIGURED": "Die öffentliche TLS-Adresse für Stationen (OCPP_STATION_TLS_URL) ist nicht konfiguriert",
     "STATION_SECURITY_CHANGE_REJECTED": "Die Station hat die Sicherheitsänderung nicht angenommen; die aktuellen Einstellungen bleiben unverändert",
+    "STATION_CREDENTIALS_ROUTE_REQUIRED": "Passwoerter von Ladestationen werden mit POST /v1/stations/:id/credentials geaendert, nicht mit einem allgemeinen OCPP-Befehl",
     "WEB_PAYMENTS_NOT_SUPPORTED": "Die Ladestation unterstützt keine dynamischen QR-Codes",
     "PORTAL_ALREADY_ACTIVE": "Fahrer hat bereits Zugang zum Portal",
     "EMAID_PREFIX_NOT_CONFIGURED": "Legen Sie zuerst Ländercode und Provider-ID der eMAID fest",
@@ -1076,5 +1142,11 @@
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "Dein Laden wird über {{fleet}} abgerechnet. Zum Laden brauchst du keine Zahlungsmethode.",
     "noMethods": "Noch keine Zahlungsmethoden."
+  },
+  "ai": {
+    "dataNotice": {
+      "title": "Was der KI-Anbieter erhält",
+      "body": "Der KI-Anbieter erhält nie gespeicherte Zugangsdaten wie Passwörter, API-Schlüssel, Geheimnisse und Stationspasswörter. Kartennummern und IBANs werden auf ihre letzten 4 Zeichen gekürzt. Support-Entwürfe, automatische Analysen, Hintergrund-Worker und der Fahrer-Support maskieren außerdem E-Mail-Adressen und Telefonnummern und hashen oder kürzen die Token-IDs von Fahrern. Der Assistent sendet Kontaktdaten von Fahrern so, wie sie gespeichert sind, und nur für Benutzer, die sie lesen dürfen. Von dir eingegebener Text und angehängte Textdateien werden auf Schlüssel und Kartennummern geprüft. Von dir angehängte Bilder und PDFs werden unverändert gesendet."
+    }
   }
 }

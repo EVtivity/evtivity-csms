@@ -3,7 +3,14 @@
 
 import { describe, it, expect } from 'vitest';
 import type { TFunction } from 'i18next';
+import { DRIVER_AI_AUDIT_ACTIONS } from '@evtivity/lib/driver-ai';
+import { RESERVATION_INSIGHT_TRIGGERS } from '@evtivity/lib/ai-insights';
 import en from '../../i18n/locales/en.json';
+import de from '../../i18n/locales/de.json';
+import es from '../../i18n/locales/es.json';
+import ko from '../../i18n/locales/ko.json';
+import zh from '../../i18n/locales/zh.json';
+import zhTW from '../../i18n/locales/zh-TW.json';
 import {
   AUDIT_ACTIONS,
   AUDIT_ACTORS,
@@ -71,6 +78,29 @@ describe('audit labels', () => {
     expect(tables.length).toBeGreaterThan(20);
     expect([...AUDIT_ENTITY_TYPES].sort()).toEqual([...tables].sort());
     expect(tables.filter((e) => typeof enAudit.entities[e] !== 'string')).toEqual([]);
+  });
+
+  it('TC-CFG-10 labels the v0.1.45 support case and reservation audit actions in 6 locales', () => {
+    // Support case AI actions (lane D1, migration 0445) and reservation
+    // actions (lane R1, migration 0452). AUDIT_ACTIONS gains them with their
+    // enum values, which the filter test above enforces.
+    const actions = [
+      ...DRIVER_AI_AUDIT_ACTIONS,
+      ...Object.keys(RESERVATION_INSIGHT_TRIGGERS).filter((a) => a !== 'expired'),
+      'fee_charged',
+      'taken_by_other',
+      'activated',
+    ];
+    expect(actions).toHaveLength(13);
+    const locales = { en, de, es, ko, zh, 'zh-TW': zhTW } as Record<string, unknown>;
+    for (const [lang, locale] of Object.entries(locales)) {
+      const labels = (locale as { audit: { actions: Record<string, unknown> } }).audit.actions;
+      const missing = actions.filter((a) => {
+        const label = labels[a];
+        return typeof label !== 'string' || label.trim() === '';
+      });
+      expect(missing, lang).toEqual([]);
+    }
   });
 
   it('has an en label for every actor', () => {

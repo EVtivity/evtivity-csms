@@ -8,6 +8,7 @@ import { Copy, Check } from 'lucide-react';
 import { tryParseJson } from '@evtivity/lib/safe-json';
 import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Toggle } from '@/components/ui/toggle';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -41,19 +42,14 @@ function ToggleRow({
         <Label className="leading-6">{label}</Label>
         {description != null && <p className="text-xs text-muted-foreground">{description}</p>}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        onClick={() => {
+      <Toggle
+        aria-label={label}
+        size="lg"
+        checked={checked}
+        onCheckedChange={() => {
           onChange(!checked);
         }}
-        className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${checked ? 'bg-primary' : 'bg-muted'}`}
-      >
-        <span
-          className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform ${checked ? 'translate-x-5' : 'translate-x-0'}`}
-        />
-      </button>
+      />
     </div>
   );
 }

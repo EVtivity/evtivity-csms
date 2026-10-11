@@ -16,6 +16,10 @@ vi.mock('@evtivity/database', () => {
     users: { id: 'id', email: 'email', phone: 'phone', language: 'language', roleId: 'roleId' },
     roles: { id: 'id', name: 'name' },
     isSupportEnabled: vi.fn().mockResolvedValue(true),
+    chargingSessions: {},
+    chargingStations: {},
+    supportCaseSessions: {},
+    supportCases: {},
   };
 });
 
@@ -27,8 +31,8 @@ vi.mock('@evtivity/lib', async (importOriginal) => {
 });
 
 import { dispatchSystemNotification } from '@evtivity/lib';
-import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
-import { dispatchOperatorNotification } from '../services/support-notification.service.js';
+import { ALL_TEMPLATES_DIRS } from '../template-dirs.js';
+import { dispatchOperatorNotification } from '../support-case-notify.js';
 
 describe('dispatchOperatorNotification', () => {
   beforeEach(() => {

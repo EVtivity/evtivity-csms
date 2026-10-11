@@ -1,11 +1,12 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { MessageSquare, RefreshCw, ThumbsDown, ThumbsUp, X } from 'lucide-react';
+import { INSIGHT_FEEDBACK_REASON_MAX_LENGTH } from '@evtivity/lib/ai-insights';
 import type { InsightScopeCounts } from '@evtivity/lib/ai-insights';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,8 +14,10 @@ import { Card } from '@/components/ui/card';
 import { Collapsible } from '@/components/ui/collapsible';
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list';
 import { IconBadge } from '@/components/ui/icon-badge';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
+import { Textarea } from '@/components/ui/textarea';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
   Table,
@@ -33,6 +36,7 @@ import { aiRequestErrorText } from '../ai-error-text';
 import type { AiInsightView } from './insight-api';
 import {
   isSummaryInsight,
+  useClearInsightFeedback,
   useDismissInsight,
   useInsight,
   useInsightFeedback,
@@ -58,18 +62,16 @@ interface ScopeRow {
   now: number | null;
 }
 
+/** One row per measure of the site counts, labelled by the measure alone. */
 function scopeRows(
   t: TFunction,
-  area: 'site' | 'network',
   counts: InsightScopeCounts | undefined,
   now: InsightScopeCounts | undefined,
 ): ScopeRow[] {
   if (counts == null) return [];
   return SCOPE_KEYS.filter((k) => (counts[k] ?? 0) > 0 || (now?.[k] ?? 0) > 0).map((k) => ({
-    key: `${area}.${k}`,
-    label: t(`aiInsights.scopeTable.area.${area}`, {
-      measure: t(`aiInsights.scopeTable.measure.${k}`),
-    }),
+    key: k,
+    label: t(`aiInsights.scopeTable.measure.${k}`),
     then: counts[k] ?? 0,
     now: now == null ? null : (now[k] ?? 0),
   }));
@@ -78,15 +80,12 @@ function scopeRows(
 /** The measure the collapsed summary names: the insight's size, else the first row. */
 function mainMeasure(
   insight: AiInsightView,
-): { area: 'site' | 'network'; key: (typeof SCOPE_KEYS)[number]; then: number } | null {
+): { key: (typeof SCOPE_KEYS)[number]; then: number } | null {
   const size = insightSize(insight);
-  if (size != null) return { area: 'site', key: size.key, then: size.count };
-  for (const area of ['site', 'network'] as const) {
-    const counts = insight.scope[area];
-    const key = SCOPE_KEYS.find((k) => (counts?.[k] ?? 0) > 0);
-    if (key != null) return { area, key, then: counts?.[key] ?? 0 };
-  }
-  return null;
+  if (size != null) return { key: size.key, then: size.count };
+  const counts = insight.scope.site;
+  const key = SCOPE_KEYS.find((k) => (counts?.[k] ?? 0) > 0);
+  return key == null ? null : { key, then: counts?.[key] ?? 0 };
 }
 
 /**
@@ -94,9 +93,8 @@ function mainMeasure(
  * trigger names the main measure at detection. Opening it asks for the
  * counts now (lazy, SQL only) and shows the table: one row per measure, the
  * value the analysis used ("At detection") and the value now, a skeleton in
- * the Now column while it loads. Network rows only reach users with access
- * to every site (the API leaves them out). A changed value is medium weight,
- * nothing else marks it.
+ * the Now column while it loads. The counts are the subject site's ("Site
+ * context"). A changed value is medium weight, nothing else marks it.
  */
 function ScopeSection({ insight }: { insight: AiInsightView }): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -104,16 +102,13 @@ function ScopeSection({ insight }: { insight: AiInsightView }): React.JSX.Elemen
   const [open, setOpen] = useState(false);
   const live = useInsightScopeNow(insight.id, open);
   const now = live.scopeNow;
-  const rows = [
-    ...scopeRows(t, 'site', insight.scope.site, now?.site ?? undefined),
-    ...scopeRows(t, 'network', insight.scope.network, now?.network ?? undefined),
-  ];
+  const rows = scopeRows(t, insight.scope.site, now?.site ?? undefined);
   if (rows.length === 0) return null;
   const main = mainMeasure(insight);
   let summary: string | null = null;
   if (main != null) {
     const value = t(`aiInsights.scope.${main.key}`, { count: main.then });
-    const current = now?.[main.area]?.[main.key];
+    const current = now?.site?.[main.key];
     summary =
       current == null
         ? t('aiInsights.scopeTable.summaryAtDetection', { value })
@@ -195,7 +190,11 @@ export interface InsightCardProps {
  * fields (the same builder as the dashboard card), the summary as plain
  * text (the only model text, never markdown or links), a label and value list
  * (likely cause, suggested fixes, scope chips), and a footer with the
- * translation note and the actions. No provider or model name (D14).
+ * translation note, the helpful count and the actions. No provider or model
+ * name (D14). Helpful and Wrong are one vote per user: the chosen thumb is
+ * pressed (`aria-pressed`) and pressing it again removes the vote. Wrong
+ * opens an optional note (stored only, never sent to a model) with
+ * Regenerate and Dismiss right there.
  * Analyzing shows a skeleton of the same shape; skipped, failed or out of
  * date shows one muted line with Regenerate where allowed.
  */
@@ -216,8 +215,13 @@ export function InsightCard({
   const regenerate = useRegenerateInsight();
   const dismiss = useDismissInsight();
   const feedback = useInsightFeedback();
+  const clearFeedback = useClearInsightFeedback();
   const [showOriginal, setShowOriginal] = useState(false);
-  const [feedbackSent, setFeedbackSent] = useState(false);
+  // The Wrong panel opens when the user marks the insight wrong here.
+  const [wrongOpen, setWrongOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const [reasonSaved, setReasonSaved] = useState(false);
+  const reasonId = useId();
 
   // "A new insight is being prepared" lasts until the insight changes (SSE or a refetch).
   const version = `${insight.id}|${insight.status}|${insight.basisAt ?? ''}|${insight.summary ?? ''}`;
@@ -242,8 +246,11 @@ export function InsightCard({
   const summaryKind = isSummaryInsight(insight);
   const hasOriginal = !waiting && original != null && original !== translated;
   const summary = waiting || showOriginal ? original : translated;
-  const actionError = regenerate.error ?? dismiss.error ?? feedback.error;
-  const busy = regenerate.isPending || dismiss.isPending || feedback.isPending;
+  const actionError = regenerate.error ?? dismiss.error ?? feedback.error ?? clearFeedback.error;
+  const busy =
+    regenerate.isPending || dismiss.isPending || feedback.isPending || clearFeedback.isPending;
+  const mine = insight.feedback?.mine ?? null;
+  const helpfulCount = insight.feedback?.helpfulCount ?? 0;
   const canRegenerate = insight.status !== 'pending' && insight.status !== 'dismissed';
   const pending = insight.status === 'pending';
   const stale = insight.stale && insight.status !== 'resolved';
@@ -267,16 +274,28 @@ export function InsightCard({
       </Button>
     ) : null;
 
-  const feedbackOf = (helpful: boolean): void => {
+  // One vote per user: pressing the chosen thumb again removes the vote.
+  const vote = (helpful: boolean): void => {
+    setReasonSaved(false);
+    if (mine === helpful) {
+      clearFeedback.mutate({ id: insight.id });
+      setWrongOpen(false);
+      return;
+    }
+    feedback.mutate({ id: insight.id, body: { helpful } });
+    setWrongOpen(!helpful);
+  };
+  const saveReason = (): void => {
     feedback.mutate(
-      { id: insight.id, body: { helpful } },
+      { id: insight.id, body: { helpful: false, reason: reason.trim() === '' ? null : reason } },
       {
         onSuccess: () => {
-          setFeedbackSent(true);
+          setReasonSaved(true);
         },
       },
     );
   };
+  const showWrongPanel = canWrite && wrongOpen && mine !== true && !pending && !brief;
 
   return (
     <Card
@@ -396,6 +415,81 @@ export function InsightCard({
         </>
       )}
 
+      {showWrongPanel && (
+        <div className="space-y-3 border-t pt-4" data-testid="ai-insight-wrong-panel">
+          <p className="text-muted-foreground">{t('aiInsights.feedback.wrongPrompt')}</p>
+          <div className="space-y-2">
+            <Label htmlFor={reasonId}>{t('aiInsights.feedback.reasonLabel')}</Label>
+            <Textarea
+              id={reasonId}
+              value={reason}
+              maxLength={INSIGHT_FEEDBACK_REASON_MAX_LENGTH}
+              placeholder={t('aiInsights.feedback.reasonPlaceholder')}
+              aria-describedby={`${reasonId}-hint`}
+              data-testid="ai-insight-wrong-reason"
+              onChange={(e) => {
+                setReason(e.target.value);
+                setReasonSaved(false);
+              }}
+            />
+            <p id={`${reasonId}-hint`} className="text-xs text-muted-foreground">
+              {t('aiInsights.feedback.reasonHint')}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy || reason.trim() === ''}
+              data-testid="ai-insight-wrong-save"
+              onClick={saveReason}
+            >
+              {t('aiInsights.feedback.saveReason')}
+            </Button>
+            {canRegenerate && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                data-testid="ai-insight-wrong-regenerate"
+                onClick={() => {
+                  regenerate.mutate({ id: insight.id });
+                }}
+              >
+                {regenerate.isPending ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  <RefreshCw className="h-4 w-4" />
+                )}
+                {t('aiInsights.regenerate')}
+              </Button>
+            )}
+            {insight.status === 'active' && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                data-testid="ai-insight-wrong-dismiss"
+                onClick={() => {
+                  dismiss.mutate({ id: insight.id });
+                }}
+              >
+                <X className="h-4 w-4" />
+                {t('aiInsights.dismiss')}
+              </Button>
+            )}
+            {reasonSaved && (
+              <span role="status" className="text-xs text-muted-foreground">
+                {t('aiInsights.feedback.reasonSaved')}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       {actionError != null && (
         <p role="alert" className="text-destructive">
           {aiRequestErrorText(actionError, t)}
@@ -426,6 +520,11 @@ export function InsightCard({
             {showOriginal ? t('aiInsights.hideOriginal') : t('aiInsights.showOriginal')}
           </Button>
         )}
+        {helpfulCount > 0 && !pending && (
+          <span data-testid="ai-insight-helpful-count">
+            {t('aiInsights.feedback.helpfulCount', { count: helpfulCount })}
+          </span>
+        )}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {onFollowUp != null && !pending && (
             <Button
@@ -454,43 +553,50 @@ export function InsightCard({
               {t('aiInsights.dismiss')}
             </Button>
           )}
-          {canWrite &&
-            !pending &&
-            !brief &&
-            (feedbackSent ? (
-              <span>{t('aiInsights.feedbackThanks')}</span>
-            ) : (
-              <>
-                <Tooltip content={t('aiInsights.helpful')}>
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="outline"
-                    aria-label={t('aiInsights.helpful')}
-                    disabled={busy}
-                    onClick={() => {
-                      feedbackOf(true);
-                    }}
-                  >
-                    <ThumbsUp className="h-4 w-4" />
-                  </Button>
-                </Tooltip>
-                <Tooltip content={t('aiInsights.wrong')}>
-                  <Button
-                    type="button"
-                    size="icon-sm"
-                    variant="outline"
-                    aria-label={t('aiInsights.wrong')}
-                    disabled={busy}
-                    onClick={() => {
-                      feedbackOf(false);
-                    }}
-                  >
-                    <ThumbsDown className="h-4 w-4" />
-                  </Button>
-                </Tooltip>
-              </>
-            ))}
+          {canWrite && !pending && !brief && (
+            <>
+              <Tooltip
+                content={
+                  mine === true ? t('aiInsights.feedback.removeVote') : t('aiInsights.helpful')
+                }
+              >
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant={mine === true ? 'default' : 'outline'}
+                  aria-label={t('aiInsights.helpful')}
+                  aria-pressed={mine === true}
+                  disabled={busy}
+                  data-testid="ai-insight-helpful"
+                  onClick={() => {
+                    vote(true);
+                  }}
+                >
+                  <ThumbsUp className="h-4 w-4" />
+                </Button>
+              </Tooltip>
+              <Tooltip
+                content={
+                  mine === false ? t('aiInsights.feedback.removeVote') : t('aiInsights.wrong')
+                }
+              >
+                <Button
+                  type="button"
+                  size="icon-sm"
+                  variant={mine === false ? 'default' : 'outline'}
+                  aria-label={t('aiInsights.wrong')}
+                  aria-pressed={mine === false}
+                  disabled={busy}
+                  data-testid="ai-insight-wrong"
+                  onClick={() => {
+                    vote(false);
+                  }}
+                >
+                  <ThumbsDown className="h-4 w-4" />
+                </Button>
+              </Tooltip>
+            </>
+          )}
         </div>
       </div>
     </Card>

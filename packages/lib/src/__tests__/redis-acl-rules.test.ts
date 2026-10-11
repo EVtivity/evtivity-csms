@@ -149,6 +149,19 @@ describe('docker/redis/acl-rules.conf', () => {
     expect(user('ocpi').channels).not.toContain('ai_insight_requests');
   });
 
+  it('TC-CFG-07 grants the driver AI request channel to api, ocpp and worker only', () => {
+    // DRIVER_AI_REQUESTS_CHANNEL in @evtivity/lib/driver-ai, published by the
+    // API and read by the worker bridge to the driver-ai queue.
+    expect(LIB_CHANNEL_CONSTANTS.get('DRIVER_AI_REQUESTS_CHANNEL')).toBe('driver_ai_requests');
+    expect(channelsUsedBy('lib').has('driver_ai_requests')).toBe(true);
+    for (const name of ['api', 'ocpp', 'worker']) {
+      expect(user(name).channels, name).toContain('driver_ai_requests');
+    }
+    for (const name of ['ocpi', 'css']) {
+      expect(user(name).channels, name).not.toContain('driver_ai_requests');
+    }
+  });
+
   it('grants each process its keys and nothing outside them', () => {
     const watchKey = /PROCESS_VERSION_WATCH_KEY = '([^']+)'/.exec(
       readFileSync(join(ROOT, 'packages/database/src/lib/process-versions.ts'), 'utf8'),

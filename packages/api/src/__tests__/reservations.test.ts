@@ -129,29 +129,9 @@ vi.mock('drizzle-orm', () => ({
   isNull: vi.fn(),
 }));
 
-// PubSub mock
-let mockSubscribeCallback: ((raw: string) => void) | null = null;
-const mockUnsubscribe = vi.fn().mockResolvedValue(undefined);
-// Answers the station's reply once the route has published its OCPP command,
-// so the reply never arrives before the command under load.
-let commandPublishedHandler: (() => void) | null = null;
-function afterCommandPublished(handler: () => void): void {
-  commandPublishedHandler = handler;
-}
-const mockPublish = vi.fn((channel: string, _message: string) => {
-  if (channel === 'ocpp_commands' && commandPublishedHandler != null) {
-    const handler = commandPublishedHandler;
-    commandPublishedHandler = null;
-    setImmediate(handler);
-  }
-  return Promise.resolve(undefined);
-});
-const mockSubscribe = vi
-  .fn()
-  .mockImplementation(async (_channel: string, cb: (raw: string) => void) => {
-    mockSubscribeCallback = cb;
-    return { unsubscribe: mockUnsubscribe };
-  });
+// PubSub mock: commands the routes publish land here.
+const mockPublish = vi.fn((_channel: string, _message: string) => Promise.resolve(undefined));
+const mockSubscribe = vi.fn().mockResolvedValue({ unsubscribe: vi.fn() });
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({
@@ -189,13 +169,44 @@ vi.mock('@evtivity/services/template-dirs', () => ({
   ALL_TEMPLATES_DIRS: [],
 }));
 
+// The station side of the reservation service runs for real (dispatch and
+// cancel order, rollback reasons); its database-heavy creates and edits, the
+// OCPP round trip, the guarded cancel and the driver notices are mocked.
+const mockSendCommand = vi.fn();
+vi.mock('@evtivity/services/ocpp-command', () => ({
+  sendOcppCommandAndWait: (...args: unknown[]) => mockSendCommand(...args),
+}));
+const mockApplyCancellation = vi.fn();
+vi.mock('@evtivity/services/reservation-cancel', () => ({
+  applyReservationCancellation: (...args: unknown[]) => mockApplyCancellation(...args),
+}));
+const mockNotify = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/services/reservation-notify', () => ({
+  notifyReservationDriver: (...args: unknown[]) => mockNotify(...args),
+  cancelReasonNoticeFlags: (reason: string) =>
+    reason === 'station_no_response' ? { stationNoResponse: true } : {},
+}));
+const mockCreateReservation = vi.fn();
+const mockUpdateReservation = vi.fn();
+const mockReassignReservation = vi.fn();
+vi.mock('@evtivity/services/reservation.service', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@evtivity/services/reservation.service')>();
+  return {
+    ...actual,
+    createReservation: (...args: unknown[]) => mockCreateReservation(...args),
+    updateReservation: (...args: unknown[]) => mockUpdateReservation(...args),
+    reassignReservation: (...args: unknown[]) => mockReassignReservation(...args),
+  };
+});
+
 import { registerAuth } from '../plugins/auth.js';
 import { reservationRoutes } from '../routes/reservations.js';
+import { AppError } from '@evtivity/lib';
+import { MaintenanceConflictError } from '@evtivity/services/maintenance-check';
 import {
-  db,
   getReservationSettings,
   resolveReservationFeeTerms,
-  snapshotReservationFeeTerms,
+  writeReservationAudit,
 } from '@evtivity/database';
 
 const VALID_RESERVATION_ID = 'rsv_000000000001';
@@ -204,6 +215,14 @@ const VALID_STATION_ID = 'sta_000000000001';
 
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
+  // The API error handler: an AppError answers its status and code.
+  app.setErrorHandler((error: unknown, _request, reply) => {
+    if (error instanceof AppError) {
+      void reply.status(error.statusCode).send({ error: error.message, code: error.code });
+      return;
+    }
+    void reply.status(500).send({ error: 'Internal server error', code: 'INTERNAL_ERROR' });
+  });
   await registerAuth(app);
   await app.register(reservationRoutes);
   await app.ready();
@@ -262,12 +281,25 @@ describe('Reservation routes', () => {
 
   beforeEach(() => {
     setupDbResults();
-    mockSubscribeCallback = null;
-    commandPublishedHandler = null;
-    mockPublish.mockClear();
+    mockPublish.mockReset();
+    mockPublish.mockResolvedValue(undefined);
     mockSubscribe.mockClear();
-    mockUnsubscribe.mockClear();
     mockChargeReservationCancellationFee.mockClear();
+    mockSendCommand.mockReset();
+    mockSendCommand.mockResolvedValue({ commandId: 'c1', response: { status: 'Accepted' } });
+    mockApplyCancellation.mockReset();
+    mockApplyCancellation.mockResolvedValue({
+      feeChargedCents: 0,
+      cancelled: true,
+      feeChargeFailed: false,
+      feeCurrency: null,
+      statusBefore: 'active',
+    });
+    mockNotify.mockClear();
+    mockCreateReservation.mockReset();
+    mockUpdateReservation.mockReset();
+    mockReassignReservation.mockReset();
+    vi.mocked(writeReservationAudit).mockClear();
     mockChargeReservationCancellationFee.mockResolvedValue({
       status: 'skipped',
       reason: 'no_payment_method',
@@ -470,608 +502,244 @@ describe('Reservation routes', () => {
   // POST /v1/reservations
   // ------------------------------------------------------------------
   describe('POST /v1/reservations', () => {
-    const validBody = {
+    const validBody = { stationId: 'CS-001', expiresAt: '2030-01-01T00:00:00Z' };
+    const stationRow = {
+      id: VALID_STATION_ID,
       stationId: 'CS-001',
-      expiresAt: '2030-01-01T00:00:00Z',
+      siteId: 'sit_000000000001',
+      isOnline: true,
+      reservationsEnabled: true,
+      disabledReason: null,
+      firmwareState: null,
+      reportedStatus: null,
     };
+    const createdRow = (overrides: Record<string, unknown> = {}) => ({
+      id: VALID_RESERVATION_ID,
+      reservationId: 7,
+      stationId: VALID_STATION_ID,
+      evseId: null,
+      driverId: VALID_DRIVER_ID,
+      tokenId: null,
+      status: 'active',
+      startsAt: null,
+      expiresAt: new Date('2030-01-01T00:00:00Z'),
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+      ...overrides,
+    });
 
-    function triggerAcceptedResponse() {
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                response: { status: 'Accepted' },
-              }),
-            );
-          }
-        }
+    function post(payload: Record<string, unknown> = validBody) {
+      return app.inject({
+        method: 'POST',
+        url: '/reservations',
+        payload,
+        headers: { authorization: `Bearer ${token}` },
       });
     }
 
+    function commandsPublished(): Array<{ action: string; payload: Record<string, unknown> }> {
+      return mockPublish.mock.calls
+        .filter((c) => c[0] === 'ocpp_commands')
+        .map((c) => JSON.parse(c[1]) as { action: string; payload: Record<string, unknown> });
+    }
+
     it('returns 401 without token', async () => {
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-      });
+      const res = await app.inject({ method: 'POST', url: '/reservations', payload: validBody });
       expect(res.statusCode).toBe(401);
     });
 
     it('returns 404 when station not found', async () => {
-      // station lookup returns empty
       setupDbResults([]);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
+      const res = await post();
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('STATION_NOT_FOUND');
+      expect(mockCreateReservation).not.toHaveBeenCalled();
     });
 
-    it('returns 400 when station is offline', async () => {
-      // station lookup returns offline station
-      setupDbResults([{ id: VALID_STATION_ID, isOnline: false }]);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('STATION_OFFLINE');
+    it('returns 404 when the station is on a site the user cannot access', async () => {
+      const { getUserSiteIds } = await import('../lib/site-access.js');
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_other']);
+      setupDbResults([stationRow]);
+      const res = await post();
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('STATION_NOT_FOUND');
+      expect(mockCreateReservation).not.toHaveBeenCalled();
     });
 
-    it('returns 400 RESERVATION_WINDOW_TOO_SHORT when expiresAt < startsAt + 60s', async () => {
-      setupDbResults([
-        { id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null },
-      ]);
-      const startsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000 + 30_000).toISOString();
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: { stationId: 'CS-001', startsAt, expiresAt },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('RESERVATION_WINDOW_TOO_SHORT');
-    });
-
-    it('returns 400 RESERVATION_EXPIRES_TOO_SOON when expiresAt is within 60s of now', async () => {
-      setupDbResults([
-        { id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null },
-      ]);
-      // Use startsAt 30s in the past (within the 60s STARTS_IN_PAST slack)
-      // so window math passes and STARTS_IN_PAST does NOT fire, but
-      // expiresAt is also within 60s of NOW so EXPIRES_TOO_SOON fires.
-      const startsAt = new Date(Date.now() - 30_000).toISOString();
-      const expiresAt = new Date(Date.now() + 30_000).toISOString();
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: { stationId: 'CS-001', startsAt, expiresAt },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('RESERVATION_EXPIRES_TOO_SOON');
-    });
-
-    it('returns 400 DRIVER_NOT_FOUND when provided driverId does not exist', async () => {
-      // Station -> active session check (empty) -> conflict (no conflicts) -> driver lookup (empty)
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-        [],
-      );
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: { ...validBody, driverId: VALID_DRIVER_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('DRIVER_NOT_FOUND');
-    });
-
-    it('returns 400 PAYMENT_METHOD_REQUIRED when driver has no default payment method', async () => {
-      // Station -> active session check (empty) -> conflict -> driver exists -> PM lookup (empty)
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-        [{ id: VALID_DRIVER_ID }],
-        [],
-      );
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: { ...validBody, driverId: VALID_DRIVER_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('PAYMENT_METHOD_REQUIRED');
-    });
-
-    it('returns 500 when reservation insert returns null', async () => {
-      // DB call 1: station lookup (online)
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: insert returning empty (null reservation)
-      // getNextReservationId uses db.execute (sequence)
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [],
-      );
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(500);
-      expect(res.json().code).toBe('RESERVATION_CREATE_FAILED');
-    });
-
-    it('returns 200 on success with Accepted station response', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      // DB call 1: station lookup
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: getNextReservationId
-      // DB call 5: insert returning reservation
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [reservation],
-      );
-
-      triggerAcceptedResponse();
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
+    it('creates through the service as the operator and answers the accepted row', async () => {
+      setupDbResults([stationRow]);
+      mockCreateReservation.mockResolvedValueOnce(createdRow());
+      const res = await post({
+        ...validBody,
+        evseId: 2,
+        driverId: VALID_DRIVER_ID,
+        tokenId: 'dtk_000000000001',
+        startsAt: '2029-12-31T23:00:00Z',
       });
       expect(res.statusCode).toBe(200);
       expect(res.json().id).toBe(VALID_RESERVATION_ID);
-      expect(mockPublish).toHaveBeenCalled();
-      expect(mockSubscribe).toHaveBeenCalled();
-    });
-
-    it('returns 200 with evseId in payload', async () => {
-      const VALID_EVSE_ID = 'evs_000000000001';
-      const reservation = makeReservation({ reservationId: 6 });
-      // DB call 1: station lookup
-      // DB call 2: evse resolution
-      // DB call 3: active session check (no active session)
-      // DB call 4: conflict check (no conflicts)
-      // DB call 5: getNextReservationId
-      // DB call 6: insert returning reservation
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [{ id: VALID_EVSE_ID }],
-        [],
-        [],
-
-        [reservation],
-      );
-
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                response: { status: 'Accepted' },
-              }),
-            );
-          }
-        }
-      });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: { ...validBody, evseId: 1 },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-    });
-
-    it('returns 200 with driverId in payload', async () => {
-      const reservation = makeReservation({ reservationId: 6, driverId: VALID_DRIVER_ID });
-      // DB call 1: station lookup
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: driver existence check (driverId provided)
-      // DB call 5: default payment method check (driverId provided)
-      // (db.execute for getNextReservationId is mocked separately, not in this chain)
-      // DB call 6: insert returning reservation
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-        [{ id: VALID_DRIVER_ID }],
-        [{ id: 1, isDefault: true }],
-        [reservation],
-      );
-
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                response: { status: 'Accepted' },
-              }),
-            );
-          }
-        }
-      });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: { ...validBody, driverId: VALID_DRIVER_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-      // TC-T3-24: the fee terms the driver resolves now are stored on the row,
-      // so a later tariff or setting edit does not change the fees.
-      expect(snapshotReservationFeeTerms).toHaveBeenCalledWith({
-        stationUuid: VALID_STATION_ID,
-        driverUuid: VALID_DRIVER_ID,
-      });
-      const insertChain = vi
-        .mocked(db.insert)
-        .mock.results.map((r) => r.value as { values: ReturnType<typeof vi.fn> })
-        .find((c) => c.values.mock.calls.length > 0);
-      expect(insertChain?.values).toHaveBeenCalledWith(
+      expect(mockCreateReservation).toHaveBeenCalledWith(
         expect.objectContaining({
+          station: stationRow,
+          evseOcppId: 2,
           driverId: VALID_DRIVER_ID,
-          feeTaxBasis: 'gross',
-          feeTaxRate: '0.19',
-          feePerMinute: '0.10',
-          feeCancellationCents: 300,
+          tokenId: 'dtk_000000000001',
+          startsAt: new Date('2029-12-31T23:00:00Z'),
+          expiresAt: new Date('2030-01-01T00:00:00Z'),
+          actor: { kind: 'operator', userId: 'test-id' },
+        }),
+      );
+      // The route builds no ReserveNow payload: the service sends it.
+      expect(mockSendCommand).toHaveBeenCalledWith(
+        'CS-001',
+        'ReserveNow',
+        expect.objectContaining({ id: 7, idToken: { idToken: VALID_DRIVER_ID, type: 'Central' } }),
+      );
+      expect(mockNotify).toHaveBeenCalledWith(
+        'reservation.Created',
+        expect.objectContaining({ reservationOcppId: 7, stationOcppId: 'CS-001' }),
+        {},
+        expect.anything(),
+      );
+    });
+
+    it('answers a scheduled row without waiting for the station', async () => {
+      setupDbResults([stationRow]);
+      mockCreateReservation.mockResolvedValueOnce(
+        createdRow({ status: 'scheduled', startsAt: new Date(Date.now() + 3_600_000) }),
+      );
+      const res = await post();
+      expect(res.statusCode).toBe(200);
+      expect(res.json().status).toBe('scheduled');
+      expect(mockSendCommand).not.toHaveBeenCalled();
+      expect(mockPublish).toHaveBeenCalledWith('reservation_schedule', expect.any(String));
+    });
+
+    it('passes service errors through with their status and code', async () => {
+      setupDbResults([stationRow]);
+      mockCreateReservation.mockRejectedValueOnce(
+        new AppError('A reservation already exists', 409, 'RESERVATION_CONFLICT'),
+      );
+      const res = await post();
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('RESERVATION_CONFLICT');
+      expect(mockSendCommand).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 with the maintenance window details on a maintenance conflict', async () => {
+      setupDbResults([stationRow]);
+      mockCreateReservation.mockRejectedValueOnce(
+        new MaintenanceConflictError({
+          id: 'mnt_000000000001',
+          plannedStartAt: new Date('2030-01-01T00:00:00Z'),
+          plannedEndAt: new Date('2030-01-01T01:00:00Z'),
+        } as never),
+      );
+      const res = await post();
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual(
+        expect.objectContaining({
+          code: 'RESERVATION_DURING_MAINTENANCE',
+          maintenanceEventId: 'mnt_000000000001',
         }),
       );
     });
 
-    it('returns 504 on timeout (error contains "No response within")', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      // DB call 1: station lookup
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: getNextReservationId
-      // DB call 5: insert returning reservation
-      // DB call 6: update to cancel after timeout
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [reservation],
-        [],
+    it('returns 400 RESERVATION_REJECTED when the station answers Occupied', async () => {
+      setupDbResults([stationRow]);
+      mockCreateReservation.mockResolvedValueOnce(createdRow());
+      mockSendCommand.mockResolvedValueOnce({ commandId: 'c1', response: { status: 'Occupied' } });
+      const res = await post();
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({
+        error: 'Station rejected reservation: Occupied',
+        code: 'RESERVATION_REJECTED',
+      });
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          actor: 'system',
+          reason: 'station_rejected_occupied',
+          auditAction: 'station_rejected',
+          chargeFee: false,
+        }),
       );
-
-      // Simulate timeout by sending back an error with the timeout message via callback
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                error: 'No response within 35s',
-              }),
-            );
-          }
-        }
-      });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(504);
-      expect(res.json().code).toBe('RESERVATION_TIMEOUT');
+      // The station answered: no CancelReservation follows.
+      expect(commandsPublished()).toEqual([]);
     });
 
-    it('returns 502 on OCPP error response', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      // DB call 1: station lookup
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: getNextReservationId
-      // DB call 5: insert returning reservation
-      // DB call 6: update to cancel after error
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
+    it('TC-RES-04: a ReserveNow timeout cancels in the database, then publishes CancelReservation', async () => {
+      setupDbResults([stationRow]);
+      mockCreateReservation.mockResolvedValueOnce(createdRow());
+      const order: string[] = [];
+      mockSendCommand.mockResolvedValueOnce({ commandId: 'c1', error: 'No response within 35s' });
+      mockApplyCancellation.mockImplementationOnce(() => {
+        order.push('cancel');
+        return Promise.resolve({
+          feeChargedCents: 0,
+          cancelled: true,
+          feeChargeFailed: false,
+          feeCurrency: null,
+          statusBefore: 'active',
+        });
+      });
+      mockPublish.mockImplementation((channel: string) => {
+        if (channel === 'ocpp_commands') order.push('publish');
+        return Promise.resolve(undefined);
+      });
 
-        [reservation],
-        [],
+      const res = await post();
+
+      expect(res.statusCode).toBe(504);
+      expect(res.json()).toEqual({ error: 'No response within 35s', code: 'RESERVATION_TIMEOUT' });
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reservationDbId: VALID_RESERVATION_ID,
+          actor: 'system',
+          reason: 'station_no_response',
+          auditAction: 'station_rejected',
+          chargeFee: false,
+        }),
       );
+      expect(commandsPublished()).toEqual([
+        expect.objectContaining({ action: 'CancelReservation', payload: { reservationId: 7 } }),
+      ]);
+      expect(order).toEqual(['cancel', 'publish']);
+      expect(mockNotify).toHaveBeenCalledWith(
+        'reservation.Cancelled',
+        expect.objectContaining({ reservationOcppId: 7 }),
+        expect.objectContaining({ stationNoResponse: true }),
+        expect.anything(),
+      );
+    });
 
-      // Simulate an error from OCPP
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                error: 'Station unreachable',
-              }),
-            );
-          }
-        }
+    it('returns 502 RESERVATION_REJECTED when the command cannot be sent', async () => {
+      setupDbResults([stationRow]);
+      mockCreateReservation.mockResolvedValueOnce(createdRow());
+      mockSendCommand.mockResolvedValueOnce({
+        commandId: 'c1',
+        error: 'Internal error sending command',
       });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
+      const res = await post();
       expect(res.statusCode).toBe(502);
       expect(res.json().code).toBe('RESERVATION_REJECTED');
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'station_no_response' }),
+      );
     });
 
-    it('returns 400 when station rejects reservation (non-Accepted status)', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      // DB call 1: station lookup
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: getNextReservationId
-      // DB call 5: insert returning reservation
-      // DB call 6: update to cancel after rejection
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [reservation],
-        [],
-      );
-
-      // Simulate station response with Rejected status
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                response: { status: 'Rejected' },
-              }),
-            );
-          }
-        }
+    it('does not notify when another path already cancelled the failed reservation', async () => {
+      setupDbResults([stationRow]);
+      mockCreateReservation.mockResolvedValueOnce(createdRow());
+      mockSendCommand.mockResolvedValueOnce({ commandId: 'c1', response: { status: 'Rejected' } });
+      mockApplyCancellation.mockResolvedValueOnce({
+        feeChargedCents: 0,
+        cancelled: false,
+        feeChargeFailed: false,
+        feeCurrency: null,
+        statusBefore: null,
       });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
+      const res = await post();
       expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('RESERVATION_REJECTED');
-      expect(res.json().error).toContain('Rejected');
-    });
-
-    it('returns 409 when conflicting active reservation exists', async () => {
-      // DB call 1: station lookup
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (returns existing reservation)
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [{ id: VALID_RESERVATION_ID }],
-      );
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(409);
-      expect(res.json().code).toBe('RESERVATION_CONFLICT');
-    });
-
-    it('returns 404 when evseId not found', async () => {
-      // DB call 1: station lookup
-      // DB call 2: evse resolution (not found)
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-      );
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: { ...validBody, evseId: 99 },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe('EVSE_NOT_FOUND');
-    });
-
-    it('uses sequence for reservation ID allocation', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      // DB call 1: station lookup
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: insert returning reservation
-      // getNextReservationId uses db.execute (sequence, returns 6)
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-        [reservation],
-      );
-
-      triggerAcceptedResponse();
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-    });
-
-    // ------------------------------------------------------------------
-    // Reservation eligibility
-    // ------------------------------------------------------------------
-    describe('reservation eligibility', () => {
-      it('returns 403 when system-wide reservation.enabled=false', async () => {
-        // DB call 1: station lookup (online, reservationsEnabled included)
-        // assertReservationsAllowed: getReservationSettings returns disabled — throws immediately, no site DB query
-        setupDbResults([{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true }]);
-        vi.mocked(getReservationSettings).mockResolvedValue({
-          enabled: false,
-          bufferMinutes: 0,
-          cancellationWindowMinutes: 0,
-          cancellationFeeCents: 0,
-          maxHours: 0,
-          activeSessionCheckHours: 3,
-        });
-
-        const res = await app.inject({
-          method: 'POST',
-          url: '/reservations',
-          payload: validBody,
-          headers: { authorization: `Bearer ${token}` },
-        });
-        expect(res.statusCode).toBe(403);
-        expect(res.json().code).toBe('RESERVATION_DISABLED');
-      });
-
-      it('returns 403 when station.reservationsEnabled=false', async () => {
-        // DB call 1: station lookup returns reservationsEnabled=false
-        // assertReservationsAllowed: reads from the station object passed in, throws — no extra DB queries
-        setupDbResults([
-          { id: VALID_STATION_ID, isOnline: true, reservationsEnabled: false, siteId: null },
-        ]);
-
-        const res = await app.inject({
-          method: 'POST',
-          url: '/reservations',
-          payload: validBody,
-          headers: { authorization: `Bearer ${token}` },
-        });
-        expect(res.statusCode).toBe(403);
-        expect(res.json().code).toBe('RESERVATION_DISABLED');
-      });
-
-      it('returns 403 when site.reservationsEnabled=false', async () => {
-        const VALID_SITE_ID = 'sit_000000000001';
-        // DB call 1: station lookup (online, reservationsEnabled=true, siteId set)
-        // DB call 2: assertReservationsAllowed queries the site (disabled)
-        setupDbResults(
-          [
-            {
-              id: VALID_STATION_ID,
-              isOnline: true,
-              reservationsEnabled: true,
-              siteId: VALID_SITE_ID,
-            },
-          ],
-          [{ reservationsEnabled: false }],
-        );
-
-        const res = await app.inject({
-          method: 'POST',
-          url: '/reservations',
-          payload: validBody,
-          headers: { authorization: `Bearer ${token}` },
-        });
-        expect(res.statusCode).toBe(403);
-        expect(res.json().code).toBe('RESERVATION_DISABLED');
-      });
-
-      it.each([
-        { disabledReason: 'operator', firmwareState: null, reportedStatus: null },
-        { disabledReason: null, firmwareState: 'installing', reportedStatus: null },
-        { disabledReason: null, firmwareState: null, reportedStatus: 'faulted' },
-      ])('returns 409 STATION_UNAVAILABLE for a station-level state %o', async (state) => {
-        setupDbResults([
-          {
-            id: VALID_STATION_ID,
-            isOnline: true,
-            reservationsEnabled: true,
-            siteId: null,
-            ...state,
-          },
-        ]);
-
-        const res = await app.inject({
-          method: 'POST',
-          url: '/reservations',
-          payload: validBody,
-          headers: { authorization: `Bearer ${token}` },
-        });
-        expect(res.statusCode).toBe(409);
-        expect(res.json().code).toBe('STATION_UNAVAILABLE');
-      });
-
-      it('allows reservation when all toggles are enabled', async () => {
-        const reservation = makeReservation({ reservationId: 6 });
-        // DB call 1: station lookup (online, reservationsEnabled=true, no siteId)
-        // assertReservationsAllowed: no site DB query (siteId is null)
-        // DB call 2: active session check (no active session)
-        // DB call 3: conflict check (no conflicts)
-        // DB call 4: getNextReservationId
-        // DB call 5: insert returning reservation
-        setupDbResults(
-          [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-          [],
-          [],
-
-          [reservation],
-        );
-
-        triggerAcceptedResponse();
-
-        const res = await app.inject({
-          method: 'POST',
-          url: '/reservations',
-          payload: validBody,
-          headers: { authorization: `Bearer ${token}` },
-        });
-        expect(res.statusCode).toBe(200);
-        expect(res.json().id).toBe(VALID_RESERVATION_ID);
-      });
+      expect(mockNotify).not.toHaveBeenCalled();
     });
   });
 
@@ -1079,6 +747,27 @@ describe('Reservation routes', () => {
   // DELETE /v1/reservations/:id
   // ------------------------------------------------------------------
   describe('DELETE /v1/reservations/:id', () => {
+    const activeRow = (overrides: Record<string, unknown> = {}) => ({
+      id: VALID_RESERVATION_ID,
+      reservationId: 7,
+      status: 'active',
+      stationOcppId: 'CS-001',
+      siteId: null,
+      driverId: VALID_DRIVER_ID,
+      startsAt: null,
+      createdAt: new Date('2024-01-01T00:00:00Z'),
+      ...overrides,
+    });
+
+    function del(payload?: Record<string, unknown>) {
+      return app.inject({
+        method: 'DELETE',
+        url: `/reservations/${VALID_RESERVATION_ID}`,
+        ...(payload != null ? { payload } : {}),
+        headers: { authorization: `Bearer ${token}` },
+      });
+    }
+
     it('returns 401 without token', async () => {
       const res = await app.inject({
         method: 'DELETE',
@@ -1089,530 +778,178 @@ describe('Reservation routes', () => {
 
     it('returns 404 when not found', async () => {
       setupDbResults([]);
-
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        headers: { authorization: `Bearer ${token}` },
-      });
+      const res = await del();
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('RESERVATION_NOT_FOUND');
     });
 
-    it('returns 400 when reservation is not active', async () => {
-      setupDbResults([
-        {
-          id: VALID_RESERVATION_ID,
-          reservationId: 1,
-          status: 'cancelled',
-          stationOcppId: 'CS-001',
-        },
-      ]);
+    it('returns 404 when the site is not accessible', async () => {
+      const { getUserSiteIds } = await import('../lib/site-access.js');
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_other']);
+      setupDbResults([activeRow({ siteId: 'sit_000000000001' })]);
+      const res = await del();
+      expect(res.statusCode).toBe(404);
+      expect(mockApplyCancellation).not.toHaveBeenCalled();
+    });
 
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        headers: { authorization: `Bearer ${token}` },
-      });
+    it('returns 400 when reservation is not active', async () => {
+      setupDbResults([activeRow({ status: 'used' })]);
+      const res = await del();
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('RESERVATION_NOT_ACTIVE');
     });
 
-    it('returns 200 with status cancelled on success', async () => {
-      // DB call 1: reservation lookup
-      // DB call 2: update to cancelled (after sendOcppCommandAndWait)
-      setupDbResults(
-        [{ id: VALID_RESERVATION_ID, reservationId: 1, status: 'active', stationOcppId: 'CS-001' }],
-        [],
-      );
+    it('returns 400 when reason is not a string', async () => {
+      const res = await del({ reason: 42 });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+    });
 
-      // Simulate successful CancelReservation response
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                response: { status: 'Accepted' },
-              }),
-            );
-          }
-        }
+    it('returns 400 when reason exceeds 500 characters', async () => {
+      const res = await del({ reason: 'x'.repeat(501) });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('TC-RES-09: cancels in the database before sending CancelReservation', async () => {
+      setupDbResults([activeRow()]);
+      const order: string[] = [];
+      mockApplyCancellation.mockImplementationOnce(() => {
+        order.push('cancel');
+        return Promise.resolve({
+          feeChargedCents: 0,
+          cancelled: true,
+          feeChargeFailed: false,
+          feeCurrency: null,
+          statusBefore: 'active',
+        });
+      });
+      mockSendCommand.mockImplementationOnce(() => {
+        order.push('CancelReservation');
+        return Promise.resolve({ commandId: 'c1', response: { status: 'Accepted' } });
       });
 
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        headers: { authorization: `Bearer ${token}` },
-      });
+      const res = await del({ chargeCancellationFee: true, reason: 'driver called' });
+
       expect(res.statusCode).toBe(200);
-      expect(res.json().status).toBe('cancelled');
-      expect(res.json().warning).toBeUndefined();
+      expect(res.json()).toEqual({ status: 'cancelled', cancellationFeeChargedCents: 0 });
+      expect(order).toEqual(['cancel', 'CancelReservation']);
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reservationDbId: VALID_RESERVATION_ID,
+          actor: 'operator',
+          actorUserId: 'test-id',
+          reason: 'operator_manual',
+          note: 'driver called',
+          chargeFee: true,
+        }),
+      );
+      expect(mockSendCommand).toHaveBeenCalledWith('CS-001', 'CancelReservation', {
+        reservationId: 7,
+      });
     });
 
-    it('returns 200 with warning when OCPP error occurs', async () => {
-      setupDbResults(
-        [{ id: VALID_RESERVATION_ID, reservationId: 1, status: 'active', stationOcppId: 'CS-001' }],
-        [],
-      );
-
-      // Simulate OCPP error during cancel
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                error: 'Station did not respond',
-              }),
-            );
-          }
-        }
+    it('TC-RES-09: sends no CancelReservation when the winner was scheduled', async () => {
+      setupDbResults([activeRow({ status: 'scheduled' })]);
+      mockApplyCancellation.mockResolvedValueOnce({
+        feeChargedCents: 0,
+        cancelled: true,
+        feeChargeFailed: false,
+        feeCurrency: null,
+        statusBefore: 'scheduled',
       });
-
-      const res = await app.inject({
-        method: 'DELETE',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        headers: { authorization: `Bearer ${token}` },
-      });
+      const res = await del();
       expect(res.statusCode).toBe(200);
-      expect(res.json().status).toBe('cancelled');
-      expect(res.json().warning).toBe('Station did not respond');
+      expect(mockSendCommand).not.toHaveBeenCalled();
     });
 
-    describe('cancellation fee', () => {
-      function triggerCancelAccepted() {
-        afterCommandPublished(() => {
-          if (mockSubscribeCallback != null) {
-            const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-            if (publishCall != null) {
-              const notification = JSON.parse(publishCall[1]);
-              mockSubscribeCallback(
-                JSON.stringify({
-                  commandId: notification.commandId,
-                  response: { status: 'Accepted' },
-                }),
-              );
-            }
-          }
-        });
-      }
-
-      it('charges fee when operator opts in and cancelling within the window', async () => {
-        // startsAt = now + 30 minutes (within a 60-minute window)
-        const startsAt = new Date(Date.now() + 30 * 60 * 1000);
-        setupDbResults(
-          [
-            {
-              id: VALID_RESERVATION_ID,
-              reservationId: 1,
-              status: 'active',
-              stationOcppId: 'CS-001',
-              siteId: null,
-              driverId: VALID_DRIVER_ID,
-              startsAt,
-              createdAt: new Date('2024-01-01T00:00:00Z'),
-            },
-          ],
-          // Helper conditional UPDATE+RETURNING wins the race.
-          [{ id: VALID_RESERVATION_ID }],
-          // Helper post-charge UPDATE writes feeChargedCents back onto the row.
-          [],
-        );
-        vi.mocked(getReservationSettings).mockResolvedValue({
-          enabled: true,
-          bufferMinutes: 0,
-          cancellationWindowMinutes: 60,
-          cancellationFeeCents: 500,
-          maxHours: 0,
-          activeSessionCheckHours: 3,
-        });
-
-        triggerCancelAccepted();
-
-        const res = await app.inject({
-          method: 'DELETE',
-          url: `/reservations/${VALID_RESERVATION_ID}`,
-          headers: { authorization: `Bearer ${token}` },
-          payload: { chargeCancellationFee: true },
-        });
-        expect(res.statusCode).toBe(200);
-        // The fee comes from the reservation's terms (mocked: 300 on the gross
-        // basis at 19 %); chargeReservationFee prices it with the engine.
-        expect(mockChargeReservationCancellationFee).toHaveBeenCalledWith(
-          expect.objectContaining({
-            type: 'reservation_cancellation',
-            reservationId: VALID_RESERVATION_ID,
-            driverId: VALID_DRIVER_ID,
-            siteId: null,
-            fee: { amountCents: 300 },
-            basis: 'gross',
-            taxRate: '0.19',
-          }),
-          expect.objectContaining({ registry: 'registry' }),
-        );
+    it('TC-RES-09: sends no CancelReservation and no notice when another cancel won', async () => {
+      setupDbResults([activeRow()]);
+      mockApplyCancellation.mockResolvedValueOnce({
+        feeChargedCents: 0,
+        cancelled: false,
+        feeChargeFailed: false,
+        feeCurrency: null,
+        statusBefore: null,
       });
-
-      it('does not charge fee when operator does not opt in (default)', async () => {
-        // Default (no body / no opt-in) should NOT charge even within window
-        const startsAt = new Date(Date.now() + 30 * 60 * 1000);
-        setupDbResults(
-          [
-            {
-              id: VALID_RESERVATION_ID,
-              reservationId: 1,
-              status: 'active',
-              stationOcppId: 'CS-001',
-              siteId: null,
-              driverId: VALID_DRIVER_ID,
-              startsAt,
-              createdAt: new Date('2024-01-01T00:00:00Z'),
-            },
-          ],
-          // Helper conditional UPDATE+RETURNING wins the race.
-          [{ id: VALID_RESERVATION_ID }],
-        );
-        vi.mocked(getReservationSettings).mockResolvedValue({
-          enabled: true,
-          bufferMinutes: 0,
-          cancellationWindowMinutes: 60,
-          cancellationFeeCents: 500,
-          maxHours: 0,
-          activeSessionCheckHours: 3,
-        });
-
-        triggerCancelAccepted();
-
-        const res = await app.inject({
-          method: 'DELETE',
-          url: `/reservations/${VALID_RESERVATION_ID}`,
-          headers: { authorization: `Bearer ${token}` },
-        });
-        expect(res.statusCode).toBe(200);
-        expect(mockChargeReservationCancellationFee).not.toHaveBeenCalled();
-      });
-
-      it('does not charge fee when outside the window even with opt-in', async () => {
-        // startsAt = now + 120 minutes (outside a 60-minute window). Operator
-        // explicitly opts in via chargeCancellationFee=true, so the only thing
-        // stopping the charge is the window-gate inside the helper. Without
-        // the opt-in this test would re-test the default-no-opt-in path
-        // instead of the window math.
-        const startsAt = new Date(Date.now() + 120 * 60 * 1000);
-        setupDbResults(
-          [
-            {
-              id: VALID_RESERVATION_ID,
-              reservationId: 1,
-              status: 'active',
-              stationOcppId: 'CS-001',
-              driverId: VALID_DRIVER_ID,
-              startsAt,
-              createdAt: new Date('2024-01-01T00:00:00Z'),
-            },
-          ],
-          // Helper conditional UPDATE+RETURNING wins the race.
-          [{ id: VALID_RESERVATION_ID }],
-        );
-        vi.mocked(getReservationSettings).mockResolvedValue({
-          enabled: true,
-          bufferMinutes: 0,
-          cancellationWindowMinutes: 60,
-          cancellationFeeCents: 500,
-          maxHours: 0,
-          activeSessionCheckHours: 3,
-        });
-
-        triggerCancelAccepted();
-
-        const res = await app.inject({
-          method: 'DELETE',
-          url: `/reservations/${VALID_RESERVATION_ID}`,
-          headers: { authorization: `Bearer ${token}` },
-          payload: { chargeCancellationFee: true },
-        });
-        expect(res.statusCode).toBe(200);
-        expect(mockChargeReservationCancellationFee).not.toHaveBeenCalled();
-      });
-
-      it('does not charge fee when the reservation cancellation fee is 0 even with opt-in', async () => {
-        vi.mocked(resolveReservationFeeTerms).mockResolvedValueOnce({
-          basis: 'net',
-          taxRate: '0.19',
-          feePerMinute: null,
-          cancellationFeeCents: 0,
-        });
-        // Operator opts in but the configured fee is zero, so no charge fires.
-        // Without the opt-in this test would short-circuit on the no-opt-in
-        // default and never exercise the fee-cents gate.
-        const startsAt = new Date(Date.now() + 30 * 60 * 1000);
-        setupDbResults(
-          [
-            {
-              id: VALID_RESERVATION_ID,
-              reservationId: 1,
-              status: 'active',
-              stationOcppId: 'CS-001',
-              driverId: VALID_DRIVER_ID,
-              startsAt,
-              createdAt: new Date('2024-01-01T00:00:00Z'),
-            },
-          ],
-          // Helper conditional UPDATE+RETURNING wins the race.
-          [{ id: VALID_RESERVATION_ID }],
-        );
-        vi.mocked(getReservationSettings).mockResolvedValue({
-          enabled: true,
-          bufferMinutes: 0,
-          cancellationWindowMinutes: 60,
-          cancellationFeeCents: 0,
-          maxHours: 0,
-          activeSessionCheckHours: 3,
-        });
-
-        triggerCancelAccepted();
-
-        const res = await app.inject({
-          method: 'DELETE',
-          url: `/reservations/${VALID_RESERVATION_ID}`,
-          headers: { authorization: `Bearer ${token}` },
-          payload: { chargeCancellationFee: true },
-        });
-        expect(res.statusCode).toBe(200);
-        expect(mockChargeReservationCancellationFee).not.toHaveBeenCalled();
-      });
-
-      it('proceeds with cancellation even if the fee charge fails', async () => {
-        const startsAt = new Date(Date.now() + 30 * 60 * 1000);
-        setupDbResults(
-          [
-            {
-              id: VALID_RESERVATION_ID,
-              reservationId: 1,
-              status: 'active',
-              stationOcppId: 'CS-001',
-              driverId: VALID_DRIVER_ID,
-              startsAt,
-              createdAt: new Date('2024-01-01T00:00:00Z'),
-            },
-          ],
-          // Helper conditional UPDATE+RETURNING wins the race; the post-charge
-          // UPDATE is skipped because the fee charge throws.
-          [{ id: VALID_RESERVATION_ID }],
-        );
-        vi.mocked(getReservationSettings).mockResolvedValue({
-          enabled: true,
-          bufferMinutes: 0,
-          cancellationWindowMinutes: 60,
-          cancellationFeeCents: 500,
-          maxHours: 0,
-          activeSessionCheckHours: 3,
-        });
-        mockChargeReservationCancellationFee.mockRejectedValueOnce(new Error('card declined'));
-
-        triggerCancelAccepted();
-
-        const res = await app.inject({
-          method: 'DELETE',
-          url: `/reservations/${VALID_RESERVATION_ID}`,
-          headers: { authorization: `Bearer ${token}` },
-          payload: { chargeCancellationFee: true },
-        });
-        // Cancellation proceeds despite fee failure; feeChargeFailed surfaces
-        // so the caller knows to reconcile.
-        expect(res.statusCode).toBe(200);
-        const body = res.json();
-        expect(body.status).toBe('cancelled');
-        expect(body.cancellationFeeChargedCents).toBe(0);
-        expect(body.feeChargeFailed).toBe(true);
-      });
-    });
-  });
-
-  // ------------------------------------------------------------------
-  // sendOcppCommandAndWait internals
-  // ------------------------------------------------------------------
-  describe('sendOcppCommandAndWait edge cases', () => {
-    const validBody = {
-      stationId: 'CS-001',
-      expiresAt: '2030-01-01T00:00:00Z',
-    };
-
-    it('handles subscribe rejection (catch block)', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [reservation],
-        [],
-      );
-
-      // Make subscribe reject to trigger the catch block in sendOcppCommandAndWait
-      mockSubscribe.mockRejectedValueOnce(new Error('PubSub connection failed'));
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
-      // The catch block returns { commandId, error: 'Internal error sending command' }
-      // which has result.error set, so the route cancels the reservation and returns 502
-      expect(res.statusCode).toBe(502);
-      expect(res.json().code).toBe('RESERVATION_REJECTED');
-    });
-
-    it('handles subscribe rejection with non-Error value', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [reservation],
-        [],
-      );
-
-      // Reject with a non-Error value to cover the String(err) branch
-      mockSubscribe.mockRejectedValueOnce('string error');
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(502);
-    });
-
-    it('ignores invalid JSON in subscribe callback', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [reservation],
-        [],
-      );
-
-      // Send invalid JSON first, then a valid response
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          // This should be caught by the try/catch in the callback and ignored
-          mockSubscribeCallback('not valid json {{{');
-
-          // Then send a valid response so the test completes
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                response: { status: 'Accepted' },
-              }),
-            );
-          }
-        }
-      });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
+      const res = await del();
       expect(res.statusCode).toBe(200);
+      expect(mockSendCommand).not.toHaveBeenCalled();
+      expect(mockNotify).not.toHaveBeenCalled();
     });
 
-    it('ignores messages with non-matching commandId', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [reservation],
-        [],
-      );
-
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          // Send a valid JSON but with a different commandId (should be ignored)
-          mockSubscribeCallback(
-            JSON.stringify({
-              commandId: 'wrong-command-id',
-              response: { status: 'Accepted' },
-            }),
-          );
-
-          // Then send the correct one
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                response: { status: 'Accepted' },
-              }),
-            );
-          }
-        }
-      });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
+    it('TC-RES-10: a Rejected CancelReservation audits station_cancel_failed and warns', async () => {
+      setupDbResults([activeRow()]);
+      mockSendCommand.mockResolvedValueOnce({ commandId: 'c1', response: { status: 'Rejected' } });
+      const res = await del();
       expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        status: 'cancelled',
+        cancellationFeeChargedCents: 0,
+        warning: 'station_cancel_failed',
+      });
+      expect(writeReservationAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reservationId: VALID_RESERVATION_ID,
+          action: 'station_cancel_failed',
+          actor: 'system',
+          reason: 'station_rejected',
+        }),
+        undefined,
+        expect.anything(),
+      );
     });
 
-    it('returns Accepted when response status is null (no status field)', async () => {
-      const reservation = makeReservation({ reservationId: 6 });
-      // DB call 1: station lookup
-      // DB call 2: active session check (no active session)
-      // DB call 3: conflict check (no conflicts)
-      // DB call 4: getNextReservationId
-      // DB call 5: insert returning reservation
-      setupDbResults(
-        [{ id: VALID_STATION_ID, isOnline: true, reservationsEnabled: true, siteId: null }],
-        [],
-        [],
-
-        [reservation],
-      );
-
-      // Send a response with no status field -- passes the status check
-      afterCommandPublished(() => {
-        if (mockSubscribeCallback != null) {
-          const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-          if (publishCall != null) {
-            const notification = JSON.parse(publishCall[1]);
-            mockSubscribeCallback(
-              JSON.stringify({
-                commandId: notification.commandId,
-                response: {},
-              }),
-            );
-          }
-        }
-      });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: '/reservations',
-        payload: validBody,
-        headers: { authorization: `Bearer ${token}` },
-      });
+    it('TC-RES-10: a timed-out CancelReservation audits station_cancel_failed and warns', async () => {
+      setupDbResults([activeRow()]);
+      mockSendCommand.mockResolvedValueOnce({ commandId: 'c1', error: 'No response within 35s' });
+      const res = await del();
       expect(res.statusCode).toBe(200);
+      expect(res.json().warning).toBe('station_cancel_failed');
+      expect(writeReservationAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'station_cancel_failed',
+          reason: 'station_no_response',
+          notes: 'No response within 35s',
+        }),
+        undefined,
+        expect.anything(),
+      );
+    });
+
+    it('notifies the driver with the formatted fee and flags a failed charge', async () => {
+      setupDbResults([activeRow()]);
+      mockApplyCancellation.mockResolvedValueOnce({
+        feeChargedCents: 357,
+        cancelled: true,
+        feeChargeFailed: true,
+        feeCurrency: 'EUR',
+        statusBefore: 'active',
+      });
+      const res = await del({ chargeCancellationFee: true });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        status: 'cancelled',
+        cancellationFeeChargedCents: 357,
+        feeChargeFailed: true,
+      });
+      expect(mockApplyCancellation).toHaveBeenCalledWith(
+        expect.objectContaining({ payments: { registry: 'registry', logger: expect.anything() } }),
+      );
+      expect(mockNotify).toHaveBeenCalledWith(
+        'reservation.Cancelled',
+        {
+          reservationDbId: VALID_RESERVATION_ID,
+          reservationOcppId: 7,
+          stationOcppId: 'CS-001',
+          driverId: VALID_DRIVER_ID,
+        },
+        expect.objectContaining({
+          cancellationFeeCents: 357,
+          currency: 'EUR',
+          cancellationFeeFormatted: expect.objectContaining({ cents: 357, currency: 'EUR' }),
+        }),
+        expect.anything(),
+      );
     });
   });
 
@@ -1620,162 +957,96 @@ describe('Reservation routes', () => {
   // PATCH /v1/reservations/:id
   // ------------------------------------------------------------------
   describe('PATCH /v1/reservations/:id', () => {
+    function patch(payload: Record<string, unknown>) {
+      return app.inject({
+        method: 'PATCH',
+        url: `/reservations/${VALID_RESERVATION_ID}`,
+        payload,
+        headers: { authorization: `Bearer ${token}` },
+      });
+    }
+
     it('returns 401 without token', async () => {
       const res = await app.inject({
         method: 'PATCH',
         url: `/reservations/${VALID_RESERVATION_ID}`,
-        payload: { expiresAt: '2031-01-01T00:00:00Z' },
+        payload: {},
       });
       expect(res.statusCode).toBe(401);
     });
 
     it('returns 404 when not found', async () => {
       setupDbResults([]);
-
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        payload: { expiresAt: '2031-01-01T00:00:00Z' },
-        headers: { authorization: `Bearer ${token}` },
-      });
+      const res = await patch({ expiresAt: '2030-01-01T00:00:00Z' });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('RESERVATION_NOT_FOUND');
+      expect(mockUpdateReservation).not.toHaveBeenCalled();
     });
 
-    it('returns 400 when reservation is not active', async () => {
-      setupDbResults([
-        {
-          id: VALID_RESERVATION_ID,
-          stationId: VALID_STATION_ID,
-          evseId: null,
-          status: 'cancelled',
-          expiresAt: new Date('2030-01-01T00:00:00Z'),
-        },
-      ]);
-
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        payload: { expiresAt: '2031-01-01T00:00:00Z' },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('RESERVATION_NOT_ACTIVE');
-    });
-
-    it('returns 200 on success', async () => {
-      const updated = makeReservation({ expiresAt: new Date('2031-01-01T00:00:00Z') });
-      // DB call 1: fetch existing reservation
-      // DB call 2: conflict check (expiresAt changed)
-      // DB call 3: update
-      // DB call 4: re-fetch with joins
-      setupDbResults(
-        [
-          {
-            id: VALID_RESERVATION_ID,
-            stationId: VALID_STATION_ID,
-            evseId: null,
-            status: 'active',
-            expiresAt: new Date('2030-01-01T00:00:00Z'),
-          },
-        ],
-        [],
-        [],
-        [updated],
-      );
-
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        payload: { expiresAt: '2031-01-01T00:00:00Z' },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().id).toBe(VALID_RESERVATION_ID);
-    });
-
-    it('returns 409 on conflict', async () => {
-      // DB call 1: fetch existing reservation
-      // DB call 2: conflict check (returns conflict)
-      setupDbResults(
-        [
-          {
-            id: VALID_RESERVATION_ID,
-            stationId: VALID_STATION_ID,
-            evseId: null,
-            status: 'active',
-            expiresAt: new Date('2030-01-01T00:00:00Z'),
-          },
-        ],
-        [{ id: 'rsv_000000000002' }],
-      );
-
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        payload: { expiresAt: '2031-01-01T00:00:00Z' },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(409);
-      expect(res.json().code).toBe('RESERVATION_CONFLICT');
-    });
-
-    it('returns 404 when evseId not found', async () => {
-      // DB call 1: fetch existing reservation
-      // DB call 2: evse resolution (not found)
-      setupDbResults(
-        [
-          {
-            id: VALID_RESERVATION_ID,
-            stationId: VALID_STATION_ID,
-            evseId: null,
-            status: 'active',
-            expiresAt: new Date('2030-01-01T00:00:00Z'),
-          },
-        ],
-        [],
-      );
-
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        payload: { evseId: 99 },
-        headers: { authorization: `Bearer ${token}` },
-      });
+    it('returns 404 when the station site is not accessible', async () => {
+      const { getUserSiteIds } = await import('../lib/site-access.js');
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_other']);
+      setupDbResults([{ id: VALID_RESERVATION_ID, siteId: 'sit_000000000001' }]);
+      const res = await patch({ expiresAt: '2030-01-01T00:00:00Z' });
       expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe('EVSE_NOT_FOUND');
+      expect(mockUpdateReservation).not.toHaveBeenCalled();
     });
 
-    it('includes evseOcppId in update response', async () => {
-      const updated = makeReservation({ evseOcppId: 3 });
-      // DB call 1: fetch existing reservation
-      // DB call 2: conflict check (expiresAt changed)
-      // DB call 3: update
-      // DB call 4: re-fetch with joins
+    it('TC-RES-18: edits through the service and answers the re-fetched detail', async () => {
       setupDbResults(
-        [
-          {
-            id: VALID_RESERVATION_ID,
-            stationId: VALID_STATION_ID,
-            evseId: null,
-            status: 'active',
-            expiresAt: new Date('2030-01-01T00:00:00Z'),
-          },
-        ],
-        [],
-        [],
-        [updated],
+        [{ id: VALID_RESERVATION_ID, siteId: null }],
+        [makeReservation({ evseOcppId: 2, driverId: VALID_DRIVER_ID })],
       );
-
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/reservations/${VALID_RESERVATION_ID}`,
-        payload: { expiresAt: '2031-01-01T00:00:00Z' },
-        headers: { authorization: `Bearer ${token}` },
+      mockUpdateReservation.mockResolvedValueOnce({});
+      const res = await patch({
+        driverId: VALID_DRIVER_ID,
+        evseId: 2,
+        expiresAt: '2030-01-01T00:00:00Z',
+        tokenId: null,
       });
       expect(res.statusCode).toBe(200);
-      const body = res.json();
-      expect(body.evseOcppId).toBe(3);
+      expect(res.json().evseOcppId).toBe(2);
+      expect(mockUpdateReservation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reservationDbId: VALID_RESERVATION_ID,
+          changes: {
+            driverId: VALID_DRIVER_ID,
+            evseOcppId: 2,
+            expiresAt: new Date('2030-01-01T00:00:00Z'),
+            tokenId: null,
+          },
+          actor: { kind: 'operator', userId: 'test-id' },
+        }),
+      );
+    });
+
+    it('TC-RES-18: leaves unsent fields undefined so the service keeps them', async () => {
+      setupDbResults([{ id: VALID_RESERVATION_ID, siteId: null }], [makeReservation()]);
+      mockUpdateReservation.mockResolvedValueOnce({});
+      await patch({ expiresAt: '2030-01-01T00:00:00Z' });
+      const changes = (mockUpdateReservation.mock.calls[0]?.[0] as { changes: object }).changes;
+      expect(changes).toEqual({
+        driverId: undefined,
+        evseOcppId: undefined,
+        expiresAt: new Date('2030-01-01T00:00:00Z'),
+        tokenId: undefined,
+      });
+    });
+
+    it.each([
+      [409, 'RESERVATION_CONFLICT'],
+      [409, 'RESERVATION_NOT_ACTIVE'],
+      [400, 'RESERVATION_NOT_ACTIVE'],
+      [400, 'RESERVATION_TOO_LONG'],
+      [502, 'RESERVATION_REJECTED'],
+      [504, 'RESERVATION_TIMEOUT'],
+      [404, 'EVSE_NOT_FOUND'],
+    ])('TC-RES-18: answers %i %s from the service', async (status, code) => {
+      setupDbResults([{ id: VALID_RESERVATION_ID, siteId: null }]);
+      mockUpdateReservation.mockRejectedValueOnce(new AppError('refused', status, code));
+      const res = await patch({ expiresAt: '2030-01-01T00:00:00Z' });
+      expect(res.statusCode).toBe(status);
+      expect(res.json()).toEqual({ error: 'refused', code });
     });
   });
 
@@ -1783,247 +1054,117 @@ describe('Reservation routes', () => {
   // POST /v1/reservations/:id/reassign
   // ------------------------------------------------------------------
   describe('POST /v1/reservations/:id/reassign', () => {
-    const STATION_B_ID = 'sta_000000000002';
-    const STATION_B_OCPP_ID = 'STATION-B';
-    const EVSE_UUID = 'evs_000000000001';
+    const newStationRow = {
+      id: 'sta_000000000002',
+      stationId: 'STATION-B',
+      siteId: null,
+      isOnline: true,
+      reservationsEnabled: true,
+      disabledReason: null,
+      firmwareState: null,
+      reportedStatus: null,
+    };
 
-    // Seed data helpers
-    function makeActiveReservationRow(overrides: Record<string, unknown> = {}) {
-      return {
-        id: VALID_RESERVATION_ID,
-        reservationId: 7,
-        stationId: VALID_STATION_ID,
-        stationOcppId: 'CS-001',
-        siteId: null,
-        evseId: null,
-        driverId: null,
-        expiresAt: new Date('2030-01-01T00:00:00Z'),
-        status: 'active',
-        ...overrides,
-      };
+    function reassign(payload: Record<string, unknown> = { newStationOcppId: 'STATION-B' }) {
+      return app.inject({
+        method: 'POST',
+        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
+        payload,
+        headers: { authorization: `Bearer ${token}` },
+      });
     }
-
-    function makeStationBRow(overrides: Record<string, unknown> = {}) {
-      return {
-        id: STATION_B_ID,
-        siteId: null,
-        isOnline: true,
-        reservationsEnabled: true,
-        ...overrides,
-      };
-    }
-
-    // Trigger a response for both OCPP commands (ReserveNow first, then CancelReservation).
-    // The mock captures the latest subscribe callback. Each sendOcppCommandAndWait
-    // call subscribes, publishes, and then awaits the callback. We need to drive
-    // each command's callback independently by matching commandIds in the
-    // publish calls list.
-    function triggerTwoOcppResponses(
-      reserveNowStatus: string,
-      cancelResponse: Record<string, unknown> | null,
-    ) {
-      // Drive the two commands sequentially. Each command subscribes and then
-      // publishes. We respond to them one at a time as publish calls accumulate.
-      let driven = 0;
-      const interval = setInterval(() => {
-        const commandCalls = mockPublish.mock.calls.filter((c) => c[0] === 'ocpp_commands');
-        if (driven === 0 && commandCalls.length >= 1) {
-          // Respond to ReserveNow (first ocpp_commands publish)
-          if (mockSubscribeCallback != null) {
-            const notification = JSON.parse(commandCalls[0]![1]);
-            if (reserveNowStatus !== 'error') {
-              mockSubscribeCallback(
-                JSON.stringify({
-                  commandId: notification.commandId,
-                  response: { status: reserveNowStatus },
-                }),
-              );
-            } else {
-              // Simulate error (best-effort test)
-              mockSubscribeCallback(
-                JSON.stringify({
-                  commandId: notification.commandId,
-                  error: 'Station unreachable',
-                }),
-              );
-            }
-            driven = 1;
-          }
-        } else if (driven === 1 && commandCalls.length >= 2) {
-          // Respond to CancelReservation (second ocpp_commands publish, best effort)
-          if (mockSubscribeCallback != null) {
-            const notification = JSON.parse(commandCalls[1]![1]);
-            if (cancelResponse != null) {
-              mockSubscribeCallback(
-                JSON.stringify({ commandId: notification.commandId, response: cancelResponse }),
-              );
-            } else {
-              mockSubscribeCallback(
-                JSON.stringify({
-                  commandId: notification.commandId,
-                  error: 'Station unreachable',
-                }),
-              );
-            }
-            driven = 2;
-            clearInterval(interval);
-          }
-        }
-      }, 5);
-    }
-
-    it('moves reservation to a new station', async () => {
-      // DB call 1: fetch reservation (with joined stationOcppId)
-      // DB call 2: new station lookup
-      // DB call 3: update reservation stationId
-      setupDbResults([makeActiveReservationRow()], [makeStationBRow()], []);
-
-      triggerTwoOcppResponses('Accepted', { status: 'Accepted' });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-      const body = res.json();
-      expect(body.status).toBe('reassigned');
-      expect(body.newStationOcppId).toBe(STATION_B_OCPP_ID);
-    });
-
-    it('moves reservation to a new station with evseId', async () => {
-      // DB call 1: fetch reservation
-      // DB call 2: new station lookup
-      // DB call 3: evse resolution
-      // DB call 4: update reservation
-      setupDbResults([makeActiveReservationRow()], [makeStationBRow()], [{ id: EVSE_UUID }], []);
-
-      triggerTwoOcppResponses('Accepted', { status: 'Accepted' });
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID, newEvseId: 1 },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().status).toBe('reassigned');
-    });
-
-    it('returns 400 when reservation is not active', async () => {
-      setupDbResults([makeActiveReservationRow({ status: 'used' })]);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('RESERVATION_NOT_ACTIVE');
-    });
-
-    it('returns 404 when reservation is not found', async () => {
-      setupDbResults([]);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe('RESERVATION_NOT_FOUND');
-    });
-
-    it('returns 404 when new station does not exist', async () => {
-      setupDbResults([makeActiveReservationRow()], []);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: 'NONEXISTENT' },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe('STATION_NOT_FOUND');
-    });
-
-    it('returns 400 when new station is offline', async () => {
-      setupDbResults([makeActiveReservationRow()], [makeStationBRow({ isOnline: false })]);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('STATION_OFFLINE');
-    });
-
-    it('returns 400 when new station rejects ReserveNow', async () => {
-      // DB call 1: fetch reservation
-      // DB call 2: new station lookup
-      // No DB call 3 (update should NOT happen on rejection)
-      setupDbResults([makeActiveReservationRow()], [makeStationBRow()]);
-
-      // ReserveNow is sent first; if rejected, CancelReservation is never sent
-      triggerTwoOcppResponses('Rejected', null);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(400);
-      expect(res.json().code).toBe('RESERVATION_REJECTED');
-    });
-
-    it('proceeds with reassignment even when CancelReservation to old station fails', async () => {
-      // DB call 1: fetch reservation
-      // DB call 2: new station lookup
-      // DB call 3: update reservation (should still happen)
-      setupDbResults([makeActiveReservationRow()], [makeStationBRow()], []);
-
-      // ReserveNow succeeds, CancelReservation fails (best effort, should not block)
-      triggerTwoOcppResponses('Accepted', null);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(200);
-      expect(res.json().status).toBe('reassigned');
-    });
-
-    it('returns 404 when newEvseId does not exist on new station', async () => {
-      // DB call 1: fetch reservation
-      // DB call 2: new station lookup
-      // DB call 3: evse resolution (empty = not found)
-      setupDbResults([makeActiveReservationRow()], [makeStationBRow()], []);
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID, newEvseId: 999 },
-        headers: { authorization: `Bearer ${token}` },
-      });
-      expect(res.statusCode).toBe(404);
-      expect(res.json().code).toBe('EVSE_NOT_FOUND');
-    });
 
     it('returns 401 without token', async () => {
       const res = await app.inject({
         method: 'POST',
         url: `/reservations/${VALID_RESERVATION_ID}/reassign`,
-        payload: { newStationOcppId: STATION_B_OCPP_ID },
+        payload: { newStationOcppId: 'STATION-B' },
       });
       expect(res.statusCode).toBe(401);
+    });
+
+    it('returns 404 when reservation is not found', async () => {
+      setupDbResults([]);
+      const res = await reassign();
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('RESERVATION_NOT_FOUND');
+    });
+
+    it('returns 404 when the reservation site is not accessible', async () => {
+      const { getUserSiteIds } = await import('../lib/site-access.js');
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_other']);
+      setupDbResults([{ id: VALID_RESERVATION_ID, siteId: 'sit_000000000001' }]);
+      const res = await reassign();
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('RESERVATION_NOT_FOUND');
+    });
+
+    it('returns 404 when the new station does not exist', async () => {
+      setupDbResults([{ id: VALID_RESERVATION_ID, siteId: null }], []);
+      const res = await reassign();
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('STATION_NOT_FOUND');
+    });
+
+    it('returns 404 STATION_NOT_FOUND when the new station site is not accessible', async () => {
+      const { getUserSiteIds } = await import('../lib/site-access.js');
+      vi.mocked(getUserSiteIds).mockResolvedValueOnce(['sit_000000000001']);
+      setupDbResults(
+        [{ id: VALID_RESERVATION_ID, siteId: 'sit_000000000001' }],
+        [{ ...newStationRow, siteId: 'sit_other' }],
+      );
+      const res = await reassign();
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('STATION_NOT_FOUND');
+      expect(mockReassignReservation).not.toHaveBeenCalled();
+    });
+
+    it('TC-RES-19: moves the reservation through the service', async () => {
+      setupDbResults([{ id: VALID_RESERVATION_ID, siteId: null }], [newStationRow]);
+      mockReassignReservation.mockResolvedValueOnce({
+        reservation: {},
+        previousStationOcppId: 'CS-001',
+      });
+      const res = await reassign({ newStationOcppId: 'STATION-B', newEvseId: 2 });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ status: 'reassigned', newStationOcppId: 'STATION-B' });
+      expect(mockReassignReservation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reservationDbId: VALID_RESERVATION_ID,
+          newStation: newStationRow,
+          newEvseOcppId: 2,
+          actor: { kind: 'operator', userId: 'test-id' },
+        }),
+      );
+    });
+
+    it.each([
+      [409, 'RESERVATION_CONFLICT'],
+      [409, 'RESERVATION_NOT_ACTIVE'],
+      [409, 'EVSE_IN_USE'],
+      [400, 'RESERVATION_REJECTED'],
+      [400, 'STATION_OFFLINE'],
+      [403, 'RESERVATION_DISABLED'],
+    ])('TC-RES-19: answers %i %s from the service', async (status, code) => {
+      setupDbResults([{ id: VALID_RESERVATION_ID, siteId: null }], [newStationRow]);
+      mockReassignReservation.mockRejectedValueOnce(new AppError('refused', status, code));
+      const res = await reassign();
+      expect(res.statusCode).toBe(status);
+      expect(res.json().code).toBe(code);
+    });
+
+    it('returns 409 with the window details on a maintenance conflict at the new station', async () => {
+      setupDbResults([{ id: VALID_RESERVATION_ID, siteId: null }], [newStationRow]);
+      mockReassignReservation.mockRejectedValueOnce(
+        new MaintenanceConflictError({
+          id: 'mnt_000000000001',
+          plannedStartAt: new Date('2030-01-01T00:00:00Z'),
+          plannedEndAt: new Date('2030-01-01T01:00:00Z'),
+        } as never),
+      );
+      const res = await reassign();
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('RESERVATION_DURING_MAINTENANCE');
     });
   });
 });

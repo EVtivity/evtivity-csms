@@ -62,7 +62,7 @@
   {
     "path": "/docs/csms/ai-insights",
     "title": "Automatic Insights",
-    "description": "Short root-cause notes with suggested fixes for offline or faulted stations, failed sessions, and refused authorizations."
+    "description": "Short root-cause notes with suggested fixes for offline or faulted stations, failed sessions, refused authorizations, and reservation problems."
   },
   {
     "path": "/docs/csms/ai-usage",

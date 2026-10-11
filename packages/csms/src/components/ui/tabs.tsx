@@ -139,16 +139,24 @@ TabsTrigger.displayName = 'TabsTrigger';
 
 interface TabsContentProps extends React.HTMLAttributes<HTMLDivElement> {
   value: string;
+  /**
+   * Keeps the panel mounted (hidden) while another tab is active, so form
+   * edits in it survive a tab switch. Pass it once the tab was opened, so
+   * unvisited tabs still load nothing.
+   */
+  keepMounted?: boolean;
 }
 
 const TabsContent = React.forwardRef<HTMLDivElement, TabsContentProps>(
-  ({ value, className, ...props }, ref) => {
+  ({ value, className, keepMounted = false, ...props }, ref) => {
     const ctx = useTabsContext();
-    if (ctx.value !== value) return null;
+    const isActive = ctx.value === value;
+    if (!isActive && !keepMounted) return null;
     return (
       <div
         ref={ref}
         role="tabpanel"
+        hidden={!isActive}
         className={cn(
           'mt-2 ring-offset-background focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
           className,

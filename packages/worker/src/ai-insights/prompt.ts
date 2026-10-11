@@ -37,6 +37,16 @@ const KIND_TASKS: Record<InsightKind, string> = {
   site_summary: 'Summarize the state of one site.',
   company_summary: 'Summarize the state of the charging network.',
   tariff_anomaly: 'Explain a tariff anomaly.',
+  reservation_rejected:
+    'A charging station rejected a reservation, or did not answer the reservation request. Find the most likely root cause.',
+  reservation_no_show:
+    'A driver did not use an accepted reservation before it expired. Find the most likely root cause.',
+  reservation_cancel_failed:
+    'A charging station did not cancel a reservation the CSMS cancelled. Find the most likely root cause.',
+  reservation_fee_failed:
+    'A reservation fee (cancellation or no-show) could not be charged. Find the most likely root cause.',
+  reservation_station_faulted:
+    'A charging station went offline or faulted while it held a reservation, and the reservation was cancelled. Find the most likely root cause.',
 };
 
 /** The task of one insight kind; always added after the surface prompt. */

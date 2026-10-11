@@ -106,6 +106,7 @@ vi.mock('@evtivity/database', () => {
 
 vi.mock('drizzle-orm', () => ({
   eq: eqMock,
+  ne: vi.fn(() => ({})),
   and: andMock,
   or: orMock,
   sql: vi.fn(() => ({ sql: true })),

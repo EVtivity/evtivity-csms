@@ -77,6 +77,15 @@ export default tseslint.config(
       'evtivity/handle-caught-error': 'error',
     },
   },
+  // Switches are the shared Toggle (frontend/ui.md, shared controls): no
+  // hand-rolled role="switch" element outside components/ui.
+  {
+    files: ['packages/csms/src/**/*.tsx', 'packages/portal/src/**/*.tsx'],
+    ignores: ['**/components/ui/**', '**/__tests__/**', '**/*.test.tsx'],
+    rules: {
+      'evtivity/no-raw-switch': 'error',
+    },
+  },
   // Processes couple only through pub/sub and BullMQ (design principle P8).
   // Code shared by the API and the worker lives in lib, database, payments or
   // services, which import no app package. Integration tests may reuse the

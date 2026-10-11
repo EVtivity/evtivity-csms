@@ -801,6 +801,33 @@ export interface PendingChargeInput {
   methodId: string;
   currency: string;
   taxRate: number;
+  /**
+   * The provider request of the charge (`metadata.feeRequest`), so a resume
+   * sends the same parameters with the same key.
+   */
+  feeRequest: ReservationFeeRequest;
+}
+
+export interface ReservationFeeRequest {
+  grossCents: number;
+  platformFeePercent: number;
+  payoutAccountId: string | null;
+}
+
+/** The stored provider request of a reservation fee record, or null for an older record. */
+export function reservationFeeRequest(metadata: unknown): ReservationFeeRequest | null {
+  if (metadata == null || typeof metadata !== 'object') return null;
+  const req = (metadata as Record<string, unknown>)['feeRequest'];
+  if (req == null || typeof req !== 'object') return null;
+  const r = req as Record<string, unknown>;
+  if (typeof r['grossCents'] !== 'number' || typeof r['platformFeePercent'] !== 'number') {
+    return null;
+  }
+  return {
+    grossCents: r['grossCents'],
+    platformFeePercent: r['platformFeePercent'],
+    payoutAccountId: typeof r['payoutAccountId'] === 'string' ? r['payoutAccountId'] : null,
+  };
 }
 
 /**
@@ -820,6 +847,7 @@ export async function recordPendingCharge(input: PendingChargeInput): Promise<nu
       currency: input.currency,
       taxRate: String(input.taxRate),
       status: 'pending',
+      metadata: { feeRequest: input.feeRequest },
     })
     .onConflictDoNothing({
       target: [paymentRecords.reservationId, paymentRecords.chargeType],

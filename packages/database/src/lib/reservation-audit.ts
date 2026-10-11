@@ -17,7 +17,15 @@ export type ReservationAuditAction =
   | 'cancelled'
   | 'expired'
   | 'used'
-  | 'session_failed';
+  | 'session_failed'
+  // v0.1.45 (migration 0452).
+  | 'station_rejected'
+  | 'station_cancel_failed'
+  | 'station_faulted'
+  | 'fee_charged'
+  | 'fee_failed'
+  | 'taken_by_other'
+  | 'activated';
 
 export type ReservationAuditActor = 'operator' | 'driver' | 'system';
 
@@ -37,6 +45,15 @@ export interface WriteReservationAuditArgs {
   statusAfter?: string | null;
   expiresAtBefore?: Date | null;
   expiresAtAfter?: Date | null;
+  /**
+   * Why the change happened, as a stable code: the cancel reason of a
+   * `cancelled` or `station_rejected` row, and the failure reason of a
+   * `station_cancel_failed` or `fee_failed` row
+   * (`RESERVATION_*_REASONS` in `@evtivity/lib/ai-insights`). Stored as
+   * `after.reason`; the reservation insights read it with
+   * `reservationAuditReason(after)`.
+   */
+  reason?: string | null;
   notes?: string | null;
 }
 
@@ -65,12 +82,14 @@ export async function writeReservationAudit(
     args.evseIdBefore !== undefined ||
     args.statusBefore !== undefined ||
     args.expiresAtBefore !== undefined;
+  const reason = args.reason != null && args.reason !== '' ? args.reason : null;
   const hasAfter =
     args.driverIdAfter !== undefined ||
     args.tokenIdAfter !== undefined ||
     args.evseIdAfter !== undefined ||
     args.statusAfter !== undefined ||
-    args.expiresAtAfter !== undefined;
+    args.expiresAtAfter !== undefined ||
+    reason != null;
 
   const before = hasBefore
     ? {
@@ -88,6 +107,7 @@ export async function writeReservationAudit(
         evseId: args.evseIdAfter ?? null,
         status: args.statusAfter ?? null,
         expiresAt: args.expiresAtAfter ?? null,
+        ...(reason != null ? { reason } : {}),
       }
     : null;
 

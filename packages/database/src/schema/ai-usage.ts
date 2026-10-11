@@ -16,6 +16,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import { users } from './identity.js';
 import { sites } from './assets.js';
+import { drivers } from './drivers.js';
 
 // AI usage ledger and budget notices (migrations 0416, 0417, 0419).
 // `recordAiUsage()` in `packages/database/src/lib/ai-usage.ts` is the only
@@ -33,7 +34,7 @@ export const aiUsageLedger = pgTable(
   {
     id: bigserial('id', { mode: 'number' }).primaryKey(),
     occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
-    /** chatbot, support, insight, insight_translation or worker (`AI_USAGE_SURFACES`). */
+    /** chatbot, support, insight, insight_translation, worker or driver_support (`AI_USAGE_SURFACES`). */
     surface: varchar('surface', { length: 30 }).notNull(),
     userId: text('user_id').references(() => users.id, { onDelete: 'set null' }),
     /** The site the usage is charged to; null for usage that belongs to no site (the chatbot). */
@@ -42,6 +43,10 @@ export const aiUsageLedger = pgTable(
     aiMessageId: text('ai_message_id'),
     insightId: text('insight_id'),
     workerRunId: text('worker_run_id'),
+    /** The driver a driver_support call ran for (the driver daily budget, 0446). */
+    driverId: text('driver_id').references(() => drivers.id, { onDelete: 'set null' }),
+    /** The support case of a driver_support call (provenance, no foreign key). */
+    supportCaseId: text('support_case_id'),
     provider: varchar('provider', { length: 20 }).notNull(),
     model: varchar('model', { length: 200 }).notNull(),
     inputTokens: integer('input_tokens').notNull().default(0),
@@ -56,9 +61,10 @@ export const aiUsageLedger = pgTable(
     index('idx_ai_usage_ledger_occurred_at').on(table.occurredAt),
     index('idx_ai_usage_ledger_site_occurred_at').on(table.siteId, table.occurredAt),
     index('idx_ai_usage_ledger_user_occurred_at').on(table.userId, table.occurredAt),
+    index('idx_ai_usage_ledger_driver_occurred_at').on(table.driverId, table.occurredAt),
     check(
       'ai_usage_ledger_surface_check',
-      sql`${table.surface} IN ('chatbot', 'support', 'insight', 'insight_translation', 'worker')`,
+      sql`${table.surface} IN ('chatbot', 'support', 'insight', 'insight_translation', 'worker', 'driver_support')`,
     ),
     check(
       'ai_usage_ledger_tokens_check',

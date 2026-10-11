@@ -120,6 +120,7 @@ table('supportCaseStatusVariant', supportCaseStatusVariant, [
   ['waiting_on_driver', 'outline'],
   ['resolved', 'secondary'],
   ['closed', 'outline'],
+  ['ai_assist', 'info'],
   ['other', 'outline'],
 ]);
 

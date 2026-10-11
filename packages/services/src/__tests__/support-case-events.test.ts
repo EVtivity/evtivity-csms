@@ -30,10 +30,14 @@ vi.mock('@evtivity/database', () => {
     },
     chargingSessions: { id: 'charging_sessions.id', stationId: 'charging_sessions.station_id' },
     chargingStations: { id: 'charging_stations.id', siteId: 'charging_stations.site_id' },
+    client: {},
+    isSupportEnabled: vi.fn(),
+    roles: {},
+    users: {},
   };
 });
 
-import { notifySupportCaseEvent } from '../lib/support-case-events.js';
+import { notifySupportCaseEvent } from '../support-case-notify.js';
 
 function csmsPayload(): unknown {
   const call = publishMock.mock.calls.find((c) => (c as unknown[])[0] === 'csms_events') as
@@ -126,5 +130,12 @@ describe('notifySupportCaseEvent', () => {
       'portal_events',
       JSON.stringify({ type: 'supportCase.newMessage', caseId: 'cas_3', driverId: 'drv_3' }),
     );
+  });
+});
+
+describe('notifySupportCaseEvent for a case the AI handles first (E4)', () => {
+  it('TC-AI-DR-05 toOperators false publishes only to the driver, with no case lookup', async () => {
+    await notifySupportCaseEvent('supportCase.created', 'cas_ai', 'drv_1', { toOperators: false });
+    expect(publishMock.mock.calls.map((c) => (c as unknown[])[0])).toEqual(['portal_events']);
   });
 });

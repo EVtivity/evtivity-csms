@@ -245,6 +245,7 @@ async function runLoop(input: LoopInput): Promise<TurnRunResult> {
     adapter,
     provider: config.provider,
     model: config.model,
+    usageSurface: input.conversation.surface === 'support' ? 'support' : 'chatbot',
     system: input.system,
     history: input.history,
     toolset: input.toolset,

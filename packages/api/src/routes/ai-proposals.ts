@@ -171,7 +171,8 @@ function outcomeOf(result: Exclude<ConfirmedToolCallResult, { kind: 'expired' | 
   if (result.kind === 'refused') {
     return {
       status: 'failed' as const,
-      result: { httpStatus: 0, body: { refused: result.reason, message: result.message } },
+      // The reason code only; the CSMS localizes it (no English text stored).
+      result: { httpStatus: 0, body: { refused: result.reason } },
     };
   }
   return {
@@ -348,6 +349,12 @@ export function aiProposalRoutes(app: FastifyInstance): void {
           reply,
           409,
           result.kind === 'expired' ? 'AI_PROPOSAL_EXPIRED' : 'AI_PROPOSAL_STALE',
+        );
+      }
+      if (result.kind === 'refused') {
+        request.log.info(
+          { proposalId: claimed.id, operationId: claimed.operationId, reason: result.reason },
+          'AI proposal refused at confirm',
         );
       }
       const finished = await finishAiProposal(claimed.id, actor, outcomeOf(result), request.log);

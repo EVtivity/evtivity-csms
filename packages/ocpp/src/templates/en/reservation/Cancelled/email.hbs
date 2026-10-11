@@ -6,4 +6,4 @@
 >Reservation Cancelled</h2>
 <p
   style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
->Your reservation (ID: {{reservationId}}) at <strong>{{stationId}}</strong> has been cancelled.{{#if cancellationFeeFormatted}} A cancellation fee of {{cancellationFeeFormatted}} has been applied.{{/if}}</p>
+>Your reservation (ID: {{reservationId}}) at <strong>{{stationId}}</strong> has been cancelled.{{#if cancellationFeeFormatted}} A cancellation fee of {{cancellationFeeFormatted}} has been applied.{{/if}}{{#if stationUnavailable}} The station went offline or reported a fault during your reservation, so no fee applies.{{/if}}{{#if stationNoResponse}} The station did not confirm your reservation, so no fee applies.{{/if}}</p>

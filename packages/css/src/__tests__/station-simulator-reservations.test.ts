@@ -340,6 +340,77 @@ describe('ChangeAvailability cancels reservations', () => {
   });
 });
 
+describe('reservationReply (forced ReserveNow answer)', () => {
+  const reserve21 = { id: 9, evseId: 1, idToken: { idToken: 'TAG-1', type: 'ISO14443' } };
+  const reserve16 = { reservationId: 9, connectorId: 1, idTag: 'TAG-1' };
+
+  it('TC-RES-29: 2.1 Rejected answers Rejected once, holds nothing, then normal handling resumes', async () => {
+    const h = await makeHarness();
+    h.sim.setNextReservationReply('Rejected');
+    const first = await h.invoke('ReserveNow', { ...reserve21, expiryDateTime: inOneHour() });
+    expect(first).toEqual({ status: 'Rejected' });
+    expect(reservations(h).size).toBe(0);
+    expect(statusOf(h, 1)).not.toBe('Reserved');
+    const second = await h.invoke('ReserveNow', { ...reserve21, expiryDateTime: inOneHour() });
+    expect(second).toEqual({ status: 'Accepted' });
+    expect(reservations(h).get(9)).toMatchObject({ id: 9, evseId: 1 });
+  });
+
+  it('TC-RES-29: 2.1 Occupied answers Occupied on a free EVSE', async () => {
+    const h = await makeHarness();
+    h.sim.setNextReservationReply('Occupied');
+    const res = await h.invoke('ReserveNow', { ...reserve21, expiryDateTime: inOneHour() });
+    expect(res).toEqual({ status: 'Occupied' });
+    expect(reservations(h).size).toBe(0);
+  });
+
+  it('TC-RES-29: 2.1 NoReply resolves to null (no CALLRESULT) and sends no StatusNotification', async () => {
+    const h = await makeHarness();
+    h.sim.setNextReservationReply('NoReply');
+    const res = await h.invoke('ReserveNow', { ...reserve21, expiryDateTime: inOneHour() });
+    expect(res).toBeNull();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(reservations(h).size).toBe(0);
+    expect(h.sent('StatusNotification').some((s) => s['connectorStatus'] === 'Reserved')).toBe(
+      false,
+    );
+  });
+
+  it('TC-RES-29: Accepted clears a pending override', async () => {
+    const h = await makeHarness();
+    h.sim.setNextReservationReply('NoReply');
+    h.sim.setNextReservationReply('Accepted');
+    const res = await h.invoke('ReserveNow', { ...reserve21, expiryDateTime: inOneHour() });
+    expect(res).toEqual({ status: 'Accepted' });
+  });
+
+  it('TC-RES-29: the override applies to ReserveNow only', async () => {
+    const h = await makeHarness();
+    h.sim.setNextReservationReply('Rejected');
+    expect(await h.invoke('CancelReservation', { reservationId: 99 })).toMatchObject({
+      status: 'Rejected',
+      statusInfo: { reasonCode: 'UnknownReservation' },
+    });
+    // Still pending for the next ReserveNow.
+    const res = await h.invoke('ReserveNow', { ...reserve21, expiryDateTime: inOneHour() });
+    expect(res).toEqual({ status: 'Rejected' });
+  });
+
+  it('TC-RES-29: 1.6 Rejected, Occupied and NoReply use the 1.6 ReserveNow', async () => {
+    const h = await makeHarness({ protocol: 'ocpp1.6' });
+    h.sim.setConfigValue('SupportedFeatureProfiles', 'Core,Reservation');
+    const payload = { ...reserve16, expiryDate: inOneHour() };
+    h.sim.setNextReservationReply('Rejected');
+    expect(await h.invoke('ReserveNow', payload)).toEqual({ status: 'Rejected' });
+    h.sim.setNextReservationReply('Occupied');
+    expect(await h.invoke('ReserveNow', payload)).toEqual({ status: 'Occupied' });
+    h.sim.setNextReservationReply('NoReply');
+    expect(await h.invoke('ReserveNow', payload)).toBeNull();
+    expect(reservations(h).size).toBe(0);
+    expect(await h.invoke('ReserveNow', payload)).toEqual({ status: 'Accepted' });
+  });
+});
+
 function TWO_EVSES_OPTS(): HarnessOptions {
   return { config: TWO_EVSES };
 }

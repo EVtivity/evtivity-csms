@@ -13,9 +13,20 @@ import {
   INSIGHT_STATUSES,
   ROOT_CAUSE_CATEGORIES,
   insightScopeCountsSchema,
+  RESERVATION_FIX_CODES,
+  RESERVATION_INSIGHT_KINDS,
 } from '@evtivity/lib/ai-insights';
 import {
+  DRIVER_ACTION_CODES,
+  DRIVER_AI_CONSENT_DECISIONS,
+  DRIVER_AI_STATE_REASONS,
+  DRIVER_AI_STATES,
+  SUPPORT_CASE_AI_ASSIST_STATUS,
+  SUPPORT_CASE_RESOLUTION_SOURCES,
+} from '@evtivity/lib/driver-ai';
+import {
   AI_PROPOSAL_PRECONDITION_KINDS,
+  AI_PROPOSAL_REFUSAL_REASONS,
   AI_PROPOSAL_SOURCES,
   AI_PROPOSAL_STATUSES,
   AI_WORKER_ACTION_KINDS,
@@ -30,8 +41,16 @@ import zh from '../locales/zh.json';
 import zhTW from '../locales/zh-TW.json';
 import { SUGGESTION_PAGES, SUGGESTION_SLOTS } from '../../components/ai/SuggestedPrompts';
 import { WORKER_RATIONALE_CODES } from '../../components/ai/inbox/proposal-summary';
+import { AI_SETTINGS_TABS } from '../../components/settings/ai-settings-tabs';
 
 const LOCALES: Record<string, unknown> = { en, de, es, ko, zh, 'zh-TW': zhTW };
+
+// Every CSMS source file except tests.
+const SOURCES = import.meta.glob<string>(['../../**/*.{ts,tsx}', '!**/__tests__/**'], {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+});
 
 function flatten(node: unknown, prefix = ''): string[] {
   if (node == null || typeof node !== 'object') return [prefix];
@@ -102,6 +121,7 @@ describe('AI locale keys (TC-AI-UI-10)', () => {
       ...AI_PROPOSAL_SOURCES.map((s) => `aiInbox.source.${s}`),
       ...AI_WORKER_JOBS.map((j) => `aiInbox.job.${j}`),
       ...AI_PROPOSAL_STATUSES.map((s) => `aiInbox.status.${s}`),
+      ...AI_PROPOSAL_REFUSAL_REASONS.map((r) => `aiInbox.refused.${r}`),
       ...AI_WORKER_ACTION_KINDS.map((a) => `aiInbox.action.${a}`),
       ...AI_PROPOSAL_PRECONDITION_KINDS.map((p) => `aiInbox.precondition.${p}`),
       ...AI_USAGE_SURFACES.map((s) => `aiUsage.surface.${s}`),
@@ -126,10 +146,165 @@ describe('AI locale keys (TC-AI-UI-10)', () => {
     }
   });
 
+  it('TC-AI-IC-09 the scope area keys are gone from every locale and no code reads them', () => {
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      const leftover = flatten(locale).filter(
+        (k) =>
+          k.startsWith('aiInsights.scopeTable.area.') ||
+          k === 'aiInsights.siteScopeLabel' ||
+          k === 'aiInsights.networkScopeLabel',
+      );
+      expect(leftover, lang).toEqual([]);
+    }
+    const readers = Object.entries(SOURCES)
+      .filter(([, text]) => /scopeTable\.area|ScopeLabel'|scope\.network/.test(text))
+      .map(([file]) => file);
+    expect(readers).toEqual([]);
+  });
+
   it('no removed sampling keys remain', () => {
     for (const [lang, locale] of Object.entries(LOCALES)) {
       const leftover = flatten(locale).filter((k) => /(Temperature|TopP|TopK)(Hint)?$/.test(k));
       expect(leftover, lang).toEqual([]);
+    }
+  });
+});
+
+describe('v0.1.45 base locale keys (lane K1)', () => {
+  // Driver AI support (item 1), reservation insights (item 3) and the
+  // Settings > AI tabs and site AI tab (item 5).
+  const keys = [
+    ...RESERVATION_INSIGHT_KINDS.flatMap((k) => [
+      `aiInsights.kind.${k}`,
+      `aiInsights.headline.${k}`,
+    ]),
+    ...RESERVATION_FIX_CODES.map((c) => `aiInsights.fix.${c}`),
+    'ai.explain.reservation',
+    'ai.explain.kind.reservation',
+    ...['title', 'description', 'enabled'].map((f) => `settings.aiSurface.driver.${f}`),
+    ...[
+      'title',
+      'maxCasesPerDriverPerDay',
+      'feedbackTimeoutHours',
+      'feedbackTimeoutHelp',
+      'driverDailyTokens',
+      'driverPerMinute',
+      'overLimitHelp',
+    ].map((f) => `settings.aiDriverSettings.${f}`),
+    'settings.aiDriverDataWarning',
+    'settings.aiInsightsSettings.reservation',
+    ...[
+      'providers',
+      'assistant',
+      'support',
+      'driver',
+      'insights',
+      'workers',
+      'mcp',
+      'usage',
+    ].flatMap((tab) => [`settings.aiTabs.${tab}`, `settings.aiTabs.${tab}Description`]),
+    'sites.tabs.ai',
+    `supportCases.statuses.${SUPPORT_CASE_AI_ASSIST_STATUS}`,
+    ...DRIVER_AI_STATES.map((s) => `supportCases.ai.state.${s}`),
+    ...DRIVER_AI_STATE_REASONS.map((r) => `supportCases.ai.reason.${r}`),
+    ...DRIVER_AI_CONSENT_DECISIONS.map((d) => `supportCases.ai.consent.${d}`),
+    'supportCases.ai.consent.notAsked',
+    ...SUPPORT_CASE_RESOLUTION_SOURCES.map((r) => `supportCases.ai.resolutionSource.${r}`),
+    ...DRIVER_ACTION_CODES.map((c) => `supportCases.ai.driverAction.${c}`),
+    ...[
+      'consentTitle',
+      'consentAt',
+      'consentLanguage',
+      'noticeVersion',
+      'automaticAnswer',
+      'resolvedByAi',
+      'stateLabel',
+      'filterAiState',
+      'allAiStates',
+      'filterResolvedBy',
+      'allResolvedBy',
+    ].map((k) => `supportCases.ai.${k}`),
+    ...['station_no_response', 'station_unavailable_during_hold'].map(
+      (r) => `reservations.cancelReason.${r}`,
+    ),
+    ...['DRIVER_AI_NOTICE_OUTDATED', 'SUPPORT_CASE_AI_NOT_AWAITING_FEEDBACK'].map(
+      (c) => `errors.${c}`,
+    ),
+  ];
+
+  it('has every key in all six locales, none empty, with the English variables', () => {
+    for (const key of keys) {
+      const vars = (String(value(en, key)).match(/\{\{\w+\}\}/g) ?? []).sort();
+      for (const [lang, locale] of Object.entries(LOCALES)) {
+        const text = value(locale, key);
+        expect(typeof text === 'string' && text.trim() !== '', `${lang} ${key}`).toBe(true);
+        expect((String(text).match(/\{\{\w+\}\}/g) ?? []).sort(), `${lang} ${key}`).toEqual(vars);
+      }
+    }
+  });
+});
+
+describe('AI data notice (plan section 8a)', () => {
+  // The verified note lives in `packages/ai/src/__contract__/data-handling.md`.
+  const spec = Object.values(
+    import.meta.glob<string>('../../../../ai/src/__contract__/data-handling.md', {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    }),
+  )[0];
+
+  it('has a title and body in every locale', () => {
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      for (const key of ['ai.dataNotice.title', 'ai.dataNotice.body']) {
+        const text = value(locale, key);
+        expect(typeof text === 'string' && text.trim() !== '', `${lang} ${key}`).toBe(true);
+      }
+    }
+  });
+
+  it('shows the verified English note text unchanged', () => {
+    expect(spec).toBeDefined();
+    const note = /```note\n([\s\S]*?)\n```/.exec(spec ?? '')?.[1];
+    expect(note).toBeDefined();
+    expect(value(en, 'ai.dataNotice.body')).toBe(note);
+  });
+});
+
+describe('Layout keys (plan v0.1.45, section 6)', () => {
+  it('TC-UI-LY-06 sites.tabs.ai is in all six locales', () => {
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      const text = value(locale, 'sites.tabs.ai');
+      expect(typeof text === 'string' && text.trim() !== '', lang).toBe(true);
+    }
+  });
+
+  it('TC-UI-LY-11 every Settings > AI tab has a label and a description in all six locales', () => {
+    const keys = [
+      ...AI_SETTINGS_TABS.flatMap((tab) => [
+        `settings.aiTabs.${tab}`,
+        `settings.aiTabs.${tab}Description`,
+      ]),
+      'settings.aiTabs.workersModelLink',
+      'settings.aiAdvancedOptions',
+      'settings.aiPromptCustomSummary',
+      'settings.aiPromptDefaultSummary',
+      'settings.aiBaseUrlDefaultSummary',
+      'settings.aiInsightsSettings.reservationOff',
+      'settings.aiInsightsSettings.reservationOffLink',
+    ];
+    for (const key of keys) {
+      for (const [lang, locale] of Object.entries(LOCALES)) {
+        const text = value(locale, key);
+        expect(typeof text === 'string' && text.trim() !== '', `${lang} ${key}`).toBe(true);
+      }
+    }
+  });
+
+  it('the old Configuration and Usage sub-tab labels are gone', () => {
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      expect(value(locale, 'settings.aiConfigTab'), lang).toBeUndefined();
+      expect(value(locale, 'settings.aiUsageTab'), lang).toBeUndefined();
     }
   });
 });

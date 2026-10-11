@@ -381,3 +381,6 @@ export function createScriptedAdapter(
   };
   return adapter;
 }
+
+// Data handling fixtures (TC-AI-AD).
+export * from './data-handling.js';

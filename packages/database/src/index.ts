@@ -365,7 +365,10 @@ export {
   isSupportAiEnabled,
   getOpsAiSettings,
   isOpsAiEnabled,
+  getDriverAiSettings,
+  isDriverAiEnabled,
   getAiInsightSettings,
+  getInsightAiSettings,
   getAiWorkerSettings,
   getAiMcpSettings,
   isAiMcpEnabled,
@@ -373,6 +376,8 @@ export {
   isAiInsightsEnabled,
   clearAiSettingsCache,
 } from './lib/ai-settings.js';
+export { computeInsightScopeCounts, insightSiteScopeCounts } from './lib/insight-scope.js';
+export type { InsightScopeInput } from './lib/insight-scope.js';
 export {
   AI_USAGE_THRESHOLD_EVENT,
   aiBudgetLevel,
