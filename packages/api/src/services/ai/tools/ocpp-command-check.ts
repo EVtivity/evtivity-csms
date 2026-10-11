@@ -29,7 +29,7 @@ import { createToolset, prepareToolCall } from './execute.js';
 import type { ToolsetEntry } from './execute.js';
 import { mapOcppCommand, ocppVersionLabel, toolOcppVersion } from './ocpp-version.js';
 import type { MapOptions, OcppVersion } from './ocpp-version.js';
-import { redactToolValue } from './redact.js';
+import { redactToolValue } from '@evtivity/ai/redact';
 
 export interface OcppCheckCaller {
   userId: string;

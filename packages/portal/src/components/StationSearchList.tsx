@@ -353,7 +353,7 @@ export function StationSearchList({
           </div>
           <button
             onClick={handleEnableLocation}
-            className="text-sm font-medium text-primary hover:underline shrink-0"
+            className="text-sm font-medium text-link hover:underline shrink-0"
           >
             {t('chargerSearch.enableLocationButton')}
           </button>

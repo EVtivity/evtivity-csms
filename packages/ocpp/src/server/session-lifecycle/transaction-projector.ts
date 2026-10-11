@@ -36,8 +36,7 @@ import { requestCsmsSessionEnd, SESSION_ENDED_BY_CSMS } from '../csms-session-en
 import {
   generateId,
   calculateCo2AvoidedKg,
-  resolveElectricityRate,
-  calculateElectricityCostCents,
+  computeSessionElectricityCost,
   notificationMoney,
   costContainsTax,
   reconcileCostBreakdown,
@@ -1987,20 +1986,18 @@ export class TransactionProjector {
             const timezone = (ctxRow?.['timezone'] as string | null) ?? undefined;
             const endedAtValue = ctxRow?.['ended_at'] as string | Date | null | undefined;
             const ratedAt = endedAtValue != null ? new Date(endedAtValue) : new Date();
-            const rate = resolveElectricityRate(periods, ratedAt, timezone);
-            const sessionEnergyWh = Number(sessionRow.energy_delivered_wh ?? 0);
-            if (rate == null) {
-              logNoElectricityCost('no_matching_period');
-            } else if (sessionEnergyWh <= 0) {
-              logNoElectricityCost('zero_energy');
+            const cost = computeSessionElectricityCost({
+              periods,
+              endedAt: ratedAt,
+              energyWh: Number(sessionRow.energy_delivered_wh ?? 0),
+              timezone,
+            });
+            if (cost.costCents == null) {
+              logNoElectricityCost(cost.reason);
             } else {
-              const electricityCostCents = calculateElectricityCostCents(
-                sessionEnergyWh,
-                rate.ratePerKwh,
-              );
               await this.deps.sql`
                   UPDATE charging_sessions
-                  SET electricity_cost_cents = ${electricityCostCents}, updated_at = now()
+                  SET electricity_cost_cents = ${cost.costCents}, updated_at = now()
                   WHERE id = ${sessionId} AND electricity_cost_cents IS NULL
                 `;
             }

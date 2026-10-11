@@ -128,7 +128,7 @@ export function TokensTable({
                 )}
                 {isVisible('token') && (
                   <TableCell>
-                    <CopyableId id={token.idToken} variant="table" className="text-primary" />
+                    <CopyableId id={token.idToken} variant="table" className="text-link" />
                   </TableCell>
                 )}
                 {showDriver && isVisible('driver') && (
@@ -136,7 +136,7 @@ export function TokensTable({
                     {token.driverId != null && token.driverFirstName != null ? (
                       <Link
                         to={`/drivers/${token.driverId}`}
-                        className="text-primary hover:underline"
+                        className="text-link hover:underline"
                         onClick={(e) => {
                           e.stopPropagation();
                         }}

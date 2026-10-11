@@ -263,7 +263,7 @@ export function Reservations(): React.JSX.Element {
                   <TableCell className="whitespace-nowrap">
                     <Link
                       to={`/stations/${r.stationId}`}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                       onClick={(e) => {
                         e.stopPropagation();
                       }}
@@ -275,7 +275,7 @@ export function Reservations(): React.JSX.Element {
                     {r.driverFirstName != null ? (
                       <Link
                         to={`/drivers/${r.driverId ?? ''}`}
-                        className="text-primary hover:underline"
+                        className="text-link hover:underline"
                         onClick={(e) => {
                           e.stopPropagation();
                         }}
@@ -295,7 +295,7 @@ export function Reservations(): React.JSX.Element {
                     {r.sessionId != null ? (
                       <Link
                         to={`/sessions/${r.sessionId}`}
-                        className="text-primary hover:underline"
+                        className="text-link hover:underline"
                         onClick={(e) => {
                           e.stopPropagation();
                         }}

@@ -57,7 +57,7 @@ export function SessionGuestTab({
             href={portalUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-primary hover:underline break-all"
+            className="inline-flex items-center gap-1 text-link hover:underline break-all"
           >
             {portalUrl}
             <ExternalLink className="h-3 w-3 shrink-0" />

@@ -6,6 +6,8 @@ import type postgres from 'postgres';
 
 const graceMock = vi.fn();
 vi.mock('../lib/idling-setting.js', () => ({ getIdlingGracePeriodMinutes: graceMock }));
+const periodsMock = vi.fn();
+vi.mock('../lib/electricity-rate.js', () => ({ getElectricityRatePeriodsForSite: periodsMock }));
 
 const {
   SESSION_REBILL_LEASE_SECONDS,
@@ -13,7 +15,9 @@ const {
   releaseSessionRebill,
   priceRebill,
   completeRebilledSession,
+  rebillElectricityCostCents,
 } = await import('../lib/session-rebill.js');
+const { computeSessionElectricityCost } = await import('@evtivity/lib');
 
 interface Call {
   text: string;
@@ -209,34 +213,112 @@ describe('priceRebill', () => {
 });
 
 describe('completeRebilledSession', () => {
+  const breakdown = {
+    basis: 'net',
+    grossCents: 400,
+    netCents: 400,
+    taxCents: 0,
+  } as unknown as Parameters<typeof completeRebilledSession>[1]['breakdown'];
+  // The seeded shape: Standard 0.12 (default) and Weekday Peak 0.22, 16:00-21:00 Mon-Fri.
+  const periods = [
+    {
+      id: 1,
+      siteId: 'sit_1',
+      name: 'Standard',
+      ratePerKwh: '0.12',
+      restrictions: null,
+      priority: 0,
+      isDefault: true,
+    },
+    {
+      id: 2,
+      siteId: 'sit_1',
+      name: 'Weekday Peak',
+      ratePerKwh: '0.22',
+      restrictions: {
+        timeRange: { startTime: '16:00', endTime: '21:00' },
+        daysOfWeek: [1, 2, 3, 4, 5],
+      },
+      priority: 20,
+      isDefault: false,
+    },
+  ];
+
+  beforeEach(() => {
+    periodsMock.mockReset();
+    periodsMock.mockResolvedValue(periods);
+  });
+
   it('moves only a claimed faulted EndRequestFailed session to completed with its cost', async () => {
-    const { sql, calls } = makeSql([["SET status = 'completed'", [{ id: 'ses_1' }]]]);
-    const breakdown = {
-      basis: 'net',
-      grossCents: 400,
-      netCents: 400,
-      taxCents: 0,
-    } as unknown as Parameters<typeof completeRebilledSession>[1]['breakdown'];
+    const { sql, calls } = makeSql([
+      [
+        'FROM charging_sessions s\n    JOIN charging_stations',
+        [{ site_id: 'sit_1', timezone: 'UTC' }],
+      ],
+      ["SET status = 'completed'", [{ id: 'ses_1' }]],
+    ]);
     const changed = await completeRebilledSession(sql, {
       sessionId: 'ses_1',
       breakdown,
+      // Thursday 01:00 UTC: the standard rate, 10 kWh x 0.12.
       endedAt: new Date('2026-06-04T01:00:00Z'),
+      energyWh: 10_000,
       outcome: 'manual',
     });
     expect(changed).toBe(true);
-    const text = calls[0]?.text ?? '';
+    const update = calls.find((c) => c.text.includes("SET status = 'completed'"));
+    const text = update?.text ?? '';
     expect(text).toContain("AND status = 'faulted'");
     expect(text).toContain("AND rebill_status = 'in_progress'");
-    expect(calls[0]?.values).toEqual([
+    expect(text).toContain('electricity_cost_cents = COALESCE(electricity_cost_cents, ?::integer)');
+    expect(update?.values).toEqual([
       '2026-06-04T01:00:00.000Z',
       400,
       400,
       400,
       0,
       { json: breakdown },
+      120,
       'manual',
       'ses_1',
       'EndRequestFailed',
     ]);
+    expect(periodsMock).toHaveBeenCalledWith('sit_1');
+  });
+
+  it('prices the electricity cost like session end (computeSessionElectricityCost)', async () => {
+    const { sql } = makeSql([
+      [
+        'FROM charging_sessions s\n    JOIN charging_stations',
+        [{ site_id: 'sit_1', timezone: 'America/Chicago' }],
+      ],
+    ]);
+    // Monday 22:30 UTC is 17:30 in Chicago: the weekday peak.
+    const endedAt = new Date('2026-06-08T22:30:00Z');
+    expect(await rebillElectricityCostCents(sql, 'ses_1', endedAt, 10_000)).toBe(
+      computeSessionElectricityCost({
+        periods,
+        endedAt,
+        energyWh: 10_000,
+        timezone: 'America/Chicago',
+      }).costCents,
+    );
+    expect(await rebillElectricityCostCents(sql, 'ses_1', endedAt, 10_000)).toBe(220);
+  });
+
+  it('records no electricity cost without a site, a matching period or energy', async () => {
+    const unsited = makeSql([['JOIN charging_stations', [{ site_id: null, timezone: null }]]]);
+    expect(
+      await rebillElectricityCostCents(unsited.sql, 'ses_1', new Date('2026-06-08T22:30:00Z'), 1),
+    ).toBeNull();
+    const sited = makeSql([['JOIN charging_stations', [{ site_id: 'sit_1', timezone: 'UTC' }]]]);
+    periodsMock.mockResolvedValue([]);
+    expect(
+      await rebillElectricityCostCents(sited.sql, 'ses_1', new Date('2026-06-08T22:30:00Z'), 1),
+    ).toBeNull();
+    periodsMock.mockResolvedValue(periods);
+    expect(
+      await rebillElectricityCostCents(sited.sql, 'ses_1', new Date('2026-06-08T22:30:00Z'), 0),
+    ).toBeNull();
   });
 });

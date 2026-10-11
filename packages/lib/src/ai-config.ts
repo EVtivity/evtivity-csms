@@ -13,7 +13,20 @@
  *
  * The provider and effort lists mirror `PROVIDER_IDS` and `EFFORTS` in the
  * API's `services/ai/core/types.ts`; a test keeps them equal.
+ *
+ * v0.1.44 (plan 2026-10-10): the `opsAi.*` surface for system-initiated runs,
+ * the insight (`aiInsights.*`), worker (`aiWorkers.*`), MCP (`ai.mcp.*`) and
+ * monthly and site budget (`ai.budget.*`) settings. The key names come from
+ * the contracts in `ai-insights.ts`, `ai-proposals.ts` and `ai-usage.ts`; the
+ * defaults live here (`AI_SETTING_DEFAULTS`), in the seed and in migration
+ * 0441.
  */
+
+import { AI_INSIGHT_SETTING_KEYS, OPS_AI_SETTING_KEYS } from './ai-insights.js';
+import { AI_MCP_SETTING_KEYS, AI_WORKER_SETTING_KEYS } from './ai-proposals.js';
+import { AI_BUDGET_SETTING_KEYS } from './ai-usage.js';
+import { isUiLanguage } from './languages.js';
+import type { UiLanguage } from './languages.js';
 
 export const AI_PROVIDER_IDS = ['anthropic', 'openai', 'gemini', 'deepseek'] as const;
 export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
@@ -21,13 +34,19 @@ export type AiProviderId = (typeof AI_PROVIDER_IDS)[number];
 export const AI_EFFORTS = ['low', 'medium', 'high'] as const;
 export type AiEffort = (typeof AI_EFFORTS)[number];
 export const DEFAULT_AI_EFFORT: AiEffort = 'medium';
+/** System-initiated runs default to the cheapest effort. */
+export const DEFAULT_OPS_AI_EFFORT: AiEffort = 'low';
 
 export const AI_SUPPORT_TONES = ['professional', 'friendly', 'formal'] as const;
 export type AiSupportTone = (typeof AI_SUPPORT_TONES)[number];
 export const DEFAULT_AI_SUPPORT_TONE: AiSupportTone = 'professional';
 
-/** Settings prefix of each AI surface. */
-export const AI_SURFACE_PREFIXES = { chatbot: 'chatbotAi', support: 'supportAi' } as const;
+/** Settings prefix of each AI surface. `ops`: insights and background workers. */
+export const AI_SURFACE_PREFIXES = {
+  chatbot: 'chatbotAi',
+  support: 'supportAi',
+  ops: 'opsAi',
+} as const;
 export type AiSurface = keyof typeof AI_SURFACE_PREFIXES;
 
 export function isAiProviderId(value: unknown): value is AiProviderId {
@@ -63,7 +82,10 @@ interface AiLimitDefinition {
   max: number;
 }
 
-/** Whole-number limits. `ai.budget.userDailyTokens` 0 means no daily budget. */
+/**
+ * Whole-number limits, shown in the Limits panel of Settings > AI. A budget
+ * of 0 means no limit.
+ */
 export const AI_LIMIT_SETTINGS = {
   'ai.rateLimit.userPerMinute': { defaultValue: 10, min: 1, max: 1000 },
   'ai.rateLimit.sitePerMinute': { defaultValue: 60, min: 1, max: 100_000 },
@@ -72,6 +94,19 @@ export const AI_LIMIT_SETTINGS = {
   'ai.conversationRetentionDays': { defaultValue: 30, min: 1, max: 3650 },
   'ai.attachments.maxBytes': { defaultValue: 10_485_760, min: 1, max: 33_554_432 },
   'ai.attachments.maxPerMessage': { defaultValue: 5, min: 1, max: 20 },
+  // Budgets in tokens; 0 means no limit.
+  [AI_BUDGET_SETTING_KEYS.companyMonthlyTokens]: {
+    defaultValue: 0,
+    min: 0,
+    max: 1_000_000_000_000,
+  },
+  [AI_BUDGET_SETTING_KEYS.siteMonthlyTokens]: { defaultValue: 0, min: 0, max: 1_000_000_000_000 },
+  [AI_BUDGET_SETTING_KEYS.siteDailyTokens]: {
+    defaultValue: 300_000,
+    min: 0,
+    max: 10_000_000_000,
+  },
+  [AI_BUDGET_SETTING_KEYS.warnPercent]: { defaultValue: 80, min: 1, max: 100 },
 } as const satisfies Record<string, AiLimitDefinition>;
 export type AiLimitSettingKey = keyof typeof AI_LIMIT_SETTINGS;
 
@@ -79,17 +114,118 @@ export function isAiLimitSettingKey(key: string): key is AiLimitSettingKey {
   return Object.hasOwn(AI_LIMIT_SETTINGS, key);
 }
 
-/** A whole number in the limit's range (numeric strings accepted), else null. */
-export function parseAiLimitValue(key: AiLimitSettingKey, value: unknown): number | null {
+/** Whole-number thresholds of insights, background workers and the MCP server. */
+export const AI_THRESHOLD_SETTINGS = {
+  // Insights.
+  [AI_INSIGHT_SETTING_KEYS.debounceSeconds]: { defaultValue: 120, min: 0, max: 3600 },
+  [AI_INSIGHT_SETTING_KEYS.cooldownMinutes]: { defaultValue: 60, min: 1, max: 10_080 },
+  [AI_INSIGHT_SETTING_KEYS.siteIncidentThreshold]: { defaultValue: 3, min: 2, max: 1000 },
+  [AI_INSIGHT_SETTING_KEYS.maxPerSitePerDay]: { defaultValue: 50, min: 1, max: 10_000 },
+  [AI_INSIGHT_SETTING_KEYS.retentionDays]: { defaultValue: 90, min: 1, max: 3650 },
+  // Background workers.
+  [AI_WORKER_SETTING_KEYS.stuckSessionsIdleMinutes]: { defaultValue: 90, min: 15, max: 1440 },
+  [AI_WORKER_SETTING_KEYS.proposalTtlHours]: { defaultValue: 24, min: 1, max: 168 },
+  // MCP server.
+  [AI_MCP_SETTING_KEYS.rateLimitPerMinute]: { defaultValue: 60, min: 1, max: 10_000 },
+  [AI_MCP_SETTING_KEYS.dailyCallsPerKey]: { defaultValue: 5000, min: 1, max: 10_000_000 },
+  [AI_MCP_SETTING_KEYS.proposalTtlMinutes]: { defaultValue: 30, min: 5, max: 1440 },
+} as const satisfies Record<string, AiLimitDefinition>;
+export type AiThresholdSettingKey = keyof typeof AI_THRESHOLD_SETTINGS;
+
+/** Every whole-number AI setting: the limits and the thresholds. */
+export const AI_NUMBER_SETTINGS: Readonly<
+  Record<AiLimitSettingKey | AiThresholdSettingKey, AiLimitDefinition>
+> = { ...AI_LIMIT_SETTINGS, ...AI_THRESHOLD_SETTINGS };
+export type AiNumberSettingKey = AiLimitSettingKey | AiThresholdSettingKey;
+
+export function isAiNumberSettingKey(key: string): key is AiNumberSettingKey {
+  return Object.hasOwn(AI_NUMBER_SETTINGS, key);
+}
+
+/** A whole number in the setting's range (numeric strings accepted), else null. */
+export function parseAiLimitValue(key: AiNumberSettingKey, value: unknown): number | null {
   const n =
     typeof value === 'number'
       ? value
       : typeof value === 'string' && value.trim() !== ''
         ? Number(value)
         : NaN;
-  const { min, max } = AI_LIMIT_SETTINGS[key];
+  const { min, max } = AI_NUMBER_SETTINGS[key];
   return Number.isInteger(n) && n >= min && n <= max ? n : null;
 }
+
+/**
+ * On and off switches with their defaults (decision D4): system-initiated AI
+ * and MCP are off until an operator turns them on; the insight triggers are on
+ * once `opsAi.enabled` is; every background worker job is off.
+ */
+export const AI_FLAG_SETTINGS = {
+  [OPS_AI_SETTING_KEYS.enabled]: false,
+  [AI_INSIGHT_SETTING_KEYS.stationEnabled]: true,
+  [AI_INSIGHT_SETTING_KEYS.sessionEnabled]: true,
+  [AI_INSIGHT_SETTING_KEYS.authorizationEnabled]: true,
+  [AI_WORKER_SETTING_KEYS.networkSummaryEnabled]: false,
+  [AI_WORKER_SETTING_KEYS.stuckSessionsEnabled]: false,
+  [AI_WORKER_SETTING_KEYS.stuckSessionsUseModel]: false,
+  [AI_WORKER_SETTING_KEYS.tariffAnomaliesEnabled]: false,
+  [AI_MCP_SETTING_KEYS.enabled]: false,
+} as const satisfies Record<string, boolean>;
+export type AiFlagSettingKey = keyof typeof AI_FLAG_SETTINGS;
+
+export function isAiFlagSettingKey(key: string): key is AiFlagSettingKey {
+  return Object.hasOwn(AI_FLAG_SETTINGS, key);
+}
+
+/** Most origins `ai.mcp.allowedOrigins` holds. */
+export const AI_MCP_MAX_ALLOWED_ORIGINS = 50;
+
+/**
+ * An `ai.mcp.allowedOrigins` value: a list of http(s) origins
+ * (`scheme://host[:port]`, no path, query or credentials), deduplicated and
+ * in the URL's normalized form. Returns null when the value is not such a list.
+ */
+export function parseAiMcpAllowedOrigins(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > AI_MCP_MAX_ALLOWED_ORIGINS) return null;
+  const origins: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') return null;
+    const text = item.trim().replace(/\/$/, '');
+    const url = URL.parse(text);
+    if (url == null || (url.protocol !== 'https:' && url.protocol !== 'http:')) return null;
+    if (
+      url.username !== '' ||
+      url.password !== '' ||
+      url.pathname !== '/' ||
+      url.search !== '' ||
+      url.hash !== '' ||
+      text.includes('?') ||
+      text.includes('#')
+    ) {
+      return null;
+    }
+    if (!origins.includes(url.origin)) origins.push(url.origin);
+  }
+  return origins;
+}
+
+/**
+ * The default of every AI setting with a fixed default: the limits, the
+ * switches, the `opsAi` surface, the insight language and the MCP origins.
+ * The seed (`defaultSettings`, `seed.config.default.json`) and the seed
+ * migrations hold the same values; a test keeps them equal.
+ */
+export const AI_SETTING_DEFAULTS: Readonly<Record<string, unknown>> = {
+  ...Object.fromEntries(
+    Object.entries(AI_NUMBER_SETTINGS).map(([key, def]) => [key, def.defaultValue]),
+  ),
+  ...AI_FLAG_SETTINGS,
+  [OPS_AI_SETTING_KEYS.provider]: 'anthropic',
+  [OPS_AI_SETTING_KEYS.model]: '',
+  [OPS_AI_SETTING_KEYS.effort]: DEFAULT_OPS_AI_EFFORT,
+  [OPS_AI_SETTING_KEYS.systemPrompt]: '',
+  [AI_INSIGHT_SETTING_KEYS.primaryLanguage]: 'en',
+  [AI_MCP_SETTING_KEYS.allowedOrigins]: [],
+};
 
 /**
  * Settings removed by the AI upgrade (P13): sampling replaced by effort, and
@@ -107,9 +243,19 @@ export const REMOVED_AI_SETTING_KEYS: Readonly<Record<string, string>> = {
   'supportAi.topK': 'supportAi.effort',
 };
 
+/** Key prefixes of every setting the cached AI settings reader holds. */
+export const AI_SETTING_KEY_PREFIXES = [
+  'ai.',
+  'chatbotAi.',
+  'supportAi.',
+  'opsAi.',
+  'aiInsights.',
+  'aiWorkers.',
+] as const;
+
 /** True for every key the cached AI settings reader holds. */
 export function isAiSettingKey(key: string): boolean {
-  return key.startsWith('ai.') || key.startsWith('chatbotAi.') || key.startsWith('supportAi.');
+  return AI_SETTING_KEY_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 /**
@@ -122,19 +268,34 @@ export function normalizeAiSettingValue(
   value: unknown,
 ): { value: unknown } | null | undefined {
   if (Object.hasOwn(REMOVED_AI_SETTING_KEYS, key)) return null;
-  if (isAiLimitSettingKey(key)) {
+  if (isAiNumberSettingKey(key)) {
     const n = parseAiLimitValue(key, value);
     return n != null ? { value: n } : null;
   }
-  if (key === 'chatbotAi.provider' || key === 'supportAi.provider') {
+  if (
+    key === 'chatbotAi.provider' ||
+    key === 'supportAi.provider' ||
+    key === OPS_AI_SETTING_KEYS.provider
+  ) {
     return value === '' || isAiProviderId(value) ? { value } : null;
   }
-  if (key === 'chatbotAi.effort' || key === 'supportAi.effort') {
+  if (
+    key === 'chatbotAi.effort' ||
+    key === 'supportAi.effort' ||
+    key === OPS_AI_SETTING_KEYS.effort
+  ) {
     return isAiEffort(value) ? { value } : null;
   }
   if (key === 'supportAi.tone') return isAiSupportTone(value) ? { value } : null;
-  if (key === 'chatbotAi.enabled' || key === 'supportAi.enabled') {
+  if (key === 'chatbotAi.enabled' || key === 'supportAi.enabled' || isAiFlagSettingKey(key)) {
     return typeof value === 'boolean' ? { value } : null;
+  }
+  if (key === AI_INSIGHT_SETTING_KEYS.primaryLanguage) {
+    return isUiLanguage(value) ? { value } : null;
+  }
+  if (key === AI_MCP_SETTING_KEYS.allowedOrigins) {
+    const origins = parseAiMcpAllowedOrigins(value);
+    return origins != null ? { value: origins } : null;
   }
   return undefined;
 }
@@ -168,35 +329,91 @@ export interface AiLimits {
   sitePerMinute: number;
   /** 0 means no daily budget. */
   userDailyTokens: number;
+  /** 0 means no limit. */
+  companyMonthlyTokens: number;
+  /** Default monthly budget of every site; 0 means no limit. */
+  siteMonthlyTokens: number;
+  /** System-initiated surfaces only; 0 means no limit. */
+  siteDailyTokens: number;
+  /** A usage notice is raised when a scope crosses this percent of its budget. */
+  budgetWarnPercent: number;
   maxToolCallsPerTurn: number;
   conversationRetentionDays: number;
   attachmentsMaxBytes: number;
   attachmentsMaxPerMessage: number;
 }
 
+/** Automatic insights (`aiInsights.*`). They also need `opsAi.enabled`. */
+export interface AiInsightSettings {
+  stationEnabled: boolean;
+  sessionEnabled: boolean;
+  authorizationEnabled: boolean;
+  debounceSeconds: number;
+  cooldownMinutes: number;
+  siteIncidentThreshold: number;
+  maxPerSitePerDay: number;
+  /** Language of the canonical summary. */
+  primaryLanguage: UiLanguage;
+  retentionDays: number;
+}
+
+/** Background AI workers (`aiWorkers.*`). Each job also needs `opsAi.enabled`. */
+export interface AiWorkerSettings {
+  networkSummaryEnabled: boolean;
+  stuckSessionsEnabled: boolean;
+  stuckSessionsIdleMinutes: number;
+  stuckSessionsUseModel: boolean;
+  tariffAnomaliesEnabled: boolean;
+  proposalTtlHours: number;
+}
+
+/** The MCP server (`ai.mcp.*`). */
+export interface AiMcpSettings {
+  enabled: boolean;
+  rateLimitPerMinute: number;
+  dailyCallsPerKey: number;
+  proposalTtlMinutes: number;
+  /** Allowed `Origin` header values; empty allows none (a request without `Origin` passes). */
+  allowedOrigins: string[];
+}
+
 export interface AiSettings {
   chatbot: AiSurfaceSettings;
   support: AiSupportSurfaceSettings;
+  /** System-initiated runs: insights and background workers. */
+  ops: AiSurfaceSettings;
   providers: Record<AiProviderId, AiProviderSettings>;
   limits: AiLimits;
+  insights: AiInsightSettings;
+  workers: AiWorkerSettings;
+  mcp: AiMcpSettings;
 }
 
 function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
-function limit(values: Map<string, unknown>, key: AiLimitSettingKey): number {
-  return parseAiLimitValue(key, values.get(key)) ?? AI_LIMIT_SETTINGS[key].defaultValue;
+function limit(values: Map<string, unknown>, key: AiNumberSettingKey): number {
+  return parseAiLimitValue(key, values.get(key)) ?? AI_NUMBER_SETTINGS[key].defaultValue;
 }
 
-function surface(values: Map<string, unknown>, prefix: string): AiSurfaceSettings {
+function flag(values: Map<string, unknown>, key: AiFlagSettingKey): boolean {
+  const value = values.get(key);
+  return typeof value === 'boolean' ? value : AI_FLAG_SETTINGS[key];
+}
+
+function surface(
+  values: Map<string, unknown>,
+  prefix: string,
+  defaultEffort: AiEffort = DEFAULT_AI_EFFORT,
+): AiSurfaceSettings {
   const provider = values.get(`${prefix}.provider`);
   const effort = values.get(`${prefix}.effort`);
   return {
     enabled: values.get(`${prefix}.enabled`) === true,
     provider: isAiProviderId(provider) ? provider : null,
     model: str(values.get(`${prefix}.model`)).trim(),
-    effort: isAiEffort(effort) ? effort : DEFAULT_AI_EFFORT,
+    effort: isAiEffort(effort) ? effort : defaultEffort,
     systemPrompt: str(values.get(`${prefix}.systemPrompt`)),
   };
 }
@@ -205,6 +422,7 @@ function surface(values: Map<string, unknown>, prefix: string): AiSurfaceSetting
 export function buildAiSettings(rows: { key: string; value: unknown }[]): AiSettings {
   const values = new Map(rows.map((r) => [r.key, r.value]));
   const tone = values.get('supportAi.tone');
+  const language = values.get(AI_INSIGHT_SETTING_KEYS.primaryLanguage);
   const providers = Object.fromEntries(
     AI_PROVIDER_IDS.map((p) => [
       p,
@@ -220,15 +438,47 @@ export function buildAiSettings(rows: { key: string; value: unknown }[]): AiSett
       ...surface(values, 'supportAi'),
       tone: isAiSupportTone(tone) ? tone : DEFAULT_AI_SUPPORT_TONE,
     },
+    ops: surface(values, AI_SURFACE_PREFIXES.ops, DEFAULT_OPS_AI_EFFORT),
     providers,
     limits: {
       userPerMinute: limit(values, 'ai.rateLimit.userPerMinute'),
       sitePerMinute: limit(values, 'ai.rateLimit.sitePerMinute'),
       userDailyTokens: limit(values, 'ai.budget.userDailyTokens'),
+      companyMonthlyTokens: limit(values, AI_BUDGET_SETTING_KEYS.companyMonthlyTokens),
+      siteMonthlyTokens: limit(values, AI_BUDGET_SETTING_KEYS.siteMonthlyTokens),
+      siteDailyTokens: limit(values, AI_BUDGET_SETTING_KEYS.siteDailyTokens),
+      budgetWarnPercent: limit(values, AI_BUDGET_SETTING_KEYS.warnPercent),
       maxToolCallsPerTurn: limit(values, 'ai.maxToolCallsPerTurn'),
       conversationRetentionDays: limit(values, 'ai.conversationRetentionDays'),
       attachmentsMaxBytes: limit(values, 'ai.attachments.maxBytes'),
       attachmentsMaxPerMessage: limit(values, 'ai.attachments.maxPerMessage'),
+    },
+    insights: {
+      stationEnabled: flag(values, AI_INSIGHT_SETTING_KEYS.stationEnabled),
+      sessionEnabled: flag(values, AI_INSIGHT_SETTING_KEYS.sessionEnabled),
+      authorizationEnabled: flag(values, AI_INSIGHT_SETTING_KEYS.authorizationEnabled),
+      debounceSeconds: limit(values, AI_INSIGHT_SETTING_KEYS.debounceSeconds),
+      cooldownMinutes: limit(values, AI_INSIGHT_SETTING_KEYS.cooldownMinutes),
+      siteIncidentThreshold: limit(values, AI_INSIGHT_SETTING_KEYS.siteIncidentThreshold),
+      maxPerSitePerDay: limit(values, AI_INSIGHT_SETTING_KEYS.maxPerSitePerDay),
+      primaryLanguage: isUiLanguage(language) ? language : 'en',
+      retentionDays: limit(values, AI_INSIGHT_SETTING_KEYS.retentionDays),
+    },
+    workers: {
+      networkSummaryEnabled: flag(values, AI_WORKER_SETTING_KEYS.networkSummaryEnabled),
+      stuckSessionsEnabled: flag(values, AI_WORKER_SETTING_KEYS.stuckSessionsEnabled),
+      stuckSessionsIdleMinutes: limit(values, AI_WORKER_SETTING_KEYS.stuckSessionsIdleMinutes),
+      stuckSessionsUseModel: flag(values, AI_WORKER_SETTING_KEYS.stuckSessionsUseModel),
+      tariffAnomaliesEnabled: flag(values, AI_WORKER_SETTING_KEYS.tariffAnomaliesEnabled),
+      proposalTtlHours: limit(values, AI_WORKER_SETTING_KEYS.proposalTtlHours),
+    },
+    mcp: {
+      enabled: flag(values, AI_MCP_SETTING_KEYS.enabled),
+      rateLimitPerMinute: limit(values, AI_MCP_SETTING_KEYS.rateLimitPerMinute),
+      dailyCallsPerKey: limit(values, AI_MCP_SETTING_KEYS.dailyCallsPerKey),
+      proposalTtlMinutes: limit(values, AI_MCP_SETTING_KEYS.proposalTtlMinutes),
+      allowedOrigins:
+        parseAiMcpAllowedOrigins(values.get(AI_MCP_SETTING_KEYS.allowedOrigins)) ?? [],
     },
   };
 }

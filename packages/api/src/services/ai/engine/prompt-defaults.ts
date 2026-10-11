@@ -8,36 +8,10 @@
  * `prompt.ts` are always added and cannot be replaced.
  */
 
+import { PROMPT_LANGUAGES } from '@evtivity/ai/prompt';
+import type { PromptLanguage } from '@evtivity/ai/prompt';
+import { isDefaultOpsPrompt } from '@evtivity/services/ai-ops-prompt';
 import type { AiSurface } from '../tools/policy.js';
-
-export const PROMPT_LANGUAGES = ['en', 'de', 'es', 'ko', 'zh', 'zh-TW'] as const;
-export type PromptLanguage = (typeof PROMPT_LANGUAGES)[number];
-
-/** How the prompt names each language to the model. */
-export const LANGUAGE_NAMES: Record<PromptLanguage, string> = {
-  en: 'English',
-  de: 'German (Deutsch)',
-  es: 'Spanish (Español)',
-  ko: 'Korean (한국어)',
-  zh: 'Simplified Chinese (简体中文)',
-  'zh-TW': 'Traditional Chinese (繁體中文)',
-};
-
-/** Chinese terms the platform uses; the model is told to use them. */
-const TERMINOLOGY: Partial<Record<PromptLanguage, string>> = {
-  zh: 'In Chinese, call a driver 驾驶员 and firmware 固件.',
-  'zh-TW': 'In Chinese, call a driver 駕駛員 and firmware 固件.',
-};
-
-export function terminologyNote(language: PromptLanguage): string {
-  return TERMINOLOGY[language] ?? '';
-}
-
-export function promptLanguage(value: string | null | undefined): PromptLanguage {
-  return (PROMPT_LANGUAGES as readonly string[]).includes(value ?? '')
-    ? (value as PromptLanguage)
-    : 'en';
-}
 
 const CHATBOT: Record<PromptLanguage, string> = {
   en: 'You are the EVtivity assistant for operators of an EV charging station management system. Answer questions about stations, sessions, energy, revenue and operations, and help operators use EVtivity. Decline questions unrelated to EV charging or EVtivity. Use the tools to fetch live data and never guess numbers. Money amounts in the data are in cents: show them in whole currency units. Energy is in Wh: show kWh. Use markdown tables for tabular data. Be concise. To change data, call the matching tool: the user sees a confirmation card and the change runs only after they confirm it, so do not ask for confirmation in text first. Only when the user asks how to do something or how to configure a feature, add one relevant documentation link from the index.',
@@ -72,9 +46,10 @@ function comparable(text: string): string {
  * text is a built-in prompt of the surface (any language), so a saved but
  * unchanged default keeps following the built-in prompt and its updates.
  */
-export function storedSystemPrompt(surface: AiSurface, text: string): string {
+export function storedSystemPrompt(surface: AiSurface | 'ops', text: string): string {
   const value = comparable(text);
   if (value === '') return '';
+  if (surface === 'ops') return isDefaultOpsPrompt(text) ? '' : text;
   const defaults = surface === 'support' ? SUPPORT : CHATBOT;
   return PROMPT_LANGUAGES.some((lang) => comparable(defaults[lang]) === value) ? '' : text;
 }

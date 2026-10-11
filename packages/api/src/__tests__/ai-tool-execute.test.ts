@@ -201,16 +201,17 @@ describe('running a tool call', () => {
   });
 
   it('runs as the user in the AI context, and the result is redacted and framed', async () => {
+    const via = { channel: 'chat' as const, conversationId: 'aic_1', toolCallId: 'atc_1' };
     const outcome = await runToolCall(
       app,
       { entry: entry(), args: { id: 'sta_000000000001', note: 'x' } },
       'Bearer user-token',
-      { conversationId: 'aic_1', toolCallRowId: 'atc_1', surface: 'chatbot', userId: 'usr_1' },
+      { surface: 'chatbot', userId: 'usr_1', via },
     );
     expect(seen[0]).toEqual({
       ai: true,
-      ctx: { conversationId: 'aic_1', toolCallRowId: 'atc_1', surface: 'chatbot', userId: 'usr_1' },
-      viaAi: { conversationId: 'aic_1', toolCallId: 'atc_1' },
+      ctx: { surface: 'chatbot', userId: 'usr_1', via },
+      viaAi: via,
       auth: 'Bearer user-token',
     });
     expect(isAiToolRequest()).toBe(false);

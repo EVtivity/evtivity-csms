@@ -11,6 +11,7 @@ import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
 import { hashToken } from '../lib/token-hash.js';
 import { isDriverActive } from '../lib/driver-active.js';
 import { isUserActive } from '../lib/user-active.js';
+import { isAiToolRequest } from '../services/ai/tools/execute.js';
 
 // A missing, expired or forged token is routine: log it at debug. Anything
 // else (a database error while checking the account) is logged at warn.
@@ -27,6 +28,8 @@ export interface JwtPayload {
   userId: string;
   roleId: string;
   isApiKey?: boolean;
+  /** `refresh_tokens.id` of the API key, as text (audit `actor_api_key_id`, MCP). */
+  apiKeyId?: string;
   apiKeyName?: string;
   apiKeyPermissions?: string[];
   /**
@@ -190,10 +193,14 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
             );
 
           if (row != null && row.userId != null) {
+            // A request an AI tool call injected (MCP, or a chat run with an
+            // API key) is counted by the AI and MCP limits, not again per key,
+            // as the global limiter skips it.
+            const injected = isAiToolRequest();
             // Per-API-key rate limiting. The OCTT conformance runner is exempt
             // because it dispatches CSMS-initiated OCPP commands in bursts that
             // legitimately exceed the per-key limit.
-            if (row.name !== OCTT_API_KEY_NAME && isApiKeyRateLimited(tokenHash)) {
+            if (!injected && row.name !== OCTT_API_KEY_NAME && isApiKeyRateLimited(tokenHash)) {
               await reply
                 .status(429)
                 .send({ error: 'API key rate limit exceeded', code: 'API_KEY_RATE_LIMITED' });
@@ -217,6 +224,7 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
                 userId: user.id,
                 roleId: user.roleId,
                 isApiKey: true,
+                apiKeyId: String(row.id),
                 ...(row.name != null ? { apiKeyName: row.name } : {}),
                 ...(row.expiresAt != null ? { apiKeyExpiresAt: row.expiresAt.toISOString() } : {}),
               };
@@ -242,8 +250,9 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
               // "last used" badge in the UI and audit queries.
               const LAST_USED_THROTTLE_MS = 3600_000;
               const lastUsedStale =
-                row.lastUsedAt == null ||
-                Date.now() - row.lastUsedAt.getTime() > LAST_USED_THROTTLE_MS;
+                !injected &&
+                (row.lastUsedAt == null ||
+                  Date.now() - row.lastUsedAt.getTime() > LAST_USED_THROTTLE_MS);
               if (lastUsedStale) {
                 db.update(refreshTokens)
                   .set({ lastUsedAt: new Date() })

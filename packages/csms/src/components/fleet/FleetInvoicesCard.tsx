@@ -198,7 +198,7 @@ function FleetUnbilledCard({ fleetId }: { fleetId: string }): React.JSX.Element 
                 })}{' '}
                 <Link
                   to={`/invoices/${data.existingInvoice.id}`}
-                  className="text-primary hover:underline"
+                  className="text-link hover:underline"
                 >
                   {data.existingInvoice.invoiceNumber}
                 </Link>
@@ -246,7 +246,7 @@ function FleetUnbilledCard({ fleetId }: { fleetId: string }): React.JSX.Element 
                           {driver.driverId != null ? (
                             <Link
                               to={`/drivers/${driver.driverId}`}
-                              className="text-primary hover:underline"
+                              className="text-link hover:underline"
                             >
                               {driver.driverName !== ''
                                 ? driver.driverName
@@ -275,7 +275,7 @@ function FleetUnbilledCard({ fleetId }: { fleetId: string }): React.JSX.Element 
                     <li key={session.sessionId}>
                       <Link
                         to={`/sessions/${session.sessionId}`}
-                        className="text-primary hover:underline"
+                        className="text-link hover:underline"
                       >
                         {session.sessionId}
                       </Link>
@@ -391,7 +391,7 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
                     return (
                       <TableRow key={row.id} data-testid={`fleet-invoice-row-${row.id}`}>
                         <TableCell className="font-medium">
-                          <Link to={`/invoices/${row.id}`} className="text-primary hover:underline">
+                          <Link to={`/invoices/${row.id}`} className="text-link hover:underline">
                             {row.invoiceNumber}
                           </Link>
                           {isCreditNote && (

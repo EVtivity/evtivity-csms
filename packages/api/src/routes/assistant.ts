@@ -43,7 +43,7 @@ import {
   streamTurn,
   surfaceConfigOrReply,
 } from '../services/ai/engine/route-support.js';
-import { resolveModelCapabilities, resolveModelId } from '../services/ai/core/model-registry.js';
+import { resolveModelCapabilities, resolveModelId } from '@evtivity/ai/core';
 import { attachmentProblem } from '../services/ai/engine/attachments.js';
 import {
   claimChatAttachments,
@@ -53,6 +53,14 @@ import { hasAiAdapter } from '../services/ai/engine/providers.js';
 import { isSurfaceAvailable } from '../services/ai/surfaces/config.js';
 import { getAiSettings, getCompanyCurrency, isChatbotAiEnabled } from '@evtivity/database';
 import { aiCostInCompanyCurrencyMicros } from '@evtivity/lib/pricing-engine';
+import { AI_CONTEXT_KINDS } from '@evtivity/lib/ai-insights';
+import type { AiContextKind } from '@evtivity/lib/ai-insights';
+import {
+  AI_CONTEXT_NOT_FOUND_BODY,
+  explainContextForTurn,
+  resolveExplainSubject,
+} from '../services/ai/engine/explain-context.js';
+import type { ExplainAccess } from '../services/ai/engine/explain-context.js';
 
 const conversationParams = z.object({
   id: z.string().min(1).max(64).describe('Conversation ID'),
@@ -66,8 +74,28 @@ const listQuery = paginationQuery.extend({
   search: z.string().max(200).optional().describe('Filter by title (case-insensitive substring)'),
 });
 
+const contextSchema = z
+  .object({
+    kind: z.enum(AI_CONTEXT_KINDS).describe('The kind of record'),
+    id: z
+      .string()
+      .min(1)
+      .max(64)
+      .describe(
+        'The record id: a station id, a session id, or an authorize attempt id (decimal string)',
+      ),
+  })
+  .describe(
+    'Explain: the record this conversation is about. Every turn adds its current data to the prompt',
+  );
+
 const createBody = z.object({
   title: z.string().max(200).optional().describe('Title; set from the first message when empty'),
+  context: contextSchema
+    .optional()
+    .describe(
+      'Explain: open the conversation about a station, session or authorization attempt. Needs the record read permission and site access',
+    ),
 });
 
 const renameBody = z.object({
@@ -108,6 +136,10 @@ const conversationItem = z
     model: z.string().describe('Model of the latest turn'),
     createdAt: z.string().describe('ISO 8601 creation time'),
     updatedAt: z.string().describe('ISO 8601 time of the latest turn or rename'),
+    context: contextSchema
+      .passthrough()
+      .nullable()
+      .describe('Explain: the record the conversation is about, null for an ordinary conversation'),
   })
   .passthrough();
 
@@ -163,6 +195,10 @@ function toConversationItem(row: AiConversationRow): z.infer<typeof conversation
     model: row.model,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    context:
+      row.contextKind !== null && row.contextId !== null
+        ? { kind: row.contextKind as AiContextKind, id: row.contextId }
+        : null,
   };
 }
 
@@ -179,6 +215,10 @@ function toMessageItem(row: AiMessageRow, companyCurrency: string): z.infer<type
 }
 
 const notFound = { error: 'Conversation not found', code: 'AI_CONVERSATION_NOT_FOUND' } as const;
+
+function explainAccess(request: FastifyRequest, userId: string): ExplainAccess {
+  return { userId, hasPermission: (permission) => requestHasPermission(request, permission) };
+}
 
 /** Stops a conversation route when the company turned the chatbot off. */
 async function chatbotEnabledOrReply(_request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -239,21 +279,38 @@ export function assistantRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['AI Assistant'],
         summary: 'Start an AI assistant conversation',
+        description:
+          'With a context (Explain), the record is checked like its detail route: its read permission and site access. An unknown record and one outside the caller sites answer the same 404 AI_CONTEXT_NOT_FOUND.',
         operationId: 'createAiConversation',
         security: [{ bearerAuth: [] }],
         body: zodSchema(createBody),
         response: {
           201: itemResponse(conversationItem),
           400: errorWith('The assistant is off', [ERROR_CODES.AI_NOT_CONFIGURED]),
+          404: errorWith('Explain context not found', [ERROR_CODES.AI_CONTEXT_NOT_FOUND]),
         },
       },
     },
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
-      const { title } = request.body as z.infer<typeof createBody>;
+      const { title, context } = request.body as z.infer<typeof createBody>;
+      if (context !== undefined) {
+        const resolved = await resolveExplainSubject(
+          context.kind,
+          context.id,
+          explainAccess(request, userId),
+        );
+        if (resolved.status !== 'ok') return reply.status(404).send(AI_CONTEXT_NOT_FOUND_BODY);
+      }
       const shown = await configuredProviderAndModel();
       const row = await createConversation(
-        { userId, surface: 'chatbot', ...shown, ...(title !== undefined ? { title } : {}) },
+        {
+          userId,
+          surface: 'chatbot',
+          ...shown,
+          ...(title !== undefined ? { title } : {}),
+          ...(context !== undefined ? { context } : {}),
+        },
         getAuditActor(request),
         request.log,
       );
@@ -406,14 +463,16 @@ export function assistantRoutes(app: FastifyInstance): void {
             ERROR_CODES.AI_ATTACHMENT_UNSUPPORTED,
             ERROR_CODES.AI_ATTACHMENT_TOO_LARGE,
           ]),
-          404: errorWith('Conversation or attachment not found', [
+          404: errorWith('Conversation, attachment or Explain context not found', [
             ERROR_CODES.AI_CONVERSATION_NOT_FOUND,
             ERROR_CODES.ATTACHMENT_NOT_FOUND,
+            ERROR_CODES.AI_CONTEXT_NOT_FOUND,
           ]),
           409: errorWith('A turn is running', [ERROR_CODES.AI_CONVERSATION_BUSY]),
           429: errorWith('AI limit reached', [
             ERROR_CODES.AI_RATE_LIMITED,
             ERROR_CODES.AI_BUDGET_EXCEEDED,
+            ERROR_CODES.AI_MONTHLY_BUDGET_EXCEEDED,
           ]),
         },
       },
@@ -424,6 +483,9 @@ export function assistantRoutes(app: FastifyInstance): void {
       const { text, attachmentIds } = request.body as z.infer<typeof messageBody>;
       const conversation = await getConversation(userId, id, 'chatbot');
       if (conversation === null) return reply.status(404).send(notFound);
+      // Explain: access to the record is checked again at every turn.
+      const explain = await explainContextForTurn(conversation, explainAccess(request, userId));
+      if (explain === 'forbidden') return reply.status(404).send(AI_CONTEXT_NOT_FOUND_BODY);
       const config = await surfaceConfigOrReply('chatbot', userId, reply);
       if (config === null) return reply;
       // Binds the attachments (404 for one that is not the caller's or not
@@ -445,7 +507,7 @@ export function assistantRoutes(app: FastifyInstance): void {
           request.log,
         );
       }
-      const limits = await limitsOrReply(userId, null, reply);
+      const limits = await limitsOrReply('chatbot', userId, null, reply);
       if (limits === null) return reply;
       if (!(await claimTurnOrReply(conversation.id, reply))) return reply;
       const ctx = {
@@ -466,6 +528,7 @@ export function assistantRoutes(app: FastifyInstance): void {
           text,
           attachments,
           maxToolCalls: limits.maxToolCallsPerTurn,
+          explain,
         });
       });
       return reply;
@@ -486,7 +549,7 @@ export function assistantRoutes(app: FastifyInstance): void {
               : 'Reject a proposed action and stream the rest of the answer',
           description:
             decision === 'confirmed'
-              ? 'Runs the write the assistant proposed, exactly once, as the caller, then continues the turn. A second confirm of the same action runs nothing. Answers text/event-stream.'
+              ? 'Runs the write the assistant proposed, exactly once, as the caller, then continues the turn. A second confirm of the same action runs nothing. Answers text/event-stream. Needs a signed-in session: API keys get 403 AI_CONFIRMATION_REQUIRES_SESSION.'
               : 'Records the rejection, tells the model, and continues the turn. Answers text/event-stream.',
           operationId: decision === 'confirmed' ? 'confirmAiAction' : 'rejectAiAction',
           security: [{ bearerAuth: [] }],
@@ -498,9 +561,17 @@ export function assistantRoutes(app: FastifyInstance): void {
               ERROR_CODES.AI_NOT_CONFIGURED,
               ERROR_CODES.AI_BASE_URL_INVALID,
             ]),
-            404: errorWith('Action or conversation not found', [
+            ...(decision === 'confirmed'
+              ? {
+                  403: errorWith('Confirmation needs a signed-in session', [
+                    ERROR_CODES.AI_CONFIRMATION_REQUIRES_SESSION,
+                  ]),
+                }
+              : {}),
+            404: errorWith('Action, conversation or Explain context not found', [
               ERROR_CODES.AI_ACTION_NOT_FOUND,
               ERROR_CODES.AI_CONVERSATION_NOT_FOUND,
+              ERROR_CODES.AI_CONTEXT_NOT_FOUND,
             ]),
             409: errorWith('The action cannot be decided', [
               ERROR_CODES.AI_ACTION_EXPIRED,
@@ -510,6 +581,7 @@ export function assistantRoutes(app: FastifyInstance): void {
             429: errorWith('AI limit reached', [
               ERROR_CODES.AI_RATE_LIMITED,
               ERROR_CODES.AI_BUDGET_EXCEEDED,
+              ERROR_CODES.AI_MONTHLY_BUDGET_EXCEEDED,
             ]),
           },
         },
@@ -520,9 +592,19 @@ export function assistantRoutes(app: FastifyInstance): void {
         const { nonce } = request.body as z.infer<typeof decisionBody>;
         const conversation = await getConversation(userId, id, 'chatbot');
         if (conversation === null) return reply.status(404).send(notFound);
+        // Decision D8: a write runs only on a confirmation in a signed-in
+        // session, never on an API key (a script or an MCP client).
+        if (decision === 'confirmed' && (request.user as JwtPayload).isApiKey === true) {
+          return reply.status(403).send({
+            error: ERROR_MESSAGES.AI_CONFIRMATION_REQUIRES_SESSION,
+            code: 'AI_CONFIRMATION_REQUIRES_SESSION',
+          });
+        }
+        const explain = await explainContextForTurn(conversation, explainAccess(request, userId));
+        if (explain === 'forbidden') return reply.status(404).send(AI_CONTEXT_NOT_FOUND_BODY);
         const config = await surfaceConfigOrReply('chatbot', userId, reply);
         if (config === null) return reply;
-        const limits = await limitsOrReply(userId, null, reply);
+        const limits = await limitsOrReply('chatbot', userId, null, reply);
         if (limits === null) return reply;
         if (!(await claimTurnOrReply(conversation.id, reply))) return reply;
 
@@ -592,6 +674,7 @@ export function assistantRoutes(app: FastifyInstance): void {
             action,
             decision,
             maxToolCalls: limits.maxToolCallsPerTurn,
+            explain,
           });
         });
         return reply;

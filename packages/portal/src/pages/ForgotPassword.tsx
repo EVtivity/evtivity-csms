@@ -108,7 +108,7 @@ export function ForgotPassword(): React.JSX.Element {
             </Button>
             <Link
               to="/login"
-              className="block text-center text-sm font-medium text-primary hover:underline"
+              className="block text-center text-sm font-medium text-link hover:underline"
             >
               {t('auth.backToLogin')}
             </Link>

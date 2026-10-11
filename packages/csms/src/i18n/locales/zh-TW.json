@@ -173,7 +173,8 @@
     "openMenu": "開啟選單",
     "closeMenu": "關閉選單",
     "audit": "稽核",
-    "maintenance": "維護"
+    "maintenance": "維護",
+    "aiInbox": "AI 收件匣"
   },
   "roaming": {
     "partners": {
@@ -451,7 +452,12 @@
     "billedOnAccount": "車隊掛帳",
     "billedOnAccountSessions": "未付記帳工作階段",
     "costMissingNotice": "沒有電力成本的工作階段不計入利潤：{{count}} 個（收入 {{revenue}}）。",
-    "costMissingSites": "為以下站點設定電價："
+    "costMissingTitle": "缺少電力成本",
+    "costMissingNoRates": "為以下站點設定電價：{{site}}",
+    "costMissingSessions_one": "{{site}} 有 {{count}} 個工作階段沒有電力成本",
+    "costMissingSessions_other": "{{site}} 有 {{count}} 個工作階段沒有電力成本",
+    "costMissingMoreSites_one": "還有 {{count}} 個站點",
+    "costMissingMoreSites_other": "還有 {{count}} 個站點"
   },
   "sites": {
     "title": "站點",
@@ -567,7 +573,17 @@
     "electricityRateDaysOfWeek": "星期",
     "electricityRatesMissing": "此站點沒有電價。其工作階段沒有電力成本，不計入利潤。",
     "electricityRatesNoDefault": "此站點沒有預設電價。在其電價時段之外結束的工作階段沒有電力成本，不計入利潤。",
-    "electricityRatesOpen": "設定電價"
+    "electricityRatesOpen": "設定電價",
+    "electricityCostRecalculate": "重新計算電力成本",
+    "electricityCostRecalculateTitle": "重新計算電力成本？",
+    "electricityCostRecalculateConfirm": "{{site}} 中沒有電力成本的工作階段將依站點目前的電價計算成本，採用每個工作階段結束時生效的電價。現有成本不會變更。",
+    "electricityCostRecalculated_one": "已為 {{count}} 個工作階段新增電力成本",
+    "electricityCostRecalculated_other": "已為 {{count}} 個工作階段新增電力成本",
+    "electricityCostRecalculateNone": "沒有工作階段取得電力成本",
+    "electricityCostRecalculateRemaining_one": "{{count}} 個工作階段仍沒有電力成本：其結束時沒有適用的電價。",
+    "electricityCostRecalculateRemaining_other": "{{count}} 個工作階段仍沒有電力成本：其結束時沒有適用的電價。",
+    "electricityCostRecalculateMore_one": "{{count}} 個工作階段仍沒有電力成本。請再次重新計算以繼續。",
+    "electricityCostRecalculateMore_other": "{{count}} 個工作階段仍沒有電力成本。請再次重新計算以繼續。"
   },
   "stations": {
     "title": "充電站",
@@ -1072,7 +1088,11 @@
       "unbilled": "未開立發票",
       "invoiced": "已開立發票",
       "paid": "已付款"
-    }
+    },
+    "electricityCostAll": "全部",
+    "electricityCostMissing": "缺少",
+    "costMissingNotice": "這些工作階段沒有電力成本，不計入利潤。",
+    "costMissingSelectSite": "這些工作階段沒有電力成本，不計入利潤。選擇一個站點以重新計算其成本。"
   },
   "drivers": {
     "title": "駕駛員",
@@ -1334,6 +1354,7 @@
       "audit": "稽核日誌",
       "maintenance": "維護",
       "aiAssistant": "AI 助理",
+      "aiInsights": "自動洞察",
       "settings": {
         "system": "系統",
         "notification": "通知",
@@ -1346,7 +1367,10 @@
         "smartCharging": "智慧充電",
         "ai": "AI",
         "conformance": "合規測試"
-      }
+      },
+      "aiProposals": "AI 提議",
+      "aiUsage": "AI 用量",
+      "aiMcp": "MCP 存取"
     }
   },
   "profile": {
@@ -1398,7 +1422,10 @@
     "mfaQrCode": "驗證器應用程式 QR Code",
     "chatbotAiDescription": "您自己的 AI 助理設定。對您而言，它會取代系統設定。",
     "aiRemoveConfig": "移除設定",
-    "aiRemoveConfirm": "移除您的個人設定？系統設定將重新生效。"
+    "aiRemoveConfirm": "移除您的個人設定？系統設定將重新生效。",
+    "aiDigestEmail": "AI 收件匣摘要郵件",
+    "aiDigestEmailDescription": "每天寄送一封郵件，列出您站點待處理的 AI 提議數量。",
+    "notificationsSaveFailed": "無法儲存通知偏好設定，請再試一次。"
   },
   "fleets": {
     "title": "車隊",
@@ -2481,6 +2508,11 @@
         "title": "支援 AI",
         "description": "為客服案件草擬回覆，供營運人員審閱。",
         "enabled": "啟用支援 AI"
+      },
+      "ops": {
+        "title": "自動洞察與背景工作",
+        "description": "自動洞察和背景工作使用的模型。它們在沒有使用者的情況下執行，並使用公司的供應商金鑰。",
+        "enabled": "開啟系統發起的 AI"
       }
     },
     "aiLimitsTitle": "AI 限制",
@@ -2492,10 +2524,48 @@
       "maxToolCallsPerTurn": "每次回答的工具呼叫數",
       "conversationRetentionDays": "對話保留天數",
       "attachmentsMaxBytes": "附件大小上限（位元組）",
-      "attachmentsMaxPerMessage": "每則訊息的附件數"
+      "attachmentsMaxPerMessage": "每則訊息的附件數",
+      "companyMonthlyTokens": "公司每月 Token 數",
+      "siteMonthlyTokens": "每個站點每月 Token 數",
+      "siteDailyTokens": "每個站點每天 Token 數（洞察和背景工作）",
+      "warnPercent": "預警門檻（預算的 %）"
     },
     "aiLimitRange": "範圍 {{min}} 至 {{max}}。",
-    "aiLimitZeroNoBudget": "0 表示不設每日上限。"
+    "aiLimitZeroNoBudget": "0 表示不設每日上限。",
+    "aiOpsDataWarning": "開啟後，充電站、工作階段和權杖狀態資料會在沒有使用者操作的情況下傳送給所設定的供應商。",
+    "aiInsightsSettings": {
+      "title": "自動洞察",
+      "station": "充電站洞察",
+      "session": "工作階段洞察",
+      "authorization": "授權洞察",
+      "debounceSeconds": "分析前等待時間（秒）",
+      "cooldownMinutes": "每個充電站、工作階段或權杖的冷卻時間（分鐘）",
+      "siteIncidentThreshold": "一個站點內合併為一個站點事件的故障充電站數",
+      "maxPerSitePerDay": "每個站點每天的洞察數",
+      "primaryLanguage": "摘要語言",
+      "retentionDays": "洞察保留天數"
+    },
+    "aiMcp": {
+      "title": "MCP 伺服器",
+      "description": "允許 MCP 用戶端使用具有 MCP 存取權的 API 金鑰呼叫 AI 工具。每次變更都需要您在 AI 收件匣中確認。",
+      "enabled": "開啟 MCP 伺服器",
+      "rateLimitPerMinute": "每個 API 金鑰每分鐘呼叫次數",
+      "dailyCallsPerKey": "每個 API 金鑰每天呼叫次數",
+      "proposalTtlMinutes": "核准 MCP 變更的時限（分鐘）",
+      "allowedOrigins": "允許的來源",
+      "allowedOriginsHint": "每行一個來源，例如 https://app.example.com。留空則拒絕來自瀏覽器的請求。",
+      "allowedOriginsInvalid": "每行輸入一個 http 或 https 來源，不含路徑。",
+      "endpoint": "端點",
+      "endpointHint": "將 MCP 用戶端指向此 URL，並使用具有 MCP 存取權限的 API 金鑰。",
+      "writeScopeHint": "金鑰需要 MCP 寫入權限和充電站讀取權限才能提出變更。",
+      "toolsets": "工具類別",
+      "toolsetsHint": "在 URL 後加上 ?toolsets=stations,sessions。預設：{{toolsets}}。",
+      "writesHint": "變更會成為提議，由同一位使用者在 AI 收件匣中核准。",
+      "protocolNote": "支援 MCP 2026-07-28；舊版用戶端透過輪詢核准。"
+    },
+    "aiUsageTab": "用量",
+    "aiLimitZeroNoLimit": "0 表示不設上限。",
+    "aiConfigTab": "設定"
   },
   "pnc": {
     "certificates": "憑證",
@@ -2661,10 +2731,12 @@
       "fleet.InvoiceRunFailed": "車隊每月開立發票失敗",
       "invoice.FleetInvoice": "車隊發票已開立",
       "invoice.FleetCreditNote": "車隊貸項通知單已開立",
-      "invoice.FleetOverdue": "車隊發票逾期"
+      "invoice.FleetOverdue": "車隊發票逾期",
+      "ai.ProposalDigest": "AI 提議摘要"
     },
     "templatePreviewInvalid": "範本有錯誤：",
-    "htmlPreview": "HTML 預覽"
+    "htmlPreview": "HTML 預覽",
+    "aiEvents": "AI"
   },
   "reservations": {
     "title": "預約",
@@ -3073,7 +3145,19 @@
     "LOCAL_CA_NOT_CONFIGURED": "請先建立本機合約 CA",
     "PNC_CONTRACT_NOT_FOUND": "找不到 Plug & Charge 合約",
     "PHONE_REGISTRATION_LIMITED": "使用此電話號碼註冊的帳號過多。請稍後再試。",
-    "VERIFICATION_RESEND_LIMITED": "驗證電子郵件請求過多。請稍後再請求。"
+    "VERIFICATION_RESEND_LIMITED": "驗證電子郵件請求過多。請稍後再請求。",
+    "AI_INSIGHT_NOT_FOUND": "找不到洞察",
+    "AI_INSIGHT_COOLDOWN": "此洞察最近已重新產生，請稍後再試",
+    "AI_INSIGHTS_DISABLED": "自動洞察已關閉",
+    "AI_SITE_BUDGET_EXCEEDED": "已達到站點每日 AI 使用上限",
+    "AI_MONTHLY_BUDGET_EXCEEDED": "已達到每月 AI 使用上限",
+    "AI_CONTEXT_NOT_FOUND": "找不到要說明的紀錄",
+    "AI_PROPOSAL_NOT_FOUND": "找不到提議",
+    "AI_PROPOSAL_EXPIRED": "此提議已過期",
+    "AI_PROPOSAL_STALE": "情況已改變，此提議不再適用",
+    "AI_PROPOSAL_ALREADY_DECIDED": "此提議已處理",
+    "AI_CONFIRMATION_REQUIRES_SESSION": "請登入控制台確認此操作，不能使用 API 金鑰",
+    "AI_MCP_RATE_LIMITED": "MCP 請求過多，請稍後再試"
   },
   "logs": {
     "title": "日誌",
@@ -3808,6 +3892,22 @@
         "p2": "如何新增充電站？",
         "p3": "顯示本週故障最多的充電站"
       }
+    },
+    "explain": {
+      "button": "說明",
+      "buttonTitle": "請助理說明此紀錄",
+      "station": "這個充電站為什麼離線或故障，我應該怎麼做？",
+      "session": "這個工作階段為什麼失敗，我應該怎麼做？",
+      "authorization": "這次授權為什麼被拒絕，我應該怎麼做？",
+      "insightShown": "正在顯示最新的自動洞察",
+      "followUp": "繼續提問",
+      "contextUnavailable": "此紀錄已無法使用。",
+      "about": "關於{{record}} {{label}}",
+      "kind": {
+        "station": "充電站",
+        "session": "充電工作階段",
+        "authorization": "授權"
+      }
     }
   },
   "sustainability": {
@@ -4035,7 +4135,16 @@
       "updated": "已更新",
       "uploaded": "已上傳",
       "used": "已使用",
-      "voided": "已作廢"
+      "voided": "已作廢",
+      "regenerated": "已重新產生",
+      "dismissed": "已忽略",
+      "feedback_helpful": "標記為有用",
+      "feedback_wrong": "標記為錯誤",
+      "confirmed": "已確認",
+      "executed": "已執行",
+      "failed": "失敗",
+      "rejected": "已駁回",
+      "stale": "不再適用"
     },
     "entities": {
       "site": "站點",
@@ -4064,7 +4173,9 @@
       "maintenance_event": "維護時段",
       "session": "充電工作階段",
       "invoice": "發票",
-      "ai_conversation": "AI 對話"
+      "ai_conversation": "AI 對話",
+      "ai_insight": "自動洞察",
+      "ai_proposal": "AI 提議"
     },
     "actors": {
       "operator": "營運商",
@@ -4396,5 +4507,348 @@
     "undo": "復原",
     "redo": "重做",
     "htmlSource": "HTML 原始碼"
+  },
+  "aiInsights": {
+    "title": "自動洞察",
+    "activeInsights": "有效洞察",
+    "empty": "沒有洞察",
+    "summaryTranslating": "正在翻譯…",
+    "summaryUnavailable": "沒有可用的翻譯，顯示原文。",
+    "showOriginal": "顯示原文",
+    "hideOriginal": "隱藏原文",
+    "knownCause": "已知原因",
+    "categoryLabel": "根本原因",
+    "confidenceLabel": "信心程度",
+    "fixesLabel": "建議措施",
+    "siteScopeLabel": "本站點",
+    "networkScopeLabel": "所有站點",
+    "regenerate": "重新產生",
+    "dismiss": "忽略",
+    "helpful": "有用",
+    "wrong": "錯誤",
+    "feedbackThanks": "感謝您的回饋",
+    "badge": {
+      "resolved": "已解決",
+      "outOfDate": "已過時"
+    },
+    "category": {
+      "connectivity": "連線",
+      "power_supply": "電源",
+      "hardware": "硬體",
+      "firmware": "固件",
+      "configuration": "設定",
+      "token": "權杖",
+      "payment": "付款",
+      "tariff": "費率",
+      "vehicle": "車輛",
+      "backend": "後端",
+      "unknown": "未知"
+    },
+    "confidence": {
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    },
+    "status": {
+      "pending": "分析中",
+      "active": "有效",
+      "resolved": "已解決",
+      "superseded": "已被取代",
+      "skipped": "已略過",
+      "failed": "失敗",
+      "dismissed": "已忽略"
+    },
+    "kind": {
+      "station_offline": "充電站離線",
+      "station_faulted": "充電站故障",
+      "station_alert": "充電站警示",
+      "session_failed": "工作階段失敗",
+      "authorization_refused": "授權被拒",
+      "site_incident": "站點事件",
+      "site_summary": "站點摘要",
+      "company_summary": "網路摘要",
+      "tariff_anomaly": "費率異常"
+    },
+    "skipReason": {
+      "resolved_before_analysis": "分析前已解決",
+      "cooldown": "最近已分析",
+      "site_daily_cap": "已達到站點每日洞察上限",
+      "site_disabled": "此站點的洞察已關閉",
+      "budget_exceeded": "AI 預算已用完",
+      "disabled": "自動洞察已關閉"
+    },
+    "fix": {
+      "check_network_connection": "檢查充電站的網路連線",
+      "check_power_supply": "檢查電源",
+      "reboot_station": "重新啟動充電站",
+      "inspect_connector": "檢查充電槍",
+      "update_firmware": "更新固件",
+      "review_station_configuration": "檢查充電站設定",
+      "contact_station_vendor": "聯絡充電站廠商",
+      "review_token_status": "檢查權杖狀態",
+      "push_local_auth_list": "推送本機授權清單",
+      "check_roaming_partner": "檢查漫遊合作夥伴",
+      "ask_driver_to_add_payment_method": "請駕駛員新增付款方式",
+      "review_payment_settings": "檢查付款設定",
+      "review_fleet_credit_limit": "檢查車隊信用額度",
+      "review_tariff_assignment": "檢查費率指派",
+      "ask_driver_to_retry": "請駕駛員重試",
+      "check_vehicle_compatibility": "檢查車輛相容性",
+      "end_concurrent_session": "結束並行工作階段",
+      "check_csms_status": "檢查 CSMS 狀態",
+      "monitor": "繼續觀察"
+    },
+    "scope": {
+      "stations_one": "{{count}} 個充電站",
+      "stations_other": "{{count}} 個充電站",
+      "stationsOffline_one": "{{count}} 個充電站離線",
+      "stationsOffline_other": "{{count}} 個充電站離線",
+      "stationsFaulted_one": "{{count}} 個充電站故障",
+      "stationsFaulted_other": "{{count}} 個充電站故障",
+      "sameErrorCode_one": "{{count}} 個充電站出現相同錯誤代碼",
+      "sameErrorCode_other": "{{count}} 個充電站出現相同錯誤代碼",
+      "sessionsInterrupted_one": "{{count}} 個工作階段中斷",
+      "sessionsInterrupted_other": "{{count}} 個工作階段中斷",
+      "sessionsFailedSameReason24h_one": "24 小時內 {{count}} 個工作階段因相同原因失敗",
+      "sessionsFailedSameReason24h_other": "24 小時內 {{count}} 個工作階段因相同原因失敗",
+      "tokenRefusals_one": "{{count}} 次權杖被拒",
+      "tokenRefusals_other": "{{count}} 次權杖被拒"
+    },
+    "regenerateQueued": "正在產生新的洞察。",
+    "widget": {
+      "info": "自動分析在您的站點中發現的未解決問題。站點事件優先，其次依嚴重程度與時間排序。",
+      "empty": "沒有未解決的洞察",
+      "viewAll": "檢視全部",
+      "similar_other": "另有 {{count}} 筆類似",
+      "similar_one": "另有 {{count}} 筆類似",
+      "atDetection": "偵測時 {{value}}"
+    },
+    "confidenceBadge": {
+      "low": "信心度低",
+      "medium": "信心度中",
+      "high": "信心度高"
+    },
+    "headline": {
+      "station_offline": "{{station}} 離線",
+      "station_faulted": "{{station}} 故障",
+      "station_alert": "{{station}} 警示",
+      "session_failed": "{{station}} 工作階段失敗",
+      "authorization_refused": "{{station}} 授權遭拒",
+      "site_incident": "{{site}} 發生事件",
+      "siteIncidentOffline_other": "{{site}} 有 {{count}} 個充電站離線",
+      "siteIncidentOffline_one": "{{site}} 有 {{count}} 個充電站離線",
+      "siteIncidentFaulted_other": "{{site}} 有 {{count}} 個充電站故障",
+      "siteIncidentFaulted_one": "{{site}} 有 {{count}} 個充電站故障",
+      "tariff_anomaly": "{{site}} 費率異常",
+      "site_summary": "{{site}} 每日摘要",
+      "company_summary": "網路每日摘要",
+      "noStation": "未知充電站",
+      "noSite": "無站點"
+    },
+    "list": {
+      "title": "AI 洞察",
+      "subtitle": "自動分析在您的站點中發現的內容。",
+      "allStatuses": "所有狀態",
+      "kind": "類型",
+      "allKinds": "所有類型",
+      "allCategories": "所有根本原因",
+      "site": "站點",
+      "allSites": "所有站點",
+      "insight": "洞察",
+      "station": "充電站"
+    },
+    "detail": {
+      "recordTitle": "詳細資訊",
+      "session": "工作階段",
+      "partOf": "所屬"
+    },
+    "likelyCause": "可能原因",
+    "staleNote": "此分析之後記錄已變更。請重新產生以取得最新分析。",
+    "failedNote": "分析未完成。",
+    "skippedNote": "未分析：{{reason}}",
+    "scopeTable": {
+      "title": "範圍",
+      "measureHeader": "指標",
+      "atDetection": "偵測時",
+      "now": "目前",
+      "atDetectionHint": "分析所用的資料",
+      "nowHint": "截至 {{time}}",
+      "area": {
+        "site": "{{measure}}（站點）",
+        "network": "{{measure}}（所有站點）"
+      },
+      "measure": {
+        "stations": "充電站",
+        "stationsOffline": "離線充電站",
+        "stationsFaulted": "故障充電站",
+        "sameErrorCode": "相同錯誤代碼（24 小時）",
+        "sessionsInterrupted": "中斷的工作階段（24 小時）",
+        "sessionsFailedSameReason24h": "相同停止原因（24 小時）",
+        "tokenRefusals": "權杖拒絕（24 小時）"
+      },
+      "summaryAtDetection": "偵測時 {{value}}",
+      "summaryChanged": "偵測時 {{value}}，目前 {{now}}"
+    }
+  },
+  "aiInbox": {
+    "title": "AI 收件匣",
+    "description": "AI 提議的操作。在您確認之前不會執行任何操作。",
+    "empty": "沒有提議",
+    "pendingCount_one": "{{count}} 個待處理提議",
+    "pendingCount_other": "{{count}} 個待處理提議",
+    "filters": {
+      "source": "來源",
+      "job": "工作",
+      "site": "站點",
+      "status": "狀態",
+      "all": "全部",
+      "search": "搜尋",
+      "searchPlaceholder": "充電站、站點或操作"
+    },
+    "source": {
+      "worker": "背景工作",
+      "mcp": "MCP 用戶端"
+    },
+    "job": {
+      "network_summary": "網路健康",
+      "stuck_sessions": "卡住的工作階段",
+      "tariff_anomalies": "費率異常"
+    },
+    "status": {
+      "pending": "待處理",
+      "executed": "已執行",
+      "failed": "失敗",
+      "rejected": "已駁回",
+      "expired": "已過期",
+      "stale": "不再適用"
+    },
+    "action": {
+      "stop_transaction": "停止工作階段",
+      "soft_reset": "軟重新啟動充電站",
+      "change_availability": "變更充電站可用性"
+    },
+    "precondition": {
+      "session_active": "工作階段仍在進行中",
+      "station_faulted": "充電站仍處於故障狀態",
+      "station_availability": "充電站可用性未變更"
+    },
+    "confirm": "確認",
+    "reject": "駁回",
+    "expiresAt": "{{time}} 過期",
+    "requestedBy": "請求者",
+    "apiKey": "API 金鑰",
+    "client": "用戶端",
+    "untrustedNote": "金鑰名稱和用戶端名稱來自發出請求的用戶端，依原樣顯示。",
+    "arguments": "參數",
+    "rationale": "理由",
+    "result": "結果",
+    "executed": "操作已執行",
+    "confirmFailed": "操作未執行",
+    "stationLabel": "充電站",
+    "sessionLabel": "充電工作階段",
+    "preconditionLabel": "僅在以下條件下執行",
+    "requestedTool": "要求的工具",
+    "columns": {
+      "action": "操作",
+      "expires": "到期時間"
+    },
+    "rejectedToast": "已拒絕提議",
+    "confirmDialog": {
+      "title": "執行此操作？",
+      "note": "它將以您的權限立即執行一次。"
+    },
+    "rejectDialog": {
+      "title": "拒絕此提議？"
+    },
+    "measured": {
+      "idleTime": "閒置時間",
+      "minutes_other": "{{count}} 分鐘",
+      "minutes_one": "{{count}} 分鐘",
+      "lastActivity": "最近活動",
+      "faultedSince": "故障開始時間",
+      "transactionId": "交易 ID"
+    },
+    "detail": {
+      "summary": "摘要",
+      "target": "目標",
+      "requester": "請求者",
+      "timing": "時間",
+      "decided": "已決定",
+      "executedAt": "執行時間"
+    }
+  },
+  "aiWorkers": {
+    "title": "AI 背景工作",
+    "description": "選用的工作，用於找出問題並提議操作。它們不會自行執行。",
+    "proposalTtlHours": "提議有效期（小時）",
+    "networkSummary": {
+      "title": "夜間網路摘要",
+      "description": "每個站點每天一份簡短摘要，附帶提議的操作。"
+    },
+    "stuckSessions": {
+      "title": "卡住的工作階段",
+      "description": "提議停止已不再回報資料的工作階段。",
+      "idleMinutes": "工作階段被視為卡住前的閒置時間（分鐘）",
+      "useModel": "用 AI 撰寫理由"
+    },
+    "tariffAnomalies": {
+      "title": "費率異常",
+      "description": "找出看起來有誤的價格。僅提供發現結果，不提議操作。"
+    },
+    "rationale": {
+      "stuckSessionIdle": "{{minutes}} 分鐘內沒有電表讀數或交易事件",
+      "stuckSessionOffline": "工作階段仍在進行中，但充電站離線",
+      "stuckSessionConnectorAvailable": "工作階段仍在進行中，但充電槍回報為可用"
+    },
+    "findings": {
+      "zero_cost": "收費費率下未計費的工作階段",
+      "station_cost_mismatch": "充電站費用與 CSMS 費用不一致",
+      "price_outlier": "每 kWh 價格遠高於站點中位數",
+      "inactive_tariff": "使用已停用費率計價的工作階段"
+    }
+  },
+  "aiUsage": {
+    "title": "AI 用量",
+    "month": "月份",
+    "period": "期間",
+    "budget": "預算",
+    "used": "已用",
+    "percentUsed": "已用 {{percent}}%",
+    "noLimit": "不限制",
+    "company": "公司",
+    "site": "站點",
+    "sites": "站點",
+    "bySurface": "依功能",
+    "unattributed": "助理（不屬於任何站點）",
+    "topUsers": "用量最多的使用者",
+    "user": "使用者",
+    "cost": "費用",
+    "today": "今天",
+    "todayFooter": "今天：{{used}} / {{limit}} Token",
+    "todayFooterNoLimit": "今天：{{used}} Token",
+    "thresholdWarningCompany": "本月 AI 用量已超過公司預算的 {{percent}}%。",
+    "thresholdWarningSite": "本月 {{site}} 的 AI 用量已超過其預算的 {{percent}}%。",
+    "thresholdExceededCompany": "本月公司 AI 預算已用完。",
+    "thresholdExceededSite": "本月 {{site}} 的 AI 預算已用完。",
+    "surface": {
+      "chatbot": "助理",
+      "support": "支援草稿",
+      "insight": "洞察",
+      "insight_translation": "洞察翻譯",
+      "worker": "背景工作"
+    },
+    "tokens": {
+      "total": "Token",
+      "input": "輸入",
+      "cachedRead": "快取輸入",
+      "cacheWrite": "快取寫入",
+      "output": "輸出",
+      "reasoning": "推理"
+    },
+    "siteBudget": "每月 Token 預算",
+    "siteBudgetHelp": "留空則使用「設定 > AI」中的預設站點預算。0 表示不限制。",
+    "siteInsights": "自動洞察",
+    "siteInsightsHelp": "關閉後將停止此站點的自動洞察。",
+    "allSitesOnly": "只有可存取所有站點的使用者才能變更此項。"
   }
 }

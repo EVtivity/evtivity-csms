@@ -18,6 +18,8 @@ export const QUEUE_NAMES = {
   REMOTE_START_TIMEOUTS: 'remote-start-timeouts',
   STATION_MESSAGES: 'station-messages',
   REPORTS: 'reports',
+  AI_WORKERS: 'ai-workers',
+  AI_INSIGHTS: 'ai-insights',
 } as const;
 
 /** How long finished fleet invoice jobs keep their job id (40 days). */
@@ -28,6 +30,10 @@ export const FLEET_INVOICE_JOB_ATTEMPTS = 6;
 
 /** First retry delay of a fleet invoice job (exponential: 5, 10, 20, 40, 80 minutes). */
 export const FLEET_INVOICE_JOB_BACKOFF_MS = 5 * 60_000;
+
+/** Attempts of one automatic insight job (exponential from 30 s: 30 s, 60 s). */
+export const AI_INSIGHT_JOB_ATTEMPTS = 3;
+export const AI_INSIGHT_JOB_BACKOFF_MS = 30_000;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
@@ -45,6 +51,8 @@ export interface WorkerQueues {
   remoteStartTimeoutQueue: Queue;
   stationMessageQueue: Queue;
   reportQueue: Queue;
+  aiWorkerQueue: Queue;
+  aiInsightQueue: Queue;
 }
 
 /**
@@ -191,6 +199,29 @@ export function createQueues(redisUrl: string): WorkerQueues {
         removeOnComplete: 100,
         removeOnFail: { count: 200 },
         attempts: 1,
+      },
+    }),
+    // Background AI worker runs: one job per job, scope and period (job id
+    // aiw.<job>.<scope>.<period>, P7). A retry finds its ai_worker_runs claim
+    // and does nothing, so a failed run is not repeated: attempts 1.
+    aiWorkerQueue: new Queue(QUEUE_NAMES.AI_WORKERS, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 200,
+        removeOnFail: { count: 500 },
+        attempts: 1,
+      },
+    }),
+    // Automatic insight generations and translations (one job per insight, and
+    // per insight and language, P7). Retrying is safe: a job re-reads the
+    // insight and acts only on a pending one; the last failure marks it failed.
+    aiInsightQueue: new Queue(QUEUE_NAMES.AI_INSIGHTS, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: {
+        removeOnComplete: 500,
+        removeOnFail: { count: 500 },
+        attempts: AI_INSIGHT_JOB_ATTEMPTS,
+        backoff: { type: 'exponential', delay: AI_INSIGHT_JOB_BACKOFF_MS },
       },
     }),
   };

@@ -538,6 +538,7 @@ export async function rebillSession(
     sessionId,
     breakdown,
     endedAt: pricing.endedAt,
+    energyWh: pricing.energyWh,
     outcome: rebillStatus,
   });
   if (!completed) {

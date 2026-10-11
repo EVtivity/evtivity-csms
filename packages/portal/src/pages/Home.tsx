@@ -65,7 +65,7 @@ function QuickActionCard({
       }}
     >
       <CardContent className="flex flex-col items-center gap-2 p-4">
-        <Icon className="h-8 w-8 text-primary" />
+        <Icon className="h-8 w-8 text-link" />
         <span className="text-sm font-medium">{label}</span>
       </CardContent>
     </Card>

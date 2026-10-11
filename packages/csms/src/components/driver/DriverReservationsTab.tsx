@@ -143,7 +143,7 @@ export function DriverReservationsTab({ driverId, timezone }: Props): React.JSX.
                     <TableRow key={r.id}>
                       <TableCell className="text-muted-foreground">{r.id}</TableCell>
                       <TableCell className="font-medium">
-                        <Link to={`/reservations/${r.id}`} className="text-primary hover:underline">
+                        <Link to={`/reservations/${r.id}`} className="text-link hover:underline">
                           {String(r.reservationId)}
                         </Link>
                       </TableCell>

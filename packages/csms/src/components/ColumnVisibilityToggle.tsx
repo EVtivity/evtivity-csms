@@ -102,7 +102,7 @@ export function ColumnVisibilityToggle({
           <div className="mt-3 border-t pt-2">
             <button
               type="button"
-              className="text-xs text-primary hover:underline"
+              className="text-xs text-link hover:underline"
               onClick={resetToDefaults}
             >
               {t('common.reset')}

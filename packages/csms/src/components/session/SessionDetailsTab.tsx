@@ -138,7 +138,7 @@ export function SessionDetailsTab({
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Row label={t('sessions.station')}>
-              <Link to={`/stations/${session.stationId}`} className="text-primary hover:underline">
+              <Link to={`/stations/${session.stationId}`} className="text-link hover:underline">
                 {session.siteName != null
                   ? `${session.siteName} / ${String(session.stationName)}`
                   : (session.stationName ?? 'n/a')}
@@ -151,7 +151,7 @@ export function SessionDetailsTab({
                 <div className="space-y-1">
                   <Link
                     to={`/drivers/${session.driverId ?? ''}`}
-                    className="text-primary hover:underline block"
+                    className="text-link hover:underline block"
                   >
                     {session.driverName}
                   </Link>
@@ -205,7 +205,7 @@ export function SessionDetailsTab({
             </Row>
             {session.token != null && (
               <Row label={t('sessions.token')}>
-                <Link to={`/tokens/${session.token.id}`} className="text-primary hover:underline">
+                <Link to={`/tokens/${session.token.id}`} className="text-link hover:underline">
                   {session.token.idToken}
                 </Link>
                 <span className="ml-2 text-muted-foreground">{session.token.tokenType}</span>
@@ -216,7 +216,7 @@ export function SessionDetailsTab({
               <Row label={t('sessions.reservation')}>
                 <Link
                   to={`/reservations/${session.reservationId}`}
-                  className="text-primary hover:underline"
+                  className="text-link hover:underline"
                 >
                   {session.reservationId}
                 </Link>

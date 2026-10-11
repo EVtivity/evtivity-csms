@@ -4,20 +4,15 @@
 import { describe, expect, it } from 'vitest';
 import type { AiStreamEvent as ClientEvent } from '@evtivity/lib/ai-stream';
 import { aiStreamEventSchema } from '@evtivity/lib/ai-stream';
-import { createScriptedAdapter } from '../services/ai/__contract__/harness.js';
-import { AiProviderError } from '../services/ai/core/errors.js';
-import type {
-  AiPart,
-  AiStreamEvent,
-  AiToolResultPart,
-  AiUsage,
-} from '../services/ai/core/types.js';
+import { createScriptedAdapter } from '@evtivity/ai/testing/harness';
+import { AiProviderError } from '@evtivity/ai/core';
+import type { AiPart, AiStreamEvent, AiToolResultPart, AiUsage } from '@evtivity/ai/core';
 import { runTurn, PENDING_RESULT } from '../services/ai/engine/turn-runner.js';
 import type { TurnHooks } from '../services/ai/engine/turn-runner.js';
 import { createToolset } from '../services/ai/tools/execute.js';
 import type { ToolOutcome, ToolsetEntry } from '../services/ai/tools/execute.js';
 import type { AiCatalogTool } from '../services/ai/tools/catalog-types.js';
-import { emptyRedactionCounts } from '../services/ai/tools/redact.js';
+import { emptyRedactionCounts } from '@evtivity/ai/redact';
 
 const MODEL = 'claude-sonnet-5-5';
 
@@ -98,6 +93,10 @@ interface Recorder {
   }[];
   toolMessages: AiToolResultPart[][];
   toolCalls: { name: string; status: string }[];
+  /** The code checkBudget answers (null: within the budgets). */
+  budgetRefusal: string | null;
+  /** Ledger rows: one per model call. */
+  usage: { messageId: string | null; usage: AiUsage; costMicros: number | null }[];
   ran: string[];
   pending: { args: Record<string, unknown> }[];
 }
@@ -109,6 +108,8 @@ function recorder(outcome: Partial<ToolOutcome> = {}): Recorder {
     assistant: [],
     toolMessages: [],
     toolCalls: [],
+    usage: [],
+    budgetRefusal: null,
     ran: [],
     pending: [],
   };
@@ -117,6 +118,10 @@ function recorder(outcome: Partial<ToolOutcome> = {}): Recorder {
     saveAssistantMessage: async (m) => {
       r.assistant.push(m);
     },
+    recordUsage: async (u) => {
+      r.usage.push(u);
+    },
+    checkBudget: async () => r.budgetRefusal,
     saveToolCall: async ({ call: c, status }) => {
       r.toolCalls.push({ name: c.name, status });
       return `atc_${String(r.toolCalls.length)}`;
@@ -131,6 +136,7 @@ function recorder(outcome: Partial<ToolOutcome> = {}): Recorder {
       return {
         status: 'ok',
         httpStatus: 200,
+        value: { ok: true },
         content: '<untrusted source="tool_result" id="x">{"ok":true}</untrusted>',
         summary: 'GET /v1/stations/sta_000000000001 200',
         redactionCounts: emptyRedactionCounts(),
@@ -239,6 +245,65 @@ describe('AI turn runner', () => {
     expect(usageEvent).toMatchObject({
       usage: { inputTokens: 3_100, outputTokens: 160, costMicros: 11_700 },
     });
+  });
+
+  it('TC-AI-US-01 records one ledger row per model call, its own usage only, saved or not', async () => {
+    const adapter = createScriptedAdapter([
+      {
+        events: [
+          ...call('c1', 'get_station'),
+          { type: 'usage', usage: usage(1_000, 100) },
+          { type: 'finish', reason: 'tool_use' },
+        ],
+      },
+      {
+        // A failed call with nothing to save still used tokens.
+        events: [{ type: 'usage', usage: usage(500, 0) }],
+        error: new AiProviderError({
+          code: 'unavailable',
+          provider: 'anthropic',
+          message: 'down',
+          status: 503,
+        }),
+      },
+    ]);
+    const r = recorder();
+    await runTurn(baseInput(adapter, r, { priorUsage: usage(100, 10) }));
+    expect(r.usage).toEqual([
+      // The router usage folded into the first message is not counted again.
+      { messageId: 'aim_first', usage: usage(1_000, 100), costMicros: 4_500 },
+      { messageId: null, usage: usage(500, 0), costMicros: 1_500 },
+    ]);
+  });
+
+  it('TC-AI-US-04 checks the budgets before every model call after the first and stops at a refusal', async () => {
+    const adapter = createScriptedAdapter([
+      {
+        events: [
+          ...call('c1', 'get_station'),
+          { type: 'usage', usage: usage(1_000, 100) },
+          { type: 'finish', reason: 'tool_use' },
+        ],
+      },
+      {
+        events: [
+          { type: 'text_delta', text: 'never' },
+          { type: 'finish', reason: 'end' },
+        ],
+      },
+    ]);
+    const r = recorder();
+    let checks = 0;
+    r.hooks.checkBudget = async () => {
+      checks++;
+      return 'AI_MONTHLY_BUDGET_EXCEEDED';
+    };
+    const result = await runTurn(baseInput(adapter, r));
+    expect(checks).toBe(1);
+    expect(result.errorCode).toBe('AI_MONTHLY_BUDGET_EXCEEDED');
+    expect(r.events).toContainEqual({ type: 'error', code: 'AI_MONTHLY_BUDGET_EXCEEDED' });
+    // Only the first call ran and was recorded.
+    expect(r.usage).toHaveLength(1);
   });
 
   it('shows tokens only when the company currency is not USD', async () => {

@@ -10,6 +10,7 @@ export {
 } from './connection-name.js';
 
 export { withLock } from './redis-lock.js';
+export { aiArgsHash, canonicalJson } from './canonical-json.js';
 export type { WithLockOptions, WithLockResult } from './redis-lock.js';
 
 export { createLogger, logFormatOptions } from './logger.js';
@@ -41,6 +42,7 @@ export {
   formatDate,
   formatRelativeTime,
   isValidTimezone,
+  zonedMidnight,
 } from './timezone.js';
 
 export { encryptString, decryptString, decryptSettingOrNull } from './encryption.js';
@@ -318,10 +320,20 @@ export {
   AI_PROVIDER_IDS,
   AI_EFFORTS,
   DEFAULT_AI_EFFORT,
+  DEFAULT_OPS_AI_EFFORT,
   AI_SUPPORT_TONES,
   DEFAULT_AI_SUPPORT_TONE,
   AI_SURFACE_PREFIXES,
   AI_LIMIT_SETTINGS,
+  AI_THRESHOLD_SETTINGS,
+  AI_NUMBER_SETTINGS,
+  AI_FLAG_SETTINGS,
+  AI_SETTING_DEFAULTS,
+  AI_SETTING_KEY_PREFIXES,
+  AI_MCP_MAX_ALLOWED_ORIGINS,
+  isAiFlagSettingKey,
+  isAiNumberSettingKey,
+  parseAiMcpAllowedOrigins,
   REMOVED_AI_SETTING_KEYS,
   isAiProviderId,
   isAiEffort,
@@ -341,11 +353,17 @@ export type {
   AiSupportTone,
   AiSurface,
   AiLimitSettingKey,
+  AiThresholdSettingKey,
+  AiNumberSettingKey,
   AiSettings,
   AiSurfaceSettings,
   AiSupportSurfaceSettings,
   AiProviderSettings,
   AiLimits,
+  AiFlagSettingKey,
+  AiInsightSettings,
+  AiWorkerSettings,
+  AiMcpSettings,
 } from './ai-config.js';
 export {
   safeFetch,
@@ -414,6 +432,7 @@ export {
   PermissionCatalog,
   createPermissionCatalog,
   permissionCatalog,
+  AI_MCP_USE_PERMISSION,
   hasPermission,
   isSubsetOf,
   hasAnySettingsPermission,
@@ -461,10 +480,13 @@ export {
   calculateElectricityCostCents,
   deriveElectricityRatePriority,
   electricityRateRestrictionsSchema,
+  computeSessionElectricityCost,
 } from './electricity-rate.js';
 export type {
   ElectricityRatePeriod,
   ElectricityRatePeriodRestrictions,
+  SessionElectricityCost,
+  SessionElectricityCostSkipReason,
 } from './electricity-rate.js';
 export {
   MOBILE_APP_URL_SCHEMES_KEY,

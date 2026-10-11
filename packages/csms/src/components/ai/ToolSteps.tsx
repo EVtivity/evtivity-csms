@@ -5,6 +5,7 @@ import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Ban, Check, ChevronDown, CircleAlert, Clock, Wrench } from 'lucide-react';
 import type { AiToolStepStatus } from '@evtivity/lib/ai-stream';
+import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { formatNumber } from '@/lib/formatting';
 import { cn } from '@/lib/utils';
@@ -51,28 +52,29 @@ export function ToolSteps({
       className="rounded-md border border-border bg-background/60 text-xs"
       data-testid="ai-tool-steps"
     >
-      <button
+      <Button
         type="button"
+        variant="ghost"
+        size="row-sm"
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => {
           setOpen((v) => !v);
         }}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-muted-foreground hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         {running ? (
-          <Spinner className="h-3 w-3" />
+          <Spinner className="h-3 w-3 text-muted-foreground" />
         ) : (
-          <Wrench className="h-3 w-3" aria-hidden="true" />
+          <Wrench className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
         )}
-        <span className="flex-1">
+        <span className="flex-1 text-muted-foreground">
           {t(label)} ({formatNumber(steps.length, 0)})
         </span>
         <ChevronDown
-          className={cn('h-3 w-3 transition-transform', open && 'rotate-180')}
+          className={cn('h-3 w-3 text-muted-foreground transition-transform', open && 'rotate-180')}
           aria-hidden="true"
         />
-      </button>
+      </Button>
       {open && (
         <ol id={listId} className="space-y-1 border-t border-border px-2 py-1.5">
           {steps.map((step) => (

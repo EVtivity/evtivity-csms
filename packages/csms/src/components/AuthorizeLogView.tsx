@@ -21,6 +21,9 @@ import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
 import { useUserTimezone, formatDateTime } from '@/lib/timezone';
 import { LoadingLogo } from '@/components/loading-logo';
+import { useCanExplain } from '@/components/ai/ExplainButton';
+import { AuthorizeInsightCell } from '@/components/ai/insights/AuthorizeInsightCell';
+import { useAuthorizationInsights } from '@/components/ai/insights/insight-api';
 
 interface AuthorizeAttempt {
   id: number;
@@ -103,12 +106,19 @@ export function AuthorizeLogView({
     filters,
   );
 
-  // Columns: timestamp, idToken, type, outcome, reason (always 5) + station + matchedToken + session (conditional).
+  // Refused attempts get an insight icon or an Explain icon (AI roadmap v0.1.44).
+  const canExplain = useCanExplain();
+  const refusedIds = (data ?? []).filter((r) => r.outcome !== 'accepted').map((r) => r.id);
+  const insightsByAttempt = useAuthorizationInsights(refusedIds);
+  const showAiColumn = canExplain || insightsByAttempt.size > 0;
+
+  // Columns: timestamp, idToken, type, outcome, reason (always 5) + station + matchedToken + session + AI (conditional).
   const visibleColumns =
     5 +
     (hideStationColumn ? 0 : 1) +
     (hideMatchedTokenColumn ? 0 : 1) +
-    (hideSessionColumn ? 0 : 1);
+    (hideSessionColumn ? 0 : 1) +
+    (showAiColumn ? 1 : 0);
 
   return (
     <div className="space-y-6">
@@ -165,6 +175,11 @@ export function AuthorizeLogView({
                 <TableHead>{t('tokens.reason')}</TableHead>
                 {!hideMatchedTokenColumn && <TableHead>{t('tokens.matchedToken')}</TableHead>}
                 {!hideSessionColumn && <TableHead>{t('tokens.sessionColumn')}</TableHead>}
+                {showAiColumn && (
+                  <TableHead className="w-10">
+                    <span className="sr-only">{t('aiInsights.title')}</span>
+                  </TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -197,7 +212,7 @@ export function AuthorizeLogView({
                         {row.stationDbId != null ? (
                           <Link
                             to={`/stations/${row.stationDbId}`}
-                            className="text-primary hover:underline"
+                            className="text-link hover:underline"
                           >
                             {row.stationOcppId ?? row.stationDbId}
                           </Link>
@@ -219,7 +234,7 @@ export function AuthorizeLogView({
                         {row.matchedTokenId != null ? (
                           <Link
                             to={`/tokens/${row.matchedTokenId}`}
-                            className="text-primary hover:underline"
+                            className="text-link hover:underline"
                           >
                             {row.matchedTokenId}
                           </Link>
@@ -233,12 +248,22 @@ export function AuthorizeLogView({
                         {row.sessionId != null ? (
                           <Link
                             to={`/sessions/${row.sessionId}`}
-                            className="text-primary hover:underline"
+                            className="text-link hover:underline"
                           >
                             {row.sessionId}
                           </Link>
                         ) : (
                           'n/a'
+                        )}
+                      </TableCell>
+                    )}
+                    {showAiColumn && (
+                      <TableCell className="w-10 p-1">
+                        {row.outcome !== 'accepted' && (
+                          <AuthorizeInsightCell
+                            attemptId={row.id}
+                            insight={insightsByAttempt.get(row.id)}
+                          />
                         )}
                       </TableCell>
                     )}

@@ -123,7 +123,7 @@ export function DriversTable({
                   <TableCell className="text-muted-foreground">{driver.id}</TableCell>
                 )}
                 {isVisible('driverName') && (
-                  <TableCell className="font-medium text-primary" data-testid="row-click-target">
+                  <TableCell className="font-medium text-link" data-testid="row-click-target">
                     {driver.firstName} {driver.lastName}
                   </TableCell>
                 )}

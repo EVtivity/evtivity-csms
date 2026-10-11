@@ -34,6 +34,12 @@ import { processVersionWatchHandler } from './handlers/process-version-watch.js'
 import { stationOfflineSweepHandler } from './handlers/station-offline-sweep.js';
 import { fleetInvoiceRunHandler } from './handlers/fleet-invoice-run.js';
 import { aiRetentionPruneHandler } from './handlers/ai-retention-prune.js';
+import { aiNetworkSummaryHandler } from './handlers/ai-network-summary.js';
+import { aiStuckSessionsHandler } from './handlers/ai-stuck-sessions.js';
+import { aiTariffAnomaliesHandler } from './handlers/ai-tariff-anomalies.js';
+import { aiProposalSweepHandler } from './handlers/ai-proposal-sweep.js';
+import { aiProposalDigestHandler } from './handlers/ai-proposal-digest.js';
+import { aiInsightScanHandler } from './handlers/ai-insight-scan.js';
 
 const log = createLogger('cron-worker');
 
@@ -67,6 +73,13 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['station-offline-sweep', stationOfflineSweepHandler],
   ['fleet-invoice-run', fleetInvoiceRunHandler],
   ['ai-retention-prune', aiRetentionPruneHandler],
+  // Background AI workers (off by default) and the AI Inbox upkeep.
+  ['ai-network-summary', (log) => aiNetworkSummaryHandler(log)],
+  ['ai-stuck-sessions', (log) => aiStuckSessionsHandler(log)],
+  ['ai-tariff-anomalies', (log) => aiTariffAnomaliesHandler(log)],
+  ['ai-proposal-sweep', aiProposalSweepHandler],
+  ['ai-proposal-digest', (log) => aiProposalDigestHandler(log)],
+  ['ai-insight-scan', aiInsightScanHandler],
 ]);
 
 /** Redis key of the lock a cron job holds while it runs (ACL prefix `wkl:`). */

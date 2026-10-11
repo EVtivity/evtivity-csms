@@ -3,10 +3,11 @@
 
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 import { BookOpen, Check, CircleAlert, Copy, FileText, ImageIcon, Square } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { formatNumber } from '@/lib/formatting';
 import { cn } from '@/lib/utils';
+import { aiErrorText } from './ai-error-text';
 import { AiMarkdown } from './AiMarkdown';
 import { ConfirmActionCard } from './ConfirmActionCard';
 import { ToolSteps } from './ToolSteps';
@@ -25,19 +26,14 @@ function openAttachment(id: string): void {
   );
 }
 
-/** The translated text of an AI error code; server text is never shown. */
-export function aiErrorText(code: string, t: TFunction): string {
-  const key = `errors.${code}` as 'errors.unknown';
-  const translated: string = t(key);
-  return translated !== key ? translated : t('ai.errors.generic');
-}
-
 function CopyButton({ text }: { text: string }): React.JSX.Element {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   return (
-    <button
+    <Button
       type="button"
+      variant="ghost"
+      size="icon-xs"
       aria-label={copied ? t('ai.copied') : t('common.copy')}
       onClick={() => {
         navigator.clipboard.writeText(text).then(
@@ -52,10 +48,13 @@ function CopyButton({ text }: { text: string }): React.JSX.Element {
           },
         );
       }}
-      className="rounded p-1 text-muted-foreground hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
     >
-      {copied ? <Check className="h-3 w-3 text-success" /> : <Copy className="h-3 w-3" />}
-    </button>
+      {copied ? (
+        <Check className="h-3 w-3 text-success" />
+      ) : (
+        <Copy className="h-3 w-3 text-muted-foreground" />
+      )}
+    </Button>
   );
 }
 
@@ -114,12 +113,13 @@ export function MessageBubble({
           <ul className={cn('flex flex-wrap gap-1', isUser && 'justify-end')}>
             {message.attachments.map((a) => (
               <li key={a.id}>
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="chip"
                   onClick={() => {
                     openAttachment(a.id);
                   }}
-                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-xs hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {a.kind === 'image' ? (
                     <ImageIcon className="h-3 w-3" aria-hidden="true" />
@@ -127,7 +127,7 @@ export function MessageBubble({
                     <FileText className="h-3 w-3" aria-hidden="true" />
                   )}
                   {a.name !== '' ? a.name : t('ai.attachment')}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -157,7 +157,7 @@ export function MessageBubble({
                     href={c.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary underline hover:text-primary/80"
+                    className="text-link underline hover:text-link/80"
                   >
                     {c.title}
                   </a>

@@ -310,7 +310,7 @@ export function Activity(): React.JSX.Element {
         }}
       >
         <CardContent className="flex items-center gap-3 p-3">
-          <FileText className="h-5 w-5 text-primary" />
+          <FileText className="h-5 w-5 text-link" />
           <span className="flex-1 text-sm font-medium">{t('activity.monthlyStatement')}</span>
           <ChevronRight className="h-4 w-4 text-muted-foreground" />
         </CardContent>

@@ -61,7 +61,7 @@ describe('api refresh and action logging', () => {
     fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>();
     vi.stubGlobal('fetch', fetchMock);
     Object.defineProperty(window, 'location', {
-      value: { href: '/', pathname: '/' },
+      value: { href: '/', pathname: '/', search: '', hash: '' },
       writable: true,
       configurable: true,
     });

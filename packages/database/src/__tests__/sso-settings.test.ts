@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const originalEnv = process.env['SETTINGS_ENCRYPTION_KEY'];
 
@@ -38,6 +38,13 @@ function makeChain(result: unknown[]) {
   return chain;
 }
 
+// Under load (a full run) the first import of the module graph can outlast
+// the 5 s test timeout. Load it once here with a longer hook timeout; each
+// test still imports a fresh copy after vi.resetModules, from the warm cache.
+beforeAll(async () => {
+  await import('../lib/sso-settings.js');
+}, 30_000);
+
 describe('getSsoConfig', () => {
   beforeAll(() => {
     process.env['SETTINGS_ENCRYPTION_KEY'] = 'test-encryption-key-32chars!!!!!';
@@ -54,6 +61,7 @@ describe('getSsoConfig', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns null when sso.enabled is false', async () => {

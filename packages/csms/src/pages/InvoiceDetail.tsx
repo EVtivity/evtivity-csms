@@ -317,7 +317,7 @@ export function InvoiceDetail(): React.JSX.Element {
         <TableCell>{describeInvoiceLine(item, t, i18n.language)}</TableCell>
         <TableCell>
           {item.sessionId != null ? (
-            <Link to={`/sessions/${item.sessionId}`} className="text-primary hover:underline">
+            <Link to={`/sessions/${item.sessionId}`} className="text-link hover:underline">
               {item.sessionId}
             </Link>
           ) : (
@@ -581,10 +581,7 @@ export function InvoiceDetail(): React.JSX.Element {
                       )}
                     </div>
                   ) : invoice.driverId != null ? (
-                    <Link
-                      to={`/drivers/${invoice.driverId}`}
-                      className="text-primary hover:underline"
-                    >
+                    <Link to={`/drivers/${invoice.driverId}`} className="text-link hover:underline">
                       {data.driver != null
                         ? `${data.driver.firstName} ${data.driver.lastName}`.trim()
                         : invoice.driverId}
@@ -600,7 +597,7 @@ export function InvoiceDetail(): React.JSX.Element {
                   <dd className="text-sm font-medium">
                     <Link
                       to={`/fleets/${fleetId}?tab=billing`}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                     >
                       {data.fleet?.name ?? fleetId}
                     </Link>
@@ -655,7 +652,7 @@ export function InvoiceDetail(): React.JSX.Element {
                   <dd className="text-sm font-medium">
                     <Link
                       to={`/invoices/${creditedInvoice.id}`}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                     >
                       {creditedInvoice.invoiceNumber}
                     </Link>
@@ -666,10 +663,7 @@ export function InvoiceDetail(): React.JSX.Element {
                 <div>
                   <dt className="text-sm text-muted-foreground">{t('invoices.creditedBy')}</dt>
                   <dd className="text-sm font-medium">
-                    <Link
-                      to={`/invoices/${creditNote.id}`}
-                      className="text-primary hover:underline"
-                    >
+                    <Link to={`/invoices/${creditNote.id}`} className="text-link hover:underline">
                       {creditNote.invoiceNumber}
                     </Link>
                   </dd>
@@ -734,7 +728,7 @@ export function InvoiceDetail(): React.JSX.Element {
                                 {group.driverId != null ? (
                                   <Link
                                     to={`/drivers/${group.driverId}`}
-                                    className="text-primary hover:underline"
+                                    className="text-link hover:underline"
                                   >
                                     {name}
                                   </Link>

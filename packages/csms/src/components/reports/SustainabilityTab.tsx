@@ -246,7 +246,7 @@ export function SustainabilityTab(): React.JSX.Element {
                 <CardTitle className="text-sm font-medium">
                   {t('dashboard.energyDelivered')}
                 </CardTitle>
-                <Zap className="h-4 w-4 text-primary" />
+                <Zap className="h-4 w-4 text-link" />
               </CardHeader>
               <CardContent>
                 <div className="text-lg sm:text-2xl font-bold">

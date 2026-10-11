@@ -38,8 +38,9 @@ export const BANNER =
   "import { createRequire } from 'module'; const require = createRequire(import.meta.url);";
 
 // Map workspace @evtivity/* imports to source directories so esbuild reads .ts
-const WORKSPACE_PACKAGES = {
+export const WORKSPACE_PACKAGES = {
   '@evtivity/lib': resolve(root, 'packages/lib'),
+  '@evtivity/ai': resolve(root, 'packages/ai'),
   '@evtivity/database': resolve(root, 'packages/database'),
   '@evtivity/payments': resolve(root, 'packages/payments'),
   '@evtivity/services': resolve(root, 'packages/services'),
@@ -134,7 +135,7 @@ function exportedSource(pkgDir, subpath) {
   return statSync(file, { throwIfNoEntry: false })?.isFile() === true ? file : undefined;
 }
 
-const workspacePlugin = {
+export const workspacePlugin = {
   name: 'workspace-source',
   setup(build) {
     // Intercept @evtivity/* imports and resolve to source .ts files
@@ -204,7 +205,7 @@ async function main() {
   console.log(`\nDone in ${total}ms`);
 }
 
-// Build only when run as a script; tests import EXTERNAL and BANNER.
+// Build only when run as a script; tests import EXTERNAL, BANNER and the plugins.
 if (process.argv[1] != null && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }

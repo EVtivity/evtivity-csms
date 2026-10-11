@@ -18,6 +18,7 @@ import { executeRecaptcha } from '@/lib/recaptcha';
 import { MfaChallenge } from '@/components/MfaChallenge';
 import { readSsoMfaFragment } from '@/lib/sso-mfa';
 import { API_BASE_URL } from '@/lib/config';
+import { rememberReturnTo, takeReturnTo } from '@/lib/return-to';
 
 const DEV_AUTO_LOGIN = import.meta.env.VITE_CSMS_AUTO_LOGIN;
 
@@ -84,9 +85,15 @@ export function Login(): React.JSX.Element {
     queryFn: () => api.get<SecurityPublic>('/v1/security/public'),
   });
 
+  // A protected deep link sent the user here with ?returnTo=; keep it across
+  // MFA and the SSO round trip (lib/return-to.ts).
+  useEffect(() => {
+    rememberReturnTo(searchParams);
+  }, [searchParams]);
+
   useEffect(() => {
     if (isAuthenticated) {
-      void navigate('/');
+      void navigate(takeReturnTo() ?? '/', { replace: true });
     }
   }, [isAuthenticated, navigate]);
 
@@ -225,10 +232,7 @@ export function Login(): React.JSX.Element {
               {loading ? t('auth.signingIn') : t('auth.signIn')}
             </Button>
             <div className="text-center">
-              <Link
-                to="/forgot-password"
-                className="text-sm font-medium text-primary hover:underline"
-              >
+              <Link to="/forgot-password" className="text-sm font-medium text-link hover:underline">
                 {t('auth.forgotPassword')}
               </Link>
             </div>

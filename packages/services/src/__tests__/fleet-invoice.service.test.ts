@@ -89,8 +89,8 @@ import {
   planFleetInvoice,
   previewFleetInvoice,
   previousPeriod,
-  zonedMidnight,
 } from '../fleet-invoice.service.js';
+import { zonedMidnight } from '@evtivity/lib';
 import type { FleetSessionCandidate } from '../fleet-invoice.service.js';
 import { calculateSessionCost, toSessionCostBreakdown, taxTotals } from '@evtivity/lib';
 

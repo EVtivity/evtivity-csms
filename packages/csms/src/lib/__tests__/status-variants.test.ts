@@ -4,6 +4,8 @@
 import { describe, it, expect } from 'vitest';
 import {
   reservationStatusVariant,
+  insightStatusVariant,
+  aiProposalStatusVariant,
   fleetReservationStatusVariant,
   sessionStatusVariant,
   simpleSessionStatusVariant,
@@ -261,5 +263,24 @@ describe('notificationStatusBadgeClass', () => {
 
   it('returns an empty class for an unknown state', () => {
     expect(notificationStatusBadgeClass('queued')).toBe('');
+  });
+});
+
+describe('AI status variants', () => {
+  it('maps insight statuses', () => {
+    expect(insightStatusVariant('active')).toBe('warning');
+    expect(insightStatusVariant('pending')).toBe('info');
+    expect(insightStatusVariant('resolved')).toBe('success');
+    expect(insightStatusVariant('failed')).toBe('destructive');
+    expect(insightStatusVariant('dismissed')).toBe('secondary');
+    expect(insightStatusVariant('skipped')).toBe('outline');
+  });
+
+  it('maps proposal statuses', () => {
+    expect(aiProposalStatusVariant('pending')).toBe('warning');
+    expect(aiProposalStatusVariant('executed')).toBe('success');
+    expect(aiProposalStatusVariant('failed')).toBe('destructive');
+    expect(aiProposalStatusVariant('rejected')).toBe('secondary');
+    expect(aiProposalStatusVariant('stale')).toBe('outline');
   });
 });

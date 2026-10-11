@@ -496,7 +496,7 @@ export function ReservationDetailsTab({
                   {reservation.tokenId != null && reservation.tokenIdToken != null ? (
                     <Link
                       to={`/tokens/${reservation.tokenId}`}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                     >
                       <span>{reservation.tokenIdToken}</span>
                       {reservation.tokenType != null && (

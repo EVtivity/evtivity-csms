@@ -4,7 +4,11 @@
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router';
+import { AlertTriangle } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent } from '@/components/ui/card';
+import { RecalculateElectricityCostAction } from '@/components/ElectricityCostNotices';
 import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
@@ -31,9 +35,14 @@ interface Station {
 export function Sessions(): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
-  const [filterSiteId, setFilterSiteId] = useState('');
+  // The dashboard cost notice links here with ?siteId=<id>&costMissing=true.
+  const [searchParams] = useSearchParams();
+  const [filterSiteId, setFilterSiteId] = useState(() => searchParams.get('siteId') ?? '');
   const [filterStationId, setFilterStationId] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterCostMissing, setFilterCostMissing] = useState(
+    () => searchParams.get('costMissing') === 'true',
+  );
 
   const { data: sites } = useQuery({
     queryKey: ['sites'],
@@ -53,8 +62,10 @@ export function Sessions(): React.JSX.Element {
     if (filterSiteId !== '') params.siteId = filterSiteId;
     if (filterStationId !== '') params.stationId = filterStationId;
     if (filterStatus !== '') params.status = filterStatus;
+    if (filterCostMissing) params.costMissing = 'true';
     return Object.keys(params).length > 0 ? params : undefined;
-  }, [filterSiteId, filterStationId, filterStatus]);
+  }, [filterSiteId, filterStationId, filterStatus, filterCostMissing]);
+  const filterSiteName = sites?.data.find((s) => s.id === filterSiteId)?.name;
 
   const {
     data: sessions,
@@ -142,12 +153,27 @@ export function Sessions(): React.JSX.Element {
                 <option value="manual_billing">{t('sessions.manualBilling')}</option>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label className="leading-6">{t('sessions.electricityCost')}</Label>
+              <Select
+                aria-label={t('sessions.electricityCost')}
+                className="h-10"
+                value={filterCostMissing ? 'missing' : ''}
+                onChange={(e) => {
+                  setFilterCostMissing(e.target.value === 'missing');
+                }}
+              >
+                <option value="">{t('sessions.electricityCostAll')}</option>
+                <option value="missing">{t('sessions.electricityCostMissing')}</option>
+              </Select>
+            </div>
           </>
         );
         const activeFilterCount =
           (filterSiteId !== '' ? 1 : 0) +
           (filterStationId !== '' ? 1 : 0) +
-          (filterStatus !== '' ? 1 : 0);
+          (filterStatus !== '' ? 1 : 0) +
+          (filterCostMissing ? 1 : 0);
         const columnsToggle = (
           <ColumnVisibilityToggle
             tableKey="sessions"
@@ -167,6 +193,7 @@ export function Sessions(): React.JSX.Element {
                     setFilterSiteId('');
                     setFilterStationId('');
                     setFilterStatus('');
+                    setFilterCostMissing(false);
                   }}
                 >
                   {filters}
@@ -174,7 +201,7 @@ export function Sessions(): React.JSX.Element {
                 {columnsToggle}
               </div>
               <div className="hidden items-end gap-4 md:flex">
-                <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                <div className="grid flex-1 grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
                   <div className="space-y-2">
                     <Label className="leading-6">{t('sessions.search')}</Label>
                     {searchInput}
@@ -187,6 +214,22 @@ export function Sessions(): React.JSX.Element {
           </Card>
         );
       })()}
+
+      {filterCostMissing && (
+        <Alert variant="warning" data-testid="sessions-cost-missing-notice">
+          <AlertTriangle />
+          <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
+            <span>
+              {filterSiteName != null
+                ? t('sessions.costMissingNotice')
+                : t('sessions.costMissingSelectSite')}
+            </span>
+            {filterSiteName != null && (
+              <RecalculateElectricityCostAction siteId={filterSiteId} siteName={filterSiteName} />
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Card>
         <CardContent className="p-0">

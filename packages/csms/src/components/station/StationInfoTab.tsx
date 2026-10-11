@@ -313,7 +313,7 @@ export function StationInfoTab({
                 <dt className="text-muted-foreground">{t('stations.site')}</dt>
                 <dd className="font-medium">
                   {station.siteId != null ? (
-                    <Link to={`/sites/${station.siteId}`} className="text-primary hover:underline">
+                    <Link to={`/sites/${station.siteId}`} className="text-link hover:underline">
                       {sites?.find((s) => s.id === station.siteId)?.name ?? station.siteId}
                     </Link>
                   ) : (

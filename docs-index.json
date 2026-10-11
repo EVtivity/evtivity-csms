@@ -55,6 +55,26 @@
     "description": "Ask questions about your charging network, review proposed changes, and draft support replies with the built-in AI assistant."
   },
   {
+    "path": "/docs/csms/ai-inbox",
+    "title": "AI Inbox",
+    "description": "Review and confirm the actions that background AI workers and MCP clients propose. Nothing runs until you confirm it."
+  },
+  {
+    "path": "/docs/csms/ai-insights",
+    "title": "Automatic Insights",
+    "description": "Short root-cause notes with suggested fixes for offline or faulted stations, failed sessions, and refused authorizations."
+  },
+  {
+    "path": "/docs/csms/ai-usage",
+    "title": "AI Usage and Budgets",
+    "description": "See how many AI tokens your company, sites, and users use, and set daily and monthly token budgets."
+  },
+  {
+    "path": "/docs/csms/ai-workers",
+    "title": "Background AI Workers",
+    "description": "Optional scheduled jobs that summarize your network, find stuck sessions, and check tariffs. They propose actions but never act on their own."
+  },
+  {
     "path": "/docs/csms/certificates",
     "title": "Certificates",
     "description": "Manage ISO 15118 Plug and Charge certificates, Mutual TLS station certificates, and PKI provider integration."
@@ -333,6 +353,11 @@
     "path": "/docs/integrations/energy-management",
     "title": "Energy Management",
     "description": "Load management, smart charging profiles, and carbon footprint tracking."
+  },
+  {
+    "path": "/docs/integrations/mcp-server",
+    "title": "MCP Server",
+    "description": "Connect AI agents to EVtivity over the Model Context Protocol with an API key. Reads run under the key's permissions, and every change waits for your approval in the AI Inbox."
   },
   {
     "path": "/docs/integrations/payment-providers",

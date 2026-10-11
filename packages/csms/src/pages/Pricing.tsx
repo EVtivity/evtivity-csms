@@ -120,10 +120,7 @@ export function Pricing(): React.JSX.Element {
                       }}
                     >
                       <TableCell className="text-muted-foreground">{group.id}</TableCell>
-                      <TableCell
-                        className="font-medium text-primary"
-                        data-testid="row-click-target"
-                      >
+                      <TableCell className="font-medium text-link" data-testid="row-click-target">
                         {group.name}
                       </TableCell>
                       <TableCell className="text-muted-foreground">

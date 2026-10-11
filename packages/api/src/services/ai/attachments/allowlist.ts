@@ -1,9 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { IMAGE_MIMES, TEXT_DOCUMENT_MIMES } from '../core/types.js';
-import type { ImageMime, TextDocumentMime } from '../core/types.js';
-import { listProviderEntries } from '../core/model-registry.js';
+import { IMAGE_MIMES, TEXT_DOCUMENT_MIMES, listProviderEntries } from '@evtivity/ai/core';
+import type { ImageMime, TextDocumentMime } from '@evtivity/ai/core';
 
 /**
  * Attachment types accepted for AI chats and support cases (plan 3.8). The

@@ -139,6 +139,16 @@ describe('docker/redis/acl-rules.conf', () => {
     expect(channelsUsedBy('api').has('css_commands')).toBe(true);
   });
 
+  it('grants the automatic insight request channel to the core set (TC-AI-C-13)', () => {
+    // AI_INSIGHT_REQUESTS_CHANNEL in @evtivity/services, published by the API
+    // and read by the worker bridge.
+    expect(channelsUsedBy('services').has('ai_insight_requests')).toBe(true);
+    for (const name of ['api', 'ocpp', 'worker']) {
+      expect(user(name).channels, name).toContain('ai_insight_requests');
+    }
+    expect(user('ocpi').channels).not.toContain('ai_insight_requests');
+  });
+
   it('grants each process its keys and nothing outside them', () => {
     const watchKey = /PROCESS_VERSION_WATCH_KEY = '([^']+)'/.exec(
       readFileSync(join(ROOT, 'packages/database/src/lib/process-versions.ts'), 'utf8'),
@@ -196,6 +206,16 @@ describe('docker/redis/acl-rules.conf', () => {
     }
     expect(user('css').keys).toEqual([]);
     expect(user('css').readKeys).toEqual([]);
+  });
+
+  it('TC-AI-C-13 grants the api user the AI keys it writes, and the usage ledger needs none', () => {
+    // The only AI Redis keys are the per-minute counters (ai:rl:*). Budget sums are
+    // in-process caches and threshold notices are database claim rows, so the
+    // usage ledger adds no key and no wider ~ai:* grant is needed.
+    const ledger = readFileSync(join(ROOT, 'packages/database/src/lib/ai-usage.ts'), 'utf8');
+    expect(ledger).not.toMatch(/createRedisClient|ioredis/);
+    expect(grantsKey(user('api'), 'ai:rl:user:usr_1:1', 'rw')).toBe(true);
+    expect(grantsKey(user('worker'), 'ai:rl:user:usr_1:1', 'r')).toBe(false);
   });
 
   it('creates every Redis client through the TLS-aware factory', () => {

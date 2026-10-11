@@ -530,7 +530,7 @@ export function StationMessageSettings({
                     }}
                     className={`block w-full px-4 py-3 text-left text-sm transition-colors ${
                       active
-                        ? 'bg-primary/10 font-medium text-primary'
+                        ? 'bg-primary/10 font-medium text-link'
                         : 'hover:bg-muted text-foreground'
                     }`}
                   >

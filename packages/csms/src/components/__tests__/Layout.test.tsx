@@ -54,6 +54,7 @@ const ALL_ROUTES = [
   ['/certificates', 'certificates:read'],
   ['/users', 'users:read'],
   ['/support-cases', 'support:read'],
+  ['/ai/inbox', 'aiProposals:read'],
   ['/notifications', 'notifications:read'],
   ['/logs', 'logs:read'],
   ['/audit', 'audit:read'],
@@ -81,6 +82,8 @@ function expectedNav(settings: Settings, perms: string[]): string[] {
     if (to === '/reservations' && !reservation) return false;
     if (to === '/support-cases' && !support) return false;
     if (to === '/fleets' && !fleet) return false;
+    // Not a stored setting: the features answer derives it ('ai.inbox' stands in here).
+    if (to === '/ai/inbox' && settings?.['ai.inbox'] !== true) return false;
     if (to === '/settings') return settingsReads.some((p) => has(perms, p));
     return has(perms, required);
   }).map(([to]) => to);
@@ -107,6 +110,8 @@ const SETTINGS_CASES: { name: string; settings: Settings }[] = [
     });
     return { name: FLAG_KEYS.map((k) => `${k}=${String(settings[k])}`).join(' '), settings };
   }),
+  // A proposing AI worker or the MCP server is on: the AI Inbox shows.
+  { name: 'AI Inbox on', settings: { 'ai.inbox': true } },
 ];
 
 const ALL = permissionCatalog.all();
@@ -142,6 +147,7 @@ function featuresFor(settings: Record<string, unknown>): Record<string, boolean>
     reservationEnabled: settings['reservation.enabled'] !== false,
     supportEnabled: settings['support.enabled'] !== false,
     fleetEnabled: settings['fleet.enabled'] !== false,
+    aiInboxEnabled: settings['ai.inbox'] === true,
   };
 }
 

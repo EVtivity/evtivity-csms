@@ -28,6 +28,8 @@ export interface AiDefaults {
   language: string;
   chatbot: AiSurfaceDefaults;
   support: AiSurfaceDefaults;
+  /** System-initiated runs (insights, workers); settings route only. */
+  ops?: AiSurfaceDefaults;
   providers: AiProviderModels[];
 }
 

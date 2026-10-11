@@ -15,7 +15,7 @@ const { apiMock, postStreamMock, permissions } = vi.hoisted(() => ({
 }));
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
 }));
 vi.mock('@/lib/config', () => ({
   API_BASE_URL: '',
@@ -26,6 +26,7 @@ vi.mock('@/lib/auth', () => ({
 }));
 vi.mock('@/lib/timezone', () => ({
   formatDateTime: (v: string) => v,
+  formatRelativeTime: (v: string) => v,
   useUserTimezone: () => 'UTC',
 }));
 vi.mock('@/lib/api', async (importOriginal) => {
@@ -33,8 +34,12 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, api: apiMock, postStream: postStreamMock };
 });
 
+// The usage footer has its own test (AiUsage.test.tsx).
+vi.mock('../usage/AiUsageFooter', () => ({ AiUsageFooter: () => null }));
+
 import { ApiError } from '@/lib/api';
 import { AiPanel } from '../AiPanel';
+import { useAiPanelStore } from '../use-ai-panel-store';
 
 const NONCE = 'nonce-'.padEnd(32, 'x');
 
@@ -454,5 +459,95 @@ describe('AiPanel', () => {
     fireEvent.click(await screen.findByText('Fault on CS-1'));
     expect(await screen.findByText('A ground fault.')).toBeTruthy();
     expect(apiMock.get).toHaveBeenCalledWith('/v1/assistant/conversations/old1');
+  });
+});
+
+describe('AiPanel Explain (roadmap v0.1.44 item 2)', () => {
+  beforeEach(() => {
+    useAiPanelStore.setState({ open: true, request: null, returnFocus: null });
+  });
+
+  it('TC-AI-EX-06: the Explain question is in the composer, editable, and the conversation is created about the record', async () => {
+    postStreamMock.mockImplementation((_p: string, _b: unknown, signal: AbortSignal) =>
+      Promise.resolve(sseBody([start('m1'), { type: 'text_delta', text: 'It failed' }], signal)),
+    );
+    useAiPanelStore.getState().openWithContext({ kind: 'session', id: 'se1', label: 'Session 1' });
+    renderPanel();
+    const input = screen.getByLabelText<HTMLTextAreaElement>('ai.inputLabel');
+    await waitFor(() => {
+      expect(input.value).toBe('ai.explain.session');
+    });
+    expect(screen.getByTestId('ai-context-chip')).toBeTruthy();
+    // Nothing is sent until the user sends it.
+    expect(apiMock.post).not.toHaveBeenCalled();
+    expect(useAiPanelStore.getState().request).toBeNull();
+    type('ai.explain.session (edited)');
+    fireEvent.click(screen.getByRole('button', { name: 'ai.send' }));
+    expect(await screen.findByText('It failed')).toBeTruthy();
+    expect(apiMock.post).toHaveBeenCalledWith('/v1/assistant/conversations', {
+      context: { kind: 'session', id: 'se1' },
+    });
+    expect(postStreamMock).toHaveBeenCalledWith(
+      '/v1/assistant/conversations/conv1/messages',
+      { text: 'ai.explain.session (edited)' },
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('TC-AI-EX-04: a fresh insight is shown with no conversation and no model call; a follow-up prefills the question', async () => {
+    apiMock.get.mockImplementation((path: string) =>
+      path.startsWith('/v1/ai/insights/fresh')
+        ? Promise.resolve({
+            id: 'fresh',
+            kind: 'station_faulted',
+            status: 'active',
+            skipReason: null,
+            siteId: 's1',
+            stationId: 'st1',
+            sessionId: null,
+            authorizeAttemptId: null,
+            parentInsightId: null,
+            category: 'hardware',
+            confidence: 'medium',
+            fixes: [{ code: 'inspect_connector' }],
+            scope: {},
+            generatedBy: 'model',
+            language: 'en',
+            summary: 'Connector 2 reports a ground fault.',
+            textStatus: 'ready',
+            stale: false,
+            basisAt: null,
+            createdAt: '2026-10-10T10:00:00Z',
+            resolvedAt: null,
+            dismissedAt: null,
+          })
+        : Promise.resolve({ data: [], total: 0 }),
+    );
+    useAiPanelStore
+      .getState()
+      .openWithContext({ kind: 'station', id: 'st1' }, { insightId: 'fresh' });
+    renderPanel();
+    expect(await screen.findByText('Connector 2 reports a ground fault.')).toBeTruthy();
+    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/fresh?language=en');
+    expect(apiMock.post).not.toHaveBeenCalled();
+    expect(postStreamMock).not.toHaveBeenCalled();
+    expect(screen.getByLabelText<HTMLTextAreaElement>('ai.inputLabel').value).toBe('');
+
+    fireEvent.click(screen.getByTestId('ai-insight-follow-up'));
+    await waitFor(() => {
+      expect(screen.getByLabelText<HTMLTextAreaElement>('ai.inputLabel').value).toBe(
+        'ai.explain.station',
+      );
+    });
+    expect(screen.queryByTestId('ai-panel-insight')).toBeNull();
+    expect(apiMock.post).not.toHaveBeenCalled();
+  });
+
+  it('New chat drops the record context', async () => {
+    useAiPanelStore.getState().openWithContext({ kind: 'station', id: 'st1' });
+    renderPanel();
+    expect(await screen.findByTestId('ai-context-chip')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'ai.newChat' }));
+    expect(screen.queryByTestId('ai-context-chip')).toBeNull();
   });
 });

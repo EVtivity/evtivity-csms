@@ -83,6 +83,15 @@
     "./ai-markdown-policy": {
       "import": "./src/ai-markdown-policy.ts"
     },
+    "./ai-insights": {
+      "import": "./src/ai-insights.ts"
+    },
+    "./ai-proposals": {
+      "import": "./src/ai-proposals.ts"
+    },
+    "./ai-usage": {
+      "import": "./src/ai-usage.ts"
+    },
     "./notification-test-sink": {
       "import": "./src/notification-test-sink.ts"
     },

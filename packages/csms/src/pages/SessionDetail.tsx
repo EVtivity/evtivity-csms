@@ -27,6 +27,9 @@ import { sessionStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useHasPermission } from '@/lib/auth';
+import { ExplainButton } from '@/components/ai/ExplainButton';
+import { RecordInsight } from '@/components/ai/insights/RecordInsight';
+import { RecordProposals } from '@/components/ai/inbox/RecordProposals';
 
 interface GuestSessionInfo {
   sessionToken: string;
@@ -178,8 +181,18 @@ export function SessionDetail(): React.JSX.Element {
             {t('sessions.reservationTokenMismatch')}
           </Badge>
         )}
+        {(session.status === 'failed' || session.status === 'faulted') && id != null && (
+          <ExplainButton context={{ kind: 'session', id }} />
+        )}
         <EntityNavButtons resource="sessions" basePath="/sessions" currentId={id} />
       </div>
+
+      {id != null && (
+        <>
+          <RecordInsight filter={{ sessionId: id }} context={{ kind: 'session', id }} />
+          <RecordProposals sessionId={id} />
+        </>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

@@ -58,7 +58,7 @@ function ImageChip({ src, alt }: { src: string | undefined; alt: string }): Reac
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className={`${chip} text-primary hover:underline`}
+      className={`${chip} text-link hover:underline`}
     >
       <Link2 className="h-3 w-3" aria-hidden="true" />
       {label}
@@ -75,7 +75,7 @@ const components: Components = {
         href={safe}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-primary underline hover:text-primary/80"
+        className="text-link underline hover:text-link/80"
       >
         {children}
       </a>

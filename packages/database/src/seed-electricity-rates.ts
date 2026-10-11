@@ -7,11 +7,7 @@
 // periods is never touched, so an operator's rates survive a seed rerun.
 
 import { sql } from 'drizzle-orm';
-import {
-  calculateElectricityCostCents,
-  deriveElectricityRatePriority,
-  resolveElectricityRate,
-} from '@evtivity/lib';
+import { computeSessionElectricityCost, deriveElectricityRatePriority } from '@evtivity/lib';
 import type { ElectricityRatePeriod, ElectricityRatePeriodRestrictions } from '@evtivity/lib';
 import type { db as Database } from './config.js';
 
@@ -77,10 +73,11 @@ export async function ensureSiteElectricityRates(
 }
 
 /**
- * The operator's electricity cost of a seeded session, the way the session end
- * projection computes it: the site's period in force when the session ended (in
- * the site timezone), priced by the pricing engine. Null when no period applies
- * or no energy was delivered, as the projection leaves the column null then.
+ * The operator's electricity cost of a seeded session, through the one
+ * computation the session end projection uses (computeSessionElectricityCost):
+ * the site's period in force when the session ended (in the site timezone),
+ * priced by the pricing engine. Null when no period applies or no energy was
+ * delivered, as the projection leaves the column null then.
  */
 export function seedSessionElectricityCostCents(
   periods: ElectricityRatePeriod[],
@@ -88,8 +85,5 @@ export function seedSessionElectricityCostCents(
   endedAt: Date,
   timezone: string | undefined,
 ): number | null {
-  if (energyWh <= 0) return null;
-  const rate = resolveElectricityRate(periods, endedAt, timezone);
-  if (rate == null) return null;
-  return calculateElectricityCostCents(energyWh, rate.ratePerKwh);
+  return computeSessionElectricityCost({ periods, endedAt, energyWh, timezone }).costCents;
 }

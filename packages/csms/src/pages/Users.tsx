@@ -214,7 +214,7 @@ export function UsersPage(): React.JSX.Element {
                 >
                   <TableCell className="text-muted-foreground">{user.id}</TableCell>
                   <TableCell
-                    className="font-medium text-primary whitespace-nowrap"
+                    className="font-medium text-link whitespace-nowrap"
                     data-testid="row-click-target"
                   >
                     {[user.firstName, user.lastName].filter(Boolean).join(' ') || '-'}

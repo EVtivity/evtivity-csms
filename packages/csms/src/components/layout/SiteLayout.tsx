@@ -242,7 +242,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
           <span className="flex items-center gap-0.5 text-muted-foreground">
             <Shield className="h-3 w-3" />0 None
           </span>
-          <span className="flex items-center gap-0.5 text-primary">
+          <span className="flex items-center gap-0.5 text-link">
             <Shield className="h-3 w-3" />1 Basic Auth
           </span>
           <span className="flex items-center gap-0.5 text-success">

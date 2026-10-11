@@ -90,7 +90,7 @@ export function Activate(): React.JSX.Element {
               <p className="text-sm text-muted-foreground">{t('auth.activateAskOperator')}</p>
               <Link
                 to="/login"
-                className="block text-center text-sm font-medium text-primary hover:underline"
+                className="block text-center text-sm font-medium text-link hover:underline"
               >
                 {t('auth.backToLogin')}
               </Link>
@@ -100,7 +100,7 @@ export function Activate(): React.JSX.Element {
               <p className="text-sm text-success">{t('auth.activateSuccess')}</p>
               <Link
                 to="/login"
-                className="block text-center text-sm font-medium text-primary hover:underline"
+                className="block text-center text-sm font-medium text-link hover:underline"
               >
                 {t('auth.backToLogin')}
               </Link>
@@ -165,7 +165,7 @@ export function Activate(): React.JSX.Element {
               </Button>
               <Link
                 to="/login"
-                className="block text-center text-sm font-medium text-primary hover:underline"
+                className="block text-center text-sm font-medium text-link hover:underline"
               >
                 {t('auth.backToLogin')}
               </Link>

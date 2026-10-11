@@ -100,7 +100,7 @@ export function Fleets(): React.JSX.Element {
                   }}
                 >
                   <TableCell className="text-muted-foreground">{fleet.id}</TableCell>
-                  <TableCell className="font-medium text-primary" data-testid="row-click-target">
+                  <TableCell className="font-medium text-link" data-testid="row-click-target">
                     {fleet.name}
                   </TableCell>
                   <TableCell>{fleet.description ?? '-'}</TableCell>

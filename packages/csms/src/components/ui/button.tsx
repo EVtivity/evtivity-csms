@@ -19,17 +19,33 @@ const buttonVariants = cva(
         success:
           'bg-success text-success-foreground hover:bg-success/90 disabled:bg-success/50 disabled:text-success-foreground/70',
         outline:
-          'border border-input bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50',
+          'border border-control bg-background hover:bg-accent hover:text-accent-foreground disabled:opacity-50',
         secondary:
-          'bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:bg-secondary/50 disabled:text-secondary-foreground/50',
+          'border border-control bg-secondary text-secondary-foreground hover:bg-secondary/80 disabled:bg-secondary/50 disabled:text-secondary-foreground/50',
         ghost: 'hover:bg-accent hover:text-accent-foreground disabled:opacity-50',
-        link: 'text-primary underline-offset-4 hover:underline disabled:opacity-50',
+        link: 'text-link underline-offset-4 hover:underline disabled:opacity-50',
       },
       size: {
         default: 'h-10 px-4 py-2',
         sm: 'h-9 rounded-md px-3',
         lg: 'h-11 rounded-md px-8',
         icon: 'h-10 w-10',
+        // Detail page header actions: 44 px and sharing the row on phones, own width from sm.
+        header: 'h-11 grow px-4 py-2 sm:h-10 sm:grow-0',
+        // Compact text button inside dense cards (copy, show original).
+        xs: 'h-7 gap-1 rounded-md px-2 text-xs',
+        // Compact icon button for card and row actions.
+        'icon-sm': 'h-8 w-8',
+        // Smallest icon button, for overlays on chips and thumbnails.
+        'icon-xs': 'h-6 w-6',
+        // Pill for attachments and similar tokens in a message.
+        chip: 'h-6 gap-1 rounded-full px-2 text-xs font-normal',
+        // Full-width list option (suggested prompt, conversation, disclosure row).
+        row: 'h-auto w-full justify-start gap-2 whitespace-normal px-3 py-2 text-left font-normal',
+        'row-sm':
+          'h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-xs font-normal',
+        // Floating action button.
+        fab: 'h-12 w-12 rounded-full shadow-lg',
       },
     },
     defaultVariants: {

@@ -3,10 +3,13 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const tokensUsedSince = vi.hoisted(() => vi.fn<(userId: string, since: Date) => Promise<number>>());
-vi.mock('../services/ai/conversation.service.js', () => ({ tokensUsedSince }));
+const checkAiBudgets = vi.hoisted(() =>
+  vi.fn<(input: AiBudgetCheckInput) => Promise<AiBudgetDecision>>(),
+);
+vi.mock('@evtivity/database', () => ({ checkAiBudgets }));
 
 import type { Redis } from 'ioredis';
+import type { AiBudgetCheckInput, AiBudgetDecision } from '@evtivity/lib/ai-usage';
 import {
   AI_RATE_LIMIT_KEY_PREFIX,
   checkAiLimits,
@@ -23,6 +26,10 @@ const LIMITS = {
   conversationRetentionDays: 30,
   attachmentsMaxBytes: 1,
   attachmentsMaxPerMessage: 1,
+  companyMonthlyTokens: 0,
+  siteMonthlyTokens: 0,
+  siteDailyTokens: 0,
+  budgetWarnPercent: 80,
 };
 
 function memoryStore(): AiCounterStore & { keys: Map<string, number> } {
@@ -45,7 +52,7 @@ describe('AI limits', () => {
   beforeEach(() => {
     store = memoryStore();
     setAiCounterStore(store);
-    tokensUsedSince.mockReset().mockResolvedValue(0);
+    checkAiBudgets.mockReset().mockResolvedValue({ allowed: true });
   });
 
   afterEach(() => {
@@ -53,7 +60,13 @@ describe('AI limits', () => {
   });
 
   it('allows the per-user limit, then refuses with the seconds to the next window', async () => {
-    const input = { userId: 'usr_1', siteId: null, limits: LIMITS, now: NOW };
+    const input = {
+      surface: 'chatbot' as const,
+      userId: 'usr_1',
+      siteId: null,
+      limits: LIMITS,
+      now: NOW,
+    };
     expect(await checkAiLimits(input)).toBeNull();
     expect(await checkAiLimits(input)).toBeNull();
     expect(await checkAiLimits(input)).toEqual({
@@ -68,41 +81,98 @@ describe('AI limits', () => {
   it('TC-AI-L-02 counts the site across users for support assist', async () => {
     const results = [];
     for (const userId of ['usr_1', 'usr_2', 'usr_3', 'usr_4']) {
-      results.push(await checkAiLimits({ userId, siteId: 'sit_1', limits: LIMITS, now: NOW }));
+      results.push(
+        await checkAiLimits({
+          surface: 'support',
+          userId,
+          siteId: 'sit_1',
+          limits: LIMITS,
+          now: NOW,
+        }),
+      );
     }
     expect(results.slice(0, 3)).toEqual([null, null, null]);
     expect(results[3]).toMatchObject({ code: 'AI_RATE_LIMITED', scope: 'site' });
   });
 
-  it('TC-AI-L-03 refuses once the daily token budget is used, counting from midnight UTC', async () => {
-    tokensUsedSince.mockResolvedValue(1_000);
+  it('TC-AI-US-03 a budget refusal (here the user daily budget) is answered before any counter', async () => {
+    checkAiBudgets.mockResolvedValue({
+      allowed: false,
+      code: 'AI_BUDGET_EXCEEDED',
+      scope: 'user',
+      period: 'day',
+      retryAfterSeconds: 12 * 3600 - 30,
+    });
     const refusal = await checkAiLimits({
+      surface: 'chatbot',
       userId: 'usr_1',
       siteId: null,
       limits: LIMITS,
       now: NOW,
     });
-    expect(refusal).toEqual({ code: 'AI_BUDGET_EXCEEDED', retryAfterSeconds: 12 * 3600 - 30 });
-    expect(tokensUsedSince).toHaveBeenCalledWith('usr_1', new Date('2026-10-09T00:00:00Z'));
+    expect(refusal).toEqual({
+      code: 'AI_BUDGET_EXCEEDED',
+      scope: 'user',
+      retryAfterSeconds: 12 * 3600 - 30,
+    });
+    expect(checkAiBudgets).toHaveBeenCalledWith({
+      surface: 'chatbot',
+      userId: 'usr_1',
+      siteId: null,
+      now: NOW,
+    });
     // A refused turn does not use up the rate limit.
     expect(store.keys.size).toBe(0);
   });
 
-  it('a budget of 0 means no budget', async () => {
-    tokensUsedSince.mockResolvedValue(10_000_000);
-    expect(
-      await checkAiLimits({
+  it('passes a monthly refusal through with its scope, and charges support to the case site', async () => {
+    checkAiBudgets.mockResolvedValue({
+      allowed: false,
+      code: 'AI_MONTHLY_BUDGET_EXCEEDED',
+      scope: 'site',
+      period: 'month',
+      retryAfterSeconds: 99,
+    });
+    const refusal = await checkAiLimits({
+      surface: 'support',
+      userId: 'usr_1',
+      siteId: 'sit_1',
+      limits: LIMITS,
+      now: NOW,
+    });
+    expect(refusal).toEqual({
+      code: 'AI_MONTHLY_BUDGET_EXCEEDED',
+      scope: 'site',
+      retryAfterSeconds: 99,
+    });
+    expect(checkAiBudgets.mock.calls[0]?.[0]).toMatchObject({
+      surface: 'support',
+      siteId: 'sit_1',
+    });
+  });
+
+  it('fails closed when the budget check cannot read the ledger', async () => {
+    checkAiBudgets.mockRejectedValue(new Error('db down'));
+    await expect(
+      checkAiLimits({
+        surface: 'chatbot',
         userId: 'usr_1',
         siteId: null,
-        limits: { ...LIMITS, userDailyTokens: 0 },
+        limits: LIMITS,
         now: NOW,
       }),
-    ).toBeNull();
-    expect(tokensUsedSince).not.toHaveBeenCalled();
+    ).rejects.toThrow('db down');
+    expect(store.keys.size).toBe(0);
   });
 
   it('keys every counter under the ai:rl: prefix', async () => {
-    await checkAiLimits({ userId: 'usr_1', siteId: 'sit_1', limits: LIMITS, now: NOW });
+    await checkAiLimits({
+      surface: 'support',
+      userId: 'usr_1',
+      siteId: 'sit_1',
+      limits: LIMITS,
+      now: NOW,
+    });
     expect([...store.keys.keys()]).toEqual([
       `${AI_RATE_LIMIT_KEY_PREFIX}user:usr_1:29859120`,
       `${AI_RATE_LIMIT_KEY_PREFIX}site:sit_1:29859120`,
@@ -113,7 +183,13 @@ describe('AI limits', () => {
   it('lets the turn run when the counter store fails', async () => {
     setAiCounterStore({ increment: () => Promise.reject(new Error('redis down')) });
     expect(
-      await checkAiLimits({ userId: 'usr_1', siteId: 'sit_1', limits: LIMITS, now: NOW }),
+      await checkAiLimits({
+        surface: 'support',
+        userId: 'usr_1',
+        siteId: 'sit_1',
+        limits: LIMITS,
+        now: NOW,
+      }),
     ).toBeNull();
   });
 });

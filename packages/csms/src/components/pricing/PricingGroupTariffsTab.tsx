@@ -115,7 +115,7 @@ export function PricingGroupTariffsTab({
                     }}
                   >
                     <TableCell className="text-muted-foreground">{tariff.id}</TableCell>
-                    <TableCell className="font-medium text-primary" data-testid="row-click-target">
+                    <TableCell className="font-medium text-link" data-testid="row-click-target">
                       {tariff.name}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">

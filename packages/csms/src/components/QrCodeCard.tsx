@@ -50,7 +50,7 @@ export function QrCodeCard({
           href={portalUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-primary hover:underline break-all text-center"
+          className="text-xs text-link hover:underline break-all text-center"
         >
           {portalUrl}
         </a>

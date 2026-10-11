@@ -10,7 +10,7 @@ import {
 } from '../services/ai/tools/catalog-checks.js';
 import { AI_TOOL_POLICY, surfaceOffers, toolPolicy } from '../services/ai/tools/policy.js';
 import { chatbotToolset, supportToolset } from '../services/ai/surfaces/toolsets.js';
-import { isSecretShapedKey } from '../services/ai/tools/redact.js';
+import { isSecretShapedKey } from '@evtivity/ai/redact';
 
 const ALL_CATEGORIES = [...new Set(AI_TOOL_CATALOG.map((t) => t.category))];
 const SUPPORT_CASE = {

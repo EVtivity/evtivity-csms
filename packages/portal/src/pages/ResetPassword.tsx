@@ -103,7 +103,7 @@ export function ResetPassword(): React.JSX.Element {
               <p className="text-sm text-destructive">{t('auth.invalidResetLink')}</p>
               <Link
                 to="/forgot-password"
-                className="block text-center text-sm font-medium text-primary hover:underline"
+                className="block text-center text-sm font-medium text-link hover:underline"
               >
                 {t('auth.requestNewLink')}
               </Link>
@@ -113,7 +113,7 @@ export function ResetPassword(): React.JSX.Element {
               <p className="text-sm text-success">{t('auth.passwordResetSuccess')}</p>
               <Link
                 to="/login"
-                className="block text-center text-sm font-medium text-primary hover:underline"
+                className="block text-center text-sm font-medium text-link hover:underline"
               >
                 {t('auth.backToLogin')}
               </Link>
@@ -173,7 +173,7 @@ export function ResetPassword(): React.JSX.Element {
                   {error === t('auth.invalidResetLink') && (
                     <Link
                       to="/forgot-password"
-                      className="block text-center text-sm font-medium text-primary hover:underline"
+                      className="block text-center text-sm font-medium text-link hover:underline"
                     >
                       {t('auth.requestNewLink')}
                     </Link>
@@ -185,7 +185,7 @@ export function ResetPassword(): React.JSX.Element {
               </Button>
               <Link
                 to="/login"
-                className="block text-center text-sm font-medium text-primary hover:underline"
+                className="block text-center text-sm font-medium text-link hover:underline"
               >
                 {t('auth.backToLogin')}
               </Link>

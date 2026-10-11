@@ -8,6 +8,7 @@ import {
   OCPP_21_EVENTS,
   OCPP_COMMON_EVENTS,
   OCPP_EVENT_TYPES,
+  OPERATOR_AI_EVENTS,
   OPERATOR_EVENT_TYPES,
   OPERATOR_SESSION_EVENTS,
   TEMPLATE_VARIABLES,
@@ -46,6 +47,34 @@ describe('operator session alert events', () => {
       const eventNames = notifications['eventNames'] as Record<string, string>;
       expect(eventNames['session.EndRequestFailed'], lang).toBeTruthy();
       expect(notifications['sessionAlertEvents'], lang).toBeTruthy();
+    }
+  });
+});
+
+describe('AI proposal digest event', () => {
+  it('lists ai.ProposalDigest as an operator AI event with count-only variables', () => {
+    expect(OPERATOR_AI_EVENTS).toEqual(['ai.ProposalDigest']);
+    expect(OPERATOR_EVENT_TYPES).toContain('ai.ProposalDigest');
+    const names = (TEMPLATE_VARIABLES['ai.ProposalDigest'] ?? []).map((v) => v.name);
+    expect(names).toEqual([
+      'firstName',
+      'lastName',
+      'digestDate',
+      'pendingCount',
+      'stuckSessionsCount',
+      'networkSummaryCount',
+      'siteCount',
+      'siteNames',
+      'inboxUrl',
+    ]);
+  });
+
+  it('names the event and the AI group in every locale', () => {
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      const notifications = locale.notifications as Record<string, unknown>;
+      const eventNames = notifications['eventNames'] as Record<string, string>;
+      expect(eventNames['ai.ProposalDigest'], lang).toBeTruthy();
+      expect(notifications['aiEvents'], lang).toBeTruthy();
     }
   });
 });

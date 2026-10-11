@@ -708,6 +708,15 @@ async function seed(): Promise<void> {
     'ai.conversationRetentionDays': 30,
     'ai.attachments.maxBytes': 10485760,
     'ai.attachments.maxPerMessage': 5,
+    'ai.budget.companyMonthlyTokens': 0,
+    'ai.budget.siteMonthlyTokens': 0,
+    'ai.budget.siteDailyTokens': 300000,
+    'ai.budget.warnPercent': 80,
+    'ai.mcp.enabled': false,
+    'ai.mcp.rateLimitPerMinute': 60,
+    'ai.mcp.dailyCallsPerKey': 5000,
+    'ai.mcp.proposalTtlMinutes': 30,
+    'ai.mcp.allowedOrigins': [],
     'chatbotAi.enabled': false,
     'chatbotAi.provider': 'anthropic',
     'chatbotAi.model': '',
@@ -719,6 +728,26 @@ async function seed(): Promise<void> {
     'supportAi.effort': 'medium',
     'supportAi.systemPrompt': '',
     'supportAi.tone': 'professional',
+    'opsAi.enabled': false,
+    'opsAi.provider': 'anthropic',
+    'opsAi.model': '',
+    'opsAi.effort': 'low',
+    'opsAi.systemPrompt': '',
+    'aiInsights.station.enabled': true,
+    'aiInsights.session.enabled': true,
+    'aiInsights.authorization.enabled': true,
+    'aiInsights.debounceSeconds': 120,
+    'aiInsights.cooldownMinutes': 60,
+    'aiInsights.siteIncidentThreshold': 3,
+    'aiInsights.maxPerSitePerDay': 50,
+    'aiInsights.primaryLanguage': 'en',
+    'aiInsights.retentionDays': 90,
+    'aiWorkers.networkSummary.enabled': false,
+    'aiWorkers.stuckSessions.enabled': false,
+    'aiWorkers.stuckSessions.idleMinutes': 90,
+    'aiWorkers.stuckSessions.useModel': false,
+    'aiWorkers.tariffAnomalies.enabled': false,
+    'aiWorkers.proposalTtlHours': 24,
     'sso.enabled': false,
     'sso.provider': '',
     'sso.entryPoint': '',
@@ -2529,6 +2558,7 @@ async function seed(): Promise<void> {
     costBreakdown: SessionCostBreakdown;
     currency: string;
     stoppedReason: string;
+    electricityCostCents: number | null;
   }> = [];
 
   // Dates are relative to the seed run so the portal Activity page (which
@@ -2558,6 +2588,9 @@ async function seed(): Promise<void> {
     const station = at(createdStations, stationIdx);
     const stationEvses = createdEvses.filter((e) => e.stationId === station.id);
     const evse = stationEvses.length > 0 ? at(stationEvses, 0) : at(createdEvses, 0);
+    // Operator electricity cost from the station's site rates, as the session
+    // end projection computes it (the period in force at the end time).
+    const stationSiteId = at(stationRows, stationIdx).siteId;
 
     portalSessionRows.push({
       stationId: station.id,
@@ -2577,6 +2610,12 @@ async function seed(): Promise<void> {
       ...demoCostSplit(costCents, 0.08),
       currency: companyCurrency,
       stoppedReason: 'EVDisconnected',
+      electricityCostCents: seedSessionElectricityCostCents(
+        siteRatePeriods.get(stationSiteId) ?? [],
+        energyWh,
+        endedAt,
+        siteTimezones.get(stationSiteId),
+      ),
     });
   }
 

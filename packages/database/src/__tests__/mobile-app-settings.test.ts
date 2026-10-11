@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSelect = vi.fn();
 vi.mock('../config.js', () => ({ db: { select: mockSelect } }));
@@ -17,10 +17,18 @@ function rows(result: unknown[] | Error) {
   return chain;
 }
 
+// Under load (a full run) the first import of the module graph can outlast
+// the 5 s test timeout. Load it once here with a longer hook timeout; each
+// test still imports a fresh copy after vi.resetModules, from the warm cache.
+beforeAll(async () => {
+  await import('../lib/mobile-app-settings.js');
+}, 30_000);
+
 describe('getMobileAppConfig', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('reads both lists and caches them', async () => {

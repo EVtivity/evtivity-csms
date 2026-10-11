@@ -4,6 +4,24 @@
 import { describe, expect, it } from 'vitest';
 import { AI_TOOL_STEP_STATUSES } from '@evtivity/lib/ai-stream';
 import { AI_EFFORTS, AI_SUPPORT_TONES } from '@evtivity/lib/ai-config';
+import {
+  AI_CONTEXT_KINDS,
+  FIX_CODES,
+  INSIGHT_CONFIDENCES,
+  INSIGHT_KINDS,
+  INSIGHT_SKIP_REASONS,
+  INSIGHT_STATUSES,
+  ROOT_CAUSE_CATEGORIES,
+  insightScopeCountsSchema,
+} from '@evtivity/lib/ai-insights';
+import {
+  AI_PROPOSAL_PRECONDITION_KINDS,
+  AI_PROPOSAL_SOURCES,
+  AI_PROPOSAL_STATUSES,
+  AI_WORKER_ACTION_KINDS,
+  AI_WORKER_JOBS,
+} from '@evtivity/lib/ai-proposals';
+import { AI_USAGE_SURFACES } from '@evtivity/lib/ai-usage';
 import en from '../locales/en.json';
 import de from '../locales/de.json';
 import es from '../locales/es.json';
@@ -11,6 +29,7 @@ import ko from '../locales/ko.json';
 import zh from '../locales/zh.json';
 import zhTW from '../locales/zh-TW.json';
 import { SUGGESTION_PAGES, SUGGESTION_SLOTS } from '../../components/ai/SuggestedPrompts';
+import { WORKER_RATIONALE_CODES } from '../../components/ai/inbox/proposal-summary';
 
 const LOCALES: Record<string, unknown> = { en, de, es, ko, zh, 'zh-TW': zhTW };
 
@@ -27,6 +46,7 @@ function aiKeys(locale: unknown): string[] {
     .filter(
       (k) =>
         k.startsWith('ai.') ||
+        /^ai(Insights|Inbox|Workers|Usage)\./.test(k) ||
         /^settings\.ai[A-Z]/.test(k) ||
         /^profile\.(ai[A-Z]|chatbotAi|supportAi)/.test(k) ||
         k.startsWith('supportCases.aiAssist'),
@@ -60,9 +80,38 @@ describe('AI locale keys (TC-AI-UI-10)', () => {
       ...SUGGESTION_PAGES.flatMap((p) => SUGGESTION_SLOTS.map((s) => `ai.suggestions.${p}.${s}`)),
       ...AI_EFFORTS.map((e) => `settings.aiEfforts.${e}`),
       ...AI_SUPPORT_TONES.map((t) => `settings.aiTones.${t}`),
-      ...['chatbot', 'support'].flatMap((s) =>
+      ...['chatbot', 'support', 'ops'].flatMap((s) =>
         ['title', 'description', 'enabled'].map((f) => `settings.aiSurface.${s}.${f}`),
       ),
+    ];
+    for (const key of dynamic) expect(english, key).toContain(key);
+  });
+
+  it('localizes every structured insight, proposal and usage value of the contracts', () => {
+    const dynamic = [
+      ...ROOT_CAUSE_CATEGORIES.map((c) => `aiInsights.category.${c}`),
+      ...FIX_CODES.map((c) => `aiInsights.fix.${c}`),
+      ...INSIGHT_CONFIDENCES.map((c) => `aiInsights.confidence.${c}`),
+      ...INSIGHT_STATUSES.map((s) => `aiInsights.status.${s}`),
+      ...INSIGHT_KINDS.map((k) => `aiInsights.kind.${k}`),
+      ...INSIGHT_SKIP_REASONS.map((r) => `aiInsights.skipReason.${r}`),
+      ...Object.keys(insightScopeCountsSchema.shape).flatMap((c) => [
+        `aiInsights.scope.${c}_one`,
+        `aiInsights.scope.${c}_other`,
+      ]),
+      ...AI_PROPOSAL_SOURCES.map((s) => `aiInbox.source.${s}`),
+      ...AI_WORKER_JOBS.map((j) => `aiInbox.job.${j}`),
+      ...AI_PROPOSAL_STATUSES.map((s) => `aiInbox.status.${s}`),
+      ...AI_WORKER_ACTION_KINDS.map((a) => `aiInbox.action.${a}`),
+      ...AI_PROPOSAL_PRECONDITION_KINDS.map((p) => `aiInbox.precondition.${p}`),
+      ...AI_USAGE_SURFACES.map((s) => `aiUsage.surface.${s}`),
+      ...AI_CONTEXT_KINDS.map((k) => `ai.explain.${k}`),
+      // TC-AI-EX-06: the Explain prompt and the context chip of every kind.
+      ...AI_CONTEXT_KINDS.map((k) => `ai.explain.kind.${k}`),
+      'ai.explain.button',
+      'ai.explain.followUp',
+      'ai.explain.about',
+      ...WORKER_RATIONALE_CODES.map((c) => `aiWorkers.rationale.${c}`),
     ];
     for (const key of dynamic) expect(english, key).toContain(key);
   });

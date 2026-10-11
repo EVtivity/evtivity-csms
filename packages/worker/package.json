@@ -17,6 +17,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@evtivity/ai": "*",
     "@evtivity/database": "*",
     "@evtivity/lib": "*",
     "@evtivity/octt": "*",

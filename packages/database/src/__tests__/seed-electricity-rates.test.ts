@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi } from 'vitest';
+import { computeSessionElectricityCost } from '@evtivity/lib';
 import type { ElectricityRatePeriod } from '@evtivity/lib';
 
 vi.mock('../config.js', () => ({ db: {}, client: {} }));
@@ -77,6 +78,18 @@ describe('seedSessionElectricityCostCents', () => {
     const at = new Date('2026-10-07T14:00:00Z');
     expect(seedSessionElectricityCostCents(periods, 0, at, TZ)).toBeNull();
     expect(seedSessionElectricityCostCents([], 10_000, at, TZ)).toBeNull();
+  });
+
+  it('gives the cost the session end projection computes (computeSessionElectricityCost)', () => {
+    // Every half hour of a week, so both periods and both boundaries are hit.
+    const start = Date.parse('2026-10-05T00:00:00Z');
+    for (let step = 0; step < 7 * 48; step++) {
+      const endedAt = new Date(start + step * 30 * 60_000);
+      const energyWh = 1000 + step * 37;
+      expect(seedSessionElectricityCostCents(periods, energyWh, endedAt, TZ)).toBe(
+        computeSessionElectricityCost({ periods, endedAt, energyWh, timezone: TZ }).costCents,
+      );
+    }
   });
 });
 

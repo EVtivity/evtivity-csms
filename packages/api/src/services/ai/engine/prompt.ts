@@ -2,28 +2,26 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * System prompt assembly and untrusted-content framing.
+ * System prompt assembly. Untrusted content is framed by `frameUntrusted`
+ * (`@evtivity/ai/prompt`).
  *
  * The system prompt has a static, cacheable block (the security rules, the
  * surface prompt and the documentation index, per surface and language) and
- * a dynamic block (user, date, currency, reply type). Content the operator
- * did not write (tool results, driver messages, case text, attachments)
- * never goes into the system prompt: it reaches the model inside
- * `<untrusted>` blocks the rules declare to be data.
+ * a dynamic block (user, date, currency, reply type, and for an Explain
+ * conversation the record's evidence). Content the operator did not write
+ * (tool results, driver messages, case text, attachments, station-reported
+ * evidence) reaches the model only inside `<untrusted>` blocks the rules
+ * declare to be data.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import type { AiSystemBlock } from '@evtivity/ai/core';
+import { LANGUAGE_NAMES, promptLanguage, terminologyNote } from '@evtivity/ai/prompt';
+import type { PromptLanguage } from '@evtivity/ai/prompt';
 import { createLogger, tryParseJson } from '@evtivity/lib';
-import type { AiSystemBlock } from '../core/types.js';
 import type { AiSurface } from '../tools/policy.js';
-import {
-  LANGUAGE_NAMES,
-  defaultSystemPrompt,
-  promptLanguage,
-  terminologyNote,
-} from './prompt-defaults.js';
-import type { PromptLanguage } from './prompt-defaults.js';
+import { defaultSystemPrompt } from './prompt-defaults.js';
 import type { SupportTone } from '../surfaces/config.js';
 
 const logger = createLogger('ai-prompt');
@@ -48,20 +46,6 @@ export const OCPP_VERSION_RULE =
 /** Support drafts: the text is a message body, ready to send as it is. */
 export const SUPPORT_BODY_ONLY =
   'Output only the message body, ready to send: no subject line (no "Subject:" or "Re:" line), no title or heading, no markdown heading (#), and nothing before or after the body.';
-
-const ATTRIBUTE_UNSAFE = /[^A-Za-z0-9_.:-]/g;
-
-/**
- * Wraps untrusted text in an `<untrusted>` block. A `<untrusted` or
- * `</untrusted` inside the text is escaped, so the text cannot close its own
- * block or open a new one (TC-AI-I-05).
- */
-export function frameUntrusted(source: string, id: string, text: string): string {
-  const safeSource = source.replace(ATTRIBUTE_UNSAFE, '_').slice(0, 64);
-  const safeId = id.replace(ATTRIBUTE_UNSAFE, '_').slice(0, 200);
-  const body = text.replace(/<(\/?\s*untrusted)/gi, '&lt;$1');
-  return `<untrusted source="${safeSource}" id="${safeId}">\n${body}\n</untrusted>`;
-}
 
 // ---------------------------------------------------------------------------
 // Documentation index
@@ -117,6 +101,12 @@ export interface SystemPromptInput {
   /** Support only. */
   tone?: SupportTone;
   isInternalNote?: boolean;
+  /**
+   * Chatbot Explain conversations: the record's evidence block
+   * (`explainPromptBlock`), already redacted and framed as untrusted. Goes
+   * into the dynamic block only, so the static block stays cacheable.
+   */
+  explainContext?: string;
 }
 
 export function buildSystemBlocks(input: SystemPromptInput): AiSystemBlock[] {
@@ -168,6 +158,9 @@ export function buildSystemBlocks(input: SystemPromptInput): AiSystemBlock[] {
   }
   const terms = terminologyNote(output);
   if (terms !== '') context.push(terms);
+  if (input.surface === 'chatbot' && input.explainContext !== undefined) {
+    context.push(input.explainContext);
+  }
   return [
     { text: staticText, cacheable: true },
     { text: context.join('\n'), cacheable: false },

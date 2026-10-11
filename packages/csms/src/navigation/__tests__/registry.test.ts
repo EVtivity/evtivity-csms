@@ -23,6 +23,7 @@ const ALL_ON = {
   reservationEnabled: true,
   supportEnabled: true,
   fleetEnabled: true,
+  aiInboxEnabled: true,
 };
 
 describe('NAV_ENTRIES', () => {
@@ -93,5 +94,14 @@ describe('visibleNavEntries', () => {
 
   it('marks the logs entry as company-wide', () => {
     expect(NAV_ENTRIES.find((e) => e.to === '/logs')?.requiresAllSiteAccess).toBe(true);
+  });
+});
+
+describe('AI Inbox entry', () => {
+  it('shows only while something can create proposals', () => {
+    const on = visibleNavEntries(['aiProposals:read'], ALL_ON, true).map((e) => e.to);
+    expect(on).toContain('/ai/inbox');
+    const off = visibleNavEntries(['aiProposals:read'], { ...ALL_ON, aiInboxEnabled: false }, true);
+    expect(off.map((e) => e.to)).not.toContain('/ai/inbox');
   });
 });

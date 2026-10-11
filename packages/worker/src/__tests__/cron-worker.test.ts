@@ -103,6 +103,12 @@ const handlerMocks = {
   stationOfflineSweepHandler: vi.fn().mockResolvedValue(undefined),
   fleetInvoiceRunHandler: vi.fn().mockResolvedValue(undefined),
   aiRetentionPruneHandler: vi.fn().mockResolvedValue(undefined),
+  aiNetworkSummaryHandler: vi.fn().mockResolvedValue(undefined),
+  aiStuckSessionsHandler: vi.fn().mockResolvedValue(undefined),
+  aiTariffAnomaliesHandler: vi.fn().mockResolvedValue(undefined),
+  aiProposalSweepHandler: vi.fn().mockResolvedValue(undefined),
+  aiProposalDigestHandler: vi.fn().mockResolvedValue(undefined),
+  aiInsightScanHandler: vi.fn().mockResolvedValue(undefined),
 };
 
 vi.mock('../handlers/report-scheduler.js', () => ({
@@ -183,8 +189,26 @@ vi.mock('../handlers/station-offline-sweep.js', () => ({
 vi.mock('../handlers/fleet-invoice-run.js', () => ({
   fleetInvoiceRunHandler: (...a: unknown[]) => handlerMocks.fleetInvoiceRunHandler(...a),
 }));
+vi.mock('../handlers/ai-insight-scan.js', () => ({
+  aiInsightScanHandler: (...a: unknown[]) => handlerMocks.aiInsightScanHandler(...a),
+}));
 vi.mock('../handlers/ai-retention-prune.js', () => ({
   aiRetentionPruneHandler: (...a: unknown[]) => handlerMocks.aiRetentionPruneHandler(...a),
+}));
+vi.mock('../handlers/ai-network-summary.js', () => ({
+  aiNetworkSummaryHandler: (...a: unknown[]) => handlerMocks.aiNetworkSummaryHandler(...a),
+}));
+vi.mock('../handlers/ai-stuck-sessions.js', () => ({
+  aiStuckSessionsHandler: (...a: unknown[]) => handlerMocks.aiStuckSessionsHandler(...a),
+}));
+vi.mock('../handlers/ai-tariff-anomalies.js', () => ({
+  aiTariffAnomaliesHandler: (...a: unknown[]) => handlerMocks.aiTariffAnomaliesHandler(...a),
+}));
+vi.mock('../handlers/ai-proposal-sweep.js', () => ({
+  aiProposalSweepHandler: (...a: unknown[]) => handlerMocks.aiProposalSweepHandler(...a),
+}));
+vi.mock('../handlers/ai-proposal-digest.js', () => ({
+  aiProposalDigestHandler: (...a: unknown[]) => handlerMocks.aiProposalDigestHandler(...a),
 }));
 
 const migrationsDir = join(import.meta.dirname, '..', '..', '..', 'database', 'src', 'migrations');
@@ -327,6 +351,12 @@ describe('cron-worker processor dispatch', () => {
       ['station-offline-sweep', 'stationOfflineSweepHandler'],
       ['fleet-invoice-run', 'fleetInvoiceRunHandler'],
       ['ai-retention-prune', 'aiRetentionPruneHandler'],
+      ['ai-network-summary', 'aiNetworkSummaryHandler'],
+      ['ai-stuck-sessions', 'aiStuckSessionsHandler'],
+      ['ai-tariff-anomalies', 'aiTariffAnomaliesHandler'],
+      ['ai-proposal-sweep', 'aiProposalSweepHandler'],
+      ['ai-proposal-digest', 'aiProposalDigestHandler'],
+      ['ai-insight-scan', 'aiInsightScanHandler'],
     ];
 
     for (const [jobName, handlerKey] of routes) {
@@ -335,7 +365,7 @@ describe('cron-worker processor dispatch', () => {
     }
   });
 
-  it('has a handler for every cron job the migrations seed', async () => {
+  it('TC-AI-WK-01: has a handler for every cron job the migrations seed', async () => {
     const seeded = seededCronJobNames();
     // Non-vacuous: the migrations seed 22 cron jobs as of migration 0124.
     expect(seeded.length).toBeGreaterThanOrEqual(22);

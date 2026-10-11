@@ -8,7 +8,7 @@
   --adyen-sdk-color-label-tertiary: hsl(var(--muted-foreground));
   --adyen-sdk-color-label-disabled: hsl(var(--muted-foreground));
   --adyen-sdk-color-label-critical: hsl(var(--destructive));
-  --adyen-sdk-color-label-highlight: hsl(var(--primary));
+  --adyen-sdk-color-label-highlight: hsl(var(--link));
   --adyen-sdk-color-label-on-color: hsl(var(--primary-foreground));
   --adyen-sdk-color-background-primary: hsl(var(--card));
   --adyen-sdk-color-background-primary-hover: hsl(var(--muted));

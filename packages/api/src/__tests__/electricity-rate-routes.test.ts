@@ -101,6 +101,11 @@ vi.mock('@evtivity/database', () => ({
   configTemplateAuditLog: {},
   clearFreeVendCache: vi.fn(),
   clearElectricityRateCache: vi.fn(),
+  getCompanyCurrency: vi.fn().mockResolvedValue('EUR'),
+}));
+
+vi.mock('@evtivity/services/electricity-cost.service', () => ({
+  recalculateSiteElectricityCost: vi.fn(),
 }));
 
 vi.mock('drizzle-orm', () => {
@@ -134,7 +139,8 @@ vi.mock('../lib/site-access.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { siteRoutes } from '../routes/sites.js';
-import { db, clearElectricityRateCache } from '@evtivity/database';
+import { db, clearElectricityRateCache, writeAudit } from '@evtivity/database';
+import { recalculateSiteElectricityCost } from '@evtivity/services/electricity-cost.service';
 import { getUserSiteIds } from '../lib/site-access.js';
 
 const getUserSiteIdsMock = getUserSiteIds as ReturnType<typeof vi.fn>;
@@ -328,5 +334,77 @@ describe('Electricity rate routes', () => {
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().code).toBe('ELECTRICITY_RATE_NOT_FOUND');
+  });
+});
+
+describe('POST /sites/:id/electricity-cost/recalculate', () => {
+  let app: FastifyInstance;
+  let token: string;
+  const recalculateMock = recalculateSiteElectricityCost as ReturnType<typeof vi.fn>;
+  const writeAuditMock = writeAudit as ReturnType<typeof vi.fn>;
+
+  beforeAll(async () => {
+    app = await buildApp();
+    token = app.jwt.sign({ userId: VALID_USER_ID, roleId: VALID_ROLE_ID });
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    setupDbResults();
+    recalculateMock.mockReset();
+    writeAuditMock.mockClear();
+    getUserSiteIdsMock.mockReset();
+    getUserSiteIdsMock.mockResolvedValue(null);
+  });
+
+  const post = () =>
+    app.inject({
+      method: 'POST',
+      url: `/sites/${VALID_SITE_ID}/electricity-cost/recalculate`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+  it('fills the costs in the company currency, audits the counts and returns updated and remaining', async () => {
+    setupDbResults([{ id: VALID_SITE_ID }]);
+    recalculateMock.mockResolvedValue({ before: 4, updated: 4, remaining: 0 });
+    const res = await post();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ updated: 4, remaining: 0 });
+    expect(recalculateMock).toHaveBeenCalledWith(VALID_SITE_ID, { companyCurrency: 'EUR' });
+    expect(writeAuditMock).toHaveBeenCalledTimes(1);
+    const [, args] = writeAuditMock.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(args).toMatchObject({
+      entityId: VALID_SITE_ID,
+      action: 'updated',
+      before: { sessionsWithoutElectricityCost: 4 },
+      after: { sessionsWithoutElectricityCost: 0, electricityCostsFilled: 4 },
+      notes: 'electricity cost recalculated',
+    });
+  });
+
+  it('writes no audit row when nothing changed (a repeated call)', async () => {
+    setupDbResults([{ id: VALID_SITE_ID }]);
+    recalculateMock.mockResolvedValue({ before: 0, updated: 0, remaining: 0 });
+    const res = await post();
+    expect(res.json()).toEqual({ updated: 0, remaining: 0 });
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 SITE_NOT_FOUND for a site outside the user scope, without recalculating', async () => {
+    getUserSiteIdsMock.mockResolvedValue(['sit_000000000002']);
+    const res = await post();
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe('SITE_NOT_FOUND');
+    expect(recalculateMock).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 SITE_NOT_FOUND for an unknown site', async () => {
+    setupDbResults([]);
+    const res = await post();
+    expect(res.statusCode).toBe(404);
+    expect(recalculateMock).not.toHaveBeenCalled();
   });
 });

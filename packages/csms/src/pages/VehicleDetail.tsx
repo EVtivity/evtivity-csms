@@ -301,7 +301,7 @@ export function VehicleDetail(): React.JSX.Element {
                 <dt className="text-muted-foreground">{t('vehicles.owner')}</dt>
                 <dd className="font-medium">
                   {driver != null ? (
-                    <Link to={`/drivers/${driver.id}`} className="text-primary hover:underline">
+                    <Link to={`/drivers/${driver.id}`} className="text-link hover:underline">
                       {driver.firstName} {driver.lastName}
                     </Link>
                   ) : (

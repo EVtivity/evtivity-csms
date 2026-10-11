@@ -66,6 +66,14 @@ export const aiConversations = pgTable(
     provider: varchar('provider', { length: 20 }).notNull(),
     model: varchar('model', { length: 200 }).notNull(),
     title: varchar('title', { length: 200 }).notNull().default(''),
+    /**
+     * Explain conversations (migration 0428): the record the conversation is
+     * about, 'station', 'session' or 'authorization', and its id. No FK, the
+     * targets have mixed key types. Access is checked at creation and on every
+     * turn; each turn's dynamic prompt block carries the record's evidence.
+     */
+    contextKind: varchar('context_kind', { length: 20 }),
+    contextId: text('context_id'),
     /** Set while a turn runs (a lease): a second turn on the conversation is refused. */
     turnStartedAt: timestamp('turn_started_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -76,6 +84,10 @@ export const aiConversations = pgTable(
     index('idx_ai_conversations_user_updated').on(table.userId, table.updatedAt),
     index('idx_ai_conversations_support_case').on(table.supportCaseId),
     check('ai_conversations_surface_check', sql`${table.surface} IN ('chatbot', 'support')`),
+    check(
+      'ai_conversations_context_check',
+      sql`(${table.contextKind} IS NULL AND ${table.contextId} IS NULL) OR (${table.contextKind} IN ('station', 'session', 'authorization') AND ${table.contextId} IS NOT NULL)`,
+    ),
   ],
 );
 

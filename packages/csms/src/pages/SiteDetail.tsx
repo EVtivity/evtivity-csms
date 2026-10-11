@@ -59,6 +59,8 @@ interface Site {
   freeVendTemplateId16: string | null;
   carbonRegionCode: string | null;
   stationMessageLanguage: string | null;
+  aiInsightsEnabled?: boolean;
+  aiMonthlyTokenBudget?: number | null;
   stationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -397,7 +399,7 @@ export function SiteDetail(): React.JSX.Element {
         <SiteFreeVendTab site={site} siteId={id ?? ''} />
 
         <TabsContent value="electricity-rates">
-          <SiteElectricityRatesTab siteId={id ?? ''} />
+          <SiteElectricityRatesTab siteId={id ?? ''} siteName={site.name} />
         </TabsContent>
 
         {canReadMaintenance && (

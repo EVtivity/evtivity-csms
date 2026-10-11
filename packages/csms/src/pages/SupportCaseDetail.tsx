@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/table';
 import { MessageThread } from '@/components/support/MessageThread';
 import { CaseInfoSidebar } from '@/components/support/CaseInfoSidebar';
+import { SupportCaseInsights } from '@/components/ai/insights/SupportCaseInsights';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { parseMajorInputToCents } from '@evtivity/lib/currency';
 import { api } from '@/lib/api';
@@ -287,7 +288,7 @@ export function SupportCaseDetail(): React.JSX.Element {
                 <Row label={t('supportCases.driver')}>
                   <Link
                     to={`/drivers/${caseDetail.driverId ?? ''}`}
-                    className="text-primary hover:underline"
+                    className="text-link hover:underline"
                   >
                     {caseDetail.driverName}
                   </Link>
@@ -405,7 +406,7 @@ export function SupportCaseDetail(): React.JSX.Element {
                               <TableCell>
                                 <Link
                                   to={`/sessions/${session.id}`}
-                                  className="text-primary hover:underline text-sm"
+                                  className="text-link hover:underline text-sm"
                                 >
                                   {session.id}
                                 </Link>
@@ -509,7 +510,10 @@ export function SupportCaseDetail(): React.JSX.Element {
         </div>
 
         {/* Sidebar controls */}
-        <CaseInfoSidebar caseDetail={caseDetail} operatorUsers={operatorUsers?.data} />
+        <div className="space-y-4">
+          <CaseInfoSidebar caseDetail={caseDetail} operatorUsers={operatorUsers?.data} />
+          <SupportCaseInsights caseId={caseDetail.id} />
+        </div>
       </div>
 
       <ConfirmDialog

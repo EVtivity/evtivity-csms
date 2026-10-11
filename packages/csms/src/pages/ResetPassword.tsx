@@ -93,7 +93,7 @@ export function ResetPassword(): React.JSX.Element {
               <p className="text-sm text-muted-foreground">{t('auth.passwordResetSuccess')}</p>
               <Link
                 to="/login"
-                className="block text-center text-sm font-medium text-primary hover:underline"
+                className="block text-center text-sm font-medium text-link hover:underline"
               >
                 {t('auth.backToLogin')}
               </Link>
@@ -162,7 +162,7 @@ export function ResetPassword(): React.JSX.Element {
               </Button>
               <Link
                 to="/login"
-                className="block text-center text-sm font-medium text-primary hover:underline"
+                className="block text-center text-sm font-medium text-link hover:underline"
               >
                 {t('auth.backToLogin')}
               </Link>

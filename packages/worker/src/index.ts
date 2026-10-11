@@ -47,6 +47,12 @@ import {
 } from './remote-start-timeout-worker.js';
 import { createStationMessageWorker, startStationMessageBridge } from './station-message-worker.js';
 import { createReportWorker, setReportQueue, startReportBridge } from './report-worker.js';
+import { createAiWorker, setAiWorkerQueue } from './ai-worker-queue.js';
+import {
+  createAiInsightWorker,
+  setAiInsightQueue,
+  startAiInsightBridge,
+} from './ai-insight-worker.js';
 import { octtRunnerJob } from './handlers/octt-runner.js';
 import type { OcttJobData } from './handlers/octt-runner.js';
 import { probeWorkerLockGrants } from './lib/redis-acl-probe.js';
@@ -86,10 +92,14 @@ async function start(): Promise<void> {
     remoteStartTimeoutQueue,
     stationMessageQueue,
     reportQueue,
+    aiWorkerQueue,
+    aiInsightQueue,
   } = createQueues(REDIS_URL);
   setSimulatedEventSink(queueSimulatedSink(paymentWebhookQueue));
   setReportQueue(reportQueue);
+  setAiWorkerQueue(aiWorkerQueue);
   setFleetInvoiceQueue(fleetInvoiceQueue);
+  setAiInsightQueue(aiInsightQueue);
 
   // Schedule cron jobs from database
   await scheduleCronJobs(cronQueue);
@@ -118,6 +128,7 @@ async function start(): Promise<void> {
   const fleetBillingLockRedis = createBullMQConnection(REDIS_URL);
   const stationMessageLockRedis = createBullMQConnection(REDIS_URL);
   const octtLockRedis = createBullMQConnection(REDIS_URL);
+  const aiWorkerLockRedis = createBullMQConnection(REDIS_URL);
   const cronWorker = createCronWorker(createBullMQConnection(REDIS_URL), cronLockRedis);
   const loadWorker = createLoadManagementWorker(createBullMQConnection(REDIS_URL), loadQueue);
   const guestWorker = createGuestSessionWorker(createBullMQConnection(REDIS_URL));
@@ -147,6 +158,8 @@ async function start(): Promise<void> {
   );
 
   const reportWorker = createReportWorker(createBullMQConnection(REDIS_URL));
+  const aiWorker = createAiWorker(createBullMQConnection(REDIS_URL), aiWorkerLockRedis);
+  const aiInsightWorker = createAiInsightWorker(createBullMQConnection(REDIS_URL), pubsub);
 
   // OCTT conformance test worker
   const octtWorker = new Worker<OcttJobData>(
@@ -173,6 +186,8 @@ async function start(): Promise<void> {
     remoteStartTimeoutWorker,
     stationMessageWorker,
     reportWorker,
+    aiWorker,
+    aiInsightWorker,
     octtWorker,
   })) {
     // BullMQ re-emits Redis errors on every Worker; unheard, it prints each one
@@ -199,6 +214,7 @@ async function start(): Promise<void> {
   );
   const stopStationMessageBridge = await startStationMessageBridge(pubsub, stationMessageQueue);
   const stopReportBridge = await startReportBridge(pubsub);
+  const stopAiInsightBridge = await startAiInsightBridge(pubsub);
 
   // Listen for credential-rotation invalidations from the API so the next
   // dispatchDriverNotification / scheduled report email reads fresh SMTP and
@@ -250,6 +266,7 @@ async function start(): Promise<void> {
     await stopRemoteStartTimeoutBridge();
     await stopStationMessageBridge();
     await stopReportBridge();
+    await stopAiInsightBridge();
     await octtSubscription.unsubscribe();
     await cacheInvalidateSubscription.unsubscribe();
     await cronWorker.close();
@@ -264,6 +281,8 @@ async function start(): Promise<void> {
     await remoteStartTimeoutWorker.close();
     await stationMessageWorker.close();
     await reportWorker.close();
+    await aiWorker.close();
+    await aiInsightWorker.close();
     await octtWorker.close();
     await cronQueue.close();
     await loadQueue.close();
@@ -280,12 +299,17 @@ async function start(): Promise<void> {
     await remoteStartTimeoutQueue.close();
     await stationMessageQueue.close();
     await reportQueue.close();
+    setAiWorkerQueue(null);
+    await aiWorkerQueue.close();
+    setAiInsightQueue(null);
+    await aiInsightQueue.close();
     for (const lockRedis of [
       cronLockRedis,
       maintenanceLockRedis,
       fleetBillingLockRedis,
       stationMessageLockRedis,
       octtLockRedis,
+      aiWorkerLockRedis,
     ]) {
       try {
         await lockRedis.quit();

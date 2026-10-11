@@ -3,6 +3,7 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { PgTable } from 'drizzle-orm/pg-core';
+import type { AiAuditVia } from '@evtivity/lib/ai-proposals';
 import { db as defaultDb } from '../config.js';
 
 export type AuditActor = 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -27,19 +28,19 @@ export interface WriteAuditArgs {
   viaAi?: AuditViaAi | null;
 }
 
-/** The AI assistant tool call a change came from. */
-export interface AuditViaAi {
-  conversationId: string;
-  /** The `ai_tool_calls` row id. */
-  toolCallId: string;
-}
+/**
+ * Where an AI-run change came from: a chat tool call (`conversationId`,
+ * `toolCallId`), an MCP call, or a confirmed proposal (`proposalId`,
+ * `confirmedBy`). Read stored values with `readAiAuditVia`.
+ */
+export type AuditViaAi = AiAuditVia;
 
 const viaAiStorage = new AsyncLocalStorage<AuditViaAi>();
 
 /**
- * Runs `fn` as an AI assistant tool call: every audit row written inside it
- * (by the route the tool injects) records `via_ai`. The API's tool executor
- * is the only caller.
+ * Runs `fn` as an AI-run request: every audit row written inside it (by the
+ * route the tool injects) records `via_ai`. The API's tool executor is the
+ * only caller.
  */
 export function runWithAuditViaAi<T>(viaAi: AuditViaAi, fn: () => T): T {
   return viaAiStorage.run(viaAi, fn);

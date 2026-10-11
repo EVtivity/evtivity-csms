@@ -296,6 +296,7 @@ export const SYSTEM_EVENT_TYPES = [
   'invoice.FleetInvoice',
   'invoice.FleetCreditNote',
   'invoice.FleetOverdue',
+  'ai.ProposalDigest',
 ];
 
 const ALL_EVENT_TYPES = [
@@ -687,6 +688,18 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'issuedNotEmailedCount',
     'notInvoiced',
     'notInvoicedCount',
+  ],
+  // Daily AI Inbox digest: counts only, never model text.
+  'ai.ProposalDigest': [
+    'firstName',
+    'lastName',
+    'digestDate',
+    'pendingCount',
+    'stuckSessionsCount',
+    'networkSummaryCount',
+    'siteCount',
+    'siteNames',
+    'inboxUrl',
   ],
 };
 
@@ -1566,6 +1579,13 @@ export function notificationRoutes(app: FastifyInstance): void {
         issuedNotEmailed: 'Acme Logistics (INV-202610-0012): SMTP connection timed out',
         notInvoicedCount: 1,
         notInvoiced: 'Nordic Vans: Connection terminated unexpectedly',
+        digestDate: '2026-10-10',
+        pendingCount: 3,
+        stuckSessionsCount: 2,
+        networkSummaryCount: 1,
+        siteCount: 2,
+        siteNames: 'Downtown Charging Hub, Airport Parking',
+        inboxUrl: 'https://csms.example.com/ai/inbox',
         balanceCents: 350,
         // Money and rates as the dispatcher formats them, in the template language.
         ...formatLocalizedVariables(

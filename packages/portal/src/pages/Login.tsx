@@ -187,14 +187,14 @@ export function Login(): React.JSX.Element {
               {loading ? t('auth.signingIn') : t('auth.signIn')}
             </Button>
             <div className="text-center">
-              <Link to="/forgot-password" className="text-sm text-primary hover:underline">
+              <Link to="/forgot-password" className="text-sm text-link hover:underline">
                 {t('auth.forgotPassword')}
               </Link>
             </div>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             {t('auth.noAccount')}{' '}
-            <Link to="/register" className="text-primary hover:underline">
+            <Link to="/register" className="text-link hover:underline">
               {t('auth.createOne')}
             </Link>
           </p>

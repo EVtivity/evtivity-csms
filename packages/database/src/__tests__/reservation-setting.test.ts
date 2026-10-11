@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock the db module before importing the module under test
 const mockSelect = vi.fn();
@@ -28,10 +28,18 @@ function makeChain(result: unknown[]) {
   return chain;
 }
 
+// Under load (a full run) the first import of the module graph can outlast
+// the 5 s test timeout. Load it once here with a longer hook timeout; each
+// test still imports a fresh copy after vi.resetModules, from the warm cache.
+beforeAll(async () => {
+  await import('../lib/reservation-setting.js');
+}, 30_000);
+
 describe('getReservationSettings', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns defaults when no rows exist', async () => {
@@ -115,6 +123,7 @@ describe('isReservationEnabled', () => {
   beforeEach(async () => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns true when reservation.enabled row is true', async () => {

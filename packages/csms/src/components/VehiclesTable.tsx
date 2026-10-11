@@ -100,7 +100,7 @@ export function VehiclesTable({
                   <TableCell>
                     <button
                       type="button"
-                      className="font-medium text-primary hover:underline"
+                      className="font-medium text-link hover:underline"
                       onClick={(e) => {
                         e.stopPropagation();
                         void navigate(`/drivers/${v.driverId}`);

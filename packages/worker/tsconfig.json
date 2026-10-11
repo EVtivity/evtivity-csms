@@ -9,6 +9,9 @@
       "path": "../lib"
     },
     {
+      "path": "../ai"
+    },
+    {
       "path": "../database"
     },
     {

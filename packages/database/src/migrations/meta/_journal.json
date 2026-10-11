@@ -1485,6 +1485,118 @@
       "when": 1791000041400,
       "tag": "0415_seed_invoice_seller",
       "breakpoints": true
+    },
+    {
+      "idx": 212,
+      "version": "7",
+      "when": 1791000042800,
+      "tag": "0428_ai_conversation_context",
+      "breakpoints": true
+    },
+    {
+      "idx": 213,
+      "version": "7",
+      "when": 1791000044100,
+      "tag": "0441_seed_ai_ops_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 214,
+      "version": "7",
+      "when": 1791000044200,
+      "tag": "0442_backfill_ai_roadmap_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 215,
+      "version": "7",
+      "when": 1791000044300,
+      "tag": "0431_ai_proposals",
+      "breakpoints": true
+    },
+    {
+      "idx": 216,
+      "version": "7",
+      "when": 1791000044400,
+      "tag": "0432_ai_proposal_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 217,
+      "version": "7",
+      "when": 1791000044500,
+      "tag": "0416_ai_usage_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 218,
+      "version": "7",
+      "when": 1791000044600,
+      "tag": "0417_ai_usage_ledger_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 219,
+      "version": "7",
+      "when": 1791000044700,
+      "tag": "0418_site_ai_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 220,
+      "version": "7",
+      "when": 1791000044800,
+      "tag": "0419_ai_budget_notices",
+      "breakpoints": true
+    },
+    {
+      "idx": 221,
+      "version": "7",
+      "when": 1791000044900,
+      "tag": "0433_cron_ai_workers",
+      "breakpoints": true
+    },
+    {
+      "idx": 222,
+      "version": "7",
+      "when": 1791000045000,
+      "tag": "0434_ai_digest_email_preference",
+      "breakpoints": true
+    },
+    {
+      "idx": 223,
+      "version": "7",
+      "when": 1791000045100,
+      "tag": "0438_ai_mcp_calls",
+      "breakpoints": true
+    },
+    {
+      "idx": 224,
+      "version": "7",
+      "when": 1791000045200,
+      "tag": "0421_ai_insights",
+      "breakpoints": true
+    },
+    {
+      "idx": 225,
+      "version": "7",
+      "when": 1791000045300,
+      "tag": "0422_ai_insight_scan_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "7",
+      "when": 1791000045400,
+      "tag": "0423_ai_insight_audit",
+      "breakpoints": true
+    },
+    {
+      "idx": 227,
+      "version": "7",
+      "when": 1791000045500,
+      "tag": "0425_cron_ai_insight_scan",
+      "breakpoints": true
     }
   ]
 }

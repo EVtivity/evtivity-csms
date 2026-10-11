@@ -10,6 +10,7 @@ import {
   SITE_HOST_EVENTS,
   FLEET_BILLING_SYSTEM_EVENTS,
   FLEET_INVOICE_EVENTS,
+  OPERATOR_AI_EVENTS,
 } from '@/lib/template-variables';
 
 const CHANNELS = ['email', 'sms'] as const;
@@ -28,6 +29,7 @@ export function SystemEvents(): React.JSX.Element {
         { title: t('notifications.siteHostEvents'), events: SITE_HOST_EVENTS },
         { title: t('notifications.fleetBillingAlertEvents'), events: FLEET_BILLING_SYSTEM_EVENTS },
         { title: t('notifications.fleetInvoiceEvents'), events: FLEET_INVOICE_EVENTS },
+        { title: t('notifications.aiEvents'), events: OPERATOR_AI_EVENTS },
       ]}
       channels={CHANNELS}
       channelTooltip={t('notifications.channelTooltipSystem')}

@@ -25,6 +25,7 @@ import { dispatchDriverNotification, formatCurrencyAmount, notificationMoney } f
 import { AI_STREAM_PROTOCOL_VERSION } from '@evtivity/lib/ai-stream';
 import { createConversation } from '../services/ai/conversation.service.js';
 import { runSupportAssistTurn } from '../services/ai/engine/turn.js';
+import { supportInsightContext } from '../services/ai/engine/support-insights.js';
 import { requestAccessScope } from '../lib/access-scope.js';
 import {
   callerAuthorization,
@@ -1941,6 +1942,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           429: errorWith('AI limit reached', [
             ERROR_CODES.AI_RATE_LIMITED,
             ERROR_CODES.AI_BUDGET_EXCEEDED,
+            ERROR_CODES.AI_MONTHLY_BUDGET_EXCEEDED,
           ]),
         },
       },
@@ -1971,7 +1973,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       const config = await surfaceConfigOrReply('support', userId, reply);
       if (config === null) return reply;
-      const limits = await limitsOrReply(userId, caseRow.siteId ?? null, reply);
+      const limits = await limitsOrReply('support', userId, caseRow.siteId ?? null, reply);
       if (limits === null) return reply;
 
       const sessionRows = await db
@@ -1985,6 +1987,16 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         siteIds == null
           ? linkedSessionIds
           : [...(await sessionIdsInSites(linkedSessionIds, siteIds))];
+      // Fresh automatic insights save the draft tool calls (fail-open).
+      let insightContext: string | null = null;
+      try {
+        insightContext = await supportInsightContext(
+          { stationId: caseRow.stationId, sessionIds },
+          siteIds,
+        );
+      } catch (err) {
+        request.log.warn({ err, caseId: id }, 'Support draft insights could not be read');
+      }
       const actor = getAuditActor(request);
       const conversation = await createConversation(
         {
@@ -2020,10 +2032,12 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             driverId: caseRow.driverId,
             sessionIds,
           },
+          siteId: caseRow.siteId ?? null,
           caseNumber: caseRow.caseNumber,
           driverLanguage: caseRow.driverLanguage,
           isInternalNote,
           maxToolCalls: limits.maxToolCallsPerTurn,
+          insightContext,
         }),
       );
       return reply;

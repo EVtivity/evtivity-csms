@@ -14,6 +14,8 @@ import {
   isFleetEnabled,
   isGuestChargingEnabled,
   isChatbotAiEnabled,
+  isAiInboxEnabled,
+  isAiInsightsEnabled,
   clearRoamingCache,
   clearSupportCache,
   clearFleetCache,
@@ -76,9 +78,11 @@ import {
   validateAiBaseUrl,
   isAiBaseUrlSettingKey,
   isAiSettingKey,
-  isAiLimitSettingKey,
+  isAiNumberSettingKey,
+  isAiFlagSettingKey,
+  AI_MCP_MAX_ALLOWED_ORIGINS,
   normalizeAiSettingValue,
-  AI_LIMIT_SETTINGS,
+  AI_NUMBER_SETTINGS,
   AI_PROVIDER_IDS,
   AI_EFFORTS,
   AI_SUPPORT_TONES,
@@ -182,6 +186,9 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
   }
   if (typeof value === 'string' && key === 'supportAi.systemPrompt') {
     return { value: storedSystemPrompt('support', value) };
+  }
+  if (typeof value === 'string' && key === 'opsAi.systemPrompt') {
+    return { value: storedSystemPrompt('ops', value) };
   }
   if (key === COMPANY_PRICE_DISPLAY_KEY) return isPriceDisplay(value) ? { value } : null;
   if (key === STATION_MESSAGE_LANGUAGE_KEY) {
@@ -363,8 +370,8 @@ function invalidAiSettingError(key: string): { error: string; code: string } | n
   if (replacement !== undefined) {
     return { error: `${key} was removed, use ${replacement}`, code: 'VALIDATION_ERROR' };
   }
-  if (isAiLimitSettingKey(key)) {
-    const { min, max } = AI_LIMIT_SETTINGS[key];
+  if (isAiNumberSettingKey(key)) {
+    const { min, max } = AI_NUMBER_SETTINGS[key];
     return {
       error: `${key} must be a whole number from ${String(min)} to ${String(max)}`,
       code: 'VALIDATION_ERROR',
@@ -376,14 +383,23 @@ function invalidAiSettingError(key: string): { error: string; code: string } | n
     'chatbotAi.effort': AI_EFFORTS,
     'supportAi.effort': AI_EFFORTS,
     'supportAi.tone': AI_SUPPORT_TONES,
+    'opsAi.provider': ['', ...AI_PROVIDER_IDS],
+    'opsAi.effort': AI_EFFORTS,
+    'aiInsights.primaryLanguage': UI_LANGUAGES,
   };
   const values = allowed[key];
   if (values !== undefined) {
     const list = values.map((v) => (v === '' ? '(empty)' : v)).join(', ');
     return { error: `${key} must be one of: ${list}`, code: 'VALIDATION_ERROR' };
   }
-  if (key === 'chatbotAi.enabled' || key === 'supportAi.enabled') {
+  if (key === 'chatbotAi.enabled' || key === 'supportAi.enabled' || isAiFlagSettingKey(key)) {
     return { error: `${key} must be true or false`, code: 'VALIDATION_ERROR' };
+  }
+  if (key === 'ai.mcp.allowedOrigins') {
+    return {
+      error: `${key} must be a list of at most ${String(AI_MCP_MAX_ALLOWED_ORIGINS)} http(s) origins without a path`,
+      code: 'VALIDATION_ERROR',
+    };
   }
   return null;
 }
@@ -555,6 +571,16 @@ export function settingsRoutes(app: FastifyInstance): void {
                 chatbotAiEnabled: z
                   .boolean()
                   .describe('Whether the AI assistant is enabled for CSMS users'),
+                aiInboxEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether anything can create AI proposals (a proposing background AI worker or the MCP server), so the CSMS shows the AI Inbox',
+                  ),
+                aiInsightsEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether automatic insights are generated (opsAi.enabled and an insight kind on), so the CSMS dashboard shows the Active insights card',
+                  ),
                 reservationCancellationFeeCents: z
                   .number()
                   .int()
@@ -593,6 +619,8 @@ export function settingsRoutes(app: FastifyInstance): void {
       const fleetEnabled = await isFleetEnabled();
       const guestChargingEnabled = await isGuestChargingEnabled();
       const chatbotAiEnabled = await isChatbotAiEnabled();
+      const aiInboxEnabled = await isAiInboxEnabled();
+      const aiInsightsEnabled = await isAiInsightsEnabled();
       const reservationConfig = await getReservationSettings();
       const currency = await getCompanyCurrency();
       return {
@@ -603,6 +631,8 @@ export function settingsRoutes(app: FastifyInstance): void {
         fleetEnabled,
         guestChargingEnabled,
         chatbotAiEnabled,
+        aiInboxEnabled,
+        aiInsightsEnabled,
         reservationCancellationFeeCents: reservationConfig.cancellationFeeCents,
         reservationCancellationWindowMinutes: reservationConfig.cancellationWindowMinutes,
         reservationMaxHours: reservationConfig.maxHours,

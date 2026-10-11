@@ -7,14 +7,14 @@
  * and page count) before anything is sent, and the bytes for the adapter.
  */
 
-import { findUnsupportedParts } from '../core/messages.js';
+import { findUnsupportedParts } from '@evtivity/ai/core';
 import type {
   AiAttachmentResolver,
   AiPart,
   DocumentMime,
   ImageMime,
   ModelCapabilities,
-} from '../core/types.js';
+} from '@evtivity/ai/core';
 import { readChatAttachmentBytes } from '../attachments/chat-attachments.service.js';
 import type { ChatAttachment } from '../attachments/chat-attachments.service.js';
 

@@ -106,7 +106,7 @@ export function AiModelField({
         href={entry.modelsDocsUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+        className="inline-flex items-center gap-1 text-xs text-link hover:underline"
       >
         {t('settings.aiModelDocsLink')}
         <ExternalLink className="h-3 w-3" aria-hidden="true" />

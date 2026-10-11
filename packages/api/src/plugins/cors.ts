@@ -3,6 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import { ForbiddenError } from '@evtivity/lib';
 import { config } from '../lib/config.js';
 
 /** Match private network and localhost origins (no hardcoded IP needed). */
@@ -72,7 +73,8 @@ export async function registerCors(app: FastifyInstance): Promise<void> {
         if (origin == null || isPrivateOrigin(origin)) {
           cb(null, true);
         } else {
-          cb(new Error('CORS not allowed'), false);
+          // AppError: the app error handler answers 403 with the standard body.
+          cb(new ForbiddenError('CORS origin not allowed'), false);
         }
       },
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],

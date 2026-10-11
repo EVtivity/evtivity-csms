@@ -18,6 +18,30 @@ const cache = new Map<string, CacheEntry>();
 const TTL_MS = 60_000;
 
 /**
+ * Reads a site's electricity rate periods without the cache. For the paths
+ * that must see the operator's latest edit (the site recalculation, the seed);
+ * throws on a DB error.
+ */
+export async function loadElectricityRatePeriodsForSite(
+  siteId: string,
+  database: Pick<typeof db, 'select'> = db,
+): Promise<ElectricityRatePeriod[]> {
+  const rows = await database
+    .select()
+    .from(siteElectricityRatePeriods)
+    .where(eq(siteElectricityRatePeriods.siteId, siteId));
+  return rows.map((row) => ({
+    id: row.id,
+    siteId: row.siteId,
+    name: row.name,
+    ratePerKwh: row.ratePerKwh,
+    restrictions: row.restrictions as ElectricityRatePeriodRestrictions | null,
+    priority: row.priority,
+    isDefault: row.isDefault,
+  }));
+}
+
+/**
  * Returns the electricity rate periods configured for a site. Sits on the
  * TransactionEvent.Ended projection path, so reads are cached per siteId with a
  * 60s TTL. Fails open to the previous cached value (or empty) on DB errors so a
@@ -33,19 +57,7 @@ export async function getElectricityRatePeriodsForSite(
   }
 
   try {
-    const rows = await db
-      .select()
-      .from(siteElectricityRatePeriods)
-      .where(eq(siteElectricityRatePeriods.siteId, siteId));
-    const periods: ElectricityRatePeriod[] = rows.map((row) => ({
-      id: row.id,
-      siteId: row.siteId,
-      name: row.name,
-      ratePerKwh: row.ratePerKwh,
-      restrictions: row.restrictions as ElectricityRatePeriodRestrictions | null,
-      priority: row.priority,
-      isDefault: row.isDefault,
-    }));
+    const periods = await loadElectricityRatePeriodsForSite(siteId);
     cache.set(siteId, { periods, expiresAt: now + TTL_MS });
     return periods;
   } catch (err) {

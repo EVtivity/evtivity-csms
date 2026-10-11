@@ -1,0 +1,41 @@
+{
+  "name": "@evtivity/ai",
+  "version": "0.1.43",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./core": {
+      "import": "./src/core/index.ts"
+    },
+    "./providers": {
+      "import": "./src/providers/index.ts"
+    },
+    "./prompt": {
+      "import": "./src/prompt.ts"
+    },
+    "./redact": {
+      "import": "./src/redact.ts"
+    },
+    "./testing/harness": {
+      "import": "./src/__contract__/harness.ts"
+    },
+    "./testing/mock-provider-server": {
+      "import": "./src/__contract__/mock-provider-server.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "@evtivity/lib": "*",
+    "@google/genai": "^2.28.0",
+    "openai": "^7.32.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.3",
+    "typescript": "^6.0.3",
+    "vitest": "^5.0.2"
+  }
+}

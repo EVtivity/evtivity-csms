@@ -367,6 +367,41 @@ export function cdrPushStatusVariant(
   }
 }
 
+/** AI insight status -> badge variant. An open insight is a warning; resolved is good news. */
+export function insightStatusVariant(status: string): BadgeVariant {
+  switch (status) {
+    case 'active':
+      return 'warning';
+    case 'pending':
+      return 'info';
+    case 'resolved':
+      return 'success';
+    case 'failed':
+      return 'destructive';
+    case 'dismissed':
+    case 'superseded':
+      return 'secondary';
+    default:
+      return 'outline';
+  }
+}
+
+/** AI proposal status -> badge variant (pending waits for a person). */
+export function aiProposalStatusVariant(status: string): BadgeVariant {
+  switch (status) {
+    case 'pending':
+      return 'warning';
+    case 'executed':
+      return 'success';
+    case 'failed':
+      return 'destructive';
+    case 'rejected':
+      return 'secondary';
+    default:
+      return 'outline';
+  }
+}
+
 /** Notification delivery status -> badge className (for notification log tabs) */
 export function notificationStatusBadgeClass(status: string): string {
   switch (status) {

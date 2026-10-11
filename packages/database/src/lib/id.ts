@@ -55,6 +55,9 @@ export const ID_PREFIXES = {
   aiMessage: 'aim',
   aiToolCall: 'atc',
   aiPendingAction: 'apa',
+  aiProposal: 'apr',
+  aiMcpCall: 'amc',
+  aiInsight: 'ain',
 } as const;
 
 export type EntityType = keyof typeof ID_PREFIXES;

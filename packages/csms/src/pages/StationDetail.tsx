@@ -23,6 +23,9 @@ import { StationDisplayMessages } from '@/components/StationDisplayMessages';
 import { StationCertificates } from '@/components/StationCertificates';
 import { StationLocalAuthList } from '@/components/StationLocalAuthList';
 import { AuthorizeLogView } from '@/components/AuthorizeLogView';
+import { ExplainButton } from '@/components/ai/ExplainButton';
+import { RecordInsight } from '@/components/ai/insights/RecordInsight';
+import { RecordProposals } from '@/components/ai/inbox/RecordProposals';
 import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { StationEventsTab } from '@/components/StationEventsTab';
 import { StationConfigurationsTab } from '@/components/StationConfigurationsTab';
@@ -185,6 +188,7 @@ export function StationDetail(): React.JSX.Element {
 
   const siteTimezone = sites?.find((s) => s.id === station.siteId)?.timezone ?? 'America/New_York';
   const availabilityActions = stationAvailabilityActions(station);
+  const explainContext = { kind: 'station' as const, id: station.id, label: station.stationId };
 
   return (
     <div className="space-y-6">
@@ -208,7 +212,10 @@ export function StationDetail(): React.JSX.Element {
             <Badge variant="destructive">{t('status.blocked')}</Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {(!station.isOnline || station.status === 'faulted') && (
+            <ExplainButton context={explainContext} />
+          )}
           {canWriteStations && availabilityActions.enable && (
             <Button
               variant="outline"
@@ -314,6 +321,9 @@ export function StationDetail(): React.JSX.Element {
           </CardContent>
         </Card>
       )}
+
+      <RecordInsight filter={{ stationId: station.id }} context={explainContext} />
+      <RecordProposals stationId={station.id} />
 
       <Tabs value={detailsTab} onValueChange={setDetailsTab}>
         <TabsList>

@@ -11,12 +11,16 @@ export interface NavFeatureFlags {
   reservationEnabled: boolean;
   supportEnabled: boolean;
   fleetEnabled: boolean;
+  /** A proposing background AI worker or the MCP server is on (AI Inbox). */
+  aiInboxEnabled: boolean;
 }
 
 /** Every flag of `GET /v1/portal/features` the CSMS reads. */
 export interface FeatureFlags extends NavFeatureFlags {
   guestChargingEnabled: boolean;
   chatbotAiEnabled: boolean;
+  /** Automatic insights are generated: the dashboard shows the Active insights card. */
+  aiInsightsEnabled: boolean;
 }
 
 export interface FeatureFlagsResult {
@@ -31,7 +35,7 @@ type FeaturesResponse = Partial<Record<keyof FeatureFlags, unknown>>;
 
 /**
  * The flags from `GET /v1/portal/features`. Until it answers (or when it
- * fails), roaming, Plug and Charge and the AI assistant count as off and the
+ * fails), roaming, Plug and Charge, the AI assistant, the AI Inbox and AI insights count as off and the
  * others as on.
  */
 export function resolveFeatureFlags(features: FeaturesResponse | undefined): FeatureFlags {
@@ -41,8 +45,10 @@ export function resolveFeatureFlags(features: FeaturesResponse | undefined): Fea
     reservationEnabled: features?.reservationEnabled !== false,
     supportEnabled: features?.supportEnabled !== false,
     fleetEnabled: features?.fleetEnabled !== false,
+    aiInboxEnabled: features?.aiInboxEnabled === true,
     guestChargingEnabled: features?.guestChargingEnabled !== false,
     chatbotAiEnabled: features?.chatbotAiEnabled === true,
+    aiInsightsEnabled: features?.aiInsightsEnabled === true,
   };
 }
 

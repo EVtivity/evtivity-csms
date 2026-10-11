@@ -26,6 +26,7 @@ import { DateRangeControl } from '@/components/DateRangeControl';
 import { useDateRange } from '@/hooks/useDateRange';
 import { localDateString } from '@/lib/date-range';
 import { useUpdateCheck } from '@/hooks/use-update-check';
+import { ActiveInsightsWidget } from '@/components/ai/insights/ActiveInsightsWidget';
 import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { formatCents, formatNumber, formatNumberUpTo } from '@/lib/formatting';
@@ -277,8 +278,8 @@ function StatCard({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium flex items-center gap-1">
+      <CardHeader variant="stat">
+        <CardTitle variant="stat">
           {title}
           {info != null && <InfoTooltip content={<div className="max-w-56">{info}</div>} />}
         </CardTitle>
@@ -348,8 +349,8 @@ function TrendStatCard({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium flex items-center gap-1">
+      <CardHeader variant="stat">
+        <CardTitle variant="stat">
           {title}
           {info != null && <InfoTooltip content={<div className="max-w-56">{info}</div>} />}
         </CardTitle>
@@ -782,8 +783,8 @@ function AdminDashboard({
             positiveIsGood={false}
           />
           <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-1">
+            <CardHeader variant="stat">
+              <CardTitle variant="stat">
                 {t('dashboard.co2Avoided')}
                 <InfoTooltip
                   content={<div className="max-w-56">{t('dashboard.co2AvoidedTooltip')}</div>}
@@ -1387,6 +1388,7 @@ export function Dashboard(): React.JSX.Element {
         <h1 className="text-2xl md:text-3xl font-bold">{t('dashboard.title')}</h1>
         <ModeToggle mode={mode} onModeChange={setMode} range={historical} />
       </div>
+      <ActiveInsightsWidget />
       {isAdmin ? (
         <AdminDashboard
           stats={stats ?? defaultStats}

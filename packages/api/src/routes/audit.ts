@@ -15,6 +15,7 @@ import {
   toIsoOrNull,
 } from '@evtivity/database';
 import type { AuditEntityType } from '@evtivity/database';
+import { AI_VIA_CHANNELS, readAiAuditVia } from '@evtivity/lib/ai-proposals';
 import { authorize } from '../middleware/rbac.js';
 import { zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -68,12 +69,25 @@ const auditItem = z
     notes: z.string().nullable(),
     viaAi: z
       .object({
-        conversationId: z.string().describe('AI conversation the change came from'),
-        toolCallId: z.string().describe('Tool call (ai_tool_calls id) that made the change'),
+        channel: z
+          .enum(AI_VIA_CHANNELS)
+          .describe(
+            'chat: an assistant tool call; mcp: an MCP call; proposal: a confirmed AI proposal',
+          ),
+        conversationId: z.string().optional().describe('AI conversation the change came from'),
+        toolCallId: z
+          .string()
+          .optional()
+          .describe('Tool call (ai_tool_calls id) that made the change'),
+        mcpCallId: z.string().optional().describe('MCP call log id'),
+        proposalId: z.string().optional().describe('AI proposal the change ran for'),
+        confirmedBy: z.string().optional().describe('User who confirmed the proposal'),
       })
       .passthrough()
       .nullable()
-      .describe('Set when an AI assistant tool call made the change, after the user confirmed it'),
+      .describe(
+        'Set when an AI tool call, MCP call or confirmed AI proposal made the change. Rows written before the channel existed read as chat.',
+      ),
     createdAt: z.string().describe('ISO datetime'),
   })
   .passthrough();
@@ -241,6 +255,12 @@ function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
       return sql`(SELECT cs.site_id FROM charging_sessions s JOIN charging_stations cs ON cs.id = s.station_id WHERE s.id = ${id})`;
     case 'maintenance_event':
       return sql`(SELECT m.site_id FROM maintenance_events m WHERE m.id = ${id})`;
+    case 'ai_proposal':
+      // A worker proposal follows its site. An MCP proposal is its requester's
+      // own: its history (with the arguments) stays with all-site users.
+      return sql`(SELECT p.site_id FROM ai_proposals p WHERE p.id = ${id} AND p.source = 'worker')`;
+    case 'ai_insight':
+      return sql`(SELECT i.site_id FROM ai_insights i WHERE i.id = ${id})`;
     default:
       return null;
   }
@@ -309,7 +329,7 @@ function normalizeRow(entityType: string, raw: Record<string, unknown>): Normali
     before: raw['before'] ?? null,
     after: raw['after'] ?? null,
     notes: (raw['notes'] as string | null) ?? null,
-    viaAi: raw['via_ai'] ?? null,
+    viaAi: readAiAuditVia(raw['via_ai']),
     // The shared client returns created_at as postgres text: map it to ISO.
     createdAt: toIsoOrNull(createdAt as Date | string | null) ?? new Date().toISOString(),
   };
@@ -502,7 +522,7 @@ export function auditRoutes(app: FastifyInstance): void {
         before: r['before'] ?? null,
         after: r['after'] ?? null,
         notes: (r['notes'] as string | null) ?? null,
-        viaAi: r['via_ai'] ?? null,
+        viaAi: readAiAuditVia(r['via_ai']),
         createdAt: toIsoOrNull(r['created_at'] as Date | string | null) ?? '',
       }));
       const out = await redactSupportCaseAuditRows(mapped, siteIds);

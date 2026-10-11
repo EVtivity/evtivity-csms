@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
 
 const { postMock } = vi.hoisted(() => ({ postMock: vi.fn() }));
@@ -27,9 +27,19 @@ const simulatedSession = {
   testCards: [{ number: '4242424242424242', label: 'Approve (Visa)', scenario: 'approve' }],
 };
 
+// The form loads its provider module lazily (payments/registry.ts). Under load
+// (a full run) that cold import can outlast findBy's wait; load it once here
+// with a longer hook timeout, so each test renders from the warm module cache.
+beforeAll(async () => {
+  await import('@/payments/simulated');
+}, 30_000);
+
+beforeEach(() => {
+  postMock.mockReset();
+});
+
 afterEach(() => {
   cleanup();
-  postMock.mockReset();
 });
 
 describe('PaymentMethodForm', () => {

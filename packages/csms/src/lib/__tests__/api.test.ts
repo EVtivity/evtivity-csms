@@ -54,7 +54,7 @@ describe('api', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     Object.defineProperty(window, 'location', {
-      value: { href: '/', pathname: '/' },
+      value: { href: '/', pathname: '/', search: '', hash: '' },
       writable: true,
       configurable: true,
     });
@@ -122,6 +122,14 @@ describe('api', () => {
 
       await expect(api.get('/v1/stations')).rejects.toThrow(DynApiError);
       expect(window.location.href).toBe('/login');
+    });
+
+    it('comes back to the current page after the sign-in that follows a 401', async () => {
+      Object.assign(window.location, { pathname: '/ai/inbox/p1', search: '?a=1', hash: '' });
+      fetchMock.mockResolvedValue(createMockResponse({ ok: false, status: 401, jsonData: null }));
+
+      await expect(api.get('/v1/stations')).rejects.toThrow(DynApiError);
+      expect(window.location.href).toBe('/login?returnTo=%2Fai%2Finbox%2Fp1%3Fa%3D1');
     });
 
     it('does not redirect on 401 from /auth/login endpoint', async () => {

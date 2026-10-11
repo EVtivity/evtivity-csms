@@ -9,8 +9,8 @@
 
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { ERROR_MESSAGES } from '../../../lib/error-codes.generated.js';
-import { openAiEventStream } from '../core/sse.js';
-import type { AiEventStream } from '../core/sse.js';
+import { openAiEventStream } from '@evtivity/ai/core';
+import type { AiEventStream } from '@evtivity/ai/core';
 import { AiNotConfiguredError, resolveSurfaceConfig } from '../surfaces/config.js';
 import type { AiSurfaceConfig } from '../surfaces/config.js';
 import { getAiSettings } from '@evtivity/database';
@@ -61,19 +61,26 @@ export async function surfaceConfigOrReply(
   }
 }
 
-/** Counts the turn against the AI limits, or replies 429 and returns null. */
+/**
+ * Counts the turn against the AI budgets and rate limits, or replies 429
+ * (with the refused scope and `retryAfterSeconds`) and returns null. The
+ * chatbot is charged to no site; support assist to the case's site.
+ */
 export async function limitsOrReply(
+  surface: 'chatbot' | 'support',
   userId: string,
   siteId: string | null,
   reply: FastifyReply,
 ): Promise<AiLimits | null> {
   const { limits } = await getAiSettings();
-  const refusal = await checkAiLimits({ userId, siteId, limits });
+  const refusal = await checkAiLimits({ surface, userId, siteId, limits });
   if (refusal !== null) {
-    await reply
-      .status(429)
-      .header('Retry-After', String(refusal.retryAfterSeconds))
-      .send({ error: ERROR_MESSAGES[refusal.code], code: refusal.code });
+    await reply.status(429).header('Retry-After', String(refusal.retryAfterSeconds)).send({
+      error: ERROR_MESSAGES[refusal.code],
+      code: refusal.code,
+      scope: refusal.scope,
+      retryAfterSeconds: refusal.retryAfterSeconds,
+    });
     return null;
   }
   return limits;

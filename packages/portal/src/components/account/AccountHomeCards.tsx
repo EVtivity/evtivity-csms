@@ -70,7 +70,7 @@ function SortableCardRow({
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      <Icon className="h-5 w-5 text-primary" />
+      <Icon className="h-5 w-5 text-link" />
       <span className="flex-1 text-sm font-medium">{label}</span>
       <Button
         variant="ghost"
@@ -169,7 +169,7 @@ export function AccountHomeCards(): React.JSX.Element {
                       setCards([...cards, id]);
                     }}
                   >
-                    <Plus className="h-4 w-4 text-primary" />
+                    <Plus className="h-4 w-4 text-link" />
                   </Button>
                 </div>
               );

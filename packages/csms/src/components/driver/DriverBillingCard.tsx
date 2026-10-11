@@ -28,7 +28,7 @@ export interface DriverBillingCardProps {
 function FleetLink({ fleet, none }: { fleet: FleetRef | null; none: string }): React.JSX.Element {
   if (fleet == null) return <span className="text-muted-foreground">{none}</span>;
   return (
-    <Link to={`/fleets/${fleet.id}`} className="text-primary hover:underline">
+    <Link to={`/fleets/${fleet.id}`} className="text-link hover:underline">
       {fleet.name}
     </Link>
   );

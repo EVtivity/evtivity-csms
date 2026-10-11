@@ -510,7 +510,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       {station.siteAddress != null && station.siteId != null ? (
         <Link
           to={`/location/${station.siteId}?from=${encodeURIComponent(`/start/${station.stationId}`)}`}
-          className="flex items-start gap-2 text-sm text-primary hover:underline transition-colors"
+          className="flex items-start gap-2 text-sm text-link hover:underline transition-colors"
         >
           <MapPin className="h-4 w-4 mt-0.5 shrink-0" />
           <span>
@@ -572,7 +572,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
                 <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <a
                   href={`mailto:${station.siteContactEmail}`}
-                  className="text-primary hover:underline"
+                  className="text-link hover:underline"
                 >
                   {station.siteContactEmail}
                 </a>
@@ -581,10 +581,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
             {station.siteContactPhone != null && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <a
-                  href={`tel:${station.siteContactPhone}`}
-                  className="text-primary hover:underline"
-                >
+                <a href={`tel:${station.siteContactPhone}`} className="text-link hover:underline">
                   {station.siteContactPhone}
                 </a>
               </div>
@@ -668,7 +665,7 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
                     >
                       {t(`status.${connectorStatus}`)}
                     </Badge>
-                    {isSelected && <Zap className="h-4 w-4 text-primary" />}
+                    {isSelected && <Zap className="h-4 w-4 text-link" />}
                   </div>
                   {connectorStatus === 'reserved' && (
                     <p className="text-xs text-muted-foreground">

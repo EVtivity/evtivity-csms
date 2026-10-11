@@ -171,7 +171,7 @@ export function PricingDisplay({
           setExpanded((prev) => !prev);
         }}
       >
-        <span className="text-base font-semibold text-primary">{primaryPrice}</span>
+        <span className="text-base font-semibold text-link">{primaryPrice}</span>
         {expanded ? (
           <Minus className="h-4 w-4 text-muted-foreground" />
         ) : (

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { API_BASE_URL } from './config';
+import { loginPathFor } from './return-to';
 
 const BASE_URL = API_BASE_URL;
 
@@ -126,7 +127,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     // ProtectedRoute handles the redirect. A hard redirect here would
     // cause an infinite loop: mount -> hydrate -> 401 -> redirect -> mount.
     if (!path.endsWith('/users/me')) {
-      window.location.href = '/login';
+      const { pathname, search, hash } = window.location;
+      window.location.href = loginPathFor(`${pathname}${search}${hash}`);
     }
     throw new ApiError(401, null);
   }

@@ -11,12 +11,12 @@
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { createHash } from 'node:crypto';
 import { eq } from 'drizzle-orm';
-import { db, users, getCompanyCurrency } from '@evtivity/database';
+import { checkAiBudgets, db, users, getCompanyCurrency, recordAiUsage } from '@evtivity/database';
 import { generateId } from '@evtivity/lib';
+import { aiUsageCostMicros } from '@evtivity/lib/pricing-engine';
 import { AI_STREAM_PROTOCOL_VERSION } from '@evtivity/lib/ai-stream';
-import type { AiEventStream } from '../core/sse.js';
-import { getModelEntry, getProviderEntry } from '../core/model-registry.js';
-import type { AiMessage, AiSystemBlock, AiUsage } from '../core/types.js';
+import type { AiEventStream, AiMessage, AiSystemBlock, AiUsage } from '@evtivity/ai/core';
+import { getModelEntry, getProviderEntry } from '@evtivity/ai/core';
 import {
   appendMessage,
   completeToolCall,
@@ -40,10 +40,12 @@ import { AI_TOOL_CATALOG, AI_TOOL_CATEGORIES } from '../tools/catalog.js';
 import { buildToolRequest, runToolCall } from '../tools/execute.js';
 import type { Toolset } from '../tools/execute.js';
 import { surfaceOffers, toolPolicy } from '../tools/policy.js';
-import { redactToolValue } from '../tools/redact.js';
+import { redactToolValue } from '@evtivity/ai/redact';
 import { checkOcppCommandVersion } from '../tools/ocpp-command-check.js';
 import { createAdapterFor } from './providers.js';
 import { buildSystemBlocks } from './prompt.js';
+import { explainPromptBlock } from './explain-context.js';
+import type { ExplainTurnContext } from './explain-context.js';
 import { attachmentParts, attachmentResolverFor } from './attachments.js';
 import type { ChatAttachment } from '../attachments/chat-attachments.service.js';
 import { routeCategories } from './router.js';
@@ -96,12 +98,64 @@ function cacheKeyFor(surface: string, toolset: Toolset): string {
     .slice(0, 32);
 }
 
+/**
+ * Records one model call of a turn in the usage ledger. Fail-open (P9): the
+ * call already ran and its answer reached the user, so a failed write is
+ * logged and the turn goes on.
+ */
+async function recordTurnUsage(
+  ctx: TurnContext,
+  conversation: AiConversationRow,
+  siteId: string | null,
+  call: {
+    messageId: string | null;
+    provider: string;
+    model: string;
+    usage: AiUsage;
+    costMicros: number | null;
+  },
+): Promise<void> {
+  try {
+    await recordAiUsage({
+      surface: conversation.surface === 'support' ? 'support' : 'chatbot',
+      userId: ctx.userId,
+      siteId,
+      conversationId: conversation.id,
+      aiMessageId: call.messageId,
+      provider: call.provider,
+      model: call.model,
+      usage: call.usage,
+      costMicros: call.costMicros,
+    });
+  } catch (err) {
+    ctx.log.warn(
+      { err, conversationId: conversation.id },
+      'AI usage ledger write failed, the turn goes on',
+    );
+  }
+}
+
 function hooksFor(
   ctx: TurnContext,
   conversation: AiConversationRow,
   config: AiSurfaceConfig,
+  usageSiteId: string | null,
 ): TurnHooks {
   return {
+    recordUsage: (call) =>
+      recordTurnUsage(ctx, conversation, usageSiteId, {
+        ...call,
+        provider: config.provider,
+        model: config.model,
+      }),
+    async checkBudget() {
+      const decision = await checkAiBudgets({
+        surface: conversation.surface === 'support' ? 'support' : 'chatbot',
+        userId: ctx.userId,
+        siteId: usageSiteId,
+      });
+      return decision.allowed ? null : decision.code;
+    },
     async saveAssistantMessage(input) {
       await appendMessage({
         id: input.id,
@@ -142,10 +196,9 @@ function hooksFor(
       }),
     runTool: (call, toolCallRowId) =>
       runToolCall(ctx.app, call, ctx.authorization, {
-        conversationId: conversation.id,
-        toolCallRowId,
         surface: config.surface,
         userId: ctx.userId,
+        via: { channel: 'chat', conversationId: conversation.id, toolCallId: toolCallRowId },
       }),
     async createPendingAction({ toolCallRowId, toolMessageId, call, entry, args }) {
       const created = await createPendingAction({
@@ -181,6 +234,8 @@ interface LoopInput {
   maxToolCalls: number;
   priorUsage?: AiUsage;
   firstMessageId: string;
+  /** The site the turn's usage is charged to: the case's site for support assist, else null. */
+  usageSiteId: string | null;
 }
 
 async function runLoop(input: LoopInput): Promise<TurnRunResult> {
@@ -206,7 +261,7 @@ async function runLoop(input: LoopInput): Promise<TurnRunResult> {
     emit: (event) => {
       stream.send(event);
     },
-    hooks: hooksFor(input.ctx, input.conversation, config),
+    hooks: hooksFor(input.ctx, input.conversation, config, input.usageSiteId),
   });
   stream.send({ type: 'done', messageId: result.lastMessageId, finish: result.finish });
   return result;
@@ -235,6 +290,8 @@ export function failStream(stream: AiEventStream, messageId: string, code = 'AI_
 }
 
 async function routedChatbotToolset(
+  ctx: TurnContext,
+  conversation: AiConversationRow,
   config: AiSurfaceConfig,
   history: readonly AiMessage[],
   signal: AbortSignal,
@@ -249,19 +306,36 @@ async function routedChatbotToolset(
     )
     .filter((t) => t !== '');
   const message = userTexts[userTexts.length - 1] ?? '';
+  const routerModel = getProviderEntry(config.provider).routerModel;
   const routed = await routeCategories({
     adapter: createAdapterFor(config),
-    model: getProviderEntry(config.provider).routerModel,
+    model: routerModel,
     categories: AI_TOOL_CATEGORIES,
     message,
     recentUserMessages: userTexts.slice(-4, -1),
     signal,
   });
+  // The router call is a model call of its own: one ledger row, at the router model's prices.
+  if (routed.called) {
+    const prices = getModelEntry(config.provider, routerModel)?.prices ?? null;
+    await recordTurnUsage(ctx, conversation, null, {
+      messageId: null,
+      provider: config.provider,
+      model: routerModel,
+      usage: routed.usage,
+      costMicros: prices === null ? null : aiUsageCostMicros(routed.usage, prices),
+    });
+  }
   return { toolset: chatbotToolset(routed.categories), usage: routed.usage };
 }
 
-async function chatbotSystem(ctx: TurnContext, config: AiSurfaceConfig): Promise<AiSystemBlock[]> {
+async function chatbotSystem(
+  ctx: TurnContext,
+  config: AiSurfaceConfig,
+  explain: ExplainTurnContext | null,
+): Promise<AiSystemBlock[]> {
   const user = await userPromptContext(ctx.userId);
+  const explainContext = explain !== null ? await explainPromptBlock(explain, user.language) : null;
   return buildSystemBlocks({
     surface: 'chatbot',
     language: user.language,
@@ -269,6 +343,7 @@ async function chatbotSystem(ctx: TurnContext, config: AiSurfaceConfig): Promise
     userName: user.userName,
     companyCurrency: user.currency,
     now: new Date(),
+    ...(explainContext !== null ? { explainContext } : {}),
   });
 }
 
@@ -297,6 +372,8 @@ export async function runChatMessageTurn(input: {
   /** Claimed and checked by the route. */
   attachments: readonly ChatAttachment[];
   maxToolCalls: number;
+  /** Explain conversations: the record, re-checked by the route for this turn. */
+  explain?: ExplainTurnContext | null;
 }): Promise<TurnRunResult | null> {
   const { ctx, conversation, config, stream } = input;
   const firstMessageId = generateId('aiMessage');
@@ -311,8 +388,8 @@ export async function runChatMessageTurn(input: {
     await setTitleIfEmpty(conversation.id, input.text.replace(/\s+/g, ' ').trim().slice(0, 80));
     const history = toAiMessages(await listMessages(conversation.id, ctx.accessScope));
     const [system, routed] = await Promise.all([
-      chatbotSystem(ctx, config),
-      routedChatbotToolset(config, history, stream.signal),
+      chatbotSystem(ctx, config, input.explain ?? null),
+      routedChatbotToolset(ctx, conversation, config, history, stream.signal),
     ]);
     return await runLoop({
       ctx,
@@ -325,6 +402,7 @@ export async function runChatMessageTurn(input: {
       maxToolCalls: input.maxToolCalls,
       ...(routed.usage !== undefined ? { priorUsage: routed.usage } : {}),
       firstMessageId,
+      usageSiteId: null,
     });
   } catch (err) {
     ctx.log.error({ err, conversationId: conversation.id }, 'AI chat turn failed');
@@ -346,6 +424,8 @@ export async function runDecisionTurn(input: {
   action: AiPendingActionRow;
   decision: 'confirmed' | 'rejected';
   maxToolCalls: number;
+  /** Explain conversations: the record, re-checked by the route for this turn. */
+  explain?: ExplainTurnContext | null;
 }): Promise<TurnRunResult | null> {
   const { ctx, conversation, config, stream, action } = input;
   const firstMessageId = generateId('aiMessage');
@@ -406,10 +486,13 @@ export async function runDecisionTurn(input: {
         },
         ctx.authorization,
         {
-          conversationId: conversation.id,
-          toolCallRowId: action.toolCallRowId,
           surface: 'chatbot',
           userId: ctx.userId,
+          via: {
+            channel: 'chat',
+            conversationId: conversation.id,
+            toolCallId: action.toolCallRowId,
+          },
         },
       );
       await replaceToolResult(
@@ -440,8 +523,8 @@ export async function runDecisionTurn(input: {
     }
     const history = toAiMessages(await listMessages(conversation.id, ctx.accessScope));
     const [system, routed] = await Promise.all([
-      chatbotSystem(ctx, config),
-      routedChatbotToolset(config, history, stream.signal),
+      chatbotSystem(ctx, config, input.explain ?? null),
+      routedChatbotToolset(ctx, conversation, config, history, stream.signal),
     ]);
     return await runLoop({
       ctx,
@@ -454,6 +537,7 @@ export async function runDecisionTurn(input: {
       maxToolCalls: input.maxToolCalls,
       ...(routed.usage !== undefined ? { priorUsage: routed.usage } : {}),
       firstMessageId,
+      usageSiteId: null,
     });
   } catch (err) {
     ctx.log.error({ err, conversationId: conversation.id }, 'AI decision turn failed');
@@ -476,11 +560,15 @@ export async function runSupportAssistTurn(input: {
   config: AiSurfaceConfig;
   stream: AiEventStream;
   caseContext: SupportCaseContext;
+  /** The case's site: the turn's usage is charged to it (null: no site). */
+  siteId: string | null;
   caseNumber: string;
   /** The case driver's language: a customer reply is written in it. */
   driverLanguage: string | null;
   isInternalNote: boolean;
   maxToolCalls: number;
+  /** Fresh automatic insights of the case, already framed as untrusted. */
+  insightContext?: string | null;
 }): Promise<TurnRunResult | null> {
   const { ctx, conversation, config, stream } = input;
   const firstMessageId = generateId('aiMessage');
@@ -489,7 +577,12 @@ export async function runSupportAssistTurn(input: {
     await appendMessage({
       conversationId: conversation.id,
       role: 'user',
-      parts: [{ type: 'text', text: supportRequestText(input.caseNumber, input.isInternalNote) }],
+      parts: [
+        { type: 'text', text: supportRequestText(input.caseNumber, input.isInternalNote) },
+        ...(input.insightContext != null && input.insightContext !== ''
+          ? [{ type: 'text' as const, text: input.insightContext }]
+          : []),
+      ],
     });
     const user = await userPromptContext(ctx.userId);
     const system = buildSystemBlocks({
@@ -514,6 +607,7 @@ export async function runSupportAssistTurn(input: {
       toolset: supportToolset(input.caseContext),
       maxToolCalls: input.maxToolCalls,
       firstMessageId,
+      usageSiteId: input.siteId,
     });
   } catch (err) {
     ctx.log.error({ err, conversationId: conversation.id }, 'AI support assist turn failed');

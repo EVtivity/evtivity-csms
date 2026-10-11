@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSelect = vi.fn();
 vi.mock('../config.js', () => ({ db: { select: mockSelect } }));
@@ -16,6 +16,13 @@ function chainResolving(result: unknown): Record<string, unknown> {
   );
   return chain;
 }
+
+// Under load (a full run) the first import of the module graph can outlast
+// the 5 s test timeout. Load it once here with a longer hook timeout; each
+// test still imports a fresh copy after vi.resetModules, from the warm cache.
+beforeAll(async () => {
+  await import('../lib/invoice-settings.js');
+}, 30_000);
 
 describe('parseInvoicePaymentTermsDays', () => {
   it('accepts whole days from 0 to 365', async () => {
@@ -39,6 +46,7 @@ describe('getInvoicePaymentTermsDays', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns the stored term and caches it for 60 seconds', async () => {
@@ -96,6 +104,7 @@ describe('getFleetInvoiceRunDay', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns the stored day and caches it for 60 seconds', async () => {

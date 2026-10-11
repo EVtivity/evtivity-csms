@@ -62,9 +62,11 @@ export function CopyableId({
       ref={ref}
       type="button"
       onClick={handleCopy}
-      className={`inline-flex items-center gap-1 transition-colors ${variant === 'table' ? 'text-sm text-foreground hover:text-muted-foreground' : 'text-xs text-muted-foreground hover:text-foreground'}${className != null ? ` ${className}` : ''}`}
+      className={`inline-flex min-w-0 max-w-full items-center gap-1 transition-colors ${variant === 'table' ? 'text-sm text-foreground hover:text-muted-foreground' : 'text-xs text-muted-foreground hover:text-foreground'}${className != null ? ` ${className}` : ''}`}
     >
-      {id}
+      <span className="min-w-0 truncate" title={id}>
+        {id}
+      </span>
       {copied ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
       {pos != null &&
         createPortal(

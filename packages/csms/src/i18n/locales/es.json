@@ -173,7 +173,8 @@
     "openMenu": "Abrir menú",
     "closeMenu": "Cerrar menú",
     "audit": "Auditoría",
-    "maintenance": "Mantenimiento"
+    "maintenance": "Mantenimiento",
+    "aiInbox": "Bandeja de IA"
   },
   "roaming": {
     "partners": {
@@ -451,7 +452,12 @@
     "billedOnAccount": "Facturado a la flota",
     "billedOnAccountSessions": "Sesiones a cuenta pendientes",
     "costMissingNotice": "Las sesiones sin costo de electricidad no se incluyen en la ganancia: {{count}} ({{revenue}} de ingresos).",
-    "costMissingSites": "Configure las tarifas de electricidad de:"
+    "costMissingTitle": "Falta el costo de electricidad",
+    "costMissingNoRates": "Configure las tarifas de electricidad de: {{site}}",
+    "costMissingSessions_one": "{{count}} sesión en {{site}} no tiene costo de electricidad",
+    "costMissingSessions_other": "{{count}} sesiones en {{site}} no tienen costo de electricidad",
+    "costMissingMoreSites_one": "{{count}} sitio más",
+    "costMissingMoreSites_other": "{{count}} sitios más"
   },
   "sites": {
     "title": "Sitios",
@@ -567,7 +573,17 @@
     "electricityRateDaysOfWeek": "Días de la semana",
     "electricityRatesMissing": "Este sitio no tiene tarifas de electricidad. Sus sesiones no tienen costo de electricidad y no se incluyen en la ganancia.",
     "electricityRatesNoDefault": "Este sitio no tiene una tarifa de electricidad predeterminada. Las sesiones que terminan fuera de sus periodos de tarifa no tienen costo de electricidad y no se incluyen en la ganancia.",
-    "electricityRatesOpen": "Configurar tarifas de electricidad"
+    "electricityRatesOpen": "Configurar tarifas de electricidad",
+    "electricityCostRecalculate": "Recalcular costo de electricidad",
+    "electricityCostRecalculateTitle": "¿Recalcular el costo de electricidad?",
+    "electricityCostRecalculateConfirm": "Las sesiones de {{site}} sin costo de electricidad lo obtienen de las tarifas actuales del sitio, con la tarifa vigente al finalizar cada sesión. Los costos existentes no cambian.",
+    "electricityCostRecalculated_one": "Costo de electricidad agregado a {{count}} sesión",
+    "electricityCostRecalculated_other": "Costo de electricidad agregado a {{count}} sesiones",
+    "electricityCostRecalculateNone": "Ninguna sesión obtuvo costo de electricidad",
+    "electricityCostRecalculateRemaining_one": "{{count}} sesión sigue sin costo de electricidad: ninguna tarifa aplica cuando finalizó.",
+    "electricityCostRecalculateRemaining_other": "{{count}} sesiones siguen sin costo de electricidad: ninguna tarifa aplica cuando finalizaron.",
+    "electricityCostRecalculateMore_one": "{{count}} sesión aún no tiene costo de electricidad. Vuelva a recalcular para continuar.",
+    "electricityCostRecalculateMore_other": "{{count}} sesiones aún no tienen costo de electricidad. Vuelva a recalcular para continuar."
   },
   "stations": {
     "title": "Estaciones",
@@ -1072,7 +1088,11 @@
       "unbilled": "No facturada",
       "invoiced": "Facturada",
       "paid": "Pagada"
-    }
+    },
+    "electricityCostAll": "Todos",
+    "electricityCostMissing": "Faltante",
+    "costMissingNotice": "Estas sesiones no tienen costo de electricidad y no se incluyen en la ganancia.",
+    "costMissingSelectSite": "Estas sesiones no tienen costo de electricidad y no se incluyen en la ganancia. Seleccione un sitio para recalcular sus costos."
   },
   "drivers": {
     "title": "Conductores",
@@ -1334,6 +1354,7 @@
       "audit": "Registro de auditoría",
       "maintenance": "Mantenimiento",
       "aiAssistant": "Asistente de IA",
+      "aiInsights": "Análisis automáticos",
       "settings": {
         "system": "Sistema",
         "notification": "Notificación",
@@ -1346,7 +1367,10 @@
         "smartCharging": "Carga Inteligente",
         "ai": "IA",
         "conformance": "Conformidad"
-      }
+      },
+      "aiProposals": "Propuestas de IA",
+      "aiUsage": "Uso de IA",
+      "aiMcp": "Acceso MCP"
     }
   },
   "profile": {
@@ -1398,7 +1422,10 @@
     "mfaQrCode": "Código QR de la aplicación de autenticación",
     "chatbotAiDescription": "Su propia configuración del asistente de IA. Sustituye la configuración del sistema para usted.",
     "aiRemoveConfig": "Quitar configuración",
-    "aiRemoveConfirm": "¿Quitar su configuración personal? Se volverá a aplicar la configuración del sistema."
+    "aiRemoveConfirm": "¿Quitar su configuración personal? Se volverá a aplicar la configuración del sistema.",
+    "aiDigestEmail": "Correo de resumen de la bandeja de IA",
+    "aiDigestEmailDescription": "Un correo diario con el número de propuestas de IA pendientes en tus sitios.",
+    "notificationsSaveFailed": "No se pudo guardar la preferencia de notificaciones. Inténtelo de nuevo."
   },
   "fleets": {
     "title": "Flotas",
@@ -2481,6 +2508,11 @@
         "title": "IA de soporte",
         "description": "Redacta respuestas a los casos para que el operador las revise.",
         "enabled": "Activar la IA de soporte"
+      },
+      "ops": {
+        "title": "Análisis automáticos y procesos",
+        "description": "El modelo de los análisis automáticos y los procesos en segundo plano. Se ejecutan sin usuario y usan la clave del proveedor de la empresa.",
+        "enabled": "Activar la IA iniciada por el sistema"
       }
     },
     "aiLimitsTitle": "Límites de IA",
@@ -2492,10 +2524,48 @@
       "maxToolCallsPerTurn": "Llamadas a herramientas por respuesta",
       "conversationRetentionDays": "Conservar conversaciones (días)",
       "attachmentsMaxBytes": "Tamaño máximo de adjunto (bytes)",
-      "attachmentsMaxPerMessage": "Adjuntos por mensaje"
+      "attachmentsMaxPerMessage": "Adjuntos por mensaje",
+      "companyMonthlyTokens": "Tokens de la empresa por mes",
+      "siteMonthlyTokens": "Tokens por sitio y mes",
+      "siteDailyTokens": "Tokens por sitio y día (análisis y procesos)",
+      "warnPercent": "Avisar al (% de un presupuesto)"
     },
     "aiLimitRange": "De {{min}} a {{max}}.",
-    "aiLimitZeroNoBudget": "0 significa sin límite diario."
+    "aiLimitZeroNoBudget": "0 significa sin límite diario.",
+    "aiOpsDataWarning": "Si está activado, los datos de estado de estaciones, sesiones y tokens se envían al proveedor configurado sin acción de un usuario.",
+    "aiInsightsSettings": {
+      "title": "Análisis automáticos",
+      "station": "Análisis de estaciones",
+      "session": "Análisis de sesiones",
+      "authorization": "Análisis de autorizaciones",
+      "debounceSeconds": "Espera antes de analizar (segundos)",
+      "cooldownMinutes": "Pausa por estación, sesión o token (minutos)",
+      "siteIncidentThreshold": "Estaciones caídas en un sitio que forman un incidente del sitio",
+      "maxPerSitePerDay": "Análisis por sitio y día",
+      "primaryLanguage": "Idioma del resumen",
+      "retentionDays": "Conservar análisis (días)"
+    },
+    "aiMcp": {
+      "title": "Servidor MCP",
+      "description": "Permite a los clientes MCP usar las herramientas de IA con una clave de API con acceso MCP. Cada cambio necesita tu confirmación en la bandeja de IA.",
+      "enabled": "Activar el servidor MCP",
+      "rateLimitPerMinute": "Llamadas por clave de API y minuto",
+      "dailyCallsPerKey": "Llamadas por clave de API y día",
+      "proposalTtlMinutes": "Tiempo para aprobar un cambio MCP (minutos)",
+      "allowedOrigins": "Orígenes permitidos",
+      "allowedOriginsHint": "Un origen por línea, como https://app.example.com. Déjalo vacío para rechazar solicitudes de navegadores.",
+      "allowedOriginsInvalid": "Introduzca un origen http o https por línea, sin ruta.",
+      "endpoint": "Endpoint",
+      "endpointHint": "Configure su cliente MCP con esta URL y una clave de API con acceso MCP.",
+      "writeScopeHint": "Las claves necesitan acceso de escritura MCP y acceso de lectura a estaciones para proponer cambios.",
+      "toolsets": "Categorías de herramientas",
+      "toolsetsHint": "Añada ?toolsets=stations,sessions a la URL. Predeterminado: {{toolsets}}.",
+      "writesHint": "Los cambios se convierten en propuestas que el mismo usuario aprueba en la bandeja de IA.",
+      "protocolNote": "Sirve MCP 2026-07-28; los clientes antiguos aprueban mediante sondeo."
+    },
+    "aiUsageTab": "Uso",
+    "aiLimitZeroNoLimit": "0 significa sin límite.",
+    "aiConfigTab": "Configuración"
   },
   "pnc": {
     "certificates": "Certificados",
@@ -2661,10 +2731,12 @@
       "fleet.InvoiceRunFailed": "Falló la facturación mensual de la flota",
       "invoice.FleetInvoice": "Factura de flota emitida",
       "invoice.FleetCreditNote": "Nota de crédito de flota emitida",
-      "invoice.FleetOverdue": "Factura de flota vencida"
+      "invoice.FleetOverdue": "Factura de flota vencida",
+      "ai.ProposalDigest": "Resumen de propuestas de IA"
     },
     "templatePreviewInvalid": "La plantilla tiene un error:",
-    "htmlPreview": "Vista previa HTML"
+    "htmlPreview": "Vista previa HTML",
+    "aiEvents": "IA"
   },
   "reservations": {
     "title": "Reservas",
@@ -3073,7 +3145,19 @@
     "LOCAL_CA_NOT_CONFIGURED": "Cree primero la CA de contratos local",
     "PNC_CONTRACT_NOT_FOUND": "Contrato de Plug & Charge no encontrado",
     "PHONE_REGISTRATION_LIMITED": "Se registraron demasiadas cuentas con este número de teléfono. Vuelva a intentarlo más tarde.",
-    "VERIFICATION_RESEND_LIMITED": "Demasiados correos de verificación. Espere antes de solicitar otro."
+    "VERIFICATION_RESEND_LIMITED": "Demasiados correos de verificación. Espere antes de solicitar otro.",
+    "AI_INSIGHT_NOT_FOUND": "Análisis no encontrado",
+    "AI_INSIGHT_COOLDOWN": "Este análisis se regeneró hace poco. Inténtalo de nuevo más tarde",
+    "AI_INSIGHTS_DISABLED": "Los análisis automáticos están desactivados",
+    "AI_SITE_BUDGET_EXCEEDED": "Se alcanzó el límite diario de uso de IA del sitio",
+    "AI_MONTHLY_BUDGET_EXCEEDED": "Se alcanzó el límite mensual de uso de IA",
+    "AI_CONTEXT_NOT_FOUND": "No se encontró el registro que quieres explicar",
+    "AI_PROPOSAL_NOT_FOUND": "Propuesta no encontrada",
+    "AI_PROPOSAL_EXPIRED": "Esta propuesta ha caducado",
+    "AI_PROPOSAL_STALE": "Esta propuesta ya no es válida porque la situación cambió",
+    "AI_PROPOSAL_ALREADY_DECIDED": "Ya se decidió sobre esta propuesta",
+    "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
+    "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde"
   },
   "logs": {
     "title": "Registros",
@@ -3808,6 +3892,22 @@
         "p2": "¿Cómo añado una nueva estación de carga?",
         "p3": "Muestre las estaciones con más fallos esta semana"
       }
+    },
+    "explain": {
+      "button": "Explicar",
+      "buttonTitle": "Pedir al asistente que explique este registro",
+      "station": "¿Por qué esta estación está desconectada o en fallo, y qué debo hacer?",
+      "session": "¿Por qué falló esta sesión, y qué debo hacer?",
+      "authorization": "¿Por qué se rechazó esta autorización, y qué debo hacer?",
+      "insightShown": "Se muestra el último análisis automático",
+      "followUp": "Hacer otra pregunta",
+      "contextUnavailable": "Este registro ya no está disponible.",
+      "about": "Sobre {{record}} {{label}}",
+      "kind": {
+        "station": "la estación",
+        "session": "la sesión",
+        "authorization": "la autorización"
+      }
     }
   },
   "sustainability": {
@@ -4035,7 +4135,16 @@
       "updated": "Actualizado",
       "uploaded": "Subido",
       "used": "Usado",
-      "voided": "Anulada"
+      "voided": "Anulada",
+      "regenerated": "Regenerado",
+      "dismissed": "Descartado",
+      "feedback_helpful": "Marcado como útil",
+      "feedback_wrong": "Marcado como incorrecto",
+      "confirmed": "Confirmado",
+      "executed": "Ejecutado",
+      "failed": "Fallido",
+      "rejected": "Rechazado",
+      "stale": "Ya no aplica"
     },
     "entities": {
       "site": "Sitio",
@@ -4064,7 +4173,9 @@
       "maintenance_event": "Ventana de mantenimiento",
       "session": "Sesión",
       "invoice": "Factura",
-      "ai_conversation": "Conversación de IA"
+      "ai_conversation": "Conversación de IA",
+      "ai_insight": "Análisis automático",
+      "ai_proposal": "Propuesta de IA"
     },
     "actors": {
       "operator": "Operador",
@@ -4396,5 +4507,348 @@
     "undo": "Deshacer",
     "redo": "Rehacer",
     "htmlSource": "Código fuente HTML"
+  },
+  "aiInsights": {
+    "title": "Análisis automático",
+    "activeInsights": "Análisis activos",
+    "empty": "Sin análisis",
+    "summaryTranslating": "Traduciendo…",
+    "summaryUnavailable": "No hay traducción disponible. Se muestra el original.",
+    "showOriginal": "Mostrar original",
+    "hideOriginal": "Ocultar original",
+    "knownCause": "Causa conocida",
+    "categoryLabel": "Causa raíz",
+    "confidenceLabel": "Confianza",
+    "fixesLabel": "Soluciones sugeridas",
+    "siteScopeLabel": "En este sitio",
+    "networkScopeLabel": "En todos los sitios",
+    "regenerate": "Regenerar",
+    "dismiss": "Descartar",
+    "helpful": "Útil",
+    "wrong": "Incorrecto",
+    "feedbackThanks": "Gracias por tu opinión",
+    "badge": {
+      "resolved": "Resuelto",
+      "outOfDate": "Desactualizado"
+    },
+    "category": {
+      "connectivity": "Conectividad",
+      "power_supply": "Suministro eléctrico",
+      "hardware": "Hardware",
+      "firmware": "Firmware",
+      "configuration": "Configuración",
+      "token": "Token",
+      "payment": "Pago",
+      "tariff": "Tarifa",
+      "vehicle": "Vehículo",
+      "backend": "Backend",
+      "unknown": "Desconocida"
+    },
+    "confidence": {
+      "low": "Baja",
+      "medium": "Media",
+      "high": "Alta"
+    },
+    "status": {
+      "pending": "Analizando",
+      "active": "Activo",
+      "resolved": "Resuelto",
+      "superseded": "Reemplazado",
+      "skipped": "Omitido",
+      "failed": "Fallido",
+      "dismissed": "Descartado"
+    },
+    "kind": {
+      "station_offline": "Estación desconectada",
+      "station_faulted": "Estación en fallo",
+      "station_alert": "Alerta de estación",
+      "session_failed": "Sesión fallida",
+      "authorization_refused": "Autorización rechazada",
+      "site_incident": "Incidente del sitio",
+      "site_summary": "Resumen del sitio",
+      "company_summary": "Resumen de la red",
+      "tariff_anomaly": "Anomalía de tarifa"
+    },
+    "skipReason": {
+      "resolved_before_analysis": "Resuelto antes del análisis",
+      "cooldown": "Analizado hace poco",
+      "site_daily_cap": "Se alcanzó el límite diario de análisis del sitio",
+      "site_disabled": "Los análisis están desactivados para este sitio",
+      "budget_exceeded": "El presupuesto de IA está agotado",
+      "disabled": "Los análisis automáticos se desactivaron"
+    },
+    "fix": {
+      "check_network_connection": "Revisar la conexión de red de la estación",
+      "check_power_supply": "Revisar el suministro eléctrico",
+      "reboot_station": "Reiniciar la estación",
+      "inspect_connector": "Inspeccionar el conector",
+      "update_firmware": "Actualizar el firmware",
+      "review_station_configuration": "Revisar la configuración de la estación",
+      "contact_station_vendor": "Contactar al fabricante de la estación",
+      "review_token_status": "Revisar el estado del token",
+      "push_local_auth_list": "Enviar la lista local de autorización",
+      "check_roaming_partner": "Revisar el socio de roaming",
+      "ask_driver_to_add_payment_method": "Pedir al conductor que añada un método de pago",
+      "review_payment_settings": "Revisar la configuración de pagos",
+      "review_fleet_credit_limit": "Revisar el límite de crédito de la flota",
+      "review_tariff_assignment": "Revisar la asignación de tarifa",
+      "ask_driver_to_retry": "Pedir al conductor que lo intente de nuevo",
+      "check_vehicle_compatibility": "Revisar la compatibilidad del vehículo",
+      "end_concurrent_session": "Finalizar la sesión simultánea",
+      "check_csms_status": "Revisar el estado del CSMS",
+      "monitor": "Seguir observando"
+    },
+    "scope": {
+      "stations_one": "{{count}} estación",
+      "stations_other": "{{count}} estaciones",
+      "stationsOffline_one": "{{count}} estación desconectada",
+      "stationsOffline_other": "{{count}} estaciones desconectadas",
+      "stationsFaulted_one": "{{count}} estación en fallo",
+      "stationsFaulted_other": "{{count}} estaciones en fallo",
+      "sameErrorCode_one": "{{count}} estación con el mismo código de error",
+      "sameErrorCode_other": "{{count}} estaciones con el mismo código de error",
+      "sessionsInterrupted_one": "{{count}} sesión interrumpida",
+      "sessionsInterrupted_other": "{{count}} sesiones interrumpidas",
+      "sessionsFailedSameReason24h_one": "{{count}} sesión fallida por el mismo motivo en 24 horas",
+      "sessionsFailedSameReason24h_other": "{{count}} sesiones fallidas por el mismo motivo en 24 horas",
+      "tokenRefusals_one": "{{count}} token rechazado",
+      "tokenRefusals_other": "{{count}} tokens rechazados"
+    },
+    "regenerateQueued": "Se está preparando un nuevo análisis.",
+    "widget": {
+      "info": "Problemas abiertos que el análisis automático encontró en sus sitios. Primero los incidentes de sitio, luego los más graves y recientes.",
+      "empty": "No hay análisis abiertos",
+      "viewAll": "Ver todo",
+      "similar_one": "+{{count}} similar",
+      "similar_other": "+{{count}} similares",
+      "atDetection": "{{value}} al detectarse"
+    },
+    "confidenceBadge": {
+      "low": "Confianza baja",
+      "medium": "Confianza media",
+      "high": "Confianza alta"
+    },
+    "headline": {
+      "station_offline": "{{station}} está desconectada",
+      "station_faulted": "{{station}} tiene una falla",
+      "station_alert": "Alerta en {{station}}",
+      "session_failed": "Sesión fallida en {{station}}",
+      "authorization_refused": "Autorización rechazada en {{station}}",
+      "site_incident": "Incidente en {{site}}",
+      "siteIncidentOffline_one": "{{count}} estación desconectada en {{site}}",
+      "siteIncidentOffline_other": "{{count}} estaciones desconectadas en {{site}}",
+      "siteIncidentFaulted_one": "{{count}} estación con falla en {{site}}",
+      "siteIncidentFaulted_other": "{{count}} estaciones con falla en {{site}}",
+      "tariff_anomaly": "Anomalía de tarifa en {{site}}",
+      "site_summary": "Resumen diario de {{site}}",
+      "company_summary": "Resumen diario de la red",
+      "noStation": "una estación desconocida",
+      "noSite": "sin sitio"
+    },
+    "list": {
+      "title": "Análisis de IA",
+      "subtitle": "Lo que el análisis automático encontró en sus sitios.",
+      "allStatuses": "Todos los estados",
+      "kind": "Tipo",
+      "allKinds": "Todos los tipos",
+      "allCategories": "Todas las causas",
+      "site": "Sitio",
+      "allSites": "Todos los sitios",
+      "insight": "Análisis",
+      "station": "Estación"
+    },
+    "detail": {
+      "recordTitle": "Detalles",
+      "session": "Sesión",
+      "partOf": "Parte de"
+    },
+    "likelyCause": "Causa probable",
+    "staleNote": "El registro cambió después de este análisis. Regénerelo para obtener uno actual.",
+    "failedNote": "El análisis no terminó.",
+    "skippedNote": "No analizado: {{reason}}",
+    "scopeTable": {
+      "title": "Alcance",
+      "measureHeader": "Medida",
+      "atDetection": "Al detectarse",
+      "now": "Ahora",
+      "atDetectionHint": "Lo que usó el análisis",
+      "nowHint": "A fecha de {{time}}",
+      "area": {
+        "site": "{{measure}} (sitio)",
+        "network": "{{measure}} (todos los sitios)"
+      },
+      "measure": {
+        "stations": "Estaciones",
+        "stationsOffline": "Estaciones desconectadas",
+        "stationsFaulted": "Estaciones con falla",
+        "sameErrorCode": "Mismo código de error (24 h)",
+        "sessionsInterrupted": "Sesiones interrumpidas (24 h)",
+        "sessionsFailedSameReason24h": "Mismo motivo de parada (24 h)",
+        "tokenRefusals": "Rechazos de token (24 h)"
+      },
+      "summaryAtDetection": "{{value}} al detectarse",
+      "summaryChanged": "{{value}} al detectarse, {{now}} ahora"
+    }
+  },
+  "aiInbox": {
+    "title": "Bandeja de IA",
+    "description": "Acciones que propuso la IA. Nada se ejecuta hasta que lo confirmes.",
+    "empty": "Sin propuestas",
+    "pendingCount_one": "{{count}} propuesta pendiente",
+    "pendingCount_other": "{{count}} propuestas pendientes",
+    "filters": {
+      "source": "Origen",
+      "job": "Proceso",
+      "site": "Sitio",
+      "status": "Estado",
+      "all": "Todos",
+      "search": "Buscar",
+      "searchPlaceholder": "Estación, sitio o acción"
+    },
+    "source": {
+      "worker": "Proceso en segundo plano",
+      "mcp": "Cliente MCP"
+    },
+    "job": {
+      "network_summary": "Estado de la red",
+      "stuck_sessions": "Sesiones bloqueadas",
+      "tariff_anomalies": "Anomalías de tarifa"
+    },
+    "status": {
+      "pending": "Pendiente",
+      "executed": "Ejecutada",
+      "failed": "Fallida",
+      "rejected": "Rechazada",
+      "expired": "Caducada",
+      "stale": "Ya no aplica"
+    },
+    "action": {
+      "stop_transaction": "Detener la sesión",
+      "soft_reset": "Reiniciar la estación en modo suave",
+      "change_availability": "Cambiar la disponibilidad de la estación"
+    },
+    "precondition": {
+      "session_active": "La sesión sigue activa",
+      "station_faulted": "La estación sigue en fallo",
+      "station_availability": "La disponibilidad de la estación no ha cambiado"
+    },
+    "confirm": "Confirmar",
+    "reject": "Rechazar",
+    "expiresAt": "Caduca {{time}}",
+    "requestedBy": "Solicitado por",
+    "apiKey": "Clave de API",
+    "client": "Cliente",
+    "untrustedNote": "Los nombres de la clave y del cliente vienen del cliente que hizo la solicitud y se muestran tal como llegaron.",
+    "arguments": "Argumentos",
+    "rationale": "Motivo",
+    "result": "Resultado",
+    "executed": "La acción se ejecutó",
+    "confirmFailed": "La acción no se ejecutó",
+    "stationLabel": "Estación",
+    "sessionLabel": "Sesión",
+    "preconditionLabel": "Solo se ejecuta si",
+    "requestedTool": "Herramienta solicitada",
+    "columns": {
+      "action": "Acción",
+      "expires": "Vence"
+    },
+    "rejectedToast": "Propuesta rechazada",
+    "confirmDialog": {
+      "title": "¿Ejecutar esta acción?",
+      "note": "Se ejecuta una vez, ahora, con sus permisos."
+    },
+    "rejectDialog": {
+      "title": "¿Rechazar esta propuesta?"
+    },
+    "measured": {
+      "idleTime": "Tiempo inactivo",
+      "minutes_one": "{{count}} minuto",
+      "minutes_other": "{{count}} minutos",
+      "lastActivity": "Última actividad",
+      "faultedSince": "Con falla desde",
+      "transactionId": "ID de transacción"
+    },
+    "detail": {
+      "summary": "Resumen",
+      "target": "Destino",
+      "requester": "Solicitante",
+      "timing": "Fechas",
+      "decided": "Decidida",
+      "executedAt": "Ejecutada"
+    }
+  },
+  "aiWorkers": {
+    "title": "Procesos de IA en segundo plano",
+    "description": "Procesos opcionales que encuentran problemas y proponen acciones. Nunca actúan por sí solos.",
+    "proposalTtlHours": "Vigencia de una propuesta (horas)",
+    "networkSummary": {
+      "title": "Resumen nocturno de la red",
+      "description": "Un breve resumen diario por sitio, con acciones propuestas."
+    },
+    "stuckSessions": {
+      "title": "Sesiones bloqueadas",
+      "description": "Propone detener las sesiones que dejaron de informar.",
+      "idleMinutes": "Tiempo inactivo para considerar bloqueada una sesión (minutos)",
+      "useModel": "Redactar el motivo con IA"
+    },
+    "tariffAnomalies": {
+      "title": "Anomalías de tarifa",
+      "description": "Encuentra precios que parecen incorrectos. Solo hallazgos, sin propuestas."
+    },
+    "rationale": {
+      "stuckSessionIdle": "Sin valores de medidor ni eventos de transacción durante {{minutes}} minutos",
+      "stuckSessionOffline": "La estación está desconectada mientras la sesión está activa",
+      "stuckSessionConnectorAvailable": "El conector informa Disponible mientras la sesión está activa"
+    },
+    "findings": {
+      "zero_cost": "Sesiones sin cargo con una tarifa de pago",
+      "station_cost_mismatch": "El coste de la estación difiere del coste del CSMS",
+      "price_outlier": "Precio por kWh muy por encima de la mediana de la ubicación",
+      "inactive_tariff": "Sesiones con precio de una tarifa inactiva"
+    }
+  },
+  "aiUsage": {
+    "title": "Uso de IA",
+    "month": "Mes",
+    "period": "Periodo",
+    "budget": "Presupuesto",
+    "used": "Usado",
+    "percentUsed": "{{percent}} % usado",
+    "noLimit": "Sin límite",
+    "company": "Empresa",
+    "site": "Sitio",
+    "sites": "Sitios",
+    "bySurface": "Por área",
+    "unattributed": "Asistente (sin sitio)",
+    "topUsers": "Usuarios principales",
+    "user": "Usuario",
+    "cost": "Costo",
+    "today": "Hoy",
+    "todayFooter": "Hoy: {{used}} de {{limit}} tokens",
+    "todayFooterNoLimit": "Hoy: {{used}} tokens",
+    "thresholdWarningCompany": "El uso de IA superó el {{percent}} % del presupuesto de la empresa este mes.",
+    "thresholdWarningSite": "El uso de IA en {{site}} superó el {{percent}} % de su presupuesto este mes.",
+    "thresholdExceededCompany": "El presupuesto de IA de la empresa para este mes está agotado.",
+    "thresholdExceededSite": "El presupuesto de IA de {{site}} para este mes está agotado.",
+    "surface": {
+      "chatbot": "Asistente",
+      "support": "Borradores de soporte",
+      "insight": "Análisis",
+      "insight_translation": "Traducciones de análisis",
+      "worker": "Procesos en segundo plano"
+    },
+    "tokens": {
+      "total": "Tokens",
+      "input": "Entrada",
+      "cachedRead": "Entrada en caché",
+      "cacheWrite": "Escrituras en caché",
+      "output": "Salida",
+      "reasoning": "Razonamiento"
+    },
+    "siteBudget": "Presupuesto mensual de tokens",
+    "siteBudgetHelp": "Déjelo vacío para usar el presupuesto predeterminado por sitio de Configuración > IA. 0 significa sin límite.",
+    "siteInsights": "Análisis automáticos",
+    "siteInsightsHelp": "Desactívelo para detener los análisis automáticos de este sitio.",
+    "allSitesOnly": "Solo los usuarios con acceso a todos los sitios pueden cambiar esto."
   }
 }

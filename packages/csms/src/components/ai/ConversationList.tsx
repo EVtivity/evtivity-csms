@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
+import type { AiContextKind } from '@evtivity/lib/ai-insights';
 import { SearchInput } from '@/components/search-input';
 import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -23,6 +24,8 @@ export interface AiConversationItem {
   model: string;
   createdAt: string;
   updatedAt: string;
+  /** The record an Explain conversation is about, null for a plain chat. */
+  context?: { kind: AiContextKind; id: string } | null;
 }
 
 export const AI_CONVERSATIONS_KEY = ['ai-conversations'] as const;
@@ -163,8 +166,7 @@ export function ConversationList({
                   <Button
                     type="submit"
                     variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
+                    size="icon-sm"
                     aria-label={t('common.save')}
                     disabled={rename.isPending || renameValue.trim() === ''}
                   >
@@ -173,8 +175,7 @@ export function ConversationList({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
+                    size="icon-sm"
                     aria-label={t('common.cancel')}
                     onClick={() => {
                       setRenamingId(null);
@@ -185,16 +186,18 @@ export function ConversationList({
                 </form>
               ) : (
                 <>
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="row"
                     onClick={() => {
                       onOpen(c.id);
                     }}
                     aria-current={c.id === activeId ? 'true' : undefined}
-                    className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-2 text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+                    className="min-w-0 flex-1"
                   >
                     <MessageSquare
-                      className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
+                      className="h-4 w-4 shrink-0 text-muted-foreground"
                       aria-hidden="true"
                     />
                     <span className="min-w-0">
@@ -205,14 +208,13 @@ export function ConversationList({
                         {formatDateTime(c.updatedAt, timezone)}
                       </span>
                     </span>
-                  </button>
+                  </Button>
                   {canWrite && (
                     <div className="flex shrink-0 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
+                        size="icon-sm"
                         aria-label={t('ai.renameConversation', {
                           title: c.title !== '' ? c.title : t('ai.untitled'),
                         })}
@@ -226,8 +228,7 @@ export function ConversationList({
                       <Button
                         type="button"
                         variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
+                        size="icon-sm"
                         aria-label={t('ai.deleteConversation', {
                           title: c.title !== '' ? c.title : t('ai.untitled'),
                         })}

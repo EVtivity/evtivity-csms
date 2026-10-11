@@ -14,12 +14,17 @@
 
 import { aiCostInCompanyCurrencyMicros, aiUsageCostMicros } from '@evtivity/lib/pricing-engine';
 import type { AiStreamEvent as ClientEvent, AiTurnFinishReason } from '@evtivity/lib/ai-stream';
-import { AiStreamAccumulator, addUsage, emptyUsage } from '../core/collect.js';
-import { isAiProviderError } from '../core/errors.js';
-import type { AiProviderErrorCode } from '../core/errors.js';
-import { findUnsupportedParts, stripForeignProviderState } from '../core/messages.js';
-import type { ModelPrices } from '../core/model-registry.js';
+import {
+  AiStreamAccumulator,
+  addUsage,
+  emptyUsage,
+  isAiProviderError,
+  findUnsupportedParts,
+  stripForeignProviderState,
+} from '@evtivity/ai/core';
 import type {
+  AiProviderErrorCode,
+  ModelPrices,
   AiAdapter,
   AiAttachmentResolver,
   AiFinishReason,
@@ -33,10 +38,10 @@ import type {
   AiUsage,
   Effort,
   ProviderId,
-} from '../core/types.js';
+} from '@evtivity/ai/core';
 import { prepareToolCall } from '../tools/execute.js';
 import type { AiToolRefusal, Toolset, ToolsetEntry, ToolOutcome } from '../tools/execute.js';
-import type { RedactionCounts } from '../tools/redact.js';
+import type { RedactionCounts } from '@evtivity/ai/redact';
 import type { ToolCallStatus } from '../conversation.service.js';
 
 /** Reads run in parallel up to this many at once. */
@@ -68,6 +73,22 @@ export interface TurnHooks {
     costMicros: number | null;
     finishReason: string;
   }): Promise<void>;
+  /**
+   * Records one model call in the usage ledger (`recordAiUsage`): its own
+   * usage, without the router usage folded into the first message. Called
+   * after every model call, failed and stopped ones included. Must not throw.
+   */
+  recordUsage(input: {
+    messageId: string | null;
+    usage: AiUsage;
+    costMicros: number | null;
+  }): Promise<void>;
+  /**
+   * Checks the AI budgets (`checkAiBudgets`) before a model call after the
+   * first one; returns the refusal code, or null when the call may run.
+   * Fails closed: a read failure rejects.
+   */
+  checkBudget(): Promise<string | null>;
   /** Stores a tool call row (arguments redacted by the hook); returns the row id. */
   saveToolCall(input: {
     messageId: string;
@@ -260,6 +281,11 @@ export async function runTurn(input: TurnRunInput): Promise<TurnRunResult> {
     if (input.signal.aborted) return end('stopped');
     const remaining = input.deadline - Date.now();
     if (remaining <= 0) return end('error', 'AI_ERROR');
+    // The route checked the budgets before the first call; every later call checks again.
+    if (!first) {
+      const refusal = await hooks.checkBudget();
+      if (refusal !== null) return end('error', refusal);
+    }
 
     const deadlineSignal = AbortSignal.timeout(remaining);
     const signal = AbortSignal.any([input.signal, deadlineSignal]);
@@ -340,6 +366,14 @@ export async function runTurn(input: TurnRunInput): Promise<TurnRunResult> {
       toolCalls.length > 0 &&
       (finishReason === 'tool_use' || finishReason === 'end');
     const saved = continues ? parts : parts.filter((p) => p.type === 'text');
+    // One ledger row per model call, saved message or not, written before the
+    // message so a failed save does not lose spent tokens (the router call is
+    // recorded by the caller).
+    await hooks.recordUsage({
+      messageId: saved.length > 0 ? messageId : null,
+      usage: result.usage,
+      costMicros: costOf(result.usage, input.prices),
+    });
     if (saved.length > 0) {
       await hooks.saveAssistantMessage({
         id: messageId,

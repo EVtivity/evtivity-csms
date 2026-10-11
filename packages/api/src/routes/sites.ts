@@ -11,6 +11,7 @@ import {
   configTemplateAuditLog,
   clearFreeVendCache,
   clearElectricityRateCache,
+  clearAiUsageCache,
   getCompanyCurrency,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
@@ -84,6 +85,7 @@ import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+import { recalculateSiteElectricityCost } from '@evtivity/services/electricity-cost.service';
 import { siteInScope } from '../lib/site-scope.js';
 
 const importSiteRow = z.object({
@@ -243,7 +245,24 @@ const updateSiteBody = z.object({
     .describe(
       'Display language of the station screens at this site. Null follows the stationMessage.language setting',
     ),
+  aiInsightsEnabled: z
+    .boolean()
+    .optional()
+    .describe('Whether automatic insights run for this site. Users with access to every site only'),
+  aiMonthlyTokenBudget: z
+    .number()
+    .int()
+    .min(0)
+    .max(1_000_000_000_000)
+    .nullable()
+    .optional()
+    .describe(
+      'Monthly AI token budget of this site. Null follows the ai.budget.siteMonthlyTokens setting, 0 means no limit. Users with access to every site only',
+    ),
 });
+
+/** Site fields only a user with access to every site may change (a restricted user gets 404). */
+const ALL_SITE_FIELDS = ['aiInsightsEnabled', 'aiMonthlyTokenBudget'] as const;
 
 const siteSelect = {
   id: sites.id,
@@ -271,6 +290,8 @@ const siteSelect = {
   freeVendTemplateId21: sites.freeVendTemplateId21,
   freeVendTemplateId16: sites.freeVendTemplateId16,
   stationMessageLanguage: sites.stationMessageLanguage,
+  aiInsightsEnabled: sites.aiInsightsEnabled,
+  aiMonthlyTokenBudget: sites.aiMonthlyTokenBudget,
   underMaintenance: sql<boolean>`EXISTS (
     SELECT 1
     FROM maintenance_events me
@@ -331,6 +352,13 @@ const siteItem = z
       .describe(
         'Display language of the station screens at this site (en, de, es, ko, zh, zh-TW). Null follows the stationMessage.language setting',
       ),
+    aiInsightsEnabled: z.boolean().describe('Whether automatic insights run for this site'),
+    aiMonthlyTokenBudget: z
+      .number()
+      .nullable()
+      .describe(
+        'Monthly AI token budget of this site. Null follows the ai.budget.siteMonthlyTokens setting, 0 means no limit',
+      ),
   })
   .passthrough();
 
@@ -356,6 +384,13 @@ const siteBase = z
       .nullable()
       .describe(
         'Display language of the station screens at this site (en, de, es, ko, zh, zh-TW). Null follows the stationMessage.language setting',
+      ),
+    aiInsightsEnabled: z.boolean().describe('Whether automatic insights run for this site'),
+    aiMonthlyTokenBudget: z
+      .number()
+      .nullable()
+      .describe(
+        'Monthly AI token budget of this site. Null follows the ai.budget.siteMonthlyTokens setting, 0 means no limit',
       ),
     createdAt: z.coerce.date().describe('Timestamp when the site was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the site was last updated'),
@@ -983,6 +1018,11 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       const body = parseZodRequest(updateSiteBody, request.body);
+      // A restricted operator cannot change company-wide AI controls of its own site.
+      if (ALL_SITE_FIELDS.some((field) => body[field] !== undefined) && siteIds !== null) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
       const [before] = await db.select().from(sites).where(eq(sites.id, id));
 
       // If the name is actually changing, pre-check the unique constraint
@@ -1032,6 +1072,7 @@ export function siteRoutes(app: FastifyInstance): void {
       ) {
         await requestStationMessageRepush(request.log, { siteId: site.id });
       }
+      if (body.aiMonthlyTokenBudget !== undefined) clearAiUsageCache();
       return site;
     },
   );
@@ -2836,6 +2877,77 @@ export function siteRoutes(app: FastifyInstance): void {
       }
       clearElectricityRateCache(id);
       return { success: true };
+    },
+  );
+
+  const recalculateElectricityCostResponse = z
+    .object({
+      updated: z
+        .number()
+        .int()
+        .min(0)
+        .describe('Sessions that got an electricity cost from this request'),
+      remaining: z
+        .number()
+        .int()
+        .min(0)
+        .describe(
+          'Billed sessions at the site still without an electricity cost: send the request again while it is above 0 and updated was above 0 (one request writes at most 5000 costs); sessions whose end time matches no rate period stay',
+        ),
+    })
+    .passthrough();
+
+  app.post(
+    '/sites/:id/electricity-cost/recalculate',
+    {
+      onRequest: [authorize('sites:write')],
+      schema: {
+        tags: ['Sites'],
+        summary: 'Fill missing electricity costs from the site rates',
+        description:
+          "Computes the electricity cost of the site's billed sessions in the company currency that delivered energy and have none, from the site's current rate periods at each session's end time in the site timezone, as session end does. Never overwrites a cost, so it is safe to repeat.",
+        operationId: 'recalculateSiteElectricityCost',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(siteParams),
+        response: {
+          200: itemResponse(recalculateElectricityCostResponse),
+          404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof siteParams>;
+      const { userId } = request.user as JwtPayload;
+      const userSiteIds = await getUserSiteIds(userId);
+      if (!siteInScope(userSiteIds, id)) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      const [site] = await db.select({ id: sites.id }).from(sites).where(eq(sites.id, id)).limit(1);
+      if (site == null) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
+      const { before, updated, remaining } = await recalculateSiteElectricityCost(id, {
+        companyCurrency: await getCompanyCurrency(),
+      });
+      if (updated > 0) {
+        await writeAudit(
+          { table: siteAuditLog, idColumn: 'site_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'updated',
+            ...getAuditActor(request),
+            before: { sessionsWithoutElectricityCost: before },
+            after: { sessionsWithoutElectricityCost: remaining, electricityCostsFilled: updated },
+            notes: 'electricity cost recalculated',
+          },
+          db,
+          request.log,
+        );
+      }
+      return { updated, remaining };
     },
   );
 }

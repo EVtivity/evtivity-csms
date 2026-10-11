@@ -21,6 +21,8 @@ vi.mock('@/lib/api', () => ({
 }));
 
 vi.mock('@/components/GoogleMapPicker', () => ({ GoogleMapPicker: () => null }));
+// Covered by its own test (SiteAiCard.test.tsx).
+vi.mock('@/components/ai/usage/SiteAiCard', () => ({ SiteAiCard: () => null }));
 vi.mock('@/lib/timezone', () => ({
   TIMEZONE_OPTIONS: [],
   formatDateTime: (value: string) => `date:${value}`,

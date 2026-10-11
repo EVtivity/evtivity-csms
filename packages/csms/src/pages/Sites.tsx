@@ -392,7 +392,7 @@ export function Sites(): React.JSX.Element {
                   }}
                 >
                   <TableCell className="text-muted-foreground">{site.id}</TableCell>
-                  <TableCell className="font-medium text-primary" data-testid="row-click-target">
+                  <TableCell className="font-medium text-link" data-testid="row-click-target">
                     <span className="inline-flex items-center gap-2">
                       {site.name}
                       {site.underMaintenance && (

@@ -24,22 +24,25 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { aiDefaultsRoutes } from '../routes/ai-defaults.js';
 import { resetSiteAccessMock, setMockUserSiteIds } from './helpers/site-access-mock.js';
+import { defaultSystemPrompt, storedSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
+import { PROMPT_LANGUAGES } from '@evtivity/ai/prompt';
 import {
-  PROMPT_LANGUAGES,
-  defaultSystemPrompt,
-  storedSystemPrompt,
-} from '../services/ai/engine/prompt-defaults.js';
+  defaultOpsPrompt,
+  OPS_DEFAULT_PROMPTS,
+  OPS_SECURITY_RULES,
+} from '@evtivity/services/ai-ops-prompt';
 import {
   OCPP_VERSION_RULE,
   SECURITY_RULES,
   SUPPORT_BODY_ONLY,
 } from '../services/ai/engine/prompt.js';
-import { listProviderEntries } from '../services/ai/core/model-registry.js';
+import { listProviderEntries } from '@evtivity/ai/core';
 
 interface DefaultsBody {
   language: string;
   chatbot: { prompt: string; fixedRules: string };
   support: { prompt: string; fixedRules: string };
+  ops: { prompt: string; fixedRules: string };
   providers: Array<{
     id: string;
     defaultModel: string;
@@ -100,6 +103,8 @@ describe('AI defaults routes', () => {
     expect(body.language).toBe(language);
     expect(body.chatbot.prompt).toBe(defaultSystemPrompt('chatbot', language));
     expect(body.support.prompt).toBe(defaultSystemPrompt('support', language));
+    // The built-in opsAi prompt (insights and background workers) in the same language.
+    expect(body.ops.prompt).toBe(defaultOpsPrompt(language));
   });
 
   it('defaults to English and refuses an unknown language', async () => {
@@ -118,6 +123,7 @@ describe('AI defaults routes', () => {
     const body = res.json<DefaultsBody>();
     expect(body.chatbot.fixedRules).toBe(`${SECURITY_RULES}\n\n${OCPP_VERSION_RULE}`);
     expect(body.support.fixedRules).toBe(`${SECURITY_RULES}\n\n${SUPPORT_BODY_ONLY}`);
+    expect(body.ops.fixedRules).toBe(OPS_SECURITY_RULES);
   });
 
   it('returns the model registry per provider with a docs link', async () => {
@@ -147,6 +153,15 @@ describe('AI defaults routes', () => {
     const body = res.json<DefaultsBody>();
     expect(body.chatbot.prompt).toBe(defaultSystemPrompt('chatbot', 'zh-TW'));
     expect(body.providers).toHaveLength(4);
+  });
+});
+
+describe('storedSystemPrompt ops', () => {
+  it('stores a saved built-in ops prompt of any language as empty, and a custom one as typed', () => {
+    for (const language of PROMPT_LANGUAGES) {
+      expect(storedSystemPrompt('ops', OPS_DEFAULT_PROMPTS[language])).toBe('');
+    }
+    expect(storedSystemPrompt('ops', 'Focus on connectivity.')).toBe('Focus on connectivity.');
   });
 });
 

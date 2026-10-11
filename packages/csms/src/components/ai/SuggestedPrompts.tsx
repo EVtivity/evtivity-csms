@@ -4,6 +4,7 @@
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router';
 import { Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 
 export const SUGGESTION_PAGES = [
   'dashboard',
@@ -56,17 +57,18 @@ export function SuggestedPrompts({ onPick, disabled }: SuggestedPromptsProps): R
           const prompt = t(`ai.suggestions.${page}.${slot}`);
           return (
             <li key={slot}>
-              <button
+              <Button
                 type="button"
+                variant="outline"
+                size="row"
                 disabled={disabled}
                 onClick={() => {
                   onPick(prompt);
                 }}
-                className="flex w-full items-start gap-2 rounded-md border border-border bg-background px-3 py-2 text-left text-sm hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
               >
-                <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" aria-hidden="true" />
+                <Sparkles className="h-3.5 w-3.5 shrink-0 text-link" aria-hidden="true" />
                 <span>{prompt}</span>
-              </button>
+              </Button>
             </li>
           );
         })}

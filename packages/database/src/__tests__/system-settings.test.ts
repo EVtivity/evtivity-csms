@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSelect = vi.fn();
 vi.mock('../config.js', () => ({
@@ -32,10 +32,18 @@ function makeFailingChain() {
   return chain;
 }
 
+// Under load (a full run) the first import of the module graph can outlast
+// the 5 s test timeout. Load it once here with a longer hook timeout; each
+// test still imports a fresh copy after vi.resetModules, from the warm cache.
+beforeAll(async () => {
+  await import('../lib/system-settings.js');
+}, 30_000);
+
 describe('getCompanyCurrency', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns the configured currency, upper-cased', async () => {
@@ -106,6 +114,7 @@ describe('getCompanyPriceDisplay', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns the configured price display', async () => {
@@ -147,6 +156,7 @@ describe('getCompanyTaxBasis', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns the configured tax basis', async () => {
@@ -188,6 +198,7 @@ describe('getCompanyCountry', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    mockSelect.mockReset();
   });
 
   it('returns the configured country, upper-cased', async () => {

@@ -294,7 +294,7 @@ export function StationChargingProfilesTab({
                         {profile.templateId != null ? (
                           <Link
                             to={`/smart-charging/${profile.templateId}`}
-                            className="text-primary hover:underline"
+                            className="text-link hover:underline"
                           >
                             {profile.templateName ?? profile.templateId}
                           </Link>
@@ -469,7 +469,7 @@ export function StationChargingProfilesTab({
                   {viewProfile.templateId != null ? (
                     <Link
                       to={`/smart-charging/${viewProfile.templateId}`}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                     >
                       {viewProfile.templateName ?? viewProfile.templateId}
                     </Link>

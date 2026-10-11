@@ -964,6 +964,77 @@ export const aiConversationAuditLog = pgTable(
   ],
 );
 
+// AI proposal audit (migration 0432): every decision on a proposal from a
+// background AI worker or an MCP client. Written only by the proposal service
+// (@evtivity/services/ai-proposal.service).
+export const aiProposalAuditActionEnum = pgEnum('ai_proposal_audit_action', [
+  'created',
+  'confirmed',
+  'executed',
+  'failed',
+  'rejected',
+  'expired',
+  'stale',
+]);
+
+export const aiProposalAuditLog = pgTable(
+  'ai_proposal_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    aiProposalId: text('ai_proposal_id'),
+    aiProposalIdSnapshot: text('ai_proposal_id_snapshot').notNull(),
+    action: aiProposalAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_ai_proposal_audit_proposal_id').on(table.aiProposalId),
+    index('idx_ai_proposal_audit_created_at').on(table.createdAt),
+  ],
+);
+
+// Automatic insight audit (migration 0423): an operator regenerated or
+// dismissed an insight, or marked it helpful or wrong. Written only by the
+// insight service (`@evtivity/services/ai-insight.service`).
+export const aiInsightAuditActionEnum = pgEnum('ai_insight_audit_action', [
+  'regenerated',
+  'dismissed',
+  'feedback_helpful',
+  'feedback_wrong',
+]);
+
+export const aiInsightAuditLog = pgTable(
+  'ai_insight_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    aiInsightId: text('ai_insight_id'),
+    aiInsightIdSnapshot: text('ai_insight_id_snapshot').notNull(),
+    action: aiInsightAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_ai_insight_audit_insight_id').on(table.aiInsightId),
+    index('idx_ai_insight_audit_created_at').on(table.createdAt),
+  ],
+);
+
 // Map of every audit table keyed by the entityType used in API filters.
 // Used by the global GET /v1/audit endpoint (UNION over all tables) and by
 // the worker retention prune job (DELETE FROM each).
@@ -995,6 +1066,8 @@ export const AUDIT_TABLES = {
   session: sessionAuditLog,
   invoice: invoiceAuditLog,
   ai_conversation: aiConversationAuditLog,
+  ai_proposal: aiProposalAuditLog,
+  ai_insight: aiInsightAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

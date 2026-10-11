@@ -2,14 +2,26 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { and, asc, eq, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
-import { db, aiAttachments, aiConversations, getAiSettings } from '@evtivity/database';
+import {
+  db,
+  aiAttachments,
+  aiConversations,
+  aiInsightCooldowns,
+  aiInsights,
+  aiMcpCalls,
+  getAiSettings,
+} from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 import { deleteObject, loadS3Config } from '@evtivity/services/s3-storage';
+import { pruneAiProposals } from '@evtivity/services/ai-proposal.service';
+import { pruneAiWorkerRuns } from '@evtivity/services/ai-workers/runs';
 import { config } from '../lib/config.js';
 
 const BATCH_SIZE = 200;
 // Bounds one run; the next hourly tick continues.
 const MAX_BATCHES = 25;
+// MCP call rows are kept at least this long (see pruneMcpCalls).
+const MIN_MCP_CALL_RETENTION_DAYS = 3;
 
 /**
  * Attachments to remove: marked deleted (attachment or conversation deleted,
@@ -73,19 +85,106 @@ async function pruneConversations(retentionDays: number): Promise<number> {
 }
 
 /**
+ * Deletes MCP call log rows older than the retention. The API's MCP call service
+ * writes them; this cron is their only
+ * deleter.
+ */
+async function pruneMcpCalls(retentionDays: number): Promise<number> {
+  let deleted = 0;
+  for (let batch = 0; batch < MAX_BATCHES; batch++) {
+    const ids = (
+      await db
+        .select({ id: aiMcpCalls.id })
+        .from(aiMcpCalls)
+        .where(lt(aiMcpCalls.createdAt, sql`now() - make_interval(days => ${retentionDays})`))
+        .limit(BATCH_SIZE)
+    ).map((r) => r.id);
+    if (ids.length === 0) break;
+    await db.delete(aiMcpCalls).where(inArray(aiMcpCalls.id, ids));
+    deleted += ids.length;
+    if (ids.length < BATCH_SIZE) break;
+  }
+  return deleted;
+}
+
+/**
+ * Automatic insights older than `aiInsights.retentionDays` (default 90),
+ * with their texts (cascade), and cooldowns that ended a day ago or more (a
+ * claim recreates its row). Members of a deleted site incident keep their
+ * own retention (the parent link is cleared). Insight audit rows stay (audit
+ * retention). Returns the counts.
+ */
+export async function pruneInsights(
+  retentionDays: number,
+): Promise<{ insights: number; cooldowns: number }> {
+  let insights = 0;
+  for (let batch = 0; batch < MAX_BATCHES; batch++) {
+    const ids = (
+      await db
+        .select({ id: aiInsights.id })
+        .from(aiInsights)
+        .where(lt(aiInsights.createdAt, sql`now() - make_interval(days => ${retentionDays})`))
+        .limit(BATCH_SIZE)
+    ).map((r) => r.id);
+    if (ids.length === 0) break;
+    await db.delete(aiInsights).where(inArray(aiInsights.id, ids));
+    insights += ids.length;
+    if (ids.length < BATCH_SIZE) break;
+  }
+  const cooldowns = await db
+    .delete(aiInsightCooldowns)
+    .where(lt(aiInsightCooldowns.nextAllowedAt, sql`now() - interval '1 day'`))
+    .returning({ kind: aiInsightCooldowns.kind });
+  return { insights, cooldowns: cooldowns.length };
+}
+
+/**
  * Hourly cron `ai-retention-prune` (plan 3.8 step 6): deletes expired AI
- * conversations, then the S3 objects
+ * conversations and insights, then the S3 objects
  * of expired AI chat attachments, then their rows. A row is deleted only after
  * its objects, so a failed S3 call leaves it for the next run (P4). S3 answers
  * success for a key already gone, so a rerun is idempotent (P7). One failed
  * row is logged and the others continue (P9).
  */
 export async function aiRetentionPruneHandler(log: Logger): Promise<void> {
-  const retentionDays = (await getAiSettings()).limits.conversationRetentionDays;
+  const aiSettings = await getAiSettings();
+  const retentionDays = aiSettings.limits.conversationRetentionDays;
   const conversations = await pruneConversations(retentionDays);
   if (conversations > 0) {
     log.info({ conversations }, 'ai-retention-prune: expired conversations deleted');
   }
+  // --- R5 AI proposals and worker runs (lane block) ---
+  // Same window as insights (aiInsights.retentionDays, 90 days by default,
+  // decision D5): the plan names no retention of its own for proposals.
+  const workerRetentionDays = (await getAiSettings()).insights.retentionDays;
+  const proposals = await pruneAiProposals(workerRetentionDays);
+  const workerRuns = await pruneAiWorkerRuns(workerRetentionDays);
+  if (proposals > 0 || workerRuns > 0) {
+    log.info({ proposals, workerRuns }, 'ai-retention-prune: old AI proposals and runs deleted');
+  }
+  // --- end R5 ---
+  // --- R4 MCP call log (lane block) ---
+  try {
+    // A delivered row is the single-use claim of an MCP request state, which
+    // stays valid up to two days (proposal TTL plus the delivery window).
+    const mcpCalls = await pruneMcpCalls(Math.max(retentionDays, MIN_MCP_CALL_RETENTION_DAYS));
+    if (mcpCalls > 0) log.info({ mcpCalls }, 'ai-retention-prune: expired MCP calls deleted');
+  } catch (err) {
+    // The attachment pass below still runs; the next hourly run retries (P9).
+    log.warn({ err }, 'ai-retention-prune: MCP call prune failed');
+  }
+  // --- end R4 ---
+  // --- R2 automatic insights (lane block) ---
+  try {
+    const pruned = await pruneInsights(aiSettings.insights.retentionDays);
+    if (pruned.insights + pruned.cooldowns > 0) {
+      log.info(pruned, 'ai-retention-prune: expired insights deleted');
+    }
+  } catch (err) {
+    // The attachment pass below still runs; the next hourly run retries.
+    log.warn({ err }, 'ai-retention-prune: insight prune failed');
+  }
+  // --- end R2 ---
   const [pending] = await db
     .select({ id: aiAttachments.id })
     .from(aiAttachments)

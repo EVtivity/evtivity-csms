@@ -4,6 +4,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router';
 
 const { putMock, getMock, permissions } = vi.hoisted(() => ({
   putMock: vi.fn(),
@@ -14,7 +15,11 @@ const { putMock, getMock, permissions } = vi.hoisted(() => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'de' } }),
 }));
-vi.mock('@/lib/auth', () => ({ useHasPermission: () => permissions.write }));
+vi.mock('@/lib/auth', () => ({
+  useHasPermission: () => permissions.write,
+  // The Usage sub-tab (all-site users only) has its own test (AiUsage.test.tsx).
+  useHasAllSiteAccess: () => false,
+}));
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>();
   return { ...actual, api: { put: putMock, get: getMock } };
@@ -26,6 +31,7 @@ const DEFAULTS = {
   language: 'de',
   chatbot: { prompt: 'Du bist der EVtivity-Assistent.', fixedRules: 'Security rules: chatbot' },
   support: { prompt: 'Du entwirfst Antworten.', fixedRules: 'Security rules: support' },
+  ops: { prompt: 'Du analysierst Störungen.', fixedRules: 'Security rules: ops' },
   providers: [
     {
       id: 'deepseek',
@@ -64,7 +70,9 @@ function renderSettings(overrides: Record<string, unknown> = {}): QueryClient {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <AiSettings settings={{ ...SETTINGS, ...overrides }} />
+      <MemoryRouter>
+        <AiSettings settings={{ ...SETTINGS, ...overrides }} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
   return client;
@@ -93,9 +101,10 @@ describe('AiSettings system prompt', () => {
     });
     expect(getMock).toHaveBeenCalledWith('/v1/settings/ai/defaults?language=de');
     expect(chatbotPrompt().readOnly).toBe(true);
-    expect(screen.getAllByText('settings.aiPromptDefaultBadge').length).toBe(2);
+    // Assistant, support AI and system-initiated AI each show their built-in prompt.
+    expect(screen.getAllByText('settings.aiPromptDefaultBadge').length).toBe(3);
     expect(screen.getByText('Security rules: chatbot')).toBeTruthy();
-    expect(screen.getAllByText('settings.aiFixedRulesNote').length).toBe(2);
+    expect(screen.getAllByText('settings.aiFixedRulesNote').length).toBe(3);
   });
 
   it('Edit copies the default, and saving it unchanged stores nothing', async () => {

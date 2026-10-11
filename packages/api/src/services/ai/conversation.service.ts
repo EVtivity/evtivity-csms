@@ -20,16 +20,17 @@ import {
   writeAudit,
 } from '@evtivity/database';
 import type { AuditActor } from '@evtivity/database';
-import { generateId } from '@evtivity/lib';
+import { aiArgsHash, generateId } from '@evtivity/lib';
 import type {
   AiMessage,
   AiPart,
   AiProviderState,
   AiToolResultPart,
   AiUsage,
-} from './core/types.js';
+} from '@evtivity/ai/core';
 import type { AiSurface } from './tools/policy.js';
-import type { RedactionCounts } from './tools/redact.js';
+import type { RedactionCounts } from '@evtivity/ai/redact';
+import type { AiContextKind } from '@evtivity/lib/ai-insights';
 
 export interface AuditActorFields {
   actor: AuditActor;
@@ -59,22 +60,6 @@ function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
-/** JSON with sorted object keys, so equal arguments hash equally. */
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(',')}]`;
-  if (value != null && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`;
-  }
-  return value === undefined ? 'null' : JSON.stringify(value);
-}
-
-export function argsHash(args: unknown): string {
-  return sha256(canonicalJson(args));
-}
-
 async function audit(
   conversationId: string,
   action: string,
@@ -83,7 +68,7 @@ async function audit(
     before?: unknown;
     after?: unknown;
     notes?: string | null;
-    viaAi?: { conversationId: string; toolCallId: string };
+    viaAi?: { channel: 'chat'; conversationId: string; toolCallId: string };
   },
   logger?: Logger,
 ): Promise<void> {
@@ -116,6 +101,8 @@ export async function createConversation(
     provider: string;
     model: string;
     title?: string;
+    /** Explain: the record the conversation is about, access already checked by the caller. */
+    context?: { kind: AiContextKind; id: string } | null;
   },
   actor: AuditActorFields,
   logger?: Logger,
@@ -130,6 +117,8 @@ export async function createConversation(
       provider: input.provider,
       model: input.model,
       title: (input.title ?? '').slice(0, MAX_TITLE_LENGTH),
+      contextKind: input.context?.kind ?? null,
+      contextId: input.context?.id ?? null,
     })
     .returning();
   if (row === undefined) throw new Error('ai_conversations insert returned no row');
@@ -137,7 +126,16 @@ export async function createConversation(
     row.id,
     'created',
     actor,
-    { after: { surface: row.surface, supportCaseId: row.supportCaseId, title: row.title } },
+    {
+      after: {
+        surface: row.surface,
+        supportCaseId: row.supportCaseId,
+        title: row.title,
+        ...(row.contextKind !== null
+          ? { contextKind: row.contextKind, contextId: row.contextId }
+          : {}),
+      },
+    },
     logger,
   );
   return row;
@@ -391,24 +389,6 @@ export async function replaceToolResult(
   });
 }
 
-/** Total tokens (input and output) the user's conversations used since `since`. */
-export async function tokensUsedSince(userId: string, since: Date): Promise<number> {
-  const [row] = await db
-    .select({
-      total: sql<string>`COALESCE(SUM(COALESCE((${aiMessages.usage}->>'inputTokens')::bigint, 0) + COALESCE((${aiMessages.usage}->>'outputTokens')::bigint, 0)), 0)`,
-    })
-    .from(aiMessages)
-    .innerJoin(aiConversations, eq(aiConversations.id, aiMessages.conversationId))
-    .where(
-      and(
-        eq(aiConversations.userId, userId),
-        sql`${aiMessages.createdAt} >= ${since.toISOString()}::timestamptz`,
-        sql`${aiMessages.usage} IS NOT NULL`,
-      ),
-    );
-  return Number(row?.total ?? 0);
-}
-
 // ---------------------------------------------------------------------------
 // Tool calls
 // ---------------------------------------------------------------------------
@@ -452,7 +432,7 @@ export async function recordToolCall(
         args: input.args,
         status: input.status,
       },
-      viaAi: { conversationId: input.conversationId, toolCallId: id },
+      viaAi: { channel: 'chat', conversationId: input.conversationId, toolCallId: id },
     },
     logger,
   );
@@ -504,7 +484,7 @@ export async function createPendingAction(input: {
     toolCallId: input.toolCallId,
     operationId: input.operationId,
     args: input.args,
-    argsHash: argsHash(input.args),
+    argsHash: aiArgsHash(input.args),
     nonceHash: sha256(nonce),
     expiresAt,
   });
@@ -563,7 +543,7 @@ export async function decidePendingAction(input: {
       .where(and(eq(aiPendingActions.id, action.id), eq(aiPendingActions.status, 'pending')));
     return { kind: 'expired', action };
   }
-  if (argsHash(action.args) !== action.argsHash) return { kind: 'invalid' };
+  if (aiArgsHash(action.args) !== action.argsHash) return { kind: 'invalid' };
   const [decided] = await db
     .update(aiPendingActions)
     .set({ status: input.decision, decidedAt: now })
@@ -615,7 +595,11 @@ export async function auditDecision(
     actor,
     {
       after: { actionId: action.id, operationId: action.operationId },
-      viaAi: { conversationId: action.conversationId, toolCallId: action.toolCallRowId },
+      viaAi: {
+        channel: 'chat',
+        conversationId: action.conversationId,
+        toolCallId: action.toolCallRowId,
+      },
     },
     logger,
   );

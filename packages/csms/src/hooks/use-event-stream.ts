@@ -7,6 +7,7 @@ import { tryParseJson } from '@evtivity/lib/safe-json';
 import { API_BASE_URL } from '../lib/config';
 import { useAuth } from '../lib/auth';
 import { getQueryKeysForEvent, IMMEDIATE_EVENT_TYPES, type CsmsEvent } from './event-query-keys';
+import { useAiUsageNotices } from '../components/ai/usage/usage-notices';
 
 const BASE_URL = API_BASE_URL;
 
@@ -116,6 +117,8 @@ export function useEventStream(): void {
           return;
         }
         const event = parsed as CsmsEvent;
+        // Budget threshold banners need the event itself, not only a refetch.
+        if (event.eventType === 'ai.usage.threshold') useAiUsageNotices.getState().record(parsed);
 
         const keys = getQueryKeysForEvent(event);
         if (keys.length === 0) return;

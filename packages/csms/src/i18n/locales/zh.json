@@ -173,7 +173,8 @@
     "openMenu": "打开菜单",
     "closeMenu": "关闭菜单",
     "audit": "审计",
-    "maintenance": "维护"
+    "maintenance": "维护",
+    "aiInbox": "AI 收件箱"
   },
   "roaming": {
     "partners": {
@@ -451,7 +452,12 @@
     "billedOnAccount": "车队挂账",
     "billedOnAccountSessions": "未付记账会话",
     "costMissingNotice": "没有电力成本的会话不计入利润：{{count}} 个（收入 {{revenue}}）。",
-    "costMissingSites": "为以下站点设置电价："
+    "costMissingTitle": "缺少电力成本",
+    "costMissingNoRates": "为以下站点设置电价：{{site}}",
+    "costMissingSessions_one": "{{site}} 有 {{count}} 个会话没有电力成本",
+    "costMissingSessions_other": "{{site}} 有 {{count}} 个会话没有电力成本",
+    "costMissingMoreSites_one": "还有 {{count}} 个站点",
+    "costMissingMoreSites_other": "还有 {{count}} 个站点"
   },
   "sites": {
     "title": "站点",
@@ -567,7 +573,17 @@
     "electricityRateDaysOfWeek": "星期",
     "electricityRatesMissing": "此站点没有电价。其会话没有电力成本，不计入利润。",
     "electricityRatesNoDefault": "此站点没有默认电价。在其电价时段之外结束的会话没有电力成本，不计入利润。",
-    "electricityRatesOpen": "设置电价"
+    "electricityRatesOpen": "设置电价",
+    "electricityCostRecalculate": "重新计算电力成本",
+    "electricityCostRecalculateTitle": "重新计算电力成本？",
+    "electricityCostRecalculateConfirm": "{{site}} 中没有电力成本的会话将按站点当前电价计算成本，采用每个会话结束时生效的电价。已有成本不会更改。",
+    "electricityCostRecalculated_one": "已为 {{count}} 个会话添加电力成本",
+    "electricityCostRecalculated_other": "已为 {{count}} 个会话添加电力成本",
+    "electricityCostRecalculateNone": "没有会话获得电力成本",
+    "electricityCostRecalculateRemaining_one": "{{count}} 个会话仍没有电力成本：其结束时没有适用的电价。",
+    "electricityCostRecalculateRemaining_other": "{{count}} 个会话仍没有电力成本：其结束时没有适用的电价。",
+    "electricityCostRecalculateMore_one": "{{count}} 个会话仍没有电力成本。请再次重新计算以继续。",
+    "electricityCostRecalculateMore_other": "{{count}} 个会话仍没有电力成本。请再次重新计算以继续。"
   },
   "stations": {
     "title": "充电站",
@@ -1072,7 +1088,11 @@
       "unbilled": "未开票",
       "invoiced": "已开票",
       "paid": "已支付"
-    }
+    },
+    "electricityCostAll": "全部",
+    "electricityCostMissing": "缺失",
+    "costMissingNotice": "这些会话没有电力成本，不计入利润。",
+    "costMissingSelectSite": "这些会话没有电力成本，不计入利润。选择一个站点以重新计算其成本。"
   },
   "drivers": {
     "title": "驾驶员",
@@ -1334,6 +1354,7 @@
       "audit": "审计日志",
       "maintenance": "维护",
       "aiAssistant": "AI 助手",
+      "aiInsights": "自动洞察",
       "settings": {
         "system": "系统",
         "notification": "通知",
@@ -1346,7 +1367,10 @@
         "smartCharging": "智能充电",
         "ai": "AI",
         "conformance": "合规测试"
-      }
+      },
+      "aiProposals": "AI 提议",
+      "aiUsage": "AI 用量",
+      "aiMcp": "MCP 访问"
     }
   },
   "profile": {
@@ -1398,7 +1422,10 @@
     "mfaQrCode": "身份验证器应用二维码",
     "chatbotAiDescription": "您自己的 AI 助手配置。对您而言，它会覆盖系统设置。",
     "aiRemoveConfig": "移除配置",
-    "aiRemoveConfirm": "移除您的个人配置？系统设置将重新生效。"
+    "aiRemoveConfirm": "移除您的个人配置？系统设置将重新生效。",
+    "aiDigestEmail": "AI 收件箱摘要邮件",
+    "aiDigestEmailDescription": "每天发送一封邮件，列出您站点待处理的 AI 提议数量。",
+    "notificationsSaveFailed": "无法保存通知偏好设置，请重试。"
   },
   "fleets": {
     "title": "车队",
@@ -2481,6 +2508,11 @@
         "title": "支持 AI",
         "description": "为工单起草回复，供运营人员审阅。",
         "enabled": "启用支持 AI"
+      },
+      "ops": {
+        "title": "自动洞察与后台任务",
+        "description": "自动洞察和后台任务使用的模型。它们在没有用户的情况下运行，并使用公司的提供商密钥。",
+        "enabled": "开启系统发起的 AI"
       }
     },
     "aiLimitsTitle": "AI 限制",
@@ -2492,10 +2524,48 @@
       "maxToolCallsPerTurn": "每次回答的工具调用数",
       "conversationRetentionDays": "对话保留天数",
       "attachmentsMaxBytes": "附件大小上限（字节）",
-      "attachmentsMaxPerMessage": "每条消息的附件数"
+      "attachmentsMaxPerMessage": "每条消息的附件数",
+      "companyMonthlyTokens": "公司每月 Token 数",
+      "siteMonthlyTokens": "每个站点每月 Token 数",
+      "siteDailyTokens": "每个站点每天 Token 数（洞察和后台任务）",
+      "warnPercent": "预警阈值（预算的 %）"
     },
     "aiLimitRange": "范围 {{min}} 至 {{max}}。",
-    "aiLimitZeroNoBudget": "0 表示不设每日上限。"
+    "aiLimitZeroNoBudget": "0 表示不设每日上限。",
+    "aiOpsDataWarning": "开启后，充电桩、会话和令牌状态数据会在没有用户操作的情况下发送给所配置的提供商。",
+    "aiInsightsSettings": {
+      "title": "自动洞察",
+      "station": "充电桩洞察",
+      "session": "会话洞察",
+      "authorization": "授权洞察",
+      "debounceSeconds": "分析前等待时间（秒）",
+      "cooldownMinutes": "每个充电桩、会话或令牌的冷却时间（分钟）",
+      "siteIncidentThreshold": "一个站点内合并为一个站点事件的故障充电桩数",
+      "maxPerSitePerDay": "每个站点每天的洞察数",
+      "primaryLanguage": "摘要语言",
+      "retentionDays": "洞察保留天数"
+    },
+    "aiMcp": {
+      "title": "MCP 服务器",
+      "description": "允许 MCP 客户端使用具有 MCP 访问权限的 API 密钥调用 AI 工具。每次更改都需要您在 AI 收件箱中确认。",
+      "enabled": "开启 MCP 服务器",
+      "rateLimitPerMinute": "每个 API 密钥每分钟调用次数",
+      "dailyCallsPerKey": "每个 API 密钥每天调用次数",
+      "proposalTtlMinutes": "批准 MCP 更改的时限（分钟）",
+      "allowedOrigins": "允许的来源",
+      "allowedOriginsHint": "每行一个来源，例如 https://app.example.com。留空则拒绝来自浏览器的请求。",
+      "allowedOriginsInvalid": "每行输入一个 http 或 https 来源，不含路径。",
+      "endpoint": "端点",
+      "endpointHint": "将 MCP 客户端指向此 URL，并使用具有 MCP 访问权限的 API 密钥。",
+      "writeScopeHint": "密钥需要 MCP 写入权限和充电站读取权限才能提出更改。",
+      "toolsets": "工具类别",
+      "toolsetsHint": "在 URL 后添加 ?toolsets=stations,sessions。默认：{{toolsets}}。",
+      "writesHint": "更改会成为提议，由同一用户在 AI 收件箱中批准。",
+      "protocolNote": "支持 MCP 2026-07-28；旧版客户端通过轮询批准。"
+    },
+    "aiUsageTab": "用量",
+    "aiLimitZeroNoLimit": "0 表示不设上限。",
+    "aiConfigTab": "配置"
   },
   "pnc": {
     "certificates": "证书",
@@ -2661,10 +2731,12 @@
       "fleet.InvoiceRunFailed": "车队月度开票失败",
       "invoice.FleetInvoice": "车队发票已开具",
       "invoice.FleetCreditNote": "车队贷项通知单已开具",
-      "invoice.FleetOverdue": "车队发票逾期"
+      "invoice.FleetOverdue": "车队发票逾期",
+      "ai.ProposalDigest": "AI 提议摘要"
     },
     "templatePreviewInvalid": "模板存在错误：",
-    "htmlPreview": "HTML 预览"
+    "htmlPreview": "HTML 预览",
+    "aiEvents": "AI"
   },
   "reservations": {
     "title": "预约",
@@ -3073,7 +3145,19 @@
     "LOCAL_CA_NOT_CONFIGURED": "请先创建本地合同 CA",
     "PNC_CONTRACT_NOT_FOUND": "未找到 Plug & Charge 合同",
     "PHONE_REGISTRATION_LIMITED": "使用此电话号码注册的账户过多。请稍后再试。",
-    "VERIFICATION_RESEND_LIMITED": "验证邮件请求过多。请稍后再请求。"
+    "VERIFICATION_RESEND_LIMITED": "验证邮件请求过多。请稍后再请求。",
+    "AI_INSIGHT_NOT_FOUND": "未找到洞察",
+    "AI_INSIGHT_COOLDOWN": "此洞察最近已重新生成，请稍后再试",
+    "AI_INSIGHTS_DISABLED": "自动洞察已关闭",
+    "AI_SITE_BUDGET_EXCEEDED": "已达到站点每日 AI 使用上限",
+    "AI_MONTHLY_BUDGET_EXCEEDED": "已达到每月 AI 使用上限",
+    "AI_CONTEXT_NOT_FOUND": "未找到要解释的记录",
+    "AI_PROPOSAL_NOT_FOUND": "未找到提议",
+    "AI_PROPOSAL_EXPIRED": "此提议已过期",
+    "AI_PROPOSAL_STALE": "情况已变化，此提议不再适用",
+    "AI_PROPOSAL_ALREADY_DECIDED": "此提议已处理",
+    "AI_CONFIRMATION_REQUIRES_SESSION": "请登录控制台确认此操作，不能使用 API 密钥",
+    "AI_MCP_RATE_LIMITED": "MCP 请求过多，请稍后再试"
   },
   "logs": {
     "title": "日志",
@@ -3808,6 +3892,22 @@
         "p2": "如何添加新的充电站？",
         "p3": "显示本周故障最多的充电站"
       }
+    },
+    "explain": {
+      "button": "解释",
+      "buttonTitle": "请助手解释此记录",
+      "station": "这个充电站为什么离线或故障，我应该怎么做？",
+      "session": "这个会话为什么失败，我应该怎么做？",
+      "authorization": "这次授权为什么被拒绝，我应该怎么做？",
+      "insightShown": "正在显示最新的自动洞察",
+      "followUp": "继续提问",
+      "contextUnavailable": "此记录已不可用。",
+      "about": "关于{{record}} {{label}}",
+      "kind": {
+        "station": "充电站",
+        "session": "会话",
+        "authorization": "授权"
+      }
     }
   },
   "sustainability": {
@@ -4035,7 +4135,16 @@
       "updated": "已更新",
       "uploaded": "已上传",
       "used": "已使用",
-      "voided": "已作废"
+      "voided": "已作废",
+      "regenerated": "已重新生成",
+      "dismissed": "已忽略",
+      "feedback_helpful": "标记为有用",
+      "feedback_wrong": "标记为错误",
+      "confirmed": "已确认",
+      "executed": "已执行",
+      "failed": "失败",
+      "rejected": "已驳回",
+      "stale": "不再适用"
     },
     "entities": {
       "site": "站点",
@@ -4064,7 +4173,9 @@
       "maintenance_event": "维护窗口",
       "session": "会话",
       "invoice": "发票",
-      "ai_conversation": "AI 对话"
+      "ai_conversation": "AI 对话",
+      "ai_insight": "自动洞察",
+      "ai_proposal": "AI 提议"
     },
     "actors": {
       "operator": "运营商",
@@ -4396,5 +4507,348 @@
     "undo": "撤销",
     "redo": "重做",
     "htmlSource": "HTML 源代码"
+  },
+  "aiInsights": {
+    "title": "自动洞察",
+    "activeInsights": "活跃洞察",
+    "empty": "暂无洞察",
+    "summaryTranslating": "正在翻译…",
+    "summaryUnavailable": "没有可用的翻译，显示原文。",
+    "showOriginal": "显示原文",
+    "hideOriginal": "隐藏原文",
+    "knownCause": "已知原因",
+    "categoryLabel": "根本原因",
+    "confidenceLabel": "置信度",
+    "fixesLabel": "建议措施",
+    "siteScopeLabel": "本站点",
+    "networkScopeLabel": "所有站点",
+    "regenerate": "重新生成",
+    "dismiss": "忽略",
+    "helpful": "有用",
+    "wrong": "错误",
+    "feedbackThanks": "感谢您的反馈",
+    "badge": {
+      "resolved": "已解决",
+      "outOfDate": "已过时"
+    },
+    "category": {
+      "connectivity": "连接",
+      "power_supply": "电源",
+      "hardware": "硬件",
+      "firmware": "固件",
+      "configuration": "配置",
+      "token": "令牌",
+      "payment": "支付",
+      "tariff": "费率",
+      "vehicle": "车辆",
+      "backend": "后端",
+      "unknown": "未知"
+    },
+    "confidence": {
+      "low": "低",
+      "medium": "中",
+      "high": "高"
+    },
+    "status": {
+      "pending": "分析中",
+      "active": "活跃",
+      "resolved": "已解决",
+      "superseded": "已被取代",
+      "skipped": "已跳过",
+      "failed": "失败",
+      "dismissed": "已忽略"
+    },
+    "kind": {
+      "station_offline": "充电站离线",
+      "station_faulted": "充电站故障",
+      "station_alert": "充电站告警",
+      "session_failed": "会话失败",
+      "authorization_refused": "授权被拒",
+      "site_incident": "站点事件",
+      "site_summary": "站点摘要",
+      "company_summary": "网络摘要",
+      "tariff_anomaly": "费率异常"
+    },
+    "skipReason": {
+      "resolved_before_analysis": "分析前已解决",
+      "cooldown": "最近已分析",
+      "site_daily_cap": "已达到站点每日洞察上限",
+      "site_disabled": "此站点的洞察已关闭",
+      "budget_exceeded": "AI 预算已用完",
+      "disabled": "自动洞察已关闭"
+    },
+    "fix": {
+      "check_network_connection": "检查充电站的网络连接",
+      "check_power_supply": "检查电源",
+      "reboot_station": "重启充电站",
+      "inspect_connector": "检查充电枪",
+      "update_firmware": "更新固件",
+      "review_station_configuration": "检查充电站配置",
+      "contact_station_vendor": "联系充电站厂商",
+      "review_token_status": "检查令牌状态",
+      "push_local_auth_list": "推送本地授权列表",
+      "check_roaming_partner": "检查漫游合作伙伴",
+      "ask_driver_to_add_payment_method": "请驾驶员添加支付方式",
+      "review_payment_settings": "检查支付设置",
+      "review_fleet_credit_limit": "检查车队信用额度",
+      "review_tariff_assignment": "检查费率分配",
+      "ask_driver_to_retry": "请驾驶员重试",
+      "check_vehicle_compatibility": "检查车辆兼容性",
+      "end_concurrent_session": "结束并发会话",
+      "check_csms_status": "检查 CSMS 状态",
+      "monitor": "继续观察"
+    },
+    "scope": {
+      "stations_one": "{{count}} 个充电站",
+      "stations_other": "{{count}} 个充电站",
+      "stationsOffline_one": "{{count}} 个充电站离线",
+      "stationsOffline_other": "{{count}} 个充电站离线",
+      "stationsFaulted_one": "{{count}} 个充电站故障",
+      "stationsFaulted_other": "{{count}} 个充电站故障",
+      "sameErrorCode_one": "{{count}} 个充电站出现相同错误代码",
+      "sameErrorCode_other": "{{count}} 个充电站出现相同错误代码",
+      "sessionsInterrupted_one": "{{count}} 个会话中断",
+      "sessionsInterrupted_other": "{{count}} 个会话中断",
+      "sessionsFailedSameReason24h_one": "24 小时内 {{count}} 个会话因相同原因失败",
+      "sessionsFailedSameReason24h_other": "24 小时内 {{count}} 个会话因相同原因失败",
+      "tokenRefusals_one": "{{count}} 次令牌被拒",
+      "tokenRefusals_other": "{{count}} 次令牌被拒"
+    },
+    "regenerateQueued": "正在生成新的洞察。",
+    "widget": {
+      "info": "自动分析在您的站点中发现的未解决问题。站点事件优先，其次按严重程度和时间排序。",
+      "empty": "没有未解决的洞察",
+      "viewAll": "查看全部",
+      "similar_other": "另有 {{count}} 条类似",
+      "similar_one": "另有 {{count}} 条类似",
+      "atDetection": "检测时 {{value}}"
+    },
+    "confidenceBadge": {
+      "low": "置信度低",
+      "medium": "置信度中",
+      "high": "置信度高"
+    },
+    "headline": {
+      "station_offline": "{{station}} 离线",
+      "station_faulted": "{{station}} 故障",
+      "station_alert": "{{station}} 告警",
+      "session_failed": "{{station}} 会话失败",
+      "authorization_refused": "{{station}} 授权被拒",
+      "site_incident": "{{site}} 发生事件",
+      "siteIncidentOffline_other": "{{site}} 有 {{count}} 个充电站离线",
+      "siteIncidentOffline_one": "{{site}} 有 {{count}} 个充电站离线",
+      "siteIncidentFaulted_other": "{{site}} 有 {{count}} 个充电站故障",
+      "siteIncidentFaulted_one": "{{site}} 有 {{count}} 个充电站故障",
+      "tariff_anomaly": "{{site}} 资费异常",
+      "site_summary": "{{site}} 每日摘要",
+      "company_summary": "网络每日摘要",
+      "noStation": "未知充电站",
+      "noSite": "无站点"
+    },
+    "list": {
+      "title": "AI 洞察",
+      "subtitle": "自动分析在您的站点中发现的内容。",
+      "allStatuses": "所有状态",
+      "kind": "类型",
+      "allKinds": "所有类型",
+      "allCategories": "所有根本原因",
+      "site": "站点",
+      "allSites": "所有站点",
+      "insight": "洞察",
+      "station": "充电站"
+    },
+    "detail": {
+      "recordTitle": "详细信息",
+      "session": "会话",
+      "partOf": "所属"
+    },
+    "likelyCause": "可能原因",
+    "staleNote": "此分析之后记录已变化。请重新生成以获取最新分析。",
+    "failedNote": "分析未完成。",
+    "skippedNote": "未分析：{{reason}}",
+    "scopeTable": {
+      "title": "范围",
+      "measureHeader": "指标",
+      "atDetection": "检测时",
+      "now": "当前",
+      "atDetectionHint": "分析所用的数据",
+      "nowHint": "截至 {{time}}",
+      "area": {
+        "site": "{{measure}}（站点）",
+        "network": "{{measure}}（所有站点）"
+      },
+      "measure": {
+        "stations": "充电站",
+        "stationsOffline": "离线充电站",
+        "stationsFaulted": "故障充电站",
+        "sameErrorCode": "相同错误代码（24 小时）",
+        "sessionsInterrupted": "中断的会话（24 小时）",
+        "sessionsFailedSameReason24h": "相同停止原因（24 小时）",
+        "tokenRefusals": "令牌拒绝（24 小时）"
+      },
+      "summaryAtDetection": "检测时 {{value}}",
+      "summaryChanged": "检测时 {{value}}，当前 {{now}}"
+    }
+  },
+  "aiInbox": {
+    "title": "AI 收件箱",
+    "description": "AI 提议的操作。在您确认之前不会执行任何操作。",
+    "empty": "暂无提议",
+    "pendingCount_one": "{{count}} 个待处理提议",
+    "pendingCount_other": "{{count}} 个待处理提议",
+    "filters": {
+      "source": "来源",
+      "job": "任务",
+      "site": "站点",
+      "status": "状态",
+      "all": "全部",
+      "search": "搜索",
+      "searchPlaceholder": "充电站、站点或操作"
+    },
+    "source": {
+      "worker": "后台任务",
+      "mcp": "MCP 客户端"
+    },
+    "job": {
+      "network_summary": "网络健康",
+      "stuck_sessions": "卡住的会话",
+      "tariff_anomalies": "费率异常"
+    },
+    "status": {
+      "pending": "待处理",
+      "executed": "已执行",
+      "failed": "失败",
+      "rejected": "已驳回",
+      "expired": "已过期",
+      "stale": "不再适用"
+    },
+    "action": {
+      "stop_transaction": "停止会话",
+      "soft_reset": "软重启充电站",
+      "change_availability": "更改充电站可用性"
+    },
+    "precondition": {
+      "session_active": "会话仍处于活动状态",
+      "station_faulted": "充电站仍处于故障状态",
+      "station_availability": "充电站可用性未变化"
+    },
+    "confirm": "确认",
+    "reject": "驳回",
+    "expiresAt": "{{time}} 过期",
+    "requestedBy": "请求人",
+    "apiKey": "API 密钥",
+    "client": "客户端",
+    "untrustedNote": "密钥名称和客户端名称来自发起请求的客户端，按原样显示。",
+    "arguments": "参数",
+    "rationale": "理由",
+    "result": "结果",
+    "executed": "操作已执行",
+    "confirmFailed": "操作未执行",
+    "stationLabel": "充电站",
+    "sessionLabel": "会话",
+    "preconditionLabel": "仅在以下条件下执行",
+    "requestedTool": "请求的工具",
+    "columns": {
+      "action": "操作",
+      "expires": "过期时间"
+    },
+    "rejectedToast": "已拒绝提议",
+    "confirmDialog": {
+      "title": "执行此操作？",
+      "note": "它将以您的权限立即执行一次。"
+    },
+    "rejectDialog": {
+      "title": "拒绝此提议？"
+    },
+    "measured": {
+      "idleTime": "空闲时间",
+      "minutes_other": "{{count}} 分钟",
+      "minutes_one": "{{count}} 分钟",
+      "lastActivity": "最近活动",
+      "faultedSince": "故障开始时间",
+      "transactionId": "交易 ID"
+    },
+    "detail": {
+      "summary": "摘要",
+      "target": "目标",
+      "requester": "请求人",
+      "timing": "时间",
+      "decided": "已决定",
+      "executedAt": "执行时间"
+    }
+  },
+  "aiWorkers": {
+    "title": "AI 后台任务",
+    "description": "可选任务，用于发现问题并提议操作。它们不会自行执行。",
+    "proposalTtlHours": "提议有效期（小时）",
+    "networkSummary": {
+      "title": "夜间网络摘要",
+      "description": "每个站点每天一份简短摘要，附带提议的操作。"
+    },
+    "stuckSessions": {
+      "title": "卡住的会话",
+      "description": "提议停止已不再上报数据的会话。",
+      "idleMinutes": "会话被视为卡住前的空闲时间（分钟）",
+      "useModel": "用 AI 撰写理由"
+    },
+    "tariffAnomalies": {
+      "title": "费率异常",
+      "description": "查找看起来有误的价格。仅提供发现结果，不提议操作。"
+    },
+    "rationale": {
+      "stuckSessionIdle": "{{minutes}} 分钟内没有电表读数或交易事件",
+      "stuckSessionOffline": "会话处于活动状态，但充电站离线",
+      "stuckSessionConnectorAvailable": "会话处于活动状态，但充电枪报告为可用"
+    },
+    "findings": {
+      "zero_cost": "收费费率下未计费的会话",
+      "station_cost_mismatch": "充电站费用与 CSMS 费用不一致",
+      "price_outlier": "每 kWh 价格远高于站点中位数",
+      "inactive_tariff": "使用已停用费率计价的会话"
+    }
+  },
+  "aiUsage": {
+    "title": "AI 用量",
+    "month": "月份",
+    "period": "期间",
+    "budget": "预算",
+    "used": "已用",
+    "percentUsed": "已用 {{percent}}%",
+    "noLimit": "不限制",
+    "company": "公司",
+    "site": "站点",
+    "sites": "站点",
+    "bySurface": "按功能",
+    "unattributed": "助手（不属于任何站点）",
+    "topUsers": "用量最多的用户",
+    "user": "用户",
+    "cost": "费用",
+    "today": "今天",
+    "todayFooter": "今天：{{used}} / {{limit}} Token",
+    "todayFooterNoLimit": "今天：{{used}} Token",
+    "thresholdWarningCompany": "本月 AI 用量已超过公司预算的 {{percent}}%。",
+    "thresholdWarningSite": "本月 {{site}} 的 AI 用量已超过其预算的 {{percent}}%。",
+    "thresholdExceededCompany": "本月公司 AI 预算已用完。",
+    "thresholdExceededSite": "本月 {{site}} 的 AI 预算已用完。",
+    "surface": {
+      "chatbot": "助手",
+      "support": "支持草稿",
+      "insight": "洞察",
+      "insight_translation": "洞察翻译",
+      "worker": "后台任务"
+    },
+    "tokens": {
+      "total": "Token",
+      "input": "输入",
+      "cachedRead": "缓存输入",
+      "cacheWrite": "缓存写入",
+      "output": "输出",
+      "reasoning": "推理"
+    },
+    "siteBudget": "每月 Token 预算",
+    "siteBudgetHelp": "留空则使用\"设置 > AI\"中的默认站点预算。0 表示不限制。",
+    "siteInsights": "自动洞察",
+    "siteInsightsHelp": "关闭后将停止此站点的自动洞察。",
+    "allSitesOnly": "只有可访问所有站点的用户才能更改此项。"
   }
 }

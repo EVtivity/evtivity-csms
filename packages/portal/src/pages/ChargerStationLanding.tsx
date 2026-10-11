@@ -118,7 +118,7 @@ export function ChargerStationLanding(): React.JSX.Element {
           {station.siteAddress != null && station.siteId != null ? (
             <Link
               to={`/location/${station.siteId}?from=${encodeURIComponent(`/charge/${stationId ?? ''}`)}`}
-              className="flex items-start gap-2 text-sm text-primary hover:underline transition-colors"
+              className="flex items-start gap-2 text-sm text-link hover:underline transition-colors"
             >
               <MapPin className="h-4 w-4 mt-0.5 text-muted-foreground" />
               <span>

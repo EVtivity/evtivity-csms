@@ -75,7 +75,7 @@ export function SiteFreeVendTab({ site, siteId }: SiteFreeVendTabProps): React.J
           <CardContent>
             <Link
               to={`/station-configurations/${site.freeVendTemplateId21}`}
-              className="text-primary hover:underline text-sm"
+              className="text-link hover:underline text-sm"
             >
               {t('sites.freeVendViewTemplate')}
             </Link>
@@ -91,7 +91,7 @@ export function SiteFreeVendTab({ site, siteId }: SiteFreeVendTabProps): React.J
           <CardContent className="space-y-2">
             <Link
               to={`/station-configurations/${site.freeVendTemplateId16}`}
-              className="text-primary hover:underline text-sm"
+              className="text-link hover:underline text-sm"
             >
               {t('sites.freeVendViewTemplate')}
             </Link>

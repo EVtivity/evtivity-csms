@@ -39,7 +39,7 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
           user?.firstName != null || user?.lastName != null ? (
             <span
               className={cn(
-                'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-primary',
+                'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-medium text-link',
               )}
             >
               {(user.firstName?.[0] ?? '').toUpperCase()}
@@ -91,7 +91,7 @@ export function UserDropdown({ collapsed, onNavClick }: UserDropdownProps): Reac
             icon: collapsed ? (
               <span className="text-sm leading-none">{lang.flag}</span>
             ) : i18n.language === lang.code ? (
-              <Check className="h-4 w-4 text-primary" />
+              <Check className="h-4 w-4 text-link" />
             ) : (
               <span className="h-4 w-4" />
             ),

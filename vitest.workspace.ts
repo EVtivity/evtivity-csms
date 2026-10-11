@@ -1,9 +1,10 @@
 import { defineConfig } from 'vitest/config';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 // Exact-match regexes: a plain string key is a prefix match, so '@evtivity/database'
 // would also rewrite '@evtivity/database/src/lib/id.js' in projects that inherit it.
-const workspaceAliases = Object.entries({
+const packageAliases = Object.entries({
   '@evtivity/lib': 'packages/lib/src/index.ts',
   '@evtivity/database': 'packages/database/src/index.ts',
   '@evtivity/payments': 'packages/payments/src/index.ts',
@@ -15,6 +16,17 @@ const workspaceAliases = Object.entries({
   find: new RegExp(`^${pkg.replace('/', '\\/')}$`),
   replacement: path.resolve(import.meta.dirname, file),
 }));
+
+// One exact-match alias per @evtivity/ai subpath export, read from its package.json,
+// so a test resolves the source file without a dist/ (CI installs without building).
+const aiPackage = JSON.parse(
+  readFileSync(path.resolve(import.meta.dirname, 'packages/ai/package.json'), 'utf8'),
+) as { exports: Record<string, { import: string }> };
+const aiAliases = Object.entries(aiPackage.exports).map(([subpath, target]) => ({
+  find: new RegExp(`^@evtivity\\/ai\\/${subpath.slice(2).replace(/[/.]/g, '\\$&')}$`),
+  replacement: path.resolve(import.meta.dirname, 'packages/ai', target.import),
+}));
+const workspaceAliases = [...packageAliases, ...aiAliases];
 
 export default defineConfig({
   resolve: {
@@ -62,6 +74,15 @@ export default defineConfig({
           name: '@evtivity/lib',
           root: 'packages/lib',
           include: ['src/**/*.test.ts'],
+        },
+      },
+      {
+        resolve: { alias: workspaceAliases },
+        test: {
+          name: '@evtivity/ai',
+          root: 'packages/ai',
+          include: ['src/**/*.test.ts'],
+          exclude: ['src/**/*.live.test.ts'],
         },
       },
       {
@@ -243,8 +264,8 @@ export default defineConfig({
             {
               resolve: { alias: workspaceAliases },
               test: {
-                name: '@evtivity/api-ai-live',
-                root: 'packages/api',
+                name: '@evtivity/ai-live',
+                root: 'packages/ai',
                 include: ['src/**/*.live.test.ts'],
                 testTimeout: 120_000,
               },

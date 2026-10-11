@@ -7,9 +7,8 @@
  * scripted adapters with `setAiProviderRegistry`.
  */
 
-import type { ProviderRegistry } from '../core/provider-registry.js';
-import type { AiAdapter, ProviderId } from '../core/types.js';
-import { getProviderRegistry } from '../providers/index.js';
+import type { ProviderRegistry, AiAdapter, ProviderId } from '@evtivity/ai/core';
+import { getProviderRegistry } from '@evtivity/ai/providers';
 import type { AiSurfaceConfig } from '../surfaces/config.js';
 
 let override: ProviderRegistry | null = null;

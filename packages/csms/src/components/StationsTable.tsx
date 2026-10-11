@@ -436,7 +436,7 @@ export function StationsTable({
               )}
               {isVisible('stationId') && (
                 <TableCell
-                  className="font-medium text-primary whitespace-nowrap"
+                  className="font-medium text-link whitespace-nowrap"
                   data-testid="row-click-target"
                 >
                   <span className="inline-flex items-center gap-1.5">
@@ -464,7 +464,7 @@ export function StationsTable({
                   {station.siteId != null ? (
                     <Link
                       to={`/sites/${station.siteId}`}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                       onClick={(e) => {
                         e.stopPropagation();
                       }}

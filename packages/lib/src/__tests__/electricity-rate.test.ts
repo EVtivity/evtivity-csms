@@ -7,6 +7,7 @@ import {
   resolveElectricityRate,
   calculateElectricityCostCents,
   deriveElectricityRatePriority,
+  computeSessionElectricityCost,
   type ElectricityRatePeriod,
   type ElectricityRatePeriodRestrictions,
 } from '../electricity-rate.js';
@@ -146,5 +147,93 @@ describe('calculateElectricityCostCents', () => {
 
   it('handles fractional kWh and sub-dollar rates', () => {
     expect(calculateElectricityCostCents(500, '0.20')).toBe(10);
+  });
+});
+
+describe('computeSessionElectricityCost', () => {
+  // The seeded shape: a flat Standard default and a weekday evening peak.
+  const standard = period({ id: 1, name: 'Standard', ratePerKwh: '0.12', restrictions: null });
+  const peak = period({
+    id: 2,
+    name: 'Weekday Peak',
+    ratePerKwh: '0.22',
+    restrictions: {
+      timeRange: { startTime: '16:00', endTime: '21:00' },
+      daysOfWeek: [1, 2, 3, 4, 5],
+    },
+  });
+  const periods = [standard, peak];
+
+  it('prices the session at the period in force at its end', () => {
+    const result = computeSessionElectricityCost({
+      periods,
+      endedAt: mondayEvening,
+      energyWh: 10_000,
+      timezone: TZ,
+    });
+    expect(result).toEqual({ costCents: 220, period: peak });
+  });
+
+  it('uses the end, not the start, for a session that crosses a peak boundary', () => {
+    // Started Monday 15:30 at the standard rate, ended 16:30 in the peak.
+    const peakEnd = computeSessionElectricityCost({
+      periods,
+      endedAt: new Date('2026-06-08T16:30:00Z'),
+      energyWh: 10_000,
+      timezone: TZ,
+    });
+    expect(peakEnd.costCents).toBe(220);
+    // Started 20:30 in the peak, ended 21:30 at the standard rate.
+    const standardEnd = computeSessionElectricityCost({
+      periods,
+      endedAt: new Date('2026-06-08T21:30:00Z'),
+      energyWh: 10_000,
+      timezone: TZ,
+    });
+    expect(standardEnd.costCents).toBe(120);
+  });
+
+  it('resolves the period in the site timezone', () => {
+    // 22:00 UTC on a Monday is 17:00 in America/Chicago (CDT), inside the peak.
+    const at = new Date('2026-06-08T22:00:00Z');
+    expect(
+      computeSessionElectricityCost({ periods, endedAt: at, energyWh: 10_000, timezone: 'UTC' })
+        .costCents,
+    ).toBe(120);
+    expect(
+      computeSessionElectricityCost({
+        periods,
+        endedAt: at,
+        energyWh: 10_000,
+        timezone: 'America/Chicago',
+      }).costCents,
+    ).toBe(220);
+  });
+
+  it('matches resolveElectricityRate and calculateElectricityCostCents', () => {
+    const at = new Date('2026-06-10T18:45:00Z');
+    const rate = resolveElectricityRate(periods, at, TZ);
+    expect(rate).not.toBeNull();
+    expect(
+      computeSessionElectricityCost({ periods, endedAt: at, energyWh: 1234, timezone: TZ })
+        .costCents,
+    ).toBe(calculateElectricityCostCents(1234, rate?.ratePerKwh ?? '0'));
+  });
+
+  it('returns the reason when no cost applies', () => {
+    expect(
+      computeSessionElectricityCost({ periods: [], endedAt: mondayNoon, energyWh: 10_000 }),
+    ).toEqual({ costCents: null, reason: 'no_periods' });
+    expect(
+      computeSessionElectricityCost({
+        periods: [peak],
+        endedAt: mondayNoon,
+        energyWh: 10_000,
+        timezone: TZ,
+      }),
+    ).toEqual({ costCents: null, reason: 'no_matching_period' });
+    expect(
+      computeSessionElectricityCost({ periods, endedAt: mondayNoon, energyWh: 0, timezone: TZ }),
+    ).toEqual({ costCents: null, reason: 'zero_energy' });
   });
 });

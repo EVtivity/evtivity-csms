@@ -404,8 +404,8 @@ describe('Dashboard routes', () => {
     setupDbResults(
       [{ totalElectricityCostCents: 300, dayElectricityCostCents: 100 }],
       [
-        { id: 'sit_a', name: 'Alpha' },
-        { id: 'sit_b', name: 'Beta' },
+        { id: 'sit_a', name: 'Alpha', hasRatePeriods: true },
+        { id: 'sit_b', name: 'Beta', hasRatePeriods: false },
       ],
     );
     const { aggregateRevenueRows } = sessionRevenueModule;
@@ -474,8 +474,21 @@ describe('Dashboard routes', () => {
     expect(body.dayCostMissingSessionCount).toBe(1);
     expect(body.dayCostMissingRevenueCents).toBe(400);
     expect(body.costMissingSites).toEqual([
-      { siteId: 'sit_b', siteName: 'Beta', sessionCount: 2, revenueCents: 1000 },
-      { siteId: 'sit_a', siteName: 'Alpha', sessionCount: 1, revenueCents: 400 },
+      // hasRatePeriods tells "set rates" (false) from "recalculate" (true).
+      {
+        siteId: 'sit_b',
+        siteName: 'Beta',
+        hasRatePeriods: false,
+        sessionCount: 2,
+        revenueCents: 1000,
+      },
+      {
+        siteId: 'sit_a',
+        siteName: 'Alpha',
+        hasRatePeriods: true,
+        sessionCount: 1,
+        revenueCents: 400,
+      },
     ]);
   });
 

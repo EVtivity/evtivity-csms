@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api, getApiErrorCode } from '@/lib/api';
 import { ToolSteps } from '@/components/ai/ToolSteps';
-import { aiErrorText } from '@/components/ai/MessageList';
+import { aiErrorText } from '@/components/ai/ai-error-text';
 import { useAiStream } from '@/components/ai/use-ai-stream';
 import { useAiStatus } from '@/components/ai/use-ai-status';
 import type { AiToolStepView } from '@/components/ai/ai-turn';
@@ -421,7 +421,7 @@ function MessageBubble({
               onClick={() => {
                 onDownload(att);
               }}
-              className="flex items-center gap-1 text-xs text-primary hover:underline"
+              className="flex items-center gap-1 text-xs text-link hover:underline"
             >
               <Download className="h-3 w-3" />
               {att.fileName}

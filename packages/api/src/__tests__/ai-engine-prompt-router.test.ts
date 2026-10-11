@@ -2,15 +2,15 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, expect, it } from 'vitest';
-import { createScriptedAdapter } from '../services/ai/__contract__/harness.js';
+import { createScriptedAdapter } from '@evtivity/ai/testing/harness';
 import {
   SECURITY_RULES,
   SUPPORT_BODY_ONLY,
   buildSystemBlocks,
-  frameUntrusted,
 } from '../services/ai/engine/prompt.js';
+import { frameUntrusted, PROMPT_LANGUAGES } from '@evtivity/ai/prompt';
 import type { SystemPromptInput } from '../services/ai/engine/prompt.js';
-import { PROMPT_LANGUAGES, defaultSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
+import { defaultSystemPrompt } from '../services/ai/engine/prompt-defaults.js';
 import {
   mergeRoutedCategories,
   parseRoutedCategories,

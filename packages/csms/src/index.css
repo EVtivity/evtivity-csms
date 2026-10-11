@@ -22,12 +22,15 @@
 
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
+  --color-control: hsl(var(--control));
+  --color-on-tone: hsl(var(--on-tone));
   --color-ring: hsl(var(--ring));
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
 
   --color-primary: hsl(var(--primary));
   --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-link: hsl(var(--link));
 
   --color-secondary: hsl(var(--secondary));
   --color-secondary-foreground: hsl(var(--secondary-foreground));
@@ -177,6 +180,8 @@
     --popover-foreground: 222.2 84% 4.9%;
     --primary: 221.2 83.2% 53.3%;
     --primary-foreground: 210 40% 98%;
+    /* Text and links in the brand color (text-link): 5.2:1 on card, 4.9:1 on background, 4.7:1 on muted and accent. */
+    --link: 221.2 83.2% 53.3%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
     --muted: 210 40% 96.1%;
@@ -192,7 +197,11 @@
     --info: 189 94.5% 42.7%;
     --info-foreground: 210 40% 98%;
     --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    /* Form control and button boundaries: 3.3:1 on card, 3.2:1 on background (WCAG 1.4.11). */
+    --input: 215 16% 57%;
+    --control: 215 16% 57%;
+    /* Icon ink on solid tone fills (IconBadge): at least 4.2:1 on info, warning, destructive, success. */
+    --on-tone: 222.2 84% 4.9%;
     --ring: 221.2 83.2% 53.3%;
     --radius: 0.5rem;
   }
@@ -204,8 +213,11 @@
     --card-foreground: 210 40% 98%;
     --popover: 217.2 32.6% 11%;
     --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
+    /* Primary fill: white text 4.8:1, fill on card 3.5:1. */
+    --primary: 217 91% 50%;
     --primary-foreground: 210 40% 98%;
+    /* Text and links in the brand color: 5.7:1 on card, 6.5:1 on background, 4.8:1 on muted and accent. */
+    --link: 217.2 91.2% 65%;
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
     --muted: 217.2 32.6% 17.5%;
@@ -222,7 +234,10 @@
     --info: 189 94.5% 30%;
     --info-foreground: 210 40% 98%;
     --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
+    /* Form control and button boundaries: 3.4:1 on card, 3.9:1 on background (WCAG 1.4.11). */
+    --input: 215 20% 45%;
+    --control: 215 20% 45%;
+    --on-tone: 222.2 84% 4.9%;
     --ring: 224.3 76.3% 48%;
   }
 }

@@ -900,7 +900,7 @@ function EventStationList({ stations }: EventStationListProps): React.JSX.Elemen
     <div className="space-y-1">
       <button
         type="button"
-        className="text-sm font-medium text-primary hover:underline"
+        className="text-sm font-medium text-link hover:underline"
         onClick={() => {
           setExpanded((v) => !v);
         }}

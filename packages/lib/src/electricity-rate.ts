@@ -123,3 +123,30 @@ export function resolveElectricityRate(
 export function calculateElectricityCostCents(energyWh: number, ratePerKwh: string): number {
   return priceEnergyCents(energyWh, ratePerKwh);
 }
+
+/** Why a session gets no electricity cost (logged by the session end projection). */
+export type SessionElectricityCostSkipReason = 'no_periods' | 'no_matching_period' | 'zero_energy';
+
+export type SessionElectricityCost =
+  | { costCents: number; period: ElectricityRatePeriod }
+  | { costCents: null; reason: SessionElectricityCostSkipReason };
+
+/**
+ * The operator's electricity cost of one ended session: the site's rate period
+ * in force at the session end (in the site timezone), priced by the pricing
+ * engine. The one computation every writer of
+ * charging_sessions.electricity_cost_cents uses: the session end projection,
+ * the seed, and the site recalculation. A null cost carries the reason.
+ */
+export function computeSessionElectricityCost(input: {
+  periods: ElectricityRatePeriod[];
+  endedAt: Date;
+  energyWh: number;
+  timezone?: string | null | undefined;
+}): SessionElectricityCost {
+  if (input.periods.length === 0) return { costCents: null, reason: 'no_periods' };
+  const period = resolveElectricityRate(input.periods, input.endedAt, input.timezone ?? undefined);
+  if (period == null) return { costCents: null, reason: 'no_matching_period' };
+  if (!(input.energyWh > 0)) return { costCents: null, reason: 'zero_energy' };
+  return { costCents: calculateElectricityCostCents(input.energyWh, period.ratePerKwh), period };
+}

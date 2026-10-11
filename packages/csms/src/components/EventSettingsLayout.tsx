@@ -179,7 +179,7 @@ export function EventSettingsLayout({
               {sections.map((section) => (
                 <div key={section.title}>
                   {
-                    <p className="text-xs font-semibold text-primary/70 uppercase tracking-wide px-2 py-1.5 mt-2 rounded bg-primary/5 border border-primary/10">
+                    <p className="text-xs font-semibold text-link/70 uppercase tracking-wide px-2 py-1.5 mt-2 rounded bg-primary/5 border border-primary/10">
                       {section.title}
                     </p>
                   }

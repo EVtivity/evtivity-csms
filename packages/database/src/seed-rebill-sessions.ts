@@ -203,7 +203,7 @@ export async function seedRebillSessions(
   if (!(await claimSessionRebill(sql, manual.sessionId))) return created;
   const pricing = await priceRebill(sql, manual.sessionId);
   if (pricing == null) return created;
-  const { breakdown, endedAt } = pricing;
+  const { breakdown, endedAt, energyWh } = pricing;
   const requestedAt = new Date(plans.manual.faultedAt.getTime() + 2 * 60 * MINUTE_MS);
   const request = {
     provider: 'simulated',
@@ -241,6 +241,7 @@ export async function seedRebillSessions(
     sessionId: manual.sessionId,
     breakdown,
     endedAt,
+    energyWh,
     outcome: 'manual',
   });
   await writeAudit(

@@ -116,7 +116,7 @@ export function SessionCharts({
                 {formatNumber(batteryPercent, 0)}%
               </span>
             )}
-            <span className="text-sm font-bold text-primary">
+            <span className="text-sm font-bold text-link">
               {activeTab === 'power'
                 ? formatPower(currentPowerW)
                 : formatEnergyValue(energyDeliveredWh)}

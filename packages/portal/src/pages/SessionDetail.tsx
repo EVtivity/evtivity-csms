@@ -632,7 +632,7 @@ export function SessionDetail(): React.JSX.Element {
                     onChange={() => {
                       setPendingVehicleId(v.id);
                     }}
-                    className="h-4 w-4 text-primary"
+                    className="h-4 w-4 text-link"
                   />
                   <span className="text-sm font-medium">{label}</span>
                 </label>

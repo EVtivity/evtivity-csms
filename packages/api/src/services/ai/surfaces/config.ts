@@ -14,9 +14,8 @@ import { decryptString, validateAiBaseUrl } from '@evtivity/lib';
 import { DEFAULT_AI_SUPPORT_TONE, isAiEffort, isAiSupportTone } from '@evtivity/lib/ai-config';
 import type { AiSettings, AiSupportTone } from '@evtivity/lib/ai-config';
 import { config as apiConfig } from '../../../lib/config.js';
-import { isProviderId } from '../core/types.js';
-import type { Effort, ProviderId } from '../core/types.js';
-import { resolveModelId } from '../core/model-registry.js';
+import { isProviderId, resolveModelId } from '@evtivity/ai/core';
+import type { Effort, ProviderId } from '@evtivity/ai/core';
 import type { AiSurface } from '../tools/policy.js';
 
 export type SupportTone = AiSupportTone;

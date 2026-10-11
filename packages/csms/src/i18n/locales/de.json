@@ -173,7 +173,8 @@
     "openMenu": "Menü öffnen",
     "closeMenu": "Menü schließen",
     "audit": "Audit",
-    "maintenance": "Wartung"
+    "maintenance": "Wartung",
+    "aiInbox": "KI-Posteingang"
   },
   "roaming": {
     "partners": {
@@ -451,7 +452,12 @@
     "billedOnAccount": "Auf Flottenrechnung",
     "billedOnAccountSessions": "Offene Ladevorgänge auf Rechnung",
     "costMissingNotice": "Ladevorgänge ohne Stromkosten sind nicht im Gewinn enthalten: {{count}} ({{revenue}} Umsatz).",
-    "costMissingSites": "Stromtarife festlegen für:"
+    "costMissingTitle": "Stromkosten fehlen",
+    "costMissingNoRates": "Stromtarife festlegen für: {{site}}",
+    "costMissingSessions_one": "{{count}} Ladevorgang bei {{site}} hat keine Stromkosten",
+    "costMissingSessions_other": "{{count}} Ladevorgänge bei {{site}} haben keine Stromkosten",
+    "costMissingMoreSites_one": "{{count}} weiterer Standort",
+    "costMissingMoreSites_other": "{{count}} weitere Standorte"
   },
   "sites": {
     "title": "Standorte",
@@ -567,7 +573,17 @@
     "electricityRateDaysOfWeek": "Wochentage",
     "electricityRatesMissing": "Dieser Standort hat keine Stromtarife. Seine Ladevorgänge erhalten keine Stromkosten und sind nicht im Gewinn enthalten.",
     "electricityRatesNoDefault": "Dieser Standort hat keinen Standard-Stromtarif. Ladevorgänge, die außerhalb seiner Tarifzeiträume enden, erhalten keine Stromkosten und sind nicht im Gewinn enthalten.",
-    "electricityRatesOpen": "Stromtarife festlegen"
+    "electricityRatesOpen": "Stromtarife festlegen",
+    "electricityCostRecalculate": "Stromkosten neu berechnen",
+    "electricityCostRecalculateTitle": "Stromkosten neu berechnen?",
+    "electricityCostRecalculateConfirm": "Ladevorgänge bei {{site}} ohne Stromkosten erhalten diese aus den aktuellen Stromtarifen des Standorts, zum Tarif, der beim Ende des Ladevorgangs galt. Vorhandene Kosten bleiben unverändert.",
+    "electricityCostRecalculated_one": "Stromkosten für {{count}} Ladevorgang hinzugefügt",
+    "electricityCostRecalculated_other": "Stromkosten für {{count}} Ladevorgänge hinzugefügt",
+    "electricityCostRecalculateNone": "Kein Ladevorgang hat Stromkosten erhalten",
+    "electricityCostRecalculateRemaining_one": "{{count}} Ladevorgang hat weiterhin keine Stromkosten: Zu seinem Ende gilt kein Tarif.",
+    "electricityCostRecalculateRemaining_other": "{{count}} Ladevorgänge haben weiterhin keine Stromkosten: Zu ihrem Ende gilt kein Tarif.",
+    "electricityCostRecalculateMore_one": "{{count}} Ladevorgang hat noch keine Stromkosten. Berechnen Sie erneut, um fortzufahren.",
+    "electricityCostRecalculateMore_other": "{{count}} Ladevorgänge haben noch keine Stromkosten. Berechnen Sie erneut, um fortzufahren."
   },
   "stations": {
     "title": "Stationen",
@@ -1072,7 +1088,11 @@
       "unbilled": "Nicht abgerechnet",
       "invoiced": "In Rechnung gestellt",
       "paid": "Bezahlt"
-    }
+    },
+    "electricityCostAll": "Alle",
+    "electricityCostMissing": "Fehlend",
+    "costMissingNotice": "Diese Ladevorgänge haben keine Stromkosten und sind nicht im Gewinn enthalten.",
+    "costMissingSelectSite": "Diese Ladevorgänge haben keine Stromkosten und sind nicht im Gewinn enthalten. Wählen Sie einen Standort, um seine Kosten neu zu berechnen."
   },
   "drivers": {
     "title": "Fahrer",
@@ -1334,6 +1354,7 @@
       "audit": "Audit-Protokoll",
       "maintenance": "Wartung",
       "aiAssistant": "KI-Assistent",
+      "aiInsights": "Automatische Analysen",
       "settings": {
         "system": "System",
         "notification": "Benachrichtigung",
@@ -1346,7 +1367,10 @@
         "smartCharging": "Smart Charging",
         "ai": "KI",
         "conformance": "Konformität"
-      }
+      },
+      "aiProposals": "KI-Vorschläge",
+      "aiUsage": "KI-Nutzung",
+      "aiMcp": "MCP-Zugriff"
     }
   },
   "profile": {
@@ -1398,7 +1422,10 @@
     "mfaQrCode": "QR-Code für die Authenticator-App",
     "chatbotAiDescription": "Ihre eigene Konfiguration des KI-Assistenten. Sie ersetzt für Sie die Systemeinstellungen.",
     "aiRemoveConfig": "Konfiguration entfernen",
-    "aiRemoveConfirm": "Ihre persönliche Konfiguration entfernen? Danach gelten wieder die Systemeinstellungen."
+    "aiRemoveConfirm": "Ihre persönliche Konfiguration entfernen? Danach gelten wieder die Systemeinstellungen.",
+    "aiDigestEmail": "Zusammenfassung des KI-Posteingangs per E-Mail",
+    "aiDigestEmailDescription": "Eine tägliche E-Mail mit der Zahl der offenen KI-Vorschläge an Ihren Standorten.",
+    "notificationsSaveFailed": "Die Benachrichtigungseinstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
   },
   "fleets": {
     "title": "Flotten",
@@ -2481,6 +2508,11 @@
         "title": "Support-KI",
         "description": "Entwirft Antworten auf Supportfälle, die der Operator prüft.",
         "enabled": "Support-KI aktivieren"
+      },
+      "ops": {
+        "title": "Automatische Analysen und Worker",
+        "description": "Das Modell für automatische Analysen und Hintergrund-Worker. Sie laufen ohne Benutzer und verwenden den Anbieterschlüssel des Unternehmens.",
+        "enabled": "Systemgesteuerte KI einschalten"
       }
     },
     "aiLimitsTitle": "KI-Limits",
@@ -2492,10 +2524,48 @@
       "maxToolCallsPerTurn": "Werkzeugaufrufe pro Antwort",
       "conversationRetentionDays": "Unterhaltungen aufbewahren (Tage)",
       "attachmentsMaxBytes": "Maximale Anhanggröße (Byte)",
-      "attachmentsMaxPerMessage": "Anhänge pro Nachricht"
+      "attachmentsMaxPerMessage": "Anhänge pro Nachricht",
+      "companyMonthlyTokens": "Tokens des Unternehmens pro Monat",
+      "siteMonthlyTokens": "Tokens pro Standort und Monat",
+      "siteDailyTokens": "Tokens pro Standort und Tag (Analysen und Worker)",
+      "warnPercent": "Warnen bei (% eines Budgets)"
     },
     "aiLimitRange": "Von {{min}} bis {{max}}.",
-    "aiLimitZeroNoBudget": "0 bedeutet kein Tageslimit."
+    "aiLimitZeroNoBudget": "0 bedeutet kein Tageslimit.",
+    "aiOpsDataWarning": "Wenn dies eingeschaltet ist, werden Stations-, Sitzungs- und Token-Statusdaten ohne Benutzeraktion an den konfigurierten Anbieter gesendet.",
+    "aiInsightsSettings": {
+      "title": "Automatische Analysen",
+      "station": "Stationsanalysen",
+      "session": "Sitzungsanalysen",
+      "authorization": "Autorisierungsanalysen",
+      "debounceSeconds": "Wartezeit vor der Analyse (Sekunden)",
+      "cooldownMinutes": "Sperrzeit pro Station, Sitzung oder Token (Minuten)",
+      "siteIncidentThreshold": "Ausgefallene Stationen an einem Standort für einen Standortvorfall",
+      "maxPerSitePerDay": "Analysen pro Standort und Tag",
+      "primaryLanguage": "Sprache der Zusammenfassung",
+      "retentionDays": "Analysen aufbewahren (Tage)"
+    },
+    "aiMcp": {
+      "title": "MCP-Server",
+      "description": "Erlaubt MCP-Clients, die KI-Werkzeuge mit einem API-Schlüssel mit MCP-Zugriff zu nutzen. Jede Änderung braucht Ihre Bestätigung im KI-Posteingang.",
+      "enabled": "MCP-Server einschalten",
+      "rateLimitPerMinute": "Aufrufe pro API-Schlüssel und Minute",
+      "dailyCallsPerKey": "Aufrufe pro API-Schlüssel und Tag",
+      "proposalTtlMinutes": "Zeit zum Bestätigen einer MCP-Änderung (Minuten)",
+      "allowedOrigins": "Erlaubte Ursprünge",
+      "allowedOriginsHint": "Ein Ursprung pro Zeile, etwa https://app.example.com. Leer lassen, um Anfragen aus Browsern abzulehnen.",
+      "allowedOriginsInvalid": "Geben Sie pro Zeile einen http- oder https-Ursprung ohne Pfad ein.",
+      "endpoint": "Endpunkt",
+      "endpointHint": "Richten Sie Ihren MCP-Client auf diese URL aus, mit einem API-Schlüssel mit MCP-Zugriff.",
+      "writeScopeHint": "Schlüssel brauchen MCP-Schreibzugriff und Lesezugriff auf Stationen, um Änderungen vorzuschlagen.",
+      "toolsets": "Werkzeugkategorien",
+      "toolsetsHint": "Hängen Sie ?toolsets=stations,sessions an die URL an. Standard: {{toolsets}}.",
+      "writesHint": "Änderungen werden zu Vorschlägen, die derselbe Benutzer im KI-Posteingang bestätigt.",
+      "protocolNote": "Unterstützt MCP 2026-07-28; ältere Clients bestätigen per Abfrage."
+    },
+    "aiUsageTab": "Nutzung",
+    "aiLimitZeroNoLimit": "0 bedeutet kein Limit.",
+    "aiConfigTab": "Konfiguration"
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -2661,10 +2731,12 @@
       "fleet.InvoiceRunFailed": "Monatlicher Flottenrechnungslauf fehlgeschlagen",
       "invoice.FleetInvoice": "Flottenrechnung ausgestellt",
       "invoice.FleetCreditNote": "Stornorechnung der Flotte ausgestellt",
-      "invoice.FleetOverdue": "Flottenrechnung überfällig"
+      "invoice.FleetOverdue": "Flottenrechnung überfällig",
+      "ai.ProposalDigest": "KI-Vorschläge Zusammenfassung"
     },
     "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
-    "htmlPreview": "HTML-Vorschau"
+    "htmlPreview": "HTML-Vorschau",
+    "aiEvents": "KI"
   },
   "reservations": {
     "title": "Reservierungen",
@@ -3073,7 +3145,19 @@
     "LOCAL_CA_NOT_CONFIGURED": "Erstellen Sie zuerst die lokale Vertrags-CA",
     "PNC_CONTRACT_NOT_FOUND": "Plug & Charge-Vertrag nicht gefunden",
     "PHONE_REGISTRATION_LIMITED": "Mit dieser Telefonnummer wurden zu viele Konten registriert. Versuchen Sie es später erneut.",
-    "VERIFICATION_RESEND_LIMITED": "Zu viele Bestätigungs-E-Mails. Warten Sie, bevor Sie eine weitere anfordern."
+    "VERIFICATION_RESEND_LIMITED": "Zu viele Bestätigungs-E-Mails. Warten Sie, bevor Sie eine weitere anfordern.",
+    "AI_INSIGHT_NOT_FOUND": "Analyse nicht gefunden",
+    "AI_INSIGHT_COOLDOWN": "Diese Analyse wurde vor Kurzem neu erstellt. Versuchen Sie es später erneut",
+    "AI_INSIGHTS_DISABLED": "Automatische Analysen sind ausgeschaltet",
+    "AI_SITE_BUDGET_EXCEEDED": "Das tägliche KI-Nutzungslimit des Standorts ist erreicht",
+    "AI_MONTHLY_BUDGET_EXCEEDED": "Das monatliche KI-Nutzungslimit ist erreicht",
+    "AI_CONTEXT_NOT_FOUND": "Der zu erklärende Datensatz wurde nicht gefunden",
+    "AI_PROPOSAL_NOT_FOUND": "Vorschlag nicht gefunden",
+    "AI_PROPOSAL_EXPIRED": "Dieser Vorschlag ist abgelaufen",
+    "AI_PROPOSAL_STALE": "Dieser Vorschlag gilt nicht mehr, weil sich die Lage geändert hat",
+    "AI_PROPOSAL_ALREADY_DECIDED": "Über diesen Vorschlag wurde bereits entschieden",
+    "AI_CONFIRMATION_REQUIRES_SESSION": "Bestätigen Sie diese Aktion angemeldet im Dashboard, nicht mit einem API-Schlüssel",
+    "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut"
   },
   "logs": {
     "title": "Protokolle",
@@ -3808,6 +3892,22 @@
         "p2": "Wie füge ich eine neue Ladestation hinzu?",
         "p3": "Zeigen Sie die Stationen mit den meisten Störungen dieser Woche"
       }
+    },
+    "explain": {
+      "button": "Erklären",
+      "buttonTitle": "Den Assistenten bitten, diesen Datensatz zu erklären",
+      "station": "Warum ist diese Station offline oder gestört, und was sollte ich tun?",
+      "session": "Warum ist diese Sitzung fehlgeschlagen, und was sollte ich tun?",
+      "authorization": "Warum wurde diese Autorisierung abgelehnt, und was sollte ich tun?",
+      "insightShown": "Die neueste automatische Analyse wird angezeigt",
+      "followUp": "Nachfrage stellen",
+      "contextUnavailable": "Dieser Datensatz ist nicht mehr verfügbar.",
+      "about": "Zu {{record}} {{label}}",
+      "kind": {
+        "station": "Station",
+        "session": "Ladevorgang",
+        "authorization": "Autorisierung"
+      }
     }
   },
   "sustainability": {
@@ -4035,7 +4135,16 @@
       "updated": "Aktualisiert",
       "uploaded": "Hochgeladen",
       "used": "Verwendet",
-      "voided": "Annulliert"
+      "voided": "Annulliert",
+      "regenerated": "Neu erstellt",
+      "dismissed": "Verworfen",
+      "feedback_helpful": "Als hilfreich markiert",
+      "feedback_wrong": "Als falsch markiert",
+      "confirmed": "Bestätigt",
+      "executed": "Ausgeführt",
+      "failed": "Fehlgeschlagen",
+      "rejected": "Abgelehnt",
+      "stale": "Nicht mehr zutreffend"
     },
     "entities": {
       "site": "Standort",
@@ -4064,7 +4173,9 @@
       "maintenance_event": "Wartungsfenster",
       "session": "Ladevorgang",
       "invoice": "Rechnung",
-      "ai_conversation": "KI-Unterhaltung"
+      "ai_conversation": "KI-Unterhaltung",
+      "ai_insight": "Automatische Analyse",
+      "ai_proposal": "KI-Vorschlag"
     },
     "actors": {
       "operator": "Betreiber",
@@ -4396,5 +4507,348 @@
     "undo": "Rückgängig",
     "redo": "Wiederholen",
     "htmlSource": "HTML-Quelltext"
+  },
+  "aiInsights": {
+    "title": "Automatische Analyse",
+    "activeInsights": "Aktive Analysen",
+    "empty": "Keine Analysen",
+    "summaryTranslating": "Wird übersetzt…",
+    "summaryUnavailable": "Keine Übersetzung verfügbar. Das Original wird angezeigt.",
+    "showOriginal": "Original anzeigen",
+    "hideOriginal": "Original ausblenden",
+    "knownCause": "Bekannte Ursache",
+    "categoryLabel": "Ursache",
+    "confidenceLabel": "Sicherheit",
+    "fixesLabel": "Vorgeschlagene Maßnahmen",
+    "siteScopeLabel": "An diesem Standort",
+    "networkScopeLabel": "An allen Standorten",
+    "regenerate": "Neu erstellen",
+    "dismiss": "Verwerfen",
+    "helpful": "Hilfreich",
+    "wrong": "Falsch",
+    "feedbackThanks": "Danke für Ihr Feedback",
+    "badge": {
+      "resolved": "Behoben",
+      "outOfDate": "Veraltet"
+    },
+    "category": {
+      "connectivity": "Konnektivität",
+      "power_supply": "Stromversorgung",
+      "hardware": "Hardware",
+      "firmware": "Firmware",
+      "configuration": "Konfiguration",
+      "token": "Token",
+      "payment": "Zahlung",
+      "tariff": "Tarif",
+      "vehicle": "Fahrzeug",
+      "backend": "Backend",
+      "unknown": "Unbekannt"
+    },
+    "confidence": {
+      "low": "Niedrig",
+      "medium": "Mittel",
+      "high": "Hoch"
+    },
+    "status": {
+      "pending": "Wird analysiert",
+      "active": "Aktiv",
+      "resolved": "Behoben",
+      "superseded": "Ersetzt",
+      "skipped": "Übersprungen",
+      "failed": "Fehlgeschlagen",
+      "dismissed": "Verworfen"
+    },
+    "kind": {
+      "station_offline": "Station offline",
+      "station_faulted": "Station gestört",
+      "station_alert": "Stationswarnung",
+      "session_failed": "Sitzung fehlgeschlagen",
+      "authorization_refused": "Autorisierung abgelehnt",
+      "site_incident": "Standortvorfall",
+      "site_summary": "Standortübersicht",
+      "company_summary": "Netzwerkübersicht",
+      "tariff_anomaly": "Tarifauffälligkeit"
+    },
+    "skipReason": {
+      "resolved_before_analysis": "Vor der Analyse behoben",
+      "cooldown": "Vor Kurzem analysiert",
+      "site_daily_cap": "Das tägliche Analyselimit des Standorts ist erreicht",
+      "site_disabled": "Analysen sind für diesen Standort ausgeschaltet",
+      "budget_exceeded": "Das KI-Budget ist aufgebraucht",
+      "disabled": "Automatische Analysen wurden ausgeschaltet"
+    },
+    "fix": {
+      "check_network_connection": "Netzwerkverbindung der Station prüfen",
+      "check_power_supply": "Stromversorgung prüfen",
+      "reboot_station": "Station neu starten",
+      "inspect_connector": "Anschluss prüfen",
+      "update_firmware": "Firmware aktualisieren",
+      "review_station_configuration": "Stationskonfiguration prüfen",
+      "contact_station_vendor": "Stationshersteller kontaktieren",
+      "review_token_status": "Token-Status prüfen",
+      "push_local_auth_list": "Lokale Autorisierungsliste übertragen",
+      "check_roaming_partner": "Roaming-Partner prüfen",
+      "ask_driver_to_add_payment_method": "Fahrer bitten, eine Zahlungsmethode hinzuzufügen",
+      "review_payment_settings": "Zahlungseinstellungen prüfen",
+      "review_fleet_credit_limit": "Kreditlimit der Flotte prüfen",
+      "review_tariff_assignment": "Tarifzuweisung prüfen",
+      "ask_driver_to_retry": "Fahrer bitten, es erneut zu versuchen",
+      "check_vehicle_compatibility": "Fahrzeugkompatibilität prüfen",
+      "end_concurrent_session": "Parallele Sitzung beenden",
+      "check_csms_status": "CSMS-Status prüfen",
+      "monitor": "Weiter beobachten"
+    },
+    "scope": {
+      "stations_one": "{{count}} Station",
+      "stations_other": "{{count}} Stationen",
+      "stationsOffline_one": "{{count}} Station offline",
+      "stationsOffline_other": "{{count}} Stationen offline",
+      "stationsFaulted_one": "{{count}} Station gestört",
+      "stationsFaulted_other": "{{count}} Stationen gestört",
+      "sameErrorCode_one": "{{count}} Station mit demselben Fehlercode",
+      "sameErrorCode_other": "{{count}} Stationen mit demselben Fehlercode",
+      "sessionsInterrupted_one": "{{count}} Sitzung unterbrochen",
+      "sessionsInterrupted_other": "{{count}} Sitzungen unterbrochen",
+      "sessionsFailedSameReason24h_one": "{{count}} Sitzung in 24 Stunden aus demselben Grund fehlgeschlagen",
+      "sessionsFailedSameReason24h_other": "{{count}} Sitzungen in 24 Stunden aus demselben Grund fehlgeschlagen",
+      "tokenRefusals_one": "{{count}} abgelehnter Token",
+      "tokenRefusals_other": "{{count}} abgelehnte Token"
+    },
+    "regenerateQueued": "Eine neue Analyse wird erstellt.",
+    "widget": {
+      "info": "Offene Probleme, die die automatische Analyse in Ihren Standorten gefunden hat. Standortvorfälle zuerst, dann die schwersten und neuesten.",
+      "empty": "Keine offenen Erkenntnisse",
+      "viewAll": "Alle anzeigen",
+      "similar_one": "+{{count}} ähnliche",
+      "similar_other": "+{{count}} ähnliche",
+      "atDetection": "{{value}} bei Erkennung"
+    },
+    "confidenceBadge": {
+      "low": "Geringe Sicherheit",
+      "medium": "Mittlere Sicherheit",
+      "high": "Hohe Sicherheit"
+    },
+    "headline": {
+      "station_offline": "{{station}} ist offline",
+      "station_faulted": "{{station}} ist gestört",
+      "station_alert": "Alarm an {{station}}",
+      "session_failed": "Ladevorgang an {{station}} fehlgeschlagen",
+      "authorization_refused": "Autorisierung an {{station}} abgelehnt",
+      "site_incident": "Vorfall am Standort {{site}}",
+      "siteIncidentOffline_one": "{{count}} Station offline am Standort {{site}}",
+      "siteIncidentOffline_other": "{{count}} Stationen offline am Standort {{site}}",
+      "siteIncidentFaulted_one": "{{count}} Station gestört am Standort {{site}}",
+      "siteIncidentFaulted_other": "{{count}} Stationen gestört am Standort {{site}}",
+      "tariff_anomaly": "Tarifauffälligkeit am Standort {{site}}",
+      "site_summary": "Tageszusammenfassung von {{site}}",
+      "company_summary": "Tageszusammenfassung des Netzes",
+      "noStation": "einer unbekannten Station",
+      "noSite": "ohne Standort"
+    },
+    "list": {
+      "title": "KI-Erkenntnisse",
+      "subtitle": "Was die automatische Analyse in Ihren Standorten gefunden hat.",
+      "allStatuses": "Alle Status",
+      "kind": "Typ",
+      "allKinds": "Alle Typen",
+      "allCategories": "Alle Ursachen",
+      "site": "Standort",
+      "allSites": "Alle Standorte",
+      "insight": "Erkenntnis",
+      "station": "Station"
+    },
+    "detail": {
+      "recordTitle": "Details",
+      "session": "Ladevorgang",
+      "partOf": "Teil von"
+    },
+    "likelyCause": "Wahrscheinliche Ursache",
+    "staleNote": "Der Datensatz hat sich nach dieser Analyse geändert. Erzeugen Sie sie neu, um eine aktuelle zu erhalten.",
+    "failedNote": "Die Analyse wurde nicht abgeschlossen.",
+    "skippedNote": "Nicht analysiert: {{reason}}",
+    "scopeTable": {
+      "title": "Umfang",
+      "measureHeader": "Messgröße",
+      "atDetection": "Bei Erkennung",
+      "now": "Jetzt",
+      "atDetectionHint": "Was die Analyse verwendet hat",
+      "nowHint": "Stand {{time}}",
+      "area": {
+        "site": "{{measure}} (Standort)",
+        "network": "{{measure}} (alle Standorte)"
+      },
+      "measure": {
+        "stations": "Stationen",
+        "stationsOffline": "Stationen offline",
+        "stationsFaulted": "Stationen gestört",
+        "sameErrorCode": "Gleicher Fehlercode (24 h)",
+        "sessionsInterrupted": "Unterbrochene Ladevorgänge (24 h)",
+        "sessionsFailedSameReason24h": "Gleicher Stoppgrund (24 h)",
+        "tokenRefusals": "Token-Ablehnungen (24 h)"
+      },
+      "summaryAtDetection": "{{value}} bei Erkennung",
+      "summaryChanged": "{{value}} bei Erkennung, jetzt {{now}}"
+    }
+  },
+  "aiInbox": {
+    "title": "KI-Posteingang",
+    "description": "Von der KI vorgeschlagene Aktionen. Nichts wird ausgeführt, bevor Sie es bestätigen.",
+    "empty": "Keine Vorschläge",
+    "pendingCount_one": "{{count}} offener Vorschlag",
+    "pendingCount_other": "{{count}} offene Vorschläge",
+    "filters": {
+      "source": "Quelle",
+      "job": "Job",
+      "site": "Standort",
+      "status": "Status",
+      "all": "Alle",
+      "search": "Suche",
+      "searchPlaceholder": "Station, Standort oder Aktion"
+    },
+    "source": {
+      "worker": "Hintergrund-Worker",
+      "mcp": "MCP-Client"
+    },
+    "job": {
+      "network_summary": "Netzwerkzustand",
+      "stuck_sessions": "Hängende Sitzungen",
+      "tariff_anomalies": "Tarifauffälligkeiten"
+    },
+    "status": {
+      "pending": "Offen",
+      "executed": "Ausgeführt",
+      "failed": "Fehlgeschlagen",
+      "rejected": "Abgelehnt",
+      "expired": "Abgelaufen",
+      "stale": "Nicht mehr zutreffend"
+    },
+    "action": {
+      "stop_transaction": "Sitzung beenden",
+      "soft_reset": "Station sanft zurücksetzen",
+      "change_availability": "Verfügbarkeit der Station ändern"
+    },
+    "precondition": {
+      "session_active": "Die Sitzung ist noch aktiv",
+      "station_faulted": "Die Station ist noch gestört",
+      "station_availability": "Die Verfügbarkeit der Station hat sich nicht geändert"
+    },
+    "confirm": "Bestätigen",
+    "reject": "Ablehnen",
+    "expiresAt": "Läuft ab {{time}}",
+    "requestedBy": "Angefordert von",
+    "apiKey": "API-Schlüssel",
+    "client": "Client",
+    "untrustedNote": "Schlüssel- und Clientnamen stammen vom anfragenden Client und werden unverändert angezeigt.",
+    "arguments": "Argumente",
+    "rationale": "Begründung",
+    "result": "Ergebnis",
+    "executed": "Die Aktion wurde ausgeführt",
+    "confirmFailed": "Die Aktion wurde nicht ausgeführt",
+    "stationLabel": "Station",
+    "sessionLabel": "Ladevorgang",
+    "preconditionLabel": "Wird nur ausgeführt, wenn",
+    "requestedTool": "Angefordertes Werkzeug",
+    "columns": {
+      "action": "Aktion",
+      "expires": "Läuft ab"
+    },
+    "rejectedToast": "Vorschlag abgelehnt",
+    "confirmDialog": {
+      "title": "Diese Aktion ausführen?",
+      "note": "Sie wird einmal, jetzt, mit Ihren Berechtigungen ausgeführt."
+    },
+    "rejectDialog": {
+      "title": "Diesen Vorschlag ablehnen?"
+    },
+    "measured": {
+      "idleTime": "Inaktiv seit",
+      "minutes_one": "{{count}} Minute",
+      "minutes_other": "{{count}} Minuten",
+      "lastActivity": "Letzte Aktivität",
+      "faultedSince": "Gestört seit",
+      "transactionId": "Transaktions-ID"
+    },
+    "detail": {
+      "summary": "Zusammenfassung",
+      "target": "Ziel",
+      "requester": "Angefordert von",
+      "timing": "Zeitpunkte",
+      "decided": "Entschieden",
+      "executedAt": "Ausgeführt"
+    }
+  },
+  "aiWorkers": {
+    "title": "KI-Hintergrund-Worker",
+    "description": "Optionale Jobs, die Probleme finden und Aktionen vorschlagen. Sie handeln nie selbst.",
+    "proposalTtlHours": "Gültigkeit eines Vorschlags (Stunden)",
+    "networkSummary": {
+      "title": "Nächtliche Netzwerkübersicht",
+      "description": "Eine kurze tägliche Übersicht pro Standort, mit vorgeschlagenen Aktionen."
+    },
+    "stuckSessions": {
+      "title": "Hängende Sitzungen",
+      "description": "Schlägt vor, Sitzungen zu beenden, die keine Daten mehr melden.",
+      "idleMinutes": "Leerlaufzeit, ab der eine Sitzung als hängend gilt (Minuten)",
+      "useModel": "Begründung mit KI schreiben"
+    },
+    "tariffAnomalies": {
+      "title": "Tarifauffälligkeiten",
+      "description": "Findet Preise, die falsch aussehen. Nur Befunde, keine Vorschläge."
+    },
+    "rationale": {
+      "stuckSessionIdle": "Seit {{minutes}} Minuten keine Zählerwerte oder Transaktionsereignisse",
+      "stuckSessionOffline": "Die Station ist offline, während die Sitzung aktiv ist",
+      "stuckSessionConnectorAvailable": "Der Anschluss meldet Verfügbar, während die Sitzung aktiv ist"
+    },
+    "findings": {
+      "zero_cost": "Ladevorgänge ohne Abrechnung trotz kostenpflichtigem Tarif",
+      "station_cost_mismatch": "Kosten der Station weichen von den CSMS-Kosten ab",
+      "price_outlier": "Preis pro kWh weit über dem Median des Standorts",
+      "inactive_tariff": "Ladevorgänge mit einem inaktiven Tarif berechnet"
+    }
+  },
+  "aiUsage": {
+    "title": "KI-Nutzung",
+    "month": "Monat",
+    "period": "Zeitraum",
+    "budget": "Budget",
+    "used": "Verbraucht",
+    "percentUsed": "{{percent}} % verbraucht",
+    "noLimit": "Kein Limit",
+    "company": "Unternehmen",
+    "site": "Standort",
+    "sites": "Standorte",
+    "bySurface": "Nach Bereich",
+    "unattributed": "Assistent (keinem Standort zugeordnet)",
+    "topUsers": "Aktivste Benutzer",
+    "user": "Benutzer",
+    "cost": "Kosten",
+    "today": "Heute",
+    "todayFooter": "Heute: {{used}} von {{limit}} Tokens",
+    "todayFooterNoLimit": "Heute: {{used}} Tokens",
+    "thresholdWarningCompany": "Die KI-Nutzung hat diesen Monat {{percent}} % des Unternehmensbudgets überschritten.",
+    "thresholdWarningSite": "Die KI-Nutzung an {{site}} hat diesen Monat {{percent}} % des Budgets überschritten.",
+    "thresholdExceededCompany": "Das KI-Budget des Unternehmens für diesen Monat ist aufgebraucht.",
+    "thresholdExceededSite": "Das KI-Budget von {{site}} für diesen Monat ist aufgebraucht.",
+    "surface": {
+      "chatbot": "Assistent",
+      "support": "Support-Entwürfe",
+      "insight": "Analysen",
+      "insight_translation": "Übersetzungen von Analysen",
+      "worker": "Hintergrund-Worker"
+    },
+    "tokens": {
+      "total": "Tokens",
+      "input": "Eingabe",
+      "cachedRead": "Eingabe aus dem Cache",
+      "cacheWrite": "Cache-Schreibvorgänge",
+      "output": "Ausgabe",
+      "reasoning": "Schlussfolgern"
+    },
+    "siteBudget": "Monatliches Token-Budget",
+    "siteBudgetHelp": "Leer lassen, um das Standardbudget pro Standort aus Einstellungen > KI zu verwenden. 0 bedeutet kein Limit.",
+    "siteInsights": "Automatische Analysen",
+    "siteInsightsHelp": "Ausschalten, um automatische Analysen für diesen Standort zu beenden.",
+    "allSitesOnly": "Nur Benutzer mit Zugriff auf alle Standorte können dies ändern."
   }
 }

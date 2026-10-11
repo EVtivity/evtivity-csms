@@ -8,10 +8,11 @@
  * constants only, no settings, keys or site data.
  */
 
-import { listProviderEntries } from '../core/model-registry.js';
+import { listProviderEntries } from '@evtivity/ai/core';
 import { OCPP_VERSION_RULE, SECURITY_RULES, SUPPORT_BODY_ONLY } from '../engine/prompt.js';
 import { defaultSystemPrompt } from '../engine/prompt-defaults.js';
-import type { PromptLanguage } from '../engine/prompt-defaults.js';
+import { defaultOpsPrompt, OPS_SECURITY_RULES } from '@evtivity/services/ai-ops-prompt';
+import type { PromptLanguage } from '@evtivity/ai/prompt';
 import type { AiSurface } from '../tools/policy.js';
 
 export interface AiSurfaceDefaults {
@@ -37,6 +38,8 @@ export interface AiDefaults {
   language: PromptLanguage;
   chatbot: AiSurfaceDefaults;
   support: AiSurfaceDefaults;
+  /** System-initiated runs (automatic insights, background workers). */
+  ops: AiSurfaceDefaults;
   providers: AiProviderModels[];
 }
 
@@ -56,6 +59,10 @@ export function buildAiDefaults(language: PromptLanguage): AiDefaults {
     support: {
       prompt: defaultSystemPrompt('support', language),
       fixedRules: fixedRules('support'),
+    },
+    ops: {
+      prompt: defaultOpsPrompt(language),
+      fixedRules: OPS_SECURITY_RULES,
     },
     providers: listProviderEntries().map((p) => ({
       id: p.id,

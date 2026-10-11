@@ -186,6 +186,8 @@ export const userNotificationPreferences = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     smsEnabled: boolean('sms_enabled').notNull().default(true),
+    /** Opt-in daily AI proposal digest email (migration 0434). */
+    aiDigestEmail: boolean('ai_digest_email').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

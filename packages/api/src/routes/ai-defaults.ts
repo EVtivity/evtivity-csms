@@ -8,7 +8,7 @@ import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
-import { PROMPT_LANGUAGES, promptLanguage } from '../services/ai/engine/prompt-defaults.js';
+import { PROMPT_LANGUAGES, promptLanguage } from '@evtivity/ai/prompt';
 import { buildAiDefaults } from '../services/ai/surfaces/defaults.js';
 
 // Settings > AI is company-wide: a site-restricted user gets the same 404 as
@@ -54,6 +54,9 @@ const aiDefaultsResponse = z
     language: z.enum(PROMPT_LANGUAGES).describe('Language of the returned prompts'),
     chatbot: surfaceDefaults.describe('AI assistant (chatbot) defaults'),
     support: surfaceDefaults.describe('Support case AI draft defaults'),
+    ops: surfaceDefaults.describe(
+      'System-initiated AI defaults (automatic insights, background workers): the built-in opsAi prompt',
+    ),
     providers: z.array(providerModels).describe('Known models per provider'),
   })
   .passthrough();

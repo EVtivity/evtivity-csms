@@ -793,7 +793,19 @@
     "LOCAL_CA_NOT_CONFIGURED": "Cree primero la CA de contratos local",
     "PNC_CONTRACT_NOT_FOUND": "Contrato de Plug & Charge no encontrado",
     "PHONE_REGISTRATION_LIMITED": "Se registraron demasiadas cuentas con este número de teléfono. Vuelva a intentarlo más tarde.",
-    "VERIFICATION_RESEND_LIMITED": "Demasiados correos de verificación. Espere antes de solicitar otro."
+    "VERIFICATION_RESEND_LIMITED": "Demasiados correos de verificación. Espere antes de solicitar otro.",
+    "AI_INSIGHT_NOT_FOUND": "Análisis no encontrado",
+    "AI_INSIGHT_COOLDOWN": "Este análisis se regeneró hace poco. Inténtalo de nuevo más tarde",
+    "AI_INSIGHTS_DISABLED": "Los análisis automáticos están desactivados",
+    "AI_SITE_BUDGET_EXCEEDED": "Se alcanzó el límite diario de uso de IA del sitio",
+    "AI_MONTHLY_BUDGET_EXCEEDED": "Se alcanzó el límite mensual de uso de IA",
+    "AI_CONTEXT_NOT_FOUND": "No se encontró el registro que quieres explicar",
+    "AI_PROPOSAL_NOT_FOUND": "Propuesta no encontrada",
+    "AI_PROPOSAL_EXPIRED": "Esta propuesta ha caducado",
+    "AI_PROPOSAL_STALE": "Esta propuesta ya no es válida porque la situación cambió",
+    "AI_PROPOSAL_ALREADY_DECIDED": "Ya se decidió sobre esta propuesta",
+    "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
+    "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde"
   },
   "validation": {
     "required": "Este campo es obligatorio",

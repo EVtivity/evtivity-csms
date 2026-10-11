@@ -182,7 +182,7 @@ export const SessionsTable = memo(function SessionsTable({
                   <TableCell className="whitespace-nowrap">
                     <Link
                       to={`/stations/${session.stationId}`}
-                      className="text-primary hover:underline"
+                      className="text-link hover:underline"
                       onClick={(e) => {
                         e.stopPropagation();
                       }}
@@ -200,7 +200,7 @@ export const SessionsTable = memo(function SessionsTable({
                     ) : session.driverName != null ? (
                       <Link
                         to={`/drivers/${session.driverId ?? ''}`}
-                        className="text-primary hover:underline"
+                        className="text-link hover:underline"
                         onClick={(e) => {
                           e.stopPropagation();
                         }}

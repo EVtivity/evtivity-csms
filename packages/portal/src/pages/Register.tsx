@@ -203,7 +203,7 @@ export function Register(): React.JSX.Element {
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             {t('auth.haveAccount')}{' '}
-            <Link to="/login" className="text-primary hover:underline">
+            <Link to="/login" className="text-link hover:underline">
               {t('auth.signIn')}
             </Link>
           </p>

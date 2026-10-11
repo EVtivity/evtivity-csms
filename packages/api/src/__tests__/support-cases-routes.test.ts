@@ -259,6 +259,10 @@ vi.mock('../services/ai/engine/turn.js', () => ({
   runSupportAssistTurn: mocks.runSupportAssistTurn,
 }));
 
+vi.mock('../services/ai/engine/support-insights.js', () => ({
+  supportInsightContext: () => Promise.resolve(null),
+}));
+
 vi.mock('../services/ai/conversation.service.js', () => ({
   createConversation: mocks.createConversation,
 }));
@@ -1860,6 +1864,7 @@ describe('support case routes', () => {
       const res = await inject('POST', url, { isInternalNote: true });
       expect(res.statusCode).toBe(200);
       expect(mocks.limitsOrReply).toHaveBeenCalledWith(
+        'support',
         USER_ID,
         'sit_000000000001',
         expect.anything(),
@@ -1872,6 +1877,8 @@ describe('support case routes', () => {
       expect(mocks.runSupportAssistTurn).toHaveBeenCalledWith(
         expect.objectContaining({
           isInternalNote: true,
+          // The turn's usage is charged to the case's site.
+          siteId: 'sit_000000000001',
           caseNumber: 'CASE-1',
           driverLanguage: 'de',
           caseContext: {

@@ -20,8 +20,8 @@
  */
 
 import { tryParseJson } from '@evtivity/lib';
-import type { AiAdapter, AiUsage } from '../core/types.js';
-import { emptyUsage } from '../core/collect.js';
+import type { AiAdapter, AiUsage } from '@evtivity/ai/core';
+import { emptyUsage } from '@evtivity/ai/core';
 import type { AiCatalogCategory } from '../tools/catalog-types.js';
 import { OCPP_COMMAND_CATEGORIES, keywordCategories } from './router-keywords.js';
 
@@ -54,6 +54,8 @@ export interface RouteInput {
 export interface RouteResult {
   categories: string[];
   usage: AiUsage;
+  /** Whether a model call ran (false without categories): the caller records its usage. */
+  called: boolean;
 }
 
 const ROUTER_SYSTEM = [
@@ -134,7 +136,9 @@ export function parseRoutedCategories(
 }
 
 export async function routeCategories(input: RouteInput): Promise<RouteResult> {
-  if (input.categories.length === 0) return { categories: [], usage: emptyUsage() };
+  if (input.categories.length === 0) {
+    return { categories: [], usage: emptyUsage(), called: false };
+  }
   const caps = input.adapter.capabilities(input.model);
   const list = input.categories.map((c) => `- ${c.tag}: ${c.description}`).join('\n');
   const context =
@@ -181,5 +185,6 @@ export async function routeCategories(input: RouteInput): Promise<RouteResult> {
   return {
     categories: mergeRoutedCategories(input.message, parsed, input.categories),
     usage: result.usage,
+    called: true,
   };
 }

@@ -183,6 +183,8 @@ describe('rebillSession', () => {
       sessionId: 'ses_1',
       breakdown: BREAKDOWN,
       endedAt: ENDED_AT,
+      // The billed energy, for the electricity cost of the re-billed session.
+      energyWh: 10000,
       outcome: 'billed',
     });
     expect(m.writeAudit).toHaveBeenCalledWith(

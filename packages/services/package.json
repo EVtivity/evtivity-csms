@@ -4,6 +4,24 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./ai-evidence": {
+      "import": "./src/ai-evidence/index.ts"
+    },
+    "./ai-insight.service": {
+      "import": "./src/ai-insight.service.ts"
+    },
+    "./ai-ops-config": {
+      "import": "./src/ai-ops-config.ts"
+    },
+    "./ai-ops-prompt": {
+      "import": "./src/ai-ops-prompt.ts"
+    },
+    "./ai-proposal.service": {
+      "import": "./src/ai-proposal.service.ts"
+    },
+    "./ai-workers/*": {
+      "import": "./src/ai-workers/*.ts"
+    },
     "./availability-command": {
       "import": "./src/availability-command.ts"
     },
@@ -15,6 +33,9 @@
     },
     "./credit-note.service": {
       "import": "./src/credit-note.service.ts"
+    },
+    "./electricity-cost.service": {
+      "import": "./src/electricity-cost.service.ts"
     },
     "./fleet-billing-notice": {
       "import": "./src/fleet-billing-notice.ts"

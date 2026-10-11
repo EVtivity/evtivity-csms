@@ -11,7 +11,13 @@ import {
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
 } from '@evtivity/database';
-import { AppError, dimensionAmounts, isValidTimezone, taxTotals } from '@evtivity/lib';
+import {
+  AppError,
+  dimensionAmounts,
+  isValidTimezone,
+  taxTotals,
+  zonedMidnight,
+} from '@evtivity/lib';
 import {
   insertInvoiceInTransaction,
   sessionCostBreakdown,
@@ -44,41 +50,6 @@ export interface FleetInvoicePeriod {
   startsAt: Date;
   /** Midnight of the first day of the next month: sessions ended before it are billed. */
   endsAt: Date;
-}
-
-/** Wall-clock offset of a timezone at an instant, in milliseconds (local minus UTC). */
-function zoneOffsetMs(at: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(at);
-  const value = (type: string): number => Number(parts.find((p) => p.type === type)?.value ?? 0);
-  const local = Date.UTC(
-    value('year'),
-    value('month') - 1,
-    value('day'),
-    value('hour'),
-    value('minute'),
-    value('second'),
-  );
-  return local - (at.getTime() - at.getUTCMilliseconds());
-}
-
-/**
- * The instant of midnight at the start of a day in a timezone. Two passes, so
- * a day that starts at a DST change resolves to the offset in force then.
- */
-export function zonedMidnight(year: number, month: number, day: number, timeZone: string): Date {
-  const guess = Date.UTC(year, month - 1, day);
-  const first = guess - zoneOffsetMs(new Date(guess), timeZone);
-  const second = guess - zoneOffsetMs(new Date(first), timeZone);
-  return new Date(second);
 }
 
 function pad2(n: number): string {

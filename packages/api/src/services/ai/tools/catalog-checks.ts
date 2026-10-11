@@ -10,7 +10,7 @@
 import type { AiCatalogOperation, AiCatalogTool } from './catalog-types.js';
 import { CASE_PINS } from './policy.js';
 import type { ToolPolicy } from './policy.js';
-import { isSecretShapedKey } from './redact.js';
+import { isSecretShapedKey } from '@evtivity/ai/redact';
 
 /** Every operation has a policy entry and every entry names an operation. */
 export function policyCoverageProblems(

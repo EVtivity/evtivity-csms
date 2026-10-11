@@ -181,10 +181,7 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
                         void navigate(`/invoices/${inv.id}`);
                       }}
                     >
-                      <TableCell
-                        className="font-medium text-primary"
-                        data-testid="row-click-target"
-                      >
+                      <TableCell className="font-medium text-link" data-testid="row-click-target">
                         {inv.invoiceNumber}
                       </TableCell>
                       <TableCell>

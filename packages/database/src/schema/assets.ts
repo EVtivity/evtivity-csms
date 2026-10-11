@@ -4,6 +4,7 @@
 import {
   pgTable,
   pgEnum,
+  bigint,
   text,
   serial,
   varchar,
@@ -83,6 +84,10 @@ export const sites = pgTable(
     carbonRegionCode: varchar('carbon_region_code', { length: 20 }),
     // Station display language of the site; null follows stationMessage.language.
     stationMessageLanguage: varchar('station_message_language', { length: 10 }),
+    // Automatic insights for this site (decision D17); all-site users change it.
+    aiInsightsEnabled: boolean('ai_insights_enabled').notNull().default(true),
+    // Monthly AI token budget of the site; null follows ai.budget.siteMonthlyTokens, 0 is no limit.
+    aiMonthlyTokenBudget: bigint('ai_monthly_token_budget', { mode: 'number' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -92,6 +97,7 @@ export const sites = pgTable(
       'sites_station_message_language_check',
       sql`${table.stationMessageLanguage} IN ('en', 'de', 'es', 'ko', 'zh', 'zh-TW')`,
     ),
+    check('sites_ai_monthly_token_budget_check', sql`${table.aiMonthlyTokenBudget} >= 0`),
   ],
 );
 

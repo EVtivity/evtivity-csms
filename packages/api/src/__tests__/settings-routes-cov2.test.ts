@@ -21,6 +21,8 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     isFleetEnabled: vi.fn(),
     isGuestChargingEnabled: vi.fn(),
     isChatbotAiEnabled: vi.fn(),
+    isAiInboxEnabled: vi.fn(),
+    isAiInsightsEnabled: vi.fn(),
     clearRoamingCache: vi.fn(),
     clearSupportCache: vi.fn(),
     clearFleetCache: vi.fn(),
@@ -75,6 +77,8 @@ vi.mock('@evtivity/database', () => ({
   isFleetEnabled: mocks.isFleetEnabled,
   isGuestChargingEnabled: mocks.isGuestChargingEnabled,
   isChatbotAiEnabled: mocks.isChatbotAiEnabled,
+  isAiInboxEnabled: mocks.isAiInboxEnabled,
+  isAiInsightsEnabled: mocks.isAiInsightsEnabled,
   clearRoamingCache: mocks.clearRoamingCache,
   clearSupportCache: mocks.clearSupportCache,
   clearFleetCache: mocks.clearFleetCache,
@@ -231,6 +235,8 @@ describe('settings routes (cov2)', () => {
     mocks.isFleetEnabled.mockResolvedValue(true);
     mocks.isGuestChargingEnabled.mockResolvedValue(false);
     mocks.isChatbotAiEnabled.mockResolvedValue(true);
+    mocks.isAiInboxEnabled.mockResolvedValue(true);
+    mocks.isAiInsightsEnabled.mockResolvedValue(false);
     mocks.getReservationSettings.mockResolvedValue({
       cancellationFeeCents: 250,
       cancellationWindowMinutes: 15,
@@ -246,6 +252,8 @@ describe('settings routes (cov2)', () => {
       fleetEnabled: true,
       guestChargingEnabled: false,
       chatbotAiEnabled: true,
+      aiInboxEnabled: true,
+      aiInsightsEnabled: false,
       reservationCancellationFeeCents: 250,
       reservationCancellationWindowMinutes: 15,
       reservationMaxHours: 4,
@@ -425,6 +433,51 @@ describe('settings routes (cov2)', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(mocks.clearAiSettingsCache).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['opsAi.enabled', true],
+      ['opsAi.effort', 'medium'],
+      ['aiInsights.cooldownMinutes', 30],
+      ['aiInsights.primaryLanguage', 'ko'],
+      ['aiWorkers.stuckSessions.enabled', true],
+      ['ai.mcp.enabled', true],
+      ['ai.mcp.allowedOrigins', ['https://app.example.com']],
+      ['ai.budget.siteDailyTokens', 0],
+    ] as const)(
+      'TC-AI-C-11: PUT %s stores the value and clears the AI settings cache',
+      async (key, value) => {
+        setupDbResults([], [{ key, value }]);
+        const res = await app.inject({
+          method: 'PUT',
+          url: `/settings/${key}`,
+          headers: auth,
+          payload: { value },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(rec.values[0]).toEqual({ key, value });
+        expect(mocks.clearAiSettingsCache).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it.each([
+      ['opsAi.enabled', 'true'],
+      ['opsAi.provider', 'mistral'],
+      ['aiInsights.debounceSeconds', 3601],
+      ['aiInsights.primaryLanguage', 'fr'],
+      ['aiWorkers.proposalTtlHours', 0],
+      ['ai.mcp.allowedOrigins', ['https://app.example.com/path']],
+      ['ai.budget.warnPercent', 101],
+    ] as const)('TC-AI-C-11: refuses %s = %j and keeps the cache', async (key, value) => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/settings/${key}`,
+        headers: auth,
+        payload: { value },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(rec.values).toEqual([]);
+      expect(mocks.clearAiSettingsCache).not.toHaveBeenCalled();
     });
 
     it('stores a limit sent as a numeric string as a number', async () => {

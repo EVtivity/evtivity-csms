@@ -27,15 +27,19 @@ import {
   PROVIDER_LABELS,
 } from '@/components/ai/AiConfigFields';
 import { AI_STATUS_KEY } from '@/components/ai/use-ai-status';
+import { useSaveKeys } from './ai-settings-save';
+import { AiOpsSettings } from './AiOpsSettings';
+import { AiUsageTab } from '@/components/ai/usage/AiUsageTab';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useTab } from '@/hooks/use-tab';
+import type { Values } from './ai-settings-save';
 import { AiModelField } from '@/components/ai/AiModelField';
 import { AiSystemPromptField } from '@/components/ai/AiSystemPromptField';
 import { isCustomModel, isDefaultPrompt, useAiDefaults } from '@/components/ai/use-ai-defaults';
 import { api } from '@/lib/api';
-import { useHasPermission } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatNumber } from '@/lib/formatting';
-
-type Values = Record<string, string>;
 
 const LIMIT_KEYS = Object.keys(AI_LIMIT_SETTINGS) as AiLimitSettingKey[];
 
@@ -46,7 +50,18 @@ type LimitLabelKey =
   | 'settings.aiLimits.maxToolCallsPerTurn'
   | 'settings.aiLimits.conversationRetentionDays'
   | 'settings.aiLimits.attachmentsMaxBytes'
-  | 'settings.aiLimits.attachmentsMaxPerMessage';
+  | 'settings.aiLimits.attachmentsMaxPerMessage'
+  | 'settings.aiLimits.companyMonthlyTokens'
+  | 'settings.aiLimits.siteMonthlyTokens'
+  | 'settings.aiLimits.siteDailyTokens'
+  | 'settings.aiLimits.warnPercent';
+
+// Budgets where 0 means no limit (the daily user budget has its own hint).
+const ZERO_NO_LIMIT_KEYS: ReadonlySet<AiLimitSettingKey> = new Set([
+  'ai.budget.companyMonthlyTokens',
+  'ai.budget.siteMonthlyTokens',
+  'ai.budget.siteDailyTokens',
+]);
 
 const LIMIT_LABELS: Record<AiLimitSettingKey, LimitLabelKey> = {
   'ai.rateLimit.userPerMinute': 'settings.aiLimits.userPerMinute',
@@ -56,6 +71,10 @@ const LIMIT_LABELS: Record<AiLimitSettingKey, LimitLabelKey> = {
   'ai.conversationRetentionDays': 'settings.aiLimits.conversationRetentionDays',
   'ai.attachments.maxBytes': 'settings.aiLimits.attachmentsMaxBytes',
   'ai.attachments.maxPerMessage': 'settings.aiLimits.attachmentsMaxPerMessage',
+  'ai.budget.companyMonthlyTokens': 'settings.aiLimits.companyMonthlyTokens',
+  'ai.budget.siteMonthlyTokens': 'settings.aiLimits.siteMonthlyTokens',
+  'ai.budget.siteDailyTokens': 'settings.aiLimits.siteDailyTokens',
+  'ai.budget.warnPercent': 'settings.aiLimits.warnPercent',
 };
 
 const PROVIDER_KEYS = AI_PROVIDER_IDS.flatMap((p) => [
@@ -100,40 +119,45 @@ function loadValues(settings: Record<string, unknown> | undefined): Values {
   return out;
 }
 
-/** Writes only the keys whose value changed, through the generic settings PUT. */
-function useSaveKeys(
-  keys: readonly string[],
-  loaded: Values,
-  toValue: (key: string, v: string) => unknown,
-) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (values: Values) => {
-      const changed = keys.filter(
-        (k) => toValue(k, values[k] ?? '') !== toValue(k, loaded[k] ?? ''),
-      );
-      for (const key of changed) {
-        await api.put(`/v1/settings/${key}`, { value: toValue(key, values[key] ?? '') });
-      }
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['settings'] });
-      void queryClient.invalidateQueries({ queryKey: ['security-public'] });
-      void queryClient.invalidateQueries({ queryKey: AI_STATUS_KEY });
-    },
-  });
-}
-
 interface AiSettingsProps {
   settings: Record<string, unknown> | undefined;
 }
 
 /**
  * Settings > AI: one key and base URL per provider (`ai.<provider>.*`), the
- * assistant (`chatbotAi.*`) and support AI (`supportAi.*`) surfaces, and the
- * AI limits (`ai.*`).
+ * assistant (`chatbotAi.*`) and support AI (`supportAi.*`) surfaces, the
+ * system-initiated surface, insights, workers and MCP (`AiOpsSettings`), and
+ * the AI limits (`ai.*`). A Usage sub-tab shows
+ * the usage and budgets to users with `aiUsage:read` and access to every site.
  */
 export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
+  const { t } = useTranslation();
+  const canReadUsage = useHasPermission('aiUsage:read');
+  const allSites = useHasAllSiteAccess();
+  const showUsage = canReadUsage && allSites;
+  const [subTab, setSubTab] = useTab('config', 'sub');
+  const warnPercent =
+    parseAiLimitValue('ai.budget.warnPercent', settings?.['ai.budget.warnPercent']) ??
+    AI_LIMIT_SETTINGS['ai.budget.warnPercent'].defaultValue;
+  const configuration = <AiConfiguration settings={settings} />;
+  if (!showUsage) return configuration;
+  return (
+    <Tabs value={subTab} onValueChange={setSubTab}>
+      <TabsList>
+        <TabsTrigger value="config">{t('settings.aiConfigTab')}</TabsTrigger>
+        <TabsTrigger value="usage">{t('settings.aiUsageTab')}</TabsTrigger>
+      </TabsList>
+      <TabsContent value="config" className="mt-4">
+        {configuration}
+      </TabsContent>
+      <TabsContent value="usage" className="mt-4">
+        <AiUsageTab warnPercent={warnPercent} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function AiConfiguration({ settings }: AiSettingsProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('settings.ai:write');
@@ -406,6 +430,8 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
         );
       })}
 
+      <AiOpsSettings settings={settings} canWrite={canWrite} aiDefaults={aiDefaults} />
+
       <Card>
         <CardHeader>
           <CardTitle>{t('settings.aiLimitsTitle')}</CardTitle>
@@ -447,6 +473,7 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
                       max: formatNumber(max, 0),
                     })}
                     {key === 'ai.budget.userDailyTokens' && ` ${t('settings.aiLimitZeroNoBudget')}`}
+                    {ZERO_NO_LIMIT_KEYS.has(key) && ` ${t('settings.aiLimitZeroNoLimit')}`}
                   </p>
                 </div>
               );

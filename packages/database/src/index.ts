@@ -29,6 +29,7 @@ export {
 export { isSiteFreeVendEnabledByStation, clearFreeVendCache } from './lib/free-vend-setting.js';
 export {
   getElectricityRatePeriodsForSite,
+  loadElectricityRatePeriodsForSite,
   clearElectricityRateCache,
 } from './lib/electricity-rate.js';
 export {
@@ -362,8 +363,41 @@ export {
   getAiSettings,
   isChatbotAiEnabled,
   isSupportAiEnabled,
+  getOpsAiSettings,
+  isOpsAiEnabled,
+  getAiInsightSettings,
+  getAiWorkerSettings,
+  getAiMcpSettings,
+  isAiMcpEnabled,
+  isAiInboxEnabled,
+  isAiInsightsEnabled,
   clearAiSettingsCache,
 } from './lib/ai-settings.js';
+export {
+  AI_USAGE_THRESHOLD_EVENT,
+  aiBudgetLevel,
+  aiUsageBySiteAndSurface,
+  aiUsageMonth,
+  aiUsageMonthOf,
+  aiUsageOfUser,
+  aiUsageTopUsers,
+  aiUsageUtcDay,
+  checkAiBudgets,
+  clearAiUsageCache,
+  evaluateAiBudgets,
+  getSiteMonthlyTokenBudget,
+  isAiUsageMonth,
+  recordAiUsage,
+} from './lib/ai-usage.js';
+export type {
+  AiBudgetContext,
+  AiBudgetLimits,
+  AiBudgetSumKey,
+  AiUsageMonth,
+  AiUsagePeriod,
+  AiUsageRecord,
+  AiUsageSums,
+} from './lib/ai-usage.js';
 export { getSsoConfig, clearSsoSettingsCache } from './lib/sso-settings.js';
 export type { SsoConfig } from './lib/sso-settings.js';
 export { getAttestationConfig, clearAttestationConfigCache } from './lib/attestation-settings.js';

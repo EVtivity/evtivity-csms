@@ -7,9 +7,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Toggle } from '@/components/ui/toggle';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
 
 interface NotificationPreferences {
   smsEnabled: boolean;
+  /** Daily AI Inbox digest opt-in (roadmap v0.1.44, default off). */
+  aiDigestEmail: boolean;
 }
 
 export function ProfileNotifications(): React.JSX.Element {
@@ -21,15 +24,26 @@ export function ProfileNotifications(): React.JSX.Element {
     queryFn: () => api.get<NotificationPreferences>('/v1/users/me/notification-preferences'),
   });
 
+  const canDecideProposals = useHasPermission('aiProposals:write');
+
   const updateMutation = useMutation({
-    mutationFn: (body: { smsEnabled: boolean }) =>
-      api.put('/v1/users/me/notification-preferences', body),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['user-notification-preferences'] });
+    // Either field alone: the API keeps the other one.
+    mutationFn: (body: Partial<NotificationPreferences>) =>
+      api.put<NotificationPreferences>('/v1/users/me/notification-preferences', body),
+    onSuccess: (saved) => {
+      queryClient.setQueryData(['user-notification-preferences'], saved);
     },
   });
 
-  const smsEnabled = prefs?.smsEnabled ?? true;
+  // The switch shows the new value while it saves and the stored one after a
+  // failure (the error shows inline).
+  const saving = updateMutation.isPending ? updateMutation.variables : undefined;
+  const smsEnabled = saving?.smsEnabled ?? prefs?.smsEnabled ?? true;
+  // The digest goes only to users who can decide proposals.
+  const aiDigest = saving?.aiDigestEmail ?? prefs?.aiDigestEmail ?? false;
+  const save = (change: Partial<NotificationPreferences>): void => {
+    updateMutation.mutate(change);
+  };
 
   return (
     <Card>
@@ -46,10 +60,33 @@ export function ProfileNotifications(): React.JSX.Element {
             id="sms-toggle"
             checked={smsEnabled}
             onCheckedChange={(checked) => {
-              updateMutation.mutate({ smsEnabled: checked });
+              save({ smsEnabled: checked });
             }}
           />
         </div>
+        {canDecideProposals && prefs != null && (
+          <div className="flex items-start justify-between gap-4">
+            <div className="space-y-1">
+              <Label htmlFor="ai-digest-toggle">{t('profile.aiDigestEmail')}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t('profile.aiDigestEmailDescription')}
+              </p>
+            </div>
+            <Toggle
+              id="ai-digest-toggle"
+              checked={aiDigest}
+              disabled={updateMutation.isPending}
+              onCheckedChange={(checked) => {
+                save({ aiDigestEmail: checked });
+              }}
+            />
+          </div>
+        )}
+        {updateMutation.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            {t('profile.notificationsSaveFailed')}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

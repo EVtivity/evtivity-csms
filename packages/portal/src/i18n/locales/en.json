@@ -793,7 +793,19 @@
     "LOCAL_CA_NOT_CONFIGURED": "Create the local contract CA first",
     "PNC_CONTRACT_NOT_FOUND": "Plug & Charge contract not found",
     "PHONE_REGISTRATION_LIMITED": "Too many accounts were registered with this phone number. Try again later.",
-    "VERIFICATION_RESEND_LIMITED": "Too many verification emails. Wait before you request another one."
+    "VERIFICATION_RESEND_LIMITED": "Too many verification emails. Wait before you request another one.",
+    "AI_INSIGHT_NOT_FOUND": "Insight not found",
+    "AI_INSIGHT_COOLDOWN": "This insight was regenerated recently. Try again later",
+    "AI_INSIGHTS_DISABLED": "Automatic insights are turned off",
+    "AI_SITE_BUDGET_EXCEEDED": "The site's daily AI usage limit is reached",
+    "AI_MONTHLY_BUDGET_EXCEEDED": "The monthly AI usage limit is reached",
+    "AI_CONTEXT_NOT_FOUND": "Explain context not found",
+    "AI_PROPOSAL_NOT_FOUND": "Proposal not found",
+    "AI_PROPOSAL_EXPIRED": "This proposal has expired",
+    "AI_PROPOSAL_STALE": "This proposal no longer applies because the situation changed",
+    "AI_PROPOSAL_ALREADY_DECIDED": "This proposal was already decided",
+    "AI_CONFIRMATION_REQUIRES_SESSION": "Confirm this action while signed in to the dashboard, not with an API key",
+    "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later"
   },
   "validation": {
     "required": "This field is required",

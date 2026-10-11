@@ -21,6 +21,9 @@ export const IMMEDIATE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'supportCase.created',
   'supportCase.updated',
   'supportCase.newMessage',
+  // AI Inbox and insights are low-volume and a person is waiting on them.
+  'ai.proposal.updated',
+  'ai.insight.updated',
 ]);
 
 // Maps an SSE event to the TanStack Query keys to invalidate. Pure so it can be
@@ -152,6 +155,20 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       // Prefix also covers the detail page (['support-cases', id]).
       keys.push(['support-cases']);
       keys.push(['support-cases-unread-count']);
+      break;
+
+    // AI roadmap v0.1.44: the Inbox (list, detail, nav badge, inline proposals),
+    // the insight cards and the usage views. The SSE stream already filters by site.
+    case 'ai.proposal.updated':
+      keys.push(['ai', 'proposals']);
+      break;
+
+    case 'ai.insight.updated':
+      keys.push(['ai', 'insights']);
+      break;
+
+    case 'ai.usage.threshold':
+      keys.push(['ai', 'usage']);
       break;
 
     case 'certificate.signed':

@@ -64,7 +64,9 @@ export const CACHE_RULES: CacheRule[] = [
 
 // Writes to a resource bust its own tag plus these extras.
 export const CROSS_INVALIDATION: Record<string, string[]> = {
-  sites: ['dashboard'],
+  // Session lists show the site name and the electricity cost a site's
+  // recalculation fills (POST /v1/sites/:id/electricity-cost/recalculate).
+  sites: ['dashboard', 'sessions'],
   // Portal charger pages show station availability (stationUnavailable).
   stations: ['dashboard', 'portal'],
   sessions: ['dashboard'],

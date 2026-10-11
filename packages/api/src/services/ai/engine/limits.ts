@@ -2,20 +2,22 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * AI rate limits and the daily token budget. The per-minute limits are
- * shared Redis counters (every API pod counts the same window), keyed per
- * user and, for support assist, per site. The budget sums the tokens the
- * user's conversations used since midnight UTC, from the stored usage.
+ * AI rate limits and token budgets of an interactive turn. The budgets
+ * (company and site monthly, user daily) come from the usage ledger through
+ * `checkAiBudgets` (`@evtivity/database`) and fail closed. The per-minute
+ * limits are shared Redis counters (every API pod counts the same window),
+ * keyed per user and, for support assist, per site.
  *
- * A Redis failure does not block a turn (logged, fail-open): the budget,
+ * A Redis failure does not block a turn (logged, fail-open): the budgets,
  * the per-turn tool cap and the provider's own limits still apply.
  */
 
 import type { Redis } from 'ioredis';
+import { checkAiBudgets } from '@evtivity/database';
 import { createLogger, createRedisClient } from '@evtivity/lib';
-import { config } from '../../../lib/config.js';
-import { tokensUsedSince } from '../conversation.service.js';
 import type { AiLimits } from '@evtivity/lib/ai-config';
+import type { AiBudgetRefusalCode, AiBudgetScope } from '@evtivity/lib/ai-usage';
+import { config } from '../../../lib/config.js';
 
 const logger = createLogger('ai-limits');
 
@@ -66,7 +68,7 @@ const WINDOW_SECONDS = 60;
 
 export type AiLimitRefusal =
   | { code: 'AI_RATE_LIMITED'; scope: 'user' | 'site'; retryAfterSeconds: number }
-  | { code: 'AI_BUDGET_EXCEEDED'; retryAfterSeconds: number };
+  | { code: AiBudgetRefusalCode; scope: AiBudgetScope; retryAfterSeconds: number };
 
 function windowKey(scope: string, id: string, now: Date): string {
   return `${AI_RATE_LIMIT_KEY_PREFIX}${scope}:${id}:${String(Math.floor(now.getTime() / 1000 / WINDOW_SECONDS))}`;
@@ -76,32 +78,29 @@ function secondsToWindowEnd(now: Date): number {
   return WINDOW_SECONDS - (Math.floor(now.getTime() / 1000) % WINDOW_SECONDS);
 }
 
-function startOfUtcDay(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
 /**
  * Counts one turn against the limits. Null when the turn may run, else the
- * refusal (429). The budget is checked first, so a refused turn does not use
- * up the rate limit.
+ * refusal (429). The budgets are checked first, so a refused turn does not
+ * use up the rate limit. A budget read failure throws (fail closed).
  */
 export async function checkAiLimits(input: {
+  /** The interactive surface of the turn. */
+  surface: 'chatbot' | 'support';
   userId: string;
-  /** The case's site for support assist; null for the chatbot. */
+  /** The case's site for support assist; null for the chatbot (charged to no site). */
   siteId: string | null;
   limits: AiLimits;
   now?: Date;
 }): Promise<AiLimitRefusal | null> {
   const now = input.now ?? new Date();
-  if (input.limits.userDailyTokens > 0) {
-    const used = await tokensUsedSince(input.userId, startOfUtcDay(now));
-    if (used >= input.limits.userDailyTokens) {
-      const tomorrow = startOfUtcDay(new Date(now.getTime() + 86_400_000));
-      return {
-        code: 'AI_BUDGET_EXCEEDED',
-        retryAfterSeconds: Math.ceil((tomorrow.getTime() - now.getTime()) / 1000),
-      };
-    }
+  const budget = await checkAiBudgets({
+    surface: input.surface,
+    userId: input.userId,
+    siteId: input.siteId,
+    now,
+  });
+  if (!budget.allowed) {
+    return { code: budget.code, scope: budget.scope, retryAfterSeconds: budget.retryAfterSeconds };
   }
   try {
     if (input.limits.userPerMinute > 0) {

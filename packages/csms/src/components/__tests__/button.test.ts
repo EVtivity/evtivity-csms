@@ -23,3 +23,20 @@ describe('buttonVariants disabled styles', () => {
     expect(buttonVariants({ variant }).split(' ')).toContain('disabled:opacity-50');
   });
 });
+
+describe('buttonVariants sizes', () => {
+  it.each([
+    ['header', ['h-11', 'grow', 'sm:h-10', 'sm:grow-0']],
+    ['xs', ['h-7', 'text-xs']],
+    ['icon-sm', ['h-8', 'w-8']],
+    ['icon-xs', ['h-6', 'w-6']],
+    ['chip', ['h-6', 'rounded-full', 'text-xs']],
+    ['row', ['h-auto', 'w-full', 'justify-start', 'text-left']],
+    ['row-sm', ['h-auto', 'w-full', 'justify-start', 'text-xs']],
+    ['fab', ['h-12', 'w-12', 'rounded-full', 'shadow-lg']],
+  ] as const)('%s has its shared classes and keeps the focus ring', (size, expected) => {
+    const classes = buttonVariants({ size }).split(' ');
+    for (const c of expected) expect(classes).toContain(c);
+    expect(classes).toContain('focus-visible:ring-2');
+  });
+});

@@ -221,6 +221,11 @@ const financialStatsResponse = z
           .object({
             siteId: z.string().describe('Site ID'),
             siteName: z.string().describe('Site name'),
+            hasRatePeriods: z
+              .boolean()
+              .describe(
+                'Whether the site has any electricity rate period. False: set its rates. True: its rates came after these sessions ended, or none matched their end time; POST /v1/sites/{id}/electricity-cost/recalculate fills them',
+              ),
             sessionCount: z
               .number()
               .int()
@@ -1058,7 +1063,13 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const siteNames =
         missingBySite.length > 0
           ? await db
-              .select({ id: sites.id, name: sites.name })
+              .select({
+                id: sites.id,
+                name: sites.name,
+                // Qualified by hand: drizzle renders a column of a one-table
+                // select without its table, which the subquery would bind to p.
+                hasRatePeriods: sql<boolean>`EXISTS (SELECT 1 FROM site_electricity_rate_periods p WHERE p.site_id = sites.id)`,
+              })
               .from(sites)
               .where(
                 inArray(
@@ -1067,12 +1078,13 @@ export function dashboardRoutes(app: FastifyInstance): void {
                 ),
               )
           : [];
-      const nameById = new Map(siteNames.map((s) => [s.id, s.name]));
+      const siteById = new Map(siteNames.map((s) => [s.id, s]));
       const costMissingSites = missingBySite
-        .filter((s) => nameById.has(s.siteId))
+        .filter((s) => siteById.has(s.siteId))
         .map((s) => ({
           siteId: s.siteId,
-          siteName: nameById.get(s.siteId) ?? '',
+          siteName: siteById.get(s.siteId)?.name ?? '',
+          hasRatePeriods: siteById.get(s.siteId)?.hasRatePeriods === true,
           sessionCount: s.totals.costMissingCount,
           revenueCents: s.totals.costMissingGrossCents,
         }))

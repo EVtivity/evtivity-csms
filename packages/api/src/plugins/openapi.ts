@@ -117,7 +117,21 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         { name: 'Portal Notifications', description: 'Driver portal notification history' },
         { name: 'Portal Access Logs', description: 'Driver portal access logs' },
         { name: 'API Keys', description: 'API key management' },
-        { name: 'AI Assistant', description: 'AI-powered operator assistant' },
+        {
+          name: 'AI Assistant',
+          description:
+            'AI-powered operator assistant. The conversation routes accept an API key with the aiAssistant scope as well as a session; confirming a proposed action needs a signed-in session (403 AI_CONFIRMATION_REQUIRES_SESSION for an API key).',
+        },
+        {
+          name: 'AI Proposals',
+          description:
+            'AI Inbox: actions proposed by background AI workers and MCP clients, run only after an operator confirms them',
+        },
+        {
+          name: 'MCP',
+          description:
+            'Model Context Protocol server for AI agents, authenticated with an API key (aiMcp:read scope)',
+        },
         { name: 'CSS Management', description: 'Charging station simulator management' },
         { name: 'OCTT', description: 'OCPP conformance test runner' },
         {

@@ -77,6 +77,13 @@ export interface SiteFixture {
   user: string;
   fleetReservation: string;
   localAuthEntry: number;
+  /** A pending worker proposal (stop the station's session), and its argsHash. */
+  aiProposal: string;
+  aiProposalHash: string;
+  /** A second pending worker proposal, for the reject route. */
+  aiProposal2: string;
+  /** An active automatic insight of the site's station. */
+  insight: string;
 }
 
 /** Company-wide fixtures shared by both sites. */
@@ -389,6 +396,50 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
 
+  // automatic insights (network counts for all-site users only)
+  l('/ai/insights', 'aiInsights:read', undefined, { unsited: true, hidden: ['network'] }),
+  s(
+    'GET',
+    '/ai/insights/:id',
+    'aiInsights:read',
+    (f) => `/ai/insights/${f.insight}`,
+    'AI_INSIGHT_NOT_FOUND',
+    {
+      unsited: true,
+    },
+  ),
+  s(
+    'POST',
+    '/ai/insights/:id/regenerate',
+    'aiInsights:write',
+    (f) => `/ai/insights/${f.insight}/regenerate`,
+    'AI_INSIGHT_NOT_FOUND',
+    {
+      unsited: true,
+      control: {
+        status: 400,
+        code: 'AI_INSIGHTS_DISABLED',
+        reason: 'opsAi.enabled is off in the test database, checked after the site check',
+      },
+    },
+  ),
+  s(
+    'POST',
+    '/ai/insights/:id/feedback',
+    'aiInsights:write',
+    (f) => `/ai/insights/${f.insight}/feedback`,
+    'AI_INSIGHT_NOT_FOUND',
+    { unsited: true, body: () => ({ helpful: true }) },
+  ),
+  s(
+    'POST',
+    '/ai/insights/:id/dismiss',
+    'aiInsights:write',
+    (f) => `/ai/insights/${f.insight}/dismiss`,
+    'AI_INSIGHT_NOT_FOUND',
+    { unsited: true, control: { order: 90 } },
+  ),
+
   // audit
   l('/audit/:entityType/:entityId', 'audit:read', (f) => `/audit/station/${f.station}`, {}),
   l('/audit', 'audit:read', undefined, { unsited: true }),
@@ -571,6 +622,20 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `${st(f)}/config-drift`,
     'STATION_NOT_FOUND',
     { unsited: true },
+  ),
+
+  // AI assistant Explain: a conversation about a record of another site
+  s(
+    'POST',
+    '/assistant/conversations',
+    'aiAssistant:write',
+    () => '/assistant/conversations',
+    'AI_CONTEXT_NOT_FOUND',
+    {
+      unsited: true,
+      body: (f) => ({ context: { kind: 'station', id: f.station } }),
+      control: { body: (f) => ({ context: { kind: 'station', id: f.station } }) },
+    },
   ),
 
   // CSS simulator
@@ -2126,6 +2191,16 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     noSitesText: (_f, w) => `no access to site "${w.A.siteName}"`,
   }),
   s('GET', '/sites/:id', 'sites:read', (f) => sit(f), 'SITE_NOT_FOUND'),
+  // AI usage: site rows follow the scope; company totals, usage that belongs to
+  // no site and the top users are null for restricted users (104-ai-usage, TC-AI-US-07).
+  l('/ai/usage', 'aiUsage:read'),
+  s(
+    'GET',
+    '/ai/usage/sites/:siteId',
+    'aiUsage:read',
+    (f) => `/ai/usage/sites/${f.site}`,
+    'SITE_NOT_FOUND',
+  ),
   c('POST', '/sites', 'sites:write', () => '/sites', 'SITE_NOT_FOUND', {
     body: () => ({ name: 'Created by matrix' }),
   }),
@@ -2269,6 +2344,13 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
         },
       ],
     },
+  ),
+  s(
+    'POST',
+    '/sites/:id/electricity-cost/recalculate',
+    'sites:write',
+    (f) => `${sit(f)}/electricity-cost/recalculate`,
+    'SITE_NOT_FOUND',
   ),
   s('GET', '/sites/:id/neighbors', 'sites:read', (f) => `${sit(f)}/neighbors`, 'SITE_NOT_FOUND'),
 
@@ -3583,6 +3665,32 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (_f, w) => `/fleets/${w.pricedFleet}/drivers/${w.driver}`,
     'FLEET_NOT_FOUND',
   ),
+  // AI Inbox: worker proposals carry their station's site; an unsited one is all-site only.
+  l('/ai/proposals', 'aiProposals:read', undefined, { unsited: true }),
+  s(
+    'GET',
+    '/ai/proposals/:id',
+    'aiProposals:read',
+    (f) => `/ai/proposals/${f.aiProposal}`,
+    'AI_PROPOSAL_NOT_FOUND',
+    { unsited: true },
+  ),
+  s(
+    'POST',
+    '/ai/proposals/:id/confirm',
+    'aiProposals:write',
+    (f) => `/ai/proposals/${f.aiProposal}/confirm`,
+    'AI_PROPOSAL_NOT_FOUND',
+    { unsited: true, body: (f) => ({ argsHash: f.aiProposalHash }) },
+  ),
+  s(
+    'POST',
+    '/ai/proposals/:id/reject',
+    'aiProposals:write',
+    (f) => `/ai/proposals/${f.aiProposal2}/reject`,
+    'AI_PROPOSAL_NOT_FOUND',
+    { unsited: true },
+  ),
 ];
 
 /** Operator routes with no site data, each with the reason. */
@@ -3601,10 +3709,10 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
     })),
   ),
   { method: 'GET', path: '/assistant/status', reason: 'AI availability flag, no site data' },
+  { method: 'GET', path: '/users/me/ai-usage', reason: "the caller's own AI usage" },
   ...(
     [
       ['GET', '/assistant/conversations'],
-      ['POST', '/assistant/conversations'],
       ['GET', '/assistant/conversations/:id'],
       ['PATCH', '/assistant/conversations/:id'],
       ['DELETE', '/assistant/conversations/:id'],
@@ -3637,6 +3745,17 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
     path: '/assistant/attachments/:id',
     reason: 'AI chat attachment of the caller; another user gets 404',
   },
+  {
+    method: 'POST',
+    path: '/mcp',
+    reason:
+      'MCP server: every tool runs the API route as the key user, which applies its own site scope; journey TC-AI-MCP-06',
+  },
+  ...(['GET', 'DELETE'] as const).map((method) => ({
+    method,
+    path: '/mcp',
+    reason: 'MCP server: 405, no data',
+  })),
   { method: 'GET', path: '/carbon/factors', reason: 'public carbon factor catalog' },
   { method: 'GET', path: '/carbon/factors/:regionCode', reason: 'public carbon factor catalog' },
   ...(

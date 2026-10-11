@@ -2613,17 +2613,17 @@ describe('User routes (extended coverage)', () => {
         headers: auth,
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ smsEnabled: true });
+      expect(res.json()).toEqual({ smsEnabled: true, aiDigestEmail: false });
     });
 
     it('GET returns the stored preference', async () => {
-      setupDbResults([{ userId: ME, smsEnabled: false }]);
+      setupDbResults([{ userId: ME, smsEnabled: false, aiDigestEmail: true }]);
       const res = await app.inject({
         method: 'GET',
         url: '/users/me/notification-preferences',
         headers: auth,
       });
-      expect(res.json()).toEqual({ smsEnabled: false });
+      expect(res.json()).toEqual({ smsEnabled: false, aiDigestEmail: true });
       expect(argOf(opsFor('select', 'userNotificationPreferences')[0], 'where')).toEqual([
         'eq',
         'userNotificationPreferences.userId',
@@ -2632,6 +2632,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('PUT upserts the preference for the caller', async () => {
+      setupDbResults([{ userId: ME, smsEnabled: false, aiDigestEmail: false }]);
       const res = await app.inject({
         method: 'PUT',
         url: '/users/me/notification-preferences',
@@ -2639,13 +2640,42 @@ describe('User routes (extended coverage)', () => {
         payload: { smsEnabled: false },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toEqual({ smsEnabled: false });
+      expect(res.json()).toEqual({ smsEnabled: false, aiDigestEmail: false });
       const op = opsFor('insert', 'userNotificationPreferences')[0];
       expect(argOf(op, 'values')).toEqual({ userId: ME, smsEnabled: false });
       expect(argOf(op, 'onConflictDoUpdate')).toEqual({
         target: ['userNotificationPreferences.userId'],
         set: { smsEnabled: false, updatedAt: expect.any(Date) },
       });
+    });
+
+    it('PUT changes only the AI digest opt-in when it is the only field sent', async () => {
+      setupDbResults([{ userId: ME, smsEnabled: true, aiDigestEmail: true }]);
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/users/me/notification-preferences',
+        headers: auth,
+        payload: { aiDigestEmail: true },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ smsEnabled: true, aiDigestEmail: true });
+      const op = opsFor('insert', 'userNotificationPreferences')[0];
+      expect(argOf(op, 'values')).toEqual({ userId: ME, aiDigestEmail: true });
+      expect(argOf(op, 'onConflictDoUpdate')).toEqual({
+        target: ['userNotificationPreferences.userId'],
+        set: { aiDigestEmail: true, updatedAt: expect.any(Date) },
+      });
+    });
+
+    it('PUT rejects an empty body', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: '/users/me/notification-preferences',
+        headers: auth,
+        payload: {},
+      });
+      expect(res.statusCode).toBe(400);
+      expect(state.ops).toHaveLength(0);
     });
 
     it('PUT rejects a non-boolean body', async () => {

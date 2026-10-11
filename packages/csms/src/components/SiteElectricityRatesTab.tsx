@@ -33,6 +33,7 @@ import { SaveButton } from '@/components/save-button';
 import { CancelButton } from '@/components/cancel-button';
 import { api, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
+import { RecalculateElectricityCostAction } from '@/components/ElectricityCostNotices';
 
 interface RateRestrictions {
   timeRange?: { startTime: string; endTime: string };
@@ -100,7 +101,13 @@ function buildRestrictions(form: FormState): RateRestrictions | null {
   }
 }
 
-export function SiteElectricityRatesTab({ siteId }: { siteId: string }): React.JSX.Element {
+export function SiteElectricityRatesTab({
+  siteId,
+  siteName,
+}: {
+  siteId: string;
+  siteName: string;
+}): React.JSX.Element {
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -222,10 +229,15 @@ export function SiteElectricityRatesTab({ siteId }: { siteId: string }): React.J
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
         <CardTitle>{t('sites.electricityRates')}</CardTitle>
-        <Button onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          {t('sites.addElectricityRate')}
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {rates.length > 0 && (
+            <RecalculateElectricityCostAction siteId={siteId} siteName={siteName} size="default" />
+          )}
+          <Button onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            {t('sites.addElectricityRate')}
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? null : rates.length === 0 ? (

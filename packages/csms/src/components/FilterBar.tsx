@@ -60,7 +60,7 @@ export function FilterPopover({
         onClick={() => {
           setOpen((v) => !v);
         }}
-        className={cn('relative h-10 w-10', showBadge && 'border-primary text-primary')}
+        className={cn('relative h-10 w-10', showBadge && 'border-primary text-link')}
       >
         <Filter className="h-4 w-4" />
         {showBadge && (
@@ -74,7 +74,7 @@ export function FilterPopover({
           {onClearAll != null && (
             <button
               type="button"
-              className="absolute right-4 top-4 z-10 text-sm font-medium text-primary hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
+              className="absolute right-4 top-4 z-10 text-sm font-medium text-link hover:underline disabled:cursor-not-allowed disabled:text-muted-foreground disabled:no-underline"
               disabled={activeCount === 0}
               onClick={() => {
                 onClearAll();

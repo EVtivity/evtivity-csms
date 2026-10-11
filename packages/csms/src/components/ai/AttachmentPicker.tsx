@@ -175,17 +175,19 @@ export function AttachmentPreviews({
           {att.status === 'uploading' ? (
             <Spinner className="absolute right-1.5 top-1.5 h-3.5 w-3.5" />
           ) : (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon-xs"
               disabled={disabled}
               aria-label={t('ai.removeAttachment', { name: att.file.name })}
               onClick={() => {
                 onRemove(att.localId);
               }}
-              className="absolute right-1 top-1 rounded p-0.5 text-muted-foreground hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute right-1 top-1"
             >
-              <X className="h-3.5 w-3.5" />
-            </button>
+              <X className="h-3.5 w-3.5 text-muted-foreground" />
+            </Button>
           )}
         </li>
       ))}

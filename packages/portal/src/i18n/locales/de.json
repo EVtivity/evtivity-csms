@@ -793,7 +793,19 @@
     "LOCAL_CA_NOT_CONFIGURED": "Erstellen Sie zuerst die lokale Vertrags-CA",
     "PNC_CONTRACT_NOT_FOUND": "Plug & Charge-Vertrag nicht gefunden",
     "PHONE_REGISTRATION_LIMITED": "Mit dieser Telefonnummer wurden zu viele Konten registriert. Versuchen Sie es später erneut.",
-    "VERIFICATION_RESEND_LIMITED": "Zu viele Bestätigungs-E-Mails. Warten Sie, bevor Sie eine weitere anfordern."
+    "VERIFICATION_RESEND_LIMITED": "Zu viele Bestätigungs-E-Mails. Warten Sie, bevor Sie eine weitere anfordern.",
+    "AI_INSIGHT_NOT_FOUND": "Analyse nicht gefunden",
+    "AI_INSIGHT_COOLDOWN": "Diese Analyse wurde vor Kurzem neu erstellt. Versuchen Sie es später erneut",
+    "AI_INSIGHTS_DISABLED": "Automatische Analysen sind ausgeschaltet",
+    "AI_SITE_BUDGET_EXCEEDED": "Das tägliche KI-Nutzungslimit des Standorts ist erreicht",
+    "AI_MONTHLY_BUDGET_EXCEEDED": "Das monatliche KI-Nutzungslimit ist erreicht",
+    "AI_CONTEXT_NOT_FOUND": "Der zu erklärende Datensatz wurde nicht gefunden",
+    "AI_PROPOSAL_NOT_FOUND": "Vorschlag nicht gefunden",
+    "AI_PROPOSAL_EXPIRED": "Dieser Vorschlag ist abgelaufen",
+    "AI_PROPOSAL_STALE": "Dieser Vorschlag gilt nicht mehr, weil sich die Lage geändert hat",
+    "AI_PROPOSAL_ALREADY_DECIDED": "Über diesen Vorschlag wurde bereits entschieden",
+    "AI_CONFIRMATION_REQUIRES_SESSION": "Bestätigen Sie diese Aktion angemeldet im Dashboard, nicht mit einem API-Schlüssel",
+    "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut"
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

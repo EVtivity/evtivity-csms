@@ -273,7 +273,7 @@ function Toast({
               href={action.href}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1 inline-block text-sm font-medium text-primary hover:underline"
+              className="mt-1 inline-block text-sm font-medium text-link hover:underline"
             >
               {action.label}
             </a>
@@ -281,7 +281,7 @@ function Toast({
             <button
               type="button"
               onClick={action.onClick}
-              className="mt-1 inline-block text-left text-sm font-medium text-primary hover:underline"
+              className="mt-1 inline-block text-left text-sm font-medium text-link hover:underline"
             >
               {action.label}
             </button>

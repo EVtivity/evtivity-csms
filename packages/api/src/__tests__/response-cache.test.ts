@@ -155,6 +155,10 @@ describe('tagsForWrite', () => {
     expect(tagsForWrite('pricing-holidays')).toEqual(['pricing-holidays', 'pricing']);
   });
 
+  it('busts the dashboard and session lists on a site write (electricity cost recalculation)', () => {
+    expect(tagsForWrite('sites')).toEqual(['sites', 'dashboard', 'sessions']);
+  });
+
   it('returns only the resource tag when unmapped', () => {
     expect(tagsForWrite('fleets')).toEqual(['fleets']);
   });

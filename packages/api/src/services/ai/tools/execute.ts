@@ -25,26 +25,36 @@ import type { FastifyInstance } from 'fastify';
 import { Ajv } from 'ajv';
 import type { ValidateFunction } from 'ajv';
 import { runWithAuditViaAi } from '@evtivity/database';
-import { tryParseJson } from '@evtivity/lib';
+import { aiArgsHash, tryParseJson } from '@evtivity/lib';
 import type { AiToolRefusalReason } from '@evtivity/lib/ai-stream';
-import type { AiToolDefinition } from '../core/types.js';
+import type { AiAuditVia } from '@evtivity/lib/ai-proposals';
+import type { AiToolDefinition } from '@evtivity/ai/core';
+import { findCommandStation } from '../../../lib/command-station.js';
+import type { CommandStation } from '../../../lib/command-station.js';
 import type { AiCatalogTool, AiToolMethod } from './catalog-types.js';
+import { AI_TOOL_CATALOG } from './catalog.js';
+import { mapOcppCommand, ocppVersionLabel, toolOcppVersion } from './ocpp-version.js';
+import type { OcppVersion } from './ocpp-version.js';
+import { surfaceOffers, toolPolicy } from './policy.js';
 import type { AiSurface } from './policy.js';
-import { redactToolText, redactToolValue } from './redact.js';
-import type { RedactionCounts } from './redact.js';
+import { redactToolText, redactToolValue } from '@evtivity/ai/redact';
+import type { RedactionCounts } from '@evtivity/ai/redact';
 import { dropStrictNulls } from './schema.js';
-import { frameUntrusted } from '../engine/prompt.js';
+import { frameUntrusted } from '@evtivity/ai/prompt';
 
 // ---------------------------------------------------------------------------
 // AI tool call context
 // ---------------------------------------------------------------------------
 
 export interface AiToolCallContext {
-  conversationId: string;
-  /** The `ai_tool_calls` row id. */
-  toolCallRowId: string;
   surface: AiSurface;
+  /** The user the call runs as. */
   userId: string;
+  /**
+   * What the audit rows the injected route writes record as `via_ai`: the
+   * chat tool call (`ai_tool_calls` row id), or the confirmed proposal.
+   */
+  via: AiAuditVia;
 }
 
 const toolCallStorage = new AsyncLocalStorage<AiToolCallContext>();
@@ -80,10 +90,7 @@ export function registerAiToolCallContext(app: FastifyInstance): void {
     }
     inFlight.delete(token as string);
     toolCallStorage.run(ctx, () => {
-      runWithAuditViaAi(
-        { conversationId: ctx.conversationId, toolCallId: ctx.toolCallRowId },
-        done,
-      );
+      runWithAuditViaAi(ctx.via, done);
     });
   });
 }
@@ -263,6 +270,8 @@ export const MAX_TOOL_RESULT_CHARS = 40_000;
 export interface ToolOutcome {
   status: 'ok' | 'error';
   httpStatus: number;
+  /** The response body, redacted for the surface: parsed JSON, or text (MCP structured content). */
+  value: unknown;
   /** Redacted and framed as untrusted: what the model and the database get. */
   content: string;
   /** Redacted, short: what the client's tool step shows. */
@@ -277,17 +286,29 @@ function truncate(text: string): string {
     : text;
 }
 
+interface InjectedResult {
+  httpStatus: number;
+  /** The response body, redacted for the surface: parsed JSON, or text. */
+  value: unknown;
+  /** `value` as text (JSON when the body was JSON). */
+  text: string;
+  redactionCounts: RedactionCounts;
+  latencyMs: number;
+  request: ToolRequest;
+}
+
 /**
- * Runs a prepared call through `app.inject` with the caller's authorization,
- * inside the AI tool call context. The result is redacted for the surface
+ * Runs a prepared call through `app.inject` with the given authorization,
+ * inside the AI tool call context, and redacts the answer for the surface
  * before anything else sees it.
  */
-export async function runToolCall(
+async function injectToolCall(
   app: FastifyInstance,
   call: { entry: ToolsetEntry; args: Record<string, unknown> },
   authorization: string,
   ctx: AiToolCallContext,
-): Promise<ToolOutcome> {
+  options: ToolCallOptions = {},
+): Promise<InjectedResult> {
   const request = buildToolRequest(call.entry.tool, call.args);
   const started = performance.now();
   const token = randomBytes(24).toString('base64url');
@@ -300,34 +321,245 @@ export async function runToolCall(
       query: request.query,
       headers: { authorization, [AI_TOOL_CALL_HEADER]: token },
       ...(request.body !== undefined ? { payload: request.body } : {}),
+      ...(options.signal !== undefined ? { signal: options.signal } : {}),
     });
   } finally {
     inFlight.delete(token);
   }
   const latencyMs = Math.round(performance.now() - started);
   const parsed = tryParseJson(response.body);
-  let text: string;
-  let counts: RedactionCounts;
   if (parsed !== undefined) {
     const redacted = redactToolValue(parsed, ctx.surface);
-    text = JSON.stringify(redacted.value);
-    counts = redacted.counts;
-  } else {
-    const redacted = redactToolText(response.body, ctx.surface);
-    text = redacted.text;
-    counts = redacted.counts;
+    return {
+      httpStatus: response.statusCode,
+      value: redacted.value,
+      text: JSON.stringify(redacted.value),
+      redactionCounts: redacted.counts,
+      latencyMs,
+      request,
+    };
   }
-  const status = response.statusCode < 400 ? 'ok' : 'error';
+  const redacted = redactToolText(response.body, ctx.surface);
   return {
-    status,
     httpStatus: response.statusCode,
+    value: redacted.text,
+    text: redacted.text,
+    redactionCounts: redacted.counts,
+    latencyMs,
+    request,
+  };
+}
+
+export interface ToolCallOptions {
+  /** Aborts the injected request (an MCP client that closed its stream). */
+  signal?: AbortSignal;
+}
+
+/**
+ * Runs a prepared call through `app.inject` with the caller's authorization,
+ * inside the AI tool call context. The result is redacted for the surface
+ * before anything else sees it.
+ */
+export async function runToolCall(
+  app: FastifyInstance,
+  call: { entry: ToolsetEntry; args: Record<string, unknown> },
+  authorization: string,
+  ctx: AiToolCallContext,
+  options: ToolCallOptions = {},
+): Promise<ToolOutcome> {
+  const result = await injectToolCall(app, call, authorization, ctx, options);
+  return {
+    status: result.httpStatus < 400 ? 'ok' : 'error',
+    httpStatus: result.httpStatus,
+    value: result.value,
     content: frameUntrusted(
       'tool_result',
       call.entry.tool.name,
-      truncate(`HTTP ${String(response.statusCode)}\n${text}`),
+      truncate(`HTTP ${String(result.httpStatus)}\n${result.text}`),
     ),
-    summary: `${request.method} ${request.url} ${String(response.statusCode)}`,
-    redactionCounts: counts,
-    latencyMs,
+    summary: `${result.request.method} ${result.request.url} ${String(result.httpStatus)}`,
+    redactionCounts: result.redactionCounts,
+    latencyMs: result.latencyMs,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Running a confirmed call (AI proposals, MCP)
+// ---------------------------------------------------------------------------
+
+/** Upper bound of the response excerpt a confirmed call keeps, in characters. */
+export const MAX_CONFIRMED_RESULT_CHARS = 4_000;
+
+/** The user who confirmed the call, in an interactive session. */
+export interface ConfirmingCaller {
+  userId: string;
+  /** The confirming request's own authorization (`callerAuthorization`). */
+  authorization: string;
+  hasPermission: (permission: string) => Promise<boolean>;
+}
+
+export interface ConfirmedToolCall {
+  operationId: string;
+  args: Record<string, unknown>;
+  /** The hash stored when the call was proposed; the arguments must still match it. */
+  argsHash: string;
+  expiresAt: Date;
+  /** What the audit rows of the route record: the proposal (or MCP call) and its confirmer. */
+  via: AiAuditVia;
+  /**
+   * A narrower set than the policy (worker proposals: `AI_WORKER_ACTIONS`).
+   * Checked on the call as proposed and again after the OCPP version mapping.
+   */
+  allowAction?: (operationId: string, args: Readonly<Record<string, unknown>>) => boolean;
+  /** Re-checks the state the call was proposed for; false: the call is stale. */
+  precondition?: () => Promise<boolean>;
+}
+
+export type ConfirmedRefusalReason =
+  | 'args_mismatch'
+  | 'no_longer_available'
+  | 'invalid_arguments'
+  | 'ocpp_version_mismatch';
+
+export type ConfirmedToolCallResult =
+  | { kind: 'expired' }
+  | { kind: 'stale' }
+  | { kind: 'refused'; reason: ConfirmedRefusalReason; message: string }
+  | {
+      kind: 'ran';
+      /** The operation that ran (after the OCPP version mapping). */
+      operationId: string;
+      args: Record<string, unknown>;
+      httpStatus: number;
+      /** The route's answer, redacted, cut to `MAX_CONFIRMED_RESULT_CHARS`. */
+      body: unknown;
+      redactionCounts: RedactionCounts;
+      latencyMs: number;
+    };
+
+export interface ConfirmedToolCallDeps {
+  now?: () => Date;
+  findStation?: (userId: string, ocppStationId: string) => Promise<CommandStation | null>;
+}
+
+/** The catalog entry of a write the chatbot may still run, or null. */
+function confirmableEntry(operationId: string): ToolsetEntry | null {
+  const tool = AI_TOOL_CATALOG.find((t) => t.operationId === operationId);
+  if (tool === undefined) return null;
+  const policy = toolPolicy(operationId);
+  if (policy.exposure !== 'write' || !surfaceOffers(policy, 'chatbot')) return null;
+  return {
+    tool,
+    definition: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+      strict: tool.strict,
+    },
+    fixedArgs: {},
+    allowedValues: {},
+    omitted: policy.omit,
+  };
+}
+
+function isOcppVersion(value: string | null): value is OcppVersion {
+  return value === 'ocpp1.6' || value === 'ocpp2.1';
+}
+
+function excerpt(value: unknown, text: string): unknown {
+  return text.length > MAX_CONFIRMED_RESULT_CHARS
+    ? `${text.slice(0, MAX_CONFIRMED_RESULT_CHARS)} [truncated]`
+    : value;
+}
+
+/**
+ * Runs a write that a human confirmed outside the chat (an AI proposal, or an
+ * MCP call approved in the CSMS), as the confirming user. Nothing runs unless
+ * every check passes, in this order:
+ *
+ * 1. TTL: at or past `expiresAt` the call is `expired`.
+ * 2. The arguments still hash to the stored `argsHash`.
+ * 3. The operation is still a policy `write` the chatbot offers, and inside
+ *    `allowAction` when given.
+ * 4. The precondition still holds (else `stale`).
+ * 5. The OCPP version is mapped again for the station as it is now
+ *    (`mapOcppCommand`, the station looked up as the confirming user): a
+ *    station that changed version gets the equivalent command, or a refusal
+ *    when there is none. An unknown or foreign station runs unchanged and the
+ *    route answers it (404).
+ * 6. The arguments match the operation's schema (`prepareToolCall`).
+ *
+ * The call then runs through `app.inject` with the confirming user's own
+ * authorization, so the route applies its RBAC and site scope at confirm
+ * time, and every audit row it writes records `via`.
+ */
+export async function executeConfirmedToolCall(
+  app: FastifyInstance,
+  caller: ConfirmingCaller,
+  call: ConfirmedToolCall,
+  deps: ConfirmedToolCallDeps = {},
+): Promise<ConfirmedToolCallResult> {
+  const now = deps.now?.() ?? new Date();
+  if (now.getTime() >= call.expiresAt.getTime()) return { kind: 'expired' };
+  if (aiArgsHash(call.args) !== call.argsHash) {
+    return { kind: 'refused', reason: 'args_mismatch', message: 'The arguments changed' };
+  }
+  const allowed = (operationId: string, args: Record<string, unknown>): boolean =>
+    call.allowAction === undefined || call.allowAction(operationId, args);
+  let entry = confirmableEntry(call.operationId);
+  if (entry === null || !allowed(call.operationId, call.args)) {
+    return {
+      kind: 'refused',
+      reason: 'no_longer_available',
+      message: `${call.operationId} can no longer run from an AI proposal`,
+    };
+  }
+  if (call.precondition !== undefined && !(await call.precondition())) return { kind: 'stale' };
+
+  let args = call.args;
+  const stationId = args['stationId'];
+  if (
+    toolOcppVersion(entry.tool) !== null &&
+    typeof stationId === 'string' &&
+    (await caller.hasPermission('stations:read'))
+  ) {
+    const station = await (deps.findStation ?? findCommandStation)(caller.userId, stationId);
+    if (station !== null && isOcppVersion(station.ocppProtocol)) {
+      const mapping = mapOcppCommand(entry.tool, args, station.ocppProtocol);
+      if (mapping.kind === 'unsupported') {
+        return { kind: 'refused', reason: 'ocpp_version_mismatch', message: mapping.message };
+      }
+      if (mapping.kind === 'mapped') {
+        const target = confirmableEntry(mapping.operationId);
+        if (target === null || !allowed(mapping.operationId, mapping.args)) {
+          return {
+            kind: 'refused',
+            reason: 'ocpp_version_mismatch',
+            message: `Station ${stationId} uses ${ocppVersionLabel(station.ocppProtocol)} and its equivalent command cannot run from an AI proposal`,
+          };
+        }
+        entry = target;
+        args = mapping.args;
+      }
+    }
+  }
+
+  const prepared = prepareToolCall(createToolset([entry]), entry.tool.name, args);
+  if (!prepared.ok) {
+    return { kind: 'refused', reason: 'invalid_arguments', message: prepared.refusal.modelText };
+  }
+  const result = await injectToolCall(app, prepared, caller.authorization, {
+    surface: 'chatbot',
+    userId: caller.userId,
+    via: call.via,
+  });
+  return {
+    kind: 'ran',
+    operationId: prepared.entry.tool.operationId,
+    args: prepared.args,
+    httpStatus: result.httpStatus,
+    body: excerpt(result.value, result.text),
+    redactionCounts: result.redactionCounts,
+    latencyMs: result.latencyMs,
   };
 }

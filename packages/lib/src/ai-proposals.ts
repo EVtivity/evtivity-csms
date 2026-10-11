@@ -1,0 +1,269 @@
+// Copyright (c) 2024-2026 EVtivity. All rights reserved.
+// SPDX-License-Identifier: BUSL-1.1
+
+/**
+ * AI proposals: a write that a background worker or an MCP client asks for
+ * and that runs only after an operator confirms it in the CSMS AI Inbox, with
+ * that operator's own authorization. Shared by the worker, the API and the
+ * CSMS. Browser-safe (`@evtivity/lib/ai-proposals`).
+ */
+
+import { z } from 'zod';
+
+export const AI_PROPOSAL_SOURCES = ['worker', 'mcp'] as const;
+export type AiProposalSource = (typeof AI_PROPOSAL_SOURCES)[number];
+
+export const AI_WORKER_JOBS = ['network_summary', 'stuck_sessions', 'tariff_anomalies'] as const;
+export type AiWorkerJob = (typeof AI_WORKER_JOBS)[number];
+
+export const AI_PROPOSAL_STATUSES = [
+  'pending',
+  'executed',
+  'failed',
+  'rejected',
+  'expired',
+  'stale',
+] as const;
+export type AiProposalStatus = (typeof AI_PROPOSAL_STATUSES)[number];
+
+/** Every status but `pending` is final: a status update only moves a proposal out of `pending`. */
+export const AI_PROPOSAL_TERMINAL_STATUSES: readonly AiProposalStatus[] = [
+  'executed',
+  'failed',
+  'rejected',
+  'expired',
+  'stale',
+];
+
+export const AI_WORKER_ACTION_KINDS = [
+  'stop_transaction',
+  'soft_reset',
+  'change_availability',
+] as const;
+export type AiWorkerActionKind = (typeof AI_WORKER_ACTION_KINDS)[number];
+
+export interface AiWorkerAction {
+  kind: AiWorkerActionKind;
+  ocppVersion: '1.6' | '2.1';
+  /** The tool policy `write` operation the proposal runs. */
+  operationId: string;
+  method: 'POST';
+  path: string;
+  /** Arguments that must have exactly this value. */
+  fixedArgs: Readonly<Record<string, string>>;
+  /** Arguments that must take one of these values. */
+  allowedArgs: Readonly<Record<string, readonly string[]>>;
+}
+
+/**
+ * The closed set of actions a background worker may propose. Each one maps to
+ * an existing OCPP command route of policy `write`. No money, pricing,
+ * billing or security operation is in it, and none may be added.
+ */
+export const AI_WORKER_ACTIONS: readonly AiWorkerAction[] = [
+  {
+    kind: 'stop_transaction',
+    ocppVersion: '2.1',
+    operationId: 'ocppv21_RequestStopTransaction',
+    method: 'POST',
+    path: '/v1/ocpp/commands/v21/RequestStopTransaction',
+    fixedArgs: {},
+    allowedArgs: {},
+  },
+  {
+    kind: 'stop_transaction',
+    ocppVersion: '1.6',
+    operationId: 'ocppv16_RemoteStopTransaction',
+    method: 'POST',
+    path: '/v1/ocpp/commands/v16/RemoteStopTransaction',
+    fixedArgs: {},
+    allowedArgs: {},
+  },
+  {
+    kind: 'soft_reset',
+    ocppVersion: '2.1',
+    operationId: 'ocppv21_Reset',
+    method: 'POST',
+    path: '/v1/ocpp/commands/v21/Reset',
+    fixedArgs: { type: 'OnIdle' },
+    allowedArgs: {},
+  },
+  {
+    kind: 'soft_reset',
+    ocppVersion: '1.6',
+    operationId: 'ocppv16_Reset',
+    method: 'POST',
+    path: '/v1/ocpp/commands/v16/Reset',
+    fixedArgs: { type: 'Soft' },
+    allowedArgs: {},
+  },
+  {
+    kind: 'change_availability',
+    ocppVersion: '2.1',
+    operationId: 'ocppv21_ChangeAvailability',
+    method: 'POST',
+    path: '/v1/ocpp/commands/v21/ChangeAvailability',
+    fixedArgs: {},
+    allowedArgs: { operationalStatus: ['Inoperative', 'Operative'] },
+  },
+  {
+    kind: 'change_availability',
+    ocppVersion: '1.6',
+    operationId: 'ocppv16_ChangeAvailability',
+    method: 'POST',
+    path: '/v1/ocpp/commands/v16/ChangeAvailability',
+    fixedArgs: {},
+    allowedArgs: { type: ['Inoperative', 'Operative'] },
+  },
+];
+
+export function findAiWorkerAction(operationId: string): AiWorkerAction | undefined {
+  return AI_WORKER_ACTIONS.find((a) => a.operationId === operationId);
+}
+
+/** True when `args` respect the action's fixed and allowed values. */
+export function workerActionArgsAllowed(
+  action: AiWorkerAction,
+  args: Readonly<Record<string, unknown>>,
+): boolean {
+  for (const [name, value] of Object.entries(action.fixedArgs)) {
+    if (args[name] !== value) return false;
+  }
+  for (const [name, values] of Object.entries(action.allowedArgs)) {
+    const value = args[name];
+    if (typeof value !== 'string' || !values.includes(value)) return false;
+  }
+  return true;
+}
+
+/** Checked again at confirm time; a proposal whose precondition no longer holds ends `stale`. */
+export const AI_PROPOSAL_PRECONDITION_KINDS = [
+  'session_active',
+  'station_faulted',
+  'station_availability',
+] as const;
+export type AiProposalPreconditionKind = (typeof AI_PROPOSAL_PRECONDITION_KINDS)[number];
+
+export const aiProposalPreconditionSchema = z.object({
+  kind: z.enum(AI_PROPOSAL_PRECONDITION_KINDS),
+  params: z.record(z.unknown()),
+});
+export type AiProposalPrecondition = z.infer<typeof aiProposalPreconditionSchema>;
+
+export const aiProposalResultSchema = z.object({
+  httpStatus: z.number().int(),
+  /** Redacted excerpt of the route's response body. */
+  body: z.unknown().optional(),
+});
+export type AiProposalResult = z.infer<typeof aiProposalResultSchema>;
+
+/** One proposal as the API returns it. */
+export const aiProposalDtoSchema = z.object({
+  id: z.string(),
+  source: z.enum(AI_PROPOSAL_SOURCES),
+  job: z.enum(AI_WORKER_JOBS).nullable(),
+  insightId: z.string().nullable(),
+  requestedByUserId: z.string().nullable(),
+  /** MCP: the name of the API key that asked; null for worker proposals and a revoked key. */
+  apiKeyName: z.string().nullable(),
+  siteId: z.string().nullable(),
+  stationId: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  operationId: z.string(),
+  method: z.string(),
+  path: z.string(),
+  args: z.record(z.unknown()),
+  argsHash: z.string(),
+  /** Structured fields for the localized confirmation card. */
+  summary: z.record(z.unknown()),
+  rationaleText: z.string().nullable(),
+  rationaleLanguage: z.string().nullable(),
+  precondition: aiProposalPreconditionSchema.nullable(),
+  status: z.enum(AI_PROPOSAL_STATUSES),
+  expiresAt: z.string(),
+  decidedBy: z.string().nullable(),
+  decidedAt: z.string().nullable(),
+  executedAt: z.string().nullable(),
+  result: aiProposalResultSchema.nullable(),
+  createdAt: z.string(),
+});
+export type AiProposalDto = z.infer<typeof aiProposalDtoSchema>;
+
+export const aiProposalConfirmBody = z.object({ argsHash: z.string().min(1) });
+
+/** Default time to live of a proposal, per source. */
+export const AI_PROPOSAL_TTL_MS = {
+  worker: 24 * 60 * 60 * 1000,
+  stuckSessions: 2 * 60 * 60 * 1000,
+  mcp: 30 * 60 * 1000,
+} as const;
+
+/** How an audit row written by an AI-run request records where it came from. */
+export const AI_VIA_CHANNELS = ['chat', 'mcp', 'proposal'] as const;
+export type AiViaChannel = (typeof AI_VIA_CHANNELS)[number];
+
+export const aiAuditViaSchema = z.object({
+  channel: z.enum(AI_VIA_CHANNELS),
+  conversationId: z.string().optional(),
+  toolCallId: z.string().optional(),
+  mcpCallId: z.string().optional(),
+  proposalId: z.string().optional(),
+  confirmedBy: z.string().optional(),
+});
+export type AiAuditVia = z.infer<typeof aiAuditViaSchema>;
+
+/**
+ * Reads a stored `via_ai` value. Rows written before the channel existed hold
+ * `{ conversationId, toolCallId }` and are chat rows. Returns null for any
+ * other shape.
+ */
+export function readAiAuditVia(stored: unknown): AiAuditVia | null {
+  if (stored == null || typeof stored !== 'object') return null;
+  if (!('channel' in stored) && !('conversationId' in stored)) return null;
+  const value = 'channel' in stored ? stored : { ...stored, channel: 'chat' };
+  const parsed = aiAuditViaSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+export const AI_WORKER_SETTING_KEYS = {
+  networkSummaryEnabled: 'aiWorkers.networkSummary.enabled',
+  stuckSessionsEnabled: 'aiWorkers.stuckSessions.enabled',
+  stuckSessionsIdleMinutes: 'aiWorkers.stuckSessions.idleMinutes',
+  stuckSessionsUseModel: 'aiWorkers.stuckSessions.useModel',
+  tariffAnomaliesEnabled: 'aiWorkers.tariffAnomalies.enabled',
+  proposalTtlHours: 'aiWorkers.proposalTtlHours',
+} as const;
+
+/**
+ * The MCP toolsets served when a client names none (`?toolsets=`): stations
+ * (alerts included), sessions, sites, tokens (with the authorize log),
+ * automatic insights (the main read surface) and AI proposals
+ * (`get_ai_proposal`, to poll a write). Shared so the CSMS lists the same set.
+ */
+export const AI_MCP_DEFAULT_TOOLSETS: readonly string[] = [
+  'ai-insights',
+  'ai-proposals',
+  'sessions',
+  'sites',
+  'stations',
+  'tokens',
+];
+
+export const AI_MCP_SETTING_KEYS = {
+  enabled: 'ai.mcp.enabled',
+  rateLimitPerMinute: 'ai.mcp.rateLimitPerMinute',
+  dailyCallsPerKey: 'ai.mcp.dailyCallsPerKey',
+  proposalTtlMinutes: 'ai.mcp.proposalTtlMinutes',
+  allowedOrigins: 'ai.mcp.allowedOrigins',
+} as const;
+
+/** Error codes of the proposal and MCP routes, with their HTTP status. */
+export const AI_PROPOSAL_ERROR_CODES = {
+  AI_PROPOSAL_NOT_FOUND: 404,
+  AI_PROPOSAL_EXPIRED: 409,
+  AI_PROPOSAL_STALE: 409,
+  AI_PROPOSAL_ALREADY_DECIDED: 409,
+  AI_CONFIRMATION_REQUIRES_SESSION: 403,
+  AI_MCP_RATE_LIMITED: 429,
+} as const;
+export type AiProposalErrorCode = keyof typeof AI_PROPOSAL_ERROR_CODES;

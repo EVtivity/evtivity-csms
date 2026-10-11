@@ -3,7 +3,9 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  AI_FLAG_SETTINGS,
   AI_LIMIT_SETTINGS,
+  AI_SETTING_DEFAULTS,
   REMOVED_AI_SETTING_KEYS,
   aiProviderApiKeySettingKey,
   aiProviderBaseUrlSettingKey,
@@ -12,7 +14,19 @@ import {
   isAiSettingKey,
   normalizeAiSettingValue,
   parseAiLimitValue,
+  parseAiMcpAllowedOrigins,
 } from '../ai-config.js';
+import { AI_INSIGHT_SETTING_KEYS, OPS_AI_SETTING_KEYS } from '../ai-insights.js';
+import { AI_MCP_SETTING_KEYS, AI_WORKER_SETTING_KEYS } from '../ai-proposals.js';
+import { AI_BUDGET_SETTING_KEYS } from '../ai-usage.js';
+
+const CONTRACT_KEYS = [
+  ...Object.values(OPS_AI_SETTING_KEYS),
+  ...Object.values(AI_INSIGHT_SETTING_KEYS),
+  ...Object.values(AI_WORKER_SETTING_KEYS),
+  ...Object.values(AI_MCP_SETTING_KEYS),
+  ...Object.values(AI_BUDGET_SETTING_KEYS),
+];
 import { validateAiBaseUrl } from '../url-validation.js';
 
 describe('AI setting keys', () => {
@@ -111,6 +125,10 @@ describe('buildAiSettings', () => {
       userPerMinute: 10,
       sitePerMinute: 60,
       userDailyTokens: 2_000_000,
+      companyMonthlyTokens: 0,
+      siteMonthlyTokens: 0,
+      siteDailyTokens: 300_000,
+      budgetWarnPercent: 80,
       maxToolCallsPerTurn: 20,
       conversationRetentionDays: 30,
       attachmentsMaxBytes: 10_485_760,
@@ -143,6 +161,172 @@ describe('buildAiSettings', () => {
       baseUrl: 'https://proxy.example.com/v1',
     });
     expect(s.limits.userDailyTokens).toBe(0);
+  });
+});
+
+describe('AI roadmap settings (TC-AI-C-11)', () => {
+  it('has a default for every setting key of the contracts', () => {
+    expect(CONTRACT_KEYS).toHaveLength(29);
+    for (const key of CONTRACT_KEYS) {
+      expect(Object.hasOwn(AI_SETTING_DEFAULTS, key), key).toBe(true);
+      expect(isAiSettingKey(key), key).toBe(true);
+    }
+  });
+
+  it('accepts every default it ships', () => {
+    for (const [key, value] of Object.entries(AI_SETTING_DEFAULTS)) {
+      const result = normalizeAiSettingValue(key, value);
+      if (result !== undefined) expect(result, key).toEqual({ value });
+    }
+  });
+
+  it('keeps system-initiated AI, every worker job and MCP off by default (D4)', () => {
+    expect(AI_SETTING_DEFAULTS['opsAi.enabled']).toBe(false);
+    expect(AI_SETTING_DEFAULTS['ai.mcp.enabled']).toBe(false);
+    for (const key of [
+      'aiWorkers.networkSummary.enabled',
+      'aiWorkers.stuckSessions.enabled',
+      'aiWorkers.tariffAnomalies.enabled',
+    ]) {
+      expect(AI_SETTING_DEFAULTS[key], key).toBe(false);
+    }
+    for (const key of [
+      'aiInsights.station.enabled',
+      'aiInsights.session.enabled',
+      'aiInsights.authorization.enabled',
+    ]) {
+      expect(AI_SETTING_DEFAULTS[key], key).toBe(true);
+    }
+  });
+
+  it('uses the D5 thresholds', () => {
+    expect(AI_SETTING_DEFAULTS).toMatchObject({
+      'aiInsights.debounceSeconds': 120,
+      'aiInsights.cooldownMinutes': 60,
+      'aiInsights.siteIncidentThreshold': 3,
+      'aiInsights.maxPerSitePerDay': 50,
+      'aiInsights.retentionDays': 90,
+      'ai.budget.siteDailyTokens': 300_000,
+      'opsAi.effort': 'low',
+    });
+  });
+
+  it('checks switches, the ops provider and effort, the language and the limits', () => {
+    for (const key of Object.keys(AI_FLAG_SETTINGS)) {
+      expect(normalizeAiSettingValue(key, true)).toEqual({ value: true });
+      expect(normalizeAiSettingValue(key, 'true')).toBeNull();
+    }
+    expect(normalizeAiSettingValue('opsAi.provider', 'gemini')).toEqual({ value: 'gemini' });
+    expect(normalizeAiSettingValue('opsAi.provider', '')).toEqual({ value: '' });
+    expect(normalizeAiSettingValue('opsAi.provider', 'mistral')).toBeNull();
+    expect(normalizeAiSettingValue('opsAi.effort', 'max')).toBeNull();
+    expect(normalizeAiSettingValue('aiInsights.primaryLanguage', 'zh-TW')).toEqual({
+      value: 'zh-TW',
+    });
+    expect(normalizeAiSettingValue('aiInsights.primaryLanguage', 'fr')).toBeNull();
+    expect(normalizeAiSettingValue('aiInsights.siteIncidentThreshold', 1)).toBeNull();
+    expect(normalizeAiSettingValue('aiWorkers.stuckSessions.idleMinutes', '45')).toEqual({
+      value: 45,
+    });
+    expect(normalizeAiSettingValue('ai.budget.companyMonthlyTokens', 0)).toEqual({ value: 0 });
+    expect(normalizeAiSettingValue('ai.budget.warnPercent', 0)).toBeNull();
+    expect(normalizeAiSettingValue('opsAi.model', 'x')).toBeUndefined();
+    expect(normalizeAiSettingValue('opsAi.systemPrompt', 'x')).toBeUndefined();
+  });
+
+  it('parses the MCP allowed origins', () => {
+    expect(parseAiMcpAllowedOrigins([])).toEqual([]);
+    expect(
+      parseAiMcpAllowedOrigins([
+        ' https://App.Example.com ',
+        'https://app.example.com/',
+        'http://localhost:6274',
+        'https://[::1]:8443',
+      ]),
+    ).toEqual(['https://app.example.com', 'http://localhost:6274', 'https://[::1]:8443']);
+    for (const bad of [
+      'https://app.example.com/path',
+      'https://app.example.com?x=1',
+      'https://user:pass@app.example.com',
+      'ftp://app.example.com',
+      'app.example.com',
+      '*',
+    ]) {
+      expect(parseAiMcpAllowedOrigins([bad]), bad).toBeNull();
+    }
+    expect(parseAiMcpAllowedOrigins('https://app.example.com')).toBeNull();
+    expect(
+      parseAiMcpAllowedOrigins(['https://app.example.com:443', 'http://b.example:80']),
+    ).toEqual(['https://app.example.com', 'http://b.example']);
+    expect(parseAiMcpAllowedOrigins([42])).toBeNull();
+    expect(
+      parseAiMcpAllowedOrigins(
+        Array.from({ length: 51 }, (_, i) => `https://a${String(i)}.example`),
+      ),
+    ).toBeNull();
+  });
+
+  it('builds the ops surface, insights, workers and MCP with their defaults', () => {
+    const s = buildAiSettings([]);
+    expect(s.ops).toEqual({
+      enabled: false,
+      provider: null,
+      model: '',
+      effort: 'low',
+      systemPrompt: '',
+    });
+    expect(s.insights).toEqual({
+      stationEnabled: true,
+      sessionEnabled: true,
+      authorizationEnabled: true,
+      debounceSeconds: 120,
+      cooldownMinutes: 60,
+      siteIncidentThreshold: 3,
+      maxPerSitePerDay: 50,
+      primaryLanguage: 'en',
+      retentionDays: 90,
+    });
+    expect(s.workers).toEqual({
+      networkSummaryEnabled: false,
+      stuckSessionsEnabled: false,
+      stuckSessionsIdleMinutes: 90,
+      stuckSessionsUseModel: false,
+      tariffAnomaliesEnabled: false,
+      proposalTtlHours: 24,
+    });
+    expect(s.mcp).toEqual({
+      enabled: false,
+      rateLimitPerMinute: 60,
+      dailyCallsPerKey: 5000,
+      proposalTtlMinutes: 30,
+      allowedOrigins: [],
+    });
+  });
+
+  it('maps stored values and replaces invalid ones with their defaults', () => {
+    const s = buildAiSettings([
+      { key: 'opsAi.enabled', value: true },
+      { key: 'opsAi.provider', value: 'deepseek' },
+      { key: 'opsAi.effort', value: 'high' },
+      { key: 'aiInsights.session.enabled', value: false },
+      { key: 'aiInsights.station.enabled', value: 'no' },
+      { key: 'aiInsights.primaryLanguage', value: 'de' },
+      { key: 'aiInsights.cooldownMinutes', value: 0 },
+      { key: 'aiWorkers.stuckSessions.enabled', value: true },
+      { key: 'ai.mcp.enabled', value: true },
+      { key: 'ai.mcp.allowedOrigins', value: ['https://app.example.com'] },
+      { key: 'ai.budget.companyMonthlyTokens', value: 5_000_000 },
+    ]);
+    expect(s.ops).toMatchObject({ enabled: true, provider: 'deepseek', effort: 'high' });
+    expect(s.insights).toMatchObject({
+      sessionEnabled: false,
+      stationEnabled: true,
+      primaryLanguage: 'de',
+      cooldownMinutes: 60,
+    });
+    expect(s.workers.stuckSessionsEnabled).toBe(true);
+    expect(s.mcp).toMatchObject({ enabled: true, allowedOrigins: ['https://app.example.com'] });
+    expect(s.limits.companyMonthlyTokens).toBe(5_000_000);
   });
 });
 

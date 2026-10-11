@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
-import { History, Plus, Send, Sparkles, Square, Upload, X } from 'lucide-react';
+import { History, Lightbulb, Plus, Send, Sparkles, Square, Upload, X } from 'lucide-react';
 import type { AiStreamEvent } from '@evtivity/lib/ai-stream';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
@@ -35,6 +35,13 @@ import { MessageList } from './MessageList';
 import { SuggestedPrompts } from './SuggestedPrompts';
 import { useAiStream } from './use-ai-stream';
 import type { AiStreamOutcome } from './use-ai-stream';
+import { useAiPanelStore } from './use-ai-panel-store';
+import type { AiPanelContext } from './use-ai-panel-store';
+import { InsightCard } from './insights/InsightCard';
+import { useInsight } from './insights/insight-api';
+import { AiUsageFooter } from './usage/AiUsageFooter';
+import { AiUsageNotices } from './usage/AiUsageNotices';
+import { AI_MY_USAGE_KEY } from './usage/usage-api';
 
 const conversationPath = (id: string): string =>
   `/v1/assistant/conversations/${encodeURIComponent(id)}`;
@@ -47,9 +54,45 @@ interface AiPanelProps {
 }
 
 /**
+ * The panel shows a fresh insight here, with no conversation.
+ */
+function PanelInsight({
+  insightId,
+  onFollowUp,
+}: {
+  insightId: string;
+  onFollowUp: (() => void) | undefined;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const { insight, isLoading, isError } = useInsight(insightId);
+  if (isLoading) {
+    return (
+      <div className="flex justify-center p-6">
+        <Spinner className="h-5 w-5" />
+      </div>
+    );
+  }
+  if (isError || insight == null) {
+    return <p className="text-sm text-muted-foreground">{t('ai.explain.contextUnavailable')}</p>;
+  }
+  return (
+    <div className="space-y-2" data-testid="ai-panel-insight">
+      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />
+        {t('ai.explain.insightShown')}
+      </p>
+      <InsightCard insight={insight} onFollowUp={onFollowUp} />
+    </div>
+  );
+}
+
+/**
  * The AI assistant panel (plan 3.10): streaming chat with Stop, tool steps,
  * write confirmation, attachments, conversation history and suggested prompts.
- * Full screen below `md`, a side panel above.
+ * Full screen below `md`, a side panel above. Explain (roadmap v0.1.44 item 2)
+ * opens it through `useAiPanelStore` about one record: a fresh insight is
+ * shown first at no token cost, otherwise the record's question is prefilled
+ * in the composer, visible and editable before it is sent.
  */
 export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -65,6 +108,11 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   const [dragging, setDragging] = useState(false);
   const [loadingConversation, setLoadingConversation] = useState(false);
   const [panelError, setPanelError] = useState<unknown>(null);
+  /** The record a new conversation is about (Explain); null for a plain chat. */
+  const [context, setContext] = useState<AiPanelContext | null>(null);
+  const [shownInsightId, setShownInsightId] = useState<string | null>(null);
+  const request = useAiPanelStore((s) => s.request);
+  const clearRequest = useAiPanelStore((s) => s.clearRequest);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -74,6 +122,35 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  /** Puts the record's Explain question in the composer, in the user's language. */
+  const prefillExplain = useCallback(
+    (kind: AiPanelContext['kind']) => {
+      setInput(t(`ai.explain.${kind}`));
+      setTimeout(() => {
+        const el = textareaRef.current;
+        if (el == null) return;
+        el.style.height = 'auto';
+        el.style.height = `${String(Math.min(el.scrollHeight, 160))}px`;
+        el.focus();
+      }, 0);
+    },
+    [t],
+  );
+
+  // An Explain request starts a new conversation about the record.
+  useEffect(() => {
+    if (request == null || streaming) return;
+    clearRequest();
+    setView('chat');
+    setConversationId(null);
+    setMessages([]);
+    setPanelError(null);
+    setContext(request.context);
+    setShownInsightId(request.insightId);
+    if (request.insightId == null) prefillExplain(request.context.kind);
+    else setInput('');
+  }, [request, streaming, clearRequest, prefillExplain]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
@@ -101,6 +178,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
         updateMessage(assistant.key, (m) => finishInterrupted(m, outcome.kind === 'stopped'));
       }
       void queryClient.invalidateQueries({ queryKey: AI_CONVERSATIONS_KEY });
+      void queryClient.invalidateQueries({ queryKey: AI_MY_USAGE_KEY });
       return outcome;
     },
     [run, updateMessage, queryClient],
@@ -108,7 +186,11 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
 
   async function ensureConversation(): Promise<string> {
     if (conversationId != null) return conversationId;
-    const created = await api.post<AiConversationItem>('/v1/assistant/conversations', {});
+    // The server checks access to the record now and on every turn; only kind and id are sent.
+    const created = await api.post<AiConversationItem>(
+      '/v1/assistant/conversations',
+      context != null ? { context: { kind: context.kind, id: context.id } } : {},
+    );
     setConversationId(created.id);
     void queryClient.invalidateQueries({ queryKey: AI_CONVERSATIONS_KEY });
     return created.id;
@@ -161,6 +243,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
     // Files that failed stay listed with their error until the user removes them.
     setAttachments((prev) => prev.filter((a) => !sent.includes(a)));
     setInput('');
+    setShownInsightId(null);
     if (textareaRef.current != null) textareaRef.current.style.height = 'auto';
     setMessages((prev) => [...prev, userMessage(trimmed, chips)]);
     await streamInto(`${conversationPath(id)}/messages`, {
@@ -213,6 +296,8 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
         conversationPath(id),
       );
       setConversationId(detail.id);
+      setContext(detail.context ?? null);
+      setShownInsightId(null);
       setMessages(messagesFromHistory(detail.messages));
     } catch (err) {
       setPanelError(err);
@@ -226,6 +311,8 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
     setConversationId(null);
     setMessages([]);
     setPanelError(null);
+    setContext(null);
+    setShownInsightId(null);
     setView('chat');
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
@@ -298,7 +385,8 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
     el.style.height = `${String(Math.min(el.scrollHeight, 160))}px`;
   }
 
-  const showEmpty = messages.length === 0 && !loadingConversation;
+  const showInsight = shownInsightId != null && messages.length === 0 && !loadingConversation;
+  const showEmpty = messages.length === 0 && !loadingConversation && !showInsight;
   const inHistory = view === 'history';
   const historyToggleLabel = inHistory ? t('ai.backToChat') : t('ai.history');
 
@@ -328,7 +416,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
       className="fixed inset-0 z-50 flex flex-col bg-card text-card-foreground shadow-lg animate-slide-in-from-right md:inset-y-0 md:left-auto md:right-0 md:w-[440px] md:border-l md:border-border"
     >
       <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-        <Sparkles className="h-5 w-5 text-primary" aria-hidden="true" />
+        <Sparkles className="h-5 w-5 text-link" aria-hidden="true" />
         <h2 id="ai-panel-title" className="flex-1 text-base font-semibold">
           {t('ai.title')}
         </h2>
@@ -395,7 +483,21 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
                 <Spinner className="h-5 w-5" />
               </div>
             )}
-            {showEmpty && (
+            <AiUsageNotices className="mb-3" />
+            {showInsight && (
+              <PanelInsight
+                insightId={shownInsightId}
+                onFollowUp={
+                  canWrite && context != null
+                    ? () => {
+                        setShownInsightId(null);
+                        prefillExplain(context.kind);
+                      }
+                    : undefined
+                }
+              />
+            )}
+            {showEmpty && context == null && (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">{t('ai.intro')}</p>
                 {canWrite ? (
@@ -430,6 +532,26 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
 
           {canWrite && (
             <div className="space-y-2 border-t border-border p-3">
+              {context != null && (
+                <p
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
+                  data-testid="ai-context-chip"
+                >
+                  <Sparkles className="h-3.5 w-3.5 text-link" aria-hidden="true" />
+                  <span
+                    className="min-w-0 truncate"
+                    title={t('ai.explain.about', {
+                      record: t(`ai.explain.kind.${context.kind}`),
+                      label: context.label ?? context.id,
+                    })}
+                  >
+                    {t('ai.explain.about', {
+                      record: t(`ai.explain.kind.${context.kind}`),
+                      label: context.label ?? context.id,
+                    })}
+                  </span>
+                </p>
+              )}
               <AttachmentPreviews
                 attachments={attachments}
                 disabled={busy}
@@ -486,12 +608,14 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
             </div>
           )}
 
+          <AiUsageFooter />
+
           {dragging && (
             <div
               aria-hidden="true"
               className={cn(
                 'pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2',
-                'border-2 border-dashed border-primary bg-primary/10 text-primary',
+                'border-2 border-dashed border-primary bg-primary/10 text-link',
               )}
             >
               <Upload className="h-8 w-8" />

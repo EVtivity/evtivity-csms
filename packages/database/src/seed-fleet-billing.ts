@@ -4,9 +4,15 @@
 import type postgres from 'postgres';
 import argon2 from 'argon2';
 import { sql as dsql } from 'drizzle-orm';
-import { DEFAULT_TAX_BASIS, chargedCostBreakdown, taxTotals } from '@evtivity/lib';
+import {
+  DEFAULT_TAX_BASIS,
+  chargedCostBreakdown,
+  computeSessionElectricityCost,
+  taxTotals,
+} from '@evtivity/lib';
 import type { TaxLine } from '@evtivity/lib';
 import { db } from './config.js';
+import { loadElectricityRatePeriodsForSite } from './lib/electricity-rate.js';
 import { allocateInvoiceNumber } from './lib/invoice-number.js';
 
 // Demo data of fleet account billing (charge on account, features/fleet-billing.md):
@@ -229,11 +235,29 @@ export async function seedFleetBillingDemo(
     `;
   }
 
-  const [place] = await sql<Array<{ station_id: string; site_name: string | null }>>`
-    SELECT st.station_id, si.name AS site_name
+  const [place] = await sql<
+    Array<{
+      station_id: string;
+      site_id: string | null;
+      site_name: string | null;
+      timezone: string | null;
+    }>
+  >`
+    SELECT st.station_id, st.site_id, si.name AS site_name, si.timezone
     FROM charging_stations st LEFT JOIN sites si ON si.id = st.site_id
     WHERE st.id = ${input.stationId}
   `;
+  // The sessions' electricity cost from the station's site rates, as the
+  // session end projection computes it (computeSessionElectricityCost).
+  const ratePeriods =
+    place?.site_id != null ? await loadElectricityRatePeriodsForSite(place.site_id) : [];
+  const electricityCostOf = (session: DemoSession): number | null =>
+    computeSessionElectricityCost({
+      periods: ratePeriods,
+      endedAt: session.endedAt,
+      energyWh: session.energyWh,
+      timezone: place?.timezone,
+    }).costCents;
   const stationName =
     place == null
       ? ''
@@ -345,13 +369,14 @@ export async function seedFleetBillingDemo(
       INSERT INTO charging_sessions (id, station_id, evse_id, driver_id, transaction_id, status,
         started_at, ended_at, meter_start, meter_stop, energy_delivered_wh, final_cost_cents,
         tariff_tax_rate, net_cents, tax_cents, cost_breakdown, currency, stopped_reason,
-        billing_mode, billing_fleet_id, invoice_id, created_at, updated_at)
+        billing_mode, billing_fleet_id, invoice_id, electricity_cost_cents, created_at, updated_at)
       VALUES (${session.id}, ${input.stationId}, ${input.evseId}, ${member.id},
         ${session.transactionId}, 'completed', ${session.startedAt}, ${session.endedAt}, 0,
         ${session.energyWh}, ${String(session.energyWh)}, ${session.costCents},
         ${String(TAX_RATE)}, ${breakdown.netCents}, ${breakdown.taxCents},
         ${sql.json(breakdown as unknown as postgres.JSONValue)}, ${currency},
-        'EVDisconnected', 'account', ${demo.fleetId}, ${session.invoiceId}, ${session.startedAt},
+        'EVDisconnected', 'account', ${demo.fleetId}, ${session.invoiceId},
+        ${electricityCostOf(session)}, ${session.startedAt},
         ${session.endedAt})
       ON CONFLICT DO NOTHING
       RETURNING id

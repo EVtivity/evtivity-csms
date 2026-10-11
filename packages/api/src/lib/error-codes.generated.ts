@@ -21,15 +21,27 @@ export const ERROR_CODES = {
   AI_ATTACHMENT_UNSUPPORTED: 'AI_ATTACHMENT_UNSUPPORTED',
   AI_BASE_URL_INVALID: 'AI_BASE_URL_INVALID',
   AI_BUDGET_EXCEEDED: 'AI_BUDGET_EXCEEDED',
+  AI_CONFIRMATION_REQUIRES_SESSION: 'AI_CONFIRMATION_REQUIRES_SESSION',
+  AI_CONTEXT_NOT_FOUND: 'AI_CONTEXT_NOT_FOUND',
   AI_CONVERSATION_BUSY: 'AI_CONVERSATION_BUSY',
   AI_CONVERSATION_NOT_FOUND: 'AI_CONVERSATION_NOT_FOUND',
   AI_ERROR: 'AI_ERROR',
+  AI_INSIGHT_COOLDOWN: 'AI_INSIGHT_COOLDOWN',
+  AI_INSIGHT_NOT_FOUND: 'AI_INSIGHT_NOT_FOUND',
+  AI_INSIGHTS_DISABLED: 'AI_INSIGHTS_DISABLED',
+  AI_MCP_RATE_LIMITED: 'AI_MCP_RATE_LIMITED',
   AI_MODEL_UNAVAILABLE: 'AI_MODEL_UNAVAILABLE',
+  AI_MONTHLY_BUDGET_EXCEEDED: 'AI_MONTHLY_BUDGET_EXCEEDED',
   AI_NOT_CONFIGURED: 'AI_NOT_CONFIGURED',
+  AI_PROPOSAL_ALREADY_DECIDED: 'AI_PROPOSAL_ALREADY_DECIDED',
+  AI_PROPOSAL_EXPIRED: 'AI_PROPOSAL_EXPIRED',
+  AI_PROPOSAL_NOT_FOUND: 'AI_PROPOSAL_NOT_FOUND',
+  AI_PROPOSAL_STALE: 'AI_PROPOSAL_STALE',
   AI_PROVIDER_AUTH_FAILED: 'AI_PROVIDER_AUTH_FAILED',
   AI_PROVIDER_RATE_LIMITED: 'AI_PROVIDER_RATE_LIMITED',
   AI_PROVIDER_UNAVAILABLE: 'AI_PROVIDER_UNAVAILABLE',
   AI_RATE_LIMITED: 'AI_RATE_LIMITED',
+  AI_SITE_BUDGET_EXCEEDED: 'AI_SITE_BUDGET_EXCEEDED',
   ALERT_NOT_FOUND: 'ALERT_NOT_FOUND',
   ALREADY_FAVORITED: 'ALREADY_FAVORITED',
   ALREADY_VERIFIED: 'ALREADY_VERIFIED',
@@ -317,15 +329,27 @@ export type ErrorCode =
   | 'AI_ATTACHMENT_UNSUPPORTED'
   | 'AI_BASE_URL_INVALID'
   | 'AI_BUDGET_EXCEEDED'
+  | 'AI_CONFIRMATION_REQUIRES_SESSION'
+  | 'AI_CONTEXT_NOT_FOUND'
   | 'AI_CONVERSATION_BUSY'
   | 'AI_CONVERSATION_NOT_FOUND'
   | 'AI_ERROR'
+  | 'AI_INSIGHT_COOLDOWN'
+  | 'AI_INSIGHT_NOT_FOUND'
+  | 'AI_INSIGHTS_DISABLED'
+  | 'AI_MCP_RATE_LIMITED'
   | 'AI_MODEL_UNAVAILABLE'
+  | 'AI_MONTHLY_BUDGET_EXCEEDED'
   | 'AI_NOT_CONFIGURED'
+  | 'AI_PROPOSAL_ALREADY_DECIDED'
+  | 'AI_PROPOSAL_EXPIRED'
+  | 'AI_PROPOSAL_NOT_FOUND'
+  | 'AI_PROPOSAL_STALE'
   | 'AI_PROVIDER_AUTH_FAILED'
   | 'AI_PROVIDER_RATE_LIMITED'
   | 'AI_PROVIDER_UNAVAILABLE'
   | 'AI_RATE_LIMITED'
+  | 'AI_SITE_BUDGET_EXCEEDED'
   | 'ALERT_NOT_FOUND'
   | 'ALREADY_FAVORITED'
   | 'ALREADY_VERIFIED'
@@ -622,16 +646,29 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   AI_BASE_URL_INVALID:
     'The AI provider base URL must be an https URL without credentials on a public host',
   AI_BUDGET_EXCEEDED: 'Your daily AI usage limit is reached',
+  AI_CONFIRMATION_REQUIRES_SESSION:
+    'Confirm this action while signed in to the dashboard, not with an API key',
+  AI_CONTEXT_NOT_FOUND: 'Explain context not found',
   AI_CONVERSATION_BUSY:
     'The assistant is still answering in this conversation. Wait for it to finish or stop it',
   AI_CONVERSATION_NOT_FOUND: 'Conversation not found',
   AI_ERROR: 'Failed to process AI request',
+  AI_INSIGHT_COOLDOWN: 'This insight was regenerated recently. Try again later',
+  AI_INSIGHT_NOT_FOUND: 'Insight not found',
+  AI_INSIGHTS_DISABLED: 'Automatic insights are turned off',
+  AI_MCP_RATE_LIMITED: 'Too many MCP requests. Try again later',
   AI_MODEL_UNAVAILABLE: 'The configured AI model does not exist or is retired',
+  AI_MONTHLY_BUDGET_EXCEEDED: 'The monthly AI usage limit is reached',
   AI_NOT_CONFIGURED: 'AI is not configured',
+  AI_PROPOSAL_ALREADY_DECIDED: 'This proposal was already decided',
+  AI_PROPOSAL_EXPIRED: 'This proposal has expired',
+  AI_PROPOSAL_NOT_FOUND: 'Proposal not found',
+  AI_PROPOSAL_STALE: 'This proposal no longer applies because the situation changed',
   AI_PROVIDER_AUTH_FAILED: 'The AI provider refused the configured API key',
   AI_PROVIDER_RATE_LIMITED: 'The AI provider is rate limiting requests. Try again shortly',
   AI_PROVIDER_UNAVAILABLE: 'The AI provider is unavailable. Try again later',
   AI_RATE_LIMITED: 'Too many AI requests. Try again in a minute',
+  AI_SITE_BUDGET_EXCEEDED: "The site's daily AI usage limit is reached",
   ALERT_NOT_FOUND: 'Alert not found',
   ALREADY_FAVORITED: 'Already favorited',
   ALREADY_VERIFIED: 'Email already verified',

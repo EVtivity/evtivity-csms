@@ -2582,9 +2582,16 @@ export function userRoutes(app: FastifyInstance): void {
   const operatorNotificationPrefsResponse = z
     .object({
       smsEnabled: z.boolean().describe('Whether the operator opted in to SMS notifications'),
+      aiDigestEmail: z
+        .boolean()
+        .describe('Whether the operator gets the daily AI proposal digest email (default off)'),
     })
     .passthrough();
-  const operatorNotificationPrefsBody = z.object({ smsEnabled: z.boolean() });
+  // Either field alone: the one not sent keeps its stored value.
+  const operatorNotificationPrefsBody = z.object({
+    smsEnabled: z.boolean().optional().describe('Opt in to SMS notifications'),
+    aiDigestEmail: z.boolean().optional().describe('Opt in to the daily AI proposal digest'),
+  });
 
   app.get(
     '/users/me/notification-preferences',
@@ -2604,7 +2611,10 @@ export function userRoutes(app: FastifyInstance): void {
         .select()
         .from(userNotificationPreferences)
         .where(eq(userNotificationPreferences.userId, userId));
-      return { smsEnabled: prefs?.smsEnabled ?? true };
+      return {
+        smsEnabled: prefs?.smsEnabled ?? true,
+        aiDigestEmail: prefs?.aiDigestEmail ?? false,
+      };
     },
   );
 
@@ -2618,20 +2628,37 @@ export function userRoutes(app: FastifyInstance): void {
         operationId: 'updateUserNotificationPreferences',
         security: [{ bearerAuth: [] }],
         body: zodSchema(operatorNotificationPrefsBody),
-        response: { 200: itemResponse(operatorNotificationPrefsResponse) },
+        response: {
+          200: itemResponse(operatorNotificationPrefsResponse),
+          400: errorWith('No preference sent', [ERROR_CODES.VALIDATION_ERROR]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof operatorNotificationPrefsBody>;
-      await db
+      if (body.smsEnabled === undefined && body.aiDigestEmail === undefined) {
+        return reply.status(400).send({
+          error: 'Send smsEnabled, aiDigestEmail or both',
+          code: ERROR_CODES.VALIDATION_ERROR,
+        });
+      }
+      const changes = {
+        ...(body.smsEnabled !== undefined ? { smsEnabled: body.smsEnabled } : {}),
+        ...(body.aiDigestEmail !== undefined ? { aiDigestEmail: body.aiDigestEmail } : {}),
+      };
+      const [prefs] = await db
         .insert(userNotificationPreferences)
-        .values({ userId, smsEnabled: body.smsEnabled })
+        .values({ userId, ...changes })
         .onConflictDoUpdate({
           target: [userNotificationPreferences.userId],
-          set: { smsEnabled: body.smsEnabled, updatedAt: new Date() },
-        });
-      return { smsEnabled: body.smsEnabled };
+          set: { ...changes, updatedAt: new Date() },
+        })
+        .returning();
+      return {
+        smsEnabled: prefs?.smsEnabled ?? true,
+        aiDigestEmail: prefs?.aiDigestEmail ?? false,
+      };
     },
   );
 

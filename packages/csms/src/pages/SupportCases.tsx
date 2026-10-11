@@ -244,7 +244,7 @@ export function SupportCases(): React.JSX.Element {
                   }}
                 >
                   <TableCell
-                    className="font-medium text-primary whitespace-nowrap"
+                    className="font-medium text-link whitespace-nowrap"
                     data-testid="row-click-target"
                   >
                     {c.caseNumber}

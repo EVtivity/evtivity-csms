@@ -10,7 +10,9 @@
 // override, audited by the caller).
 
 import type postgres from 'postgres';
+import { computeSessionElectricityCost } from '@evtivity/lib';
 import type { SessionCostBreakdown } from '@evtivity/lib';
+import { getElectricityRatePeriodsForSite } from './electricity-rate.js';
 import {
   closeSegmentsAt,
   loadSessionPricing,
@@ -102,11 +104,42 @@ export async function priceRebill(
 }
 
 /**
+ * The electricity cost of a re-billed session, as the session end projection
+ * computes it (computeSessionElectricityCost): the rate period of its station's
+ * site in force at the billed end, in the site timezone. Null without a site,
+ * a matching period or energy. The cached period reader fails open to no
+ * periods, so a rate lookup failure never blocks the re-bill.
+ */
+export async function rebillElectricityCostCents(
+  sql: postgres.Sql,
+  sessionId: string,
+  endedAt: Date,
+  energyWh: number,
+): Promise<number | null> {
+  const [row] = await sql`
+    SELECT st.site_id, si.timezone
+    FROM charging_sessions s
+    JOIN charging_stations st ON st.id = s.station_id
+    LEFT JOIN sites si ON si.id = st.site_id
+    WHERE s.id = ${sessionId}
+  `;
+  const siteId = row?.['site_id'] as string | null | undefined;
+  if (siteId == null) return null;
+  return computeSessionElectricityCost({
+    periods: await getElectricityRatePeriodsForSite(siteId),
+    endedAt,
+    energyWh,
+    timezone: row?.['timezone'] as string | null | undefined,
+  }).costCents;
+}
+
+/**
  * Completes a re-billed session (the P5 override): `faulted` to `completed`
  * only for a session with stopped reason EndRequestFailed whose re-bill claim
  * is held, with the billed end, the final (and running) cost and its split, as
- * storeFinalCost stores it, and `rebill_status` billed or manual. The stopped
- * reason stays. Returns whether the session changed.
+ * storeFinalCost stores it, the electricity cost when it has none
+ * (rebillElectricityCostCents), and `rebill_status` billed or manual. The
+ * stopped reason stays. Returns whether the session changed.
  */
 export async function completeRebilledSession(
   sql: postgres.Sql,
@@ -114,10 +147,18 @@ export async function completeRebilledSession(
     sessionId: string;
     breakdown: SessionCostBreakdown;
     endedAt: Date;
+    /** The billed energy (RebillPricing.energyWh). */
+    energyWh: number;
     outcome: SessionRebillOutcome;
   },
 ): Promise<boolean> {
   const { breakdown } = input;
+  const electricityCostCents = await rebillElectricityCostCents(
+    sql,
+    input.sessionId,
+    input.endedAt,
+    input.energyWh,
+  );
   const rows = await sql`
     UPDATE charging_sessions
     SET status = 'completed',
@@ -127,6 +168,7 @@ export async function completeRebilledSession(
         net_cents = ${breakdown.netCents},
         tax_cents = ${breakdown.taxCents},
         cost_breakdown = ${sql.json(breakdown as unknown as postgres.JSONValue)},
+        electricity_cost_cents = COALESCE(electricity_cost_cents, ${electricityCostCents}::integer),
         rebill_status = ${input.outcome},
         rebill_claimed_at = NULL,
         updated_at = now()

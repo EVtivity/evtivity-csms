@@ -173,7 +173,8 @@
     "openMenu": "Open menu",
     "closeMenu": "Close menu",
     "audit": "Audit",
-    "maintenance": "Maintenance"
+    "maintenance": "Maintenance",
+    "aiInbox": "AI Inbox"
   },
   "roaming": {
     "subtitle": "Configure OCPI roaming partners, location publishing, sessions, CDRs, and tariff mappings.",
@@ -451,7 +452,12 @@
     "billedOnAccount": "Billed on Account",
     "billedOnAccountSessions": "Unpaid Account Sessions",
     "costMissingNotice": "Sessions without an electricity cost are left out of profit: {{count}} ({{revenue}} revenue).",
-    "costMissingSites": "Set electricity rates for:"
+    "costMissingTitle": "Electricity cost missing",
+    "costMissingNoRates": "Set electricity rates for: {{site}}",
+    "costMissingSessions_one": "{{count}} session at {{site}} has no electricity cost",
+    "costMissingSessions_other": "{{count}} sessions at {{site}} have no electricity cost",
+    "costMissingMoreSites_one": "{{count}} more site",
+    "costMissingMoreSites_other": "{{count}} more sites"
   },
   "sites": {
     "title": "Sites",
@@ -567,7 +573,17 @@
     "electricityRateDaysOfWeek": "Days of week",
     "electricityRatesMissing": "This site has no electricity rates. Its sessions get no electricity cost and are left out of profit.",
     "electricityRatesNoDefault": "This site has no default electricity rate. Sessions that end outside its rate periods get no electricity cost and are left out of profit.",
-    "electricityRatesOpen": "Set electricity rates"
+    "electricityRatesOpen": "Set electricity rates",
+    "electricityCostRecalculate": "Recalculate electricity cost",
+    "electricityCostRecalculateTitle": "Recalculate electricity cost?",
+    "electricityCostRecalculateConfirm": "Sessions at {{site}} without an electricity cost get one from the site's current rates, at the rate in force when each session ended. Existing costs are not changed.",
+    "electricityCostRecalculated_one": "Electricity cost added to {{count}} session",
+    "electricityCostRecalculated_other": "Electricity cost added to {{count}} sessions",
+    "electricityCostRecalculateNone": "No session got an electricity cost",
+    "electricityCostRecalculateRemaining_one": "{{count}} session still has no electricity cost: no rate applies when it ended.",
+    "electricityCostRecalculateRemaining_other": "{{count}} sessions still have no electricity cost: no rate applies when they ended.",
+    "electricityCostRecalculateMore_one": "{{count}} session still has no electricity cost. Recalculate again to continue.",
+    "electricityCostRecalculateMore_other": "{{count}} sessions still have no electricity cost. Recalculate again to continue."
   },
   "stations": {
     "title": "Stations",
@@ -1072,7 +1088,11 @@
       "unbilled": "Unbilled",
       "invoiced": "Invoiced",
       "paid": "Paid"
-    }
+    },
+    "electricityCostAll": "All",
+    "electricityCostMissing": "Missing",
+    "costMissingNotice": "These sessions have no electricity cost and are left out of profit.",
+    "costMissingSelectSite": "These sessions have no electricity cost and are left out of profit. Select a site to recalculate its costs."
   },
   "drivers": {
     "title": "Drivers",
@@ -1334,6 +1354,7 @@
       "audit": "Audit Log",
       "maintenance": "Maintenance",
       "aiAssistant": "AI Assistant",
+      "aiInsights": "Automatic insights",
       "settings": {
         "system": "System",
         "notification": "Notification",
@@ -1346,7 +1367,10 @@
         "smartCharging": "Smart Charging",
         "ai": "AI",
         "conformance": "Conformance"
-      }
+      },
+      "aiProposals": "AI Proposals",
+      "aiUsage": "AI Usage",
+      "aiMcp": "MCP Access"
     }
   },
   "profile": {
@@ -1398,7 +1422,10 @@
     "mfaQrCode": "Authenticator app QR code",
     "chatbotAiDescription": "Your own AI assistant configuration. It overrides the system settings for you.",
     "aiRemoveConfig": "Remove configuration",
-    "aiRemoveConfirm": "Remove your personal configuration? The system settings apply again."
+    "aiRemoveConfirm": "Remove your personal configuration? The system settings apply again.",
+    "aiDigestEmail": "AI Inbox digest email",
+    "aiDigestEmailDescription": "A daily email with the number of pending AI proposals at your sites.",
+    "notificationsSaveFailed": "Could not save the notification preference. Please try again."
   },
   "fleets": {
     "title": "Fleets",
@@ -2481,6 +2508,11 @@
         "title": "Support AI",
         "description": "Drafts replies to support cases for the operator to review.",
         "enabled": "Enable support AI"
+      },
+      "ops": {
+        "title": "Automatic insights and workers",
+        "description": "The model for automatic insights and background workers. They run without a user and use the company provider key.",
+        "enabled": "Turn on system-initiated AI"
       }
     },
     "aiLimitsTitle": "AI limits",
@@ -2492,10 +2524,48 @@
       "maxToolCallsPerTurn": "Tool calls per answer",
       "conversationRetentionDays": "Keep conversations for (days)",
       "attachmentsMaxBytes": "Maximum attachment size (bytes)",
-      "attachmentsMaxPerMessage": "Attachments per message"
+      "attachmentsMaxPerMessage": "Attachments per message",
+      "companyMonthlyTokens": "Company tokens per month",
+      "siteMonthlyTokens": "Tokens per site per month",
+      "siteDailyTokens": "Tokens per site per day (insights and workers)",
+      "warnPercent": "Warn at (% of a budget)"
     },
     "aiLimitRange": "From {{min}} to {{max}}.",
-    "aiLimitZeroNoBudget": "0 means no daily limit."
+    "aiLimitZeroNoBudget": "0 means no daily limit.",
+    "aiOpsDataWarning": "When this is on, station, session and token status data is sent to the configured provider without a user action.",
+    "aiInsightsSettings": {
+      "title": "Automatic insights",
+      "station": "Station insights",
+      "session": "Session insights",
+      "authorization": "Authorization insights",
+      "debounceSeconds": "Wait before analyzing (seconds)",
+      "cooldownMinutes": "Cooldown per station, session or token (minutes)",
+      "siteIncidentThreshold": "Stations down at one site that make one site incident",
+      "maxPerSitePerDay": "Insights per site per day",
+      "primaryLanguage": "Summary language",
+      "retentionDays": "Keep insights (days)"
+    },
+    "aiMcp": {
+      "title": "MCP server",
+      "description": "Lets MCP clients use the AI tools with an API key that has MCP access. Every change needs your confirmation in the AI Inbox.",
+      "enabled": "Turn on the MCP server",
+      "rateLimitPerMinute": "Calls per API key per minute",
+      "dailyCallsPerKey": "Calls per API key per day",
+      "proposalTtlMinutes": "Time to approve an MCP change (minutes)",
+      "allowedOrigins": "Allowed origins",
+      "allowedOriginsHint": "One origin per line, such as https://app.example.com. Leave it empty to refuse requests from browsers.",
+      "allowedOriginsInvalid": "Enter one http or https origin per line, without a path.",
+      "endpoint": "Endpoint",
+      "endpointHint": "Point your MCP client at this URL with an API key that has MCP access.",
+      "writeScopeHint": "Keys need MCP write access and station read access to propose changes.",
+      "toolsets": "Tool categories",
+      "toolsetsHint": "Add ?toolsets=stations,sessions to the URL. Default: {{toolsets}}.",
+      "writesHint": "Changes become proposals that the same user approves in the AI Inbox.",
+      "protocolNote": "Serves MCP 2026-07-28; older clients approve by polling."
+    },
+    "aiUsageTab": "Usage",
+    "aiLimitZeroNoLimit": "0 means no limit.",
+    "aiConfigTab": "Configuration"
   },
   "pnc": {
     "certificates": "Certificates",
@@ -2661,10 +2731,12 @@
       "fleet.InvoiceRunFailed": "Fleet Invoice Run Failed",
       "invoice.FleetInvoice": "Fleet Invoice Issued",
       "invoice.FleetCreditNote": "Fleet Credit Note Issued",
-      "invoice.FleetOverdue": "Fleet Invoice Overdue"
+      "invoice.FleetOverdue": "Fleet Invoice Overdue",
+      "ai.ProposalDigest": "AI Proposal Digest"
     },
     "templatePreviewInvalid": "The template has an error:",
-    "htmlPreview": "HTML preview"
+    "htmlPreview": "HTML preview",
+    "aiEvents": "AI"
   },
   "reservations": {
     "title": "Reservations",
@@ -3073,7 +3145,19 @@
     "LOCAL_CA_NOT_CONFIGURED": "Create the local contract CA first",
     "PNC_CONTRACT_NOT_FOUND": "Plug & Charge contract not found",
     "PHONE_REGISTRATION_LIMITED": "Too many accounts were registered with this phone number. Try again later.",
-    "VERIFICATION_RESEND_LIMITED": "Too many verification emails. Wait before you request another one."
+    "VERIFICATION_RESEND_LIMITED": "Too many verification emails. Wait before you request another one.",
+    "AI_INSIGHT_NOT_FOUND": "Insight not found",
+    "AI_INSIGHT_COOLDOWN": "This insight was regenerated recently. Try again later",
+    "AI_INSIGHTS_DISABLED": "Automatic insights are turned off",
+    "AI_SITE_BUDGET_EXCEEDED": "The site's daily AI usage limit is reached",
+    "AI_MONTHLY_BUDGET_EXCEEDED": "The monthly AI usage limit is reached",
+    "AI_CONTEXT_NOT_FOUND": "Explain context not found",
+    "AI_PROPOSAL_NOT_FOUND": "Proposal not found",
+    "AI_PROPOSAL_EXPIRED": "This proposal has expired",
+    "AI_PROPOSAL_STALE": "This proposal no longer applies because the situation changed",
+    "AI_PROPOSAL_ALREADY_DECIDED": "This proposal was already decided",
+    "AI_CONFIRMATION_REQUIRES_SESSION": "Confirm this action while signed in to the dashboard, not with an API key",
+    "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later"
   },
   "logs": {
     "title": "Logs",
@@ -3808,6 +3892,22 @@
         "p2": "How do I add a new charging station?",
         "p3": "Show the stations with the most faults this week"
       }
+    },
+    "explain": {
+      "button": "Explain",
+      "buttonTitle": "Ask the assistant to explain this record",
+      "station": "Why is this station offline or faulted, and what should I do?",
+      "session": "Why did this session fail, and what should I do?",
+      "authorization": "Why was this authorization refused, and what should I do?",
+      "insightShown": "Showing the latest automatic insight",
+      "followUp": "Ask a follow-up",
+      "contextUnavailable": "This record is no longer available.",
+      "about": "About {{record}} {{label}}",
+      "kind": {
+        "station": "station",
+        "session": "session",
+        "authorization": "authorization"
+      }
     }
   },
   "sustainability": {
@@ -4035,7 +4135,16 @@
       "updated": "Updated",
       "uploaded": "Uploaded",
       "used": "Used",
-      "voided": "Voided"
+      "voided": "Voided",
+      "regenerated": "Regenerated",
+      "dismissed": "Dismissed",
+      "feedback_helpful": "Marked helpful",
+      "feedback_wrong": "Marked wrong",
+      "confirmed": "Confirmed",
+      "executed": "Executed",
+      "failed": "Failed",
+      "rejected": "Rejected",
+      "stale": "No longer applies"
     },
     "entities": {
       "site": "Site",
@@ -4064,7 +4173,9 @@
       "maintenance_event": "Maintenance window",
       "session": "Session",
       "invoice": "Invoice",
-      "ai_conversation": "AI conversation"
+      "ai_conversation": "AI conversation",
+      "ai_insight": "Automatic insight",
+      "ai_proposal": "AI proposal"
     },
     "actors": {
       "operator": "Operator",
@@ -4396,5 +4507,348 @@
     "undo": "Undo",
     "redo": "Redo",
     "htmlSource": "HTML source"
+  },
+  "aiInsights": {
+    "title": "Automatic insight",
+    "activeInsights": "Active insights",
+    "empty": "No insights",
+    "summaryTranslating": "Translating…",
+    "summaryUnavailable": "No translation is available. The original is shown.",
+    "showOriginal": "Show original",
+    "hideOriginal": "Hide original",
+    "knownCause": "Known cause",
+    "categoryLabel": "Root cause",
+    "confidenceLabel": "Confidence",
+    "fixesLabel": "Suggested fixes",
+    "siteScopeLabel": "At this site",
+    "networkScopeLabel": "Across all sites",
+    "regenerate": "Regenerate",
+    "dismiss": "Dismiss",
+    "helpful": "Helpful",
+    "wrong": "Wrong",
+    "feedbackThanks": "Thanks for the feedback",
+    "badge": {
+      "resolved": "Resolved",
+      "outOfDate": "Out of date"
+    },
+    "category": {
+      "connectivity": "Connectivity",
+      "power_supply": "Power supply",
+      "hardware": "Hardware",
+      "firmware": "Firmware",
+      "configuration": "Configuration",
+      "token": "Token",
+      "payment": "Payment",
+      "tariff": "Tariff",
+      "vehicle": "Vehicle",
+      "backend": "Backend",
+      "unknown": "Unknown"
+    },
+    "confidence": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High"
+    },
+    "status": {
+      "pending": "Analyzing",
+      "active": "Active",
+      "resolved": "Resolved",
+      "superseded": "Superseded",
+      "skipped": "Skipped",
+      "failed": "Failed",
+      "dismissed": "Dismissed"
+    },
+    "kind": {
+      "station_offline": "Station offline",
+      "station_faulted": "Station faulted",
+      "station_alert": "Station alert",
+      "session_failed": "Session failed",
+      "authorization_refused": "Authorization refused",
+      "site_incident": "Site incident",
+      "site_summary": "Site summary",
+      "company_summary": "Network summary",
+      "tariff_anomaly": "Tariff anomaly"
+    },
+    "skipReason": {
+      "resolved_before_analysis": "Resolved before the analysis",
+      "cooldown": "Analyzed recently",
+      "site_daily_cap": "The daily insight limit of the site is reached",
+      "site_disabled": "Insights are off for this site",
+      "budget_exceeded": "The AI budget is used up",
+      "disabled": "Automatic insights were turned off"
+    },
+    "fix": {
+      "check_network_connection": "Check the station's network connection",
+      "check_power_supply": "Check the power supply",
+      "reboot_station": "Reboot the station",
+      "inspect_connector": "Inspect the connector",
+      "update_firmware": "Update the firmware",
+      "review_station_configuration": "Review the station configuration",
+      "contact_station_vendor": "Contact the station vendor",
+      "review_token_status": "Review the token status",
+      "push_local_auth_list": "Push the local authorization list",
+      "check_roaming_partner": "Check the roaming partner",
+      "ask_driver_to_add_payment_method": "Ask the driver to add a payment method",
+      "review_payment_settings": "Review the payment settings",
+      "review_fleet_credit_limit": "Review the fleet credit limit",
+      "review_tariff_assignment": "Review the tariff assignment",
+      "ask_driver_to_retry": "Ask the driver to try again",
+      "check_vehicle_compatibility": "Check vehicle compatibility",
+      "end_concurrent_session": "End the concurrent session",
+      "check_csms_status": "Check the CSMS status",
+      "monitor": "Keep monitoring"
+    },
+    "scope": {
+      "stations_one": "{{count}} station",
+      "stations_other": "{{count}} stations",
+      "stationsOffline_one": "{{count}} station offline",
+      "stationsOffline_other": "{{count}} stations offline",
+      "stationsFaulted_one": "{{count}} station faulted",
+      "stationsFaulted_other": "{{count}} stations faulted",
+      "sameErrorCode_one": "{{count}} station with the same error code",
+      "sameErrorCode_other": "{{count}} stations with the same error code",
+      "sessionsInterrupted_one": "{{count}} session interrupted",
+      "sessionsInterrupted_other": "{{count}} sessions interrupted",
+      "sessionsFailedSameReason24h_one": "{{count}} session failed for the same reason in 24 hours",
+      "sessionsFailedSameReason24h_other": "{{count}} sessions failed for the same reason in 24 hours",
+      "tokenRefusals_one": "{{count}} token refusal",
+      "tokenRefusals_other": "{{count}} token refusals"
+    },
+    "regenerateQueued": "A new insight is being prepared.",
+    "widget": {
+      "info": "Open issues the automatic analysis found in your sites. Site incidents come first, then the most severe and newest.",
+      "empty": "No open insights",
+      "viewAll": "View all",
+      "similar_one": "+{{count}} similar",
+      "similar_other": "+{{count}} similar",
+      "atDetection": "{{value}} at detection"
+    },
+    "confidenceBadge": {
+      "low": "Low confidence",
+      "medium": "Medium confidence",
+      "high": "High confidence"
+    },
+    "headline": {
+      "station_offline": "{{station}} is offline",
+      "station_faulted": "{{station}} is faulted",
+      "station_alert": "Alert on {{station}}",
+      "session_failed": "Session failed on {{station}}",
+      "authorization_refused": "Authorization refused on {{station}}",
+      "site_incident": "Incident at {{site}}",
+      "siteIncidentOffline_one": "{{count}} station offline at {{site}}",
+      "siteIncidentOffline_other": "{{count}} stations offline at {{site}}",
+      "siteIncidentFaulted_one": "{{count}} station faulted at {{site}}",
+      "siteIncidentFaulted_other": "{{count}} stations faulted at {{site}}",
+      "tariff_anomaly": "Tariff anomaly at {{site}}",
+      "site_summary": "Daily summary of {{site}}",
+      "company_summary": "Daily network summary",
+      "noStation": "an unknown station",
+      "noSite": "no site"
+    },
+    "list": {
+      "title": "AI Insights",
+      "subtitle": "What the automatic analysis found in your sites.",
+      "allStatuses": "All statuses",
+      "kind": "Type",
+      "allKinds": "All types",
+      "allCategories": "All root causes",
+      "site": "Site",
+      "allSites": "All sites",
+      "insight": "Insight",
+      "station": "Station"
+    },
+    "detail": {
+      "recordTitle": "Details",
+      "session": "Session",
+      "partOf": "Part of"
+    },
+    "likelyCause": "Likely cause",
+    "staleNote": "The record changed after this analysis. Regenerate it for a current one.",
+    "failedNote": "The analysis did not finish.",
+    "skippedNote": "Not analyzed: {{reason}}",
+    "scopeTable": {
+      "title": "Scope",
+      "measureHeader": "Measure",
+      "atDetection": "At detection",
+      "now": "Now",
+      "atDetectionHint": "What the analysis used",
+      "nowHint": "As of {{time}}",
+      "area": {
+        "site": "{{measure}} (site)",
+        "network": "{{measure}} (all sites)"
+      },
+      "measure": {
+        "stations": "Stations",
+        "stationsOffline": "Stations offline",
+        "stationsFaulted": "Stations faulted",
+        "sameErrorCode": "Same error code (24 h)",
+        "sessionsInterrupted": "Sessions interrupted (24 h)",
+        "sessionsFailedSameReason24h": "Same stop reason (24 h)",
+        "tokenRefusals": "Token refusals (24 h)"
+      },
+      "summaryAtDetection": "{{value}} at detection",
+      "summaryChanged": "{{value}} at detection, {{now}} now"
+    }
+  },
+  "aiInbox": {
+    "title": "AI Inbox",
+    "description": "Actions that AI proposed. Nothing runs until you confirm it.",
+    "empty": "No proposals",
+    "pendingCount_one": "{{count}} pending proposal",
+    "pendingCount_other": "{{count}} pending proposals",
+    "filters": {
+      "source": "Source",
+      "job": "Job",
+      "site": "Site",
+      "status": "Status",
+      "all": "All",
+      "search": "Search",
+      "searchPlaceholder": "Station, site or action"
+    },
+    "source": {
+      "worker": "Background worker",
+      "mcp": "MCP client"
+    },
+    "job": {
+      "network_summary": "Network health",
+      "stuck_sessions": "Stuck sessions",
+      "tariff_anomalies": "Tariff anomalies"
+    },
+    "status": {
+      "pending": "Pending",
+      "executed": "Executed",
+      "failed": "Failed",
+      "rejected": "Rejected",
+      "expired": "Expired",
+      "stale": "No longer applies"
+    },
+    "action": {
+      "stop_transaction": "Stop the session",
+      "soft_reset": "Soft reset the station",
+      "change_availability": "Change the station availability"
+    },
+    "precondition": {
+      "session_active": "The session is still active",
+      "station_faulted": "The station is still faulted",
+      "station_availability": "The station availability has not changed"
+    },
+    "confirm": "Confirm",
+    "reject": "Reject",
+    "expiresAt": "Expires {{time}}",
+    "requestedBy": "Requested by",
+    "apiKey": "API key",
+    "client": "Client",
+    "untrustedNote": "The key and client names come from the requesting client and are shown as sent.",
+    "arguments": "Arguments",
+    "rationale": "Rationale",
+    "result": "Result",
+    "executed": "The action ran",
+    "confirmFailed": "The action did not run",
+    "stationLabel": "Station",
+    "sessionLabel": "Session",
+    "preconditionLabel": "Runs only if",
+    "requestedTool": "Requested tool",
+    "columns": {
+      "action": "Action",
+      "expires": "Expires"
+    },
+    "rejectedToast": "Proposal rejected",
+    "confirmDialog": {
+      "title": "Run this action?",
+      "note": "It runs once, now, with your permissions."
+    },
+    "rejectDialog": {
+      "title": "Reject this proposal?"
+    },
+    "measured": {
+      "idleTime": "Idle time",
+      "minutes_one": "{{count}} minute",
+      "minutes_other": "{{count}} minutes",
+      "lastActivity": "Last activity",
+      "faultedSince": "Faulted since",
+      "transactionId": "Transaction ID"
+    },
+    "detail": {
+      "summary": "Summary",
+      "target": "Target",
+      "requester": "Requester",
+      "timing": "Timing",
+      "decided": "Decided",
+      "executedAt": "Ran at"
+    }
+  },
+  "aiWorkers": {
+    "title": "Background AI workers",
+    "description": "Optional jobs that find issues and propose actions. They never act on their own.",
+    "proposalTtlHours": "Proposal lifetime (hours)",
+    "networkSummary": {
+      "title": "Nightly network summary",
+      "description": "A short daily summary per site, with proposed actions."
+    },
+    "stuckSessions": {
+      "title": "Stuck sessions",
+      "description": "Proposes to stop sessions that stopped reporting.",
+      "idleMinutes": "Idle time before a session counts as stuck (minutes)",
+      "useModel": "Write the rationale with AI"
+    },
+    "tariffAnomalies": {
+      "title": "Tariff anomalies",
+      "description": "Finds prices that look wrong. Findings only, no proposals."
+    },
+    "rationale": {
+      "stuckSessionIdle": "No meter values or transaction events for {{minutes}} minutes",
+      "stuckSessionOffline": "The station is offline while the session is active",
+      "stuckSessionConnectorAvailable": "The connector reports Available while the session is active"
+    },
+    "findings": {
+      "zero_cost": "Sessions billed nothing on a priced tariff",
+      "station_cost_mismatch": "Station cost differs from the CSMS cost",
+      "price_outlier": "Price per kWh far above the site median",
+      "inactive_tariff": "Sessions priced with an inactive tariff"
+    }
+  },
+  "aiUsage": {
+    "title": "AI usage",
+    "month": "Month",
+    "period": "Period",
+    "budget": "Budget",
+    "used": "Used",
+    "percentUsed": "{{percent}}% used",
+    "noLimit": "No limit",
+    "company": "Company",
+    "site": "Site",
+    "sites": "Sites",
+    "bySurface": "By surface",
+    "unattributed": "Assistant (not site-specific)",
+    "topUsers": "Top users",
+    "user": "User",
+    "cost": "Cost",
+    "today": "Today",
+    "todayFooter": "Today: {{used}} of {{limit}} tokens",
+    "todayFooterNoLimit": "Today: {{used}} tokens",
+    "thresholdWarningCompany": "AI usage passed {{percent}}% of the company budget this month.",
+    "thresholdWarningSite": "AI usage at {{site}} passed {{percent}}% of its budget this month.",
+    "thresholdExceededCompany": "The company AI budget for this month is used up.",
+    "thresholdExceededSite": "The AI budget of {{site}} for this month is used up.",
+    "surface": {
+      "chatbot": "Assistant",
+      "support": "Support drafts",
+      "insight": "Insights",
+      "insight_translation": "Insight translations",
+      "worker": "Background workers"
+    },
+    "tokens": {
+      "total": "Tokens",
+      "input": "Input",
+      "cachedRead": "Cached input",
+      "cacheWrite": "Cache writes",
+      "output": "Output",
+      "reasoning": "Reasoning"
+    },
+    "siteBudget": "Monthly token budget",
+    "siteBudgetHelp": "Leave empty to use the default site budget from Settings > AI. 0 means no limit.",
+    "siteInsights": "Automatic insights",
+    "siteInsightsHelp": "Turn off to stop automatic insights for this site.",
+    "allSitesOnly": "Only users with access to every site can change this."
   }
 }

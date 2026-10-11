@@ -16,6 +16,23 @@ function makeEvent(eventType: string, extra: Partial<CsmsEvent> = {}): CsmsEvent
   };
 }
 
+describe('AI roadmap events (v0.1.44)', () => {
+  it('TC-AI-WK-UI-01: ai.proposal.updated refreshes the Inbox, its badge and inline proposals now', () => {
+    const keys = getQueryKeysForEvent(makeEvent('ai.proposal.updated', { siteId: 's1' }));
+    expect(keys).toEqual([['ai', 'proposals']]);
+    expect(IMMEDIATE_EVENT_TYPES.has('ai.proposal.updated')).toBe(true);
+  });
+
+  it('ai.insight.updated refreshes every insight view now (translations included)', () => {
+    expect(getQueryKeysForEvent(makeEvent('ai.insight.updated'))).toEqual([['ai', 'insights']]);
+    expect(IMMEDIATE_EVENT_TYPES.has('ai.insight.updated')).toBe(true);
+  });
+
+  it('ai.usage.threshold refreshes the usage views', () => {
+    expect(getQueryKeysForEvent(makeEvent('ai.usage.threshold'))).toEqual([['ai', 'usage']]);
+  });
+});
+
 function hasKey(keys: string[][], key: string[]): boolean {
   return keys.some((k) => k.length === key.length && k.every((p, i) => p === key[i]));
 }

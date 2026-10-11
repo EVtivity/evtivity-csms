@@ -1,0 +1,7 @@
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}，您好：{{else}}您好：{{/if}}</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>AI 收件匣中有 {{pendingCount}} 則 AI 提議等待您審核。在操作員確認之前，任何提議都不會執行。</p>
+{{#if stuckSessionsCount}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>停止卡住的充電工作階段：{{stuckSessionsCount}} 則</p>{{/if}}
+{{#if networkSummaryCount}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>來自網路健康摘要：{{networkSummaryCount}} 則</p>{{/if}}
+{{#if siteNames}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>站點：{{siteNames}}</p>{{/if}}
+<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{inboxUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>開啟 AI 收件匣</a></td></tr></table>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>無人確認的提議會過期。您收到此摘要，是因為您在個人資料中開啟了每日 AI 提議摘要。</p>

@@ -39,6 +39,12 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts && npm rebuild argon2
       - run: npm run typecheck
+      # Runs on the dist/ the typecheck built. Fails when an API operation has
+      # no AI tool policy entry, or when the committed catalog is stale.
+      - name: AI tool policy and catalog
+        run: |
+          npm run codegen:ai-tools --workspace=@evtivity/api
+          git diff --exit-code -- packages/api/src/services/ai/tools/catalog.ts
 
   format:
     name: Format check

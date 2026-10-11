@@ -260,10 +260,7 @@ export function LocationDetail(): React.JSX.Element {
               {location.contactEmail != null && (
                 <div className="flex items-center gap-2 text-sm">
                   <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <a
-                    href={`mailto:${location.contactEmail}`}
-                    className="text-primary hover:underline"
-                  >
+                  <a href={`mailto:${location.contactEmail}`} className="text-link hover:underline">
                     {location.contactEmail}
                   </a>
                 </div>
@@ -271,7 +268,7 @@ export function LocationDetail(): React.JSX.Element {
               {location.contactPhone != null && (
                 <div className="flex items-center gap-2 text-sm">
                   <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  <a href={`tel:${location.contactPhone}`} className="text-primary hover:underline">
+                  <a href={`tel:${location.contactPhone}`} className="text-link hover:underline">
                     {location.contactPhone}
                   </a>
                 </div>

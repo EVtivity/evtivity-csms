@@ -275,7 +275,7 @@ function spColor(sp: number): string {
     case 0:
       return 'text-muted-foreground';
     case 1:
-      return 'text-primary';
+      return 'text-link';
     case 2:
       return 'text-success';
     case 3:
@@ -434,7 +434,7 @@ export function StationCard({
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="flex items-center justify-center gap-1 text-sm font-medium text-primary"
+                className="flex items-center justify-center gap-1 text-sm font-medium text-link"
               >
                 <Zap className="h-4 w-4" />
                 <span>{formatEnergy(energy)}</span>
@@ -443,8 +443,8 @@ export function StationCard({
 
             {station.displayMessage != null && (
               <div className="flex items-start gap-1.5 rounded border border-primary/20 bg-primary/5 px-2 py-1.5">
-                <MessageSquare className="h-3 w-3 shrink-0 mt-0.5 text-primary" />
-                <p className="text-xs leading-tight text-primary/70 line-clamp-2">
+                <MessageSquare className="h-3 w-3 shrink-0 mt-0.5 text-link" />
+                <p className="text-xs leading-tight text-link/70 line-clamp-2">
                   {station.displayMessage}
                 </p>
               </div>
@@ -489,9 +489,7 @@ export function StationCard({
                       <div className="flex items-center gap-1.5">
                         <ConnectorIcon conn={conn} />
                         <span
-                          className={cn(
-                            conn.isPluggedIn ? 'text-primary' : 'text-muted-foreground',
-                          )}
+                          className={cn(conn.isPluggedIn ? 'text-link' : 'text-muted-foreground')}
                         >
                           {conn.connectorType ?? `#${String(conn.connectorId)}`}
                         </span>
@@ -506,7 +504,7 @@ export function StationCard({
                           <motion.span
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
-                            className="text-primary"
+                            className="text-link"
                           >
                             {formatEnergy(conn.energyDeliveredWh)}
                           </motion.span>
@@ -538,7 +536,7 @@ export function StationCard({
                   <motion.div
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    className="flex items-center gap-0.5 text-xs font-medium text-primary"
+                    className="flex items-center gap-0.5 text-xs font-medium text-link"
                   >
                     <Zap className="h-3 w-3" />
                     <span>{formatEnergy(energy)}</span>

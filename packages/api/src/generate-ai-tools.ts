@@ -9,8 +9,10 @@
  * Run via: npm run codegen:ai-tools
  *
  * It refuses to write a catalog when an operation has no policy entry, an
- * entry names no operation, an exposure does not match the HTTP method, or an
- * exposed tool has a secret-shaped argument or response field. The catalog
+ * entry names no operation, an exposure does not match the HTTP method, an
+ * exposed tool has a secret-shaped argument or response field, or the MCP
+ * exposure (`AI_MCP_EXPOSURE`) misses a read or write entry, lists a `never`
+ * one, or exposes a write that is not an OCPP command. The catalog
  * holds every operation id (for the coverage test) and the exposed tools only.
  */
 import crypto from 'node:crypto';
@@ -25,8 +27,9 @@ import type {
   AiToolMethod,
   JsonSchema,
 } from './services/ai/tools/catalog-types.js';
-import { AI_TOOL_POLICY, toolPolicy } from './services/ai/tools/policy.js';
+import { AI_MCP_EXPOSURE, AI_TOOL_POLICY, toolPolicy } from './services/ai/tools/policy.js';
 import { exposedToolProblems, policyCoverageProblems } from './services/ai/tools/catalog-checks.js';
+import { mcpExposureProblems } from './services/ai/mcp/exposure.js';
 import {
   cleanSchema,
   collectFieldNames,
@@ -242,6 +245,7 @@ async function generate(): Promise<void> {
   tools.sort((a, b) => a.name.localeCompare(b.name));
   problems.push(...policyCoverageProblems(operations, AI_TOOL_POLICY));
   problems.push(...exposedToolProblems(tools, AI_TOOL_POLICY));
+  problems.push(...mcpExposureProblems(operations, tools, AI_TOOL_POLICY, AI_MCP_EXPOSURE));
 
   await app.close();
 

@@ -20,7 +20,9 @@ import {
   guestSessions,
   sessionStatusEnum,
   SESSION_REBILL_STATUSES,
+  getCompanyCurrency,
 } from '@evtivity/database';
+import { sessionCostMissing } from '@evtivity/services/electricity-cost.service';
 import { PaymentProviderUnavailableError } from '@evtivity/payments';
 import { zodSchema } from '../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
@@ -394,6 +396,12 @@ const sessionListQuery = paginationQuery.extend({
     .describe(
       'Filter by session status, "idling" for active and idle, or "manual_billing" for re-billed sessions left to manual billing',
     ),
+  costMissing: z
+    .enum(['true', 'false'])
+    .optional()
+    .describe(
+      'true: only billed sessions in the company currency that delivered energy and have no electricity cost (left out of profit). POST /v1/sites/{id}/electricity-cost/recalculate fills them from the site rates',
+    ),
 });
 
 const rebillResponse = z
@@ -471,9 +479,8 @@ export function sessionRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { page, limit, search, siteId, stationId, status } = request.query as z.infer<
-        typeof sessionListQuery
-      >;
+      const { page, limit, search, siteId, stationId, status, costMissing } =
+        request.query as z.infer<typeof sessionListQuery>;
       const offset = (page - 1) * limit;
 
       const { userId } = request.user as JwtPayload;
@@ -513,6 +520,9 @@ export function sessionRoutes(app: FastifyInstance): void {
         } else {
           conditions.push(eq(chargingSessions.status, status));
         }
+      }
+      if (costMissing === 'true') {
+        conditions.push(sessionCostMissing(await getCompanyCurrency()));
       }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
