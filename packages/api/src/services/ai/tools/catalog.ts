@@ -6080,7 +6080,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     method: 'GET',
     pathTemplate: '/v1/ai/insights/{id}',
     pathParams: ['id'],
-    queryParams: ['language'],
+    queryParams: ['language', 'scopeNow'],
     bodyParams: [],
     parameters: {
       type: 'object',
@@ -6091,9 +6091,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           description:
             "Language of the summary (en, de, es, ko, zh, zh-TW); default the user's language",
         },
+        scopeNow: {
+          type: ['string', 'null'],
+          enum: ['true', 'false', null],
+          description:
+            'true: also count the scope now (scopeNow, scopeNowAt); SQL only, no model call',
+        },
         id: { type: 'string', description: 'Insight id' },
       },
-      required: ['language', 'id'],
+      required: ['language', 'scopeNow', 'id'],
       additionalProperties: false,
     },
     strict: true,
@@ -6105,6 +6111,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['en', 'de', 'es', 'ko', 'zh', 'zh-TW'],
           description:
             "Language of the summary (en, de, es, ko, zh, zh-TW); default the user's language",
+        },
+        scopeNow: {
+          type: 'string',
+          enum: ['true', 'false'],
+          description:
+            'true: also count the scope now (scopeNow, scopeNowAt); SQL only, no model call',
         },
         id: { type: 'string', description: 'Insight id' },
       },
