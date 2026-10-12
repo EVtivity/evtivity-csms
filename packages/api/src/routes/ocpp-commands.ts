@@ -120,6 +120,7 @@ interface CommandResult {
   response?: Record<string, unknown>;
   error?: string;
   queued?: boolean;
+  timedOut?: boolean;
 }
 
 const commandResponses = {
@@ -276,7 +277,11 @@ async function dispatchCommandRaw(
       send: () =>
         publishOcppCommand(pubsub, { commandId, stationId, action, payload, version: ocppVersion }),
     });
-    const result: CommandResult = reply ?? { commandId, error: 'No response within 35s' };
+    const result: CommandResult = reply ?? {
+      commandId,
+      error: 'No response within 35s',
+      timedOut: true,
+    };
 
     // The CommandListener publishes { queued: true } when the station is
     // not connected to any OCPP pod -- the command is held in
@@ -299,7 +304,7 @@ async function dispatchCommandRaw(
     }
 
     if (result.error != null) {
-      const isTimeout = result.error.includes('No response within');
+      const isTimeout = result.timedOut === true;
       void recordCommandAudit(
         app,
         actor,

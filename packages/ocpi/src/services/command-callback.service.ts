@@ -34,6 +34,8 @@ interface CommandResult {
   commandId: string;
   response?: Record<string, unknown>;
   error?: string;
+  /** The station did not answer (set by the OCPP command listener). */
+  timedOut?: boolean;
 }
 
 function getCountryCode(): string {
@@ -48,7 +50,11 @@ function mapOcppResultToOcpi(
   commandType: OcpiCommandType,
   response: Record<string, unknown> | undefined,
   error: string | undefined,
+  timedOut = false,
 ): OcpiCommandResultType {
+  if (timedOut) {
+    return 'TIMEOUT';
+  }
   if (error != null) {
     return 'FAILED';
   }
@@ -162,7 +168,12 @@ export class OcpiCommandCallbackService {
 
     this.pending.delete(commandId);
 
-    const ocpiResult = mapOcppResultToOcpi(pending.commandType, result.response, result.error);
+    const ocpiResult = mapOcppResultToOcpi(
+      pending.commandType,
+      result.response,
+      result.error,
+      result.timedOut === true,
+    );
     const commandResult: OcpiCommandResult = { result: ocpiResult };
 
     logger.info(

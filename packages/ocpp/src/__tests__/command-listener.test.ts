@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import pino from 'pino';
 import type { PubSubClient, Subscription, DomainEvent } from '@evtivity/lib';
 import { CommandListener } from '../server/command-listener.js';
+import { CommandTimeoutError } from '../server/message-correlator.js';
 
 vi.mock('../protocol/message-types.js', () => ({
   MESSAGE_TYPE_CALL: 2,
@@ -210,6 +211,57 @@ describe('CommandListener', () => {
     );
   });
 
+  it('publishes timedOut on the result when the station does not answer', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new CommandTimeoutError('ReserveNow', 'msg-1'),
+    );
+
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-to',
+        stationId: 'CS-001',
+        action: 'ReserveNow',
+        payload: {},
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockPublish).toHaveBeenCalledWith(
+      'ocpp_command_results',
+      JSON.stringify({
+        commandId: 'cmd-to',
+        error: 'Timeout waiting for response to ReserveNow (msg-1)',
+        timedOut: true,
+      }),
+    );
+  });
+
+  it('does not mark an error with timeout words as timedOut unless it is a CommandTimeoutError', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new Error('Timeout waiting for response to ReserveNow (msg-2)'),
+    );
+
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-nt',
+        stationId: 'CS-001',
+        action: 'ReserveNow',
+        payload: {},
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(mockPublish).toHaveBeenCalledWith(
+      'ocpp_command_results',
+      JSON.stringify({
+        commandId: 'cmd-nt',
+        error: 'Timeout waiting for response to ReserveNow (msg-2)',
+      }),
+    );
+  });
+
   it('handles invalid JSON gracefully', async () => {
     await createAndStart();
 
@@ -406,16 +458,16 @@ describe('CommandListener', () => {
     });
   });
 
-  // ---- Retry behavior ----
+  // ---- No retries ----
 
-  it('retries retryable commands on timeout error', async () => {
+  it('sends a timed-out command once and reports timedOut', async () => {
     dispatcher.sendCommand
-      .mockRejectedValueOnce(new Error('Command timed out'))
+      .mockRejectedValueOnce(new CommandTimeoutError('Reset', 'm1'))
       .mockResolvedValueOnce({ status: 'Accepted' });
 
     await createAndStart();
     const payload = JSON.stringify({
-      commandId: 'cmd-retry',
+      commandId: 'cmd-timeout',
       stationId: 'CS-001',
       action: 'Reset',
       payload: { type: 'Soft' },
@@ -423,31 +475,21 @@ describe('CommandListener', () => {
     });
 
     subscribeHandler!(payload);
-    // Wait for retry delay (exponential backoff)
-    await new Promise((r) => setTimeout(r, 2000));
+    // Longer than the old 1 s first retry delay.
+    await new Promise((r) => setTimeout(r, 1500));
 
-    expect(dispatcher.sendCommand).toHaveBeenCalledTimes(2);
+    expect(dispatcher.sendCommand).toHaveBeenCalledTimes(1);
+    expect(mockPublish).toHaveBeenCalledWith(
+      'ocpp_command_results',
+      JSON.stringify({
+        commandId: 'cmd-timeout',
+        error: 'Timeout waiting for response to Reset (m1)',
+        timedOut: true,
+      }),
+    );
   });
 
-  it('does not retry non-retryable commands on timeout', async () => {
-    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(new Error('Command timed out'));
-
-    await createAndStart();
-    const payload = JSON.stringify({
-      commandId: 'cmd-noretry',
-      stationId: 'CS-001',
-      action: 'RequestStartTransaction',
-      payload: {},
-    });
-
-    subscribeHandler!(payload);
-    await new Promise((r) => setTimeout(r, 100));
-
-    // Non-retryable: should only be called once
-    expect(dispatcher.sendVersionAwareCommand).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not retry on non-timeout errors even for retryable commands', async () => {
+  it('does not retry on non-timeout errors', async () => {
     dispatcher.sendCommand.mockRejectedValueOnce(new Error('Station rejected: NotImplemented'));
 
     await createAndStart();

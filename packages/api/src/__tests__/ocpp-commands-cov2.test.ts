@@ -269,7 +269,7 @@ describe('OCPP command dispatch - uncovered paths', () => {
       [{ value: '1' }], // ItemsPerMessage = 1
       [station21], // first chunk site access lookup
     );
-    replies.push({ error: 'No response within 35s' });
+    replies.push({ error: 'No response within 35s', timedOut: true });
     const res = await app.inject({
       method: 'POST',
       url: '/ocpp/commands/v21/GetVariables',

@@ -493,6 +493,7 @@ describe('Portal reservation routes', () => {
       vi.mocked(sendOcppCommandAndWait).mockResolvedValueOnce({
         commandId: 'c1',
         error: 'No response within 35s',
+        timedOut: true,
       });
       const response = await create();
       expect(response.statusCode).toBe(504);

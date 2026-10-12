@@ -24,6 +24,13 @@ export interface CommandResult {
    * holds the queue note, not a failure.
    */
   queued?: boolean;
+  /**
+   * True when the station did not answer: the OCPP server's own wait for the
+   * CALLRESULT ran out, or no result arrived on the results channel within
+   * 35 s. `error` then holds the timeout text. Tell a station non-answer
+   * apart from a failure by this flag, never by the error text.
+   */
+  timedOut?: boolean;
 }
 
 /**
@@ -58,7 +65,7 @@ export async function sendOcppCommandAndWait(
           version,
         }),
     });
-    return result ?? { commandId, error: 'No response within 35s' };
+    return result ?? { commandId, error: 'No response within 35s', timedOut: true };
   } catch (err) {
     logger.warn(
       { err, stationId: stationOcppId, action, commandId },

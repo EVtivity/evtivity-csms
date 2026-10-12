@@ -61,8 +61,6 @@ export type ReservationActor =
 /** The shortest reservation, and the slack for a start or an end close to now. */
 export const RESERVATION_MIN_DURATION_MS = 60_000;
 
-const NO_RESPONSE_PREFIX = 'No response within';
-
 function auditActor(actor: ReservationActor): {
   actor: 'operator' | 'driver';
   actorUserId: string | null;
@@ -678,8 +676,7 @@ export async function dispatchReservation(
     return { kind: 'accepted' };
   }
 
-  const noAnswer =
-    result.error != null && (result.queued === true || result.error.startsWith(NO_RESPONSE_PREFIX));
+  const noAnswer = result.error != null && (result.queued === true || result.timedOut === true);
   // A command that never reached the station (send error) has no station
   // answer either: no_response, not a station rejection.
   const reason: ReservationCancelReason =
@@ -849,7 +846,7 @@ export interface UpdateReservationInput {
 
 function reserveNowFailure(result: CommandResult): AppError | null {
   if (result.error != null) {
-    return result.error.startsWith(NO_RESPONSE_PREFIX) || result.queued === true
+    return result.timedOut === true || result.queued === true
       ? new AppError(result.error, 504, 'RESERVATION_TIMEOUT')
       : new AppError(result.error, 502, 'RESERVATION_REJECTED');
   }

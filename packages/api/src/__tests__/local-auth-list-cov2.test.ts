@@ -259,7 +259,7 @@ describe('local auth list routes - uncovered paths', () => {
 
     it('returns 504 COMMAND_TIMEOUT when the station does not answer', async () => {
       queuePush([]);
-      sendOcppCommandAndWait.mockResolvedValue({ error: 'No response within 30s' });
+      sendOcppCommandAndWait.mockResolvedValue({ error: 'No response within 30s', timedOut: true });
       const res = await app.inject({
         method: 'POST',
         url: `/stations/${STATION_ID}/local-auth-list/push`,

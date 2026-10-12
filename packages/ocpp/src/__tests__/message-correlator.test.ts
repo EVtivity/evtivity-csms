@@ -3,7 +3,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import pino from 'pino';
-import { MessageCorrelator } from '../server/message-correlator.js';
+import { CommandTimeoutError, MessageCorrelator } from '../server/message-correlator.js';
 import { createSessionState } from '../server/session-state.js';
 import type { CallResult, CallError } from '../protocol/message-types.js';
 
@@ -77,6 +77,7 @@ describe('MessageCorrelator', () => {
       vi.advanceTimersByTime(1001);
 
       await expect(promise).rejects.toThrow('Timeout waiting for response to Reset');
+      await expect(promise).rejects.toBeInstanceOf(CommandTimeoutError);
       expect(session.pendingMessages.size).toBe(0);
     });
 

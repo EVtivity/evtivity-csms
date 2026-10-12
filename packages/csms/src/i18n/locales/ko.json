@@ -4895,13 +4895,13 @@
       "rationale": "근거",
       "executed": "작업이 실행되었습니다",
       "confirmFailed": "작업이 실행되지 않았습니다",
-      "rejectedToast": "작업을 거부했습니다",
+      "rejectedToast": "작업을 거절했습니다",
       "confirmDialog": {
         "title": "이 작업을 실행할까요?",
         "note": "지금 한 번, 내 권한으로 실행됩니다."
       },
       "rejectDialog": {
-        "title": "이 작업을 거부할까요?"
+        "title": "이 작업을 거절할까요?"
       },
       "measured": {
         "idleTime": "유휴 시간",

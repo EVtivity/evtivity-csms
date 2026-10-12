@@ -464,7 +464,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
       const result = await sendOcppCommandAndWait(station.stationId, 'SendLocalList', payload);
 
       if (result.error != null) {
-        const isTimeout = result.error.includes('No response within');
+        const isTimeout = result.timedOut === true;
         await reply.status(isTimeout ? 504 : 502).send({
           error: result.error,
           code: isTimeout ? 'COMMAND_TIMEOUT' : 'COMMAND_FAILED',

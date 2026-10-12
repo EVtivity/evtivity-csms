@@ -12,6 +12,18 @@ import { ActionRegistry as Registry16 } from '../generated/v1_6/registry.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * The station did not answer a CALL within the correlator timeout. Callers
+ * tell a station non-answer apart from a failure by this type, never by the
+ * message text.
+ */
+export class CommandTimeoutError extends Error {
+  constructor(action: string, messageId: string) {
+    super(`Timeout waiting for response to ${action} (${messageId})`);
+    this.name = 'CommandTimeoutError';
+  }
+}
+
 interface RegistryEntry {
   validateResponse: (data: unknown) => boolean;
 }
@@ -59,7 +71,7 @@ export class MessageCorrelator {
           { stationId: session.stationId, messageId, action },
           'Timeout waiting for CALLRESULT from station',
         );
-        reject(new Error(`Timeout waiting for response to ${action} (${messageId})`));
+        reject(new CommandTimeoutError(action, messageId));
       }, this.timeoutMs);
 
       session.pendingMessages.set(messageId, {

@@ -111,6 +111,15 @@ describe('OCPP to OCPI command result mapping', () => {
     });
   });
 
+  it('posts TIMEOUT when the station did not answer (timedOut)', async () => {
+    expect(
+      await resultFor('RESERVE_NOW', {
+        error: 'Timeout waiting for response to ReserveNow (m1)',
+        timedOut: true,
+      }),
+    ).toEqual({ result: 'TIMEOUT' });
+  });
+
   it('posts FAILED when the result has no response', async () => {
     expect(await resultFor('STOP_SESSION', {})).toEqual({ result: 'FAILED' });
   });

@@ -4895,13 +4895,13 @@
       "rationale": "理由",
       "executed": "操作已執行",
       "confirmFailed": "操作未執行",
-      "rejectedToast": "已拒絕操作",
+      "rejectedToast": "已駁回操作",
       "confirmDialog": {
         "title": "執行此操作？",
         "note": "它將以您的權限立即執行一次。"
       },
       "rejectDialog": {
-        "title": "拒絕此操作？"
+        "title": "駁回此操作？"
       },
       "measured": {
         "idleTime": "閒置時間",

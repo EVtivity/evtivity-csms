@@ -419,6 +419,21 @@ async function getVariables(
   });
 }
 
+// The Basic Auth username is the station id (security profiles 1 and 2, checked by the
+// OCPP connection auth), so a profile carrying a password names it as the
+// identity. NetworkConnectionProfileType.identity holds at most 48 characters;
+// a longer id is left out and the station keeps using its own id.
+const MAX_PROFILE_IDENTITY_LENGTH = 48;
+
+function basicAuthCredentials(
+  stationId: string,
+  password: string,
+): { identity?: string; basicAuthPassword: string } {
+  return stationId.length <= MAX_PROFILE_IDENTITY_LENGTH
+    ? { identity: stationId, basicAuthPassword: password }
+    : { basicAuthPassword: password };
+}
+
 // OCPP 2.1 A05: SetNetworkProfile into a free slot, put it first in
 // NetworkConfigurationPriority, then Reset(OnIdle). The station connects with
 // the new profile and drops the lower ones (A05.FR.06).
@@ -478,7 +493,7 @@ async function upgrade21(
       messageTimeout: Number(messageTimeout ?? 30) || 30,
       ocppCsmsUrl,
       securityProfile: profile,
-      ...(password != null ? { basicAuthPassword: password } : {}),
+      ...(password != null ? basicAuthCredentials(station.stationId, password) : {}),
     },
   });
   if (result.error != null) throw commandError('SetNetworkProfile', result);

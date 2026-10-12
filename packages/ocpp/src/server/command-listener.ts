@@ -11,7 +11,7 @@ import type {
 } from '@evtivity/lib';
 import { OCPP_COMMANDS_CHANNEL, OCPP_COMMAND_RESULTS_CHANNEL, tryParseJson } from '@evtivity/lib';
 import type { CommandDispatcher } from './command-dispatcher.js';
-import { RetryPolicy } from './retry-policy.js';
+import { CommandTimeoutError } from './message-correlator.js';
 import { publishMessageLog } from './message-log.js';
 import { holdsStationCredential, maskStationCredentials } from '@evtivity/lib/secret-config';
 import {
@@ -23,15 +23,6 @@ import {
 const CHANNEL = OCPP_COMMANDS_CHANNEL;
 
 const RESULTS_CHANNEL = OCPP_COMMAND_RESULTS_CHANNEL;
-
-const NON_RETRYABLE_ACTIONS = new Set([
-  'RequestStartTransaction',
-  'RemoteStartTransaction',
-  'RequestStopTransaction',
-  'RemoteStopTransaction',
-  'ReserveNow',
-  'CancelReservation',
-]);
 
 interface CommandPayload {
   commandId?: string;
@@ -53,7 +44,6 @@ export class CommandListener {
   private readonly eventBus: EventBus;
   private readonly registry: ConnectionRegistry | null;
   private readonly instanceId: string | null;
-  private readonly retryPolicy: RetryPolicy;
   private subscription: Subscription | null = null;
 
   constructor(
@@ -69,7 +59,6 @@ export class CommandListener {
     this.eventBus = eventBus;
     this.registry = options?.registry ?? null;
     this.instanceId = options?.instanceId ?? null;
-    this.retryPolicy = new RetryPolicy(logger);
   }
 
   async start(): Promise<void> {
@@ -153,19 +142,13 @@ export class CommandListener {
     try {
       // When version is present, the frontend sent a version-native payload -- dispatch directly.
       // When absent, use version-aware translation for programmatic callers (reservations, etc.).
-      const dispatch = () =>
+      // Sent once, never retried: the caller waits about 35 s for the result,
+      // and a resend after a timeout would reach the station after the caller
+      // gave up (a CommandTimeoutError goes back as timedOut).
+      const response =
         version != null
-          ? this.dispatcher.sendCommand(stationId, action, payload)
-          : this.dispatcher.sendVersionAwareCommand(stationId, action, payload);
-
-      // Retry retryable commands on timeout errors only
-      const isRetryable = !NON_RETRYABLE_ACTIONS.has(action);
-      const shouldRetry = (err: Error) =>
-        !err.message.includes('is not connected') && err.message.includes('timed out');
-
-      const response = isRetryable
-        ? await this.retryPolicy.execute(action, dispatch, shouldRetry)
-        : await dispatch();
+          ? await this.dispatcher.sendCommand(stationId, action, payload)
+          : await this.dispatcher.sendVersionAwareCommand(stationId, action, payload);
       this.logger.info(
         { stationId, action, response: maskStationCredentials(response) },
         'Command completed',
@@ -314,9 +297,16 @@ export class CommandListener {
       });
 
       if (commandId != null) {
+        // timedOut tells the caller the station did not answer (504), as
+        // opposed to a send error or CALLERROR (502).
+        const timedOut = err instanceof CommandTimeoutError;
         await this.pubsub.publish(
           RESULTS_CHANNEL,
-          JSON.stringify({ commandId, error: errorMessage }),
+          JSON.stringify(
+            timedOut
+              ? { commandId, error: errorMessage, timedOut }
+              : { commandId, error: errorMessage },
+          ),
         );
       }
     }

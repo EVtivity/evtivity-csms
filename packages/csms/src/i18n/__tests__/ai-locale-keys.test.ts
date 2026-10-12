@@ -304,4 +304,21 @@ describe('Layout keys (plan v0.1.45, section 6)', () => {
       expect(value(locale, 'settings.aiUsageTab'), lang).toBeUndefined();
     }
   });
+
+  it('the insight action Reject button and its dialog title use the same word', () => {
+    for (const [lang, locale] of Object.entries(LOCALES)) {
+      const button = value(locale, 'aiInsights.action.reject');
+      const title = value(locale, 'aiInsights.action.rejectDialog.title');
+      expect(typeof button === 'string' && typeof title === 'string', lang).toBe(true);
+      expect((title as string).toLowerCase(), lang).toContain((button as string).toLowerCase());
+    }
+  });
+
+  it('the CJK insight action reject toast uses the button word', () => {
+    for (const lang of ['ko', 'zh', 'zh-TW']) {
+      const locale = LOCALES[lang];
+      const button = value(locale, 'aiInsights.action.reject') as string;
+      expect(value(locale, 'aiInsights.action.rejectedToast'), lang).toContain(button);
+    }
+  });
 });

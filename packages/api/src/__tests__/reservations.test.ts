@@ -670,7 +670,11 @@ describe('Reservation routes', () => {
       setupDbResults([stationRow]);
       mockCreateReservation.mockResolvedValueOnce(createdRow());
       const order: string[] = [];
-      mockSendCommand.mockResolvedValueOnce({ commandId: 'c1', error: 'No response within 35s' });
+      mockSendCommand.mockResolvedValueOnce({
+        commandId: 'c1',
+        error: 'No response within 35s',
+        timedOut: true,
+      });
       mockApplyCancellation.mockImplementationOnce(() => {
         order.push('cancel');
         return Promise.resolve({
@@ -901,7 +905,11 @@ describe('Reservation routes', () => {
 
     it('TC-RES-10: a timed-out CancelReservation audits station_cancel_failed and warns', async () => {
       setupDbResults([activeRow()]);
-      mockSendCommand.mockResolvedValueOnce({ commandId: 'c1', error: 'No response within 35s' });
+      mockSendCommand.mockResolvedValueOnce({
+        commandId: 'c1',
+        error: 'No response within 35s',
+        timedOut: true,
+      });
       const res = await del();
       expect(res.statusCode).toBe(200);
       expect(res.json().warning).toBe('station_cancel_failed');

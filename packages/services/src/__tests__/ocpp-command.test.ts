@@ -125,6 +125,7 @@ describe('sendOcppCommandAndWait', () => {
 
     const result = await promise;
     expect(result.error).toBe('No response within 35s');
+    expect(result.timedOut).toBe(true);
     expect(unsubscribeMock).toHaveBeenCalled();
   });
 

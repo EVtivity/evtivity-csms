@@ -360,11 +360,25 @@ describe('changeSecurityProfile', () => {
         connectionData: {
           ocppCsmsUrl: 'ws://csms.example.com/ocpp',
           securityProfile: 1,
+          identity: 'CS-1',
           basicAuthPassword: PW,
         },
       });
       expect(hashUpdates()).toEqual([`hash(${PW})`]);
       expect(updates.at(-1)).toMatchObject({ pendingSecurityProfile: 1 });
+    });
+
+    it('leaves out the identity when the station id exceeds the 48-character profile limit', async () => {
+      setStation({ stationId: 'S'.repeat(49), securityProfile: 0, basicAuthPasswordHash: null });
+      stationReplies('1');
+
+      await changeSecurityProfile('sta_1', 1, PW, ctx);
+
+      const profile = sendMock.mock.calls.find((c) => c[1] === 'SetNetworkProfile')?.[2] as {
+        connectionData: Record<string, unknown>;
+      };
+      expect(profile.connectionData['basicAuthPassword']).toBe(PW);
+      expect(profile.connectionData).not.toHaveProperty('identity');
     });
 
     it('does not mark the upgrade pending when the station rejects the priority (no root certificate)', async () => {
@@ -412,6 +426,7 @@ describe('changeSecurityProfile', () => {
         connectionData: Record<string, unknown>;
       };
       expect(profile.connectionData).not.toHaveProperty('basicAuthPassword');
+      expect(profile.connectionData).not.toHaveProperty('identity');
     });
   });
 

@@ -294,7 +294,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
       }
 
       if (result.error != null) {
-        const isTimeout = result.error.includes('No response within');
+        const isTimeout = result.timedOut === true;
         await reply.status(isTimeout ? 504 : 502).send({
           error: result.error,
           code: isTimeout ? 'MESSAGE_TIMEOUT' : 'MESSAGE_SEND_FAILED',
@@ -390,7 +390,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
       }
 
       if (result.error != null) {
-        const isTimeout = result.error.includes('No response within');
+        const isTimeout = result.timedOut === true;
         await reply.status(isTimeout ? 504 : 502).send({
           error: result.error,
           code: isTimeout ? 'MESSAGE_TIMEOUT' : 'MESSAGE_CLEAR_FAILED',
@@ -483,7 +483,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
       }
 
       if (result.error != null) {
-        const isTimeout = result.error.includes('No response within');
+        const isTimeout = result.timedOut === true;
         await reply.status(isTimeout ? 504 : 502).send({
           error: result.error,
           code: isTimeout ? 'MESSAGE_TIMEOUT' : 'MESSAGE_REFRESH_FAILED',

@@ -540,6 +540,7 @@ describe('dispatchReservation', () => {
     h.sendOcppCommandAndWait.mockResolvedValueOnce({
       commandId: 'c1',
       error: 'No response within 35s',
+      timedOut: true,
     });
     const outcome = await dispatchReservation(row(), opts);
     expect(outcome).toEqual({ kind: 'no_response', error: 'No response within 35s' });
@@ -584,10 +585,24 @@ describe('dispatchReservation', () => {
     expect(h.publishOcppCommand).toHaveBeenCalledTimes(1);
   });
 
+  it('TC-RES-04: the OCPP server timeout (timedOut) is no answer, not a station failure', async () => {
+    const error = 'Timeout waiting for response to ReserveNow (m1)';
+    h.sendOcppCommandAndWait.mockResolvedValueOnce({ commandId: 'c1', error, timedOut: true });
+    const outcome = await dispatchReservation(row(), opts);
+    expect(outcome).toEqual({ kind: 'no_response', error });
+  });
+
+  it('TC-RES-04: a send error without timedOut is a failure', async () => {
+    h.sendOcppCommandAndWait.mockResolvedValueOnce({ commandId: 'c1', error: 'CALLERROR x' });
+    const outcome = await dispatchReservation(row(), opts);
+    expect(outcome).toMatchObject({ kind: 'failed', error: 'CALLERROR x' });
+  });
+
   it('TC-RES-04: a rollback another path already won sends no driver notice', async () => {
     h.sendOcppCommandAndWait.mockResolvedValueOnce({
       commandId: 'c1',
       error: 'No response within 35s',
+      timedOut: true,
     });
     h.applyCancel.mockResolvedValueOnce({ ...cancelled, cancelled: false, statusBefore: null });
     await dispatchReservation(row(), opts);
@@ -960,6 +975,7 @@ describe('updateReservation', () => {
     h.sendOcppCommandAndWait.mockResolvedValueOnce({
       commandId: 'c1',
       error: 'No response within 35s',
+      timedOut: true,
     });
     await expect(
       updateReservation({ reservationDbId: 'rsv_1', changes: { evseOcppId: 2 }, actor: operator }),
@@ -982,6 +998,7 @@ describe('updateReservation', () => {
     h.sendOcppCommandAndWait.mockResolvedValueOnce({
       commandId: 'c1',
       error: 'No response within 35s',
+      timedOut: true,
     });
     await expect(
       updateReservation({ reservationDbId: 'rsv_1', changes: { evseOcppId: 2 }, actor: operator }),
@@ -1212,6 +1229,7 @@ describe('reassignReservation', () => {
     h.sendOcppCommandAndWait.mockResolvedValueOnce({
       commandId: 'c1',
       error: 'No response within 35s',
+      timedOut: true,
     });
     await expect(
       reassignReservation({ reservationDbId: 'rsv_1', newStation, actor: operator }),

@@ -569,6 +569,67 @@ describe('Display message routes', () => {
       expect(body.code).toBe('MESSAGE_SEND_FAILED');
     });
 
+    it('returns 504 when the OCPP server reports the station did not answer (timedOut)', async () => {
+      setupDbResults(
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
+        [{ maxId: 5 }],
+        [
+          {
+            id: VALID_MESSAGE_ID,
+            stationId: VALID_STATION_ID,
+            ocppMessageId: 6,
+            priority: 'NormalCycle',
+            status: 'pending',
+            format: 'UTF8',
+            content: 'Hello World',
+            language: null,
+            state: null,
+            startDateTime: null,
+            endDateTime: null,
+            transactionId: null,
+            evseId: null,
+            messageExtra: null,
+            ocppResponse: null,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ],
+      );
+
+      const responsePromise = app.inject({
+        method: 'POST',
+        url: `/stations/${VALID_STATION_ID}/display-messages`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: basePayload,
+      });
+
+      await vi.waitFor(() => {
+        expect(mockPublish).toHaveBeenCalled();
+      });
+
+      const publishCall = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
+      const { commandId } = JSON.parse(publishCall![1] as string) as { commandId: string };
+
+      mockSubscribeCallback!(
+        JSON.stringify({
+          commandId,
+          error: 'Timeout waiting for response to SetDisplayMessage (m1)',
+          timedOut: true,
+        }),
+      );
+
+      const response = await responsePromise;
+      expect(response.statusCode).toBe(504);
+      expect(JSON.parse(response.body).code).toBe('MESSAGE_TIMEOUT');
+    });
+
     it('returns 202 queued and leaves the row pending when the station disconnected', async () => {
       setupDbResults(
         [
