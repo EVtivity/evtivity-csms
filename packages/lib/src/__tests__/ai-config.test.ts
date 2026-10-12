@@ -185,9 +185,10 @@ describe('AI roadmap settings (TC-AI-C-11)', () => {
     }
   });
 
-  it('keeps system-initiated AI, every worker job and MCP off by default (D4)', () => {
+  it('keeps system-initiated AI, every worker job, MCP and MCP writes off by default (D4)', () => {
     expect(AI_SETTING_DEFAULTS['opsAi.enabled']).toBe(false);
     expect(AI_SETTING_DEFAULTS['ai.mcp.enabled']).toBe(false);
+    expect(AI_SETTING_DEFAULTS['ai.mcp.allowWrites']).toBe(false);
     for (const key of [
       'aiWorkers.networkSummary.enabled',
       'aiWorkers.stuckSessions.enabled',
@@ -386,7 +387,7 @@ describe('AI roadmap settings (TC-AI-C-11)', () => {
       enabled: false,
       rateLimitPerMinute: 60,
       dailyCallsPerKey: 5000,
-      proposalTtlMinutes: 30,
+      allowWrites: false,
       allowedOrigins: [],
     });
   });
@@ -402,6 +403,7 @@ describe('AI roadmap settings (TC-AI-C-11)', () => {
       { key: 'aiInsights.cooldownMinutes', value: 0 },
       { key: 'aiWorkers.stuckSessions.enabled', value: true },
       { key: 'ai.mcp.enabled', value: true },
+      { key: 'ai.mcp.allowWrites', value: true },
       { key: 'ai.mcp.allowedOrigins', value: ['https://app.example.com'] },
       { key: 'ai.budget.companyMonthlyTokens', value: 5_000_000 },
     ]);
@@ -413,7 +415,11 @@ describe('AI roadmap settings (TC-AI-C-11)', () => {
       cooldownMinutes: 60,
     });
     expect(s.workers.stuckSessionsEnabled).toBe(true);
-    expect(s.mcp).toMatchObject({ enabled: true, allowedOrigins: ['https://app.example.com'] });
+    expect(s.mcp).toMatchObject({
+      enabled: true,
+      allowWrites: true,
+      allowedOrigins: ['https://app.example.com'],
+    });
     expect(s.limits.companyMonthlyTokens).toBe(5_000_000);
   });
 });

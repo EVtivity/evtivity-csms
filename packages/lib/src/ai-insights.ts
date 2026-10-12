@@ -11,9 +11,13 @@
  * the evidence it used. The CSMS renders category, confidence, fixes and scope
  * through locale keys (`aiInsights.category.<category>`,
  * `aiInsights.fix.<code>`), so only the summary is model text.
+ *
+ * A background worker suggestion is an insight that carries an action
+ * (`WORKER_ACTION_INSIGHT_KINDS`, `action` on the DTO): a write that runs only
+ * when an operator confirms it (`@evtivity/lib/ai-proposals`).
  */
-
 import { z } from 'zod';
+import { aiProposalDtoSchema } from './ai-proposals.js';
 
 /** Insight kinds raised from `reservation_audit_log` rows (v0.1.45). */
 export const RESERVATION_INSIGHT_KINDS = [
@@ -35,9 +39,29 @@ export const INSIGHT_KINDS = [
   'site_summary',
   'company_summary',
   'tariff_anomaly',
+  'stuck_session',
+  'station_long_faulted',
   ...RESERVATION_INSIGHT_KINDS,
 ] as const;
 export type InsightKind = (typeof INSIGHT_KINDS)[number];
+
+/**
+ * Insights a background worker writes with an action to confirm: a stop for
+ * a stuck session (job `stuck_sessions`), a soft reset for a station faulted
+ * for hours (job `network_summary`). Their lifecycle follows the action: an
+ * executed, failed, stale or expired action resolves the insight, a rejected
+ * one dismisses it.
+ */
+export const WORKER_ACTION_INSIGHT_KINDS = ['stuck_session', 'station_long_faulted'] as const;
+export type WorkerActionInsightKind = (typeof WORKER_ACTION_INSIGHT_KINDS)[number];
+
+export function isWorkerActionInsightKind(kind: string): kind is WorkerActionInsightKind {
+  return (WORKER_ACTION_INSIGHT_KINDS as readonly string[]).includes(kind);
+}
+
+/** List filter on the action: `pending` (waits for a decision) or `any` (carries one). */
+export const INSIGHT_ACTION_FILTERS = ['pending', 'any'] as const;
+export type InsightActionFilter = (typeof INSIGHT_ACTION_FILTERS)[number];
 
 export const INSIGHT_STATUSES = [
   'pending',
@@ -273,6 +297,8 @@ export const aiInsightDtoSchema = z.object({
   createdAt: z.string(),
   resolvedAt: z.string().nullable(),
   dismissedAt: z.string().nullable(),
+  /** The action the insight carries (background worker suggestions), or null. */
+  action: aiProposalDtoSchema.nullable(),
 });
 export type AiInsightDto = z.infer<typeof aiInsightDtoSchema>;
 
@@ -386,6 +412,8 @@ export const INSIGHT_KIND_FALLBACKS: Readonly<Record<InsightKind, RuleInsight>> 
   site_summary: { category: 'unknown', fixes: ['monitor'] },
   company_summary: { category: 'unknown', fixes: ['monitor'] },
   tariff_anomaly: { category: 'tariff', fixes: ['review_tariff_assignment'] },
+  stuck_session: { category: 'unknown', fixes: ['monitor'] },
+  station_long_faulted: { category: 'hardware', fixes: ['reboot_station', 'inspect_connector'] },
   reservation_rejected: {
     category: 'configuration',
     fixes: ['reservation_check_evse_status', 'reservation_check_station_connectivity'],

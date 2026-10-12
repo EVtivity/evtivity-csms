@@ -142,7 +142,6 @@ export const AI_THRESHOLD_SETTINGS = {
   // MCP server.
   [AI_MCP_SETTING_KEYS.rateLimitPerMinute]: { defaultValue: 60, min: 1, max: 10_000 },
   [AI_MCP_SETTING_KEYS.dailyCallsPerKey]: { defaultValue: 5000, min: 1, max: 10_000_000 },
-  [AI_MCP_SETTING_KEYS.proposalTtlMinutes]: { defaultValue: 30, min: 5, max: 1440 },
 } as const satisfies Record<string, AiLimitDefinition>;
 export type AiThresholdSettingKey = keyof typeof AI_THRESHOLD_SETTINGS;
 
@@ -188,8 +187,8 @@ export function parseAiLimitValue(key: AiNumberSettingKey, value: unknown): numb
 }
 
 /**
- * On and off switches with their defaults (decision D4): system-initiated AI
- * and MCP are off until an operator turns them on; the insight triggers are on
+ * On and off switches with their defaults (decision D4): system-initiated AI,
+ * MCP and MCP writes are off until an operator turns them on; the insight triggers are on
  * once `opsAi.enabled` is; every background worker job is off. Driver support
  * is off until an operator turns it on (decision E7).
  */
@@ -205,6 +204,7 @@ export const AI_FLAG_SETTINGS = {
   [AI_WORKER_SETTING_KEYS.stuckSessionsUseModel]: false,
   [AI_WORKER_SETTING_KEYS.tariffAnomaliesEnabled]: false,
   [AI_MCP_SETTING_KEYS.enabled]: false,
+  [AI_MCP_SETTING_KEYS.allowWrites]: false,
 } as const satisfies Record<string, boolean>;
 export type AiFlagSettingKey = keyof typeof AI_FLAG_SETTINGS;
 
@@ -430,7 +430,11 @@ export interface AiMcpSettings {
   enabled: boolean;
   rateLimitPerMinute: number;
   dailyCallsPerKey: number;
-  proposalTtlMinutes: number;
+  /**
+   * MCP write tools are listed and run (`ai.mcp.allowWrites`), under the API
+   * key's own permissions and site scope. Off: only reads.
+   */
+  allowWrites: boolean;
   /** Allowed `Origin` header values; empty allows none (a request without `Origin` passes). */
   allowedOrigins: string[];
 }
@@ -544,7 +548,7 @@ export function buildAiSettings(rows: { key: string; value: unknown }[]): AiSett
       enabled: flag(values, AI_MCP_SETTING_KEYS.enabled),
       rateLimitPerMinute: limit(values, AI_MCP_SETTING_KEYS.rateLimitPerMinute),
       dailyCallsPerKey: limit(values, AI_MCP_SETTING_KEYS.dailyCallsPerKey),
-      proposalTtlMinutes: limit(values, AI_MCP_SETTING_KEYS.proposalTtlMinutes),
+      allowWrites: flag(values, AI_MCP_SETTING_KEYS.allowWrites),
       allowedOrigins:
         parseAiMcpAllowedOrigins(values.get(AI_MCP_SETTING_KEYS.allowedOrigins)) ?? [],
     },

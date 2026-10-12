@@ -20,7 +20,7 @@ import {
   FileBarChart,
   Globe,
   Shield,
-  Inbox,
+  Lightbulb,
   type LucideIcon,
 } from 'lucide-react';
 import type { ParseKeys } from 'i18next';
@@ -167,13 +167,14 @@ export const NAV_ENTRIES: readonly NavEntry[] = [
     isVisible: (flags) => flags.supportEnabled,
   },
   {
-    // AI proposals from background workers and MCP clients (roadmap v0.1.44).
-    to: '/ai/inbox',
-    labelKey: 'nav.aiInbox',
-    icon: Inbox,
+    // Automatic insights, with the background worker suggestions whose action
+    // waits for a decision (the nav count).
+    to: '/ai/insights',
+    labelKey: 'nav.aiInsights',
+    icon: Lightbulb,
     order: 145,
-    requiredPermission: 'aiProposals:read',
-    isVisible: (flags) => flags.aiInboxEnabled,
+    requiredPermission: 'aiInsights:read',
+    isVisible: (flags) => flags.aiInsightsEnabled,
   },
   {
     to: '/notifications',

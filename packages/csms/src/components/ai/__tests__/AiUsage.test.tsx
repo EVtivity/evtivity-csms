@@ -119,12 +119,60 @@ describe('Settings > AI > Usage (TC-AI-US-11)', () => {
   });
 
   it('asks for the picked month', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-15T12:00:00Z') });
+    try {
+      wrap(<AiUsageTab warnPercent={80} />);
+      await screen.findByTestId('ai-usage-company-used');
+      fireEvent.change(screen.getByLabelText('aiUsage.month'), { target: { value: '2026-09' } });
+      await waitFor(() => {
+        expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/usage?month=2026-09');
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('picks the month with the shared month picker, newest first (ISSUES item 9)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-15T12:00:00Z') });
+    try {
+      wrap(<AiUsageTab warnPercent={80} />);
+      await screen.findByTestId('ai-usage-company-used');
+      const picker = screen.getByLabelText('aiUsage.month');
+      expect(picker.tagName).toBe('SELECT');
+      expect((picker as HTMLSelectElement).value).toBe('2026-10');
+      const options = Array.from((picker as HTMLSelectElement).options);
+      expect(options).toHaveLength(24);
+      expect(options[0]?.value).toBe('2026-10');
+      expect(options[0]?.textContent).toBe('October 2026');
+      expect(options.at(-1)?.value).toBe('2024-11');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('pages the sites with the shared pagination, the unattributed row on the last page (ISSUES item 9)', async () => {
+    const sites = Array.from({ length: 12 }, (_, i) => ({
+      siteId: `s${String(i + 1)}`,
+      siteName: `Site ${String(i + 1)}`,
+      totals: totals(10),
+      budget: { limitTokens: null, usedTokens: 10, percent: null },
+    }));
+    apiMock.get.mockImplementation((path: string) =>
+      path.startsWith('/v1/users/')
+        ? Promise.resolve({ firstName: 'Ada', lastName: 'Ops', email: 'ada@example.com' })
+        : Promise.resolve({ ...USAGE, sites }),
+    );
     wrap(<AiUsageTab warnPercent={80} />);
-    await screen.findByTestId('ai-usage-company-used');
-    fireEvent.change(screen.getByLabelText('aiUsage.month'), { target: { value: '2026-09' } });
-    await waitFor(() => {
-      expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/usage?month=2026-09');
-    });
+    expect(await screen.findByText('Site 1')).toBeTruthy();
+    expect(screen.getByText('Site 10')).toBeTruthy();
+    expect(screen.queryByText('Site 11')).toBeNull();
+    expect(screen.queryByText('aiUsage.unattributed')).toBeNull();
+    expect(screen.getByText('common.pageOf(1,2)')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'common.next' }));
+    expect(screen.getByText('Site 11')).toBeTruthy();
+    expect(screen.getByText('Site 12')).toBeTruthy();
+    expect(screen.queryByText('Site 1')).toBeNull();
+    expect(screen.getByText('aiUsage.unattributed')).toBeTruthy();
   });
 
   it('shows user ids when names cannot be read', async () => {

@@ -124,15 +124,11 @@ const TokenDetail = lazy(() =>
 const AuthorizeLog = lazy(() =>
   import('@/pages/AuthorizeLog').then((m) => ({ default: m.AuthorizeLog })),
 );
-const AiInbox = lazy(() => import('@/pages/AiInbox').then((m) => ({ default: m.AiInbox })));
 const AiInsights = lazy(() =>
   import('@/pages/AiInsights').then((m) => ({ default: m.AiInsights })),
 );
 const AiInsightDetail = lazy(() =>
   import('@/pages/AiInsightDetail').then((m) => ({ default: m.AiInsightDetail })),
-);
-const AiInboxDetail = lazy(() =>
-  import('@/pages/AiInboxDetail').then((m) => ({ default: m.AiInboxDetail })),
 );
 const Settings = lazy(() => import('@/pages/Settings').then((m) => ({ default: m.Settings })));
 const NotificationRules = lazy(() =>
@@ -389,8 +385,6 @@ export function App(): React.JSX.Element {
                   <Route path="support-cases" element={<SupportCases />} />
                   <Route path="support-cases/new" element={<SupportCaseCreate />} />
                   <Route path="support-cases/:id" element={<SupportCaseDetail />} />
-                  <Route path="ai/inbox" element={<AiInbox />} />
-                  <Route path="ai/inbox/:id" element={<AiInboxDetail />} />
                   <Route
                     path="ai/insights"
                     element={

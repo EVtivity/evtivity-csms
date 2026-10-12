@@ -27,6 +27,7 @@ import { useDateRange } from '@/hooks/useDateRange';
 import { localDateString } from '@/lib/date-range';
 import { useUpdateCheck } from '@/hooks/use-update-check';
 import { ActiveInsightsWidget } from '@/components/ai/insights/ActiveInsightsWidget';
+import { ScrollSnapRow } from '@/components/ui/scroll-snap-row';
 import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-context';
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { formatCents, formatNumber, formatNumberUpTo } from '@/lib/formatting';
@@ -206,59 +207,6 @@ function useAnimatedValue(value: string | number): string {
   }, [num]);
 
   return formatParsedValue(parsed, display, i18n.language);
-}
-
-function ScrollSnapRow({
-  pages,
-}: {
-  pages: { id: string; content: React.ReactNode }[];
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [active, setActive] = useState(0);
-
-  function handleScroll(): void {
-    const el = scrollRef.current;
-    if (el == null) return;
-    setActive(Math.round(el.scrollLeft / el.clientWidth));
-  }
-
-  function goTo(index: number): void {
-    const el = scrollRef.current;
-    if (el == null) return;
-    el.scrollTo({ left: index * el.clientWidth, behavior: 'smooth' });
-  }
-
-  return (
-    <div className="space-y-2">
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex snap-x snap-mandatory overflow-x-auto scroll-smooth [-ms-overflow-style:none] scrollbar-none [&::-webkit-scrollbar]:hidden"
-      >
-        {pages.map((page) => (
-          <div key={page.id} className="w-full shrink-0 snap-start">
-            {page.content}
-          </div>
-        ))}
-      </div>
-      <div className="flex justify-center gap-1.5">
-        {pages.map((page, index) => (
-          <button
-            key={page.id}
-            type="button"
-            aria-label={t('dashboard.showPage', { page: index + 1, total: pages.length })}
-            onClick={() => {
-              goTo(index);
-            }}
-            className={`h-1.5 rounded-full transition-all ${
-              index === active ? 'w-4 bg-primary' : 'w-1.5 bg-muted-foreground/40'
-            }`}
-          />
-        ))}
-      </div>
-    </div>
-  );
 }
 
 function StatCard({
@@ -880,7 +828,7 @@ function AdminDashboard({
         </div>
 
         <ScrollSnapRow
-          pages={[
+          items={[
             { id: 'revenue', content: revenueGrid },
             { id: 'tax', content: taxGrid },
             { id: 'cost', content: costGrid },

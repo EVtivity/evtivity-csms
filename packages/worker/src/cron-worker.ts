@@ -74,7 +74,7 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['station-offline-sweep', stationOfflineSweepHandler],
   ['fleet-invoice-run', fleetInvoiceRunHandler],
   ['ai-retention-prune', aiRetentionPruneHandler],
-  // Background AI workers (off by default) and the AI Inbox upkeep.
+  // Background AI workers (off by default) and the insight action upkeep.
   ['ai-network-summary', (log) => aiNetworkSummaryHandler(log)],
   ['ai-stuck-sessions', (log) => aiStuckSessionsHandler(log)],
   ['ai-tariff-anomalies', (log) => aiTariffAnomaliesHandler(log)],

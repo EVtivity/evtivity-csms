@@ -20,7 +20,8 @@ export function isAiShortcut(e: KeyboardEvent): boolean {
  * The floating assistant button. Rendered only when `GET /v1/assistant/status`
  * says the assistant is available (enabled, a provider with a key) and the
  * user has `aiAssistant:read`; otherwise nothing renders and no space is kept.
- * Ctrl/Cmd+K toggles the panel; closing it returns focus to where it was.
+ * Ctrl/Cmd+K toggles the panel; closing it returns focus to where it was
+ * (the launcher when it opened the panel).
  * The open state lives in `useAiPanelStore`, so Explain buttons on any page
  * open the same panel.
  */
@@ -49,19 +50,19 @@ export function AiAssistantLauncher(): React.JSX.Element | null {
 
   return (
     <>
-      {!open && (
-        <Button
-          variant="default"
-          size="fab"
-          className="fixed bottom-6 right-6 z-40"
-          aria-label={t('ai.open')}
-          title={t('ai.openShortcut')}
-          data-testid="ai-launcher"
-          onClick={openPanel}
-        >
-          <Sparkles className="h-5 w-5" />
-        </Button>
-      )}
+      {/* Hidden, not unmounted, while the panel is open: closing returns focus to this node. */}
+      <Button
+        variant="default"
+        size="fab"
+        className="fixed bottom-6 right-6 z-40"
+        hidden={open}
+        aria-label={t('ai.open')}
+        title={t('ai.openShortcut')}
+        data-testid="ai-launcher"
+        onClick={openPanel}
+      >
+        <Sparkles className="h-5 w-5" />
+      </Button>
       {open && (
         <Suspense fallback={null}>
           <AiPanel onClose={closePanel} />

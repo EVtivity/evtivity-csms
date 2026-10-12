@@ -77,11 +77,13 @@ export interface SiteFixture {
   user: string;
   fleetReservation: string;
   localAuthEntry: number;
-  /** A pending worker proposal (stop the station's session), and its argsHash. */
+  /** A pending insight action (stop the station's session), its insight and its argsHash. */
   aiProposal: string;
+  actionInsight: string;
   aiProposalHash: string;
-  /** A second pending worker proposal, for the reject route. */
+  /** A second pending insight action and its insight, for the reject route. */
   aiProposal2: string;
+  actionInsight2: string;
   /** An active automatic insight of the site's station. */
   insight: string;
   /** A reservation insight of the site's reservation. */
@@ -519,6 +521,32 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (f) => `/ai/insights/${f.insight}/dismiss`,
     'AI_INSIGHT_NOT_FOUND',
     { unsited: true, control: { order: 90 } },
+  ),
+  s(
+    'GET',
+    '/ai/insights/:id/neighbors',
+    'aiInsights:read',
+    (f) => `/ai/insights/${f.insight}/neighbors`,
+    'AI_INSIGHT_NOT_FOUND',
+    { unsited: true },
+  ),
+  // Insight actions (background worker suggestions) carry their station's
+  // site; an unsited one is all-site only.
+  s(
+    'POST',
+    '/ai/insights/:id/action/confirm',
+    'aiInsights:write',
+    (f) => `/ai/insights/${f.actionInsight}/action/confirm`,
+    'AI_INSIGHT_NOT_FOUND',
+    { unsited: true, body: (f) => ({ argsHash: f.aiProposalHash }) },
+  ),
+  s(
+    'POST',
+    '/ai/insights/:id/action/reject',
+    'aiInsights:write',
+    (f) => `/ai/insights/${f.actionInsight2}/action/reject`,
+    'AI_INSIGHT_NOT_FOUND',
+    { unsited: true },
   ),
 
   // audit
@@ -3747,32 +3775,6 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'fleets:write',
     (_f, w) => `/fleets/${w.pricedFleet}/drivers/${w.driver}`,
     'FLEET_NOT_FOUND',
-  ),
-  // AI Inbox: worker proposals carry their station's site; an unsited one is all-site only.
-  l('/ai/proposals', 'aiProposals:read', undefined, { unsited: true }),
-  s(
-    'GET',
-    '/ai/proposals/:id',
-    'aiProposals:read',
-    (f) => `/ai/proposals/${f.aiProposal}`,
-    'AI_PROPOSAL_NOT_FOUND',
-    { unsited: true },
-  ),
-  s(
-    'POST',
-    '/ai/proposals/:id/confirm',
-    'aiProposals:write',
-    (f) => `/ai/proposals/${f.aiProposal}/confirm`,
-    'AI_PROPOSAL_NOT_FOUND',
-    { unsited: true, body: (f) => ({ argsHash: f.aiProposalHash }) },
-  ),
-  s(
-    'POST',
-    '/ai/proposals/:id/reject',
-    'aiProposals:write',
-    (f) => `/ai/proposals/${f.aiProposal2}/reject`,
-    'AI_PROPOSAL_NOT_FOUND',
-    { unsited: true },
   ),
 ];
 

@@ -56,6 +56,7 @@ export function OcppMessageLog({ stationDbId, timezone }: OcppMessageLogProps): 
       emptyMessage={t('ocppLogs.noMessages')}
       isLoading={isLoading}
       rowTestIdPrefix="ocpp-message-row"
+      showProcessingStatusColumn
       actions={actions}
       actionFilter={actionFilter}
       onActionFilterChange={(a) => {

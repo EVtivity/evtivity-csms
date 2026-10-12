@@ -11,6 +11,7 @@ import {
   CalendarX,
   CreditCard,
   FileText,
+  Hourglass,
   Receipt,
   ShieldX,
   WifiOff,
@@ -30,19 +31,21 @@ import { isSummaryInsight } from './insight-api';
 /** Lower is more severe. A site incident outranks everything it groups. */
 export const INSIGHT_SEVERITY: Readonly<Record<InsightKind, number>> = {
   site_incident: 0,
-  station_faulted: 1,
-  station_offline: 2,
-  session_failed: 3,
-  station_alert: 4,
-  reservation_station_faulted: 5,
-  authorization_refused: 6,
-  reservation_rejected: 7,
-  reservation_cancel_failed: 8,
-  reservation_fee_failed: 9,
-  reservation_no_show: 10,
-  tariff_anomaly: 11,
-  site_summary: 12,
-  company_summary: 13,
+  station_long_faulted: 1,
+  station_faulted: 2,
+  stuck_session: 3,
+  station_offline: 4,
+  session_failed: 5,
+  station_alert: 6,
+  reservation_station_faulted: 7,
+  authorization_refused: 8,
+  reservation_rejected: 9,
+  reservation_cancel_failed: 10,
+  reservation_fee_failed: 11,
+  reservation_no_show: 12,
+  tariff_anomaly: 13,
+  site_summary: 14,
+  company_summary: 15,
 };
 
 export type InsightTone = 'destructive' | 'warning' | 'info' | 'muted';
@@ -58,6 +61,8 @@ export const INSIGHT_ICONS: Readonly<Record<InsightKind, { icon: LucideIcon; ton
     tariff_anomaly: { icon: Receipt, tone: 'info' },
     site_summary: { icon: FileText, tone: 'muted' },
     company_summary: { icon: FileText, tone: 'muted' },
+    stuck_session: { icon: Hourglass, tone: 'warning' },
+    station_long_faulted: { icon: AlertTriangle, tone: 'destructive' },
     reservation_rejected: { icon: CalendarX, tone: 'warning' },
     reservation_no_show: { icon: CalendarClock, tone: 'info' },
     reservation_cancel_failed: { icon: CalendarOff, tone: 'warning' },
@@ -180,8 +185,12 @@ export function insightRows(insights: readonly AiInsightView[], max: number): In
   const rows: InsightRow[] = [];
   for (const insight of sorted) {
     const category = shownCategory(insight);
+    // An insight with an action stands alone: each action is decided on its own.
     const collapsible =
-      insight.kind !== 'site_incident' && insight.siteId != null && category != null;
+      insight.kind !== 'site_incident' &&
+      insight.action == null &&
+      insight.siteId != null &&
+      category != null;
     const key = collapsible ? `${insight.siteId ?? ''}|${insight.kind}|${category}` : null;
     const existing = key != null ? groups.get(key) : undefined;
     if (existing != null && key != null) {

@@ -175,7 +175,7 @@
     "closeMenu": "Close menu",
     "audit": "Audit",
     "maintenance": "Maintenance",
-    "aiInbox": "AI Inbox"
+    "aiInsights": "AI Insights"
   },
   "roaming": {
     "subtitle": "Configure OCPI roaming partners, location publishing, sessions, CDRs, and tariff mappings.",
@@ -1372,7 +1372,6 @@
         "ai": "AI",
         "conformance": "Conformance"
       },
-      "aiProposals": "AI Proposals",
       "aiUsage": "AI Usage",
       "aiMcp": "MCP Access"
     }
@@ -1427,8 +1426,8 @@
     "chatbotAiDescription": "Your own AI assistant configuration. It overrides the system settings for you.",
     "aiRemoveConfig": "Remove configuration",
     "aiRemoveConfirm": "Remove your personal configuration? The system settings apply again.",
-    "aiDigestEmail": "AI Inbox digest email",
-    "aiDigestEmailDescription": "A daily email with the number of pending AI proposals at your sites.",
+    "aiDigestEmail": "AI insight action digest email",
+    "aiDigestEmailDescription": "A daily email with the number of AI insight actions waiting for a decision at your sites.",
     "notificationsSaveFailed": "Could not save the notification preference. Please try again."
   },
   "fleets": {
@@ -1729,7 +1728,10 @@
     "title": "OCPP Message Log",
     "filterAction": "Action",
     "allActions": "All",
-    "noMessages": "No OCPP messages recorded yet."
+    "noMessages": "No OCPP messages recorded yet.",
+    "processed": "Processed",
+    "queued": "Queued",
+    "queuedHint": "Sent when the station reconnects"
   },
   "charts": {
     "kWh": "kWh",
@@ -2541,7 +2543,7 @@
     },
     "aiLimitRange": "From {{min}} to {{max}}.",
     "aiLimitZeroNoBudget": "0 means no daily limit.",
-    "aiOpsDataWarning": "When this is on, station, session and token status data is sent to the configured provider without a user action.",
+    "aiOpsDataWarning": "When this is on, operational data is sent to the configured provider automatically, without a user action.",
     "aiInsightsSettings": {
       "title": "Automatic Insights",
       "station": "Station insights",
@@ -2571,21 +2573,22 @@
     },
     "aiMcp": {
       "title": "MCP Server",
-      "description": "Lets MCP clients use the AI tools with an API key that has MCP access. Every change needs your confirmation in the AI Inbox.",
+      "description": "Lets MCP clients use the AI tools with an API key that has MCP access. Clients read by default. Writes run only when you allow them.",
       "enabled": "Turn on the MCP server",
+      "allowWrites": "Allow Writes",
+      "allowWritesHint": "Off: MCP clients only read. On: write tools (station commands) run at once, with the permissions and sites of the API key.",
       "rateLimitPerMinute": "Calls per API key per minute",
       "dailyCallsPerKey": "Calls per API key per day",
-      "proposalTtlMinutes": "Time to approve an MCP change (minutes)",
       "allowedOrigins": "Allowed origins",
       "allowedOriginsHint": "One origin per line, such as https://app.example.com. Leave it empty to refuse requests from browsers.",
       "allowedOriginsInvalid": "Enter one http or https origin per line, without a path.",
       "endpoint": "Endpoint",
       "endpointHint": "Point your MCP client at this URL with an API key that has MCP access.",
-      "writeScopeHint": "Keys need MCP write access and station read access to propose changes.",
+      "writeScopeHint": "Writes need an API key with MCP write access and the permission of the command.",
       "toolsets": "Tool categories",
       "toolsetsHint": "Add ?toolsets=stations,sessions to the URL. Default: {{toolsets}}.",
-      "writesHint": "Changes become proposals that the same user approves in the AI Inbox.",
-      "protocolNote": "Serves MCP 2026-07-28; older clients approve by polling."
+      "writesHint": "Writes run without a confirmation. They are audited and logged like any API call with the key.",
+      "protocolNote": "Serves MCP 2026-07-28 and older clients."
     },
     "aiLimitZeroNoLimit": "0 means no limit.",
     "aiTabs": {
@@ -2598,14 +2601,11 @@
       "driver": "Driver Support",
       "driverDescription": "An automatic first answer to a driver support request, only when the driver allows it.",
       "insights": "Automatic Insights",
-      "insightsDescription": "The model for system-initiated runs, and when insights are raised for stations, sessions, authorizations and reservations.",
-      "workers": "Background Workers",
-      "workersDescription": "Scheduled jobs that report on the network and propose actions an operator approves. They use the automatic insights model.",
+      "insightsDescription": "The model for system-initiated runs, when insights are raised for stations, sessions, authorizations and reservations, and the background workers whose suggestions appear as insights with an action to confirm.",
       "mcp": "MCP",
       "mcpDescription": "The MCP server that lets external AI agents use EVtivity with an API key.",
       "usage": "Usage and Limits",
-      "usageDescription": "Rate limits and token budgets, and the AI usage of the company and each site.",
-      "workersModelLink": "Choose the model they use in Automatic insights"
+      "usageDescription": "Rate limits and token budgets, and the AI usage of the company and each site."
     },
     "aiDriverSettings": {
       "title": "Driver Support Limits",
@@ -2788,7 +2788,7 @@
       "invoice.FleetInvoice": "Fleet Invoice Issued",
       "invoice.FleetCreditNote": "Fleet Credit Note Issued",
       "invoice.FleetOverdue": "Fleet Invoice Overdue",
-      "ai.ProposalDigest": "AI Proposal Digest"
+      "ai.ProposalDigest": "AI Insight Action Digest"
     },
     "templatePreviewInvalid": "The template has an error:",
     "htmlPreview": "HTML preview",
@@ -3217,10 +3217,10 @@
     "AI_SITE_BUDGET_EXCEEDED": "The site's daily AI usage limit is reached",
     "AI_MONTHLY_BUDGET_EXCEEDED": "The monthly AI usage limit is reached",
     "AI_CONTEXT_NOT_FOUND": "Explain context not found",
-    "AI_PROPOSAL_NOT_FOUND": "Proposal not found",
-    "AI_PROPOSAL_EXPIRED": "This proposal has expired",
-    "AI_PROPOSAL_STALE": "This proposal no longer applies because the situation changed",
-    "AI_PROPOSAL_ALREADY_DECIDED": "This proposal was already decided",
+    "AI_PROPOSAL_NOT_FOUND": "Action not found",
+    "AI_PROPOSAL_EXPIRED": "This action has expired",
+    "AI_PROPOSAL_STALE": "This action no longer applies because the situation changed",
+    "AI_PROPOSAL_ALREADY_DECIDED": "This action was already decided",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirm this action while signed in to the dashboard, not with an API key",
     "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later"
   },
@@ -4021,9 +4021,7 @@
       "station": "Why is this station offline or faulted, and what should I do?",
       "session": "Why did this session fail, and what should I do?",
       "authorization": "Why was this authorization refused, and what should I do?",
-      "insightShown": "Showing the latest automatic insight",
       "followUp": "Ask a follow-up",
-      "contextUnavailable": "This record is no longer available.",
       "about": "About {{record}} {{label}}",
       "kind": {
         "station": "station",
@@ -4031,7 +4029,12 @@
         "authorization": "authorization",
         "reservation": "reservation"
       },
-      "reservation": "Why did this reservation fail, and what should I do?"
+      "reservation": "Why did this reservation fail, and what should I do?",
+      "aboutRecord": "About this {{record}}",
+      "contextLabel": "Explain Context",
+      "latestInsight": "Latest automatic insight",
+      "viewInsight": "View insight",
+      "shared": "The assistant reads this record's key facts, recent events and latest insight. Nothing is sent until you send your question."
     },
     "dataNotice": {
       "title": "What the AI Provider Receives",
@@ -4316,7 +4319,7 @@
       "invoice": "Invoice",
       "ai_conversation": "AI conversation",
       "ai_insight": "Automatic insight",
-      "ai_proposal": "AI proposal"
+      "ai_proposal": "AI insight action"
     },
     "actors": {
       "operator": "Operator",
@@ -4710,7 +4713,9 @@
       "reservation_no_show": "Reservation no-show",
       "reservation_cancel_failed": "Reservation cancel failed",
       "reservation_fee_failed": "Reservation fee failed",
-      "reservation_station_faulted": "Station faulted while reserved"
+      "reservation_station_faulted": "Station faulted while reserved",
+      "stuck_session": "Stuck session",
+      "station_long_faulted": "Station faulted for hours"
     },
     "skipReason": {
       "resolved_before_analysis": "Resolved before the analysis",
@@ -4796,7 +4801,9 @@
       "reservation_no_show": "Reservation not used at {{site}}",
       "reservation_cancel_failed": "{{station}} did not cancel a reservation",
       "reservation_fee_failed": "Reservation fee failed at {{site}}",
-      "reservation_station_faulted": "{{station}} faulted during a reservation"
+      "reservation_station_faulted": "{{station}} faulted during a reservation",
+      "stuck_session": "Session stuck on {{station}}",
+      "station_long_faulted": "{{station}} faulted for hours"
     },
     "list": {
       "title": "AI Insights",
@@ -4852,118 +4859,94 @@
       "reasonHint": "Stored with your vote only. It is never sent to an AI provider.",
       "saveReason": "Save Note",
       "reasonSaved": "Note saved."
-    }
-  },
-  "aiInbox": {
-    "title": "AI Inbox",
-    "description": "Actions that AI proposed. Nothing runs until you confirm it.",
-    "empty": "No proposals",
-    "pendingCount_one": "{{count}} pending proposal",
-    "pendingCount_other": "{{count}} pending proposals",
-    "filters": {
-      "source": "Source",
-      "job": "Job",
-      "site": "Site",
-      "status": "Status",
-      "all": "All",
-      "search": "Search",
-      "searchPlaceholder": "Station, site or action"
-    },
-    "source": {
-      "worker": "Background worker",
-      "mcp": "MCP client"
-    },
-    "job": {
-      "network_summary": "Network health",
-      "stuck_sessions": "Stuck sessions",
-      "tariff_anomalies": "Tariff anomalies"
-    },
-    "status": {
-      "pending": "Pending",
-      "executed": "Executed",
-      "failed": "Failed",
-      "rejected": "Rejected",
-      "expired": "Expired",
-      "stale": "No longer applies"
     },
     "action": {
-      "stop_transaction": "Stop the session",
-      "soft_reset": "Soft reset the station",
-      "change_availability": "Change the station availability"
-    },
-    "precondition": {
-      "session_active": "The session is still active",
-      "station_faulted": "The station is still faulted",
-      "station_availability": "The station availability has not changed"
-    },
-    "confirm": "Confirm",
-    "reject": "Reject",
-    "expiresAt": "Expires {{time}}",
-    "requestedBy": "Requested by",
-    "apiKey": "API key",
-    "client": "Client",
-    "untrustedNote": "The key and client names come from the requesting client and are shown as sent.",
-    "arguments": "Arguments",
-    "rationale": "Rationale",
-    "result": "Result",
-    "executed": "The action ran",
-    "confirmFailed": "The action did not run",
-    "stationLabel": "Station",
-    "sessionLabel": "Session",
-    "preconditionLabel": "Runs only if",
-    "requestedTool": "Requested tool",
-    "columns": {
-      "action": "Action",
-      "expires": "Expires"
-    },
-    "rejectedToast": "Proposal rejected",
-    "confirmDialog": {
-      "title": "Run This Action?",
-      "note": "It runs once, now, with your permissions."
-    },
-    "rejectDialog": {
-      "title": "Reject This Proposal?"
-    },
-    "measured": {
-      "idleTime": "Idle time",
-      "minutes_one": "{{count}} minute",
-      "minutes_other": "{{count}} minutes",
-      "lastActivity": "Last activity",
-      "faultedSince": "Faulted since",
-      "transactionId": "Transaction ID"
-    },
-    "detail": {
-      "summary": "Summary",
+      "title": "Suggested Action",
+      "kind": {
+        "stop_transaction": "Stop the session",
+        "soft_reset": "Soft reset the station",
+        "change_availability": "Change the station availability"
+      },
+      "status": {
+        "pending": "Pending",
+        "executed": "Executed",
+        "failed": "Failed",
+        "rejected": "Rejected",
+        "expired": "Expired",
+        "stale": "No longer applies"
+      },
+      "job": {
+        "network_summary": "Network health",
+        "stuck_sessions": "Stuck sessions",
+        "tariff_anomalies": "Tariff anomalies"
+      },
+      "jobLabel": "Worker job",
+      "precondition": {
+        "session_active": "The session is still active",
+        "station_faulted": "The station is still faulted",
+        "station_availability": "The station availability has not changed"
+      },
+      "preconditionLabel": "Runs only if",
+      "confirm": "Confirm",
+      "reject": "Reject",
+      "expiresAt": "Expires {{time}}",
+      "expires": "Expires",
+      "arguments": "Arguments",
+      "rationale": "Rationale",
+      "executed": "The action ran",
+      "confirmFailed": "The action did not run",
+      "rejectedToast": "Action rejected",
+      "confirmDialog": {
+        "title": "Run This Action?",
+        "note": "It runs once, now, with your permissions."
+      },
+      "rejectDialog": {
+        "title": "Reject This Action?"
+      },
+      "measured": {
+        "idleTime": "Idle time",
+        "minutes_one": "{{count}} minute",
+        "minutes_other": "{{count}} minutes",
+        "lastActivity": "Last activity",
+        "faultedSince": "Faulted since",
+        "transactionId": "Transaction ID"
+      },
       "target": "Target",
-      "requester": "Requester",
-      "timing": "Timing",
       "decided": "Decided",
-      "executedAt": "Ran at"
-    },
-    "refused": {
-      "args_mismatch": "The stored arguments no longer match the proposal, so nothing ran.",
-      "no_longer_available": "This action can no longer run from an AI proposal, so nothing ran.",
-      "invalid_arguments": "The arguments are no longer valid for this action, so nothing ran.",
-      "ocpp_version_mismatch": "The station's OCPP version changed and has no matching command, so nothing ran."
+      "executedAt": "Ran at",
+      "refused": {
+        "args_mismatch": "The stored arguments no longer match the proposal, so nothing ran.",
+        "no_longer_available": "This action can no longer run from an AI proposal, so nothing ran.",
+        "invalid_arguments": "The arguments are no longer valid for this action, so nothing ran.",
+        "ocpp_version_mismatch": "The station's OCPP version changed and has no matching command, so nothing ran."
+      },
+      "pendingCount_one": "{{count}} pending action",
+      "pendingCount_other": "{{count}} pending actions",
+      "pending": "Action pending",
+      "filter": "Action",
+      "filterAll": "All insights",
+      "filterPending": "Action pending",
+      "filterAny": "With an action",
+      "history": "Action History"
     }
   },
   "aiWorkers": {
     "title": "Background AI Workers",
-    "description": "Optional jobs that find issues and propose actions. They never act on their own.",
-    "proposalTtlHours": "Proposal lifetime (hours)",
+    "description": "Optional jobs that find issues. Their suggestions appear as insights with an action, and nothing runs until an operator confirms it.",
+    "proposalTtlHours": "Action lifetime (hours)",
     "networkSummary": {
       "title": "Nightly Network Summary",
-      "description": "A short daily summary per site, with proposed actions."
+      "description": "A short daily summary per site, and a suggested soft reset for stations faulted for hours."
     },
     "stuckSessions": {
       "title": "Stuck Sessions",
-      "description": "Proposes to stop sessions that stopped reporting.",
+      "description": "Suggests stopping sessions that stopped reporting.",
       "idleMinutes": "Idle time before a session counts as stuck (minutes)",
       "useModel": "Write the rationale with AI"
     },
     "tariffAnomalies": {
       "title": "Tariff Anomalies",
-      "description": "Finds prices that look wrong. Findings only, no proposals."
+      "description": "Finds prices that look wrong. Findings only, no actions."
     },
     "rationale": {
       "stuckSessionIdle": "No meter values or transaction events for {{minutes}} minutes",

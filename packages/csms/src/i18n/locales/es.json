@@ -175,7 +175,7 @@
     "closeMenu": "Cerrar menú",
     "audit": "Auditoría",
     "maintenance": "Mantenimiento",
-    "aiInbox": "Bandeja de IA"
+    "aiInsights": "Análisis de IA"
   },
   "roaming": {
     "partners": {
@@ -1372,7 +1372,6 @@
         "ai": "IA",
         "conformance": "Conformidad"
       },
-      "aiProposals": "Propuestas de IA",
       "aiUsage": "Uso de IA",
       "aiMcp": "Acceso MCP"
     }
@@ -1427,8 +1426,8 @@
     "chatbotAiDescription": "Su propia configuración del asistente de IA. Sustituye la configuración del sistema para usted.",
     "aiRemoveConfig": "Quitar configuración",
     "aiRemoveConfirm": "¿Quitar su configuración personal? Se volverá a aplicar la configuración del sistema.",
-    "aiDigestEmail": "Correo de resumen de la bandeja de IA",
-    "aiDigestEmailDescription": "Un correo diario con el número de propuestas de IA pendientes en tus sitios.",
+    "aiDigestEmail": "Correo de resumen de acciones de análisis de IA",
+    "aiDigestEmailDescription": "Un correo diario con el número de acciones de análisis de IA que esperan una decisión en tus sitios.",
     "notificationsSaveFailed": "No se pudo guardar la preferencia de notificaciones. Inténtelo de nuevo."
   },
   "fleets": {
@@ -1729,7 +1728,10 @@
     "title": "Registro de mensajes OCPP",
     "filterAction": "Acción",
     "allActions": "Todos",
-    "noMessages": "No hay mensajes OCPP registrados."
+    "noMessages": "No hay mensajes OCPP registrados.",
+    "processed": "Procesado",
+    "queued": "En cola",
+    "queuedHint": "Se envía cuando la estación se vuelva a conectar"
   },
   "charts": {
     "kWh": "kWh",
@@ -2541,7 +2543,7 @@
     },
     "aiLimitRange": "De {{min}} a {{max}}.",
     "aiLimitZeroNoBudget": "0 significa sin límite diario.",
-    "aiOpsDataWarning": "Si está activado, los datos de estado de estaciones, sesiones y tokens se envían al proveedor configurado sin acción de un usuario.",
+    "aiOpsDataWarning": "Si está activado, los datos operativos se envían automáticamente al proveedor configurado, sin acción de un usuario.",
     "aiInsightsSettings": {
       "title": "Análisis automáticos",
       "station": "Análisis de estaciones",
@@ -2571,21 +2573,22 @@
     },
     "aiMcp": {
       "title": "Servidor MCP",
-      "description": "Permite a los clientes MCP usar las herramientas de IA con una clave de API con acceso MCP. Cada cambio necesita tu confirmación en la bandeja de IA.",
+      "description": "Permite a los clientes MCP usar las herramientas de IA con una clave de API con acceso MCP. Los clientes solo leen de forma predeterminada. Las escrituras solo se ejecutan si las permites.",
       "enabled": "Activar el servidor MCP",
+      "allowWrites": "Permitir escrituras",
+      "allowWritesHint": "Desactivado: los clientes MCP solo leen. Activado: las herramientas de escritura (comandos de estación) se ejecutan al momento, con los permisos y sitios de la clave de API.",
       "rateLimitPerMinute": "Llamadas por clave de API y minuto",
       "dailyCallsPerKey": "Llamadas por clave de API y día",
-      "proposalTtlMinutes": "Tiempo para aprobar un cambio MCP (minutos)",
       "allowedOrigins": "Orígenes permitidos",
       "allowedOriginsHint": "Un origen por línea, como https://app.example.com. Déjalo vacío para rechazar solicitudes de navegadores.",
       "allowedOriginsInvalid": "Introduzca un origen http o https por línea, sin ruta.",
       "endpoint": "Endpoint",
       "endpointHint": "Configure su cliente MCP con esta URL y una clave de API con acceso MCP.",
-      "writeScopeHint": "Las claves necesitan acceso de escritura MCP y acceso de lectura a estaciones para proponer cambios.",
+      "writeScopeHint": "Las escrituras necesitan una clave de API con acceso de escritura MCP y el permiso del comando.",
       "toolsets": "Categorías de herramientas",
       "toolsetsHint": "Añada ?toolsets=stations,sessions a la URL. Predeterminado: {{toolsets}}.",
-      "writesHint": "Los cambios se convierten en propuestas que el mismo usuario aprueba en la bandeja de IA.",
-      "protocolNote": "Sirve MCP 2026-07-28; los clientes antiguos aprueban mediante sondeo."
+      "writesHint": "Las escrituras se ejecutan sin confirmación. Se auditan y registran como cualquier llamada a la API con la clave.",
+      "protocolNote": "Sirve MCP 2026-07-28 y clientes anteriores."
     },
     "aiLimitZeroNoLimit": "0 significa sin límite.",
     "aiTabs": {
@@ -2598,14 +2601,11 @@
       "driver": "Soporte a conductores",
       "driverDescription": "Una primera respuesta automática a una solicitud de soporte de un conductor, solo si el conductor lo permite.",
       "insights": "Análisis automáticos",
-      "insightsDescription": "El modelo de las ejecuciones iniciadas por el sistema y cuándo se generan análisis de estaciones, sesiones, autorizaciones y reservas.",
-      "workers": "Procesos en segundo plano",
-      "workersDescription": "Tareas programadas que informan sobre la red y proponen acciones que un operador aprueba. Usan el modelo de los análisis automáticos.",
+      "insightsDescription": "El modelo de las ejecuciones iniciadas por el sistema, cuándo se generan análisis de estaciones, sesiones, autorizaciones y reservas, y los procesos en segundo plano cuyas sugerencias aparecen como análisis con una acción por confirmar.",
       "mcp": "MCP",
       "mcpDescription": "El servidor MCP que permite a agentes de IA externos usar EVtivity con una clave de API.",
       "usage": "Uso y límites",
-      "usageDescription": "Límites de solicitudes y presupuestos de tokens, y el uso de IA de la empresa y de cada sitio.",
-      "workersModelLink": "Elegir el modelo que usan en Análisis automáticos"
+      "usageDescription": "Límites de solicitudes y presupuestos de tokens, y el uso de IA de la empresa y de cada sitio."
     },
     "aiDriverSettings": {
       "title": "Límites del soporte a conductores",
@@ -2788,7 +2788,7 @@
       "invoice.FleetInvoice": "Factura de flota emitida",
       "invoice.FleetCreditNote": "Nota de crédito de flota emitida",
       "invoice.FleetOverdue": "Factura de flota vencida",
-      "ai.ProposalDigest": "Resumen de propuestas de IA"
+      "ai.ProposalDigest": "Resumen de acciones de análisis de IA"
     },
     "templatePreviewInvalid": "La plantilla tiene un error:",
     "htmlPreview": "Vista previa HTML",
@@ -3217,10 +3217,10 @@
     "AI_SITE_BUDGET_EXCEEDED": "Se alcanzó el límite diario de uso de IA del sitio",
     "AI_MONTHLY_BUDGET_EXCEEDED": "Se alcanzó el límite mensual de uso de IA",
     "AI_CONTEXT_NOT_FOUND": "No se encontró el registro que quieres explicar",
-    "AI_PROPOSAL_NOT_FOUND": "Propuesta no encontrada",
-    "AI_PROPOSAL_EXPIRED": "Esta propuesta ha caducado",
-    "AI_PROPOSAL_STALE": "Esta propuesta ya no es válida porque la situación cambió",
-    "AI_PROPOSAL_ALREADY_DECIDED": "Ya se decidió sobre esta propuesta",
+    "AI_PROPOSAL_NOT_FOUND": "Acción no encontrada",
+    "AI_PROPOSAL_EXPIRED": "Esta acción ha caducado",
+    "AI_PROPOSAL_STALE": "Esta acción ya no es válida porque la situación cambió",
+    "AI_PROPOSAL_ALREADY_DECIDED": "Ya se decidió sobre esta acción",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
     "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde"
   },
@@ -4021,17 +4021,20 @@
       "station": "¿Por qué esta estación está desconectada o en fallo, y qué debo hacer?",
       "session": "¿Por qué falló esta sesión, y qué debo hacer?",
       "authorization": "¿Por qué se rechazó esta autorización, y qué debo hacer?",
-      "insightShown": "Se muestra el último análisis automático",
       "followUp": "Hacer otra pregunta",
-      "contextUnavailable": "Este registro ya no está disponible.",
       "about": "Sobre {{record}} {{label}}",
       "kind": {
         "station": "la estación",
         "session": "la sesión",
         "authorization": "la autorización",
-        "reservation": "reserva"
+        "reservation": "la reserva"
       },
-      "reservation": "¿Por qué falló esta reserva, y qué debo hacer?"
+      "reservation": "¿Por qué falló esta reserva, y qué debo hacer?",
+      "aboutRecord": "Sobre {{record}}",
+      "contextLabel": "Contexto de la explicación",
+      "latestInsight": "Último análisis automático",
+      "viewInsight": "Ver análisis",
+      "shared": "El asistente lee los datos clave, los eventos recientes y el último análisis de este registro. No se envía nada hasta que envíe su pregunta."
     },
     "dataNotice": {
       "title": "Qué recibe el proveedor de IA",
@@ -4316,7 +4319,7 @@
       "invoice": "Factura",
       "ai_conversation": "Conversación de IA",
       "ai_insight": "Análisis automático",
-      "ai_proposal": "Propuesta de IA"
+      "ai_proposal": "Acción de análisis de IA"
     },
     "actors": {
       "operator": "Operador",
@@ -4710,7 +4713,9 @@
       "reservation_no_show": "Reserva no utilizada",
       "reservation_cancel_failed": "Falló la cancelación de la reserva",
       "reservation_fee_failed": "Falló la tarifa de reserva",
-      "reservation_station_faulted": "Estación con falla durante la reserva"
+      "reservation_station_faulted": "Estación con falla durante la reserva",
+      "stuck_session": "Sesión bloqueada",
+      "station_long_faulted": "Estación en fallo durante horas"
     },
     "skipReason": {
       "resolved_before_analysis": "Resuelto antes del análisis",
@@ -4796,7 +4801,9 @@
       "reservation_no_show": "Reserva no utilizada en {{site}}",
       "reservation_cancel_failed": "{{station}} no canceló una reserva",
       "reservation_fee_failed": "Falló la tarifa de reserva en {{site}}",
-      "reservation_station_faulted": "{{station}} falló durante una reserva"
+      "reservation_station_faulted": "{{station}} falló durante una reserva",
+      "stuck_session": "Sesión bloqueada en {{station}}",
+      "station_long_faulted": "{{station}} lleva horas en fallo"
     },
     "list": {
       "title": "Análisis de IA",
@@ -4852,118 +4859,94 @@
       "reasonHint": "Se guarda solo con tu valoración. Nunca se envía a un proveedor de IA.",
       "saveReason": "Guardar nota",
       "reasonSaved": "Nota guardada."
-    }
-  },
-  "aiInbox": {
-    "title": "Bandeja de IA",
-    "description": "Acciones que propuso la IA. Nada se ejecuta hasta que lo confirmes.",
-    "empty": "Sin propuestas",
-    "pendingCount_one": "{{count}} propuesta pendiente",
-    "pendingCount_other": "{{count}} propuestas pendientes",
-    "filters": {
-      "source": "Origen",
-      "job": "Proceso",
-      "site": "Sitio",
-      "status": "Estado",
-      "all": "Todos",
-      "search": "Buscar",
-      "searchPlaceholder": "Estación, sitio o acción"
-    },
-    "source": {
-      "worker": "Proceso en segundo plano",
-      "mcp": "Cliente MCP"
-    },
-    "job": {
-      "network_summary": "Estado de la red",
-      "stuck_sessions": "Sesiones bloqueadas",
-      "tariff_anomalies": "Anomalías de tarifa"
-    },
-    "status": {
-      "pending": "Pendiente",
-      "executed": "Ejecutada",
-      "failed": "Fallida",
-      "rejected": "Rechazada",
-      "expired": "Caducada",
-      "stale": "Ya no aplica"
     },
     "action": {
-      "stop_transaction": "Detener la sesión",
-      "soft_reset": "Reiniciar la estación en modo suave",
-      "change_availability": "Cambiar la disponibilidad de la estación"
-    },
-    "precondition": {
-      "session_active": "La sesión sigue activa",
-      "station_faulted": "La estación sigue en fallo",
-      "station_availability": "La disponibilidad de la estación no ha cambiado"
-    },
-    "confirm": "Confirmar",
-    "reject": "Rechazar",
-    "expiresAt": "Caduca {{time}}",
-    "requestedBy": "Solicitado por",
-    "apiKey": "Clave de API",
-    "client": "Cliente",
-    "untrustedNote": "Los nombres de la clave y del cliente vienen del cliente que hizo la solicitud y se muestran tal como llegaron.",
-    "arguments": "Argumentos",
-    "rationale": "Motivo",
-    "result": "Resultado",
-    "executed": "La acción se ejecutó",
-    "confirmFailed": "La acción no se ejecutó",
-    "stationLabel": "Estación",
-    "sessionLabel": "Sesión",
-    "preconditionLabel": "Solo se ejecuta si",
-    "requestedTool": "Herramienta solicitada",
-    "columns": {
-      "action": "Acción",
-      "expires": "Vence"
-    },
-    "rejectedToast": "Propuesta rechazada",
-    "confirmDialog": {
-      "title": "¿Ejecutar esta acción?",
-      "note": "Se ejecuta una vez, ahora, con sus permisos."
-    },
-    "rejectDialog": {
-      "title": "¿Rechazar esta propuesta?"
-    },
-    "measured": {
-      "idleTime": "Tiempo inactivo",
-      "minutes_one": "{{count}} minuto",
-      "minutes_other": "{{count}} minutos",
-      "lastActivity": "Última actividad",
-      "faultedSince": "Con falla desde",
-      "transactionId": "ID de transacción"
-    },
-    "detail": {
-      "summary": "Resumen",
+      "title": "Acción sugerida",
+      "kind": {
+        "stop_transaction": "Detener la sesión",
+        "soft_reset": "Reiniciar la estación en modo suave",
+        "change_availability": "Cambiar la disponibilidad de la estación"
+      },
+      "status": {
+        "pending": "Pendiente",
+        "executed": "Ejecutada",
+        "failed": "Fallida",
+        "rejected": "Rechazada",
+        "expired": "Caducada",
+        "stale": "Ya no aplica"
+      },
+      "job": {
+        "network_summary": "Estado de la red",
+        "stuck_sessions": "Sesiones bloqueadas",
+        "tariff_anomalies": "Anomalías de tarifa"
+      },
+      "jobLabel": "Proceso",
+      "precondition": {
+        "session_active": "La sesión sigue activa",
+        "station_faulted": "La estación sigue en fallo",
+        "station_availability": "La disponibilidad de la estación no ha cambiado"
+      },
+      "preconditionLabel": "Solo se ejecuta si",
+      "confirm": "Confirmar",
+      "reject": "Rechazar",
+      "expiresAt": "Caduca {{time}}",
+      "expires": "Vence",
+      "arguments": "Argumentos",
+      "rationale": "Motivo",
+      "executed": "La acción se ejecutó",
+      "confirmFailed": "La acción no se ejecutó",
+      "rejectedToast": "Acción rechazada",
+      "confirmDialog": {
+        "title": "¿Ejecutar esta acción?",
+        "note": "Se ejecuta una vez, ahora, con sus permisos."
+      },
+      "rejectDialog": {
+        "title": "¿Rechazar esta acción?"
+      },
+      "measured": {
+        "idleTime": "Tiempo inactivo",
+        "minutes_one": "{{count}} minuto",
+        "minutes_other": "{{count}} minutos",
+        "lastActivity": "Última actividad",
+        "faultedSince": "Con falla desde",
+        "transactionId": "ID de transacción"
+      },
       "target": "Destino",
-      "requester": "Solicitante",
-      "timing": "Fechas",
       "decided": "Decidida",
-      "executedAt": "Ejecutada"
-    },
-    "refused": {
-      "args_mismatch": "Los argumentos guardados ya no coinciden con la propuesta, así que no se ejecutó nada.",
-      "no_longer_available": "Esta acción ya no puede ejecutarse desde una propuesta de IA, así que no se ejecutó nada.",
-      "invalid_arguments": "Los argumentos ya no son válidos para esta acción, así que no se ejecutó nada.",
-      "ocpp_version_mismatch": "La versión OCPP de la estación cambió y no hay un comando equivalente, así que no se ejecutó nada."
+      "executedAt": "Ejecutada",
+      "refused": {
+        "args_mismatch": "Los argumentos guardados ya no coinciden con la propuesta, así que no se ejecutó nada.",
+        "no_longer_available": "Esta acción ya no puede ejecutarse desde una propuesta de IA, así que no se ejecutó nada.",
+        "invalid_arguments": "Los argumentos ya no son válidos para esta acción, así que no se ejecutó nada.",
+        "ocpp_version_mismatch": "La versión OCPP de la estación cambió y no hay un comando equivalente, así que no se ejecutó nada."
+      },
+      "pendingCount_one": "{{count}} acción pendiente",
+      "pendingCount_other": "{{count}} acciones pendientes",
+      "pending": "Acción pendiente",
+      "filter": "Acción",
+      "filterAll": "Todos los análisis",
+      "filterPending": "Acción pendiente",
+      "filterAny": "Con una acción",
+      "history": "Historial de la acción"
     }
   },
   "aiWorkers": {
     "title": "Procesos de IA en segundo plano",
-    "description": "Procesos opcionales que encuentran problemas y proponen acciones. Nunca actúan por sí solos.",
-    "proposalTtlHours": "Vigencia de una propuesta (horas)",
+    "description": "Procesos opcionales que encuentran problemas. Sus sugerencias aparecen como análisis con una acción, y nada se ejecuta hasta que un operador lo confirma.",
+    "proposalTtlHours": "Vigencia de una acción (horas)",
     "networkSummary": {
       "title": "Resumen nocturno de la red",
-      "description": "Un breve resumen diario por sitio, con acciones propuestas."
+      "description": "Un breve resumen diario por sitio y un reinicio suave sugerido para estaciones en fallo durante horas."
     },
     "stuckSessions": {
       "title": "Sesiones bloqueadas",
-      "description": "Propone detener las sesiones que dejaron de informar.",
+      "description": "Sugiere detener las sesiones que dejaron de informar.",
       "idleMinutes": "Tiempo inactivo para considerar bloqueada una sesión (minutos)",
       "useModel": "Redactar el motivo con IA"
     },
     "tariffAnomalies": {
       "title": "Anomalías de tarifa",
-      "description": "Encuentra precios que parecen incorrectos. Solo hallazgos, sin propuestas."
+      "description": "Encuentra precios que parecen incorrectos. Solo hallazgos, sin acciones."
     },
     "rationale": {
       "stuckSessionIdle": "Sin valores de medidor ni eventos de transacción durante {{minutes}} minutos",

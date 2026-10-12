@@ -232,6 +232,13 @@ vi.mock('../lib/site-access.js', () => ({
   userCanAccessSite: mocks.userCanAccessSite,
 }));
 
+const { mockListStationMessageLog } = vi.hoisted(() => ({
+  mockListStationMessageLog: vi.fn(() => Promise.resolve({ data: [], total: 0, actions: [] })),
+}));
+vi.mock('../lib/station-message-log.js', () => ({
+  listStationMessageLog: mockListStationMessageLog,
+}));
+
 vi.mock('../lib/pricing-group-lookup.js', () => ({
   pricingGroupExists: mocks.pricingGroupExists,
 }));
@@ -607,17 +614,17 @@ describe('Station routes - cov2', () => {
     });
 
     it('ocpp logs filter by action and direction', async () => {
-      queue([], [{ count: 0 }]);
       const res = await inject(
         'GET',
         `/stations/${STATION}/ocpp-logs?action=Heartbeat&direction=inbound`,
       );
       expect(res.statusCode).toBe(200);
-      expect(conditionsOf(chainsOf('select')[0])).toEqual([
-        { op: 'eq', col: 'ocppMessageLogs.stationId', val: STATION },
-        { op: 'eq', col: 'ocppMessageLogs.action', val: 'Heartbeat' },
-        { op: 'eq', col: 'ocppMessageLogs.direction', val: 'inbound' },
-      ]);
+      expect(mockListStationMessageLog).toHaveBeenCalledWith(STATION, {
+        page: 1,
+        limit: 50,
+        action: 'Heartbeat',
+        direction: 'inbound',
+      });
     });
 
     it('security events filter by type search', async () => {

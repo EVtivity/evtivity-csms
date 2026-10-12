@@ -116,6 +116,11 @@ export function ReservationDetail(): React.JSX.Element {
   const hasSession =
     reservation.sessionId != null &&
     (reservation.status === 'in_use' || reservation.status === 'used');
+  const explainContext = {
+    kind: 'reservation' as const,
+    id: reservation.id,
+    label: `#${String(reservation.reservationId)}`,
+  };
 
   return (
     <div className="space-y-6">
@@ -131,14 +136,12 @@ export function ReservationDetail(): React.JSX.Element {
           {getStatusLabel(reservation.status, t as (key: string) => string)}
         </Badge>
         {aiOn && reservationExplainable(reservation, feePayments, insights) && (
-          <ExplainButton context={{ kind: 'reservation', id }} />
+          <ExplainButton context={explainContext} />
         )}
         <EntityNavButtons resource="reservations" basePath="/reservations" currentId={id} />
       </div>
 
-      {aiOn && (
-        <RecordInsight filter={{ reservationId: id }} context={{ kind: 'reservation', id }} />
-      )}
+      {aiOn && <RecordInsight filter={{ reservationId: id }} context={explainContext} />}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>

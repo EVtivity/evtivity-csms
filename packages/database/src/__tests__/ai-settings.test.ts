@@ -128,6 +128,7 @@ describe('AI roadmap readers (TC-AI-C-11)', () => {
         { key: 'aiWorkers.tariffAnomalies.enabled', value: true },
         { key: 'ai.mcp.enabled', value: true },
         { key: 'ai.mcp.rateLimitPerMinute', value: 10 },
+        { key: 'ai.mcp.allowWrites', value: true },
       ]),
     );
     const m = await import('../lib/ai-settings.js');
@@ -135,7 +136,7 @@ describe('AI roadmap readers (TC-AI-C-11)', () => {
     expect(await m.isOpsAiEnabled()).toBe(true);
     expect((await m.getAiInsightSettings()).cooldownMinutes).toBe(15);
     expect((await m.getAiWorkerSettings()).tariffAnomaliesEnabled).toBe(true);
-    expect((await m.getAiMcpSettings()).rateLimitPerMinute).toBe(10);
+    expect(await m.getAiMcpSettings()).toMatchObject({ rateLimitPerMinute: 10, allowWrites: true });
     expect(await m.isAiMcpEnabled()).toBe(true);
     expect(mockSelect).toHaveBeenCalledTimes(1);
 
@@ -145,27 +146,7 @@ describe('AI roadmap readers (TC-AI-C-11)', () => {
     expect(mockSelect).toHaveBeenCalledTimes(2);
   });
 
-  it('shows the AI Inbox only when a proposing worker or the MCP server is on', async () => {
-    const m = await import('../lib/ai-settings.js');
-    const cases: [Record<string, boolean>, boolean][] = [
-      [{}, false],
-      [{ 'aiWorkers.stuckSessions.enabled': true }, false],
-      [{ 'opsAi.enabled': true }, false],
-      [{ 'opsAi.enabled': true, 'aiWorkers.tariffAnomalies.enabled': true }, false],
-      [{ 'opsAi.enabled': true, 'aiWorkers.stuckSessions.enabled': true }, true],
-      [{ 'opsAi.enabled': true, 'aiWorkers.networkSummary.enabled': true }, true],
-      [{ 'ai.mcp.enabled': true }, true],
-    ];
-    for (const [values, expected] of cases) {
-      mockSelect.mockReturnValue(
-        rows(Object.entries(values).map(([key, value]) => ({ key, value }))),
-      );
-      m.clearAiSettingsCache();
-      expect(await m.isAiInboxEnabled(), JSON.stringify(values)).toBe(expected);
-    }
-  });
-
-  it('shows the dashboard insights card only while ops AI and an insight kind are on', async () => {
+  it('TC-AI-IA-07 turns AI Insights on only while ops AI and an insight kind or worker job are on', async () => {
     const m = await import('../lib/ai-settings.js');
     const cases: [Record<string, boolean>, boolean][] = [
       [{}, false],
@@ -200,6 +181,19 @@ describe('AI roadmap readers (TC-AI-C-11)', () => {
         true,
       ],
       [{ 'opsAi.enabled': false, 'aiInsights.station.enabled': true }, false],
+      // Background worker suggestions are insights too.
+      [
+        {
+          'opsAi.enabled': true,
+          'aiInsights.station.enabled': false,
+          'aiInsights.session.enabled': false,
+          'aiInsights.authorization.enabled': false,
+          'aiInsights.reservation.enabled': false,
+          'aiWorkers.stuckSessions.enabled': true,
+        },
+        true,
+      ],
+      [{ 'opsAi.enabled': false, 'aiWorkers.networkSummary.enabled': true }, false],
     ];
     for (const [values, expected] of cases) {
       mockSelect.mockReturnValue(
@@ -289,7 +283,6 @@ describe('AI roadmap readers (TC-AI-C-11)', () => {
     expect(await m.isDriverAiEnabled()).toBe(false);
     expect((await m.getDriverAiSettings()).enabled).toBe(false);
     expect(await m.isAiMcpEnabled()).toBe(false);
-    expect(await m.isAiInboxEnabled()).toBe(false);
     expect(await m.isAiInsightsEnabled()).toBe(false);
     await expect(m.getAiInsightSettings()).rejects.toThrow('db down');
     await expect(m.getAiWorkerSettings()).rejects.toThrow('db down');

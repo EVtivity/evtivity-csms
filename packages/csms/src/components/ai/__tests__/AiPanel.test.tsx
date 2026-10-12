@@ -38,6 +38,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
 vi.mock('../usage/AiUsageFooter', () => ({ AiUsageFooter: () => null }));
 
 import { ApiError } from '@/lib/api';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { AiPanel } from '../AiPanel';
 import { useAiPanelStore } from '../use-ai-panel-store';
 
@@ -156,6 +157,66 @@ describe('AiPanel', () => {
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.keyDown(panel, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('Esc closes the panel wherever focus is: a panel button, or nothing focused', () => {
+    const { onClose } = renderPanel();
+    const history = screen.getByRole('button', { name: 'ai.history' });
+    history.focus();
+    fireEvent.keyDown(history, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    (document.activeElement as HTMLElement | null)?.blur();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it('Esc goes to a confirm dialog open above the panel, not to the panel', () => {
+    const { onClose } = renderPanel();
+    const onOpenChange = vi.fn();
+    const dialog = render(
+      <ConfirmDialog
+        open
+        onOpenChange={onOpenChange}
+        title="Delete"
+        description="Sure?"
+        confirmLabel="Delete"
+        onConfirm={() => undefined}
+      />,
+    );
+    fireEvent.keyDown(screen.getByRole('button', { name: 'ai.history' }), { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onClose).not.toHaveBeenCalled();
+    dialog.unmount();
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a click outside closes the panel; inside, in a pop-over, or under a dialog it does not', () => {
+    const outside = document.createElement('button');
+    const tooltip = document.createElement('div');
+    tooltip.setAttribute('role', 'tooltip');
+    document.body.append(outside, tooltip);
+    const { onClose } = renderPanel();
+    fireEvent.pointerDown(screen.getByLabelText('ai.inputLabel'));
+    fireEvent.pointerDown(tooltip);
+    expect(onClose).not.toHaveBeenCalled();
+    const dialog = render(
+      <ConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        title="Delete"
+        description="Sure?"
+        confirmLabel="Delete"
+        onConfirm={() => undefined}
+      />,
+    );
+    fireEvent.pointerDown(outside);
+    expect(onClose).not.toHaveBeenCalled();
+    dialog.unmount();
+    fireEvent.pointerDown(outside);
+    expect(onClose).toHaveBeenCalledWith('outside');
+    outside.remove();
+    tooltip.remove();
   });
 
   it('Shift+Enter does not send and Up recalls the last message (TC-AI-UI-07)', async () => {
@@ -477,7 +538,7 @@ describe('AiPanel Explain (roadmap v0.1.44 item 2)', () => {
     await waitFor(() => {
       expect(input.value).toBe('ai.explain.session');
     });
-    expect(screen.getByTestId('ai-context-chip')).toBeTruthy();
+    expect(screen.getByTestId('ai-context-card').textContent).toContain('ai.explain.about');
     // Nothing is sent until the user sends it.
     expect(apiMock.post).not.toHaveBeenCalled();
     expect(useAiPanelStore.getState().request).toBeNull();
@@ -494,60 +555,78 @@ describe('AiPanel Explain (roadmap v0.1.44 item 2)', () => {
     );
   });
 
-  it('TC-AI-EX-04: a fresh insight is shown with no conversation and no model call; a follow-up prefills the question', async () => {
+  it('TC-AI-EX-04: every kind shows the same context card: the fresh insight headline, cause and fixes, never its body', async () => {
+    const fresh = {
+      id: 'fresh',
+      kind: 'reservation_rejected',
+      status: 'active',
+      skipReason: null,
+      siteId: 's1',
+      stationId: 'st1',
+      sessionId: null,
+      authorizeAttemptId: null,
+      reservationId: 'res1',
+      parentInsightId: null,
+      category: 'hardware',
+      confidence: 'medium',
+      fixes: [{ code: 'inspect_connector', note: 'Model note.' }],
+      scope: {},
+      generatedBy: 'model',
+      language: 'en',
+      summary: 'Connector 2 reports a ground fault. The whole body of the insight.',
+      textStatus: 'ready',
+      stale: false,
+      basisAt: null,
+      createdAt: '2026-10-10T10:00:00Z',
+      resolvedAt: null,
+      dismissedAt: null,
+      stationName: 'CS-0001',
+    };
     apiMock.get.mockImplementation((path: string) =>
-      path.startsWith('/v1/ai/insights/fresh')
-        ? Promise.resolve({
-            id: 'fresh',
-            kind: 'station_faulted',
-            status: 'active',
-            skipReason: null,
-            siteId: 's1',
-            stationId: 'st1',
-            sessionId: null,
-            authorizeAttemptId: null,
-            parentInsightId: null,
-            category: 'hardware',
-            confidence: 'medium',
-            fixes: [{ code: 'inspect_connector' }],
-            scope: {},
-            generatedBy: 'model',
-            language: 'en',
-            summary: 'Connector 2 reports a ground fault.',
-            textStatus: 'ready',
-            stale: false,
-            basisAt: null,
-            createdAt: '2026-10-10T10:00:00Z',
-            resolvedAt: null,
-            dismissedAt: null,
-          })
-        : Promise.resolve({ data: [], total: 0 }),
+      Promise.resolve(
+        path.startsWith('/v1/ai/insights?reservationId=res1')
+          ? { data: [fresh], total: 1 }
+          : { data: [], total: 0 },
+      ),
     );
-    useAiPanelStore
-      .getState()
-      .openWithContext({ kind: 'station', id: 'st1' }, { insightId: 'fresh' });
+    useAiPanelStore.getState().openWithContext({ kind: 'reservation', id: 'res1', label: '#7' });
     renderPanel();
-    expect(await screen.findByText('Connector 2 reports a ground fault.')).toBeTruthy();
-    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/fresh?language=en&feedback=true');
+    const card = await screen.findByTestId('ai-context-insight');
+    expect(card.textContent).toContain('aiInsights.headline.reservation_rejected');
+    expect(card.textContent).toContain('aiInsights.category.hardware');
+    expect(card.textContent).toContain('aiInsights.fix.inspect_connector');
+    expect(screen.getByTestId('ai-panel').textContent).not.toContain('ground fault');
+    expect(screen.getByTestId('ai-panel').textContent).not.toContain('Model note.');
+    expect(screen.getByRole('link', { name: 'ai.explain.viewInsight' }).getAttribute('href')).toBe(
+      '/ai/insights/fresh',
+    );
+    // The question is prefilled; nothing is sent and no tokens are spent.
+    expect(screen.getByLabelText<HTMLTextAreaElement>('ai.inputLabel').value).toBe(
+      'ai.explain.reservation',
+    );
     expect(apiMock.post).not.toHaveBeenCalled();
     expect(postStreamMock).not.toHaveBeenCalled();
-    expect(screen.getByLabelText<HTMLTextAreaElement>('ai.inputLabel').value).toBe('');
+  });
 
-    fireEvent.click(screen.getByTestId('ai-insight-follow-up'));
+  it('TC-AI-EX-04: a station without an insight shows the same card with the record only', async () => {
+    useAiPanelStore.getState().openWithContext({ kind: 'station', id: 'st1', label: 'CS-0001' });
+    renderPanel();
+    const card = await screen.findByTestId('ai-context-card');
+    expect(card.textContent).toContain('ai.explain.about');
+    expect(card.textContent).toContain('ai.explain.shared');
     await waitFor(() => {
-      expect(screen.getByLabelText<HTMLTextAreaElement>('ai.inputLabel').value).toBe(
-        'ai.explain.station',
+      expect(apiMock.get).toHaveBeenCalledWith(
+        expect.stringContaining('/v1/ai/insights?stationId=st1'),
       );
     });
-    expect(screen.queryByTestId('ai-panel-insight')).toBeNull();
-    expect(apiMock.post).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('ai-context-insight')).toBeNull();
   });
 
   it('New chat drops the record context', async () => {
     useAiPanelStore.getState().openWithContext({ kind: 'station', id: 'st1' });
     renderPanel();
-    expect(await screen.findByTestId('ai-context-chip')).toBeTruthy();
+    expect(await screen.findByTestId('ai-context-card')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'ai.newChat' }));
-    expect(screen.queryByTestId('ai-context-chip')).toBeNull();
+    expect(screen.queryByTestId('ai-context-card')).toBeNull();
   });
 });

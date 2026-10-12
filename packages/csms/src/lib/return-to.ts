@@ -3,7 +3,7 @@
 
 /**
  * Login return-to: a signed-out user who opens a protected deep link (such
- * as an AI Inbox approval link from an MCP client) lands back on it after
+ * as an insight link from an email) lands back on it after
  * signing in, by password, MFA or SSO. The path travels as `/login?returnTo=`
  * and is kept in sessionStorage for the SSO round trip, which leaves the
  * page. Only same-origin relative paths are accepted, so it is never an open

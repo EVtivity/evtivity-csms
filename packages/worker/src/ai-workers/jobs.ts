@@ -4,11 +4,12 @@
 /**
  * One run of a background AI worker job for one scope and period. Each run
  * claims its `ai_worker_runs` row first (one run per job, scope and period
- * across replicas), computes its facts with deterministic SQL, writes its
- * proposals through the proposal service (closed action set only), and asks
- * the model for a narrative only when the surface, the job's switch and the
- * budget allow it. Nothing here runs a proposal: the worker holds no user
- * credential and never imports the API's executor (TC-AI-WK-06).
+ * across replicas), computes its facts with deterministic SQL, writes each
+ * suggestion as an insight that carries an action (closed action set only,
+ * `suggestWorkerAction`), and asks the model for a narrative only when the
+ * surface, the job's switch and the budget allow it. Nothing here runs an
+ * action: the worker holds no user credential and never imports the API's
+ * executor (TC-AI-WK-06).
  */
 
 import {
@@ -19,8 +20,8 @@ import {
 import type { Logger } from '@evtivity/lib';
 import { AI_PROPOSAL_TTL_MS } from '@evtivity/lib/ai-proposals';
 import type { AiWorkerJob } from '@evtivity/lib/ai-proposals';
-import { createAiProposal } from '@evtivity/services/ai-proposal.service';
-import type { CreateAiProposalInput } from '@evtivity/services/ai-proposal.service';
+import { suggestWorkerAction } from '@evtivity/services/ai-workers/suggest';
+import type { WorkerSuggestion } from '@evtivity/services/ai-workers/suggest';
 import {
   COMPANY_SCOPE,
   claimAiWorkerRun,
@@ -69,7 +70,7 @@ export interface AiWorkerDeps extends OpsModelDeps {
   now?: () => Date;
 }
 
-/** Most proposals one network summary run makes. */
+/** Most soft-reset suggestions one network summary run makes. */
 export const MAX_SUMMARY_PROPOSALS = 3;
 /** Most stuck-session rationales one run asks the model for. */
 export const MAX_STUCK_RATIONALES = 10;
@@ -89,15 +90,19 @@ function narrativeOutput(narrative: OpsNarrativeResult | null): Record<string, u
   };
 }
 
-async function propose(inputs: CreateAiProposalInput[], log: Logger): Promise<number> {
+/** Writes each suggestion (an insight with its action); returns how many were created. */
+async function propose(suggestions: WorkerSuggestion[], log: Logger): Promise<number> {
   let created = 0;
-  for (const input of inputs) {
+  for (const suggestion of suggestions) {
     try {
-      if ((await createAiProposal(input, log)) !== null) created += 1;
+      if ((await suggestWorkerAction(suggestion, log)) === 'created') created += 1;
     } catch (err) {
-      // fail-open: one target that cannot be proposed (station moved, session
+      // fail-open: one target that cannot be suggested (station moved, session
       // ended) does not stop the run (P9).
-      log.warn({ err, operationId: input.operationId }, 'AI worker proposal not created');
+      log.warn(
+        { err, operationId: suggestion.action.operationId },
+        'AI worker suggestion not created',
+      );
     }
   }
   return created;
@@ -205,7 +210,9 @@ export async function runNetworkSummary(
         narrative: narrative.kind === 'ok' ? narrative : null,
       })) ?? null;
     const proposalsCount = await propose(
-      faulted.map((s) => softResetProposal(s, { expiresAt, workerRunId: runId, insightId })),
+      faulted.map((s) =>
+        softResetProposal(s, { expiresAt, workerRunId: runId, period: data.period }),
+      ),
       log,
     );
     return {
@@ -217,7 +224,7 @@ export async function runNetworkSummary(
   });
 }
 
-/** Stop proposals for the stuck sessions of one site (or of unsited stations). */
+/** Stop suggestions for the stuck sessions of one site (or of unsited stations). */
 export async function runStuckSessions(
   data: AiWorkerJobData,
   deps: AiWorkerDeps,
@@ -241,7 +248,7 @@ export async function runStuckSessions(
     });
     if (sessions.length === 0) return { status: 'completed', output: { idleMinutes } };
     const expiresAt = new Date(now.getTime() + AI_PROPOSAL_TTL_MS.stuckSessions);
-    const inputs: CreateAiProposalInput[] = [];
+    const inputs: WorkerSuggestion[] = [];
     let budgetSkipped = false;
     let rationales = 0;
     for (const session of sessions) {
@@ -249,6 +256,7 @@ export async function runStuckSessions(
         idleMinutes,
         expiresAt,
         workerRunId: runId,
+        period: data.period,
         now,
       });
       if (input === null) continue;
@@ -264,9 +272,10 @@ export async function runStuckSessions(
           deps,
         );
         if (narrative.kind === 'budget') budgetSkipped = true;
+        // The model rationale is the insight's text (translated like any insight).
         if (narrative.kind === 'ok') {
-          input.rationaleText = narrative.text;
-          input.rationaleLanguage = narrative.language;
+          const { text, language, provider, model } = narrative;
+          input.insight.narrative = { text, language, provider, model };
         }
       }
       inputs.push(input);
@@ -288,7 +297,7 @@ export async function runStuckSessions(
   });
 }
 
-/** Tariff findings of one site. Findings only: never a proposal. */
+/** Tariff findings of one site. Findings only: never an action. */
 export async function runTariffAnomalies(
   data: AiWorkerJobData,
   deps: AiWorkerDeps,

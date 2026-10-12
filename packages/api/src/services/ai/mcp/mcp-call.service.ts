@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * The MCP tool call log (`ai_mcp_calls`, migration 0438). This service is
- * its only writer (P3). A log row is written after the call, fail-open: a
- * failed insert is logged at warn and the client still gets its answer (P9).
- * The `delivered` claim is the exception: it decides whether a proposal's
- * result may be returned, so it fails closed.
+ * The MCP tool call log (`ai_mcp_calls`, migration 0438), reads and writes.
+ * This service is its only writer (P3). A log row is written after the call,
+ * fail-open: a failed insert is logged at warn and the client still gets its
+ * answer (P9).
  */
 
 import { generateId } from '@evtivity/lib';
@@ -38,7 +37,6 @@ export interface McpCallRecord {
   errorCode: string | null;
   latencyMs: number | null;
   redactionCounts: RedactionCounts | null;
-  proposalId: string | null;
 }
 
 /** A new call id (`amc_...`), for `via_ai.mcpCallId`. */
@@ -74,7 +72,6 @@ function rowOf(record: McpCallRecord) {
     errorCode: record.errorCode,
     latencyMs: record.latencyMs,
     redactionCounts: record.redactionCounts,
-    proposalId: record.proposalId,
   };
 }
 
@@ -85,20 +82,4 @@ export async function recordMcpCall(record: McpCallRecord, log: ServiceLogger): 
   } catch (err) {
     log.warn({ err, mcpCallId: record.id, toolName: record.toolName }, 'MCP call log write failed');
   }
-}
-
-/**
- * Claims the one return of a decided proposal's result: inserts the call
- * row as `delivered`. True when this call won the claim; false when the
- * result was returned before (the unique `delivered` row per proposal).
- * Fails closed: a database error throws and nothing is returned.
- */
-export async function claimMcpDelivery(record: McpCallRecord): Promise<boolean> {
-  if (record.proposalId === null) throw new Error('A delivery names its proposal');
-  const rows = await db
-    .insert(aiMcpCalls)
-    .values({ ...rowOf(record), status: 'delivered' })
-    .onConflictDoNothing()
-    .returning({ id: aiMcpCalls.id });
-  return rows.length > 0;
 }

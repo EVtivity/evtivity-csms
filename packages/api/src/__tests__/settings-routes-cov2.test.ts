@@ -21,7 +21,6 @@ const { state, rec, mocks } = vi.hoisted(() => ({
     isFleetEnabled: vi.fn(),
     isGuestChargingEnabled: vi.fn(),
     isChatbotAiEnabled: vi.fn(),
-    isAiInboxEnabled: vi.fn(),
     isAiInsightsEnabled: vi.fn(),
     clearRoamingCache: vi.fn(),
     clearSupportCache: vi.fn(),
@@ -77,7 +76,6 @@ vi.mock('@evtivity/database', () => ({
   isFleetEnabled: mocks.isFleetEnabled,
   isGuestChargingEnabled: mocks.isGuestChargingEnabled,
   isChatbotAiEnabled: mocks.isChatbotAiEnabled,
-  isAiInboxEnabled: mocks.isAiInboxEnabled,
   isAiInsightsEnabled: mocks.isAiInsightsEnabled,
   clearRoamingCache: mocks.clearRoamingCache,
   clearSupportCache: mocks.clearSupportCache,
@@ -239,7 +237,6 @@ describe('settings routes (cov2)', () => {
     mocks.isFleetEnabled.mockResolvedValue(true);
     mocks.isGuestChargingEnabled.mockResolvedValue(false);
     mocks.isChatbotAiEnabled.mockResolvedValue(true);
-    mocks.isAiInboxEnabled.mockResolvedValue(true);
     mocks.isAiInsightsEnabled.mockResolvedValue(false);
     mocks.getReservationSettings.mockResolvedValue({
       cancellationFeeCents: 250,
@@ -256,7 +253,6 @@ describe('settings routes (cov2)', () => {
       fleetEnabled: true,
       guestChargingEnabled: false,
       chatbotAiEnabled: true,
-      aiInboxEnabled: true,
       aiInsightsEnabled: false,
       // TC-AI-DR-03: off by default.
       driverAiSupport: false,

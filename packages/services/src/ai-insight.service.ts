@@ -12,6 +12,11 @@
  * `skipped`, `failed` and `dismissed` are terminal. Every status write is a
  * compare-and-set from an open status, so a late job cannot revive a closed
  * insight.
+ *
+ * A background worker suggestion is an insight that carries an action (an
+ * `ai_proposals` row, written by `ai-proposal.service`). Its lifecycle follows
+ * the action: `closeActionInsight` resolves it when the action ends, or
+ * dismisses it when the action is rejected.
  */
 
 import { and, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from 'drizzle-orm';
@@ -28,13 +33,16 @@ import type { AuditActor } from '@evtivity/database';
 import { createLogger, type PubSubClient } from '@evtivity/lib';
 import {
   aiInsightDtoSchema,
+  INSIGHT_KIND_FALLBACKS,
   INSIGHT_KINDS,
   insightFixSchema,
   insightScopeSchema,
   RESERVATION_INSIGHT_KINDS,
 } from '@evtivity/lib/ai-insights';
+import type { AiProposalDto, AiProposalStatus } from '@evtivity/lib/ai-proposals';
 import type {
   AiInsightDto,
+  InsightActionFilter,
   InsightConfidence,
   InsightFeedbackFilter,
   InsightFeedbackRate,
@@ -47,6 +55,7 @@ import type {
   InsightStatus,
   InsightTextStatus,
   RootCauseCategory,
+  WorkerActionInsightKind,
 } from '@evtivity/lib/ai-insights';
 import type { InsightSubjectType } from './ai-evidence/pack.js';
 import { currentFingerprints } from './ai-evidence/state.js';
@@ -771,6 +780,8 @@ export interface InsightListFilter {
   excludeReservations?: boolean;
   /** Insights someone marked helpful, or wrong (any user's vote). */
   feedback?: InsightFeedbackFilter;
+  /** Insights that carry an action (`any`), or one waiting for a decision (`pending`). */
+  action?: InsightActionFilter;
 }
 
 /** The SQL test that an attempt `a` belongs to the authorization insight's group. */
@@ -854,6 +865,16 @@ export async function listInsightRows(
       WHERE f.insight_id = ${aiInsights.id} AND f.helpful = ${filter.feedback === 'helpful'}
     )`);
   }
+  if (filter.action != null) {
+    conditions.push(
+      filter.action === 'pending'
+        ? sql`EXISTS (
+            SELECT 1 FROM ai_proposals p
+            WHERE p.insight_id = ${aiInsights.id} AND p.status = 'pending'
+          )`
+        : sql`EXISTS (SELECT 1 FROM ai_proposals p WHERE p.insight_id = ${aiInsights.id})`,
+    );
+  }
   if (filter.authorizeAttemptIds != null) {
     if (filter.authorizeAttemptIds.length === 0) {
       conditions.push(sql`false`);
@@ -934,6 +955,8 @@ export async function insightTexts(
 export interface InsightViewOptions {
   language: string;
   stale: boolean;
+  /** The action the insight carries (`ai-proposal.service`), or none. */
+  action?: AiProposalDto | null;
 }
 
 function parseJson<T>(
@@ -1002,6 +1025,7 @@ export function toInsightDto(
     createdAt: row.createdAt.toISOString(),
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
     dismissedAt: row.dismissedAt?.toISOString() ?? null,
+    action: options.action ?? null,
   };
   return aiInsightDtoSchema.parse(dto);
 }
@@ -1163,4 +1187,103 @@ export async function storeWorkerInsight(
     });
   }
   return id;
+}
+
+/** A background worker suggestion: an insight that carries an action to confirm. */
+export interface WorkerActionInsightInput {
+  kind: WorkerActionInsightKind;
+  siteId: string | null;
+  /** The station the action targets (the subject unless a session is named). */
+  stationId: string;
+  /** The session the action targets (a stuck session); the subject when set. */
+  sessionId: string | null;
+  triggerKey: string;
+  /** The model rationale, stored as the canonical text; null keeps the localized rationale only. */
+  narrative: { text: string; language: string; provider: string; model: string } | null;
+  /** The language when there is no narrative (`aiInsights.primaryLanguage`). */
+  primaryLanguage: string;
+}
+
+/**
+ * Stores a background worker suggestion as an active insight with the kind's
+ * structured fields (`INSIGHT_KIND_FALLBACKS`); the caller then creates its
+ * action (`createAiProposal` with this insight id). One insight per trigger
+ * key (P7): a repeated trigger returns null. Publishes the SSE update
+ * (fail-open).
+ */
+export async function storeWorkerActionInsight(
+  input: WorkerActionInsightInput,
+  pubsub: PubSubClient,
+): Promise<string | null> {
+  const language = input.narrative?.language ?? input.primaryLanguage;
+  const id = await createInsight({
+    kind: input.kind,
+    subjectType: input.sessionId != null ? 'session' : 'station',
+    subjectId: input.sessionId ?? input.stationId,
+    triggerKey: input.triggerKey,
+    siteId: input.siteId,
+    stationId: input.stationId,
+    sessionId: input.sessionId,
+    primaryLanguage: language,
+  });
+  if (id == null) return null;
+  const rule = INSIGHT_KIND_FALLBACKS[input.kind];
+  const stored = await activateInsight(id, {
+    category: rule.category,
+    confidence: 'medium',
+    fixes: rule.fixes.map((code) => ({ code })),
+    evidenceRefs: [],
+    scope: {},
+    summary: input.narrative?.text ?? null,
+    language,
+    generatedBy: input.narrative != null ? 'model' : 'rule',
+    provider: input.narrative?.provider ?? null,
+    model: input.narrative?.model ?? null,
+    basisAt: new Date(),
+    basisFingerprint: null,
+  });
+  if (stored) {
+    await publishInsightUpdated(pubsub, {
+      id,
+      siteId: input.siteId,
+      stationId: input.stationId,
+      sessionId: input.sessionId,
+      kind: input.kind,
+      status: 'active',
+    });
+  }
+  return id;
+}
+
+/**
+ * Closes an open insight when its action ends (P5, compare-and-set from an
+ * open status): a rejected action dismisses it (audited, as the rejecting
+ * user), any other end resolves it (executed, failed, stale, expired). False
+ * when the insight was already closed.
+ */
+export async function closeActionInsight(
+  insightId: string,
+  actionStatus: Exclude<AiProposalStatus, 'pending'>,
+  actor: InsightAuditActor,
+  pubsub: PubSubClient,
+): Promise<boolean> {
+  const rejected = actionStatus === 'rejected';
+  const [row] = await db
+    .update(aiInsights)
+    .set(
+      rejected
+        ? {
+            status: 'dismissed',
+            dismissedAt: sql`now()`,
+            dismissedBy: actor.actorUserId ?? null,
+            updatedAt: sql`now()`,
+          }
+        : { status: 'resolved', resolvedAt: sql`now()`, updatedAt: sql`now()` },
+    )
+    .where(and(eq(aiInsights.id, insightId), inArray(aiInsights.status, OPEN_INSIGHT_STATUSES)))
+    .returning();
+  if (row == null) return false;
+  if (rejected) await auditInsight(insightId, 'dismissed', actor, { status: 'dismissed' });
+  await publishInsightUpdated(pubsub, row);
+  return true;
 }

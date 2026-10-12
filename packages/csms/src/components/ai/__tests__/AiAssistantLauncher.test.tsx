@@ -28,6 +28,7 @@ vi.mock('../AiPanel', () => ({
 }));
 
 import { AiAssistantLauncher, isAiShortcut } from '../AiAssistantLauncher';
+import { useAiPanelStore } from '../use-ai-panel-store';
 
 function renderLauncher(): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -100,7 +101,7 @@ describe('AiAssistantLauncher', () => {
     pageButton.focus();
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     expect(await screen.findByTestId('ai-panel')).toBeTruthy();
-    expect(screen.queryByTestId('ai-launcher')).toBeNull();
+    expect(screen.getByTestId('ai-launcher').hidden).toBe(true);
     fireEvent.click(screen.getByText('close-panel'));
     await waitFor(() => {
       expect(document.activeElement).toBe(pageButton);
@@ -111,6 +112,43 @@ describe('AiAssistantLauncher', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('ai-panel')).toBeNull();
     });
+  });
+
+  it('closing a panel the launcher opened returns focus to the launcher', async () => {
+    getMock.mockResolvedValue({ enabled: true, supportAssistEnabled: false });
+    renderLauncher();
+    const launcher = await screen.findByTestId('ai-launcher');
+    launcher.focus();
+    fireEvent.click(launcher);
+    expect(await screen.findByTestId('ai-panel')).toBeTruthy();
+    fireEvent.click(screen.getByText('close-panel'));
+    await waitFor(() => {
+      expect(document.activeElement).toBe(launcher);
+    });
+    expect(launcher.hidden).toBe(false);
+  });
+
+  it('a click outside keeps the focus it gave to what was clicked, and restores it when lost', async () => {
+    const opener = document.createElement('button');
+    const clicked = document.createElement('button');
+    document.body.append(opener, clicked);
+    useAiPanelStore.setState({ open: false, request: null, returnFocus: null });
+    opener.focus();
+    useAiPanelStore.getState().openPanel();
+    clicked.focus();
+    useAiPanelStore.getState().close('outside');
+    await new Promise((r) => setTimeout(r, 5));
+    expect(document.activeElement).toBe(clicked);
+
+    opener.focus();
+    useAiPanelStore.getState().openPanel();
+    (document.activeElement as HTMLElement).blur();
+    useAiPanelStore.getState().close('outside');
+    await waitFor(() => {
+      expect(document.activeElement).toBe(opener);
+    });
+    opener.remove();
+    clicked.remove();
   });
 
   it('isAiShortcut matches Ctrl+K and Cmd+K only', () => {

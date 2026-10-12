@@ -388,8 +388,8 @@ export function insightStatusVariant(status: string): BadgeVariant {
   }
 }
 
-/** AI proposal status -> badge variant (pending waits for a person). */
-export function aiProposalStatusVariant(status: string): BadgeVariant {
+/** AI insight action status -> badge variant (pending waits for a person). */
+export function insightActionStatusVariant(status: string): BadgeVariant {
   switch (status) {
     case 'pending':
       return 'warning';

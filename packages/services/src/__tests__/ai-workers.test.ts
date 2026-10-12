@@ -10,7 +10,7 @@ import {
   SIGNAL_GRACE_MINUTES,
   effectiveIdleMinutes,
 } from '../ai-workers/stuck-sessions.js';
-import { stopSessionProposal, workerAction } from '../ai-workers/proposals.js';
+import { softResetProposal, stopSessionProposal, workerAction } from '../ai-workers/proposals.js';
 import { dayPeriod, quarterHourPeriod } from '../ai-workers/runs.js';
 
 describe('stuck-session idle time (TC-AI-WK-04)', () => {
@@ -25,7 +25,7 @@ describe('stuck-session idle time (TC-AI-WK-04)', () => {
   });
 });
 
-describe('worker proposals', () => {
+describe('worker suggestions', () => {
   const session = {
     sessionId: 'ses_000000000001',
     stationId: 'sta_000000000001',
@@ -41,16 +41,51 @@ describe('worker proposals', () => {
     idleMinutes: 90,
     expiresAt: new Date(Date.now() + 3_600_000),
     workerRunId: 7,
+    period: '2026-10-10T10:15',
     now: new Date(),
   };
 
-  it('TC-AI-WK-04 stops a 1.6 session with an integer transaction id', () => {
-    const input = stopSessionProposal(session, opts);
-    expect(input).toMatchObject({
+  it('TC-AI-WK-04 stops a 1.6 session with an integer transaction id, as a stuck session insight', () => {
+    const suggestion = stopSessionProposal(session, opts);
+    expect(suggestion?.action).toMatchObject({
+      job: 'stuck_sessions',
       operationId: 'ocppv16_RemoteStopTransaction',
       args: { stationId: 'CS-1', transactionId: 42 },
       dedupKey: 'stuck_sessions:ses_000000000001',
       summary: { action: 'stop_transaction', rationale: { code: 'stuckSessionOffline' } },
+    });
+    expect(suggestion?.insight).toEqual({
+      kind: 'stuck_session',
+      siteId: 'sit_000000000001',
+      stationId: 'sta_000000000001',
+      sessionId: 'ses_000000000001',
+      triggerKey: 'stuck_sessions:ses_000000000001:2026-10-10T10:15',
+      narrative: null,
+    });
+  });
+
+  it('suggests a soft reset of a long faulted station as a station insight, one per day', () => {
+    const suggestion = softResetProposal(
+      {
+        stationId: 'sta_000000000001',
+        ocppStationId: 'CS-1',
+        ocppProtocol: 'ocpp2.1',
+        siteId: 'sit_000000000001',
+        faultedSince: new Date('2026-10-10T01:00:00Z'),
+      },
+      { expiresAt: new Date(Date.now() + 3_600_000), workerRunId: 7, period: '2026-10-10' },
+    );
+    expect(suggestion.insight).toMatchObject({
+      kind: 'station_long_faulted',
+      stationId: 'sta_000000000001',
+      sessionId: null,
+      triggerKey: 'network_summary:soft_reset:sta_000000000001:2026-10-10',
+    });
+    expect(suggestion.action).toMatchObject({
+      job: 'network_summary',
+      operationId: 'ocppv21_Reset',
+      args: { stationId: 'CS-1', type: 'OnIdle' },
+      precondition: { kind: 'station_faulted', params: { stationId: 'sta_000000000001' } },
     });
   });
 
@@ -72,7 +107,7 @@ describe('worker proposals', () => {
   });
 });
 
-describe('AI proposal digest templates (TC-AI-WK-14)', () => {
+describe('AI insight action digest templates (TC-AI-WK-14)', () => {
   const variables = {
     firstName: 'Ada',
     lastName: 'Lovelace',
@@ -82,7 +117,7 @@ describe('AI proposal digest templates (TC-AI-WK-14)', () => {
     networkSummaryCount: 1,
     siteCount: 2,
     siteNames: 'Site A, Site B',
-    inboxUrl: 'https://csms.example.com/ai/inbox',
+    insightsUrl: 'https://csms.example.com/ai/insights?action=pending',
     companyName: 'EVtivity',
   };
 
@@ -96,7 +131,7 @@ describe('AI proposal digest templates (TC-AI-WK-14)', () => {
       );
       const email = compileTemplate(readFileSync(`${dir}/email.hbs`, 'utf8'), variables);
       const subject = compileTemplate(readFileSync(`${dir}/subject.hbs`, 'utf8'), variables);
-      expect(email).toContain('https://csms.example.com/ai/inbox');
+      expect(email).toContain('https://csms.example.com/ai/insights?action');
       expect(email).toContain('Site A, Site B');
       expect(email).toContain('3');
       expect(subject).toContain('EVtivity');

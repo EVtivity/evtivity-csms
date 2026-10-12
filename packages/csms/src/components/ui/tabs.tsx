@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils';
 interface TabsContextValue {
   value: string;
   onValueChange: (value: string) => void;
+  /** Registers a trigger's value while it is rendered; returns the unregister call. */
+  register: (value: string) => () => void;
 }
 
 const TabsContext = React.createContext<TabsContextValue | null>(null);
@@ -25,12 +27,38 @@ interface TabsProps extends React.HTMLAttributes<HTMLDivElement> {
   onValueChange: (value: string) => void;
 }
 
+/**
+ * The tab shown: the requested one while a trigger offers it (or before any
+ * trigger has rendered), else the first trigger. A tab kept in the URL can be
+ * missing on another record (a protocol or permission tab, after Prev or Next):
+ * the first tab shows instead and the URL keeps the request, so the tab comes
+ * back on a record that has it.
+ */
+function shownTab(value: string, triggers: readonly string[]): string {
+  if (triggers.length === 0 || triggers.includes(value)) return value;
+  return triggers[0] ?? value;
+}
+
 const Tabs = React.forwardRef<HTMLDivElement, TabsProps>(
-  ({ value, onValueChange, className, ...props }, ref) => (
-    <TabsContext.Provider value={{ value, onValueChange }}>
-      <div ref={ref} className={cn('w-full', className)} {...props} />
-    </TabsContext.Provider>
-  ),
+  ({ value, onValueChange, className, ...props }, ref) => {
+    const [triggers, setTriggers] = useState<string[]>([]);
+    const register = useCallback((trigger: string) => {
+      setTriggers((prev) => (prev.includes(trigger) ? prev : [...prev, trigger]));
+      return () => {
+        setTriggers((prev) => prev.filter((v) => v !== trigger));
+      };
+    }, []);
+    const shown = shownTab(value, triggers);
+    const ctx = React.useMemo(
+      () => ({ value: shown, onValueChange, register }),
+      [shown, onValueChange, register],
+    );
+    return (
+      <TabsContext.Provider value={ctx}>
+        <div ref={ref} className={cn('w-full', className)} {...props} />
+      </TabsContext.Provider>
+    );
+  },
 );
 Tabs.displayName = 'Tabs';
 
@@ -113,6 +141,8 @@ interface TabsTriggerProps extends React.ButtonHTMLAttributes<HTMLButtonElement>
 const TabsTrigger = React.forwardRef<HTMLButtonElement, TabsTriggerProps>(
   ({ value, className, ...props }, ref) => {
     const ctx = useTabsContext();
+    const { register } = ctx;
+    useEffect(() => register(value), [register, value]);
     const isActive = ctx.value === value;
     return (
       <button

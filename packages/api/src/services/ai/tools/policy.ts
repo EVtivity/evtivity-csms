@@ -916,15 +916,6 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // Webhooks
   handleAdyenWebhook: N,
   handleStripeWebhook: N,
-  // --- R5 AI proposals (append-only lane block) ---
-  // Deciding a proposal is an operator's judgment in the CSMS, never a tool.
-  // getAiProposal is a read so an MCP client can poll its own proposal; the
-  // redactor drops argsHash, which a model never needs.
-  confirmAiProposal: N,
-  getAiProposal: { ...R, redactedFields: ['argsHash'] },
-  listAiProposals: N,
-  rejectAiProposal: N,
-  // --- end R5 ---
   // --- R1 AI usage (append-only lane block) ---
   // Usage and budget figures are not an operational tool (added at the R4
   // rebase: main had the routes without policy entries, so codegen failed).
@@ -941,13 +932,19 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   // feedback cost tokens or need the operator's judgment.
   // Votes never reach a model (v0.1.45): the detail's `feedback` argument is
   // omitted, so the tool never returns the counts, and the summary is no tool.
-  listAiInsights: R,
-  getAiInsight: { ...R, omit: ['feedback'] },
+  // An insight's action carries argsHash, which a model never needs: redacted.
+  listAiInsights: { ...R, redactedFields: ['argsHash'] },
+  getAiInsight: { ...R, omit: ['feedback'], redactedFields: ['argsHash'] },
   regenerateAiInsight: N,
   dismissAiInsight: N,
   sendAiInsightFeedback: N,
   clearAiInsightFeedback: N,
   getAiInsightFeedbackSummary: N,
+  // Deciding the action an insight carries is an operator's judgment in the
+  // CSMS, never a tool (v0.1.45, the AI Inbox merged into insights).
+  confirmAiInsightAction: N,
+  rejectAiInsightAction: N,
+  getAiInsightNeighbors: N,
   // End lane R2.
 };
 
@@ -972,14 +969,14 @@ export function surfaceOffers(policy: ToolPolicy, surface: AiSurface): boolean {
  * `never` entry is (the codegen refuses the catalog otherwise, TC-AI-MCP-05).
  * Curated: reads of operator data a remote agent needs, without users, access
  * logs, audit history, payments and invoices; writes only for the OCPP
- * command routes, whose `stationId` argument names the station (and so the
- * site) of the proposal. An MCP write never runs: it becomes an AI proposal
- * that the same user approves in the CSMS (decision D7). A lane adding a read
- * or write entry adds its MCP value in its own marked block below.
+ * command routes, whose `stationId` argument names the station (the route
+ * scopes it to the key user's sites). MCP writes are listed and run only
+ * while `ai.mcp.allowWrites` is on and the key holds `aiMcp:write`; they run
+ * directly under the key's permissions. Station credential commands are
+ * `never`. A lane adding a read or write entry adds its MCP value in its own
+ * marked block below.
  */
 export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
-  // AI Proposals
-  getAiProposal: true,
   // Access Logs
   listAccessLogs: false,
   listWorkerLogs: false,

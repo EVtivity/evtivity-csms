@@ -175,7 +175,7 @@
     "closeMenu": "메뉴 닫기",
     "audit": "감사",
     "maintenance": "유지보수",
-    "aiInbox": "AI 받은편지함"
+    "aiInsights": "AI 인사이트"
   },
   "roaming": {
     "partners": {
@@ -1372,7 +1372,6 @@
         "ai": "AI",
         "conformance": "적합성"
       },
-      "aiProposals": "AI 제안",
       "aiUsage": "AI 사용량",
       "aiMcp": "MCP 액세스"
     }
@@ -1427,8 +1426,8 @@
     "chatbotAiDescription": "나만의 AI 어시스턴트 구성입니다. 나에게는 시스템 설정 대신 적용됩니다.",
     "aiRemoveConfig": "구성 제거",
     "aiRemoveConfirm": "개인 구성을 제거하시겠습니까? 시스템 설정이 다시 적용됩니다.",
-    "aiDigestEmail": "AI 받은편지함 요약 이메일",
-    "aiDigestEmailDescription": "내 사이트의 대기 중인 AI 제안 수를 매일 이메일로 받습니다.",
+    "aiDigestEmail": "AI 인사이트 작업 요약 이메일",
+    "aiDigestEmailDescription": "내 사이트에서 결정을 기다리는 AI 인사이트 작업 수를 매일 이메일로 받습니다.",
     "notificationsSaveFailed": "알림 설정을 저장하지 못했습니다. 다시 시도하세요."
   },
   "fleets": {
@@ -1729,7 +1728,10 @@
     "title": "OCPP 메시지 로그",
     "filterAction": "작업",
     "allActions": "전체",
-    "noMessages": "아직 기록된 OCPP 메시지가 없습니다."
+    "noMessages": "아직 기록된 OCPP 메시지가 없습니다.",
+    "processed": "처리됨",
+    "queued": "대기 중",
+    "queuedHint": "충전소가 다시 연결되면 전송됩니다"
   },
   "charts": {
     "kWh": "kWh",
@@ -2541,7 +2543,7 @@
     },
     "aiLimitRange": "{{min}}~{{max}}",
     "aiLimitZeroNoBudget": "0은 일일 한도 없음을 뜻합니다.",
-    "aiOpsDataWarning": "켜져 있으면 충전소, 세션 및 토큰 상태 데이터가 사용자 작업 없이 구성된 공급자로 전송됩니다.",
+    "aiOpsDataWarning": "켜져 있으면 운영 데이터가 사용자 작업 없이 구성된 공급자로 자동 전송됩니다.",
     "aiInsightsSettings": {
       "title": "자동 인사이트",
       "station": "충전소 인사이트",
@@ -2571,21 +2573,22 @@
     },
     "aiMcp": {
       "title": "MCP 서버",
-      "description": "MCP 액세스 권한이 있는 API 키로 MCP 클라이언트가 AI 도구를 사용할 수 있습니다. 모든 변경은 AI 받은편지함에서 확인해야 합니다.",
+      "description": "MCP 액세스 권한이 있는 API 키로 MCP 클라이언트가 AI 도구를 사용할 수 있습니다. 클라이언트는 기본적으로 읽기만 합니다. 쓰기는 허용한 경우에만 실행됩니다.",
       "enabled": "MCP 서버 켜기",
+      "allowWrites": "쓰기 허용",
+      "allowWritesHint": "끄기: MCP 클라이언트는 읽기만 합니다. 켜기: 쓰기 도구(충전소 명령)가 API 키의 권한과 사이트로 즉시 실행됩니다.",
       "rateLimitPerMinute": "API 키별 분당 호출 수",
       "dailyCallsPerKey": "API 키별 일일 호출 수",
-      "proposalTtlMinutes": "MCP 변경 승인 시간(분)",
       "allowedOrigins": "허용된 출처",
       "allowedOriginsHint": "한 줄에 출처 하나씩 입력하세요(예: https://app.example.com). 비워 두면 브라우저 요청을 거부합니다.",
       "allowedOriginsInvalid": "한 줄에 경로 없이 http 또는 https 출처 하나씩 입력하세요.",
       "endpoint": "엔드포인트",
       "endpointHint": "MCP 액세스 권한이 있는 API 키와 함께 MCP 클라이언트에 이 URL을 지정하세요.",
-      "writeScopeHint": "변경을 제안하려면 키에 MCP 쓰기 권한과 충전소 읽기 권한이 필요합니다.",
+      "writeScopeHint": "쓰기에는 MCP 쓰기 권한과 해당 명령의 권한이 있는 API 키가 필요합니다.",
       "toolsets": "도구 범주",
       "toolsetsHint": "URL에 ?toolsets=stations,sessions를 추가하세요. 기본값: {{toolsets}}.",
-      "writesHint": "변경 사항은 같은 사용자가 AI 받은편지함에서 승인하는 제안이 됩니다.",
-      "protocolNote": "MCP 2026-07-28을 지원합니다. 이전 클라이언트는 폴링으로 승인합니다."
+      "writesHint": "쓰기는 확인 없이 실행됩니다. 키를 사용한 다른 API 호출처럼 감사 및 기록됩니다.",
+      "protocolNote": "MCP 2026-07-28 및 이전 클라이언트를 지원합니다."
     },
     "aiLimitZeroNoLimit": "0은 한도 없음을 뜻합니다.",
     "aiTabs": {
@@ -2598,14 +2601,11 @@
       "driver": "운전자 지원",
       "driverDescription": "운전자가 허용한 경우에만 운전자 지원 요청에 자동으로 첫 답변을 제공합니다.",
       "insights": "자동 인사이트",
-      "insightsDescription": "시스템이 시작하는 실행에 쓰는 모델과 충전소, 세션, 인증, 예약에 대한 인사이트 생성 조건입니다.",
-      "workers": "백그라운드 작업자",
-      "workersDescription": "네트워크를 보고하고 운영자가 승인할 작업을 제안하는 예약 작업입니다. 자동 인사이트 모델을 사용합니다.",
+      "insightsDescription": "시스템이 시작하는 실행에 쓰는 모델, 충전소, 세션, 인증, 예약에 대한 인사이트 생성 조건, 그리고 제안이 확인할 작업이 있는 인사이트로 표시되는 백그라운드 워커입니다.",
       "mcp": "MCP",
       "mcpDescription": "외부 AI 에이전트가 API 키로 EVtivity를 사용할 수 있게 하는 MCP 서버입니다.",
       "usage": "사용량 및 한도",
-      "usageDescription": "요청 한도와 토큰 예산, 회사와 각 사이트의 AI 사용량입니다.",
-      "workersModelLink": "자동 인사이트에서 사용할 모델 선택"
+      "usageDescription": "요청 한도와 토큰 예산, 회사와 각 사이트의 AI 사용량입니다."
     },
     "aiDriverSettings": {
       "title": "운전자 지원 한도",
@@ -2788,7 +2788,7 @@
       "invoice.FleetInvoice": "차량대 청구서 발행",
       "invoice.FleetCreditNote": "차량대 크레딧 노트 발행",
       "invoice.FleetOverdue": "차량대 청구서 연체",
-      "ai.ProposalDigest": "AI 제안 요약"
+      "ai.ProposalDigest": "AI 인사이트 작업 요약"
     },
     "templatePreviewInvalid": "템플릿에 오류가 있습니다:",
     "htmlPreview": "HTML 미리보기",
@@ -3217,10 +3217,10 @@
     "AI_SITE_BUDGET_EXCEEDED": "사이트의 일일 AI 사용 한도에 도달했습니다",
     "AI_MONTHLY_BUDGET_EXCEEDED": "월간 AI 사용 한도에 도달했습니다",
     "AI_CONTEXT_NOT_FOUND": "설명할 기록을 찾을 수 없습니다",
-    "AI_PROPOSAL_NOT_FOUND": "제안을 찾을 수 없습니다",
-    "AI_PROPOSAL_EXPIRED": "이 제안은 만료되었습니다",
-    "AI_PROPOSAL_STALE": "상황이 바뀌어 이 제안은 더 이상 유효하지 않습니다",
-    "AI_PROPOSAL_ALREADY_DECIDED": "이 제안은 이미 처리되었습니다",
+    "AI_PROPOSAL_NOT_FOUND": "작업을 찾을 수 없습니다",
+    "AI_PROPOSAL_EXPIRED": "이 작업은 만료되었습니다",
+    "AI_PROPOSAL_STALE": "상황이 바뀌어 이 작업은 더 이상 유효하지 않습니다",
+    "AI_PROPOSAL_ALREADY_DECIDED": "이 작업은 이미 처리되었습니다",
     "AI_CONFIRMATION_REQUIRES_SESSION": "API 키가 아닌 대시보드에 로그인한 상태에서 이 작업을 확인하세요",
     "AI_MCP_RATE_LIMITED": "MCP 요청이 너무 많습니다. 나중에 다시 시도하세요"
   },
@@ -4021,9 +4021,7 @@
       "station": "이 충전소가 오프라인이거나 고장 난 이유는 무엇이며, 무엇을 해야 하나요?",
       "session": "이 세션이 실패한 이유는 무엇이며, 무엇을 해야 하나요?",
       "authorization": "이 인증이 거부된 이유는 무엇이며, 무엇을 해야 하나요?",
-      "insightShown": "최신 자동 인사이트를 표시합니다",
       "followUp": "추가 질문하기",
-      "contextUnavailable": "이 기록은 더 이상 사용할 수 없습니다.",
       "about": "{{record}} {{label}} 관련",
       "kind": {
         "station": "충전소",
@@ -4031,7 +4029,12 @@
         "authorization": "인증",
         "reservation": "예약"
       },
-      "reservation": "이 예약이 실패한 이유는 무엇이며, 무엇을 해야 하나요?"
+      "reservation": "이 예약이 실패한 이유는 무엇이며, 무엇을 해야 하나요?",
+      "aboutRecord": "이 {{record}} 관련",
+      "contextLabel": "설명 컨텍스트",
+      "latestInsight": "최신 자동 인사이트",
+      "viewInsight": "인사이트 보기",
+      "shared": "어시스턴트는 이 레코드의 주요 정보, 최근 이벤트와 최신 인사이트를 읽습니다. 질문을 보내기 전에는 아무것도 전송되지 않습니다."
     },
     "dataNotice": {
       "title": "AI 공급자가 받는 정보",
@@ -4316,7 +4319,7 @@
       "invoice": "청구서",
       "ai_conversation": "AI 대화",
       "ai_insight": "자동 인사이트",
-      "ai_proposal": "AI 제안"
+      "ai_proposal": "AI 인사이트 작업"
     },
     "actors": {
       "operator": "운영자",
@@ -4710,7 +4713,9 @@
       "reservation_no_show": "예약 미사용",
       "reservation_cancel_failed": "예약 취소 실패",
       "reservation_fee_failed": "예약 요금 실패",
-      "reservation_station_faulted": "예약 중 충전소 고장"
+      "reservation_station_faulted": "예약 중 충전소 고장",
+      "stuck_session": "멈춘 세션",
+      "station_long_faulted": "몇 시간째 고장인 충전소"
     },
     "skipReason": {
       "resolved_before_analysis": "분석 전에 해결됨",
@@ -4796,7 +4801,9 @@
       "reservation_no_show": "{{site}}에서 예약 미사용",
       "reservation_cancel_failed": "{{station}}에서 예약 취소 실패",
       "reservation_fee_failed": "{{site}}에서 예약 요금 실패",
-      "reservation_station_faulted": "예약 중 {{station}} 고장"
+      "reservation_station_faulted": "예약 중 {{station}} 고장",
+      "stuck_session": "{{station}}의 세션이 멈춤",
+      "station_long_faulted": "{{station}} 몇 시간째 고장"
     },
     "list": {
       "title": "AI 인사이트",
@@ -4852,108 +4859,84 @@
       "reasonHint": "내 평가와 함께 저장만 되며 AI 제공업체로 전송되지 않습니다.",
       "saveReason": "메모 저장",
       "reasonSaved": "메모를 저장했습니다."
-    }
-  },
-  "aiInbox": {
-    "title": "AI 받은편지함",
-    "description": "AI가 제안한 작업입니다. 확인하기 전에는 아무것도 실행되지 않습니다.",
-    "empty": "제안 없음",
-    "pendingCount_one": "대기 중인 제안 {{count}}개",
-    "pendingCount_other": "대기 중인 제안 {{count}}개",
-    "filters": {
-      "source": "출처",
-      "job": "작업",
-      "site": "사이트",
-      "status": "상태",
-      "all": "전체",
-      "search": "검색",
-      "searchPlaceholder": "충전소, 사이트 또는 작업"
-    },
-    "source": {
-      "worker": "백그라운드 작업자",
-      "mcp": "MCP 클라이언트"
-    },
-    "job": {
-      "network_summary": "네트워크 상태",
-      "stuck_sessions": "멈춘 세션",
-      "tariff_anomalies": "요금 이상"
-    },
-    "status": {
-      "pending": "대기 중",
-      "executed": "실행됨",
-      "failed": "실패",
-      "rejected": "거절됨",
-      "expired": "만료됨",
-      "stale": "더 이상 해당 없음"
     },
     "action": {
-      "stop_transaction": "세션 중지",
-      "soft_reset": "충전소 소프트 리셋",
-      "change_availability": "충전소 가용성 변경"
-    },
-    "precondition": {
-      "session_active": "세션이 아직 활성 상태입니다",
-      "station_faulted": "충전소가 아직 고장 상태입니다",
-      "station_availability": "충전소 가용성이 바뀌지 않았습니다"
-    },
-    "confirm": "확인",
-    "reject": "거절",
-    "expiresAt": "{{time}} 만료",
-    "requestedBy": "요청자",
-    "apiKey": "API 키",
-    "client": "클라이언트",
-    "untrustedNote": "키와 클라이언트 이름은 요청한 클라이언트가 보낸 그대로 표시됩니다.",
-    "arguments": "인수",
-    "rationale": "근거",
-    "result": "결과",
-    "executed": "작업이 실행되었습니다",
-    "confirmFailed": "작업이 실행되지 않았습니다",
-    "stationLabel": "충전소",
-    "sessionLabel": "세션",
-    "preconditionLabel": "실행 조건",
-    "requestedTool": "요청한 도구",
-    "columns": {
-      "action": "작업",
-      "expires": "만료"
-    },
-    "rejectedToast": "제안을 거부했습니다",
-    "confirmDialog": {
-      "title": "이 작업을 실행할까요?",
-      "note": "지금 한 번, 내 권한으로 실행됩니다."
-    },
-    "rejectDialog": {
-      "title": "이 제안을 거부할까요?"
-    },
-    "measured": {
-      "idleTime": "유휴 시간",
-      "minutes_other": "{{count}}분",
-      "minutes_one": "{{count}}분",
-      "lastActivity": "마지막 활동",
-      "faultedSince": "고장 시작",
-      "transactionId": "트랜잭션 ID"
-    },
-    "detail": {
-      "summary": "요약",
+      "title": "제안된 작업",
+      "kind": {
+        "stop_transaction": "세션 중지",
+        "soft_reset": "충전소 소프트 리셋",
+        "change_availability": "충전소 가용성 변경"
+      },
+      "status": {
+        "pending": "대기 중",
+        "executed": "실행됨",
+        "failed": "실패",
+        "rejected": "거절됨",
+        "expired": "만료됨",
+        "stale": "더 이상 해당 없음"
+      },
+      "job": {
+        "network_summary": "네트워크 상태",
+        "stuck_sessions": "멈춘 세션",
+        "tariff_anomalies": "요금 이상"
+      },
+      "jobLabel": "워커 작업",
+      "precondition": {
+        "session_active": "세션이 아직 활성 상태입니다",
+        "station_faulted": "충전소가 아직 고장 상태입니다",
+        "station_availability": "충전소 가용성이 바뀌지 않았습니다"
+      },
+      "preconditionLabel": "실행 조건",
+      "confirm": "확인",
+      "reject": "거절",
+      "expiresAt": "{{time}} 만료",
+      "expires": "만료",
+      "arguments": "인수",
+      "rationale": "근거",
+      "executed": "작업이 실행되었습니다",
+      "confirmFailed": "작업이 실행되지 않았습니다",
+      "rejectedToast": "작업을 거부했습니다",
+      "confirmDialog": {
+        "title": "이 작업을 실행할까요?",
+        "note": "지금 한 번, 내 권한으로 실행됩니다."
+      },
+      "rejectDialog": {
+        "title": "이 작업을 거부할까요?"
+      },
+      "measured": {
+        "idleTime": "유휴 시간",
+        "minutes_other": "{{count}}분",
+        "minutes_one": "{{count}}분",
+        "lastActivity": "마지막 활동",
+        "faultedSince": "고장 시작",
+        "transactionId": "트랜잭션 ID"
+      },
       "target": "대상",
-      "requester": "요청자",
-      "timing": "시간",
       "decided": "결정",
-      "executedAt": "실행"
-    },
-    "refused": {
-      "args_mismatch": "저장된 인수가 더 이상 제안과 일치하지 않아 아무것도 실행되지 않았습니다.",
-      "no_longer_available": "이 작업은 더 이상 AI 제안에서 실행할 수 없어 아무것도 실행되지 않았습니다.",
-      "invalid_arguments": "인수가 이 작업에 더 이상 유효하지 않아 아무것도 실행되지 않았습니다.",
-      "ocpp_version_mismatch": "충전소의 OCPP 버전이 바뀌었고 해당하는 명령이 없어 아무것도 실행되지 않았습니다."
+      "executedAt": "실행",
+      "refused": {
+        "args_mismatch": "저장된 인수가 더 이상 제안과 일치하지 않아 아무것도 실행되지 않았습니다.",
+        "no_longer_available": "이 작업은 더 이상 AI 제안에서 실행할 수 없어 아무것도 실행되지 않았습니다.",
+        "invalid_arguments": "인수가 이 작업에 더 이상 유효하지 않아 아무것도 실행되지 않았습니다.",
+        "ocpp_version_mismatch": "충전소의 OCPP 버전이 바뀌었고 해당하는 명령이 없어 아무것도 실행되지 않았습니다."
+      },
+      "pendingCount_one": "대기 중인 작업 {{count}}개",
+      "pendingCount_other": "대기 중인 작업 {{count}}개",
+      "pending": "작업 대기 중",
+      "filter": "작업",
+      "filterAll": "모든 인사이트",
+      "filterPending": "작업 대기 중",
+      "filterAny": "작업 있음",
+      "history": "작업 기록"
     }
   },
   "aiWorkers": {
     "title": "AI 백그라운드 작업자",
-    "description": "문제를 찾아 작업을 제안하는 선택형 작업입니다. 스스로 실행하지 않습니다.",
-    "proposalTtlHours": "제안 유효 시간(시간)",
+    "description": "문제를 찾는 선택형 작업입니다. 제안은 작업이 있는 인사이트로 표시되며, 운영자가 확인하기 전에는 아무것도 실행되지 않습니다.",
+    "proposalTtlHours": "작업 유효 시간(시간)",
     "networkSummary": {
       "title": "야간 네트워크 요약",
-      "description": "사이트별 짧은 일일 요약과 제안 작업입니다."
+      "description": "사이트별 짧은 일일 요약과 몇 시간째 고장인 충전소의 소프트 리셋 제안입니다."
     },
     "stuckSessions": {
       "title": "멈춘 세션",
@@ -4963,7 +4946,7 @@
     },
     "tariffAnomalies": {
       "title": "요금 이상",
-      "description": "잘못된 것으로 보이는 가격을 찾습니다. 결과만 표시하며 제안은 없습니다."
+      "description": "잘못된 것으로 보이는 가격을 찾습니다. 결과만 표시하며 작업은 없습니다."
     },
     "rationale": {
       "stuckSessionIdle": "{{minutes}}분 동안 미터 값이나 트랜잭션 이벤트가 없습니다",

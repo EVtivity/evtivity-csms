@@ -62,7 +62,7 @@ export function AuthorizeInsightCell({
                     setOpen(false);
                     // The panel returns focus to the row's icon, not the closed dialog.
                     iconRef.current?.focus();
-                    openExplain(context, null);
+                    openExplain(context);
                   }
                 : undefined
             }

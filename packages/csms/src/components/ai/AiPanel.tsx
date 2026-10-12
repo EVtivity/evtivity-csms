@@ -4,9 +4,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
-import { History, Lightbulb, Plus, Send, Sparkles, Square, Upload, X } from 'lucide-react';
+import { History, Plus, Send, Sparkles, Square, Upload, X } from 'lucide-react';
 import type { AiStreamEvent } from '@evtivity/lib/ai-stream';
 import { Button } from '@/components/ui/button';
+import { useEscapeLayer } from '@/components/ui/escape-layer';
 import { Spinner } from '@/components/ui/spinner';
 import { api, getApiErrorCode } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
@@ -36,9 +37,8 @@ import { SuggestedPrompts } from './SuggestedPrompts';
 import { useAiStream } from './use-ai-stream';
 import type { AiStreamOutcome } from './use-ai-stream';
 import { useAiPanelStore } from './use-ai-panel-store';
-import type { AiPanelContext } from './use-ai-panel-store';
-import { InsightCard } from './insights/InsightCard';
-import { useInsight } from './insights/insight-api';
+import type { AiPanelCloseReason, AiPanelContext } from './use-ai-panel-store';
+import { ExplainContextCard } from './ExplainContextCard';
 import { AiUsageFooter } from './usage/AiUsageFooter';
 import { AiUsageNotices } from './usage/AiUsageNotices';
 import { AI_MY_USAGE_KEY } from './usage/usage-api';
@@ -50,49 +50,24 @@ const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 interface AiPanelProps {
-  onClose: () => void;
+  onClose: (reason?: AiPanelCloseReason) => void;
 }
 
 /**
- * The panel shows a fresh insight here, with no conversation.
+ * Pop-overs that render outside the panel (tooltips) and dialogs the panel
+ * opened: a click there is not a click outside.
  */
-function PanelInsight({
-  insightId,
-  onFollowUp,
-}: {
-  insightId: string;
-  onFollowUp: (() => void) | undefined;
-}): React.JSX.Element {
-  const { t } = useTranslation();
-  const { insight, isLoading, isError } = useInsight(insightId);
-  if (isLoading) {
-    return (
-      <div className="flex justify-center p-6">
-        <Spinner className="h-5 w-5" />
-      </div>
-    );
-  }
-  if (isError || insight == null) {
-    return <p className="text-sm text-muted-foreground">{t('ai.explain.contextUnavailable')}</p>;
-  }
-  return (
-    <div className="space-y-2" data-testid="ai-panel-insight">
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Lightbulb className="h-3.5 w-3.5" aria-hidden="true" />
-        {t('ai.explain.insightShown')}
-      </p>
-      <InsightCard insight={insight} onFollowUp={onFollowUp} />
-    </div>
-  );
-}
+const PANEL_OWNED_OVERLAY = '[role="dialog"], [role="alertdialog"], [role="tooltip"]';
 
 /**
  * The AI assistant panel (plan 3.10): streaming chat with Stop, tool steps,
  * write confirmation, attachments, conversation history and suggested prompts.
  * Full screen below `md`, a side panel above. Explain (roadmap v0.1.44 item 2)
- * opens it through `useAiPanelStore` about one record: a fresh insight is
- * shown first at no token cost, otherwise the record's question is prefilled
- * in the composer, visible and editable before it is sent.
+ * opens it through `useAiPanelStore` about one record: the context card
+ * (`ExplainContextCard`, the same for every kind) and the record's question
+ * prefilled in the composer, visible and editable before it is sent.
+ * Escape (anywhere, unless a dialog opened above the panel takes it) stops a
+ * running answer, then closes; a click outside closes it.
  */
 export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   const { t } = useTranslation();
@@ -110,7 +85,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   const [panelError, setPanelError] = useState<unknown>(null);
   /** The record a new conversation is about (Explain); null for a plain chat. */
   const [context, setContext] = useState<AiPanelContext | null>(null);
-  const [shownInsightId, setShownInsightId] = useState<string | null>(null);
   const request = useAiPanelStore((s) => s.request);
   const clearRequest = useAiPanelStore((s) => s.clearRequest);
 
@@ -122,6 +96,30 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  // Escape works wherever focus is, not only in the composer. A confirm dialog
+  // opened in the panel is a layer above it and takes Escape first.
+  const panelIsTopmost = useEscapeLayer(() => {
+    if (streaming) stop();
+    else onClose();
+  });
+
+  // A click outside the panel closes it. A dialog or pop-over the panel opened
+  // is not outside, and neither is anything while a dialog is open above it.
+  useEffect(() => {
+    function onPointerDown(e: PointerEvent): void {
+      const target = e.target;
+      if (!(target instanceof Node) || panelRef.current == null) return;
+      if (panelRef.current.contains(target)) return;
+      if (!panelIsTopmost()) return;
+      if (target instanceof Element && target.closest(PANEL_OWNED_OVERLAY) != null) return;
+      onClose('outside');
+    }
+    document.addEventListener('pointerdown', onPointerDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+    };
+  }, [onClose, panelIsTopmost]);
 
   /** Puts the record's Explain question in the composer, in the user's language. */
   const prefillExplain = useCallback(
@@ -147,9 +145,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
     setMessages([]);
     setPanelError(null);
     setContext(request.context);
-    setShownInsightId(request.insightId);
-    if (request.insightId == null) prefillExplain(request.context.kind);
-    else setInput('');
+    prefillExplain(request.context.kind);
   }, [request, streaming, clearRequest, prefillExplain]);
 
   useEffect(() => {
@@ -243,7 +239,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
     // Files that failed stay listed with their error until the user removes them.
     setAttachments((prev) => prev.filter((a) => !sent.includes(a)));
     setInput('');
-    setShownInsightId(null);
     if (textareaRef.current != null) textareaRef.current.style.height = 'auto';
     setMessages((prev) => [...prev, userMessage(trimmed, chips)]);
     await streamInto(`${conversationPath(id)}/messages`, {
@@ -297,7 +292,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
       );
       setConversationId(detail.id);
       setContext(detail.context ?? null);
-      setShownInsightId(null);
       setMessages(messagesFromHistory(detail.messages));
     } catch (err) {
       setPanelError(err);
@@ -312,7 +306,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
     setMessages([]);
     setPanelError(null);
     setContext(null);
-    setShownInsightId(null);
     setView('chat');
     setTimeout(() => textareaRef.current?.focus(), 0);
   }
@@ -340,12 +333,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   }
 
   function onPanelKeyDown(e: React.KeyboardEvent<HTMLDivElement>): void {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      if (streaming) stop();
-      else onClose();
-      return;
-    }
     if (e.key !== 'Tab' || panelRef.current == null) return;
     // Focus stays in the panel while it is open (returned to the launcher on close).
     const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
@@ -385,8 +372,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
     el.style.height = `${String(Math.min(el.scrollHeight, 160))}px`;
   }
 
-  const showInsight = shownInsightId != null && messages.length === 0 && !loadingConversation;
-  const showEmpty = messages.length === 0 && !loadingConversation && !showInsight;
+  const showEmpty = messages.length === 0 && !loadingConversation;
   const inHistory = view === 'history';
   const historyToggleLabel = inHistory ? t('ai.backToChat') : t('ai.history');
 
@@ -449,7 +435,9 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
           variant="ghost"
           size="icon"
           aria-label={t('common.close')}
-          onClick={onClose}
+          onClick={() => {
+            onClose();
+          }}
         >
           <X className="h-4 w-4" />
         </Button>
@@ -484,19 +472,7 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
               </div>
             )}
             <AiUsageNotices className="mb-3" />
-            {showInsight && (
-              <PanelInsight
-                insightId={shownInsightId}
-                onFollowUp={
-                  canWrite && context != null
-                    ? () => {
-                        setShownInsightId(null);
-                        prefillExplain(context.kind);
-                      }
-                    : undefined
-                }
-              />
-            )}
+            {context != null && !loadingConversation && <ExplainContextCard context={context} />}
             {showEmpty && context == null && (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">{t('ai.intro')}</p>
@@ -532,26 +508,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
 
           {canWrite && (
             <div className="space-y-2 border-t border-border p-3">
-              {context != null && (
-                <p
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground"
-                  data-testid="ai-context-chip"
-                >
-                  <Sparkles className="h-3.5 w-3.5 text-link" aria-hidden="true" />
-                  <span
-                    className="min-w-0 truncate"
-                    title={t('ai.explain.about', {
-                      record: t(`ai.explain.kind.${context.kind}`),
-                      label: context.label ?? context.id,
-                    })}
-                  >
-                    {t('ai.explain.about', {
-                      record: t(`ai.explain.kind.${context.kind}`),
-                      label: context.label ?? context.id,
-                    })}
-                  </span>
-                </p>
-              )}
               <AttachmentPreviews
                 attachments={attachments}
                 disabled={busy}

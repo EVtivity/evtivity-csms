@@ -4,16 +4,24 @@
 /**
  * Automatic insight routes.
  * Reads need
- * `aiInsights:read`, regenerate, dismiss and feedback `aiInsights:write`.
+ * `aiInsights:read`, regenerate, dismiss, feedback and the action decisions
+ * `aiInsights:write`.
  * Feedback is one vote per user and insight (`ai_insight_feedback`); votes
  * and their notes never feed any prompt.
+ * Actions: a background worker suggestion is an insight that carries an
+ * action (`action` on every item). It runs only when an operator confirms it
+ * (`POST /ai/insights/:id/action/confirm`), in an interactive session, as
+ * that operator (`executeConfirmedToolCall`): the route the action names
+ * applies its own RBAC and site scope at confirm time. API keys can read
+ * actions but never confirm or reject one (decision D8). Dismissing an
+ * insight with a pending action rejects the action.
  * Site scope: a list holds the user's sites only (unsited insights for
  * all-site users only); a detail outside the user's sites answers the same
  * 404 `AI_INSIGHT_NOT_FOUND` as a missing one. Scope counts are the
  * subject site's only. Not cached (per-user scope, `response-cache.md`).
  */
 
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { and, eq, inArray } from 'drizzle-orm';
 import {
@@ -37,14 +45,35 @@ import {
   INSIGHT_FEEDBACK_REASON_MAX_LENGTH,
   INSIGHT_FEEDBACK_SUMMARY_DAYS,
   INSIGHT_GENERATORS,
+  INSIGHT_ACTION_FILTERS,
   INSIGHT_KINDS,
   INSIGHT_SKIP_REASONS,
   INSIGHT_STATUSES,
   INSIGHT_TEXT_STATUSES,
   isReservationInsightKind,
+  isWorkerActionInsightKind,
   RESERVATION_INSIGHT_KINDS,
   ROOT_CAUSE_CATEGORIES,
 } from '@evtivity/lib/ai-insights';
+import {
+  AI_PROPOSAL_PRECONDITION_KINDS,
+  AI_PROPOSAL_STATUSES,
+  AI_WORKER_JOBS,
+  aiProposalConfirmBody,
+  aiProposalPreconditionSchema,
+  findAiWorkerAction,
+  workerActionArgsAllowed,
+} from '@evtivity/lib/ai-proposals';
+import {
+  aiProposalPreconditionHolds,
+  claimAiProposal,
+  finishAiProposal,
+  getInsightActionRow,
+  insightActionRows,
+  rejectAiProposal,
+  toAiProposalDto,
+} from '@evtivity/services/ai-proposal.service';
+import type { AiProposalRow } from '@evtivity/services/ai-proposal.service';
 import type { InsightKind, InsightScope } from '@evtivity/lib/ai-insights';
 import { computeLiveInsightScope } from '@evtivity/services/ai-evidence';
 import type { CheckAiBudgets } from '@evtivity/lib/ai-usage';
@@ -74,13 +103,16 @@ import { paginationQuery } from '../lib/pagination.js';
 import { errorWith, paginatedResponse, itemResponse } from '../lib/response-schemas.js';
 import { ERROR_CODES, ERROR_MESSAGES } from '../lib/error-codes.generated.js';
 import type { ErrorCode } from '../lib/error-codes.generated.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
-import { siteInScope } from '../lib/site-scope.js';
+import { insightRowVisible } from '../lib/ai-insight-scope.js';
 import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
 import { sessionIdsInSites } from '../lib/support-case-redaction.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import { callerAuthorization } from '../services/ai/engine/route-support.js';
+import { executeConfirmedToolCall } from '../services/ai/tools/execute.js';
+import type { ConfirmedToolCallResult } from '../services/ai/tools/execute.js';
 
 const NOT_FOUND = {
   error: ERROR_MESSAGES.AI_INSIGHT_NOT_FOUND,
@@ -108,6 +140,49 @@ const countsSchema = z
       .optional()
       .describe('Sessions that failed with the same stop reason in 24 hours'),
     tokenRefusals: z.number().int().optional().describe('Refused authorizations in 24 hours'),
+  })
+  .passthrough();
+
+const actionSchema = z
+  .object({
+    id: z.string().describe('Action ID'),
+    job: z.enum(AI_WORKER_JOBS).nullable().describe('The background worker job that suggested it'),
+    insightId: z.string().describe('The insight that carries the action'),
+    siteId: z.string().nullable().describe('Site of the target'),
+    stationId: z.string().nullable().describe('Target station ID'),
+    sessionId: z.string().nullable().describe('Target session ID'),
+    operationId: z.string().describe('The API operation the action runs'),
+    method: z.string().describe('HTTP method of the operation'),
+    path: z.string().describe('Path of the operation'),
+    args: z.record(z.unknown()).describe('The arguments the operation runs with'),
+    argsHash: z.string().describe('Hash of the arguments; send it back to confirm'),
+    summary: z.record(z.unknown()).describe('Structured fields for the confirmation card'),
+    precondition: z
+      .object({
+        kind: z.enum(AI_PROPOSAL_PRECONDITION_KINDS).describe('What must still hold at confirm'),
+        params: z.record(z.unknown()).describe('Parameters of the check'),
+      })
+      .passthrough()
+      .nullable()
+      .describe('Checked again at confirm; an action whose precondition fails ends stale'),
+    status: z.enum(AI_PROPOSAL_STATUSES).describe('pending, or the final status'),
+    expiresAt: z.string().describe('ISO datetime after which it can no longer be confirmed'),
+    decidedBy: z.string().nullable().describe('User who confirmed or rejected it'),
+    decidedByName: z
+      .string()
+      .nullable()
+      .describe('Name of the user who confirmed or rejected it; null while undecided'),
+    decidedAt: z.string().nullable().describe('ISO datetime of the decision'),
+    executedAt: z.string().nullable().describe('ISO datetime the operation ran'),
+    result: z
+      .object({
+        httpStatus: z.number().int().describe('HTTP status the operation answered; 0 when refused'),
+        body: z.unknown().optional().describe('Redacted excerpt of the answer, or the refusal'),
+      })
+      .passthrough()
+      .nullable()
+      .describe('The operation result, once it ran'),
+    createdAt: z.string().describe('ISO datetime'),
   })
   .passthrough();
 
@@ -174,6 +249,11 @@ const insightSchema = z
     createdAt: z.string().describe('Creation time'),
     resolvedAt: z.string().nullable().describe('When the condition cleared'),
     dismissedAt: z.string().nullable().describe('When an operator dismissed it'),
+    action: actionSchema
+      .nullable()
+      .describe(
+        'The action the insight carries (a background worker suggestion), or null; it runs only when an operator confirms it',
+      ),
     stationName: z
       .string()
       .nullable()
@@ -240,6 +320,10 @@ const listQuery = paginationQuery.extend({
     .enum(INSIGHT_FEEDBACK_FILTERS)
     .optional()
     .describe('helpful or wrong: insights at least one user marked so'),
+  action: z
+    .enum(INSIGHT_ACTION_FILTERS)
+    .optional()
+    .describe('pending: insights whose action waits for a decision; any: insights with an action'),
   language: languageField,
 });
 
@@ -284,6 +368,8 @@ const REGENERATABLE: ReadonlySet<InsightKind> = new Set([
 ]);
 
 function kindSwitch(kind: InsightKind, settings: AiInsightSettings): boolean {
+  // Worker suggestions follow their job's switch and are never regenerated.
+  if (isWorkerActionInsightKind(kind)) return false;
   if (isReservationInsightKind(kind)) return settings.reservationEnabled;
   if (kind === 'session_failed') return settings.sessionEnabled;
   if (kind === 'authorization_refused') return settings.authorizationEnabled;
@@ -302,16 +388,14 @@ async function viewerLanguage(userId: string, requested: string | undefined): Pr
 }
 
 /**
- * The insight when the caller may see it: in their sites, and a reservation
- * insight only while the reservation feature is on (owner rule v0.1.45; the
- * row stays stored and shows again once it is on).
+ * The insight when the caller may see it (`insightRowVisible`: in their
+ * sites, a reservation insight only while reservations are on). Every
+ * `/ai/insights/:id` route resolves its insight here; the neighbors route
+ * applies the same gate in SQL (ai-insight-scope.test.ts guards both).
  */
 async function insightInScope(id: string, siteIds: string[] | null): Promise<AiInsightRow | null> {
   const row = await getInsightRow(id);
-  if (row == null || !siteInScope(siteIds, row.siteId)) return null;
-  if (isReservationInsightKind(row.kind) && !(await isReservationEnabled())) {
-    return null;
-  }
+  if (row == null || !(await insightRowVisible(row, siteIds))) return null;
   return row;
 }
 
@@ -338,16 +422,52 @@ async function recordNames(
   };
 }
 
+/** The user's name, never the email: insight readers need not see other operators' addresses. */
+function userName(u: { firstName: string | null; lastName: string | null }): string | null {
+  const name = [u.firstName, u.lastName].filter((p) => p != null && p !== '').join(' ');
+  return name !== '' ? name : null;
+}
+
+/** The actions of the insights, as DTOs with the deciding user's name. */
+async function actionViews(
+  rows: readonly AiInsightRow[],
+): Promise<Map<string, Record<string, unknown> & ReturnType<typeof toAiProposalDto>>> {
+  const actions = await insightActionRows(rows.map((r) => r.id));
+  const deciders = [
+    ...new Set([...actions.values()].map((a) => a.decidedBy).filter((id) => id != null)),
+  ];
+  const userRows =
+    deciders.length === 0
+      ? []
+      : await db
+          .select({ id: users.id, firstName: users.firstName, lastName: users.lastName })
+          .from(users)
+          .where(inArray(users.id, deciders));
+  const names = new Map(userRows.map((u) => [u.id, userName(u)]));
+  const out = new Map<string, Record<string, unknown> & ReturnType<typeof toAiProposalDto>>();
+  for (const [insightId, action] of actions) {
+    out.set(insightId, {
+      ...toAiProposalDto(action),
+      decidedByName: action.decidedBy != null ? (names.get(action.decidedBy) ?? null) : null,
+    });
+  }
+  return out;
+}
+
 async function toView(rows: AiInsightRow[], language: string): Promise<Record<string, unknown>[]> {
-  const [texts, stale, names] = await Promise.all([
+  const [texts, stale, names, actions] = await Promise.all([
     insightTexts(rows, language),
     staleFlags(rows),
     recordNames(rows),
+    actionViews(rows),
   ]);
   return rows.map((row) => {
     const t = texts.get(row.id);
+    const action = actions.get(row.id) ?? null;
     return {
-      ...toInsightDto(row, t, { language, stale: stale.get(row.id) ?? false }),
+      ...toInsightDto(row, t, { language, stale: stale.get(row.id) ?? false, action }),
+      // The action again with its display name (the DTO schema keeps known fields only).
+      action,
       originalSummary: originalSummary(t),
       stationName: row.stationId != null ? (names.stations.get(row.stationId) ?? null) : null,
       siteName: row.siteId != null ? (names.sites.get(row.siteId) ?? null) : null,
@@ -424,6 +544,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       if (query.status != null) filter.status = query.status;
       if (query.category != null) filter.category = query.category;
       if (query.feedback != null) filter.feedback = query.feedback;
+      if (query.action != null) filter.action = query.action;
       const attemptIds = query.authorizeAttemptIds?.split(',').map((id) => Number(id)) ?? null;
       if (attemptIds != null) filter.authorizeAttemptIds = attemptIds;
       if (query.supportCaseId != null) {
@@ -641,9 +762,14 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
         operationId: 'dismissAiInsight',
         security: [{ bearerAuth: [] }],
         params: zodSchema(idParams),
+        description:
+          'Closes the insight. A pending action it carries is rejected first; an action a confirm is running answers 409 AI_PROPOSAL_ALREADY_DECIDED.',
         response: {
           200: itemResponse(insightSchema),
           404: errorWith('Insight not found', [ERROR_CODES.AI_INSIGHT_NOT_FOUND]),
+          409: errorWith('The action is being confirmed', [
+            ERROR_CODES.AI_PROPOSAL_ALREADY_DECIDED,
+          ]),
         },
       },
     },
@@ -653,6 +779,21 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       const siteIds = await getUserSiteIds(userId);
       const row = await insightInScope(id, siteIds);
       if (row == null) return reply.status(404).send(NOT_FOUND);
+      const action = await getInsightActionRow(row.id);
+      if (action?.status === 'pending') {
+        // Dismissing rejects the pending action, which dismisses the insight.
+        if (action.decidedAt != null) {
+          return sendActionError(reply, 409, 'AI_PROPOSAL_ALREADY_DECIDED');
+        }
+        const rejection = await rejectAiProposal(
+          action.id,
+          { ...getAuditActor(request), actorUserId: userId },
+          request.log,
+        );
+        if (rejection.kind === 'decided' && rejection.row.status === 'pending') {
+          return sendActionError(reply, 409, 'AI_PROPOSAL_ALREADY_DECIDED');
+        }
+      }
       if (await dismissInsight(row.id, getAuditActor(request))) {
         await publishInsightUpdated(getPubSub(), { ...row, status: 'dismissed' });
       }
@@ -718,6 +859,265 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       if (row == null) return reply.status(404).send(NOT_FOUND);
       await clearInsightFeedback(row.id, userId, getAuditActor(request));
       return reply.status(204).send();
+    },
+  );
+
+  aiInsightActionRoutes(app);
+}
+
+type ActionErrorCode =
+  | 'AI_PROPOSAL_NOT_FOUND'
+  | 'AI_PROPOSAL_EXPIRED'
+  | 'AI_PROPOSAL_STALE'
+  | 'AI_PROPOSAL_ALREADY_DECIDED'
+  | 'AI_CONFIRMATION_REQUIRES_SESSION'
+  | 'VALIDATION_ERROR';
+
+async function sendActionError(
+  reply: FastifyReply,
+  status: number,
+  code: ActionErrorCode,
+): Promise<FastifyReply> {
+  return reply.status(status).send({ error: ERROR_MESSAGES[code], code });
+}
+
+/** 409 for an action that is no longer open to a decision. */
+async function decidedError(reply: FastifyReply, row: AiProposalRow): Promise<FastifyReply> {
+  if (row.status === 'expired') return sendActionError(reply, 409, 'AI_PROPOSAL_EXPIRED');
+  if (row.status === 'stale') return sendActionError(reply, 409, 'AI_PROPOSAL_STALE');
+  return sendActionError(reply, 409, 'AI_PROPOSAL_ALREADY_DECIDED');
+}
+
+function isApiKeyRequest(request: FastifyRequest): boolean {
+  return (request.user as JwtPayload).isApiKey === true;
+}
+
+/** Worker actions run only the closed action set, also after the OCPP version mapping. */
+function workerActionAllowed(operationId: string, args: Readonly<Record<string, unknown>>) {
+  const action = findAiWorkerAction(operationId);
+  return action !== undefined && workerActionArgsAllowed(action, args);
+}
+
+/** The stored outcome of a confirm, from what the confirmed call did. */
+function outcomeOf(result: Exclude<ConfirmedToolCallResult, { kind: 'expired' | 'stale' }>) {
+  if (result.kind === 'refused') {
+    return {
+      status: 'failed' as const,
+      // The reason code only; the CSMS localizes it (no English text stored).
+      result: { httpStatus: 0, body: { refused: result.reason } },
+    };
+  }
+  return {
+    status: result.httpStatus < 400 ? ('executed' as const) : ('failed' as const),
+    result: {
+      httpStatus: result.httpStatus,
+      body: { operationId: result.operationId, response: result.body },
+    },
+  };
+}
+
+/**
+ * The insight in the caller's scope and the action it carries. Answers 404
+ * (`AI_INSIGHT_NOT_FOUND`, then `AI_PROPOSAL_NOT_FOUND`) before anything else,
+ * then 403 for an API key, so a key learns nothing about insights it cannot
+ * see (decision D8).
+ */
+async function decidableAction(
+  request: FastifyRequest,
+  reply: FastifyReply,
+): Promise<{ insight: AiInsightRow; action: AiProposalRow } | null> {
+  const { id } = parseZodRequest(idParams, request.params);
+  const { userId } = request.user as JwtPayload;
+  const insight = await insightInScope(id, await getUserSiteIds(userId));
+  if (insight == null) {
+    await reply.status(404).send(NOT_FOUND);
+    return null;
+  }
+  const action = await getInsightActionRow(insight.id);
+  if (action == null) {
+    await sendActionError(reply, 404, 'AI_PROPOSAL_NOT_FOUND');
+    return null;
+  }
+  if (isApiKeyRequest(request)) {
+    await sendActionError(reply, 403, 'AI_CONFIRMATION_REQUIRES_SESSION');
+    return null;
+  }
+  if (action.status !== 'pending') {
+    await decidedError(reply, action);
+    return null;
+  }
+  return { insight, action };
+}
+
+async function insightView(
+  request: FastifyRequest,
+  insightId: string,
+): Promise<Record<string, unknown> | null> {
+  const row = await getInsightRow(insightId);
+  if (row == null) return null;
+  const { userId } = request.user as JwtPayload;
+  const [view] = await toView([row], await viewerLanguage(userId, undefined));
+  return view ?? null;
+}
+
+const actionDecisionErrors = {
+  403: errorWith('Deciding needs a signed-in session', [
+    ERROR_CODES.AI_CONFIRMATION_REQUIRES_SESSION,
+  ]),
+  404: errorWith('Insight or action not found', [
+    ERROR_CODES.AI_INSIGHT_NOT_FOUND,
+    ERROR_CODES.AI_PROPOSAL_NOT_FOUND,
+  ]),
+  409: errorWith('The action is no longer open to a decision', [
+    ERROR_CODES.AI_PROPOSAL_EXPIRED,
+    ERROR_CODES.AI_PROPOSAL_STALE,
+    ERROR_CODES.AI_PROPOSAL_ALREADY_DECIDED,
+  ]),
+};
+
+/** Confirm and reject of the action an insight carries (registered by `aiInsightRoutes`). */
+function aiInsightActionRoutes(app: FastifyInstance): void {
+  app.post(
+    '/ai/insights/:id/action/confirm',
+    {
+      onRequest: [authorize('aiInsights:write')],
+      schema: {
+        tags: ['AI Insights'],
+        summary: 'Confirm and run the action an insight carries',
+        description:
+          "Runs the action once, as the caller: the precondition and the station's OCPP version are checked again, then the operation runs with the caller's own permissions and site access. A route refusal (403, 404) is recorded and the action ends failed. The insight closes with the action. Needs a signed-in session: API keys get 403 AI_CONFIRMATION_REQUIRES_SESSION.",
+        operationId: 'confirmAiInsightAction',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(idParams),
+        body: zodSchema(
+          aiProposalConfirmBody.extend({
+            argsHash: z.string().min(1).max(64).describe('argsHash of the action as shown'),
+          }),
+        ),
+        response: {
+          200: itemResponse(insightSchema),
+          400: errorWith('The arguments shown differ from the action', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
+          ...actionDecisionErrors,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
+      const { argsHash } = request.body as z.infer<typeof aiProposalConfirmBody>;
+      const target = await decidableAction(request, reply);
+      if (target === null) return reply;
+      const { insight, action: row } = target;
+      if (argsHash !== row.argsHash) return sendActionError(reply, 400, 'VALIDATION_ERROR');
+
+      const actor = { actor: 'operator' as const, actorUserId: userId };
+      const claim = await claimAiProposal(row.id, actor, request.log);
+      if (claim.kind === 'not_found') return sendActionError(reply, 404, 'AI_PROPOSAL_NOT_FOUND');
+      if (claim.kind !== 'claimed') return decidedError(reply, claim.row);
+
+      const claimed = claim.row;
+      // A stored precondition that no longer parses fails closed: the action ends stale.
+      const parsed =
+        claimed.precondition == null
+          ? null
+          : aiProposalPreconditionSchema.safeParse(claimed.precondition);
+      const precondition = parsed === null ? null : parsed.success ? parsed.data : undefined;
+      let result: ConfirmedToolCallResult;
+      try {
+        result = await executeConfirmedToolCall(
+          app,
+          {
+            userId,
+            authorization: callerAuthorization(request),
+            hasPermission: (permission) => requestHasPermission(request, permission),
+          },
+          {
+            operationId: claimed.operationId,
+            args: claimed.args as Record<string, unknown>,
+            argsHash: claimed.argsHash,
+            expiresAt: claimed.expiresAt,
+            via: { channel: 'proposal', proposalId: claimed.id, confirmedBy: userId },
+            allowAction: workerActionAllowed,
+            ...(precondition === undefined
+              ? { precondition: () => Promise.resolve(false) }
+              : precondition !== null
+                ? { precondition: () => aiProposalPreconditionHolds(precondition) }
+                : {}),
+          },
+        );
+      } catch (err) {
+        // Fail loud, but never leave the claim behind: whether the route ran
+        // is unknown, so the action ends failed and is never retried (P9).
+        request.log.error({ err, proposalId: claimed.id }, 'AI insight action confirm failed');
+        await finishAiProposal(
+          claimed.id,
+          actor,
+          { status: 'failed', result: { httpStatus: 0, body: { error: 'confirm_error' } } },
+          request.log,
+        );
+        throw err;
+      }
+      if (result.kind === 'expired' || result.kind === 'stale') {
+        await finishAiProposal(claimed.id, actor, { status: result.kind }, request.log);
+        return sendActionError(
+          reply,
+          409,
+          result.kind === 'expired' ? 'AI_PROPOSAL_EXPIRED' : 'AI_PROPOSAL_STALE',
+        );
+      }
+      if (result.kind === 'refused') {
+        request.log.info(
+          { proposalId: claimed.id, operationId: claimed.operationId, reason: result.reason },
+          'AI insight action refused at confirm',
+        );
+      }
+      const finished = await finishAiProposal(claimed.id, actor, outcomeOf(result), request.log);
+      if (finished === null) {
+        // The sweep ended the claim first (a confirm past the claim timeout).
+        const current = await getInsightActionRow(insight.id);
+        return decidedError(reply, current ?? claimed);
+      }
+      const view = await insightView(request, insight.id);
+      if (view == null) return reply.status(404).send(NOT_FOUND);
+      return view;
+    },
+  );
+
+  app.post(
+    '/ai/insights/:id/action/reject',
+    {
+      onRequest: [authorize('aiInsights:write')],
+      schema: {
+        tags: ['AI Insights'],
+        summary: 'Reject the action an insight carries',
+        description:
+          'Records the rejection; the action never runs and the insight is dismissed. Needs a signed-in session: API keys get 403 AI_CONFIRMATION_REQUIRES_SESSION.',
+        operationId: 'rejectAiInsightAction',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(idParams),
+        response: {
+          200: itemResponse(insightSchema),
+          ...actionDecisionErrors,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { userId } = request.user as JwtPayload;
+      const target = await decidableAction(request, reply);
+      if (target === null) return reply;
+      const rejection = await rejectAiProposal(
+        target.action.id,
+        { actor: 'operator', actorUserId: userId },
+        request.log,
+      );
+      if (rejection.kind === 'not_found') {
+        return sendActionError(reply, 404, 'AI_PROPOSAL_NOT_FOUND');
+      }
+      if (rejection.kind !== 'rejected') return decidedError(reply, rejection.row);
+      const view = await insightView(request, target.insight.id);
+      if (view == null) return reply.status(404).send(NOT_FOUND);
+      return view;
     },
   );
 }

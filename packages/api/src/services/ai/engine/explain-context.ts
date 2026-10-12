@@ -10,8 +10,9 @@
  *   (read permission, then site scope; an unsited record is visible to
  *   all-site users only), at creation and before every turn. Unknown and out
  *   of scope answer the same 404 `AI_CONTEXT_NOT_FOUND`.
- * - Every turn's dynamic prompt block carries the record's whitelisted
- *   fields, its evidence pack and its latest insight (`explain-evidence.ts`),
+ * - Every turn's dynamic prompt block carries the record's curated context
+ *   (`explain-engine.ts`: key facts, recent events, the latest insight's
+ *   headline, cause and fixes; read through `explain-evidence.ts`),
  *   redacted at the support level and framed as untrusted. The static block
  *   never changes, so prompt caching holds.
  * - The client never supplies evidence: only the kind and the id.
@@ -33,6 +34,7 @@ import { frameUntrusted } from '@evtivity/ai/prompt';
 import { redactToolValue } from '@evtivity/ai/redact';
 import { getUserSiteIds } from '../../../lib/site-access.js';
 import { siteInScope } from '../../../lib/site-scope.js';
+import { buildExplainContext } from './explain-engine.js';
 import { explainEvidenceSource } from './explain-evidence.js';
 import type { ExplainEvidenceSource } from './explain-evidence.js';
 
@@ -338,26 +340,13 @@ export async function explainPromptBlock(
     orNull(() => source.collectEvidence(subject), 'evidence', subject),
     orNull(() => source.latestInsight(subject, language), 'latest insight', subject),
   ]);
-  const payload: Record<string, unknown> = { kind: subject.kind, record: subject.facts };
-  if (evidence !== null) payload['evidence'] = evidence;
-  if (insight !== null) {
-    payload['latestInsight'] = {
-      kind: insight.kind,
-      status: insight.status,
-      category: insight.category,
-      confidence: insight.confidence,
-      fixes: insight.fixes,
-      // The site counts are the only scope an insight carries.
-      ...(insight.scope.site !== undefined ? { siteScope: insight.scope.site } : {}),
-      summary: insight.summary,
-      basisAt: insight.basisAt,
-    };
-  }
-  // Only the pack is unbounded: the facts are a fixed whitelist and the insight
-  // summary is at most INSIGHT_SUMMARY_MAX_LENGTH characters.
+  // One engine for every kind: curated facts, recent events, the insight's headline.
+  const payload = buildExplainContext(subject.kind, subject.facts, evidence, insight);
+  // The facts are a fixed whitelist and the events are capped; station text can
+  // still be long, so the events go first when the block is over its cap.
   let json = JSON.stringify(redactToolValue(payload, 'support').value);
-  if (json.length > EXPLAIN_BLOCK_MAX_CHARS && evidence !== null) {
-    payload['evidence'] = 'omitted: too large, use the read tools';
+  if (json.length > EXPLAIN_BLOCK_MAX_CHARS && payload.recentEvents !== undefined) {
+    payload.recentEvents = 'omitted: too large, use the read tools';
     json = JSON.stringify(redactToolValue(payload, 'support').value);
   }
   return `${EXPLAIN_INSTRUCTION}\n${frameUntrusted('explain_context', `${subject.kind}:${subject.id}`, json)}`;

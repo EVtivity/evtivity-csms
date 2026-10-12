@@ -691,7 +691,7 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'notInvoiced',
     'notInvoicedCount',
   ],
-  // Daily AI Inbox digest: counts only, never model text.
+  // Daily digest of pending AI insight actions: counts only, never model text.
   'ai.ProposalDigest': [
     'firstName',
     'lastName',
@@ -701,7 +701,7 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
     'networkSummaryCount',
     'siteCount',
     'siteNames',
-    'inboxUrl',
+    'insightsUrl',
   ],
 };
 
@@ -1587,7 +1587,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         networkSummaryCount: 1,
         siteCount: 2,
         siteNames: 'Downtown Charging Hub, Airport Parking',
-        inboxUrl: 'https://csms.example.com/ai/inbox',
+        insightsUrl: 'https://csms.example.com/ai/insights?action=pending',
         balanceCents: 350,
         // Money and rates as the dispatcher formats them, in the template language.
         ...formatLocalizedVariables(

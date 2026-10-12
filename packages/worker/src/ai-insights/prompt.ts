@@ -37,6 +37,10 @@ const KIND_TASKS: Record<InsightKind, string> = {
   site_summary: 'Summarize the state of one site.',
   company_summary: 'Summarize the state of the charging network.',
   tariff_anomaly: 'Explain a tariff anomaly.',
+  // Worker suggestions are stored by the worker, never generated: listed for completeness.
+  stuck_session: 'A charging session looks stuck. Explain why stopping it may be needed.',
+  station_long_faulted:
+    'A charging station has been faulted for hours. Explain why a soft reset may help.',
   reservation_rejected:
     'A charging station rejected a reservation, or did not answer the reservation request. Find the most likely root cause.',
   reservation_no_show:

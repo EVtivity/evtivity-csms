@@ -1,7 +1,7 @@
 <p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}Hola {{firstName}}:{{else}}Hola:{{/if}}</p>
-<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{pendingCount}} propuestas de IA esperan su revisión en la bandeja de IA. Ninguna se ejecuta hasta que un operador la confirme.</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{pendingCount}} acciones sugeridas por la IA esperan su decisión en Análisis de IA. Ninguna se ejecuta hasta que un operador la confirme.</p>
 {{#if stuckSessionsCount}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Detener una sesión de carga bloqueada: {{stuckSessionsCount}}</p>{{/if}}
 {{#if networkSummaryCount}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Del resumen del estado de la red: {{networkSummaryCount}}</p>{{/if}}
 {{#if siteNames}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>Ubicaciones: {{siteNames}}</p>{{/if}}
-<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{inboxUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>Abrir la bandeja de IA</a></td></tr></table>
-<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>Las propuestas caducan si nadie las confirma. Recibe este resumen porque activó el resumen diario de propuestas de IA en su perfil.</p>
+<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{insightsUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>Abrir Análisis de IA</a></td></tr></table>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>Las acciones caducan si nadie las confirma. Recibe este resumen porque activó el resumen diario de acciones sugeridas por la IA en su perfil.</p>

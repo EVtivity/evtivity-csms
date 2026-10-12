@@ -61,7 +61,20 @@ export function parseMcpToolsets(
 }
 
 const WRITE_NOTE =
-  ' This tool never runs directly: the call becomes a proposal that the same user approves in EVtivity CSMS > AI Inbox. The result names the proposal; poll it with get_ai_proposal.';
+  ' This tool changes the station: it runs at once, with the API key permissions and sites, and answers the command result.';
+
+/** True when `name` is an MCP write tool (listed only while writes are allowed). */
+export function isMcpWriteTool(
+  name: string,
+  catalog: readonly AiCatalogTool[] = AI_TOOL_CATALOG,
+): boolean {
+  const tool = catalog.find((t) => t.name === name);
+  return (
+    tool !== undefined &&
+    mcpOffers(tool.operationId) &&
+    toolPolicy(tool.operationId).exposure === 'write'
+  );
+}
 
 /** The MCP tools of the given toolsets, by name. */
 export function mcpToolset(
@@ -74,7 +87,7 @@ export function mcpToolset(
   for (const tool of catalog) {
     if (!wanted.has(toolsetSlug(tool.category)) || !mcpOffers(tool.operationId)) continue;
     const policy = toolPolicy(tool.operationId);
-    // A key that may not propose writes does not see them.
+    // Without write access (setting off, or no aiMcp:write) writes are not listed.
     if (policy.exposure === 'write' && !options.writes) continue;
     const description = ocppToolDescription(tool);
     entries.push({
@@ -118,8 +131,8 @@ export function mcpToolList(toolset: Toolset): {
  * Checks of the MCP exposure against the policy and the catalog (codegen gate,
  * TC-AI-MCP-05): every `read` and `write` entry sets its MCP value, no `never`
  * entry is listed, every listed entry names an operation, and an MCP write is
- * an OCPP command route with a `stationId` argument (the proposal's station
- * and site come from it).
+ * an OCPP command route with a `stationId` argument (MCP writes stay station
+ * commands; the route scopes the station to the key user's sites).
  */
 export function mcpExposureProblems(
   operations: readonly AiCatalogOperation[],

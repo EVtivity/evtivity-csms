@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   reservationStatusVariant,
   insightStatusVariant,
-  aiProposalStatusVariant,
+  insightActionStatusVariant,
   fleetReservationStatusVariant,
   sessionStatusVariant,
   simpleSessionStatusVariant,
@@ -277,11 +277,11 @@ describe('AI status variants', () => {
     expect(insightStatusVariant('skipped')).toBe('outline');
   });
 
-  it('maps proposal statuses', () => {
-    expect(aiProposalStatusVariant('pending')).toBe('warning');
-    expect(aiProposalStatusVariant('executed')).toBe('success');
-    expect(aiProposalStatusVariant('failed')).toBe('destructive');
-    expect(aiProposalStatusVariant('rejected')).toBe('secondary');
-    expect(aiProposalStatusVariant('stale')).toBe('outline');
+  it('maps insight action statuses', () => {
+    expect(insightActionStatusVariant('pending')).toBe('warning');
+    expect(insightActionStatusVariant('executed')).toBe('success');
+    expect(insightActionStatusVariant('failed')).toBe('destructive');
+    expect(insightActionStatusVariant('rejected')).toBe('secondary');
+    expect(insightActionStatusVariant('stale')).toBe('outline');
   });
 });

@@ -263,6 +263,14 @@ vi.mock('@evtivity/services/session-revenue', async (importOriginal) => {
   };
 });
 
+const { mockListStationMessageLog } = vi.hoisted(() => ({ mockListStationMessageLog: vi.fn() }));
+
+// The message log SQL (logs plus the offline command queue) is covered by
+// the integration tests.
+vi.mock('../lib/station-message-log.js', () => ({
+  listStationMessageLog: mockListStationMessageLog,
+}));
+
 vi.mock('../lib/site-access.js', () => ({
   getUserSiteIds: vi.fn().mockResolvedValue(null),
   invalidateSiteAccessCache: vi.fn(),
@@ -1714,37 +1722,62 @@ describe('Station routes - handler logic', () => {
   // --- GET /v1/stations/:id/ocpp-logs ---
 
   describe('GET /v1/stations/:id/ocpp-logs', () => {
-    it('returns paginated OCPP logs with actions list', async () => {
-      const logRow = {
-        id: 1,
+    it('returns the messages and the queued commands with their processing status', async () => {
+      const row = {
         stationId: VALID_STATION_ID,
-        action: 'Heartbeat',
-        direction: 'inbound',
-        messageType: 2,
-        messageId: 'msg-1',
-        payload: null,
         errorCode: null,
         errorDescription: null,
-        createdAt: '2024-01-01T00:00:00.000Z',
+        payload: {},
       };
-      // Promise.all: data rows, count rows, then distinct actions
-      setupDbResults(
-        [logRow],
-        [{ count: 1 }],
-        [{ action: 'Heartbeat' }, { action: 'BootNotification' }],
-      );
+      mockListStationMessageLog.mockResolvedValueOnce({
+        data: [
+          {
+            ...row,
+            id: 4,
+            action: 'ClearCache',
+            direction: 'outbound',
+            messageType: 2,
+            messageId: 'cmd-1',
+            createdAt: new Date('2024-01-01T00:01:00.000Z'),
+            processingStatus: 'queued',
+          },
+          {
+            ...row,
+            id: 1,
+            action: 'Heartbeat',
+            direction: 'inbound',
+            messageType: 2,
+            messageId: 'msg-1',
+            createdAt: new Date('2024-01-01T00:00:00.000Z'),
+            processingStatus: 'processed',
+          },
+        ],
+        total: 2,
+        actions: ['ClearCache', 'Heartbeat'],
+      });
 
       const response = await app.inject({
         method: 'GET',
-        url: `/stations/${VALID_STATION_ID}/ocpp-logs`,
+        url: `/stations/${VALID_STATION_ID}/ocpp-logs?page=2&limit=10&action=ClearCache`,
         headers: { authorization: 'Bearer ' + token },
       });
 
       expect(response.statusCode).toBe(200);
-      const body = response.json();
-      expect(body).toHaveProperty('data');
-      expect(body).toHaveProperty('total');
-      expect(body).toHaveProperty('actions');
+      expect(mockListStationMessageLog).toHaveBeenCalledWith(
+        VALID_STATION_ID,
+        expect.objectContaining({ page: 2, limit: 10, action: 'ClearCache' }),
+      );
+      const body = response.json<{
+        data: { processingStatus: string; messageId: string }[];
+        total: number;
+        actions: string[];
+      }>();
+      expect(body.total).toBe(2);
+      expect(body.actions).toEqual(['ClearCache', 'Heartbeat']);
+      expect(body.data.map((d) => [d.messageId, d.processingStatus])).toEqual([
+        ['cmd-1', 'queued'],
+        ['msg-1', 'processed'],
+      ]);
     });
   });
 

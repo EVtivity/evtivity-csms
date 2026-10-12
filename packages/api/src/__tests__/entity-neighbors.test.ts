@@ -90,6 +90,8 @@ vi.mock('@evtivity/database', () => ({
   chargingProfileTemplates: fakeTable('charging_profile_templates'),
   firmwareCampaigns: fakeTable('firmware_campaigns'),
   octtRuns: fakeTable('octt_runs'),
+  aiInsights: { ...fakeTable('ai_insights'), siteId: { name: 'site_id' }, kind: { name: 'kind' } },
+  isReservationEnabled: vi.fn(() => Promise.resolve(true)),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -102,6 +104,7 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(() => ({})),
   inArray: vi.fn(() => ({})),
   isNull: vi.fn(() => ({})),
+  notInArray: vi.fn(() => ({})),
 }));
 
 import { registerAuth } from '../plugins/auth.js';
@@ -212,6 +215,7 @@ describe('Entity neighbor routes', () => {
       '/smart-charging/templates/x/neighbors',
       '/firmware-campaigns/x/neighbors',
       '/octt/runs/1/neighbors',
+      '/ai/insights/x/neighbors',
     ]) {
       setupDbResults([]);
       const res = await app.inject({

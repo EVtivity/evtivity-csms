@@ -13,15 +13,12 @@ import {
 } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 import { deleteObject, loadS3Config } from '@evtivity/services/s3-storage';
-import { pruneAiProposals } from '@evtivity/services/ai-proposal.service';
 import { pruneAiWorkerRuns } from '@evtivity/services/ai-workers/runs';
 import { config } from '../lib/config.js';
 
 const BATCH_SIZE = 200;
 // Bounds one run; the next hourly tick continues.
 const MAX_BATCHES = 25;
-// MCP call rows are kept at least this long (see pruneMcpCalls).
-const MIN_MCP_CALL_RETENTION_DAYS = 3;
 
 /**
  * Attachments to remove: marked deleted (attachment or conversation deleted,
@@ -153,21 +150,18 @@ export async function aiRetentionPruneHandler(log: Logger): Promise<void> {
   if (conversations > 0) {
     log.info({ conversations }, 'ai-retention-prune: expired conversations deleted');
   }
-  // --- R5 AI proposals and worker runs (lane block) ---
+  // --- R5 AI worker runs (lane block) ---
   // Same window as insights (aiInsights.retentionDays, 90 days by default,
-  // decision D5): the plan names no retention of its own for proposals.
+  // decision D5). Insight actions go with their insight (foreign key cascade).
   const workerRetentionDays = (await getAiSettings()).insights.retentionDays;
-  const proposals = await pruneAiProposals(workerRetentionDays);
   const workerRuns = await pruneAiWorkerRuns(workerRetentionDays);
-  if (proposals > 0 || workerRuns > 0) {
-    log.info({ proposals, workerRuns }, 'ai-retention-prune: old AI proposals and runs deleted');
+  if (workerRuns > 0) {
+    log.info({ workerRuns }, 'ai-retention-prune: old AI worker runs deleted');
   }
   // --- end R5 ---
   // --- R4 MCP call log (lane block) ---
   try {
-    // A delivered row is the single-use claim of an MCP request state, which
-    // stays valid up to two days (proposal TTL plus the delivery window).
-    const mcpCalls = await pruneMcpCalls(Math.max(retentionDays, MIN_MCP_CALL_RETENTION_DAYS));
+    const mcpCalls = await pruneMcpCalls(retentionDays);
     if (mcpCalls > 0) log.info({ mcpCalls }, 'ai-retention-prune: expired MCP calls deleted');
   } catch (err) {
     // The attachment pass below still runs; the next hourly run retries (P9).

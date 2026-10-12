@@ -36,7 +36,7 @@ export function RecordInsight({
       onFollowUp={
         canExplain && context != null
           ? () => {
-              open(context, null);
+              open(context);
             }
           : undefined
       }

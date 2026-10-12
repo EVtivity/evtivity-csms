@@ -453,6 +453,15 @@ export function registerProjections(
     { retryOnConnectionError: true },
   );
 
+  // The station's OCPP message log lists the commands of the offline command
+  // queue as Queued: refresh it when a command joins or leaves the queue.
+  async function notifyMessageLogChanged(stationOcppId: string): Promise<void> {
+    const stationUuid = await lookups.resolveStationUuid(stationOcppId);
+    if (stationUuid == null) return;
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('ocpp.message', stationUuid, siteId);
+  }
+
   // The station may now receive CSMS calls (BootNotification Accepted, or its
   // first message after a reconnect without a reboot).
   safeSubscribe('station.Ready', async (event: DomainEvent) => {
@@ -465,7 +474,7 @@ export function registerProjections(
     try {
       // Only the newest queued screen message per display message id and cost
       // update per transaction still matters; older ones would show stale content.
-      await sql`
+      const superseded = await sql`
         WITH keyed AS (
           SELECT id, action, created_at,
             CASE action
@@ -523,6 +532,13 @@ export function registerProjections(
           SET status = 'sent', sent_at = now()
           WHERE id IN ${sql(sentIds)}
         `;
+      }
+      if (superseded.count > 0 || sentIds.length > 0) {
+        await notify.notifyChange(
+          'ocpp.message',
+          stationUuid,
+          await lookups.resolveSiteId(stationUuid),
+        );
       }
     } catch (err) {
       logger.debug({ err, stationOcppId }, 'Offline command queue drain failed; continuing');
@@ -3037,7 +3053,7 @@ export function registerProjections(
 
     // A command for a station deleted meanwhile is dropped (the queue has an FK
     // to charging_stations.station_id and the commands could never be sent).
-    await sql`
+    const inserted = await sql`
       INSERT INTO offline_command_queue (station_id, command_id, action, payload, version, expires_at)
       SELECT
         ${stationId}, ${commandId}, ${action},
@@ -3046,6 +3062,8 @@ export function registerProjections(
       WHERE EXISTS (SELECT 1 FROM charging_stations WHERE station_id = ${stationId})
       ON CONFLICT (command_id) DO NOTHING
     `;
+    // The station's OCPP message log lists queued commands as Queued.
+    if (inserted.count > 0) await notifyMessageLogChanged(stationId);
   });
 
   // ---- OCPP 2.1 Stub Persistence ----

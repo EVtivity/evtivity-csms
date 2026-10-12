@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 
@@ -31,7 +31,7 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: h.toast }) }
 
 import { FleetInvoicesCard } from '../fleet/FleetInvoicesCard';
 import type { FleetInvoiceRow, FleetUnbilledPreview } from '../fleet/FleetInvoicesCard';
-import { previousMonth } from '@/lib/fleet-invoice';
+import { currentMonth, previousMonth } from '@/lib/fleet-invoice';
 
 function preview(overrides: Partial<FleetUnbilledPreview> = {}): FleetUnbilledPreview {
   return {
@@ -153,18 +153,30 @@ describe('FleetInvoicesCard', () => {
     wrap();
     await screen.findByText('Anna Berg');
 
-    fireEvent.change(screen.getByLabelText('fleets.invoices.period'), {
-      target: { value: '2026-09' },
-    });
+    // The shared month picker lists the months up to the current one, newest
+    // first; pick the one before the default (the previous month).
+    const picker = screen.getByLabelText('fleets.invoices.period');
+    if (!(picker instanceof HTMLSelectElement)) throw new Error('the period is not a select');
+    const months = Array.from(picker.options).map((o) => o.value);
+    expect(months[0]).toBe(currentMonth());
+    expect(picker.value).toBe(previousMonth());
+    const picked = months[2] ?? '';
+    fireEvent.change(picker, { target: { value: picked } });
     await waitFor(() => {
-      expect(h.get).toHaveBeenCalledWith('/v1/fleets/flt_1/billing/unbilled?period=2026-09');
+      expect(h.get).toHaveBeenCalledWith(`/v1/fleets/flt_1/billing/unbilled?period=${picked}`);
+    });
+    // The picked month's preview loads before Generate is enabled again.
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: 'fleets.invoices.generate' }).hasAttribute('disabled'),
+      ).toBe(false);
     });
     fireEvent.click(screen.getByRole('button', { name: 'fleets.invoices.generate' }));
     const buttons = await screen.findAllByRole('button', { name: 'fleets.invoices.generate' });
     fireEvent.click(buttons.at(-1) as HTMLElement);
 
     await waitFor(() => {
-      expect(h.post).toHaveBeenCalledWith('/v1/fleets/flt_1/invoices', { period: '2026-09' });
+      expect(h.post).toHaveBeenCalledWith('/v1/fleets/flt_1/invoices', { period: picked });
     });
     expect(h.toast).toHaveBeenCalledWith(
       expect.objectContaining({ title: 'fleets.invoices.generated' }),
@@ -204,7 +216,12 @@ describe('FleetInvoicesCard', () => {
     wrap();
 
     expect(await screen.findByText('INV-202610-0009')).toBeTruthy();
-    expect(screen.getByText('September 2026')).toBeTruthy();
+    // The invoice row's period (the month picker also lists the month).
+    expect(
+      within(screen.getByText('INV-202610-0009').closest('tr') as HTMLElement).getByText(
+        'September 2026',
+      ),
+    ).toBeTruthy();
     expect(screen.getByText('invoices.notSent')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'fleets.invoices.send' }));
     const send = await screen.findAllByRole('button', { name: 'fleets.invoices.send' });

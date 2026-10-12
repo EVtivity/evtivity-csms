@@ -2,16 +2,17 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * The proposals the background workers make, built from the closed action
- * set (`AI_WORKER_ACTIONS`): the action of the station's OCPP version, its
- * fixed arguments, a precondition checked again at confirm, and a structured
- * summary the CSMS renders with locale keys (`aiInbox.action.*`,
- * `aiWorkers.rationale.*`). No model text is needed for any of it (P1).
+ * The actions the background workers suggest with an insight, built from the
+ * closed action set (`AI_WORKER_ACTIONS`): the action of the station's OCPP
+ * version, its fixed arguments, a precondition checked again at confirm, and
+ * a structured summary the CSMS renders with locale keys
+ * (`aiInsights.action.*`, `aiWorkers.rationale.*`). No model text is needed
+ * for any of it (P1).
  */
 
 import { AI_WORKER_ACTIONS } from '@evtivity/lib/ai-proposals';
 import type { AiWorkerAction, AiWorkerActionKind, AiWorkerJob } from '@evtivity/lib/ai-proposals';
-import type { CreateAiProposalInput } from '../ai-proposal.service.js';
+import type { WorkerSuggestion } from './suggest.js';
 import type { StuckSession } from './stuck-sessions.js';
 import type { FaultedStation } from './network-summary.js';
 
@@ -36,13 +37,22 @@ export function workerAction(
 const SYSTEM_ACTOR = (job: AiWorkerJob) => ({ actor: 'system' as const, actorLabel: `ai-${job}` });
 
 /**
- * Stop a stuck session. Null when the transaction id cannot be sent to a 1.6
+ * Stop a stuck session: a `stuck_session` insight about the session with the
+ * stop action. One insight per session and run period (`triggerKey`); the
+ * pending action's dedup key keeps a second one from being suggested while
+ * the first waits. Null when the transaction id cannot be sent to a 1.6
  * station (1.6 transaction ids are integers).
  */
 export function stopSessionProposal(
   session: StuckSession,
-  input: { idleMinutes: number; expiresAt: Date; workerRunId: number | null; now: Date },
-): CreateAiProposalInput | null {
+  input: {
+    idleMinutes: number;
+    expiresAt: Date;
+    workerRunId: number | null;
+    period: string;
+    now: Date;
+  },
+): WorkerSuggestion | null {
   const action = workerAction('stop_transaction', session.ocppProtocol);
   let transactionId: string | number = session.transactionId;
   if (action.ocppVersion === '1.6') {
@@ -51,63 +61,86 @@ export function stopSessionProposal(
     transactionId = n;
   }
   const idleMinutes = Math.floor((input.now.getTime() - session.lastActivityAt.getTime()) / 60_000);
+  const dedupKey = `stuck_sessions:${session.sessionId}`;
   return {
-    source: 'worker',
-    job: 'stuck_sessions',
-    workerRunId: input.workerRunId,
-    siteId: session.siteId,
-    stationId: session.stationId,
-    sessionId: session.sessionId,
-    operationId: action.operationId,
-    method: action.method,
-    path: action.path,
-    args: { stationId: session.ocppStationId, transactionId, ...action.fixedArgs },
-    summary: {
-      action: 'stop_transaction',
-      stationId: session.ocppStationId,
-      transactionId: session.transactionId,
-      reason: session.reason,
-      rationale: {
-        code: STUCK_RATIONALE_CODES[session.reason],
-        params: { minutes: Math.max(idleMinutes, input.idleMinutes) },
+    insight: {
+      kind: 'stuck_session',
+      siteId: session.siteId,
+      stationId: session.stationId,
+      sessionId: session.sessionId,
+      triggerKey: `${dedupKey}:${input.period}`,
+      narrative: null,
+    },
+    action: {
+      job: 'stuck_sessions',
+      workerRunId: input.workerRunId,
+      siteId: session.siteId,
+      stationId: session.stationId,
+      sessionId: session.sessionId,
+      operationId: action.operationId,
+      method: action.method,
+      path: action.path,
+      args: { stationId: session.ocppStationId, transactionId, ...action.fixedArgs },
+      summary: {
+        action: 'stop_transaction',
+        stationId: session.ocppStationId,
+        transactionId: session.transactionId,
+        reason: session.reason,
+        rationale: {
+          code: STUCK_RATIONALE_CODES[session.reason],
+          params: { minutes: Math.max(idleMinutes, input.idleMinutes) },
+        },
+        lastActivityAt: session.lastActivityAt.toISOString(),
       },
-      lastActivityAt: session.lastActivityAt.toISOString(),
+      precondition: {
+        kind: 'session_active',
+        params: { sessionId: session.sessionId, transactionId: session.transactionId },
+      },
+      dedupKey,
+      expiresAt: input.expiresAt,
+      actor: SYSTEM_ACTOR('stuck_sessions'),
     },
-    precondition: {
-      kind: 'session_active',
-      params: { sessionId: session.sessionId, transactionId: session.transactionId },
-    },
-    dedupKey: `stuck_sessions:${session.sessionId}`,
-    expiresAt: input.expiresAt,
-    actor: SYSTEM_ACTOR('stuck_sessions'),
   };
 }
 
-/** Soft reset (2.1 OnIdle, 1.6 Soft) of a station faulted for hours. */
+/**
+ * Soft reset (2.1 OnIdle, 1.6 Soft) of a station faulted for hours: a
+ * `station_long_faulted` insight about the station with the reset action,
+ * one per station and day.
+ */
 export function softResetProposal(
   station: FaultedStation,
-  input: { expiresAt: Date; workerRunId: number | null; insightId?: string | null },
-): CreateAiProposalInput {
+  input: { expiresAt: Date; workerRunId: number | null; period: string },
+): WorkerSuggestion {
   const action = workerAction('soft_reset', station.ocppProtocol);
+  const dedupKey = `network_summary:soft_reset:${station.stationId}`;
   return {
-    source: 'worker',
-    job: 'network_summary',
-    workerRunId: input.workerRunId,
-    insightId: input.insightId ?? null,
-    siteId: station.siteId,
-    stationId: station.stationId,
-    operationId: action.operationId,
-    method: action.method,
-    path: action.path,
-    args: { stationId: station.ocppStationId, ...action.fixedArgs },
-    summary: {
-      action: 'soft_reset',
-      stationId: station.ocppStationId,
-      faultedSince: station.faultedSince.toISOString(),
+    insight: {
+      kind: 'station_long_faulted',
+      siteId: station.siteId,
+      stationId: station.stationId,
+      sessionId: null,
+      triggerKey: `${dedupKey}:${input.period}`,
+      narrative: null,
     },
-    precondition: { kind: 'station_faulted', params: { stationId: station.stationId } },
-    dedupKey: `network_summary:soft_reset:${station.stationId}`,
-    expiresAt: input.expiresAt,
-    actor: SYSTEM_ACTOR('network_summary'),
+    action: {
+      job: 'network_summary',
+      workerRunId: input.workerRunId,
+      siteId: station.siteId,
+      stationId: station.stationId,
+      operationId: action.operationId,
+      method: action.method,
+      path: action.path,
+      args: { stationId: station.ocppStationId, ...action.fixedArgs },
+      summary: {
+        action: 'soft_reset',
+        stationId: station.ocppStationId,
+        faultedSince: station.faultedSince.toISOString(),
+      },
+      precondition: { kind: 'station_faulted', params: { stationId: station.stationId } },
+      dedupKey,
+      expiresAt: input.expiresAt,
+      actor: SYSTEM_ACTOR('network_summary'),
+    },
   };
 }

@@ -65,7 +65,7 @@ describe('AI proposal digest event', () => {
       'networkSummaryCount',
       'siteCount',
       'siteNames',
-      'inboxUrl',
+      'insightsUrl',
     ]);
   });
 

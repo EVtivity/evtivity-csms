@@ -6,7 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { UseMutationResult } from '@tanstack/react-query';
 import type {
+  AiContextKind,
   AiInsightDto,
+  InsightActionFilter,
   InsightFeedbackFilter,
   InsightFeedbackRate,
   InsightFeedbackSummary,
@@ -15,6 +17,7 @@ import type {
   InsightStatus,
   RootCauseCategory,
 } from '@evtivity/lib/ai-insights';
+import type { AiProposalDto } from '@evtivity/lib/ai-proposals';
 import { toUiLanguage } from '@evtivity/lib/languages';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
@@ -29,8 +32,15 @@ import { useHasPermission } from '@/lib/auth';
 /** Root of every insight query; the SSE event invalidates it. */
 export const AI_INSIGHTS_KEY = ['ai', 'insights'] as const;
 
+/** The action an insight carries (a background worker suggestion), as the API sends it. */
+export interface AiInsightActionView extends AiProposalDto {
+  /** The user who confirmed or rejected it. */
+  decidedByName?: string | null;
+}
+
 /** An insight as the API sends it: the R0 DTO plus the primary-language text. */
 export interface AiInsightView extends AiInsightDto {
+  action: AiInsightActionView | null;
   /** The canonical summary when `summary` is a translation or missing (Show original). */
   originalSummary?: string | null;
   /** With the `authorizeAttemptIds` filter: the listed attempts this insight covers. */
@@ -60,6 +70,8 @@ export interface InsightFilter {
   category?: RootCauseCategory;
   /** Insights someone marked helpful, or wrong. */
   feedback?: InsightFeedbackFilter;
+  /** Insights with an action waiting for a decision (`pending`), or with any action. */
+  action?: InsightActionFilter;
   limit?: number;
 }
 
@@ -243,11 +255,9 @@ export function pickShownInsight(
   );
 }
 
-/** Insight filter of an Explain context, for the records that have one. */
-export function insightFilterFor(
-  kind: 'station' | 'session' | 'reservation',
-  id: string,
-): InsightFilter {
+/** Insight filter of an Explain context (an authorization: the insights covering the attempt). */
+export function insightFilterFor(kind: AiContextKind, id: string): InsightFilter {
+  if (kind === 'authorization') return { authorizeAttemptIds: id };
   if (kind === 'reservation') return { reservationId: id };
   return kind === 'station' ? { stationId: id } : { sessionId: id };
 }
@@ -320,6 +330,49 @@ export function useClearInsightFeedback(): InsightMutation<never> {
   return useMutation<unknown, unknown, { id: string; body?: never }>({
     mutationFn: ({ id }) => api.delete(`/v1/ai/insights/${encodeURIComponent(id)}/feedback`),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: AI_INSIGHTS_KEY });
+    },
+  });
+}
+
+/** The nav count also polls, in case the event stream is down. */
+const PENDING_ACTION_REFETCH_MS = 60_000;
+
+/** Insights whose action waits for a decision, for the AI Insights nav count. */
+export function usePendingActionCount(enabled: boolean): number {
+  const canRead = useHasPermission('aiInsights:read');
+  const { data } = useQuery({
+    queryKey: [...AI_INSIGHTS_KEY, 'pending-action-count'],
+    queryFn: () => api.get<InsightList>('/v1/ai/insights?action=pending&limit=1'),
+    enabled: canRead && enabled,
+    staleTime: INSIGHT_STALE_TIME_MS,
+    refetchInterval: PENDING_ACTION_REFETCH_MS,
+  });
+  return data?.total ?? 0;
+}
+
+export type InsightActionDecision =
+  | { verb: 'confirm'; insightId: string; argsHash: string }
+  | { verb: 'reject'; insightId: string };
+
+/**
+ * Confirms (with the `argsHash` the user saw) or rejects the action an
+ * insight carries. Answers the insight. Every insight view refreshes either
+ * way (decided, stale, expired).
+ */
+export function useDecideInsightAction(): UseMutationResult<
+  AiInsightView,
+  unknown,
+  InsightActionDecision
+> {
+  const queryClient = useQueryClient();
+  return useMutation<AiInsightView, unknown, InsightActionDecision>({
+    mutationFn: (d) =>
+      api.post<AiInsightView>(
+        `/v1/ai/insights/${encodeURIComponent(d.insightId)}/action/${d.verb}`,
+        d.verb === 'confirm' ? { argsHash: d.argsHash } : {},
+      ),
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: AI_INSIGHTS_KEY });
     },
   });

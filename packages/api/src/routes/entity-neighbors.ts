@@ -24,11 +24,13 @@ import {
   chargingProfileTemplates,
   firmwareCampaigns,
   octtRuns,
+  aiInsights,
 } from '@evtivity/database';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
 import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
+import { insightFeatureGateSql } from '../lib/ai-insight-scope.js';
 import type { ErrorCode } from '../lib/error-codes.generated.js';
 import { manageableUsersCondition } from '../lib/user-management-scope.js';
 import {
@@ -74,6 +76,10 @@ interface NeighborTarget {
   // (rows the list leaves out are skipped when paging; the current row may be
   // one of them).
   baseWhere?: SQL;
+  // A per-request gate the detail route also enforces (a feature setting):
+  // it applies to the current row as well as the siblings, so a row the
+  // detail route hides answers 404 here instead of disclosing its siblings.
+  visibleWhereNow?: () => Promise<SQL | undefined>;
   // True for a company-wide resource: only a user with access to every site
   // may page through it; a site-restricted user gets 404.
   allSitesOnly?: boolean;
@@ -89,6 +95,20 @@ const stationSiteSubquery = (siteIds: string[]): SQL =>
   );
 
 const TARGETS: NeighborTarget[] = [
+  {
+    path: '/ai/insights/:id/neighbors',
+    tag: 'AI Insights',
+    operationId: 'getAiInsightNeighbors',
+    permission: 'aiInsights:read',
+    notFoundCode: 'AI_INSIGHT_NOT_FOUND',
+    idColumn: aiInsights.id,
+    createdAtColumn: aiInsights.createdAt,
+    // The list scope: unsited insights (company summaries) for all-site users only.
+    scopeWhere: (siteIds) => inArray(aiInsights.siteId, siteIds),
+    // The detail route's gate (insightRowVisible): reservation insights are
+    // hidden while reservations are off, the current row included.
+    visibleWhereNow: insightFeatureGateSql,
+  },
   {
     path: '/sites/:id/neighbors',
     tag: 'Sites',
@@ -353,7 +373,17 @@ export function entityNeighborRoutes(app: FastifyInstance): void {
           if (siteIds != null) scope = target.scopeWhere(siteIds, userId);
         }
 
-        const neighbors = await findNeighbors(target, id, scope);
+        // The visibility gate joins the scope, which findNeighbors applies to
+        // the current row too: a row the detail route hides (a reservation
+        // insight while reservations are off) answers 404 like the detail
+        // route, and is skipped as a sibling.
+        const visibleNow =
+          target.visibleWhereNow != null ? await target.visibleWhereNow() : undefined;
+        const neighbors = await findNeighbors(
+          target,
+          id,
+          visibleNow == null ? scope : and(scope, visibleNow),
+        );
         if (neighbors == null) {
           await reply.status(404).send({ error: 'Not found', code: target.notFoundCode });
           return;

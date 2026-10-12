@@ -55,14 +55,9 @@
     "description": "Ask questions about your charging network, review proposed changes, and draft support replies with the built-in AI assistant."
   },
   {
-    "path": "/docs/csms/ai-inbox",
-    "title": "AI Inbox",
-    "description": "Review and confirm the actions that background AI workers and MCP clients propose. Nothing runs until you confirm it."
-  },
-  {
     "path": "/docs/csms/ai-insights",
     "title": "Automatic Insights",
-    "description": "Short root-cause notes with suggested fixes for offline or faulted stations, failed sessions, refused authorizations, and reservation problems."
+    "description": "Short root-cause notes with suggested fixes for offline or faulted stations, failed sessions, refused authorizations, and reservation problems, and background worker suggestions with an action you confirm."
   },
   {
     "path": "/docs/csms/ai-usage",
@@ -72,7 +67,7 @@
   {
     "path": "/docs/csms/ai-workers",
     "title": "Background AI Workers",
-    "description": "Optional scheduled jobs that summarize your network, find stuck sessions, and check tariffs. They propose actions but never act on their own."
+    "description": "Optional scheduled jobs that summarize your network, find stuck sessions, and check tariffs. Their suggestions are insights with an action that runs only when you confirm it."
   },
   {
     "path": "/docs/csms/certificates",
@@ -357,7 +352,7 @@
   {
     "path": "/docs/integrations/mcp-server",
     "title": "MCP Server",
-    "description": "Connect AI agents to EVtivity over the Model Context Protocol with an API key. Reads run under the key's permissions, and every change waits for your approval in the AI Inbox."
+    "description": "Connect AI agents to EVtivity over the Model Context Protocol with an API key. Every call runs under the key's permissions and sites. Writes run only when you allow them."
   },
   {
     "path": "/docs/integrations/payment-providers",

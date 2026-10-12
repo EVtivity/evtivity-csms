@@ -73,6 +73,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
     createdAt: '2026-10-10T10:00:00Z',
     resolvedAt: null,
     dismissedAt: null,
+    action: null,
     stationName: 'CS-1616',
     siteName: 'Convention Center',
     ...overrides,
@@ -140,7 +141,54 @@ describe('Active insights card', () => {
     );
   });
 
-  it('orders site incidents first, then severity, then newest, and shows at most five rows', async () => {
+  it('marks a card whose action waits for a decision, and never collapses it', async () => {
+    const pendingAction = {
+      id: 'p1',
+      job: 'stuck_sessions' as const,
+      insightId: 'x',
+      siteId: 's1',
+      stationId: 'st1',
+      sessionId: 'se1',
+      operationId: 'ocppv21_RequestStopTransaction',
+      method: 'POST',
+      path: '/v1/ocpp/commands/v21/RequestStopTransaction',
+      args: {},
+      argsHash: 'h',
+      summary: {},
+      precondition: null,
+      status: 'pending' as const,
+      expiresAt: '2099-01-01T00:00:00Z',
+      decidedBy: null,
+      decidedAt: null,
+      executedAt: null,
+      result: null,
+      createdAt: '2026-10-10T10:00:00Z',
+    };
+    serve([
+      insight({
+        id: 'x',
+        kind: 'stuck_session',
+        category: 'hardware',
+        siteId: 's1',
+        action: pendingAction,
+      }),
+      insight({
+        id: 'y',
+        kind: 'stuck_session',
+        category: 'hardware',
+        siteId: 's1',
+        action: { ...pendingAction, id: 'p2', insightId: 'y' },
+      }),
+    ]);
+    wrap(<ActiveInsightsWidget />);
+    const rows = await screen.findAllByTestId('ai-insight-row');
+    expect(rows).toHaveLength(2);
+    expect(screen.getAllByTestId('ai-insight-action-pending')[0]?.textContent).toBe(
+      'aiInsights.action.pending',
+    );
+  });
+
+  it('orders site incidents first, then severity, then newest, as scrollable cards', async () => {
     serve([
       insight({ id: 'a', kind: 'authorization_refused', category: 'token', siteId: 's1' }),
       insight({ id: 'o', kind: 'station_offline', category: 'connectivity', siteId: 's2' }),
@@ -167,7 +215,11 @@ describe('Active insights card', () => {
       '/ai/insights/o',
       '/ai/insights/s',
       '/ai/insights/a',
+      '/ai/insights/t',
     ]);
+    // Item 13: one card per insight in the shared scroll row with its dot indicator.
+    expect(screen.getByTestId('ai-insight-cards')).toBeTruthy();
+    expect(screen.getByTestId('scroll-snap-dots')).toBeTruthy();
     expect(screen.getAllByTestId('ai-insight-headline')[0]?.textContent).toBe(
       'aiInsights.headline.siteIncidentOffline(3,Convention Center)',
     );
@@ -206,6 +258,17 @@ describe('Active insights card', () => {
       expect(apiMock.get).toHaveBeenCalledWith('/v1/portal/features');
       expect(screen.queryByTestId('ai-active-insights')).toBeNull();
     });
+  });
+
+  it('TC-AI-IA-07 shows no insights while AI Insights are off, even when some are still active', async () => {
+    features.aiInsightsEnabled = false;
+    serve([insight()]);
+    wrap(<ActiveInsightsWidget />);
+    await waitFor(() => {
+      expect(apiMock.get).toHaveBeenCalledWith('/v1/portal/features');
+    });
+    expect(screen.queryByTestId('ai-active-insights')).toBeNull();
+    expect(apiMock.get).not.toHaveBeenCalledWith(expect.stringContaining('/v1/ai/insights'));
   });
 
   it('shows the load error with a retry like the other dashboard cards', async () => {

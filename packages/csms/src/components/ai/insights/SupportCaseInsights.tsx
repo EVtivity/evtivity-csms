@@ -47,7 +47,7 @@ export function SupportCaseInsights({ caseId }: { caseId: string }): React.JSX.E
             onFollowUp={
               canExplain && context != null
                 ? () => {
-                    open(context, null);
+                    open(context);
                   }
                 : undefined
             }

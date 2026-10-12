@@ -228,7 +228,7 @@ describe('AI data handling: API surfaces', () => {
           sessionId: null,
           authorizeAttemptId: null,
           reservationId: null,
-          facts: seededRecord(),
+          facts: { stationId: 'CS-1', statusReason: seededText() },
         },
       },
     };
@@ -236,8 +236,8 @@ describe('AI data handling: API surfaces', () => {
       collectEvidence: () =>
         Promise.resolve({
           facts: seededRecord(),
-          items: [],
-          stationText: [{ text: seededText() }],
+          items: [{ id: 'error:1', kind: 'status_error', data: { at: '2026-10-10T00:00:00Z' } }],
+          untrusted: [{ id: 'error:1', source: 'station_status_info', text: seededText() }],
         }),
       latestInsight: () => Promise.resolve(null),
     });

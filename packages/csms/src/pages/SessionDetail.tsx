@@ -29,7 +29,6 @@ import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useHasPermission } from '@/lib/auth';
 import { ExplainButton } from '@/components/ai/ExplainButton';
 import { RecordInsight } from '@/components/ai/insights/RecordInsight';
-import { RecordProposals } from '@/components/ai/inbox/RecordProposals';
 
 interface GuestSessionInfo {
   sessionToken: string;
@@ -139,6 +138,12 @@ export function SessionDetail(): React.JSX.Element {
           actual: string | null;
         })
       : null;
+  const explainContext =
+    id == null
+      ? null
+      : session.transactionId != null
+        ? { kind: 'session' as const, id, label: session.transactionId }
+        : { kind: 'session' as const, id };
 
   return (
     <div className="space-y-6">
@@ -181,17 +186,13 @@ export function SessionDetail(): React.JSX.Element {
             {t('sessions.reservationTokenMismatch')}
           </Badge>
         )}
-        {(session.status === 'failed' || session.status === 'faulted') && id != null && (
-          <ExplainButton context={{ kind: 'session', id }} />
-        )}
+        {(session.status === 'failed' || session.status === 'faulted') &&
+          explainContext != null && <ExplainButton context={explainContext} />}
         <EntityNavButtons resource="sessions" basePath="/sessions" currentId={id} />
       </div>
 
       {id != null && (
-        <>
-          <RecordInsight filter={{ sessionId: id }} context={{ kind: 'session', id }} />
-          <RecordProposals sessionId={id} />
-        </>
+        <RecordInsight filter={{ sessionId: id }} context={explainContext ?? undefined} />
       )}
 
       <Tabs value={tab} onValueChange={setTab}>

@@ -21,8 +21,7 @@ export const IMMEDIATE_EVENT_TYPES: ReadonlySet<string> = new Set([
   'supportCase.created',
   'supportCase.updated',
   'supportCase.newMessage',
-  // AI Inbox and insights are low-volume and a person is waiting on them.
-  'ai.proposal.updated',
+  // AI insights (and their actions) are low-volume and a person is waiting on them.
   'ai.insight.updated',
 ]);
 
@@ -157,12 +156,9 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       keys.push(['support-cases-unread-count']);
       break;
 
-    // AI roadmap v0.1.44: the Inbox (list, detail, nav badge, inline proposals),
-    // the insight cards and the usage views. The SSE stream already filters by site.
-    case 'ai.proposal.updated':
-      keys.push(['ai', 'proposals']);
-      break;
-
+    // AI roadmap v0.1.44: the insight cards, lists and actions (an action's
+    // change publishes the insight's event), the nav count and the usage
+    // views. The SSE stream already filters by site.
     case 'ai.insight.updated':
       keys.push(['ai', 'insights']);
       break;

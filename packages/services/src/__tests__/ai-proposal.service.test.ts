@@ -12,6 +12,9 @@ const publishes: unknown[] = [];
 /** What the target lookups return: the station by OCPP id, then the session. */
 let stationRows: unknown[] = [];
 let sessionRows: unknown[] = [];
+/** What an update (reject) returns. */
+let updated: unknown[] = [];
+const closed: unknown[] = [];
 
 vi.mock('@evtivity/database', () => ({
   db: {
@@ -19,6 +22,9 @@ vi.mock('@evtivity/database', () => ({
       from: () => ({
         where: () => Promise.resolve('siteId' in fields ? stationRows : sessionRows),
       }),
+    }),
+    update: () => ({
+      set: () => ({ where: () => ({ returning: () => Promise.resolve(updated) }) }),
     }),
     insert: () => ({
       values: (values: unknown) => {
@@ -29,7 +35,13 @@ vi.mock('@evtivity/database', () => ({
       },
     }),
   },
-  aiProposals: { dedupKey: 'dedup_key', status: 'status' },
+  aiProposals: {
+    id: 'id',
+    dedupKey: 'dedup_key',
+    status: 'status',
+    decidedAt: 'decided_at',
+    expiresAt: 'expires_at',
+  },
   aiProposalAuditLog: {},
   chargingSessions: { stationId: 'station_id' },
   chargingStations: { id: 'id', siteId: 'site_id', stationId: 'station_id' },
@@ -48,14 +60,22 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   }),
 }));
 
-const { createAiProposal, toAiProposalDto, AiProposalInputError } =
+vi.mock('../ai-insight.service.js', () => ({
+  AI_INSIGHT_UPDATED_EVENT: 'ai.insight.updated',
+  closeActionInsight: (...args: unknown[]) => {
+    closed.push(args.slice(0, 3));
+    return Promise.resolve(true);
+  },
+}));
+
+const { createAiProposal, rejectAiProposal, toAiProposalDto, AiProposalInputError } =
   await import('../ai-proposal.service.js');
 type Input = Parameters<typeof createAiProposal>[0];
 
 function input(overrides: Partial<Input> = {}): Input {
   return {
-    source: 'worker',
     job: 'stuck_sessions',
+    insightId: 'ins_000000000001',
     siteId: 'sit_000000000001',
     stationId: 'sta_000000000001',
     sessionId: 'ses_000000000001',
@@ -72,12 +92,9 @@ function input(overrides: Partial<Input> = {}): Input {
 function row(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: 'apr_000000000001',
-    source: 'worker',
     job: 'stuck_sessions',
-    insightId: null,
+    insightId: 'ins_000000000001',
     workerRunId: null,
-    requestedByUserId: null,
-    apiKeyId: null,
     siteId: 'sit_000000000001',
     stationId: 'sta_000000000001',
     sessionId: 'ses_000000000001',
@@ -87,8 +104,6 @@ function row(overrides: Record<string, unknown> = {}): Record<string, unknown> {
     args: { stationId: 'CS-1', transactionId: 'tx-1' },
     argsHash: 'h',
     summary: {},
-    rationaleText: null,
-    rationaleLanguage: null,
     precondition: { kind: 'session_active', params: { sessionId: 'ses_000000000001' } },
     dedupKey: null,
     status: 'pending',
@@ -107,27 +122,37 @@ beforeEach(() => {
   inserted.length = 0;
   audits.length = 0;
   publishes.length = 0;
+  closed.length = 0;
   returning = [];
+  updated = [];
   stationRows = [{ id: 'sta_000000000001', siteId: 'sit_000000000001' }];
   sessionRows = [{ stationId: 'sta_000000000001' }];
 });
 
 describe('createAiProposal', () => {
-  it('stores the args hash, audits and publishes with the site', async () => {
+  it('stores the args hash and its insight, audits and publishes the insight update', async () => {
     returning = [row()];
     const created = await createAiProposal(input());
     expect(created?.id).toBe('apr_000000000001');
-    expect(inserted[0]).toMatchObject({ argsHash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    expect(inserted[0]).toMatchObject({
+      argsHash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      insightId: 'ins_000000000001',
+    });
     expect(audits).toEqual([expect.objectContaining({ action: 'created', actor: 'system' })]);
     expect(publishes).toEqual([
       {
         channel: 'csms_events',
-        payload: expect.objectContaining({
-          eventType: 'ai.proposal.updated',
+        payload: {
+          eventType: 'ai.insight.updated',
+          insightId: 'ins_000000000001',
           siteId: 'sit_000000000001',
-        }),
+          stationId: 'sta_000000000001',
+          sessionId: 'ses_000000000001',
+          actionStatus: 'pending',
+        },
       },
     ]);
+    expect(closed).toHaveLength(0);
   });
 
   it('returns null without side effects when a pending proposal has the same dedup key', async () => {
@@ -145,31 +170,34 @@ describe('createAiProposal', () => {
         path: '/v1/ocpp/commands/v21/Reset',
         args: { stationId: 'CS-1', type: 'Immediate' },
       }),
-      input({ job: null }),
-      input({ requestedByUserId: 'usr_000000000001' }),
+      input({ job: 'other' as never }),
+      input({ insightId: '' }),
     ]) {
       await expect(createAiProposal(bad)).rejects.toBeInstanceOf(AiProposalInputError);
     }
     expect(inserted).toHaveLength(0);
   });
 
-  it('requires a requester on an MCP proposal and an expiry in the future', async () => {
-    await expect(createAiProposal(input({ source: 'mcp', job: null }))).rejects.toBeInstanceOf(
-      AiProposalInputError,
-    );
+  it('requires an expiry in the future', async () => {
     await expect(
       createAiProposal(input({ expiresAt: new Date(Date.now() - 1) })),
     ).rejects.toBeInstanceOf(AiProposalInputError);
   });
+});
 
-  it('publishes no station or session for an MCP proposal', async () => {
-    returning = [row({ source: 'mcp', job: null, requestedByUserId: 'usr_000000000001' })];
-    await createAiProposal(
-      input({ source: 'mcp', job: null, requestedByUserId: 'usr_000000000001' }),
-    );
-    expect(publishes[0]).toEqual({
-      channel: 'csms_events',
-      payload: { eventType: 'ai.proposal.updated', siteId: 'sit_000000000001' },
+describe('TC-AI-IA-04 an ended action closes its insight', () => {
+  it('a reject dismisses the insight as the rejecting user', async () => {
+    updated = [row({ status: 'rejected', decidedBy: 'usr_000000000001' })];
+    const result = await rejectAiProposal('apr_000000000001', {
+      actor: 'operator',
+      actorUserId: 'usr_000000000001',
+    });
+    expect(result.kind).toBe('rejected');
+    expect(closed).toEqual([
+      ['ins_000000000001', 'rejected', { actor: 'operator', actorUserId: 'usr_000000000001' }],
+    ]);
+    expect(publishes[0]).toMatchObject({
+      payload: { eventType: 'ai.insight.updated', actionStatus: 'rejected' },
     });
   });
 });
@@ -203,26 +231,15 @@ describe('the proposal target comes from the station in the arguments (P11)', ()
 
 describe('toAiProposalDto', () => {
   it('matches the shared DTO contract', () => {
-    const dto = toAiProposalDto(row() as never, new Map());
+    const dto = toAiProposalDto(row() as never);
     expect(aiProposalDtoSchema.parse(dto)).toEqual(dto);
     expect(dto.expiresAt).toBe('2026-10-10T12:00:00.000Z');
-  });
-
-  it('names the API key of an MCP proposal, and none for a revoked key or a worker', () => {
-    expect(
-      toAiProposalDto(row({ apiKeyId: 7 }) as never, new Map([[7, 'Ops key']])).apiKeyName,
-    ).toBe('Ops key');
-    expect(
-      toAiProposalDto(row({ apiKeyId: 8 }) as never, new Map([[7, 'Ops key']])).apiKeyName,
-    ).toBeNull();
-    expect(toAiProposalDto(row({ apiKeyId: null }) as never, new Map()).apiKeyName).toBeNull();
+    expect(dto.insightId).toBe('ins_000000000001');
+    expect(dto).not.toHaveProperty('source');
   });
 
   it('drops a stored precondition or result that no longer parses', () => {
-    const dto = toAiProposalDto(
-      row({ precondition: { kind: 'other' }, result: 'x' }) as never,
-      new Map(),
-    );
+    const dto = toAiProposalDto(row({ precondition: { kind: 'other' }, result: 'x' }) as never);
     expect(dto.precondition).toBeNull();
     expect(dto.result).toBeNull();
   });

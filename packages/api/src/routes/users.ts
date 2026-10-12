@@ -2584,13 +2584,18 @@ export function userRoutes(app: FastifyInstance): void {
       smsEnabled: z.boolean().describe('Whether the operator opted in to SMS notifications'),
       aiDigestEmail: z
         .boolean()
-        .describe('Whether the operator gets the daily AI proposal digest email (default off)'),
+        .describe(
+          'Whether the operator gets the daily email of AI insight actions waiting for a decision (default off)',
+        ),
     })
     .passthrough();
   // Either field alone: the one not sent keeps its stored value.
   const operatorNotificationPrefsBody = z.object({
     smsEnabled: z.boolean().optional().describe('Opt in to SMS notifications'),
-    aiDigestEmail: z.boolean().optional().describe('Opt in to the daily AI proposal digest'),
+    aiDigestEmail: z
+      .boolean()
+      .optional()
+      .describe('Opt in to the daily email of AI insight actions waiting for a decision'),
   });
 
   app.get(

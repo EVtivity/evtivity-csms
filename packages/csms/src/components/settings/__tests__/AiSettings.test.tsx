@@ -119,7 +119,6 @@ const TAB_MARKERS: Record<AiSettingsTab, () => HTMLElement | null> = {
   support: () => document.getElementById('supportAi-enabled'),
   driver: () => document.getElementById('driverAi-enabled'),
   insights: () => screen.queryByTestId('ai-insights-settings'),
-  workers: () => screen.queryByTestId('ai-workers-settings'),
   mcp: () => screen.queryByTestId('ai-mcp-settings'),
   usage: () => document.getElementById('ai-limit-ai-maxToolCallsPerTurn'),
 };
@@ -134,7 +133,7 @@ const saveButton = (): HTMLButtonElement =>
   screen.getByRole<HTMLButtonElement>('button', { name: /common.save|save/i });
 
 describe('Settings > AI tabs (plan v0.1.45, section 6)', () => {
-  it('TC-UI-LY-07 shows the eight tabs in order, each with its description, each card in its tab only', () => {
+  it('TC-UI-LY-07 shows the seven tabs in order, each with its description, each card in its tab only', () => {
     renderSettings();
     expect(screen.getAllByRole('tab').map((t) => t.textContent)).toEqual([
       'settings.aiTabs.providers',
@@ -142,7 +141,6 @@ describe('Settings > AI tabs (plan v0.1.45, section 6)', () => {
       'settings.aiTabs.support',
       'settings.aiTabs.driver',
       'settings.aiTabs.insights',
-      'settings.aiTabs.workers',
       'settings.aiTabs.mcp',
       'settings.aiTabs.usage',
     ]);
@@ -237,11 +235,14 @@ describe('Settings > AI tabs (plan v0.1.45, section 6)', () => {
     expect(document.getElementById('supportAi-tone')).toBeNull();
   });
 
-  it('the workers tab links to the automatic insights model', () => {
+  it('shows the background workers in the Automatic insights tab, also from an old workers link', () => {
+    renderSettings({}, 'insights');
+    expect(screen.getByTestId('ai-workers-settings')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: 'settings.aiTabs.workers' })).toBeNull();
+    cleanup();
     renderSettings({}, 'workers');
-    fireEvent.click(screen.getByTestId('ai-workers-model-link'));
-    expect(new URLSearchParams(currentSearch).get('sub')).toBe('insights');
     expect(TAB_MARKERS.insights()).toBeTruthy();
+    expect(screen.getByTestId('ai-workers-settings')).toBeTruthy();
   });
 });
 

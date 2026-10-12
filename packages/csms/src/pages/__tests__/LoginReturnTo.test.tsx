@@ -67,13 +67,13 @@ afterEach(() => {
 describe('Login return-to', () => {
   it('lands on the deep link once signed in (password and MFA end the same way)', async () => {
     state.isAuthenticated = true;
-    renderLogin('/login?returnTo=%2Fai%2Finbox%2Fp1');
-    expect((await screen.findByTestId('where')).textContent).toBe('/ai/inbox/p1');
+    renderLogin('/login?returnTo=%2Fai%2Finsights%2Fi1');
+    expect((await screen.findByTestId('where')).textContent).toBe('/ai/insights/i1');
   });
 
   it('keeps the deep link while signed out, for the MFA step and the SSO round trip', () => {
-    renderLogin('/login?returnTo=%2Fai%2Finbox%2Fp1');
-    expect(sessionStorage.getItem('csms_return_to')).toBe('/ai/inbox/p1');
+    renderLogin('/login?returnTo=%2Fai%2Finsights%2Fi1');
+    expect(sessionStorage.getItem('csms_return_to')).toBe('/ai/insights/i1');
   });
 
   it('goes home for a returnTo outside the CSMS', async () => {

@@ -13,6 +13,7 @@ import type { AiPanelContext } from '@/components/ai/use-ai-panel-store';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { BackButton } from '@/components/back-button';
 import { CopyableId } from '@/components/copyable-id';
+import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { LoadingLogo } from '@/components/loading-logo';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,9 +41,12 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
 
 /**
  * One insight (`/ai/insights/:id`, `aiInsights:read`): the standard detail
- * header (back, headline, status), the insight card, the records it is
- * about, and its history (`ai_insight` audit rows). Rows of the dashboard
- * card and of the insights list open it.
+ * header (back, headline, status, Prev and Next in the list order), the
+ * insight card (with the action a background worker suggested, and Reject
+ * and Confirm), the records it is about with the action's job, target,
+ * precondition and timing, and the history (`ai_insight` audit rows, and the
+ * action's `ai_proposal` rows). Rows of the dashboard card and of the
+ * insights list open it.
  */
 export function AiInsightDetail(): React.JSX.Element {
   const { id } = useParams<{ id: string }>();
@@ -62,6 +66,7 @@ export function AiInsightDetail(): React.JSX.Element {
     );
   }
   const context = explainContext(insight);
+  const action = insight.action;
 
   return (
     <div className="space-y-6">
@@ -79,6 +84,7 @@ export function AiInsightDetail(): React.JSX.Element {
         <Badge variant={insightStatusVariant(insight.status)} data-testid="ai-insight-status">
           {t(`aiInsights.status.${insight.status}`)}
         </Badge>
+        <EntityNavButtons resource="ai/insights" basePath="/ai/insights" currentId={insight.id} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -88,7 +94,7 @@ export function AiInsightDetail(): React.JSX.Element {
           onFollowUp={
             canExplain && context != null
               ? () => {
-                  open(context, null);
+                  open(context);
                 }
               : undefined
           }
@@ -147,12 +153,44 @@ export function AiInsightDetail(): React.JSX.Element {
                   {t(`aiInsights.skipReason.${insight.skipReason}`)}
                 </Row>
               )}
+              {action?.job != null && (
+                <Row label={t('aiInsights.action.jobLabel')}>
+                  {t(`aiInsights.action.job.${action.job}`)}
+                </Row>
+              )}
+              {action != null && (
+                <Row label={t('aiInsights.action.expires')}>
+                  {formatDateTime(action.expiresAt, timezone)}
+                </Row>
+              )}
+              {action?.decidedAt != null && (
+                <Row label={t('aiInsights.action.decided')}>
+                  {formatDateTime(action.decidedAt, timezone)}
+                  {action.decidedByName != null && (
+                    <span className="block text-xs text-muted-foreground">
+                      {action.decidedByName}
+                    </span>
+                  )}
+                </Row>
+              )}
+              {action?.executedAt != null && (
+                <Row label={t('aiInsights.action.executedAt')}>
+                  {formatDateTime(action.executedAt, timezone)}
+                </Row>
+              )}
             </dl>
           </CardContent>
         </Card>
       </div>
 
       <EntityHistoryTab entityType="ai_insight" entityId={insight.id} />
+      {action != null && (
+        <EntityHistoryTab
+          entityType="ai_proposal"
+          entityId={action.id}
+          title={t('aiInsights.action.history')}
+        />
+      )}
     </div>
   );
 }

@@ -108,6 +108,10 @@ export function kindEnabled(kind: InsightKind, settings: AiSettings): boolean {
   }
   if (kind === 'session_failed') return settings.insights.sessionEnabled;
   if (kind === 'authorization_refused') return settings.insights.authorizationEnabled;
+  // Background worker suggestions follow their job's switch (translation only:
+  // they are stored active by the worker, never generated here).
+  if (kind === 'stuck_session') return settings.workers.stuckSessionsEnabled;
+  if (kind === 'station_long_faulted') return settings.workers.networkSummaryEnabled;
   return false;
 }
 

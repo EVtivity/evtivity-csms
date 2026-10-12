@@ -21,27 +21,26 @@ export function useCanExplain(): boolean {
   return chatbot && canWrite;
 }
 
-/** Opens the panel about a record: its fresh insight first, else the prefilled question. */
-export function useOpenExplain(): (
-  context: AiPanelContext,
-  insight?: AiInsightView | null,
-) => void {
-  const openWithContext = useAiPanelStore((s) => s.openWithContext);
-  return (context, insight) => {
-    openWithContext(context, { insightId: isFreshInsight(insight) ? (insight?.id ?? null) : null });
-  };
+/**
+ * Opens the panel about a record: the context card (the record and its latest
+ * insight's headline, cause and fixes) and the prefilled Explain question.
+ */
+export function useOpenExplain(): (context: AiPanelContext) => void {
+  return useAiPanelStore((s) => s.openWithContext);
 }
 
 interface ExplainButtonProps {
   context: AiPanelContext;
   /**
-   * The record's insight when the caller already has it (authorize log rows).
-   * Omitted for stations, sessions and reservations: the button reads it
-   * from the same cached query the insight card uses.
+   * The record's insight when the caller already has it (authorize log rows),
+   * for the icon. Omitted: the button reads it from the same cached query the
+   * insight card and the panel's context card use.
    */
   insight?: AiInsightView | null | undefined;
   /** An icon button for table rows. */
   iconOnly?: boolean;
+  /** The text button's size: `header` in a detail page action row (matches the other header actions). */
+  size?: 'default' | 'header';
   className?: string;
 }
 
@@ -51,20 +50,22 @@ interface ExplainButtonProps {
  * authorization, faulted or offline station, a reservation the station
  * refused or cancelled, that expired, or whose fee failed); this
  * hides the button unless the assistant is available and the user may write
- * to it. With a fresh insight the panel shows it and spends no tokens.
+ * to it. Opening the panel spends no tokens: nothing is sent until the user
+ * sends the prefilled question.
  */
 export function ExplainButton({
   context,
   insight,
   iconOnly = false,
+  size = 'default',
   className,
 }: ExplainButtonProps): React.JSX.Element | null {
   const { t } = useTranslation();
   const canExplain = useCanExplain();
   const open = useOpenExplain();
-  const lookup = insight === undefined && context.kind !== 'authorization';
+  const lookup = insight === undefined;
   const { insights } = useInsights(
-    lookup && context.kind !== 'authorization' ? insightFilterFor(context.kind, context.id) : {},
+    insightFilterFor(context.kind, context.id),
     canExplain && lookup,
   );
   if (!canExplain) return null;
@@ -85,7 +86,7 @@ export function ExplainButton({
         data-testid={fresh ? 'ai-insight-icon' : 'ai-explain'}
         onClick={(e) => {
           e.stopPropagation();
-          open(context, known);
+          open(context);
         }}
       >
         <Icon className={cn('h-4 w-4', fresh ? 'text-info' : 'text-link')} />
@@ -97,14 +98,16 @@ export function ExplainButton({
     <Button
       type="button"
       variant="outline"
+      size={size}
       className={className}
       title={t('ai.explain.buttonTitle')}
       data-testid="ai-explain"
       onClick={() => {
-        open(context, known);
+        open(context);
       }}
     >
-      <Sparkles className="h-4 w-4" />
+      {/* The AI accent of the icon-only Explain in table rows, so every Explain reads the same. */}
+      <Sparkles className="h-4 w-4 text-link" aria-hidden="true" />
       <span className="ml-1">{t('ai.explain.button')}</span>
     </Button>
   );

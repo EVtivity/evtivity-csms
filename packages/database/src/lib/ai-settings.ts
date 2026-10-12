@@ -146,38 +146,24 @@ export async function isAiMcpEnabled(): Promise<boolean> {
 }
 
 /**
- * Whether something can create AI proposals, so the CSMS shows the AI Inbox:
- * a proposing background worker (network summary or stuck sessions, both
- * need `opsAi.enabled`; tariff anomalies only write findings) or the MCP
- * server. Fails closed (false) when settings cannot be read.
- */
-export async function isAiInboxEnabled(): Promise<boolean> {
-  try {
-    const { ops, workers, mcp } = await getAiSettings();
-    const workerProposals =
-      ops.enabled && (workers.networkSummaryEnabled || workers.stuckSessionsEnabled);
-    return workerProposals || mcp.enabled;
-  } catch (err) {
-    logger.warn({ err }, 'isAiInboxEnabled failed, using false');
-    return false;
-  }
-}
-
-/**
- * Whether automatic insights are generated, so the CSMS dashboard shows the
- * Active insights card even while none is open: `opsAi.enabled` and at least
- * one insight kind switch (reservation insights only while reservations are
- * on). Fails closed (false) when settings cannot be read.
+ * Whether AI Insights are on, so the CSMS shows insights (the dashboard card)
+ * and the pending action count: `opsAi.enabled` and at least one insight kind
+ * switch (reservation insights only while reservations are on) or background
+ * worker job (its suggestions are insights). Fails closed (false) when
+ * settings cannot be read.
  */
 export async function isAiInsightsEnabled(): Promise<boolean> {
   try {
-    const { ops, insights } = await getInsightAiSettings();
+    const { ops, insights, workers } = await getInsightAiSettings();
     return (
       ops.enabled &&
       (insights.stationEnabled ||
         insights.sessionEnabled ||
         insights.authorizationEnabled ||
-        insights.reservationEnabled)
+        insights.reservationEnabled ||
+        workers.networkSummaryEnabled ||
+        workers.stuckSessionsEnabled ||
+        workers.tariffAnomaliesEnabled)
     );
   } catch (err) {
     logger.warn({ err }, 'isAiInsightsEnabled failed, using false');

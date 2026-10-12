@@ -11,7 +11,7 @@ const schema = z.object({
   // server and call the API here. Helm and CDK set the in-cluster addresses.
   OCPP_SERVER_URL: z.string().url().default('ws://localhost:7103'),
   API_BASE_URL: z.string().url().default('http://localhost:7102'),
-  // The CSMS address the AI proposal digest email links to (`<CSMS_URL>/ai/inbox`).
+  // The CSMS address the AI insight action digest email links to (`<CSMS_URL>/ai/insights`).
   // Helm (shared ConfigMap) and CDK already pass it to the worker, as to the API.
   CSMS_URL: z.string().url().default('http://localhost:7100'),
   // Allows the simulated (test) payment provider in this process (D-T1). Default:

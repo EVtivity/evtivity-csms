@@ -17,17 +17,19 @@
  * 6. `?toolsets=` names known categories, else 400 `VALIDATION_ERROR`.
  *
  * GET and DELETE answer 405 (no session stream, no session to delete).
+ *
+ * Write tools are listed and run only while `ai.mcp.allowWrites` is on and
+ * the key holds `aiMcp:write`; they then run directly under the key's own
+ * permissions and site scope.
  */
 
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
-import { eq } from 'drizzle-orm';
-import { db, users, getAiMcpSettings, isAiMcpEnabled } from '@evtivity/database';
+import { getAiMcpSettings, isAiMcpEnabled } from '@evtivity/database';
 import { AI_MCP_USE_PERMISSION } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES, ERROR_MESSAGES } from '../lib/error-codes.generated.js';
-import { config } from '../lib/config.js';
 import { APP_VERSION } from '../lib/app-version.js';
 import { requestHasPermission } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
@@ -35,7 +37,7 @@ import { parseMcpToolsets } from '../services/ai/mcp/exposure.js';
 import { checkMcpRateLimit } from '../services/ai/mcp/rate-limit.js';
 import { createMcpRequestHandler, mcpAuthInfo } from '../services/ai/mcp/server.js';
 import { AI_MCP_WRITE_PERMISSION } from '../services/ai/mcp/tool-call.js';
-import type { McpCaller } from '../services/ai/mcp/tool-call.js';
+import type { McpCaller, McpWriteAccess } from '../services/ai/mcp/tool-call.js';
 
 const API_KEY_HEADER = /^Bearer\s+([0-9a-f]{64})$/i;
 const WWW_AUTHENTICATE = 'Bearer realm="evtivity-mcp"';
@@ -46,7 +48,7 @@ const querySchema = z.object({
     .max(1000)
     .optional()
     .describe(
-      'Comma-separated tool categories (OpenAPI tags in lower case with dashes, such as stations,sessions,ocpp-2-1-commands). Default: ai-proposals, sessions, sites, stations, tokens',
+      'Comma-separated tool categories (OpenAPI tags in lower case with dashes, such as stations,sessions,ocpp-2-1-commands). Default: ai-insights, sessions, sites, stations, tokens',
     ),
 });
 
@@ -152,21 +154,14 @@ function jsonRpcId(body: unknown): string | number | null {
   return typeof id === 'string' || typeof id === 'number' ? id : null;
 }
 
-async function userLanguage(userId: string): Promise<string> {
-  const [row] = await db
-    .select({ language: users.language })
-    .from(users)
-    .where(eq(users.id, userId));
-  return row?.language ?? 'en';
+/** Whether this request may list and run write tools. */
+async function writeAccess(request: FastifyRequest, allowWrites: boolean): Promise<McpWriteAccess> {
+  if (!allowWrites) return 'disabled';
+  return (await requestHasPermission(request, AI_MCP_WRITE_PERMISSION)) ? 'allowed' : 'forbidden';
 }
 
 export function mcpRoutes(app: FastifyInstance): void {
-  const handler = createMcpRequestHandler(app, {
-    secret: config.SETTINGS_ENCRYPTION_KEY,
-    csmsUrl: config.CSMS_URL,
-    version: APP_VERSION,
-    proposalTtlMinutes: async () => (await getAiMcpSettings()).proposalTtlMinutes,
-  });
+  const handler = createMcpRequestHandler(app, { version: APP_VERSION });
   app.addHook('onClose', async () => {
     await handler.close();
   });
@@ -179,7 +174,7 @@ export function mcpRoutes(app: FastifyInstance): void {
         tags: ['MCP'],
         summary: 'MCP server (Streamable HTTP)',
         description:
-          'Model Context Protocol endpoint, stateless Streamable HTTP, protocol 2026-07-28 (2025-era clients are served statelessly). Authenticate with an API key whose scope holds aiMcp:read; JWTs and cookies are refused. Reads run as the key user with the same tool policy, redaction and site scope as the AI assistant. A write never runs: it becomes an AI proposal that the same user approves in the CSMS AI Inbox (URL elicitation when the client supports it, else a pending_approval result). Off unless ai.mcp.enabled is true (404).',
+          'Model Context Protocol endpoint, stateless Streamable HTTP, protocol 2026-07-28 (2025-era clients are served statelessly). Authenticate with an API key whose scope holds aiMcp:read; JWTs and cookies are refused. Every tool runs as the key user with the same tool policy, redaction and site scope as the AI assistant. Write tools (OCPP station commands) are listed and run only while ai.mcp.allowWrites is true and the key holds aiMcp:write; they run directly, under the key permissions and sites, with no confirmation. Otherwise a call to one is refused (writes_disabled or forbidden). Off unless ai.mcp.enabled is true (404).',
         operationId: 'postMcp',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(querySchema),
@@ -232,7 +227,6 @@ export function mcpRoutes(app: FastifyInstance): void {
         userId: user.userId,
         apiKeyId,
         authorization: request.headers.authorization ?? '',
-        language: await userLanguage(user.userId),
         hasPermission: (permission) => requestHasPermission(request, permission),
         log: request.log,
       };
@@ -259,9 +253,7 @@ export function mcpRoutes(app: FastifyInstance): void {
           authInfo: mcpAuthInfo({
             caller,
             toolsets: parsed.toolsets,
-            writes:
-              (await requestHasPermission(request, AI_MCP_WRITE_PERMISSION)) &&
-              (await requestHasPermission(request, 'stations:read')),
+            writes: await writeAccess(request, settings.allowWrites),
           }),
         },
       );

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { Headset, Inbox } from 'lucide-react';
+import { Headset, Lightbulb } from 'lucide-react';
 
 const { apiMock, perms } = vi.hoisted(() => ({
   apiMock: { get: vi.fn() },
@@ -29,7 +29,7 @@ import { SidebarNav } from '@/components/layout/SidebarNav';
 import { getQueryKeysForEvent } from '@/hooks/event-query-keys';
 
 const SUPPORT = { to: '/support-cases', labelKey: 'nav.supportCases', icon: Headset } as const;
-const INBOX = { to: '/ai/inbox', labelKey: 'nav.aiInbox', icon: Inbox } as const;
+const INSIGHTS = { to: '/ai/insights', labelKey: 'nav.aiInsights', icon: Lightbulb } as const;
 
 function wrap(ui: React.ReactNode): QueryClient {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -52,7 +52,7 @@ function serveCounts(unread: number, pending = 0): void {
 beforeEach(() => {
   perms.clear();
   perms.add('support:read');
-  perms.add('aiProposals:read');
+  perms.add('aiInsights:read');
 });
 
 afterEach(() => {
@@ -61,14 +61,14 @@ afterEach(() => {
 });
 
 describe('Support Cases nav badge', () => {
-  it('shows the unread case count in the AI Inbox badge style', async () => {
+  it('shows the unread case count in the AI Insights badge style', async () => {
     serveCounts(3, 4);
-    wrap(<SidebarNav items={[SUPPORT, INBOX]} collapsed={false} />);
+    wrap(<SidebarNav items={[SUPPORT, INSIGHTS]} collapsed={false} />);
     const badge = await screen.findByTestId('support-cases-badge');
     expect(badge.textContent).toBe('3');
     expect(badge.getAttribute('aria-label')).toBe('nav.unreadCasesCount(3)');
-    const inbox = await screen.findByTestId('ai-inbox-badge');
-    expect(badge.className).toBe(inbox.className);
+    const insights = await screen.findByTestId('ai-insights-badge');
+    expect(badge.className).toBe(insights.className);
     expect(apiMock.get).toHaveBeenCalledWith('/v1/support-cases/unread-count');
   });
 
@@ -104,6 +104,26 @@ describe('Support Cases nav badge', () => {
     });
     expect(apiMock.get).not.toHaveBeenCalled();
     expect(screen.queryByTestId('support-cases-badge')).toBeNull();
+  });
+
+  it('shows the pending insight action count on AI Insights', async () => {
+    serveCounts(0, 4);
+    wrap(<SidebarNav items={[INSIGHTS]} collapsed={false} />);
+    const badge = await screen.findByTestId('ai-insights-badge');
+    expect(badge.textContent).toBe('4');
+    expect(badge.getAttribute('aria-label')).toBe('aiInsights.action.pendingCount(4)');
+    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights?action=pending&limit=1');
+  });
+
+  it('asks for no pending action count without aiInsights:read', async () => {
+    perms.delete('aiInsights:read');
+    serveCounts(0, 4);
+    wrap(<SidebarNav items={[INSIGHTS]} collapsed={false} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(apiMock.get).not.toHaveBeenCalledWith('/v1/ai/insights?action=pending&limit=1');
+    expect(screen.queryByTestId('ai-insights-badge')).toBeNull();
   });
 
   it('refreshes on a support case SSE event', async () => {

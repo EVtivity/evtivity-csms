@@ -6,6 +6,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
+  INSIGHT_ACTION_FILTERS,
   INSIGHT_FEEDBACK_FILTERS,
   INSIGHT_KINDS,
   INSIGHT_STATUSES,
@@ -13,6 +14,7 @@ import {
   isReservationInsightKind,
 } from '@evtivity/lib/ai-insights';
 import type {
+  InsightActionFilter,
   InsightFeedbackFilter,
   InsightKind,
   InsightStatus,
@@ -26,7 +28,7 @@ import {
   insightPath,
   shownCategory,
 } from '@/components/ai/insights/insight-display';
-import { insightStatusVariant } from '@/lib/status-variants';
+import { insightActionStatusVariant, insightStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 import { Badge } from '@/components/ui/badge';
 import { IconBadge } from '@/components/ui/icon-badge';
@@ -62,7 +64,10 @@ function pick<T extends string>(values: readonly T[], raw: string | null): T | u
  * Insights list (`/ai/insights`, `aiInsights:read`): every insight in the
  * user's sites, newest first, with the standard filter bar and table. The
  * filters live in the URL so the dashboard card can open a filtered list
- * (`feedback=wrong`: insights someone marked wrong, linked from Settings).
+ * (`feedback=wrong`: insights someone marked wrong, linked from Settings;
+ * `action=pending`: background worker suggestions waiting for a decision,
+ * linked from the digest email). The status column also shows the state of
+ * the action an insight carries.
  * A row opens the insight's page.
  */
 export function AiInsights(): React.JSX.Element {
@@ -84,6 +89,7 @@ export function AiInsights(): React.JSX.Element {
   const category = pick<RootCauseCategory>(ROOT_CAUSE_CATEGORIES, params.get('category'));
   const siteId = params.get('siteId') ?? '';
   const feedback = pick<InsightFeedbackFilter>(INSIGHT_FEEDBACK_FILTERS, params.get('feedback'));
+  const action = pick<InsightActionFilter>(INSIGHT_ACTION_FILTERS, params.get('action'));
 
   const filter: Omit<InsightFilter, 'limit'> = {};
   if (status != null) filter.status = status;
@@ -91,6 +97,7 @@ export function AiInsights(): React.JSX.Element {
   if (category != null) filter.category = category;
   if (siteId !== '') filter.siteId = siteId;
   if (feedback != null) filter.feedback = feedback;
+  if (action != null) filter.action = action;
   const { insights, total, isLoading, isError } = useInsightPage(filter, page);
   const totalPages = Math.max(1, Math.ceil(total / INSIGHTS_PAGE_SIZE));
 
@@ -117,7 +124,7 @@ export function AiInsights(): React.JSX.Element {
       </div>
 
       <Card>
-        <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-5">
+        <CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <div className="space-y-2">
             <Label htmlFor="ai-insights-status" className="leading-6">
               {t('common.status')}
@@ -193,6 +200,23 @@ export function AiInsights(): React.JSX.Element {
               <option value="">{t('aiInsights.list.allFeedback')}</option>
               <option value="wrong">{t('aiInsights.list.feedbackWrong')}</option>
               <option value="helpful">{t('aiInsights.list.feedbackHelpful')}</option>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="ai-insights-action" className="leading-6">
+              {t('aiInsights.action.filter')}
+            </Label>
+            <Select
+              id="ai-insights-action"
+              className="h-9"
+              value={action ?? ''}
+              onChange={(e) => {
+                setFilter('action', e.target.value);
+              }}
+            >
+              <option value="">{t('aiInsights.action.filterAll')}</option>
+              <option value="pending">{t('aiInsights.action.filterPending')}</option>
+              <option value="any">{t('aiInsights.action.filterAny')}</option>
             </Select>
           </div>
           {canReadSites && (
@@ -275,9 +299,22 @@ export function AiInsights(): React.JSX.Element {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant={insightStatusVariant(insight.status)}>
-                        {t(`aiInsights.status.${insight.status}`)}
-                      </Badge>
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge variant={insightStatusVariant(insight.status)}>
+                          {t(`aiInsights.status.${insight.status}`)}
+                        </Badge>
+                        {insight.action != null && (
+                          <Badge
+                            variant={insightActionStatusVariant(insight.action.status)}
+                            className="whitespace-nowrap"
+                            data-testid="ai-insight-list-action"
+                          >
+                            {insight.action.status === 'pending'
+                              ? t('aiInsights.action.pending')
+                              : `${t('aiInsights.action.filter')}: ${t(`aiInsights.action.status.${insight.action.status}`)}`}
+                          </Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {shown != null ? (

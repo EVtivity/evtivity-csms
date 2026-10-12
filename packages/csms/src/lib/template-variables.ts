@@ -145,7 +145,7 @@ export const FLEET_INVOICE_EVENTS = [
   'invoice.FleetOverdue',
 ] as const;
 
-// AI: the daily AI Inbox digest, sent to opted-in operators who can confirm proposals
+// AI: the daily digest of AI insight actions, sent to opted-in operators who can confirm them
 export const OPERATOR_AI_EVENTS = ['ai.ProposalDigest'] as const;
 
 export const OPERATOR_EVENT_TYPES = [
@@ -1014,12 +1014,15 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'firstName', description: 'Operator first name' },
     { name: 'lastName', description: 'Operator last name' },
     { name: 'digestDate', description: 'Day of the digest (YYYY-MM-DD)' },
-    { name: 'pendingCount', description: 'Pending AI proposals at your sites' },
-    { name: 'stuckSessionsCount', description: 'Pending proposals from the stuck sessions job' },
-    { name: 'networkSummaryCount', description: 'Pending proposals from the network health job' },
-    { name: 'siteCount', description: 'Number of sites with pending proposals' },
-    { name: 'siteNames', description: 'Sites with pending proposals, comma-separated' },
-    { name: 'inboxUrl', description: 'Link to the AI Inbox' },
+    {
+      name: 'pendingCount',
+      description: 'AI insight actions waiting for a decision at your sites',
+    },
+    { name: 'stuckSessionsCount', description: 'Pending actions from the stuck sessions job' },
+    { name: 'networkSummaryCount', description: 'Pending actions from the network health job' },
+    { name: 'siteCount', description: 'Number of sites with pending actions' },
+    { name: 'siteNames', description: 'Sites with pending actions, comma-separated' },
+    { name: 'insightsUrl', description: 'Link to the AI insights with a pending action' },
   ],
   'site.PayoutOnboarding': [
     { name: 'siteName', description: 'Site name' },

@@ -372,7 +372,6 @@ export {
   getAiWorkerSettings,
   getAiMcpSettings,
   isAiMcpEnabled,
-  isAiInboxEnabled,
   isAiInsightsEnabled,
   clearAiSettingsCache,
 } from './lib/ai-settings.js';

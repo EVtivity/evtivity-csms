@@ -498,7 +498,7 @@ export function StationImages({ stationId }: StationImagesProps): React.JSX.Elem
                   {t('stations.mainImage')}
                 </Badge>
               ) : (
-                <Button variant="outline" size="sm" onClick={handleSetMain}>
+                <Button variant="outline" onClick={handleSetMain}>
                   <Star className="h-4 w-4" />
                   {t('stations.setAsMain')}
                 </Button>

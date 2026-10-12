@@ -11,37 +11,28 @@ import {
   integer,
   jsonb,
   check,
-  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import { users, refreshTokens } from './identity.js';
-import { aiProposals } from './ai-proposals.js';
 import { createId } from '../lib/id.js';
 
 /** Statuses of an MCP tool call (`ai_mcp_calls.status`). */
 export const AI_MCP_CALL_STATUSES = [
-  /** A read ran and the route answered below 400. */
+  /** The tool ran and the route answered below 400. */
   'ok',
-  /** A read ran and the route answered 400 or above, or the call failed. */
+  /** The tool ran and the route answered 400 or above, or the call failed. */
   'error',
-  /** Refused before anything ran: unknown tool, invalid arguments, station not found. */
+  /** Refused before anything ran: unknown tool, writes off, invalid arguments. */
   'refused',
-  /** A write became a new proposal. */
-  'proposed',
-  /** A retry of a write whose proposal is still pending. */
-  'pending',
-  /** A retry that returned the result of the executed (or failed) proposal, once. */
-  'delivered',
-  /** A retry of a proposal that was rejected, expired, stale, or whose result was returned before. */
-  'decided',
 ] as const;
 export type AiMcpCallStatus = (typeof AI_MCP_CALL_STATUSES)[number];
 
 /**
- * One MCP `tools/call` (migration 0438). The single writer is
+ * One MCP `tools/call` (migration 0438), reads and writes. The single writer is
  * `packages/api/src/services/ai/mcp/mcp-call.service.ts` (P3). Client name and
- * version come from the request `_meta` and are untrusted. A `delivered` row
- * is unique per proposal: it is the claim that returns a proposal's result to
- * the MCP client once. Pruned with `ai.conversationRetentionDays`.
+ * version come from the request `_meta` and are untrusted. Pruned with
+ * `ai.conversationRetentionDays`. The `proposal_id` column (MCP proposals,
+ * removed in v0.1.45) stays until v0.1.46 drops it: pods of v0.1.44 still
+ * insert it during a rolling upgrade.
  */
 export const aiMcpCalls = pgTable(
   'ai_mcp_calls',
@@ -55,7 +46,7 @@ export const aiMcpCalls = pgTable(
     clientVersion: varchar('client_version', { length: 50 }),
     protocolVersion: varchar('protocol_version', { length: 20 }),
     toolName: varchar('tool_name', { length: 200 }).notNull(),
-    /** The operation that ran or was proposed (after the OCPP version mapping), null when refused early. */
+    /** The operation that ran (after the OCPP version mapping), null when refused early. */
     operationId: varchar('operation_id', { length: 200 }),
     method: varchar('method', { length: 10 }),
     path: text('path'),
@@ -67,19 +58,11 @@ export const aiMcpCalls = pgTable(
     errorCode: varchar('error_code', { length: 60 }),
     latencyMs: integer('latency_ms'),
     redactionCounts: jsonb('redaction_counts'),
-    proposalId: text('proposal_id').references(() => aiProposals.id, { onDelete: 'set null' }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index('idx_ai_mcp_calls_key_created').on(table.apiKeyId, table.createdAt),
     index('idx_ai_mcp_calls_created').on(table.createdAt),
-    index('idx_ai_mcp_calls_proposal').on(table.proposalId),
-    uniqueIndex('uq_ai_mcp_calls_delivered_proposal')
-      .on(table.proposalId)
-      .where(sql`${table.status} = 'delivered'`),
-    check(
-      'ai_mcp_calls_status_check',
-      sql`${table.status} IN ('ok', 'error', 'refused', 'proposed', 'pending', 'delivered', 'decided')`,
-    ),
+    check('ai_mcp_calls_status_check', sql`${table.status} IN ('ok', 'error', 'refused')`),
   ],
 );

@@ -8,9 +8,10 @@ import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { config } from '../lib/config.js';
 
 /**
- * Cron `ai-proposal-digest` (daily 07:00): the opt-in email with the pending
- * AI proposal counts (`ai.ProposalDigest`, decision D12). Only operators who
- * turned it on and have pending proposals at their sites get one.
+ * Cron `ai-proposal-digest` (daily 07:00): the opt-in email with the counts
+ * of AI insight actions waiting for a decision (`ai.ProposalDigest`, decision
+ * D12), linking the insights with a pending action. Only operators who turned
+ * it on and have pending actions at their sites get one.
  */
 export async function aiProposalDigestHandler(log: Logger, now = new Date()): Promise<void> {
   const result = await sendAiProposalDigests({
@@ -18,7 +19,7 @@ export async function aiProposalDigestHandler(log: Logger, now = new Date()): Pr
     digestDate: new Intl.DateTimeFormat('en-CA', { timeZone: await getSystemTimezone() }).format(
       now,
     ),
-    inboxUrl: `${config.CSMS_URL.replace(/\/$/, '')}/ai/inbox`,
+    insightsUrl: `${config.CSMS_URL.replace(/\/$/, '')}/ai/insights?action=pending`,
     templatesDirs: ALL_TEMPLATES_DIRS,
     log,
   });

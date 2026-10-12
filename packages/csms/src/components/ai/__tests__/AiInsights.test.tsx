@@ -68,6 +68,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
     createdAt: '2026-10-10T10:00:00Z',
     resolvedAt: null,
     dismissedAt: null,
+    action: null,
     ...overrides,
   };
 }
@@ -425,7 +426,6 @@ describe('record pages', () => {
       kind: 'authorization',
       id: '7',
     });
-    expect(useAiPanelStore.getState().request?.insightId).toBeNull();
     fireEvent.click(screen.getByTestId('ai-explain'));
     expect(useAiPanelStore.getState().request?.context).toEqual({
       kind: 'authorization',
@@ -475,32 +475,32 @@ describe('ExplainButton (TC-AI-EX-05)', () => {
     fireEvent.click(await screen.findByTestId('ai-explain'));
     const state = useAiPanelStore.getState();
     expect(state.open).toBe(true);
-    expect(state.request).toMatchObject({
-      context: { kind: 'session', id: 'se1' },
-      insightId: null,
-    });
+    expect(state.request?.context).toEqual({ kind: 'session', id: 'se1' });
+    // Only the record: the panel never receives an insight to show.
+    expect(Object.keys(state.request ?? {}).sort()).toEqual(['context', 'seq']);
   });
 
-  it('TC-AI-EX-04: opens the fresh insight instead of a conversation', async () => {
+  it('TC-AI-EX-04: a fresh insight marks the icon; the panel opens about the record only', async () => {
     perms.add('aiAssistant:write');
     apiMock.get.mockResolvedValue({ data: [insight({ id: 'fresh' })], total: 1 });
-    wrap(<ExplainButton context={{ kind: 'station', id: 'st1' }} />);
-    await waitFor(() => {
-      expect(apiMock.get).toHaveBeenCalled();
-    });
-    fireEvent.click(await screen.findByTestId('ai-explain'));
-    expect(useAiPanelStore.getState().request?.insightId).toBe('fresh');
+    wrap(<ExplainButton context={{ kind: 'station', id: 'st1' }} iconOnly />);
+    fireEvent.click(await screen.findByTestId('ai-insight-icon'));
+    expect(useAiPanelStore.getState().request?.context).toEqual({ kind: 'station', id: 'st1' });
+    expect(Object.keys(useAiPanelStore.getState().request ?? {}).sort()).toEqual([
+      'context',
+      'seq',
+    ]);
   });
 
-  it('a stale insight is not fresh: Explain asks the question instead', async () => {
+  it('a stale insight is not fresh: the icon is the Explain one', async () => {
     perms.add('aiAssistant:write');
     apiMock.get.mockResolvedValue({ data: [insight({ stale: true })], total: 1 });
-    wrap(<ExplainButton context={{ kind: 'station', id: 'st1' }} />);
+    wrap(<ExplainButton context={{ kind: 'station', id: 'st1' }} iconOnly />);
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalled();
     });
-    fireEvent.click(screen.getByTestId('ai-explain'));
-    expect(useAiPanelStore.getState().request?.insightId).toBeNull();
+    expect(screen.getByTestId('ai-explain')).toBeTruthy();
+    expect(screen.queryByTestId('ai-insight-icon')).toBeNull();
   });
 
   it('is hidden without aiAssistant:write', () => {
@@ -594,9 +594,9 @@ describe('reservation insights', () => {
       );
     });
     fireEvent.click(await screen.findByTestId('ai-explain'));
-    expect(useAiPanelStore.getState().request).toMatchObject({
-      context: { kind: 'reservation', id: 'res1' },
-      insightId: 'fresh',
+    expect(useAiPanelStore.getState().request?.context).toEqual({
+      kind: 'reservation',
+      id: 'res1',
     });
   });
 });

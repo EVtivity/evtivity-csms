@@ -1,7 +1,7 @@
 <p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>{{#if firstName}}{{firstName}}님, 안녕하세요.{{else}}안녕하세요.{{/if}}</p>
-<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>AI 받은편지함에서 AI 제안 {{pendingCount}}건이 검토를 기다리고 있습니다. 운영자가 확인하기 전에는 어떤 제안도 실행되지 않습니다.</p>
+<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>AI 인사이트에서 작업 {{pendingCount}}건이 결정을 기다리고 있습니다. 운영자가 확인하기 전에는 어떤 작업도 실행되지 않습니다.</p>
 {{#if stuckSessionsCount}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>멈춘 충전 세션 중지: {{stuckSessionsCount}}건</p>{{/if}}
 {{#if networkSummaryCount}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>네트워크 상태 요약에서 제안: {{networkSummaryCount}}건</p>{{/if}}
 {{#if siteNames}}<p style='color:#4b5563;line-height:1.6;margin:0 0 16px 0;'>사이트: {{siteNames}}</p>{{/if}}
-<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{inboxUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>AI 받은편지함 열기</a></td></tr></table>
-<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>아무도 확인하지 않은 제안은 만료됩니다. 프로필에서 일일 AI 제안 요약을 켰기 때문에 이 메일을 받으셨습니다.</p>
+<table cellpadding='0' cellspacing='0' border='0' width='100%' style='border-collapse:collapse;border-spacing:0;'><tr><td align='center' style='padding:24px 0;'><a href='{{insightsUrl}}' style='display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-size:16px;'>AI 인사이트 열기</a></td></tr></table>
+<p style='color:#6b7280;line-height:1.6;margin:0;font-size:14px;'>아무도 확인하지 않은 작업은 만료됩니다. 프로필에서 일일 AI 인사이트 작업 요약을 켰기 때문에 이 메일을 받으셨습니다.</p>

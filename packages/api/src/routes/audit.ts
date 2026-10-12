@@ -72,7 +72,7 @@ const auditItem = z
         channel: z
           .enum(AI_VIA_CHANNELS)
           .describe(
-            'chat: an assistant tool call; mcp: an MCP call; proposal: a confirmed AI proposal',
+            'chat: an assistant tool call; mcp: an MCP call; proposal: a confirmed AI insight action',
           ),
         conversationId: z.string().optional().describe('AI conversation the change came from'),
         toolCallId: z
@@ -80,13 +80,13 @@ const auditItem = z
           .optional()
           .describe('Tool call (ai_tool_calls id) that made the change'),
         mcpCallId: z.string().optional().describe('MCP call log id'),
-        proposalId: z.string().optional().describe('AI proposal the change ran for'),
-        confirmedBy: z.string().optional().describe('User who confirmed the proposal'),
+        proposalId: z.string().optional().describe('AI insight action the change ran for'),
+        confirmedBy: z.string().optional().describe('User who confirmed the action'),
       })
       .passthrough()
       .nullable()
       .describe(
-        'Set when an AI tool call, MCP call or confirmed AI proposal made the change. Rows written before the channel existed read as chat.',
+        'Set when an AI tool call, MCP call or confirmed AI insight action made the change. Rows written before the channel existed read as chat.',
       ),
     createdAt: z.string().describe('ISO datetime'),
   })
@@ -256,9 +256,8 @@ function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
     case 'maintenance_event':
       return sql`(SELECT m.site_id FROM maintenance_events m WHERE m.id = ${id})`;
     case 'ai_proposal':
-      // A worker proposal follows its site. An MCP proposal is its requester's
-      // own: its history (with the arguments) stays with all-site users.
-      return sql`(SELECT p.site_id FROM ai_proposals p WHERE p.id = ${id} AND p.source = 'worker')`;
+      // An insight action follows its site (unsited: all-site users only).
+      return sql`(SELECT p.site_id FROM ai_proposals p WHERE p.id = ${id})`;
     case 'ai_insight':
       return sql`(SELECT i.site_id FROM ai_insights i WHERE i.id = ${id})`;
     default:

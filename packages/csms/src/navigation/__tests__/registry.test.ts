@@ -23,7 +23,7 @@ const ALL_ON = {
   reservationEnabled: true,
   supportEnabled: true,
   fleetEnabled: true,
-  aiInboxEnabled: true,
+  aiInsightsEnabled: true,
 };
 
 describe('NAV_ENTRIES', () => {
@@ -97,11 +97,16 @@ describe('visibleNavEntries', () => {
   });
 });
 
-describe('AI Inbox entry', () => {
-  it('shows only while something can create proposals', () => {
-    const on = visibleNavEntries(['aiProposals:read'], ALL_ON, true).map((e) => e.to);
-    expect(on).toContain('/ai/inbox');
-    const off = visibleNavEntries(['aiProposals:read'], { ...ALL_ON, aiInboxEnabled: false }, true);
-    expect(off.map((e) => e.to)).not.toContain('/ai/inbox');
+describe('AI Insights entry', () => {
+  it('shows only while AI Insights are on, and no AI Inbox entry remains', () => {
+    const on = visibleNavEntries(['aiInsights:read'], ALL_ON, true).map((e) => e.to);
+    expect(on).toContain('/ai/insights');
+    expect(NAV_ENTRIES.map((e) => e.to)).not.toContain('/ai/inbox');
+    const off = visibleNavEntries(
+      ['aiInsights:read'],
+      { ...ALL_ON, aiInsightsEnabled: false },
+      true,
+    );
+    expect(off.map((e) => e.to)).not.toContain('/ai/insights');
   });
 });

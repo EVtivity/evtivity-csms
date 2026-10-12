@@ -10,10 +10,10 @@ import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
 import { Tooltip } from '@/components/ui/tooltip';
-import { usePendingProposalCount } from '@/components/ai/inbox/proposal-api';
+import { usePendingActionCount } from '@/components/ai/insights/insight-api';
 
 /**
- * A nav item's count (AI Inbox pending proposals, unread support cases), as a
+ * A nav item's count (AI insight actions waiting for a decision, unread support cases), as a
  * pill (expanded) or a dot (collapsed). Every nav count uses this one style.
  */
 function NavCountBadge({
@@ -81,15 +81,15 @@ export function SidebarNav({ items, collapsed, onNavClick }: SidebarNavProps): R
     enabled: hasSupportAccess,
   });
   const unreadCaseCount = hasSupportAccess ? (unreadCountData?.count ?? 0) : 0;
-  const hasInbox = items.some((item) => item.to === '/ai/inbox');
-  const pendingProposals = usePendingProposalCount(hasInbox);
+  const hasInsights = items.some((item) => item.to === '/ai/insights');
+  const pendingActions = usePendingActionCount(hasInsights);
 
   function badgeFor(to: string): NavBadge | null {
-    if (to === '/ai/inbox' && pendingProposals > 0) {
+    if (to === '/ai/insights' && pendingActions > 0) {
       return {
-        count: pendingProposals,
-        label: t('aiInbox.pendingCount', { count: pendingProposals }),
-        testId: 'ai-inbox-badge',
+        count: pendingActions,
+        label: t('aiInsights.action.pendingCount', { count: pendingActions }),
+        testId: 'ai-insights-badge',
       };
     }
     if (to === '/support-cases' && unreadCaseCount > 0) {

@@ -381,6 +381,16 @@ describe('Event projections', () => {
       );
       expect(channels).toContain('ocpp_commands');
       expect(channels).toContain('station_message_refresh');
+      // The sent command leaves the queue: the message log stops showing it as Queued.
+      const events = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls
+        .filter((c: unknown[]) => c[0] === 'csms_events')
+        .map((c: unknown[]) => JSON.parse(String(c[1])) as Record<string, unknown>);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          eventType: 'ocpp.message',
+          stationId: 'sta_ready_test1',
+        }),
+      );
       // Superseded screen and cost commands are expired before the queue is read.
       const collapse = sqlCalls.findIndex((c) => c.strings.join('?').includes('rn > 1'));
       const drain = sqlCalls.findIndex((c) =>

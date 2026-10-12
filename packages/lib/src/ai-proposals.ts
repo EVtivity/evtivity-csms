@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * AI proposals: a write that a background worker or an MCP client asks for
- * and that runs only after an operator confirms it in the CSMS AI Inbox, with
- * that operator's own authorization. Shared by the worker, the API and the
- * CSMS. Browser-safe (`@evtivity/lib/ai-proposals`).
+ * AI insight actions (stored as `ai_proposals`): a write a background worker
+ * suggests with an automatic insight. It runs only after an operator confirms
+ * it on the insight in the CSMS, with that operator's own authorization.
+ * Shared by the worker, the API and the CSMS. Browser-safe
+ * (`@evtivity/lib/ai-proposals`).
  */
 
 import { z } from 'zod';
-
-export const AI_PROPOSAL_SOURCES = ['worker', 'mcp'] as const;
-export type AiProposalSource = (typeof AI_PROPOSAL_SOURCES)[number];
 
 export const AI_WORKER_JOBS = ['network_summary', 'stuck_sessions', 'tariff_anomalies'] as const;
 export type AiWorkerJob = (typeof AI_WORKER_JOBS)[number];
@@ -29,7 +27,7 @@ export type AiProposalStatus = (typeof AI_PROPOSAL_STATUSES)[number];
 /**
  * Why a confirmed proposal was refused before its route ran. Stored as
  * `result.body.refused` of a failed proposal (no English text); the CSMS
- * localizes it as `aiInbox.refused.<reason>`.
+ * localizes it as `aiInsights.action.refused.<reason>`.
  */
 export const AI_PROPOSAL_REFUSAL_REASONS = [
   'args_mismatch',
@@ -64,7 +62,7 @@ export type AiWorkerActionKind = (typeof AI_WORKER_ACTION_KINDS)[number];
 export interface AiWorkerAction {
   kind: AiWorkerActionKind;
   ocppVersion: '1.6' | '2.1';
-  /** The tool policy `write` operation the proposal runs. */
+  /** The tool policy `write` operation the action runs. */
   operationId: string;
   method: 'POST';
   path: string;
@@ -75,7 +73,7 @@ export interface AiWorkerAction {
 }
 
 /**
- * The closed set of actions a background worker may propose. Each one maps to
+ * The closed set of actions a background worker may suggest. Each one maps to
  * an existing OCPP command route of policy `write`. No money, pricing,
  * billing or security operation is in it, and none may be added.
  */
@@ -176,15 +174,11 @@ export const aiProposalResultSchema = z.object({
 });
 export type AiProposalResult = z.infer<typeof aiProposalResultSchema>;
 
-/** One proposal as the API returns it. */
+/** The action an insight carries, as the API returns it (`action` of the insight). */
 export const aiProposalDtoSchema = z.object({
   id: z.string(),
-  source: z.enum(AI_PROPOSAL_SOURCES),
   job: z.enum(AI_WORKER_JOBS).nullable(),
-  insightId: z.string().nullable(),
-  requestedByUserId: z.string().nullable(),
-  /** MCP: the name of the API key that asked; null for worker proposals and a revoked key. */
-  apiKeyName: z.string().nullable(),
+  insightId: z.string(),
   siteId: z.string().nullable(),
   stationId: z.string().nullable(),
   sessionId: z.string().nullable(),
@@ -195,8 +189,6 @@ export const aiProposalDtoSchema = z.object({
   argsHash: z.string(),
   /** Structured fields for the localized confirmation card. */
   summary: z.record(z.unknown()),
-  rationaleText: z.string().nullable(),
-  rationaleLanguage: z.string().nullable(),
   precondition: aiProposalPreconditionSchema.nullable(),
   status: z.enum(AI_PROPOSAL_STATUSES),
   expiresAt: z.string(),
@@ -210,11 +202,9 @@ export type AiProposalDto = z.infer<typeof aiProposalDtoSchema>;
 
 export const aiProposalConfirmBody = z.object({ argsHash: z.string().min(1) });
 
-/** Default time to live of a proposal, per source. */
+/** Default time to live of an action: the stuck-session stop (the soft reset uses `aiWorkers.proposalTtlHours`). */
 export const AI_PROPOSAL_TTL_MS = {
-  worker: 24 * 60 * 60 * 1000,
   stuckSessions: 2 * 60 * 60 * 1000,
-  mcp: 30 * 60 * 1000,
 } as const;
 
 /** How an audit row written by an AI-run request records where it came from. */
@@ -255,13 +245,12 @@ export const AI_WORKER_SETTING_KEYS = {
 
 /**
  * The MCP toolsets served when a client names none (`?toolsets=`): stations
- * (alerts included), sessions, sites, tokens (with the authorize log),
- * automatic insights (the main read surface) and AI proposals
- * (`get_ai_proposal`, to poll a write). Shared so the CSMS lists the same set.
+ * (alerts included), sessions, sites, tokens (with the authorize log) and
+ * automatic insights (the main read surface). Shared so the CSMS lists the
+ * same set.
  */
 export const AI_MCP_DEFAULT_TOOLSETS: readonly string[] = [
   'ai-insights',
-  'ai-proposals',
   'sessions',
   'sites',
   'stations',
@@ -272,11 +261,11 @@ export const AI_MCP_SETTING_KEYS = {
   enabled: 'ai.mcp.enabled',
   rateLimitPerMinute: 'ai.mcp.rateLimitPerMinute',
   dailyCallsPerKey: 'ai.mcp.dailyCallsPerKey',
-  proposalTtlMinutes: 'ai.mcp.proposalTtlMinutes',
+  allowWrites: 'ai.mcp.allowWrites',
   allowedOrigins: 'ai.mcp.allowedOrigins',
 } as const;
 
-/** Error codes of the proposal and MCP routes, with their HTTP status. */
+/** Error codes of the insight action and MCP routes, with their HTTP status. */
 export const AI_PROPOSAL_ERROR_CODES = {
   AI_PROPOSAL_NOT_FOUND: 404,
   AI_PROPOSAL_EXPIRED: 409,

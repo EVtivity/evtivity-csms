@@ -14,7 +14,6 @@ import {
   isFleetEnabled,
   isGuestChargingEnabled,
   isChatbotAiEnabled,
-  isAiInboxEnabled,
   isAiInsightsEnabled,
   clearRoamingCache,
   clearSupportCache,
@@ -578,15 +577,10 @@ export function settingsRoutes(app: FastifyInstance): void {
                 chatbotAiEnabled: z
                   .boolean()
                   .describe('Whether the AI assistant is enabled for CSMS users'),
-                aiInboxEnabled: z
-                  .boolean()
-                  .describe(
-                    'Whether anything can create AI proposals (a proposing background AI worker or the MCP server), so the CSMS shows the AI Inbox',
-                  ),
                 aiInsightsEnabled: z
                   .boolean()
                   .describe(
-                    'Whether automatic insights are generated (opsAi.enabled and an insight kind on), so the CSMS dashboard shows the Active insights card',
+                    'Whether AI Insights are on (opsAi.enabled and an insight kind or background worker job on), so the CSMS shows insights and their pending actions',
                   ),
                 driverAiSupport: z
                   .boolean()
@@ -637,7 +631,6 @@ export function settingsRoutes(app: FastifyInstance): void {
       const fleetEnabled = await isFleetEnabled();
       const guestChargingEnabled = await isGuestChargingEnabled();
       const chatbotAiEnabled = await isChatbotAiEnabled();
-      const aiInboxEnabled = await isAiInboxEnabled();
       const aiInsightsEnabled = await isAiInsightsEnabled();
       const driverAi = await readDriverAiAvailability();
       const reservationConfig = await getReservationSettings();
@@ -650,7 +643,6 @@ export function settingsRoutes(app: FastifyInstance): void {
         fleetEnabled,
         guestChargingEnabled,
         chatbotAiEnabled,
-        aiInboxEnabled,
         aiInsightsEnabled,
         driverAiSupport: driverAi.available,
         driverAiNoticeVersion: DRIVER_AI_NOTICE_VERSION,

@@ -175,7 +175,7 @@
     "closeMenu": "Menü schließen",
     "audit": "Audit",
     "maintenance": "Wartung",
-    "aiInbox": "KI-Posteingang"
+    "aiInsights": "KI-Erkenntnisse"
   },
   "roaming": {
     "partners": {
@@ -1372,7 +1372,6 @@
         "ai": "KI",
         "conformance": "Konformität"
       },
-      "aiProposals": "KI-Vorschläge",
       "aiUsage": "KI-Nutzung",
       "aiMcp": "MCP-Zugriff"
     }
@@ -1427,8 +1426,8 @@
     "chatbotAiDescription": "Ihre eigene Konfiguration des KI-Assistenten. Sie ersetzt für Sie die Systemeinstellungen.",
     "aiRemoveConfig": "Konfiguration entfernen",
     "aiRemoveConfirm": "Ihre persönliche Konfiguration entfernen? Danach gelten wieder die Systemeinstellungen.",
-    "aiDigestEmail": "Zusammenfassung des KI-Posteingangs per E-Mail",
-    "aiDigestEmailDescription": "Eine tägliche E-Mail mit der Zahl der offenen KI-Vorschläge an Ihren Standorten.",
+    "aiDigestEmail": "Zusammenfassung der KI-Analyseaktionen per E-Mail",
+    "aiDigestEmailDescription": "Eine tägliche E-Mail mit der Zahl der KI-Analyseaktionen, die an Ihren Standorten auf eine Entscheidung warten.",
     "notificationsSaveFailed": "Die Benachrichtigungseinstellung konnte nicht gespeichert werden. Bitte versuchen Sie es erneut."
   },
   "fleets": {
@@ -1729,7 +1728,10 @@
     "title": "OCPP-Nachrichtenprotokoll",
     "filterAction": "Aktion",
     "allActions": "Alle",
-    "noMessages": "Bisher keine OCPP-Nachrichten aufgezeichnet."
+    "noMessages": "Bisher keine OCPP-Nachrichten aufgezeichnet.",
+    "processed": "Verarbeitet",
+    "queued": "In Warteschlange",
+    "queuedHint": "Wird gesendet, sobald die Station wieder verbunden ist"
   },
   "charts": {
     "kWh": "kWh",
@@ -2541,7 +2543,7 @@
     },
     "aiLimitRange": "Von {{min}} bis {{max}}.",
     "aiLimitZeroNoBudget": "0 bedeutet kein Tageslimit.",
-    "aiOpsDataWarning": "Wenn dies eingeschaltet ist, werden Stations-, Sitzungs- und Token-Statusdaten ohne Benutzeraktion an den konfigurierten Anbieter gesendet.",
+    "aiOpsDataWarning": "Wenn dies eingeschaltet ist, werden Betriebsdaten automatisch und ohne Benutzeraktion an den konfigurierten Anbieter gesendet.",
     "aiInsightsSettings": {
       "title": "Automatische Analysen",
       "station": "Stationsanalysen",
@@ -2571,21 +2573,22 @@
     },
     "aiMcp": {
       "title": "MCP-Server",
-      "description": "Erlaubt MCP-Clients, die KI-Werkzeuge mit einem API-Schlüssel mit MCP-Zugriff zu nutzen. Jede Änderung braucht Ihre Bestätigung im KI-Posteingang.",
+      "description": "Erlaubt MCP-Clients, die KI-Werkzeuge mit einem API-Schlüssel mit MCP-Zugriff zu nutzen. Clients lesen standardmäßig nur. Schreibvorgänge laufen nur, wenn Sie sie erlauben.",
       "enabled": "MCP-Server einschalten",
+      "allowWrites": "Schreibvorgänge erlauben",
+      "allowWritesHint": "Aus: MCP-Clients lesen nur. Ein: Schreibwerkzeuge (Stationsbefehle) laufen sofort, mit den Berechtigungen und Standorten des API-Schlüssels.",
       "rateLimitPerMinute": "Aufrufe pro API-Schlüssel und Minute",
       "dailyCallsPerKey": "Aufrufe pro API-Schlüssel und Tag",
-      "proposalTtlMinutes": "Zeit zum Bestätigen einer MCP-Änderung (Minuten)",
       "allowedOrigins": "Erlaubte Ursprünge",
       "allowedOriginsHint": "Ein Ursprung pro Zeile, etwa https://app.example.com. Leer lassen, um Anfragen aus Browsern abzulehnen.",
       "allowedOriginsInvalid": "Geben Sie pro Zeile einen http- oder https-Ursprung ohne Pfad ein.",
       "endpoint": "Endpunkt",
       "endpointHint": "Richten Sie Ihren MCP-Client auf diese URL aus, mit einem API-Schlüssel mit MCP-Zugriff.",
-      "writeScopeHint": "Schlüssel brauchen MCP-Schreibzugriff und Lesezugriff auf Stationen, um Änderungen vorzuschlagen.",
+      "writeScopeHint": "Schreibvorgänge brauchen einen API-Schlüssel mit MCP-Schreibzugriff und die Berechtigung des Befehls.",
       "toolsets": "Werkzeugkategorien",
       "toolsetsHint": "Hängen Sie ?toolsets=stations,sessions an die URL an. Standard: {{toolsets}}.",
-      "writesHint": "Änderungen werden zu Vorschlägen, die derselbe Benutzer im KI-Posteingang bestätigt.",
-      "protocolNote": "Unterstützt MCP 2026-07-28; ältere Clients bestätigen per Abfrage."
+      "writesHint": "Schreibvorgänge laufen ohne Bestätigung. Sie werden wie jeder API-Aufruf mit dem Schlüssel protokolliert und geprüft.",
+      "protocolNote": "Unterstützt MCP 2026-07-28 und ältere Clients."
     },
     "aiLimitZeroNoLimit": "0 bedeutet kein Limit.",
     "aiTabs": {
@@ -2598,14 +2601,11 @@
       "driver": "Fahrer-Support",
       "driverDescription": "Eine automatische erste Antwort auf eine Support-Anfrage eines Fahrers, nur wenn der Fahrer zustimmt.",
       "insights": "Automatische Analysen",
-      "insightsDescription": "Das Modell für systemgestartete Läufe und wann Analysen für Stationen, Sitzungen, Autorisierungen und Reservierungen erstellt werden.",
-      "workers": "Hintergrund-Worker",
-      "workersDescription": "Geplante Jobs, die über das Netz berichten und Aktionen vorschlagen, die ein Betreiber genehmigt. Sie verwenden das Modell der automatischen Analysen.",
+      "insightsDescription": "Das Modell für systemgestartete Läufe, wann Analysen für Stationen, Sitzungen, Autorisierungen und Reservierungen erstellt werden, und die Hintergrund-Worker, deren Vorschläge als Analysen mit einer zu bestätigenden Aktion erscheinen.",
       "mcp": "MCP",
       "mcpDescription": "Der MCP-Server, über den externe KI-Agenten EVtivity mit einem API-Schlüssel nutzen.",
       "usage": "Nutzung und Limits",
-      "usageDescription": "Anfragelimits und Token-Budgets sowie die KI-Nutzung des Unternehmens und jedes Standorts.",
-      "workersModelLink": "Das verwendete Modell unter Automatische Analysen wählen"
+      "usageDescription": "Anfragelimits und Token-Budgets sowie die KI-Nutzung des Unternehmens und jedes Standorts."
     },
     "aiDriverSettings": {
       "title": "Limits für Fahrer-Support",
@@ -2788,7 +2788,7 @@
       "invoice.FleetInvoice": "Flottenrechnung ausgestellt",
       "invoice.FleetCreditNote": "Stornorechnung der Flotte ausgestellt",
       "invoice.FleetOverdue": "Flottenrechnung überfällig",
-      "ai.ProposalDigest": "KI-Vorschläge Zusammenfassung"
+      "ai.ProposalDigest": "Zusammenfassung der KI-Analyseaktionen"
     },
     "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
     "htmlPreview": "HTML-Vorschau",
@@ -3217,10 +3217,10 @@
     "AI_SITE_BUDGET_EXCEEDED": "Das tägliche KI-Nutzungslimit des Standorts ist erreicht",
     "AI_MONTHLY_BUDGET_EXCEEDED": "Das monatliche KI-Nutzungslimit ist erreicht",
     "AI_CONTEXT_NOT_FOUND": "Der zu erklärende Datensatz wurde nicht gefunden",
-    "AI_PROPOSAL_NOT_FOUND": "Vorschlag nicht gefunden",
-    "AI_PROPOSAL_EXPIRED": "Dieser Vorschlag ist abgelaufen",
-    "AI_PROPOSAL_STALE": "Dieser Vorschlag gilt nicht mehr, weil sich die Lage geändert hat",
-    "AI_PROPOSAL_ALREADY_DECIDED": "Über diesen Vorschlag wurde bereits entschieden",
+    "AI_PROPOSAL_NOT_FOUND": "Aktion nicht gefunden",
+    "AI_PROPOSAL_EXPIRED": "Diese Aktion ist abgelaufen",
+    "AI_PROPOSAL_STALE": "Diese Aktion gilt nicht mehr, weil sich die Lage geändert hat",
+    "AI_PROPOSAL_ALREADY_DECIDED": "Über diese Aktion wurde bereits entschieden",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Bestätigen Sie diese Aktion angemeldet im Dashboard, nicht mit einem API-Schlüssel",
     "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut"
   },
@@ -4021,9 +4021,7 @@
       "station": "Warum ist diese Station offline oder gestört, und was sollte ich tun?",
       "session": "Warum ist diese Sitzung fehlgeschlagen, und was sollte ich tun?",
       "authorization": "Warum wurde diese Autorisierung abgelehnt, und was sollte ich tun?",
-      "insightShown": "Die neueste automatische Analyse wird angezeigt",
       "followUp": "Nachfrage stellen",
-      "contextUnavailable": "Dieser Datensatz ist nicht mehr verfügbar.",
       "about": "Zu {{record}} {{label}}",
       "kind": {
         "station": "Station",
@@ -4031,7 +4029,12 @@
         "authorization": "Autorisierung",
         "reservation": "Reservierung"
       },
-      "reservation": "Warum ist diese Reservierung fehlgeschlagen, und was sollte ich tun?"
+      "reservation": "Warum ist diese Reservierung fehlgeschlagen, und was sollte ich tun?",
+      "aboutRecord": "Zu diesem Datensatz: {{record}}",
+      "contextLabel": "Kontext der Erklärung",
+      "latestInsight": "Neueste automatische Analyse",
+      "viewInsight": "Analyse anzeigen",
+      "shared": "Der Assistent liest die wichtigsten Fakten, die letzten Ereignisse und die neueste Analyse dieses Datensatzes. Erst Ihre Frage wird gesendet."
     },
     "dataNotice": {
       "title": "Was der KI-Anbieter erhält",
@@ -4316,7 +4319,7 @@
       "invoice": "Rechnung",
       "ai_conversation": "KI-Unterhaltung",
       "ai_insight": "Automatische Analyse",
-      "ai_proposal": "KI-Vorschlag"
+      "ai_proposal": "KI-Analyseaktion"
     },
     "actors": {
       "operator": "Betreiber",
@@ -4710,7 +4713,9 @@
       "reservation_no_show": "Reservierung nicht wahrgenommen",
       "reservation_cancel_failed": "Reservierungsstornierung fehlgeschlagen",
       "reservation_fee_failed": "Reservierungsgebühr fehlgeschlagen",
-      "reservation_station_faulted": "Station während Reservierung gestört"
+      "reservation_station_faulted": "Station während Reservierung gestört",
+      "stuck_session": "Hängende Sitzung",
+      "station_long_faulted": "Station seit Stunden gestört"
     },
     "skipReason": {
       "resolved_before_analysis": "Vor der Analyse behoben",
@@ -4796,7 +4801,9 @@
       "reservation_no_show": "Reservierung an {{site}} nicht genutzt",
       "reservation_cancel_failed": "{{station}} hat eine Reservierung nicht storniert",
       "reservation_fee_failed": "Reservierungsgebühr an {{site}} fehlgeschlagen",
-      "reservation_station_faulted": "{{station}} während einer Reservierung gestört"
+      "reservation_station_faulted": "{{station}} während einer Reservierung gestört",
+      "stuck_session": "Sitzung an {{station}} hängt",
+      "station_long_faulted": "{{station}} seit Stunden gestört"
     },
     "list": {
       "title": "KI-Erkenntnisse",
@@ -4852,108 +4859,84 @@
       "reasonHint": "Wird nur mit Ihrer Bewertung gespeichert und nie an einen KI-Anbieter gesendet.",
       "saveReason": "Notiz speichern",
       "reasonSaved": "Notiz gespeichert."
-    }
-  },
-  "aiInbox": {
-    "title": "KI-Posteingang",
-    "description": "Von der KI vorgeschlagene Aktionen. Nichts wird ausgeführt, bevor Sie es bestätigen.",
-    "empty": "Keine Vorschläge",
-    "pendingCount_one": "{{count}} offener Vorschlag",
-    "pendingCount_other": "{{count}} offene Vorschläge",
-    "filters": {
-      "source": "Quelle",
-      "job": "Job",
-      "site": "Standort",
-      "status": "Status",
-      "all": "Alle",
-      "search": "Suche",
-      "searchPlaceholder": "Station, Standort oder Aktion"
-    },
-    "source": {
-      "worker": "Hintergrund-Worker",
-      "mcp": "MCP-Client"
-    },
-    "job": {
-      "network_summary": "Netzwerkzustand",
-      "stuck_sessions": "Hängende Sitzungen",
-      "tariff_anomalies": "Tarifauffälligkeiten"
-    },
-    "status": {
-      "pending": "Offen",
-      "executed": "Ausgeführt",
-      "failed": "Fehlgeschlagen",
-      "rejected": "Abgelehnt",
-      "expired": "Abgelaufen",
-      "stale": "Nicht mehr zutreffend"
     },
     "action": {
-      "stop_transaction": "Sitzung beenden",
-      "soft_reset": "Station sanft zurücksetzen",
-      "change_availability": "Verfügbarkeit der Station ändern"
-    },
-    "precondition": {
-      "session_active": "Die Sitzung ist noch aktiv",
-      "station_faulted": "Die Station ist noch gestört",
-      "station_availability": "Die Verfügbarkeit der Station hat sich nicht geändert"
-    },
-    "confirm": "Bestätigen",
-    "reject": "Ablehnen",
-    "expiresAt": "Läuft ab {{time}}",
-    "requestedBy": "Angefordert von",
-    "apiKey": "API-Schlüssel",
-    "client": "Client",
-    "untrustedNote": "Schlüssel- und Clientnamen stammen vom anfragenden Client und werden unverändert angezeigt.",
-    "arguments": "Argumente",
-    "rationale": "Begründung",
-    "result": "Ergebnis",
-    "executed": "Die Aktion wurde ausgeführt",
-    "confirmFailed": "Die Aktion wurde nicht ausgeführt",
-    "stationLabel": "Station",
-    "sessionLabel": "Ladevorgang",
-    "preconditionLabel": "Wird nur ausgeführt, wenn",
-    "requestedTool": "Angefordertes Werkzeug",
-    "columns": {
-      "action": "Aktion",
-      "expires": "Läuft ab"
-    },
-    "rejectedToast": "Vorschlag abgelehnt",
-    "confirmDialog": {
-      "title": "Diese Aktion ausführen?",
-      "note": "Sie wird einmal, jetzt, mit Ihren Berechtigungen ausgeführt."
-    },
-    "rejectDialog": {
-      "title": "Diesen Vorschlag ablehnen?"
-    },
-    "measured": {
-      "idleTime": "Inaktiv seit",
-      "minutes_one": "{{count}} Minute",
-      "minutes_other": "{{count}} Minuten",
-      "lastActivity": "Letzte Aktivität",
-      "faultedSince": "Gestört seit",
-      "transactionId": "Transaktions-ID"
-    },
-    "detail": {
-      "summary": "Zusammenfassung",
+      "title": "Vorgeschlagene Aktion",
+      "kind": {
+        "stop_transaction": "Sitzung beenden",
+        "soft_reset": "Station sanft zurücksetzen",
+        "change_availability": "Verfügbarkeit der Station ändern"
+      },
+      "status": {
+        "pending": "Offen",
+        "executed": "Ausgeführt",
+        "failed": "Fehlgeschlagen",
+        "rejected": "Abgelehnt",
+        "expired": "Abgelaufen",
+        "stale": "Nicht mehr zutreffend"
+      },
+      "job": {
+        "network_summary": "Netzwerkzustand",
+        "stuck_sessions": "Hängende Sitzungen",
+        "tariff_anomalies": "Tarifauffälligkeiten"
+      },
+      "jobLabel": "Worker-Job",
+      "precondition": {
+        "session_active": "Die Sitzung ist noch aktiv",
+        "station_faulted": "Die Station ist noch gestört",
+        "station_availability": "Die Verfügbarkeit der Station hat sich nicht geändert"
+      },
+      "preconditionLabel": "Wird nur ausgeführt, wenn",
+      "confirm": "Bestätigen",
+      "reject": "Ablehnen",
+      "expiresAt": "Läuft ab {{time}}",
+      "expires": "Läuft ab",
+      "arguments": "Argumente",
+      "rationale": "Begründung",
+      "executed": "Die Aktion wurde ausgeführt",
+      "confirmFailed": "Die Aktion wurde nicht ausgeführt",
+      "rejectedToast": "Aktion abgelehnt",
+      "confirmDialog": {
+        "title": "Diese Aktion ausführen?",
+        "note": "Sie wird einmal, jetzt, mit Ihren Berechtigungen ausgeführt."
+      },
+      "rejectDialog": {
+        "title": "Diese Aktion ablehnen?"
+      },
+      "measured": {
+        "idleTime": "Inaktiv seit",
+        "minutes_one": "{{count}} Minute",
+        "minutes_other": "{{count}} Minuten",
+        "lastActivity": "Letzte Aktivität",
+        "faultedSince": "Gestört seit",
+        "transactionId": "Transaktions-ID"
+      },
       "target": "Ziel",
-      "requester": "Angefordert von",
-      "timing": "Zeitpunkte",
       "decided": "Entschieden",
-      "executedAt": "Ausgeführt"
-    },
-    "refused": {
-      "args_mismatch": "Die gespeicherten Argumente passen nicht mehr zum Vorschlag, daher wurde nichts ausgeführt.",
-      "no_longer_available": "Diese Aktion kann nicht mehr aus einem KI-Vorschlag ausgeführt werden, daher wurde nichts ausgeführt.",
-      "invalid_arguments": "Die Argumente sind für diese Aktion nicht mehr gültig, daher wurde nichts ausgeführt.",
-      "ocpp_version_mismatch": "Die OCPP-Version der Station hat sich geändert und es gibt keinen passenden Befehl, daher wurde nichts ausgeführt."
+      "executedAt": "Ausgeführt",
+      "refused": {
+        "args_mismatch": "Die gespeicherten Argumente passen nicht mehr zum Vorschlag, daher wurde nichts ausgeführt.",
+        "no_longer_available": "Diese Aktion kann nicht mehr aus einem KI-Vorschlag ausgeführt werden, daher wurde nichts ausgeführt.",
+        "invalid_arguments": "Die Argumente sind für diese Aktion nicht mehr gültig, daher wurde nichts ausgeführt.",
+        "ocpp_version_mismatch": "Die OCPP-Version der Station hat sich geändert und es gibt keinen passenden Befehl, daher wurde nichts ausgeführt."
+      },
+      "pendingCount_one": "{{count}} offene Aktion",
+      "pendingCount_other": "{{count}} offene Aktionen",
+      "pending": "Aktion offen",
+      "filter": "Aktion",
+      "filterAll": "Alle Analysen",
+      "filterPending": "Aktion offen",
+      "filterAny": "Mit Aktion",
+      "history": "Aktionsverlauf"
     }
   },
   "aiWorkers": {
     "title": "KI-Hintergrund-Worker",
-    "description": "Optionale Jobs, die Probleme finden und Aktionen vorschlagen. Sie handeln nie selbst.",
-    "proposalTtlHours": "Gültigkeit eines Vorschlags (Stunden)",
+    "description": "Optionale Jobs, die Probleme finden. Ihre Vorschläge erscheinen als Analysen mit einer Aktion, und nichts läuft, bevor ein Betreiber es bestätigt.",
+    "proposalTtlHours": "Gültigkeit einer Aktion (Stunden)",
     "networkSummary": {
       "title": "Nächtliche Netzwerkübersicht",
-      "description": "Eine kurze tägliche Übersicht pro Standort, mit vorgeschlagenen Aktionen."
+      "description": "Eine kurze tägliche Übersicht pro Standort und ein vorgeschlagener Soft-Reset für Stationen, die seit Stunden gestört sind."
     },
     "stuckSessions": {
       "title": "Hängende Sitzungen",
@@ -4963,7 +4946,7 @@
     },
     "tariffAnomalies": {
       "title": "Tarifauffälligkeiten",
-      "description": "Findet Preise, die falsch aussehen. Nur Befunde, keine Vorschläge."
+      "description": "Findet Preise, die falsch aussehen. Nur Befunde, keine Aktionen."
     },
     "rationale": {
       "stuckSessionIdle": "Seit {{minutes}} Minuten keine Zählerwerte oder Transaktionsereignisse",

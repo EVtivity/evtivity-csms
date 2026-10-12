@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * AI proposals: writes a background worker or an MCP client asks for. This
- * service is the only writer of `ai_proposals` and `ai_proposal_audit_log`
- * (P3). The worker creates proposals; the API creates MCP proposals and
- * claims, finishes and rejects them. Nothing here runs a proposal: the API
- * runs a confirmed one through `executeConfirmedToolCall`, as the confirming
- * operator.
+ * Insight actions (`ai_proposals`): the write a background worker suggests
+ * with an automatic insight. This service is the only writer of
+ * `ai_proposals` and `ai_proposal_audit_log` (P3). The worker creates them
+ * (each with its insight); the API claims, finishes and rejects them. Nothing
+ * here runs an action: the API runs a confirmed one through
+ * `executeConfirmedToolCall`, as the confirming operator. When an action
+ * ends, its insight closes with it (`closeActionInsight`).
  *
  * Status moves once, from `pending` to a terminal status, by compare-and-set
  * (P5). A confirm first claims the row (`decided_by`, `decided_at`, status
@@ -15,7 +16,7 @@
  * the expiry sweep never takes a claimed row.
  */
 
-import { and, desc, eq, ilike, inArray, isNull, lte, lt, ne, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lte, lt, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import {
   db,
@@ -23,8 +24,6 @@ import {
   aiProposalAuditLog,
   chargingSessions,
   chargingStations,
-  refreshTokens,
-  sites,
   writeAudit,
 } from '@evtivity/database';
 import type { AuditActor } from '@evtivity/database';
@@ -32,7 +31,6 @@ import { aiArgsHash, createLogger } from '@evtivity/lib';
 import type { ServiceLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
-  AI_PROPOSAL_SOURCES,
   AI_PROPOSAL_STATUSES,
   AI_WORKER_JOBS,
   aiProposalPreconditionSchema,
@@ -44,10 +42,10 @@ import type {
   AiProposalDto,
   AiProposalPrecondition,
   AiProposalResult,
-  AiProposalSource,
   AiProposalStatus,
   AiWorkerJob,
 } from '@evtivity/lib/ai-proposals';
+import { AI_INSIGHT_UPDATED_EVENT, closeActionInsight } from './ai-insight.service.js';
 
 const moduleLogger = createLogger('ai-proposals');
 
@@ -96,24 +94,48 @@ async function audit(
 }
 
 /**
- * `ai.proposal.updated` on `csms_events`, filtered by site in the SSE stream.
- * An MCP proposal names no station or session: only its requester may see it.
+ * `ai.insight.updated` on `csms_events` (filtered by site in the SSE stream)
+ * for the insight that carries the action, so every insight view refreshes.
  */
 async function publishUpdated(row: AiProposalRow, log: ServiceLogger): Promise<void> {
-  const event: Record<string, unknown> = {
-    eventType: 'ai.proposal.updated',
-    siteId: row.siteId,
-  };
-  if (row.source === 'worker') {
-    event['proposalId'] = row.id;
-    event['status'] = row.status;
-    event['stationId'] = row.stationId;
-    event['sessionId'] = row.sessionId;
-  }
   try {
-    await getPubSub().publish('csms_events', JSON.stringify(event));
+    await getPubSub().publish(
+      'csms_events',
+      JSON.stringify({
+        eventType: AI_INSIGHT_UPDATED_EVENT,
+        insightId: row.insightId,
+        siteId: row.siteId,
+        stationId: row.stationId,
+        sessionId: row.sessionId,
+        actionStatus: row.status,
+      }),
+    );
   } catch (err) {
-    log.warn({ err, proposalId: row.id }, 'AI proposal event publish failed');
+    log.warn({ err, proposalId: row.id }, 'AI insight action event publish failed');
+  }
+}
+
+/**
+ * After an action left `pending`: publishes the update and closes its insight
+ * (resolved, or dismissed for a rejection). Fail-open (P9): the action's
+ * status is already stored.
+ */
+async function afterEnd(
+  row: AiProposalRow,
+  actor: AiProposalActor,
+  log: ServiceLogger,
+): Promise<void> {
+  await publishUpdated(row, log);
+  if (row.status === 'pending') return;
+  try {
+    await closeActionInsight(
+      row.insightId,
+      row.status as Exclude<AiProposalStatus, 'pending'>,
+      { actor: actor.actor, actorUserId: actor.actorUserId ?? null },
+      getPubSub(),
+    );
+  } catch (err) {
+    log.warn({ err, proposalId: row.id }, 'Closing the insight of an ended action failed');
   }
 }
 
@@ -130,13 +152,10 @@ function auditState(row: AiProposalRow): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 export interface CreateAiProposalInput {
-  source: AiProposalSource;
-  job?: AiWorkerJob | null;
-  insightId?: string | null;
+  job: AiWorkerJob;
+  /** The insight that carries the action (`storeWorkerActionInsight`). */
+  insightId: string;
   workerRunId?: number | null;
-  /** MCP: the API key's user, the only user who may approve it. */
-  requestedByUserId?: string | null;
-  apiKeyId?: number | null;
   siteId: string | null;
   stationId?: string | null;
   sessionId?: string | null;
@@ -145,8 +164,6 @@ export interface CreateAiProposalInput {
   path: string;
   args: Record<string, unknown>;
   summary?: Record<string, unknown>;
-  rationaleText?: string | null;
-  rationaleLanguage?: string | null;
   precondition?: AiProposalPrecondition | null;
   /** One pending proposal per key: a second create with the same key returns null. */
   dedupKey?: string | null;
@@ -157,32 +174,23 @@ export interface CreateAiProposalInput {
 export class AiProposalInputError extends Error {}
 
 function checkCreateInput(input: CreateAiProposalInput, now: Date): void {
-  if (!AI_PROPOSAL_SOURCES.includes(input.source)) {
-    throw new AiProposalInputError(`Unknown proposal source: ${input.source}`);
-  }
   if (input.expiresAt.getTime() <= now.getTime()) {
     throw new AiProposalInputError('A proposal must expire in the future');
   }
   if (input.precondition != null) aiProposalPreconditionSchema.parse(input.precondition);
-  if (input.source === 'worker') {
-    // The worker may propose only the closed action set (TC-AI-WK-05).
-    if (input.job == null || !AI_WORKER_JOBS.includes(input.job)) {
-      throw new AiProposalInputError('A worker proposal names its job');
-    }
-    const action = findAiWorkerAction(input.operationId);
-    if (
-      action === undefined ||
-      action.method !== input.method ||
-      action.path !== input.path ||
-      !workerActionArgsAllowed(action, input.args)
-    ) {
-      throw new AiProposalInputError(`Not a worker action: ${input.operationId}`);
-    }
-    if (input.requestedByUserId != null || input.apiKeyId != null) {
-      throw new AiProposalInputError('A worker proposal has no requester');
-    }
-  } else if (input.requestedByUserId == null) {
-    throw new AiProposalInputError('An MCP proposal names the requesting user');
+  if (input.insightId === '') throw new AiProposalInputError('An action names its insight');
+  // A worker may suggest only the closed action set (TC-AI-WK-05).
+  if (!AI_WORKER_JOBS.includes(input.job)) {
+    throw new AiProposalInputError('An action names its worker job');
+  }
+  const action = findAiWorkerAction(input.operationId);
+  if (
+    action === undefined ||
+    action.method !== input.method ||
+    action.path !== input.path ||
+    !workerActionArgsAllowed(action, input.args)
+  ) {
+    throw new AiProposalInputError(`Not a worker action: ${input.operationId}`);
   }
 }
 
@@ -243,12 +251,9 @@ export async function createAiProposal(
   const [row] = await db
     .insert(aiProposals)
     .values({
-      source: input.source,
-      job: input.job ?? null,
-      insightId: input.insightId ?? null,
+      job: input.job,
+      insightId: input.insightId,
       workerRunId: input.workerRunId ?? null,
-      requestedByUserId: input.requestedByUserId ?? null,
-      apiKeyId: input.apiKeyId ?? null,
       siteId: target.siteId,
       stationId: target.stationId,
       sessionId: target.sessionId,
@@ -258,8 +263,6 @@ export async function createAiProposal(
       args: input.args,
       argsHash: aiArgsHash(input.args),
       summary: input.summary ?? {},
-      rationaleText: input.rationaleText ?? null,
-      rationaleLanguage: input.rationaleLanguage ?? null,
       precondition: input.precondition ?? null,
       dedupKey: input.dedupKey ?? null,
       expiresAt: input.expiresAt,
@@ -274,7 +277,7 @@ export async function createAiProposal(
     row,
     'created',
     input.actor,
-    { after: { ...auditState(row), source: row.source, job: row.job, args: row.args } },
+    { after: { ...auditState(row), job: row.job, insightId: row.insightId, args: row.args } },
     log,
   );
   await publishUpdated(row, log);
@@ -285,94 +288,38 @@ export async function createAiProposal(
 // Read (site scope)
 // ---------------------------------------------------------------------------
 
-/** The caller of a read: their user id and sites (null: all sites). */
-export interface AiProposalScope {
-  userId: string;
-  siteIds: string[] | null;
+/** The site condition of a read: null siteIds is every site; unsited actions only for all-site users. */
+export function aiProposalSiteCondition(siteIds: readonly string[] | null): SQL {
+  if (siteIds === null) return sql`true`;
+  if (siteIds.length === 0) return sql`false`;
+  return inArray(aiProposals.siteId, [...siteIds]);
 }
 
-/**
- * What a user may see: a worker proposal in their sites (an unsited or
- * company-level one only with all-site access), and an MCP proposal only
- * when they requested it (another user's answers 404, the phishing rule).
- */
-export function aiProposalScopeCondition(scope: AiProposalScope): SQL {
-  const siteCondition =
-    scope.siteIds === null
-      ? sql`true`
-      : scope.siteIds.length === 0
-        ? sql`false`
-        : inArray(aiProposals.siteId, scope.siteIds);
-  return and(
-    siteCondition,
-    or(
-      eq(aiProposals.source, 'worker'),
-      and(eq(aiProposals.source, 'mcp'), eq(aiProposals.requestedByUserId, scope.userId)),
-    ),
-  ) as SQL;
-}
-
-export interface ListAiProposalsFilter {
-  status?: AiProposalStatus;
-  source?: AiProposalSource;
-  job?: AiWorkerJob;
-  siteId?: string;
-  stationId?: string;
-  sessionId?: string;
-  /** Matches the station's OCPP identity, the site name, the operation or the proposal id. */
-  search?: string;
-  limit: number;
-  offset: number;
-}
-
-export async function listAiProposals(
-  scope: AiProposalScope,
-  filter: ListAiProposalsFilter,
-): Promise<{ data: AiProposalRow[]; total: number }> {
-  const conditions: SQL[] = [aiProposalScopeCondition(scope)];
-  if (filter.status !== undefined) conditions.push(eq(aiProposals.status, filter.status));
-  if (filter.source !== undefined) conditions.push(eq(aiProposals.source, filter.source));
-  if (filter.job !== undefined) conditions.push(eq(aiProposals.job, filter.job));
-  if (filter.siteId !== undefined) conditions.push(eq(aiProposals.siteId, filter.siteId));
-  if (filter.stationId !== undefined) conditions.push(eq(aiProposals.stationId, filter.stationId));
-  if (filter.sessionId !== undefined) conditions.push(eq(aiProposals.sessionId, filter.sessionId));
-  if (filter.search !== undefined && filter.search !== '') {
-    const pattern = `%${filter.search.replace(/[\\%_]/g, '\\$&')}%`;
-    conditions.push(
-      or(
-        ilike(aiProposals.id, pattern),
-        ilike(aiProposals.operationId, pattern),
-        sql`EXISTS (SELECT 1 FROM ${chargingStations} WHERE ${chargingStations.id} = ${aiProposals.stationId} AND ${chargingStations.stationId} ILIKE ${pattern})`,
-        sql`EXISTS (SELECT 1 FROM ${sites} WHERE ${sites.id} = ${aiProposals.siteId} AND ${sites.name} ILIKE ${pattern})`,
-      ) as SQL,
-    );
-  }
-  const where = and(...conditions);
-  const [data, [count]] = await Promise.all([
-    db
-      .select()
-      .from(aiProposals)
-      .where(where)
-      .orderBy(desc(aiProposals.createdAt), desc(aiProposals.id))
-      .limit(filter.limit)
-      .offset(filter.offset),
-    db
-      .select({ total: sql<number>`count(*)::int` })
-      .from(aiProposals)
-      .where(where),
-  ]);
-  return { data, total: count?.total ?? 0 };
-}
-
-/** The proposal, or null when it does not exist or the user may not see it. */
-export async function getAiProposal(
-  scope: AiProposalScope,
-  id: string,
-): Promise<AiProposalRow | null> {
-  const [row] = await db
+/** The actions of these insights, by insight id (at most one each). */
+export async function insightActionRows(
+  insightIds: readonly string[],
+): Promise<Map<string, AiProposalRow>> {
+  if (insightIds.length === 0) return new Map();
+  const rows = await db
     .select()
     .from(aiProposals)
-    .where(and(eq(aiProposals.id, id), aiProposalScopeCondition(scope)));
+    .where(inArray(aiProposals.insightId, [...insightIds]));
+  return new Map(rows.map((r) => [r.insightId, r]));
+}
+
+/** Whether an action with this dedup key waits for a decision (a suggestion is then not repeated). */
+export async function hasPendingAiProposal(dedupKey: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: aiProposals.id })
+    .from(aiProposals)
+    .where(and(eq(aiProposals.dedupKey, dedupKey), eq(aiProposals.status, 'pending')))
+    .limit(1);
+  return row !== undefined;
+}
+
+/** The action an insight carries, or null. */
+export async function getInsightActionRow(insightId: string): Promise<AiProposalRow | null> {
+  const [row] = await db.select().from(aiProposals).where(eq(aiProposals.insightId, insightId));
   return row ?? null;
 }
 
@@ -473,7 +420,7 @@ export async function finishAiProposal(
     { before: { ...PENDING, decidedBy: row.decidedBy }, after: { status: row.status, result } },
     log,
   );
-  await publishUpdated(row, log);
+  await afterEnd(row, actor, log);
   return row;
 }
 
@@ -510,7 +457,7 @@ export async function rejectAiProposal(
     .returning();
   if (row !== undefined) {
     await audit(row, 'rejected', actor, { before: PENDING, after: { status: row.status } }, log);
-    await publishUpdated(row, log);
+    await afterEnd(row, actor, log);
     return { kind: 'rejected', row };
   }
   const expired = await expireOne(id, log);
@@ -539,7 +486,7 @@ async function expireOne(id: string, log: ServiceLogger): Promise<AiProposalRow 
     .returning();
   if (row === undefined) return null;
   await audit(row, 'expired', SWEEP_ACTOR, { before: PENDING, after: { status: row.status } }, log);
-  await publishUpdated(row, log);
+  await afterEnd(row, SWEEP_ACTOR, log);
   return row;
 }
 
@@ -571,7 +518,7 @@ export async function sweepAiProposals(
       { before: PENDING, after: { status: row.status } },
       log,
     );
-    await publishUpdated(row, log);
+    await afterEnd(row, SWEEP_ACTOR, log);
   }
   const cutoff = new Date(Date.now() - AI_PROPOSAL_CLAIM_TIMEOUT_MS);
   const interrupted = await db
@@ -595,7 +542,7 @@ export async function sweepAiProposals(
       },
       log,
     );
-    await publishUpdated(row, log);
+    await afterEnd(row, SWEEP_ACTOR, log);
   }
   return { expired: expired.length, interrupted: interrupted.length };
 }
@@ -658,48 +605,16 @@ function iso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
 }
 
-/**
- * Names of the API keys that asked for MCP proposals, by key id. A revoked
- * (deleted) key has no name: its proposals show none.
- */
-export async function aiProposalApiKeyNames(
-  rows: readonly AiProposalRow[],
-): Promise<Map<number, string>> {
-  const ids = [...new Set(rows.map((r) => r.apiKeyId).filter((id): id is number => id != null))];
-  if (ids.length === 0) return new Map();
-  const keys = await db
-    .select({ id: refreshTokens.id, name: refreshTokens.name })
-    .from(refreshTokens)
-    .where(
-      and(
-        inArray(refreshTokens.id, ids),
-        eq(refreshTokens.type, 'api_key'),
-        isNull(refreshTokens.revokedAt),
-      ),
-    );
-  return new Map(
-    keys
-      .filter((k): k is { id: number; name: string } => k.name != null)
-      .map((k) => [k.id, k.name]),
-  );
-}
-
-/** The DTO of a proposal; `apiKeyNames` from `aiProposalApiKeyNames`. */
-export function toAiProposalDto(
-  row: AiProposalRow,
-  apiKeyNames: ReadonlyMap<number, string>,
-): AiProposalDto {
+/** The DTO of an action (`action` of the insight DTO). */
+export function toAiProposalDto(row: AiProposalRow): AiProposalDto {
   const precondition = aiProposalPreconditionSchema.safeParse(row.precondition);
   const result = aiProposalResultSchema.safeParse(row.result);
   return {
     id: row.id,
-    source: row.source as AiProposalSource,
     job: (AI_WORKER_JOBS as readonly string[]).includes(row.job ?? '')
       ? (row.job as AiWorkerJob)
       : null,
     insightId: row.insightId,
-    requestedByUserId: row.requestedByUserId,
-    apiKeyName: row.apiKeyId != null ? (apiKeyNames.get(row.apiKeyId) ?? null) : null,
     siteId: row.siteId,
     stationId: row.stationId,
     sessionId: row.sessionId,
@@ -709,8 +624,6 @@ export function toAiProposalDto(
     args: row.args as Record<string, unknown>,
     argsHash: row.argsHash,
     summary: row.summary as Record<string, unknown>,
-    rationaleText: row.rationaleText,
-    rationaleLanguage: row.rationaleLanguage,
     precondition: row.precondition == null || !precondition.success ? null : precondition.data,
     status: (AI_PROPOSAL_STATUSES as readonly string[]).includes(row.status)
       ? (row.status as AiProposalStatus)
@@ -722,22 +635,4 @@ export function toAiProposalDto(
     result: row.result == null || !result.success ? null : result.data,
     createdAt: row.createdAt.toISOString(),
   };
-}
-
-/**
- * Deletes proposals in a final status last changed more than `retentionDays`
- * ago (cron `ai-retention-prune`). Pending proposals are never deleted; their
- * audit rows stay under the audit retention.
- */
-export async function pruneAiProposals(retentionDays: number): Promise<number> {
-  const rows = await db
-    .delete(aiProposals)
-    .where(
-      and(
-        ne(aiProposals.status, 'pending'),
-        lt(aiProposals.updatedAt, sql`now() - ${retentionDays} * interval '1 day'`),
-      ),
-    )
-    .returning({ id: aiProposals.id });
-  return rows.length;
 }

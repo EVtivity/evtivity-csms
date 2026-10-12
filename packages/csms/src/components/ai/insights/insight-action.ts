@@ -1,11 +1,19 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { AI_WORKER_ACTION_KINDS } from '@evtivity/lib/ai-proposals';
+import type { TFunction } from 'i18next';
+import { AI_WORKER_ACTION_KINDS, findAiWorkerAction } from '@evtivity/lib/ai-proposals';
 import type { AiWorkerActionKind } from '@evtivity/lib/ai-proposals';
+import { confirmSummary } from '../confirm-summary';
+import type { AiInsightActionView } from './insight-api';
 
 /**
- * The `aiWorkers.rationale.*` keys a worker proposal's summary can name
+ * The action an insight carries (a background worker suggestion), read from
+ * its structured summary: no model text is needed to show it (P1).
+ */
+
+/**
+ * The `aiWorkers.rationale.*` keys an action's summary can name
  * (`STUCK_RATIONALE_CODES` in `@evtivity/services/ai-workers/proposals`).
  */
 export const WORKER_RATIONALE_CODES = [
@@ -18,35 +26,28 @@ export type WorkerRationaleCode = (typeof WORKER_RATIONALE_CODES)[number];
 /** The interpolation variables of the `aiWorkers.rationale.*` texts. */
 const RATIONALE_PARAMS = ['minutes'] as const;
 
-export interface ProposalSummaryView {
+export interface ActionSummaryView {
   action: AiWorkerActionKind | null;
-  /** MCP: the catalog tool that runs (after the OCPP version mapping). */
-  toolName: string | null;
-  /** MCP: the tool the client asked for, when it was mapped to another one. */
-  requestedTool: string | null;
-  /** MCP: the client's name as it sent it (untrusted). */
-  clientName: string | null;
   rationale: { code: WorkerRationaleCode; params: Record<string, string | number> } | null;
   /** The values the worker measured, shown next to the rationale. */
   measured: {
     /** Stuck sessions: the last meter value or transaction event (ISO). */
     lastActivityAt: string | null;
-    /** Network summary: since when the station is faulted (ISO). */
+    /** Station faulted for hours: since when (ISO). */
     faultedSince: string | null;
     transactionId: string | null;
   };
 }
 
 /**
- * Reads the structured summary a worker stores on a proposal
- * (`{ action, stationId, transactionId, reason, rationale: { code, params } }`)
- * or an MCP proposal carries (`{ toolName, stationId, requestedTool?, clientName? }`).
- * Unknown values are dropped, so the card falls back to the operation.
+ * Reads the structured summary a worker stores on an action
+ * (`{ action, stationId, transactionId, reason, rationale: { code, params } }`).
+ * Unknown values are dropped, so the section falls back to the operation.
  */
-export function readProposalSummary(summary: Record<string, unknown>): ProposalSummaryView {
+export function readActionSummary(summary: Record<string, unknown>): ActionSummaryView {
   const action = summary['action'];
   const rationale = summary['rationale'];
-  let parsedRationale: ProposalSummaryView['rationale'] = null;
+  let parsedRationale: ActionSummaryView['rationale'] = null;
   if (rationale != null && typeof rationale === 'object') {
     const code = (rationale as Record<string, unknown>)['code'];
     const params = (rationale as Record<string, unknown>)['params'];
@@ -63,19 +64,12 @@ export function readProposalSummary(summary: Record<string, unknown>): ProposalS
       parsedRationale = { code: code as WorkerRationaleCode, params: clean };
     }
   }
-  const text = (key: string): string | null => {
-    const v = summary[key];
-    return typeof v === 'string' && v !== '' ? v : null;
-  };
   const time = (key: string): string | null => {
-    const v = text(key);
-    return v != null && !Number.isNaN(Date.parse(v)) ? v : null;
+    const v = summary[key];
+    return typeof v === 'string' && v !== '' && !Number.isNaN(Date.parse(v)) ? v : null;
   };
   const transactionId = summary['transactionId'];
   return {
-    toolName: text('toolName'),
-    requestedTool: text('requestedTool'),
-    clientName: text('clientName'),
     action: (AI_WORKER_ACTION_KINDS as readonly unknown[]).includes(action)
       ? (action as AiWorkerActionKind)
       : null,
@@ -91,4 +85,36 @@ export function readProposalSummary(summary: Record<string, unknown>): ProposalS
             : null,
     },
   };
+}
+
+/** The tool name of an operation, as the assistant's catalog names it (`ocppv21_reset`). */
+export function actionToolName(operationId: string): string {
+  return operationId.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+/** The localized sentence of what an action runs (`confirm-summary.ts`). */
+export function actionSentence(t: TFunction, action: AiInsightActionView): string {
+  return confirmSummary(t, {
+    name: actionToolName(action.operationId),
+    method: action.method,
+    path: action.path,
+    arguments: action.args,
+  });
+}
+
+/** The localized title of an action (`aiInsights.action.kind.*`). */
+export function actionLabel(t: TFunction, action: AiInsightActionView): string {
+  const kind =
+    readActionSummary(action.summary).action ??
+    findAiWorkerAction(action.operationId)?.kind ??
+    null;
+  return kind != null ? t(`aiInsights.action.kind.${kind}`) : t('ai.confirmTitle');
+}
+
+/** Whether an action can still be confirmed or rejected now. */
+export function isActionOpen(
+  action: Pick<AiInsightActionView, 'status' | 'expiresAt'>,
+  now: number = Date.now(),
+): boolean {
+  return action.status === 'pending' && Date.parse(action.expiresAt) > now;
 }

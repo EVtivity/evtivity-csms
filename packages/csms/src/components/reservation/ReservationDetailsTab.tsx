@@ -331,7 +331,6 @@ export function ReservationDetailsTab({
               <EditButton label={t('common.edit')} onClick={startEdit} />
               <Button
                 variant="outline"
-                size="sm"
                 className="gap-1.5"
                 onClick={() => {
                   reassignMutation.reset();
@@ -345,7 +344,6 @@ export function ReservationDetailsTab({
               </Button>
               <Button
                 variant="destructive"
-                size="sm"
                 className="gap-1.5"
                 onClick={() => {
                   setCancelOpen(true);

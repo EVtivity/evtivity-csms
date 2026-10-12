@@ -93,9 +93,9 @@ describe('hasAnySettingsPermission', () => {
 describe('built-in permission catalog', () => {
   const all = permissionCatalog.all();
 
-  it('holds 38 resources with read and write each', () => {
-    expect(permissionCatalog.groups()).toHaveLength(38);
-    expect(all).toHaveLength(76);
+  it('holds 37 resources with read and write each', () => {
+    expect(permissionCatalog.groups()).toHaveLength(37);
+    expect(all).toHaveLength(74);
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -132,7 +132,7 @@ describe('built-in permission catalog', () => {
 
   it('gives operator operational access without settings or users:write', () => {
     const operator = permissionCatalog.defaultsFor('operator');
-    expect(operator).toHaveLength(47);
+    expect(operator).toHaveLength(45);
     expect(operator).toContain('aiAssistant:read');
     expect(operator).toContain('aiAssistant:write');
     expect(operator).not.toContain('users:write');
@@ -171,8 +171,8 @@ describe('built-in permission catalog', () => {
     permissionCatalog.defaultsFor('operator').push('x:read');
     const [first] = permissionCatalog.groups();
     if (first != null) first.resource = 'changed';
-    expect(permissionCatalog.all()).toHaveLength(76);
-    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(47);
+    expect(permissionCatalog.all()).toHaveLength(74);
+    expect(permissionCatalog.defaultsFor('operator')).toHaveLength(45);
     expect(permissionCatalog.groups()[0]?.resource).toBe('dashboard');
   });
 });
@@ -239,31 +239,23 @@ describe('AI roadmap permissions (TC-AI-C-12)', () => {
     expect(viewer).not.toContain('aiInsights:write');
   });
 
-  it('registers the proposal, usage and MCP groups', () => {
-    for (const p of [
-      'aiProposals:read',
-      'aiProposals:write',
-      'aiUsage:read',
-      'aiMcp:read',
-      'aiMcp:write',
-    ]) {
+  it('TC-AI-IA-06 registers the usage and MCP groups, and no AI Inbox proposal permission', () => {
+    expect(permissionCatalog.isKnown('aiProposals:read')).toBe(false);
+    expect(permissionCatalog.isKnown('aiProposals:write')).toBe(false);
+    for (const p of ['aiUsage:read', 'aiMcp:read', 'aiMcp:write']) {
       expect(permissionCatalog.isKnown(p)).toBe(true);
     }
     expect(AI_MCP_USE_PERMISSION).toBe('aiMcp:read');
   });
 
-  it('gives operators every AI permission but aiUsage:write, viewers proposal reads', () => {
+  it('gives operators every AI permission but aiUsage:write, viewers no usage or MCP', () => {
     const operator = permissionCatalog.defaultsFor('operator');
-    expect(operator.filter((p) => /^ai(Proposals|Usage|Mcp):/.test(p)).sort()).toEqual([
+    expect(operator.filter((p) => /^ai(Usage|Mcp):/.test(p)).sort()).toEqual([
       'aiMcp:read',
       'aiMcp:write',
-      'aiProposals:read',
-      'aiProposals:write',
       'aiUsage:read',
     ]);
     const viewer = permissionCatalog.defaultsFor('viewer');
-    expect(viewer.filter((p) => /^ai(Proposals|Usage|Mcp):/.test(p)).sort()).toEqual([
-      'aiProposals:read',
-    ]);
+    expect(viewer.filter((p) => /^ai(Usage|Mcp):/.test(p))).toEqual([]);
   });
 });

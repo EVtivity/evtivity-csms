@@ -3,7 +3,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle } from 'lucide-react';
 import {
@@ -32,7 +31,7 @@ import { AI_STATUS_KEY } from '@/components/ai/use-ai-status';
 import { useLoadedValues, useSaveKeys } from './ai-settings-save';
 import type { Values } from './ai-settings-save';
 import { AiAdvancedOptions, AiPromptSummary } from './AiAdvancedOptions';
-import { AiInsightsSettings, AiMcpSettings, AiWorkersSettings } from './AiOpsSettings';
+import { AiInsightsSettings, AiMcpSettings } from './AiOpsSettings';
 import { DriverAiSettings } from './ai/DriverAiSettings';
 import { AiUsageTab } from '@/components/ai/usage/AiUsageTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -141,8 +140,8 @@ interface CardProps extends AiSettingsProps {
 /**
  * Settings > AI, one tab per function: providers and keys (`ai.<provider>.*`),
  * the assistant (`chatbotAi.*`), support drafts (`supportAi.*`), driver
- * support (`driverAi.*`), automatic insights (the `opsAi.*` surface and
- * `aiInsights.*`), background workers (`aiWorkers.*`), MCP (`ai.mcp.*`), and
+ * support (`driverAi.*`), automatic insights (the `opsAi.*` surface,
+ * `aiInsights.*` and the background workers `aiWorkers.*`), MCP (`ai.mcp.*`), and
  * usage and limits (the `ai.*` limits, then the usage dashboard for users with
  * `aiUsage:read` and access to every site). An unknown `sub` opens the default
  * tab, so old `sub=config` links still work.
@@ -189,18 +188,6 @@ export function AiSettings({ settings }: AiSettingsProps): React.JSX.Element {
       </AiTab>
       <AiTab id="insights" visited={visited} notice>
         <AiInsightsSettings {...cardProps} aiDefaults={aiDefaults} />
-      </AiTab>
-      <AiTab id="workers" visited={visited} notice>
-        <p className="text-sm">
-          <Link
-            to="?tab=ai&sub=insights"
-            className="text-link hover:underline"
-            data-testid="ai-workers-model-link"
-          >
-            {t('settings.aiTabs.workersModelLink')}
-          </Link>
-        </p>
-        <AiWorkersSettings {...cardProps} />
       </AiTab>
       <AiTab id="mcp" visited={visited} notice>
         <AiMcpSettings {...cardProps} />

@@ -123,11 +123,6 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
             'AI-powered operator assistant. The conversation routes accept an API key with the aiAssistant scope as well as a session; confirming a proposed action needs a signed-in session (403 AI_CONFIRMATION_REQUIRES_SESSION for an API key).',
         },
         {
-          name: 'AI Proposals',
-          description:
-            'AI Inbox: actions proposed by background AI workers and MCP clients, run only after an operator confirms them',
-        },
-        {
           name: 'MCP',
           description:
             'Model Context Protocol server for AI agents, authenticated with an API key (aiMcp:read scope)',

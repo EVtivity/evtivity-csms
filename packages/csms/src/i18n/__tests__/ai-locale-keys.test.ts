@@ -27,7 +27,6 @@ import {
 import {
   AI_PROPOSAL_PRECONDITION_KINDS,
   AI_PROPOSAL_REFUSAL_REASONS,
-  AI_PROPOSAL_SOURCES,
   AI_PROPOSAL_STATUSES,
   AI_WORKER_ACTION_KINDS,
   AI_WORKER_JOBS,
@@ -40,7 +39,7 @@ import ko from '../locales/ko.json';
 import zh from '../locales/zh.json';
 import zhTW from '../locales/zh-TW.json';
 import { SUGGESTION_PAGES, SUGGESTION_SLOTS } from '../../components/ai/SuggestedPrompts';
-import { WORKER_RATIONALE_CODES } from '../../components/ai/inbox/proposal-summary';
+import { WORKER_RATIONALE_CODES } from '../../components/ai/insights/insight-action';
 import { AI_SETTINGS_TABS } from '../../components/settings/ai-settings-tabs';
 
 const LOCALES: Record<string, unknown> = { en, de, es, ko, zh, 'zh-TW': zhTW };
@@ -65,7 +64,7 @@ function aiKeys(locale: unknown): string[] {
     .filter(
       (k) =>
         k.startsWith('ai.') ||
-        /^ai(Insights|Inbox|Workers|Usage)\./.test(k) ||
+        /^ai(Insights|Workers|Usage)\./.test(k) ||
         /^settings\.ai[A-Z]/.test(k) ||
         /^profile\.(ai[A-Z]|chatbotAi|supportAi)/.test(k) ||
         k.startsWith('supportCases.aiAssist'),
@@ -118,22 +117,28 @@ describe('AI locale keys (TC-AI-UI-10)', () => {
         `aiInsights.scope.${c}_one`,
         `aiInsights.scope.${c}_other`,
       ]),
-      ...AI_PROPOSAL_SOURCES.map((s) => `aiInbox.source.${s}`),
-      ...AI_WORKER_JOBS.map((j) => `aiInbox.job.${j}`),
-      ...AI_PROPOSAL_STATUSES.map((s) => `aiInbox.status.${s}`),
-      ...AI_PROPOSAL_REFUSAL_REASONS.map((r) => `aiInbox.refused.${r}`),
-      ...AI_WORKER_ACTION_KINDS.map((a) => `aiInbox.action.${a}`),
-      ...AI_PROPOSAL_PRECONDITION_KINDS.map((p) => `aiInbox.precondition.${p}`),
+      ...AI_WORKER_JOBS.map((j) => `aiInsights.action.job.${j}`),
+      ...AI_PROPOSAL_STATUSES.map((s) => `aiInsights.action.status.${s}`),
+      ...AI_PROPOSAL_REFUSAL_REASONS.map((r) => `aiInsights.action.refused.${r}`),
+      ...AI_WORKER_ACTION_KINDS.map((a) => `aiInsights.action.kind.${a}`),
+      ...AI_PROPOSAL_PRECONDITION_KINDS.map((p) => `aiInsights.action.precondition.${p}`),
       ...AI_USAGE_SURFACES.map((s) => `aiUsage.surface.${s}`),
       ...AI_CONTEXT_KINDS.map((k) => `ai.explain.${k}`),
-      // TC-AI-EX-06: the Explain prompt and the context chip of every kind.
+      // TC-AI-EX-06: the Explain prompt and the context card of every kind.
       ...AI_CONTEXT_KINDS.map((k) => `ai.explain.kind.${k}`),
       'ai.explain.button',
       'ai.explain.followUp',
       'ai.explain.about',
+      'ai.explain.aboutRecord',
+      'ai.explain.contextLabel',
+      'ai.explain.latestInsight',
+      'ai.explain.viewInsight',
+      'ai.explain.shared',
       ...WORKER_RATIONALE_CODES.map((c) => `aiWorkers.rationale.${c}`),
     ];
     for (const key of dynamic) expect(english, key).toContain(key);
+    // The AI Inbox merged into AI Insights (v0.1.45): none of its keys remain.
+    expect(flatten(en).filter((k) => k.startsWith('aiInbox.') || k === 'nav.aiInbox')).toEqual([]);
   });
 
   it('keeps the interpolation variables in every translation', () => {
@@ -193,16 +198,9 @@ describe('v0.1.45 base locale keys (lane K1)', () => {
     ].map((f) => `settings.aiDriverSettings.${f}`),
     'settings.aiDriverDataWarning',
     'settings.aiInsightsSettings.reservation',
-    ...[
-      'providers',
-      'assistant',
-      'support',
-      'driver',
-      'insights',
-      'workers',
-      'mcp',
-      'usage',
-    ].flatMap((tab) => [`settings.aiTabs.${tab}`, `settings.aiTabs.${tab}Description`]),
+    ...['providers', 'assistant', 'support', 'driver', 'insights', 'mcp', 'usage'].flatMap(
+      (tab) => [`settings.aiTabs.${tab}`, `settings.aiTabs.${tab}Description`],
+    ),
     'sites.tabs.ai',
     `supportCases.statuses.${SUPPORT_CASE_AI_ASSIST_STATUS}`,
     ...DRIVER_AI_STATES.map((s) => `supportCases.ai.state.${s}`),
@@ -285,7 +283,6 @@ describe('Layout keys (plan v0.1.45, section 6)', () => {
         `settings.aiTabs.${tab}`,
         `settings.aiTabs.${tab}Description`,
       ]),
-      'settings.aiTabs.workersModelLink',
       'settings.aiAdvancedOptions',
       'settings.aiPromptCustomSummary',
       'settings.aiPromptDefaultSummary',

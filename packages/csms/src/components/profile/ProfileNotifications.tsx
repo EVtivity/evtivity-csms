@@ -11,7 +11,7 @@ import { useHasPermission } from '@/lib/auth';
 
 interface NotificationPreferences {
   smsEnabled: boolean;
-  /** Daily AI Inbox digest opt-in (roadmap v0.1.44, default off). */
+  /** Daily AI insight action digest opt-in (roadmap v0.1.44, default off). */
   aiDigestEmail: boolean;
 }
 
@@ -24,7 +24,7 @@ export function ProfileNotifications(): React.JSX.Element {
     queryFn: () => api.get<NotificationPreferences>('/v1/users/me/notification-preferences'),
   });
 
-  const canDecideProposals = useHasPermission('aiProposals:write');
+  const canDecideActions = useHasPermission('aiInsights:write');
 
   const updateMutation = useMutation({
     // Either field alone: the API keeps the other one.
@@ -39,7 +39,7 @@ export function ProfileNotifications(): React.JSX.Element {
   // failure (the error shows inline).
   const saving = updateMutation.isPending ? updateMutation.variables : undefined;
   const smsEnabled = saving?.smsEnabled ?? prefs?.smsEnabled ?? true;
-  // The digest goes only to users who can decide proposals.
+  // The digest goes only to users who can decide insight actions.
   const aiDigest = saving?.aiDigestEmail ?? prefs?.aiDigestEmail ?? false;
   const save = (change: Partial<NotificationPreferences>): void => {
     updateMutation.mutate(change);
@@ -64,7 +64,7 @@ export function ProfileNotifications(): React.JSX.Element {
             }}
           />
         </div>
-        {canDecideProposals && prefs != null && (
+        {canDecideActions && prefs != null && (
           <div className="flex items-start justify-between gap-4">
             <div className="space-y-1">
               <Label htmlFor="ai-digest-toggle">{t('profile.aiDigestEmail')}</Label>

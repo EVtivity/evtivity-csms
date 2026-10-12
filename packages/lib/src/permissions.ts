@@ -55,10 +55,9 @@ const BUILT_IN_GROUPS = [
   { resource: 'maintenance', kind: 'page' },
   // Chatting with the AI assistant. Configuring AI stays settings.ai.
   { resource: 'aiAssistant', kind: 'page' },
-  // Automatic insights: read them; write regenerates, dismisses or rates them.
+  // Automatic insights: read them; write regenerates, dismisses or rates them,
+  // and confirms or rejects the action an insight carries.
   { resource: 'aiInsights', kind: 'page' },
-  // AI Inbox proposals: read them; write confirms or rejects them.
-  { resource: 'aiProposals', kind: 'page' },
   // AI token usage and budgets. Own usage needs only aiAssistant:read.
   { resource: 'aiUsage', kind: 'page' },
   // MCP server access for API keys (`AI_MCP_USE_PERMISSION`).
@@ -125,8 +124,6 @@ const OPERATOR_DEFAULTS: readonly Permission[] = [
   'aiAssistant:write',
   'aiInsights:read',
   'aiInsights:write',
-  'aiProposals:read',
-  'aiProposals:write',
   'aiUsage:read',
   'aiMcp:read',
   'aiMcp:write',
@@ -158,7 +155,6 @@ const VIEWER_DEFAULTS: readonly Permission[] = [
   'maintenance:read',
   'aiAssistant:read',
   'aiInsights:read',
-  'aiProposals:read',
 ];
 
 /**

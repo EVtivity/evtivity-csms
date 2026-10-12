@@ -3,21 +3,14 @@
 
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Lightbulb, MapPin, Wrench } from 'lucide-react';
+import { Lightbulb, MapPin, ShieldAlert, Wrench } from 'lucide-react';
 import { LoadingLogo } from '@/components/loading-logo';
 import { Badge } from '@/components/ui/badge';
 import { IconBadge } from '@/components/ui/icon-badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardList,
-  CardListLink,
-  CardTitle,
-} from '@/components/ui/card';
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { ScrollSnapRow } from '@/components/ui/scroll-snap-row';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useHasPermission } from '@/lib/auth';
 import { formatNumber } from '@/lib/formatting';
@@ -32,12 +25,14 @@ import {
   shownCategory,
 } from './insight-display';
 
-/** Rows the card shows. */
-const WIDGET_ROWS = 5;
+/** Insight cards the row holds: three in view on wide screens, the rest scroll. */
+const WIDGET_ROWS = 12;
+/** One card per view on phones, two from `sm`, three from `lg` (gap-4 between). */
+const ITEM_WIDTH = 'w-full sm:w-[calc((100%-1rem)/2)] lg:w-[calc((100%-2rem)/3)]';
 /** Active insights read to order and collapse the rows (the newest ones). */
 const WIDGET_FETCH = 50;
 
-function InsightRowLink({ row }: { row: InsightRow }): React.JSX.Element {
+function InsightTile({ row }: { row: InsightRow }): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
   const { insight, count } = row;
@@ -45,81 +40,103 @@ function InsightRowLink({ row }: { row: InsightRow }): React.JSX.Element {
   const size = insightSize(insight);
   const category = shownCategory(insight);
   const fix = insight.fixes[0];
+  const actionPending = insight.action?.status === 'pending';
   return (
-    <CardListLink to={row.href} data-testid="ai-insight-row">
-      <IconBadge icon={icon} tone={tone} label={t(`aiInsights.kind.${insight.kind}`)} />
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="text-sm font-medium wrap-anywhere" data-testid="ai-insight-headline">
-            {insightHeadline(t, insight)}
-          </span>
-          {category != null && (
-            <Badge variant="outline" className="max-w-full whitespace-normal">
-              {t(`aiInsights.category.${category}`)}
-            </Badge>
-          )}
-          {size != null && (
-            <Badge variant="secondary" className="max-w-full whitespace-normal">
-              {t('aiInsights.widget.atDetection', {
-                value: t(`aiInsights.scope.${size.key}`, { count: size.count }),
-              })}
-            </Badge>
-          )}
-          {count > 1 && (
-            <Badge
-              variant="info"
-              className="max-w-full whitespace-normal"
-              data-testid="ai-insight-similar"
-            >
-              {t('aiInsights.widget.similar', { count: count - 1 })}
-            </Badge>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {insight.siteName != null && (
-            <span className="inline-flex min-w-0 items-center gap-1">
-              <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
-              <span className="truncate">{insight.siteName}</span>
+    <Link
+      to={row.href}
+      data-testid="ai-insight-row"
+      className="block h-full rounded-lg focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      <Card accent={tone} className="flex h-full gap-3 p-4 transition-colors hover:bg-accent">
+        <IconBadge icon={icon} tone={tone} label={t(`aiInsights.kind.${insight.kind}`)} />
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-sm font-medium wrap-anywhere" data-testid="ai-insight-headline">
+              {insightHeadline(t, insight)}
             </span>
-          )}
-          <span>{formatRelativeTime(insight.createdAt, timezone)}</span>
-          {insight.confidence != null && category != null && (
-            <Badge variant="outline" className="max-w-full whitespace-normal font-normal">
-              {t(`aiInsights.confidenceBadge.${insight.confidence}`)}
-            </Badge>
+            {category != null && (
+              <Badge variant="outline" className="max-w-full whitespace-normal">
+                {t(`aiInsights.category.${category}`)}
+              </Badge>
+            )}
+            {size != null && (
+              <Badge variant="secondary" className="max-w-full whitespace-normal">
+                {t('aiInsights.widget.atDetection', {
+                  value: t(`aiInsights.scope.${size.key}`, { count: size.count }),
+                })}
+              </Badge>
+            )}
+            {actionPending && (
+              <Badge
+                variant="warning"
+                className="max-w-full whitespace-normal"
+                data-testid="ai-insight-action-pending"
+              >
+                <ShieldAlert className="mr-1 h-3 w-3" aria-hidden="true" />
+                {t('aiInsights.action.pending')}
+              </Badge>
+            )}
+            {count > 1 && (
+              <Badge
+                variant="info"
+                className="max-w-full whitespace-normal"
+                data-testid="ai-insight-similar"
+              >
+                {t('aiInsights.widget.similar', { count: count - 1 })}
+              </Badge>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            {insight.siteName != null && (
+              <span className="inline-flex min-w-0 items-center gap-1">
+                <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <span className="truncate">{insight.siteName}</span>
+              </span>
+            )}
+            <span>{formatRelativeTime(insight.createdAt, timezone)}</span>
+            {insight.confidence != null && category != null && (
+              <Badge variant="outline" className="max-w-full whitespace-normal font-normal">
+                {t(`aiInsights.confidenceBadge.${insight.confidence}`)}
+              </Badge>
+            )}
+          </div>
+          {fix != null && (
+            <p className="flex items-start gap-1 text-xs" data-testid="ai-insight-fix">
+              <Wrench
+                className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <span>{t(`aiInsights.fix.${fix.code}`)}</span>
+            </p>
           )}
         </div>
-        {fix != null && (
-          <p className="flex items-start gap-1 text-xs" data-testid="ai-insight-fix">
-            <Wrench className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <span>{t(`aiInsights.fix.${fix.code}`)}</span>
-          </p>
-        )}
-      </div>
-    </CardListLink>
+      </Card>
+    </Link>
   );
 }
 
 /**
- * Dashboard "Active insights": the stat card layout with one row per open insight, each built
- * from structured fields (what, where, how big, the first suggested fix),
- * never model text. Site incidents first, then severity, then newest; the
- * same kind and category at one site collapses into one row. A row opens the
+ * Dashboard "Active insights": the stat card layout with one card per open
+ * insight in a row that scrolls sideways (three in view on wide screens, the
+ * shared `ScrollSnapRow` with its dot indicator, like the Revenue cards).
+ * Each card is built from structured fields (what, where, how big, the first
+ * suggested fix, a pending action), never model text. Site incidents first,
+ * then severity, then newest; the same kind and category at one site
+ * collapses into one card. A card opens the
  * insight's page, "View all" the insights list. Shown with `aiInsights:read`
- * while insights are generated or some are still open.
+ * only while AI Insights are on (`aiInsightsEnabled`).
  */
 export function ActiveInsightsWidget(): React.JSX.Element | null {
   const { t } = useTranslation();
   const canRead = useHasPermission('aiInsights:read');
-  const { flags, isLoading: flagsLoading } = useFeatureFlags();
-  const { insights, total, isLoading, isError, refetch } = useInsights({
-    status: 'active',
-    limit: WIDGET_FETCH,
-  });
-  if (!canRead) return null;
-  if (!flags.aiInsightsEnabled && !flagsLoading && !isLoading && !isError && total === 0) {
-    return null;
-  }
+  const { flags } = useFeatureFlags();
+  const { insights, total, isLoading, isError, refetch } = useInsights(
+    { status: 'active', limit: WIDGET_FETCH },
+    flags.aiInsightsEnabled,
+  );
+  // AI Insights off (or the flags still loading): no card and no insights,
+  // even when some stayed active from before.
+  if (!canRead || !flags.aiInsightsEnabled) return null;
   const rows = insightRows(insights, WIDGET_ROWS);
 
   return (
@@ -156,12 +173,16 @@ export function ActiveInsightsWidget(): React.JSX.Element | null {
           </p>
         </CardContent>
       ) : (
-        <CardContent variant="list">
-          <CardList>
-            {rows.map((row) => (
-              <InsightRowLink key={row.insight.id} row={row} />
-            ))}
-          </CardList>
+        <CardContent>
+          <ScrollSnapRow
+            items={rows.map((row) => ({
+              id: row.insight.id,
+              content: <InsightTile row={row} />,
+            }))}
+            itemClassName={ITEM_WIDTH}
+            gap="gap-4"
+            testId="ai-insight-cards"
+          />
         </CardContent>
       )}
       <CardFooter variant="divided">

@@ -125,11 +125,11 @@ describe('api', () => {
     });
 
     it('comes back to the current page after the sign-in that follows a 401', async () => {
-      Object.assign(window.location, { pathname: '/ai/inbox/p1', search: '?a=1', hash: '' });
+      Object.assign(window.location, { pathname: '/ai/insights/i1', search: '?a=1', hash: '' });
       fetchMock.mockResolvedValue(createMockResponse({ ok: false, status: 401, jsonData: null }));
 
       await expect(api.get('/v1/stations')).rejects.toThrow(DynApiError);
-      expect(window.location.href).toBe('/login?returnTo=%2Fai%2Finbox%2Fp1%3Fa%3D1');
+      expect(window.location.href).toBe('/login?returnTo=%2Fai%2Finsights%2Fi1%3Fa%3D1');
     });
 
     it('does not redirect on 401 from /auth/login endpoint', async () => {

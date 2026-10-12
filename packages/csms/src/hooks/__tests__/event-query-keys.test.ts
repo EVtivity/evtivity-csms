@@ -17,10 +17,9 @@ function makeEvent(eventType: string, extra: Partial<CsmsEvent> = {}): CsmsEvent
 }
 
 describe('AI roadmap events (v0.1.44)', () => {
-  it('TC-AI-WK-UI-01: ai.proposal.updated refreshes the Inbox, its badge and inline proposals now', () => {
-    const keys = getQueryKeysForEvent(makeEvent('ai.proposal.updated', { siteId: 's1' }));
-    expect(keys).toEqual([['ai', 'proposals']]);
-    expect(IMMEDIATE_EVENT_TYPES.has('ai.proposal.updated')).toBe(true);
+  it('TC-AI-WK-UI-01: the AI Inbox event is gone; an action change refreshes the insights', () => {
+    expect(getQueryKeysForEvent(makeEvent('ai.proposal.updated', { siteId: 's1' }))).toEqual([]);
+    expect(IMMEDIATE_EVENT_TYPES.has('ai.proposal.updated')).toBe(false);
   });
 
   it('ai.insight.updated refreshes every insight view now (translations included)', () => {

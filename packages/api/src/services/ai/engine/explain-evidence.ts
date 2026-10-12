@@ -8,7 +8,8 @@
  * `@evtivity/services/ai-evidence` and the insight service.
  *
  * - `collectEvidence` returns the same whitelisted pack insights use (facts,
- *   items, and the station-supplied strings kept apart), read for the
+ *   items, and the station-supplied strings kept apart; `explain-engine.ts`
+ *   keeps the curated part), read for the
  *   subject's own station, session, token refusals or reservation only, so it holds no
  *   other site's data. The caller redacts it (support level), frames it as
  *   untrusted and caps its size.
@@ -31,11 +32,10 @@ import type { EvidencePack } from '@evtivity/services/ai-evidence';
 import { latestActiveInsight } from '@evtivity/services/ai-insight.service';
 import { config } from '../../../lib/config.js';
 import type { ExplainSubject } from './explain-context.js';
-
-export type ExplainEvidencePack = Record<string, unknown>;
+import type { ExplainEvidence } from './explain-engine.js';
 
 export interface ExplainEvidenceSource {
-  collectEvidence: (subject: ExplainSubject) => Promise<ExplainEvidencePack | null>;
+  collectEvidence: (subject: ExplainSubject) => Promise<ExplainEvidence | null>;
   latestInsight: (subject: ExplainSubject, language: string) => Promise<AiInsightDto | null>;
 }
 
@@ -72,7 +72,7 @@ export const explainEvidenceSource: ExplainEvidenceSource = {
     const pack = await subjectPack(subject);
     // The record moved to another site since the access check: no evidence.
     if (pack == null || pack.subject.siteId !== subject.siteId) return null;
-    return { facts: pack.facts, items: pack.items, stationText: pack.untrusted };
+    return { facts: pack.facts, items: pack.items, untrusted: pack.untrusted };
   },
   latestInsight: (subject, language) =>
     latestActiveInsight(

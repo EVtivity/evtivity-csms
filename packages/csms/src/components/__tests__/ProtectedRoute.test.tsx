@@ -46,17 +46,17 @@ afterEach(() => {
 
 describe('ProtectedRoute return-to', () => {
   it('sends a signed-out user to sign in with the deep link as returnTo', () => {
-    renderAt('/ai/inbox/p1?x=1');
+    renderAt('/ai/insights/i1?x=1');
     expect(screen.getByTestId('where').textContent).toBe(
-      '/login?returnTo=%2Fai%2Finbox%2Fp1%3Fx%3D1',
+      '/login?returnTo=%2Fai%2Finsights%2Fi1%3Fx%3D1',
     );
   });
 
   it('after an SSO login (which lands on /) opens the remembered page once', () => {
     state.isAuthenticated = true;
-    sessionStorage.setItem('csms_return_to', '/ai/inbox/p1');
+    sessionStorage.setItem('csms_return_to', '/ai/insights/i1');
     renderAt('/');
-    expect(screen.getByTestId('where').textContent).toBe('/ai/inbox/p1');
+    expect(screen.getByTestId('where').textContent).toBe('/ai/insights/i1');
     expect(sessionStorage.getItem('csms_return_to')).toBeNull();
   });
 

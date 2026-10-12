@@ -32,6 +32,17 @@ export interface OcppLogEntry {
   errorDescription: string | null;
   createdAt: string;
   responseTimeMs?: number | null;
+  /**
+   * The station message log's processing state: `queued` for a command held
+   * in the offline command queue until the station reconnects (its id is the
+   * queue row's), `processed` for a message exchanged with the station.
+   */
+  processingStatus?: 'processed' | 'queued';
+}
+
+/** A row key unique across log rows and queue rows, whose ids can be equal. */
+function entryKey(entry: OcppLogEntry): string {
+  return `${entry.processingStatus === 'queued' ? 'queued' : 'log'}-${String(entry.id)}`;
 }
 
 export interface OcppLogTableProps {
@@ -46,6 +57,8 @@ export interface OcppLogTableProps {
   rowTestIdPrefix?: string;
   showStationColumn?: boolean;
   showResponseTimeColumn?: boolean;
+  /** The Status column: Processed or Queued (entries carry `processingStatus`). */
+  showProcessingStatusColumn?: boolean;
   actions?: string[];
   actionFilter?: string;
   onActionFilterChange?: (action: string) => void;
@@ -69,12 +82,13 @@ export function OcppLogTable({
   rowTestIdPrefix = 'ocpp-log-row',
   showStationColumn = false,
   showResponseTimeColumn = false,
+  showProcessingStatusColumn = false,
   actions,
   actionFilter,
   onActionFilterChange,
 }: OcppLogTableProps): React.JSX.Element {
   const { t } = useTranslation();
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
   const showFilter = actions != null && onActionFilterChange != null;
 
   return (
@@ -123,7 +137,8 @@ export function OcppLogTable({
                     {showStationColumn && <TableHead>{t('reservations.stationLabel')}</TableHead>}
                     <TableHead>{t('reservations.direction')}</TableHead>
                     <TableHead>{t('reservations.action')}</TableHead>
-                    <TableHead>{t('common.status')}</TableHead>
+                    <TableHead>{t('common.type')}</TableHead>
+                    {showProcessingStatusColumn && <TableHead>{t('common.status')}</TableHead>}
                     {showResponseTimeColumn && (
                       <TableHead className="text-right">{t('reservations.responseTime')}</TableHead>
                     )}
@@ -134,16 +149,21 @@ export function OcppLogTable({
                     const isCsms = log.direction === 'outbound';
                     const typeLabel =
                       MESSAGE_TYPE_LABELS[log.messageType] ?? String(log.messageType);
-                    const isExpanded = expandedId === log.id;
+                    const key = entryKey(log);
+                    const isQueued = log.processingStatus === 'queued';
+                    const isExpanded = expandedKey === key;
                     const colCount =
-                      4 + (showStationColumn ? 1 : 0) + (showResponseTimeColumn ? 1 : 0);
+                      4 +
+                      (showStationColumn ? 1 : 0) +
+                      (showProcessingStatusColumn ? 1 : 0) +
+                      (showResponseTimeColumn ? 1 : 0);
                     return (
-                      <Fragment key={log.id}>
+                      <Fragment key={key}>
                         <TableRow
                           className="cursor-pointer"
-                          data-testid={`${rowTestIdPrefix}-${String(log.id)}`}
+                          data-testid={`${rowTestIdPrefix}-${isQueued ? 'queued-' : ''}${String(log.id)}`}
                           onClick={() => {
-                            setExpandedId(isExpanded ? null : log.id);
+                            setExpandedKey(isExpanded ? null : key);
                           }}
                         >
                           <TableCell className="whitespace-nowrap" data-testid="row-click-target">
@@ -172,6 +192,17 @@ export function OcppLogTable({
                               {typeLabel}
                             </Badge>
                           </TableCell>
+                          {showProcessingStatusColumn && (
+                            <TableCell>
+                              {isQueued ? (
+                                <Badge variant="warning" title={t('ocppLogs.queuedHint')}>
+                                  {t('ocppLogs.queued')}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary">{t('ocppLogs.processed')}</Badge>
+                              )}
+                            </TableCell>
+                          )}
                           {showResponseTimeColumn && (
                             <TableCell className="text-right">
                               {log.responseTimeMs != null

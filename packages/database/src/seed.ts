@@ -715,7 +715,7 @@ async function seed(): Promise<void> {
     'ai.mcp.enabled': false,
     'ai.mcp.rateLimitPerMinute': 60,
     'ai.mcp.dailyCallsPerKey': 5000,
-    'ai.mcp.proposalTtlMinutes': 30,
+    'ai.mcp.allowWrites': false,
     'ai.mcp.allowedOrigins': [],
     'chatbotAi.enabled': false,
     'chatbotAi.provider': 'anthropic',

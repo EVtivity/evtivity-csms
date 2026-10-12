@@ -415,6 +415,12 @@ const WORKER_FIELDS: readonly FieldSpec[] = [
 const MCP_FIELDS: readonly FieldSpec[] = [
   { kind: 'flag', key: AI_MCP_SETTING_KEYS.enabled, label: 'settings.aiMcp.enabled' },
   {
+    kind: 'flag',
+    key: AI_MCP_SETTING_KEYS.allowWrites,
+    label: 'settings.aiMcp.allowWrites',
+    help: 'settings.aiMcp.allowWritesHint',
+  },
+  {
     kind: 'number',
     key: AI_MCP_SETTING_KEYS.rateLimitPerMinute,
     label: 'settings.aiMcp.rateLimitPerMinute',
@@ -423,11 +429,6 @@ const MCP_FIELDS: readonly FieldSpec[] = [
     kind: 'number',
     key: AI_MCP_SETTING_KEYS.dailyCallsPerKey,
     label: 'settings.aiMcp.dailyCallsPerKey',
-  },
-  {
-    kind: 'number',
-    key: AI_MCP_SETTING_KEYS.proposalTtlMinutes,
-    label: 'settings.aiMcp.proposalTtlMinutes',
   },
   {
     kind: 'origins',
@@ -685,8 +686,9 @@ interface OpsTabProps {
 
 /**
  * Settings > AI > Automatic insights: the system-initiated surface, which
- * insights and background workers share, then the insight settings and the
- * quality summary (helpful rate by kind, last 30 days).
+ * insights and background workers share, then the insight settings, the
+ * background workers (their suggestions are insights with an action to
+ * confirm) and the quality summary (helpful rate by kind, last 30 days).
  */
 export function AiInsightsSettings({
   settings,
@@ -730,12 +732,16 @@ export function AiInsightsSettings({
           ) : undefined
         }
       />
+      <AiWorkersSettings settings={settings} canWrite={canWrite} />
       <InsightQualityCard />
     </>
   );
 }
 
-/** Settings > AI > Background workers. They run on the Automatic insights surface. */
+/**
+ * The background workers card of Settings > AI > Automatic insights. They run
+ * on the same surface; their suggestions appear as insights with an action.
+ */
 export function AiWorkersSettings({ settings, canWrite }: OpsTabProps): React.JSX.Element {
   return (
     <AiKeysCard

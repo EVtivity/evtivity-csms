@@ -10,6 +10,7 @@ vi.mock('react-i18next', () => ({
 
 import { IdText } from '../ui/id-text';
 import { CopyableId } from '../copyable-id';
+import { CopyButton } from '../ui/copy-button';
 
 afterEach(() => {
   cleanup();
@@ -47,5 +48,20 @@ describe('CopyableId', () => {
     expect(button.className).toContain('max-w-full');
     const text = screen.getByTitle(UUID);
     expect(text.className).toContain('truncate');
+  });
+});
+
+describe('CopyButton', () => {
+  it('is the shared outline icon button that copies its value and names its state', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<CopyButton value='{"a":1}' label="aiInsights.action.arguments" />);
+    const button = screen.getByRole('button', { name: 'aiInsights.action.arguments' });
+    expect(button.getAttribute('data-testid')).toBe('copy-button');
+    fireEvent.click(button);
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith('{"a":1}');
+    });
+    expect(await screen.findByRole('button', { name: 'common.copied' })).toBeTruthy();
   });
 });

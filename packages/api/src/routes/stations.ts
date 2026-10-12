@@ -37,6 +37,7 @@ import { requestGhostSessionEnd } from '../lib/ghost-session-end.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
+import { listStationMessageLog } from '../lib/station-message-log.js';
 import {
   chargingStations,
   evses,
@@ -46,7 +47,6 @@ import {
   meterValues,
   sites,
   vendors,
-  ocppMessageLogs,
   stationCertificates,
   pricingGroupStations,
   pricingGroups,
@@ -808,8 +808,17 @@ const sessionItem = z
 
 const ocppLogItem = z
   .object({
-    id: z.number().describe('OCPP log row identifier'),
+    id: z
+      .number()
+      .describe(
+        'Row identifier: the OCPP log row when processed, the offline command queue row when queued',
+      ),
     stationId: z.string().describe('Internal station identifier (nanoid) the message belongs to'),
+    processingStatus: z
+      .enum(['processed', 'queued'])
+      .describe(
+        '`processed` for a message exchanged with the station, `queued` for a command held in the offline command queue until the station reconnects',
+      ),
     action: z
       .string()
       .nullable()
@@ -821,7 +830,9 @@ const ocppLogItem = z
     messageId: z
       .string()
       .nullable()
-      .describe('OCPP message id used to correlate request and response'),
+      .describe(
+        'OCPP message id used to correlate request and response (the command id for a queued command)',
+      ),
     payload: z.unknown().describe('Raw OCPP payload object'),
     errorCode: z.string().nullable().describe('OCPP error code (CALLERROR only)'),
     errorDescription: z
@@ -3248,56 +3259,7 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
       const query = request.query as z.infer<typeof ocppLogsQuery>;
-      const offset = (query.page - 1) * query.limit;
-
-      const conditions = [eq(ocppMessageLogs.stationId, id)];
-      if (query.action != null && query.action !== '') {
-        conditions.push(eq(ocppMessageLogs.action, query.action));
-      }
-      if (query.direction != null) {
-        conditions.push(eq(ocppMessageLogs.direction, query.direction));
-      }
-      const where = and(...conditions);
-
-      const [rows, countRows, actionRows] = await Promise.all([
-        db
-          .select()
-          .from(ocppMessageLogs)
-          .where(where)
-          .orderBy(desc(ocppMessageLogs.createdAt), desc(ocppMessageLogs.id))
-          .limit(query.limit)
-          .offset(offset),
-        db
-          .select({ count: sql<number>`count(*)::int` })
-          .from(ocppMessageLogs)
-          .where(where),
-        // Skip-scan emulation: a plain SELECT DISTINCT walks every log row for
-        // the station (~500ms at a few thousand rows, worse as the table
-        // grows); this recursive CTE probes the (station_id, action) index
-        // once per distinct action (~40 probes) regardless of row count.
-        db.execute<{ action: string | null }>(sql`
-          WITH RECURSIVE distinct_actions AS (
-            (SELECT action FROM ocpp_message_logs
-             WHERE station_id = ${id} AND action IS NOT NULL
-             ORDER BY action LIMIT 1)
-            UNION ALL
-            SELECT (
-              SELECT action FROM ocpp_message_logs
-              WHERE station_id = ${id} AND action > da.action
-              ORDER BY action LIMIT 1
-            )
-            FROM distinct_actions da
-            WHERE da.action IS NOT NULL
-          )
-          SELECT action FROM distinct_actions WHERE action IS NOT NULL
-        `),
-      ]);
-
-      return {
-        data: rows,
-        total: countRows[0]?.count ?? 0,
-        actions: actionRows.map((r) => r.action).filter((a): a is string => a != null),
-      };
+      return listStationMessageLog(id, query);
     },
   );
 

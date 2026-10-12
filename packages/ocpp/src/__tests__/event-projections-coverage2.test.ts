@@ -1341,6 +1341,41 @@ describe('Event projections - coverage round 2', () => {
         /WHERE EXISTS \(SELECT 1 FROM charging_stations WHERE station_id = \?\)/,
       );
     });
+
+    function messageLogEvents(): Record<string, unknown>[] {
+      return (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls
+        .filter((c: unknown[]) => c[0] === 'csms_events')
+        .map((c: unknown[]) => JSON.parse(String(c[1])) as Record<string, unknown>)
+        .filter((e) => e.eventType === 'ocpp.message');
+    }
+
+    it('refreshes the message log, which lists the command as Queued', async () => {
+      await setup();
+      setupSqlResults([], [{ id: 'sta_q1' }], [{ site_id: 'site-q' }]);
+      await emit('command.Queued', 'CS-Q1', {
+        commandId: 'cmd-2',
+        stationId: 'CS-Q1',
+        action: 'ClearCache',
+        payload: {},
+        version: 'ocpp2.1',
+      });
+      expect(messageLogEvents()).toEqual([
+        expect.objectContaining({ stationId: 'sta_q1', siteId: 'site-q' }),
+      ]);
+    });
+
+    it('sends no refresh when nothing was queued (a deleted station, a repeat)', async () => {
+      await setup();
+      setupSqlResults(Object.assign([], { __zeroCount: true }));
+      await emit('command.Queued', 'CS-Q2', {
+        commandId: 'cmd-3',
+        stationId: 'CS-Q2',
+        action: 'ClearCache',
+        payload: {},
+        version: 'ocpp2.1',
+      });
+      expect(messageLogEvents()).toEqual([]);
+    });
   });
 
   // ---- ocpp.NotifyPeriodicEventStream ----

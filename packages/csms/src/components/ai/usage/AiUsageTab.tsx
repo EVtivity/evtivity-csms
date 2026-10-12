@@ -10,8 +10,9 @@ import type { AiUsageBudget, AiUsageDto, AiUsageTotals } from '@evtivity/lib/ai-
 import { LoadingLogo } from '@/components/loading-logo';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { MonthPicker, monthOf } from '@/components/ui/month-picker';
+import { Pagination } from '@/components/ui/pagination';
 import {
   Table,
   TableBody,
@@ -26,6 +27,9 @@ import { formatNumber } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { UsageBar } from './UsageBar';
 import { useAiCostFormatter, useCompanyAiUsage } from './usage-api';
+
+/** Sites per page of the Sites card (the unattributed row sits on the last page). */
+const SITES_PAGE_SIZE = 10;
 
 interface UserName {
   firstName: string | null;
@@ -187,10 +191,18 @@ export function AiUsageTab({ warnPercent }: { warnPercent: number }): React.JSX.
   const { t } = useTranslation();
   const timezone = useUserTimezone();
   const [month, setMonth] = useState('');
+  const [sitePage, setSitePage] = useState(1);
   const { data, isLoading, isError } = useCompanyAiUsage(month !== '' ? month : null);
   const formatCost = useAiCostFormatter();
   const userIds = (data?.topUsers ?? []).map((u) => u.userId);
   const names = useUserNames(userIds);
+  const sites = data?.sites ?? [];
+  const sitePageCount = Math.max(1, Math.ceil(sites.length / SITES_PAGE_SIZE));
+  const shownSitePage = Math.min(sitePage, sitePageCount);
+  const sitesOnPage = sites.slice(
+    (shownSitePage - 1) * SITES_PAGE_SIZE,
+    shownSitePage * SITES_PAGE_SIZE,
+  );
 
   return (
     <div className="space-y-6" data-testid="ai-usage-tab">
@@ -199,13 +211,12 @@ export function AiUsageTab({ warnPercent }: { warnPercent: number }): React.JSX.
           <Label htmlFor="ai-usage-month" className="leading-6">
             {t('aiUsage.month')}
           </Label>
-          <Input
+          <MonthPicker
             id="ai-usage-month"
-            type="month"
-            className="h-9 w-48"
-            value={month !== '' ? month : (data?.month ?? '')}
-            onChange={(e) => {
-              setMonth(e.target.value);
+            value={month !== '' ? month : (data?.month ?? monthOf(new Date()))}
+            onChange={(value) => {
+              setMonth(value);
+              setSitePage(1);
             }}
           />
         </div>
@@ -263,56 +274,65 @@ export function AiUsageTab({ warnPercent }: { warnPercent: number }): React.JSX.
             <CardHeader>
               <CardTitle>{t('aiUsage.sites')}</CardTitle>
             </CardHeader>
-            <CardContent className="overflow-x-auto p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t('aiUsage.site')}</TableHead>
-                    <TableHead className="text-right">{t('aiUsage.tokens.total')}</TableHead>
-                    {formatCost != null && (
-                      <TableHead className="text-right">{t('aiUsage.cost')}</TableHead>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t('aiUsage.site')}</TableHead>
+                      <TableHead className="text-right">{t('aiUsage.tokens.total')}</TableHead>
+                      {formatCost != null && (
+                        <TableHead className="text-right">{t('aiUsage.cost')}</TableHead>
+                      )}
+                      <TableHead>{t('aiUsage.budget')}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sitesOnPage.map((site) => (
+                      <TableRow key={site.siteId}>
+                        <TableCell className="font-medium">
+                          <Link
+                            to={`/sites/${site.siteId}?tab=ai`}
+                            className="text-link hover:underline"
+                          >
+                            {site.siteName}
+                          </Link>
+                        </TableCell>
+                        <TotalsCells totals={site.totals} formatCost={formatCost} />
+                        <TableCell>
+                          <BudgetCell budget={site.budget} warnPercent={warnPercent} />
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {data.unattributed != null && shownSitePage === sitePageCount && (
+                      <TableRow>
+                        <TableCell className="text-muted-foreground">
+                          {t('aiUsage.unattributed')}
+                        </TableCell>
+                        <TotalsCells totals={data.unattributed} formatCost={formatCost} />
+                        <TableCell />
+                      </TableRow>
                     )}
-                    <TableHead>{t('aiUsage.budget')}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {data.sites.map((site) => (
-                    <TableRow key={site.siteId}>
-                      <TableCell className="font-medium">
-                        <Link
-                          to={`/sites/${site.siteId}?tab=ai`}
-                          className="text-link hover:underline"
+                    {data.sites.length === 0 && data.unattributed == null && (
+                      <TableRow>
+                        <TableCell
+                          colSpan={formatCost != null ? 4 : 3}
+                          className="text-center text-sm text-muted-foreground"
                         >
-                          {site.siteName}
-                        </Link>
-                      </TableCell>
-                      <TotalsCells totals={site.totals} formatCost={formatCost} />
-                      <TableCell>
-                        <BudgetCell budget={site.budget} warnPercent={warnPercent} />
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                  {data.unattributed != null && (
-                    <TableRow>
-                      <TableCell className="text-muted-foreground">
-                        {t('aiUsage.unattributed')}
-                      </TableCell>
-                      <TotalsCells totals={data.unattributed} formatCost={formatCost} />
-                      <TableCell />
-                    </TableRow>
-                  )}
-                  {data.sites.length === 0 && data.unattributed == null && (
-                    <TableRow>
-                      <TableCell
-                        colSpan={formatCost != null ? 4 : 3}
-                        className="text-center text-sm text-muted-foreground"
-                      >
-                        {t('common.noResults')}
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+                          {t('common.noResults')}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+              <div className="mt-4">
+                <Pagination
+                  page={shownSitePage}
+                  totalPages={sitePageCount}
+                  onPageChange={setSitePage}
+                />
+              </div>
             </CardContent>
           </Card>
 
@@ -331,38 +351,40 @@ export function AiUsageTab({ warnPercent }: { warnPercent: number }): React.JSX.
                 <CardHeader>
                   <CardTitle>{t('aiUsage.topUsers')}</CardTitle>
                 </CardHeader>
-                <CardContent className="overflow-x-auto p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>{t('aiUsage.user')}</TableHead>
-                        <TableHead className="text-right">{t('aiUsage.tokens.total')}</TableHead>
-                        {formatCost != null && (
-                          <TableHead className="text-right">{t('aiUsage.cost')}</TableHead>
-                        )}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {data.topUsers.map((u) => (
-                        <TableRow key={u.userId}>
-                          <TableCell className="break-all" data-testid="ai-usage-top-user">
-                            {names.get(u.userId) ?? u.userId}
-                          </TableCell>
-                          <TotalsCells totals={u.totals} formatCost={formatCost} />
-                        </TableRow>
-                      ))}
-                      {data.topUsers.length === 0 && (
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell
-                            colSpan={formatCost != null ? 3 : 2}
-                            className="text-center text-sm text-muted-foreground"
-                          >
-                            {t('common.noResults')}
-                          </TableCell>
+                          <TableHead>{t('aiUsage.user')}</TableHead>
+                          <TableHead className="text-right">{t('aiUsage.tokens.total')}</TableHead>
+                          {formatCost != null && (
+                            <TableHead className="text-right">{t('aiUsage.cost')}</TableHead>
+                          )}
                         </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {data.topUsers.map((u) => (
+                          <TableRow key={u.userId}>
+                            <TableCell className="break-all" data-testid="ai-usage-top-user">
+                              {names.get(u.userId) ?? u.userId}
+                            </TableCell>
+                            <TotalsCells totals={u.totals} formatCost={formatCost} />
+                          </TableRow>
+                        ))}
+                        {data.topUsers.length === 0 && (
+                          <TableRow>
+                            <TableCell
+                              colSpan={formatCost != null ? 3 : 2}
+                              className="text-center text-sm text-muted-foreground"
+                            >
+                              {t('common.noResults')}
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
             )}

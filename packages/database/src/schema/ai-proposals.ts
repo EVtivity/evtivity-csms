@@ -15,9 +15,10 @@ import {
   unique,
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
-import { users, refreshTokens } from './identity.js';
+import { users } from './identity.js';
 import { sites, chargingStations } from './assets.js';
 import { chargingSessions } from './charging.js';
+import { aiInsights } from './ai-insights.js';
 import { createId } from '../lib/id.js';
 
 /**
@@ -59,10 +60,10 @@ export const aiWorkerRuns = pgTable(
 );
 
 /**
- * A write a background worker or an MCP client asks for (migration 0431). It
- * runs only after an operator confirms it in the AI Inbox, under that
- * operator's own authorization. The single writer is
- * `@evtivity/services/ai-proposal.service` (P3).
+ * The action an automatic insight carries (migrations 0431, 0473): a write a
+ * background worker suggests. It runs only after an operator confirms it on
+ * the insight, under that operator's own authorization. One action per
+ * insight. The single writer is `@evtivity/services/ai-proposal.service` (P3).
  */
 export const aiProposals = pgTable(
   'ai_proposals',
@@ -70,20 +71,19 @@ export const aiProposals = pgTable(
     id: text('id')
       .primaryKey()
       .$defaultFn(() => createId('aiProposal')),
-    /** worker, mcp (`AI_PROPOSAL_SOURCES`). */
-    source: varchar('source', { length: 10 }).notNull(),
-    /** The worker job that proposed it (`AI_WORKER_JOBS`), null for MCP. */
+    /** The worker job that suggested it (`AI_WORKER_JOBS`). */
     job: varchar('job', { length: 40 }),
-    /** The insight the proposal came with (no foreign key: insights are pruned on their own). */
-    insightId: text('insight_id'),
+    /** The insight that carries the action; pruned with it. */
+    insightId: text('insight_id')
+      .notNull()
+      .references(() => aiInsights.id, { onDelete: 'cascade' }),
     workerRunId: integer('worker_run_id').references(() => aiWorkerRuns.id, {
       onDelete: 'set null',
     }),
-    /** MCP: the API key's user, the only user who may approve it. Null for worker proposals. */
-    requestedByUserId: text('requested_by_user_id').references(() => users.id, {
-      onDelete: 'set null',
-    }),
-    apiKeyId: integer('api_key_id').references(() => refreshTokens.id, { onDelete: 'set null' }),
+    // source (default 'worker'), requested_by_user_id, api_key_id,
+    // rationale_text and rationale_language are no longer used (v0.1.45) and
+    // stay in the database until v0.1.46 drops them: pods of v0.1.44 still
+    // read and insert them during a rolling upgrade.
     siteId: text('site_id').references(() => sites.id, { onDelete: 'set null' }),
     stationId: text('station_id').references(() => chargingStations.id, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => chargingSessions.id, { onDelete: 'cascade' }),
@@ -95,8 +95,6 @@ export const aiProposals = pgTable(
     argsHash: varchar('args_hash', { length: 64 }).notNull(),
     /** Structured fields for the localized confirmation card. */
     summary: jsonb('summary').notNull().default({}),
-    rationaleText: text('rationale_text'),
-    rationaleLanguage: varchar('rationale_language', { length: 10 }),
     /** `{ kind, params }`, checked again at confirm (`AI_PROPOSAL_PRECONDITION_KINDS`). */
     precondition: jsonb('precondition'),
     /** One pending proposal per key (worker: `<job>:<subject>`), so a rerun proposes nothing twice. */
@@ -123,7 +121,7 @@ export const aiProposals = pgTable(
     uniqueIndex('uq_ai_proposals_pending_dedup')
       .on(table.dedupKey)
       .where(sql`${table.status} = 'pending' AND ${table.dedupKey} IS NOT NULL`),
-    check('ai_proposals_source_check', sql`${table.source} IN ('worker', 'mcp')`),
+    uniqueIndex('uq_ai_proposals_insight').on(table.insightId),
     check(
       'ai_proposals_status_check',
       sql`${table.status} IN ('pending', 'executed', 'failed', 'rejected', 'expired', 'stale')`,

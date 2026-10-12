@@ -39,18 +39,13 @@ vi.stubGlobal(
   },
 );
 
-import {
-  AiInsightsSettings,
-  AiMcpSettings,
-  AiWorkersSettings,
-  mcpEndpointUrl,
-} from '../AiOpsSettings';
+import { AiInsightsSettings, AiMcpSettings, mcpEndpointUrl } from '../AiOpsSettings';
 import type { AiDefaults } from '@/components/ai/use-ai-defaults';
 import { ApiError } from '@/lib/api';
 import { AiSettings } from '../AiSettings';
 import { ProfileNotifications } from '../../profile/ProfileNotifications';
 
-/** The three ops tabs (Automatic insights, Background workers, MCP) on one page. */
+/** The ops tabs (Automatic insights with the background workers, MCP) on one page. */
 function AiOpsSettings({
   settings,
   canWrite,
@@ -63,7 +58,6 @@ function AiOpsSettings({
   return (
     <>
       <AiInsightsSettings settings={settings} canWrite={canWrite} aiDefaults={aiDefaults} />
-      <AiWorkersSettings settings={settings} canWrite={canWrite} />
       <AiMcpSettings settings={settings} canWrite={canWrite} />
     </>
   );
@@ -218,6 +212,23 @@ describe('Settings > AI roadmap panels', () => {
     });
   });
 
+  it('shows MCP writes off by default and saves the Allow Writes switch', async () => {
+    wrap(<AiOpsSettings settings={SETTINGS} canWrite aiDefaults={undefined} />);
+    const panel = screen.getByTestId('ai-mcp-settings');
+    expect(within(panel).queryByText('settings.aiMcp.proposalTtlMinutes')).toBeNull();
+    expect(within(panel).getByText('settings.aiMcp.allowWritesHint')).toBeTruthy();
+    const writes = within(panel).getByRole('switch', { name: 'settings.aiMcp.allowWrites' });
+    expect(writes.getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(writes);
+    fireEvent.click(within(panel).getByRole('button', { name: /save/i }));
+    await waitFor(() => {
+      expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/ai.mcp.allowWrites', {
+        value: true,
+      });
+    });
+    expect(apiMock.put).toHaveBeenCalledTimes(1);
+  });
+
   it('shows the built-in ops prompt as the default and saves an unchanged copy as empty', async () => {
     const aiDefaults = {
       language: 'en',
@@ -341,7 +352,7 @@ describe('Settings > AI roadmap panels', () => {
 
 describe('Profile AI digest toggle (ai-workers.md, "Digest")', () => {
   it('shows for users who decide proposals and sends only the changed preference', async () => {
-    perms.add('aiProposals:write');
+    perms.add('aiInsights:write');
     apiMock.get.mockResolvedValue({ smsEnabled: false, aiDigestEmail: false });
     wrap(<ProfileNotifications />);
     const toggle = await screen.findByLabelText('profile.aiDigestEmail');
@@ -354,7 +365,7 @@ describe('Profile AI digest toggle (ai-workers.md, "Digest")', () => {
   });
 
   it('puts the switch back and shows an inline error when the save fails', async () => {
-    perms.add('aiProposals:write');
+    perms.add('aiInsights:write');
     apiMock.get.mockResolvedValue({ smsEnabled: true, aiDigestEmail: false });
     apiMock.put.mockRejectedValue(new ApiError(500, null));
     wrap(<ProfileNotifications />);
@@ -365,7 +376,7 @@ describe('Profile AI digest toggle (ai-workers.md, "Digest")', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('false');
   });
 
-  it('stays hidden without aiProposals:write', async () => {
+  it('stays hidden without aiInsights:write', async () => {
     apiMock.get.mockResolvedValue({ smsEnabled: true, aiDigestEmail: true });
     wrap(<ProfileNotifications />);
     await waitFor(() => {

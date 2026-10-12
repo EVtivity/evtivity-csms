@@ -55,14 +55,28 @@ describe('AI roadmap permission backfill matches the role defaults (TC-AI-C-12)'
   const [operatorBlock = '', viewerBlock = ''] = sql.split('--> statement-breakpoint');
   const grants = (block: string): string[] =>
     [...block.matchAll(/'(ai\w+:\w+)'/g)].map((m) => m[1] ?? '').sort();
+  // aiProposals was granted here and removed by 0473 (the AI Inbox merged into AI Insights).
   const roadmap = (perms: string[]): string[] =>
-    perms.filter((p) => /^ai(Proposals|Usage|Mcp):/.test(p)).sort();
+    perms.filter((p) => /^ai(Usage|Mcp):/.test(p)).sort();
 
   it('grants operators and viewers exactly the catalog defaults of the R7 groups', () => {
     expect(roadmap(grants(operatorBlock))).toEqual(
       roadmap(permissionCatalog.defaultsFor('operator')),
     );
     expect(roadmap(grants(viewerBlock))).toEqual(roadmap(permissionCatalog.defaultsFor('viewer')));
+  });
+
+  it('TC-AI-IA-06 0473 removes the aiProposals permissions from users, roles and API keys', () => {
+    const removal = readFileSync(resolve(MIGRATIONS_DIR, '0473_ai_insight_actions.sql'), 'utf-8');
+    expect(removal).toContain(
+      `DELETE FROM "user_permissions" WHERE "permission" IN ('aiProposals:read', 'aiProposals:write')`,
+    );
+    expect(removal).toMatch(
+      /UPDATE "roles"\s+SET "permissions" = "permissions" - 'aiProposals:read' - 'aiProposals:write'/,
+    );
+    expect(removal).toMatch(
+      /UPDATE "refresh_tokens"\s+SET "permissions" = "permissions" - 'aiProposals:read' - 'aiProposals:write'/,
+    );
   });
 
   it('grants aiInsights (registered by lane R2): operators read and write, viewers read', () => {

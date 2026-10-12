@@ -1716,6 +1716,20 @@
       "when": 1791000047200,
       "tag": "0471_ai_insight_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "7",
+      "when": 1791000047300,
+      "tag": "0472_ai_mcp_allow_writes",
+      "breakpoints": true
+    },
+    {
+      "idx": 246,
+      "version": "7",
+      "when": 1791000047400,
+      "tag": "0473_ai_insight_actions",
+      "breakpoints": true
     }
   ]
 }

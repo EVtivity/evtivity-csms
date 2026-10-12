@@ -12,6 +12,7 @@ import {
   toolPolicy,
 } from '../services/ai/tools/policy.js';
 import {
+  isMcpWriteTool,
   mcpExposureProblems,
   mcpToolList,
   mcpToolset,
@@ -109,21 +110,43 @@ describe('MCP exposure', () => {
     const size = mcpToolset(AI_MCP_DEFAULT_TOOLSETS).byName.size;
     expect(size).toBeGreaterThan(20);
     expect(size).toBeLessThanOrEqual(90);
-    expect(mcpToolset(AI_MCP_DEFAULT_TOOLSETS).byName.has('get_ai_proposal')).toBe(true);
+    // MCP writes no longer propose: there is nothing to poll.
+    expect(mcpToolsetNames()).not.toContain('ai-proposals');
+  });
+
+  it('write tools are listed only with write access; credential commands never', () => {
+    const toolsets = ['ocpp-2-1-commands', 'ocpp-1-6-commands', 'stations'];
+    const withWrites = mcpToolset(toolsets, undefined, { writes: true });
+    const readOnly = mcpToolset(toolsets, undefined, { writes: false });
+    const writeNames = [...withWrites.byName.keys()].filter((n) => isMcpWriteTool(n));
+    expect(writeNames.length).toBeGreaterThan(0);
+    for (const name of writeNames) expect(readOnly.byName.has(name)).toBe(false);
+    for (const name of readOnly.byName.keys()) expect(isMcpWriteTool(name)).toBe(false);
+    // The station credential commands have no MCP tool, writes on or off.
+    for (const operationId of [
+      'ocppv21_SetVariables',
+      'ocppv21_SetNetworkProfile',
+      'ocppv16_ChangeConfiguration',
+      'setStationCredentials',
+      'rotateStationCredentials',
+    ]) {
+      expect(mcpOffers(operationId), operationId).toBe(false);
+      const tool = AI_TOOL_CATALOG.find((t) => t.operationId === operationId);
+      if (tool !== undefined) {
+        expect(withWrites.byName.has(tool.name), tool.name).toBe(false);
+        expect(isMcpWriteTool(tool.name), tool.name).toBe(false);
+      }
+    }
+    expect(isMcpWriteTool('list_sites')).toBe(false);
+    expect(isMcpWriteTool('no_such_tool')).toBe(false);
   });
 
   it('TC-AI-MCP-05: tools/list carries ttlMs and cacheScope', async () => {
-    const handler = createMcpRequestHandler({} as FastifyInstance, {
-      secret: 'test-secret-0123456789',
-      csmsUrl: 'https://csms.example',
-      version: '0.0.0',
-      proposalTtlMinutes: () => Promise.resolve(30),
-    });
+    const handler = createMcpRequestHandler({} as FastifyInstance, { version: '0.0.0' });
     const caller: McpCaller = {
       userId: 'usr_000000000001',
       apiKeyId: '1',
       authorization: 'Bearer x',
-      language: 'en',
       hasPermission: () => Promise.resolve(true),
       log: { debug() {}, info() {}, warn() {}, error() {} },
     };
@@ -144,7 +167,10 @@ describe('MCP exposure', () => {
         },
         body: JSON.stringify(body),
       }),
-      { parsedBody: body, authInfo: mcpAuthInfo({ caller, toolsets: ['sites'], writes: true }) },
+      {
+        parsedBody: body,
+        authInfo: mcpAuthInfo({ caller, toolsets: ['sites'], writes: 'allowed' }),
+      },
     );
     await handler.close();
     expect(response.status).toBe(200);

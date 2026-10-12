@@ -5,6 +5,7 @@ import * as React from 'react';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import { useEscapeLayer } from './escape-layer';
 
 interface DialogContextValue {
   onClose: () => void;
@@ -28,42 +29,28 @@ interface DialogProps {
   dismissible?: boolean;
 }
 
-// Open dialogs in the order they opened. Escape closes only the topmost one.
-const openDialogs: symbol[] = [];
-
-// Escape dismisses the topmost dialog, and focus returns to the element that
-// had it when the dialog opened. Mounted only while the dialog is open.
+// Escape dismisses the topmost dialog (`useEscapeLayer`), and focus returns to
+// the element that had it when the dialog opened. Mounted only while the
+// dialog is open.
 function useDialogDismiss(onDismiss: () => void, dismissible: boolean): void {
   // Read during the first render, before an autoFocus child takes focus.
   const [returnFocusTo] = React.useState<Element | null>(() =>
     typeof document === 'undefined' ? null : document.activeElement,
   );
-  const latest = React.useRef({ onDismiss, dismissible });
-  React.useEffect(() => {
-    latest.current = { onDismiss, dismissible };
+  // The topmost dialog consumes Escape even while busy, so the dialog below it
+  // does not close instead.
+  useEscapeLayer(() => {
+    if (dismissible) onDismiss();
   });
 
-  React.useEffect(() => {
-    const token = Symbol('dialog');
-    openDialogs.push(token);
-    function handleKeyDown(e: KeyboardEvent): void {
-      if (e.key !== 'Escape' || e.defaultPrevented) return;
-      if (openDialogs[openDialogs.length - 1] !== token) return;
-      // The topmost dialog consumes Escape even while busy, so the dialog
-      // below it does not close instead.
-      e.preventDefault();
-      if (latest.current.dismissible) latest.current.onDismiss();
-    }
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown);
-      const index = openDialogs.indexOf(token);
-      if (index !== -1) openDialogs.splice(index, 1);
+  React.useEffect(
+    () => () => {
       if (returnFocusTo instanceof HTMLElement && returnFocusTo.isConnected) {
         returnFocusTo.focus();
       }
-    };
-  }, [returnFocusTo]);
+    },
+    [returnFocusTo],
+  );
 }
 
 function Dialog({

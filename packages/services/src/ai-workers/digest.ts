@@ -2,12 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 /**
- * The opt-in daily AI proposal digest (system event `ai.ProposalDigest`,
- * decision D12). Recipients: active operators with `aiProposals:write` who
- * turned on `user_notification_preferences.ai_digest_email`. Each gets the
- * counts of pending worker proposals at their own sites, per job, and the
- * site names. Structured content only: no model text is ever emailed. MCP
- * proposals belong to their requester and are not counted.
+ * The opt-in daily digest of AI insight actions waiting for a decision
+ * (system event `ai.ProposalDigest`, decision D12). Recipients: active
+ * operators with `aiInsights:write` who turned on
+ * `user_notification_preferences.ai_digest_email`. Each gets the counts of
+ * pending actions at their own sites, per worker job, the site names and a
+ * link to the insights with a pending action. Structured content only: no
+ * model text is ever emailed.
  */
 
 import { client, getSystemTimezone } from '@evtivity/database';
@@ -45,7 +46,7 @@ export interface DigestCounts {
   siteNames: string;
 }
 
-/** Counts of the pending worker proposals a user may see (their sites, unsited for all-site users). */
+/** Counts of the pending insight actions a user may see (their sites, unsited for all-site users). */
 export async function pendingDigestCounts(
   userId: string,
   allSites: boolean,
@@ -53,7 +54,7 @@ export async function pendingDigestCounts(
   const rows = await client<PendingRow[]>`
     SELECT p.job, p.site_id, s.name AS site_name
     FROM ai_proposals p LEFT JOIN sites s ON s.id = p.site_id
-    WHERE p.status = 'pending' AND p.source = 'worker' AND p.decided_at IS NULL
+    WHERE p.status = 'pending' AND p.decided_at IS NULL
       AND p.expires_at > now()
       AND (${allSites} OR p.site_id IN (
         SELECT a.site_id FROM user_site_assignments a WHERE a.user_id = ${userId}
@@ -75,13 +76,14 @@ export async function pendingDigestCounts(
 
 /**
  * Sends the digest of `digestDate` (YYYY-MM-DD, system timezone) to every
- * opted-in operator with pending proposals, once per day: the day is claimed
+ * opted-in operator with pending insight actions, once per day: the day is claimed
  * as an `ai_worker_runs` row first (P7), so a rerun of the cron sends nothing.
  * Fail-open per recipient (P9). Returns the recipients a delivery went to.
  */
 export async function sendAiProposalDigests(input: {
   digestDate: string;
-  inboxUrl: string;
+  /** The CSMS insights list filtered to pending actions. */
+  insightsUrl: string;
   templatesDirs: string | string[];
   log?: ServiceLogger;
 }): Promise<{ sent: number; skipped: number; alreadySent: boolean }> {
@@ -100,7 +102,7 @@ export async function sendAiProposalDigests(input: {
     WHERE u.is_active
       AND EXISTS (
         SELECT 1 FROM user_permissions up
-        WHERE up.user_id = u.id AND up.permission = 'aiProposals:write'
+        WHERE up.user_id = u.id AND up.permission = 'aiInsights:write'
       )
   `;
   const timezone = await getSystemTimezone();
@@ -128,7 +130,7 @@ export async function sendAiProposalDigests(input: {
           firstName: user.first_name ?? '',
           lastName: user.last_name ?? '',
           digestDate: input.digestDate,
-          inboxUrl: input.inboxUrl,
+          insightsUrl: input.insightsUrl,
           ...counts,
         },
         input.templatesDirs,

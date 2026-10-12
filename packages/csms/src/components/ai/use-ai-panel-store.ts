@@ -15,11 +15,15 @@ export interface AiPanelContext {
 /** What the panel shows when a page opens it through Explain. */
 export interface AiPanelRequest {
   context: AiPanelContext;
-  /** A fresh insight shown first, with no conversation and no tokens spent. */
-  insightId: string | null;
   /** Changes on every request, so the same record can be explained twice. */
   seq: number;
 }
+
+/**
+ * How the panel closed. `outside`: a click outside it, which may have moved
+ * focus to what was clicked; focus goes back only when it was lost.
+ */
+export type AiPanelCloseReason = 'dismiss' | 'outside';
 
 interface AiPanelState {
   open: boolean;
@@ -28,9 +32,9 @@ interface AiPanelState {
   returnFocus: HTMLElement | null;
   /** Opens the panel on a plain new chat (launcher button, Ctrl/Cmd+K). */
   openPanel: () => void;
-  /** Opens the panel about one record: its fresh insight, or a prefilled Explain question. */
-  openWithContext: (context: AiPanelContext, options?: { insightId?: string | null }) => void;
-  close: () => void;
+  /** Opens the panel about one record: its context card and a prefilled Explain question. */
+  openWithContext: (context: AiPanelContext) => void;
+  close: (reason?: AiPanelCloseReason) => void;
   /** Clears a handled request so a later plain open starts a normal chat. */
   clearRequest: () => void;
 }
@@ -53,21 +57,24 @@ export const useAiPanelStore = create<AiPanelState>((set, get) => ({
     if (get().open) return;
     set({ open: true, returnFocus: focusedElement() });
   },
-  openWithContext: (context, options) => {
+  openWithContext: (context) => {
     set({
       open: true,
       returnFocus: get().open ? get().returnFocus : focusedElement(),
-      request: {
-        context,
-        insightId: options?.insightId ?? null,
-        seq: (get().request?.seq ?? 0) + 1,
-      },
+      request: { context, seq: (get().request?.seq ?? 0) + 1 },
     });
   },
-  close: () => {
+  close: (reason = 'dismiss') => {
     const target = get().returnFocus;
     set({ open: false, returnFocus: null });
-    setTimeout(() => target?.focus(), 0);
+    setTimeout(() => {
+      // A click outside that focused something keeps that focus.
+      if (reason === 'outside') {
+        const active = focusedElement();
+        if (active != null && active !== document.body) return;
+      }
+      target?.focus();
+    }, 0);
   },
   clearRequest: () => {
     set({ request: null });

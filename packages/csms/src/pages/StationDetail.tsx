@@ -25,7 +25,6 @@ import { StationLocalAuthList } from '@/components/StationLocalAuthList';
 import { AuthorizeLogView } from '@/components/AuthorizeLogView';
 import { ExplainButton } from '@/components/ai/ExplainButton';
 import { RecordInsight } from '@/components/ai/insights/RecordInsight';
-import { RecordProposals } from '@/components/ai/inbox/RecordProposals';
 import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { StationEventsTab } from '@/components/StationEventsTab';
 import { StationConfigurationsTab } from '@/components/StationConfigurationsTab';
@@ -212,13 +211,15 @@ export function StationDetail(): React.JSX.Element {
             <Badge variant="destructive">{t('status.blocked')}</Badge>
           )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        {/* items-start: the buttons line up with the Prev and Next buttons, not their labels. */}
+        <div className="flex flex-wrap items-start gap-2" data-testid="station-header-actions">
           {(!station.isOnline || station.status === 'faulted') && (
-            <ExplainButton context={explainContext} />
+            <ExplainButton context={explainContext} size="header" />
           )}
           {canWriteStations && availabilityActions.enable && (
             <Button
               variant="outline"
+              size="header"
               onClick={() => {
                 setAvailabilityConfirm('available');
               }}
@@ -228,7 +229,8 @@ export function StationDetail(): React.JSX.Element {
           )}
           {canWriteStations && availabilityActions.disable && (
             <Button
-              variant="outline"
+              variant="destructive"
+              size="header"
               onClick={() => {
                 setAvailabilityConfirm('unavailable');
               }}
@@ -323,7 +325,6 @@ export function StationDetail(): React.JSX.Element {
       )}
 
       <RecordInsight filter={{ stationId: station.id }} context={explainContext} />
-      <RecordProposals stationId={station.id} />
 
       <Tabs value={detailsTab} onValueChange={setDetailsTab}>
         <TabsList>
