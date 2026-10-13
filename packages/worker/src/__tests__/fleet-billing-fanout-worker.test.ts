@@ -39,7 +39,6 @@ const { startFleetBillingFanoutBridge, createFleetBillingFanoutWorker } =
   await import('../fleet-billing-fanout-worker.js');
 
 const job = { fleetId: 'flt_A', enabled: true, changedAt: '2026-10-07T12:00:00.000Z' };
-
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -73,8 +72,32 @@ describe('fleet billing fan-out bridge', () => {
     const { deliver, add } = await bridge();
     deliver('not json');
     deliver(JSON.stringify({ fleetId: 'flt_A' }));
+    deliver(JSON.stringify({ ...job, recipient: 'driver' }));
+    deliver(JSON.stringify({ ...job, recipient: 'member', enabledChanged: 'yes' }));
     expect(add).not.toHaveBeenCalled();
-    expect(mockLog.warn).toHaveBeenCalledTimes(2);
+    expect(mockLog.warn).toHaveBeenCalledTimes(4);
+  });
+
+  it('drops a payload with a kind: Invoice All Members no longer uses this channel', async () => {
+    const { deliver, add } = await bridge();
+    deliver(
+      JSON.stringify({
+        kind: 'member_invoices',
+        fleetId: 'flt_A',
+        period: '2026-09',
+        batchId: 'b1',
+        actor: { actor: 'operator', actorUserId: 'usr_1', actorApiKeyId: null },
+      }),
+    );
+    expect(add).not.toHaveBeenCalled();
+    expect(mockLog.warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('enqueues a recipient change', async () => {
+    const { deliver, add } = await bridge();
+    const recipientJob = { ...job, recipient: 'member', enabledChanged: false };
+    deliver(JSON.stringify(recipientJob));
+    expect(add).toHaveBeenCalledWith('fleet-billing-fanout', recipientJob, expect.anything());
   });
 });
 

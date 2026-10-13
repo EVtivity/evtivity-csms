@@ -1,1 +1,1 @@
-{{companyName}} - {{#if billedTo}}Su carga ahora se factura a {{billedTo}}, sin cargo a tarjeta.{{else}}Su carga ya no se factura a {{fleetName}}. Paga su medio de pago guardado.{{/if}}
+{{companyName}} - {{#if billedTo}}{{#if invoicedToMember}}Sus sesiones ahora se le facturan cada mes a través de {{billedTo}}, sin cargo a tarjeta.{{else}}Su carga ahora se factura a {{billedTo}}, sin cargo a tarjeta.{{/if}}{{else}}Su carga ya no se factura a {{fleetName}}. Paga su medio de pago guardado.{{/if}}

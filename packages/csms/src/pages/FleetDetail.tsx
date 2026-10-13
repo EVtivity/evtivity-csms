@@ -31,6 +31,7 @@ interface Fleet extends Partial<FleetBillingProfile> {
   name: string;
   description: string | null;
   accountBillingEnabled?: boolean;
+  accountInvoiceRecipient?: 'fleet' | 'member';
   hasPricingGroup?: boolean;
   createdAt: string;
   updatedAt: string;
@@ -121,7 +122,7 @@ export function FleetDetail(): React.JSX.Element {
             <FleetBillingTab fleet={fleet} />
             <FleetBillingProfileCard fleet={fleet} />
             <FleetCreditLimitCard fleetId={fleetId} />
-            <FleetInvoicesCard fleetId={fleetId} />
+            <FleetInvoicesCard fleetId={fleetId} recipient={fleet.accountInvoiceRecipient} />
           </TabsContent>
         )}
 

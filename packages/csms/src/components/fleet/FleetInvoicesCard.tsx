@@ -13,6 +13,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Label } from '@/components/ui/label';
 import { MonthPicker } from '@/components/ui/month-picker';
 import { Pagination } from '@/components/ui/pagination';
+import { Select } from '@/components/ui/select';
 import {
   Table,
   TableBody,
@@ -32,6 +33,9 @@ import { getErrorMessage } from '@/lib/error-message';
 import { formatCents, formatNumber } from '@/lib/formatting';
 import { currentMonth, formatPeriodMonth, previousMonth } from '@/lib/fleet-invoice';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { FleetMemberInvoices } from './FleetMemberInvoices';
+import type { FleetMemberPreview } from './FleetMemberInvoices';
+import type { AccountInvoiceRecipient } from './FleetBillingTab';
 
 /** Why the fleet invoice leaves an unbilled account session off. */
 export type FleetInvoiceExclusion = 'other_currency' | 'zero_cost' | 'uncosted';
@@ -68,18 +72,27 @@ export interface FleetUnbilledPreview {
   }>;
   excludedCount: number;
   existingInvoice: { id: string; invoiceNumber: string; status: string } | null;
+  /** Member invoices of the period (fleets that invoice each driver); the totals above leave them out. */
+  members?: FleetMemberPreview[];
 }
 
 /** A row of GET /v1/fleets/:id/invoices. */
 export interface FleetInvoiceRow extends DriverInvoice {
   fleetId: string | null;
   fleetName: string | null;
+  /** A member invoice: addressed to the driver driverId (driverName). */
+  memberBilled?: boolean;
+  driverName?: string | null;
   periodStart: string | null;
   periodEnd: string | null;
   sentAt: string | null;
 }
 
 const PAGE_SIZE = 10;
+
+/** After "Invoice All Members" the preview is read again every 5 s for 2 minutes. */
+const BATCH_POLL_MS = 5_000;
+const BATCH_POLL_WINDOW_MS = 120_000;
 
 async function downloadPdf(invoice: { id: string; invoiceNumber: string }): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/v1/invoices/${invoice.id}/pdf`, {
@@ -98,31 +111,50 @@ function kwh(energyWh: number): string {
   return `${formatNumber(energyWh / 1000, 2)} kWh`;
 }
 
-/** The fleet invoice on demand: the unbilled preview, Generate, and the fleet's invoices. */
-export function FleetInvoicesCard({ fleetId }: { fleetId: string }): React.JSX.Element | null {
+/**
+ * The account invoices on demand: the unbilled preview with Generate (and, for
+ * a fleet that invoices each driver, the member invoices), and the fleet's
+ * invoices.
+ */
+export function FleetInvoicesCard({
+  fleetId,
+  recipient = 'fleet',
+}: {
+  fleetId: string;
+  recipient?: AccountInvoiceRecipient | undefined;
+}): React.JSX.Element | null {
   const canRead = useHasPermission('payments:read');
   if (!canRead) return null;
   return (
     <>
-      <FleetUnbilledCard fleetId={fleetId} />
+      <FleetUnbilledCard fleetId={fleetId} recipient={recipient} />
       <FleetInvoiceList fleetId={fleetId} />
     </>
   );
 }
 
-function FleetUnbilledCard({ fleetId }: { fleetId: string }): React.JSX.Element {
+function FleetUnbilledCard({
+  fleetId,
+  recipient,
+}: {
+  fleetId: string;
+  recipient: AccountInvoiceRecipient;
+}): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const canWrite = useHasPermission('payments:write');
   const [period, setPeriod] = useState(previousMonth());
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Until when the preview follows an "Invoice All Members" run in the background.
+  const [pollUntil, setPollUntil] = useState(0);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['fleets', fleetId, 'unbilled', period],
     queryFn: () =>
       api.get<FleetUnbilledPreview>(`/v1/fleets/${fleetId}/billing/unbilled?period=${period}`),
     enabled: /^\d{4}-\d{2}$/.test(period),
+    refetchInterval: () => (Date.now() < pollUntil ? BATCH_POLL_MS : false),
   });
 
   const generate = useMutation({
@@ -262,6 +294,18 @@ function FleetUnbilledCard({ fleetId }: { fleetId: string }): React.JSX.Element 
                 </Table>
               </div>
             )}
+            {(recipient === 'member' || (data.members ?? []).length > 0) && (
+              <FleetMemberInvoices
+                fleetId={fleetId}
+                period={period}
+                monthLabel={monthLabel}
+                currency={data.currency}
+                members={data.members ?? []}
+                onBatchStarted={() => {
+                  setPollUntil(Date.now() + BATCH_POLL_WINDOW_MS);
+                }}
+              />
+            )}
             {data.excludedCount > 0 && (
               <div className="space-y-2" data-testid="fleet-invoice-excluded">
                 <p className="font-medium">
@@ -322,13 +366,16 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
   const timezone = useUserTimezone();
   const canWrite = useHasPermission('payments:write');
   const [page, setPage] = useState(1);
+  const [recipientFilter, setRecipientFilter] = useState<'' | AccountInvoiceRecipient>('');
   const [sendTarget, setSendTarget] = useState<FleetInvoiceRow | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['fleets', fleetId, 'invoices', page],
+    queryKey: ['fleets', fleetId, 'invoices', page, recipientFilter],
     queryFn: () =>
       api.get<{ data: FleetInvoiceRow[]; total: number }>(
-        `/v1/fleets/${fleetId}/invoices?page=${String(page)}&limit=${String(PAGE_SIZE)}`,
+        `/v1/fleets/${fleetId}/invoices?page=${String(page)}&limit=${String(PAGE_SIZE)}${
+          recipientFilter === '' ? '' : `&recipient=${recipientFilter}`
+        }`,
       ),
   });
 
@@ -356,8 +403,24 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
 
   return (
     <Card data-testid="fleet-billing-invoices">
-      <CardHeader>
+      <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <CardTitle>{t('fleets.invoices.listTitle')}</CardTitle>
+        <div className="space-y-1">
+          <Label htmlFor="fleet-invoice-recipient-filter">{t('fleets.invoices.recipient')}</Label>
+          <Select
+            id="fleet-invoice-recipient-filter"
+            className="sm:w-48"
+            value={recipientFilter}
+            onChange={(event) => {
+              setRecipientFilter(event.target.value as '' | AccountInvoiceRecipient);
+              setPage(1);
+            }}
+          >
+            <option value="">{t('fleets.invoices.recipientAll')}</option>
+            <option value="fleet">{t('fleets.invoices.recipientFleet')}</option>
+            <option value="member">{t('fleets.invoices.recipientMember')}</option>
+          </Select>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -374,6 +437,7 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
                   <TableRow>
                     <TableHead>{t('invoices.invoiceNumber')}</TableHead>
                     <TableHead>{t('invoices.period')}</TableHead>
+                    <TableHead>{t('fleets.invoices.billedTo')}</TableHead>
                     <TableHead>{t('common.status')}</TableHead>
                     <TableHead>{t('invoices.issuedAt')}</TableHead>
                     <TableHead>{t('invoices.dueAt')}</TableHead>
@@ -398,6 +462,18 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
                           )}
                         </TableCell>
                         <TableCell>{formatPeriodMonth(row.periodStart, i18n.language)}</TableCell>
+                        <TableCell>
+                          {row.memberBilled === true && row.driverId != null ? (
+                            <Link
+                              to={`/drivers/${row.driverId}`}
+                              className="text-link hover:underline"
+                            >
+                              {row.driverName ?? t('invoices.unknownDriver')}
+                            </Link>
+                          ) : (
+                            t('fleets.invoices.recipientFleet')
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Badge variant={INVOICE_STATUS_VARIANT[row.status]}>
                             {t(
@@ -498,8 +574,16 @@ function FleetInvoiceList({ fleetId }: { fleetId: string }): React.JSX.Element {
           if (!open) setSendTarget(null);
         }}
         variant="default"
-        title={t('fleets.invoices.sendTitle')}
-        description={t('fleets.invoices.sendConfirm', { number: sendTarget?.invoiceNumber ?? '' })}
+        title={
+          sendTarget?.memberBilled === true
+            ? t('fleets.invoices.sendMemberTitle')
+            : t('fleets.invoices.sendTitle')
+        }
+        description={
+          sendTarget?.memberBilled === true
+            ? t('fleets.invoices.sendMemberConfirm', { number: sendTarget.invoiceNumber })
+            : t('fleets.invoices.sendConfirm', { number: sendTarget?.invoiceNumber ?? '' })
+        }
         confirmLabel={t('fleets.invoices.send')}
         isPending={send.isPending}
         onConfirm={() => {

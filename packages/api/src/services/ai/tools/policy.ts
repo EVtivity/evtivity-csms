@@ -214,6 +214,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   deleteDriver: W,
   deleteDriverVehicle: W,
   getDriver: supportRead({ id: 'case.driverId' }),
+  getDriverBillingAddress: N,
   getDriverNeighbors: N,
   getDriverPricingGroup: R,
   getDriverVehicle: R,
@@ -228,6 +229,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   removeDriverPricingGroup: N,
   revokePncContract: N,
   updateDriver: W,
+  updateDriverBillingAddress: N,
   updateDriverVehicle: W,
   // Event Alert Rules
   createEventAlertRule: W,
@@ -266,6 +268,9 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   createFleet: W,
   createFleetInvoice: N,
   createFleetReservation: W,
+  // Member invoices: money and personal data, never through the assistant.
+  createMemberInvoice: N,
+  createMemberInvoiceBatch: N,
   deleteFleet: W,
   getFleet: R,
   getFleetCreditLimit: R,
@@ -584,6 +589,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   portalRemoveStationWatch: N,
   portalSetupMfa: N,
   portalUpdateNotificationPreferences: N,
+  portalUpdateBillingAddress: N,
   portalUpdateProfile: N,
   // Portal Events
   portalStreamEvents: N,
@@ -597,6 +603,10 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   portalGuestStartCharging: N,
   portalGuestStopCharging: N,
   portalGuestValidateQrCode: N,
+  // Portal Invoices
+  portalDownloadInvoicePdf: N,
+  portalGetInvoice: N,
+  portalListInvoices: N,
   // Portal Notifications
   portalGetUnreadNotificationCount: N,
   portalListNotifications: N,

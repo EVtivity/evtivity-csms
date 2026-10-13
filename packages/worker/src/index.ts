@@ -39,6 +39,7 @@ import {
   startFleetBillingFanoutBridge,
 } from './fleet-billing-fanout-worker.js';
 import { createFleetInvoiceWorker, setFleetInvoiceQueue } from './fleet-invoice-worker.js';
+import { createMemberInvoiceWorker, setMemberInvoiceQueue } from './member-invoice-worker.js';
 import { createStationWatchWorker, startStationWatchBridge } from './station-watch-worker.js';
 import {
   createPaymentWebhookWorker,
@@ -92,6 +93,7 @@ async function start(): Promise<void> {
     maintenanceFanoutQueue,
     fleetBillingFanoutQueue,
     fleetInvoiceQueue,
+    memberInvoiceQueue,
     stationWatchQueue,
     paymentWebhookQueue,
     remoteStartTimeoutQueue,
@@ -105,6 +107,7 @@ async function start(): Promise<void> {
   setReportQueue(reportQueue);
   setAiWorkerQueue(aiWorkerQueue);
   setFleetInvoiceQueue(fleetInvoiceQueue);
+  setMemberInvoiceQueue(memberInvoiceQueue);
   setReservationQueue(reservationQueue);
   setAiInsightQueue(aiInsightQueue);
   setDriverAiQueue(driverAiQueue);
@@ -150,6 +153,7 @@ async function start(): Promise<void> {
     fleetBillingLockRedis,
   );
   const fleetInvoiceWorker = createFleetInvoiceWorker(createBullMQConnection(REDIS_URL));
+  const memberInvoiceWorker = createMemberInvoiceWorker(createBullMQConnection(REDIS_URL));
   const stationWatchWorker = createStationWatchWorker(createBullMQConnection(REDIS_URL));
   const paymentWebhookWorker = createPaymentWebhookWorker(
     createBullMQConnection(REDIS_URL),
@@ -190,6 +194,7 @@ async function start(): Promise<void> {
     maintenanceFanoutWorker,
     fleetBillingFanoutWorker,
     fleetInvoiceWorker,
+    memberInvoiceWorker,
     stationWatchWorker,
     paymentWebhookWorker,
     remoteStartTimeoutWorker,
@@ -288,6 +293,7 @@ async function start(): Promise<void> {
     await maintenanceFanoutWorker.close();
     await fleetBillingFanoutWorker.close();
     await fleetInvoiceWorker.close();
+    await memberInvoiceWorker.close();
     await stationWatchWorker.close();
     await paymentWebhookWorker.close();
     await remoteStartTimeoutWorker.close();
@@ -306,6 +312,8 @@ async function start(): Promise<void> {
     await fleetBillingFanoutQueue.close();
     setFleetInvoiceQueue(null);
     await fleetInvoiceQueue.close();
+    setMemberInvoiceQueue(null);
+    await memberInvoiceQueue.close();
     await stationWatchQueue.close();
     setSimulatedEventSink(null);
     await paymentWebhookQueue.close();

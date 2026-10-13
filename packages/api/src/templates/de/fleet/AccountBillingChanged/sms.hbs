@@ -1,1 +1,1 @@
-{{companyName}} - {{#if billedTo}}Dein Laden wird jetzt über {{billedTo}} abgerechnet, ohne Karte.{{else}}Dein Laden wird nicht mehr über {{fleetName}} abgerechnet. Deine Zahlungsmethode zahlt.{{/if}}
+{{companyName}} - {{#if billedTo}}{{#if invoicedToMember}}Deine Ladevorgänge werden dir jetzt monatlich über {{billedTo}} in Rechnung gestellt, ohne Karte.{{else}}Dein Laden wird jetzt über {{billedTo}} abgerechnet, ohne Karte.{{/if}}{{else}}Dein Laden wird nicht mehr über {{fleetName}} abgerechnet. Deine Zahlungsmethode zahlt.{{/if}}

@@ -432,7 +432,7 @@
   {
     "path": "/docs/mobile-app/guide/payments",
     "title": "Payments",
-    "description": "Add a card with Stripe, Adyen, or the test provider, confirm it with your bank, set a default, and manage your saved payment methods."
+    "description": "Add a card with Stripe, Adyen, or the test provider, confirm it with your bank, set a default, manage your saved payment methods, and view your invoices."
   },
   {
     "path": "/docs/mobile-app/guide/reservations",
@@ -518,6 +518,11 @@
     "path": "/docs/portal/guest-charging",
     "title": "Guest Charging",
     "description": "Charge without an account using a QR code, pay with a credit card through the operator's payment provider, and track your session."
+  },
+  {
+    "path": "/docs/portal/invoices",
+    "title": "Invoices",
+    "description": "View your invoices and credit notes, including the monthly invoices your fleet addresses to you, and download each as a PDF."
   },
   {
     "path": "/docs/portal/location-detail",

@@ -20,19 +20,24 @@ const log = createLogger('fleet-billing-fanout-worker');
 function isFanoutJob(value: unknown): value is FleetBillingFanoutJob {
   if (value == null || typeof value !== 'object') return false;
   const job = value as Partial<FleetBillingFanoutJob>;
+  // Read from the wire: the recipient may hold any value.
+  const recipient: unknown = job.recipient;
   return (
     typeof job.fleetId === 'string' &&
     typeof job.enabled === 'boolean' &&
     typeof job.changedAt === 'string' &&
-    !Number.isNaN(Date.parse(job.changedAt))
+    !Number.isNaN(Date.parse(job.changedAt)) &&
+    (recipient === undefined || recipient === 'fleet' || recipient === 'member') &&
+    (job.enabledChanged === undefined || typeof job.enabledChanged === 'boolean')
   );
 }
 
 /**
- * Subscribes to the fleet_billing_fanout channel and enqueues one
- * `fleet-billing-fanout` job per fleet switch change. The job id is
- * deterministic per fleet and change (fleetBillingFanoutJobId, P7), so a
- * repeated publish enqueues nothing.
+ * Subscribes to the fleet_billing_fanout channel: each payload is a fleet
+ * billing change, one `fleet-billing-fanout` job per fleet and change, job id
+ * deterministic per change (fleetBillingFanoutJobId, P7), so a repeated
+ * publish enqueues nothing. "Invoice All Members" does not use this channel:
+ * the API adds its jobs to the `member-invoices` queue itself.
  */
 export async function startFleetBillingFanoutBridge(
   pubsub: PubSubClient,

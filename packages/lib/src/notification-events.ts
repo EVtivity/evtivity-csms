@@ -4,16 +4,20 @@
 // Browser-safe: imported by the CSMS through `@evtivity/lib/notification-events`.
 
 /**
- * Driver notification event types a driver needs to get into their account: password
- * reset, MFA codes, email verification and the portal invitation. They are always on.
- * The API refuses to turn them off, dispatch ignores a stored disabled setting, and
- * a recipient's own notification preferences do not suppress them.
+ * Driver notification event types that are always on: what a driver needs to get into
+ * their account (password reset, MFA codes, email verification, the portal invitation)
+ * and the member invoice documents a fleet bills them with (invoice, credit note,
+ * overdue reminder). The API refuses to turn them off, dispatch ignores a stored
+ * disabled setting, and a recipient's own notification preferences do not suppress them.
  */
 export const REQUIRED_DRIVER_EVENT_TYPES = [
   'driver.ForgotPassword',
   'driver.AccountVerification',
   'driver.PortalInvite',
   'mfa.VerificationCode',
+  'invoice.MemberInvoice',
+  'invoice.MemberCreditNote',
+  'invoice.MemberOverdue',
 ] as const;
 
 const REQUIRED = new Set<string>(REQUIRED_DRIVER_EVENT_TYPES);

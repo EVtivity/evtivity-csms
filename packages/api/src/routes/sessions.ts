@@ -232,6 +232,12 @@ const sessionDetail = z
       .string()
       .nullable()
       .describe('Name of the fleet an account session is billed to, null otherwise'),
+    memberBilled: z
+      .boolean()
+      .optional()
+      .describe(
+        "An account session of a fleet that invoices each driver: billed on the driver's own member invoice, not the fleet invoice. Decided once at its start",
+      ),
     invoiceId: z
       .string()
       .nullable()
@@ -630,6 +636,7 @@ export function sessionRoutes(app: FastifyInstance): void {
           billingFleetName: sql<
             string | null
           >`(SELECT f.name FROM fleets f WHERE f.id = ${chargingSessions.billingFleetId})`,
+          memberBilled: chargingSessions.memberBilled,
           invoiceId: chargingSessions.invoiceId,
           invoiceStatus: sql<
             string | null

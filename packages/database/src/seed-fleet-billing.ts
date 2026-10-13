@@ -29,6 +29,11 @@ import { allocateInvoiceNumber } from './lib/invoice-number.js';
 /** A concurrent seed inserted the invoice first: roll back to give its number back. */
 class DemoInvoiceExists extends Error {}
 
+export const DAY_MS = 86_400_000;
+export const HOUR_MS = 3_600_000;
+/** Distance from a UTC month edge that keeps an instant in that month in every timezone. */
+export const MONTH_EDGE_MS = 14 * HOUR_MS;
+
 /** The fixed ids of the fleet billing demo (screenshots and tests look them up). */
 export const FLEET_BILLING_DEMO = {
   fleetId: 'flt_demoacct0001',
@@ -52,10 +57,6 @@ const FLEET_NAME = 'Northwind Logistics';
 const TAX_RATE = 0.08;
 const CREDIT_LIMIT_CENTS = 50_000;
 const PAYMENT_TERMS_DAYS = 14;
-const DAY_MS = 86_400_000;
-const HOUR_MS = 3_600_000;
-/** Distance from a UTC month edge that keeps an instant in that month in every timezone. */
-const MONTH_EDGE_MS = 14 * HOUR_MS;
 
 const BILL_TO = {
   name: 'Northwind Logistics Inc.',
@@ -113,17 +114,20 @@ interface DemoSession {
   invoiceId: string | null;
 }
 
-function pad(n: number): string {
+export function pad(n: number): string {
   return String(n).padStart(4, '0');
 }
 
 /** An amount with a sign, never -0 (a credit note negates its invoice). */
-function signed(cents: number, sign: 1 | -1): number {
+export function signed(cents: number, sign: 1 | -1): number {
   return sign === 1 ? cents : 0 - cents;
 }
 
 /** First and last day (YYYY-MM-DD) of the UTC month `offset` months before `now`. */
-function monthBounds(now: Date, offset: number): { start: string; end: string; startsAt: Date } {
+export function monthBounds(
+  now: Date,
+  offset: number,
+): { start: string; end: string; startsAt: Date } {
   const startsAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
   const last = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset + 1, 0));
   return {
@@ -235,6 +239,121 @@ export async function seedFleetBillingDemo(
     `;
   }
 
+  const place = await loadDemoStationPlace(sql, input.stationId);
+
+  // Invoices first: the sessions reference them.
+  const sessions = fleetBillingDemoSessions(now);
+  const invoiced = sessions.filter((s) => s.invoiceId === demo.invoiceId);
+  const lastMonth = monthBounds(now, 1);
+  const twoMonths = monthBounds(now, 2);
+  const credited = invoiced.filter((s) => s.startedAt.getTime() < lastMonth.startsAt.getTime());
+  const invoiceIssuedAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 9));
+  const creditedIssuedAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 9));
+  const creditNoteIssuedAt = new Date(creditedIssuedAt.getTime() + 9 * DAY_MS);
+  const header = {
+    fleetId: demo.fleetId,
+    driverId: null,
+    memberBilled: false,
+    billTo: BILL_TO,
+    language: 'en',
+    currency,
+    paymentTermsDays: PAYMENT_TERMS_DAYS,
+    taxRate: TAX_RATE,
+  };
+  // Fleet invoice lines are grouped by driver (driver order, then end time).
+  const lineSessions = (list: DemoSession[]): DemoLineSession[] =>
+    [...list]
+      .sort((a, b) => a.driverIndex - b.driverIndex || a.endedAt.getTime() - b.endedAt.getTime())
+      .map((session) => {
+        const member = MEMBERS[session.driverIndex];
+        return {
+          id: session.id,
+          endedAt: session.endedAt,
+          energyWh: session.energyWh,
+          costCents: session.costCents,
+          driverId: member.id,
+          driverName: `${member.firstName} ${member.lastName}`,
+        };
+      });
+
+  // The credited invoice must exist before its credit note; the credit note
+  // before the re-billing invoice is not required, but keeps the issue order.
+  await insertDemoInvoice(sql, demo.creditedInvoiceId, {
+    ...header,
+    kind: 'invoice',
+    status: 'credited',
+    issuedAt: creditedIssuedAt,
+    period: twoMonths,
+    sessions: lineSessions(credited),
+    sign: 1,
+    creditedInvoiceId: null,
+    creditReason: null,
+  });
+  await insertDemoInvoice(sql, demo.creditNoteId, {
+    ...header,
+    kind: 'credit_note',
+    status: 'issued',
+    issuedAt: creditNoteIssuedAt,
+    period: twoMonths,
+    sessions: lineSessions(credited),
+    sign: -1,
+    creditedInvoiceId: demo.creditedInvoiceId,
+    creditReason: 'Wrong tariff applied; the sessions are billed again on the next invoice',
+  });
+  await insertDemoInvoice(sql, demo.invoiceId, {
+    ...header,
+    kind: 'invoice',
+    status: 'issued',
+    issuedAt: invoiceIssuedAt,
+    period: lastMonth,
+    sessions: lineSessions(invoiced),
+    sign: 1,
+    creditedInvoiceId: null,
+    creditReason: null,
+  });
+
+  let inserted = 0;
+  for (const session of sessions) {
+    inserted += await insertDemoAccountSession(sql, {
+      ...session,
+      stationId: input.stationId,
+      evseId: input.evseId,
+      driverId: MEMBERS[session.driverIndex].id,
+      fleetId: demo.fleetId,
+      memberBilled: false,
+      taxRate: TAX_RATE,
+      currency,
+      electricityCostCents: place.electricityCostOf(session.endedAt, session.energyWh),
+    });
+  }
+
+  for (const [invoiceId, list, sign] of [
+    [demo.creditedInvoiceId, credited, 1],
+    [demo.creditNoteId, credited, -1],
+    [demo.invoiceId, invoiced, 1],
+  ] as const) {
+    await insertDemoLineItems(sql, invoiceId, lineSessions(list), sign, {
+      stationName: place.stationName,
+      taxRate: TAX_RATE,
+    });
+  }
+
+  return inserted;
+}
+
+// ---------- Shared by the fleet billing and member invoice demos ----------
+
+/** Where the demo sessions ran: the printed station name and the site's electricity cost. */
+export interface DemoStationPlace {
+  stationName: string;
+  electricityCostOf(endedAt: Date, energyWh: number): number | null;
+}
+
+/** Reads the demo station's name and its site's electricity rate periods. */
+export async function loadDemoStationPlace(
+  sql: postgres.Sql,
+  stationId: string,
+): Promise<DemoStationPlace> {
   const [place] = await sql<
     Array<{
       station_id: string;
@@ -245,192 +364,193 @@ export async function seedFleetBillingDemo(
   >`
     SELECT st.station_id, st.site_id, si.name AS site_name, si.timezone
     FROM charging_stations st LEFT JOIN sites si ON si.id = st.site_id
-    WHERE st.id = ${input.stationId}
+    WHERE st.id = ${stationId}
   `;
   // The sessions' electricity cost from the station's site rates, as the
   // session end projection computes it (computeSessionElectricityCost).
   const ratePeriods =
     place?.site_id != null ? await loadElectricityRatePeriodsForSite(place.site_id) : [];
-  const electricityCostOf = (session: DemoSession): number | null =>
-    computeSessionElectricityCost({
-      periods: ratePeriods,
-      endedAt: session.endedAt,
-      energyWh: session.energyWh,
-      timezone: place?.timezone,
-    }).costCents;
-  const stationName =
-    place == null
-      ? ''
-      : place.site_name != null && place.site_name !== ''
-        ? `${place.site_name} ${place.station_id}`
-        : place.station_id;
-
-  // Invoices first: the sessions reference them.
-  const sessions = fleetBillingDemoSessions(now);
-  const linesOf = (session: DemoSession): TaxLine[] =>
-    chargedCostBreakdown(session.costCents, TAX_RATE, DEFAULT_TAX_BASIS).taxLines;
-  const invoiced = sessions.filter((s) => s.invoiceId === demo.invoiceId);
-  const lastMonth = monthBounds(now, 1);
-  const twoMonths = monthBounds(now, 2);
-  const credited = invoiced.filter((s) => s.startedAt.getTime() < lastMonth.startsAt.getTime());
-  const invoiceIssuedAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 9));
-  const creditedIssuedAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 9));
-  const creditNoteIssuedAt = new Date(creditedIssuedAt.getTime() + 9 * DAY_MS);
-
-  const insertInvoice = async (
-    id: string,
-    values: {
-      kind: 'invoice' | 'credit_note';
-      status: 'issued' | 'credited';
-      issuedAt: Date;
-      period: { start: string; end: string };
-      lines: TaxLine[];
-      sign: 1 | -1;
-      creditedInvoiceId: string | null;
-      creditReason: string | null;
-    },
-  ): Promise<void> => {
-    // Numbers only for a new invoice: a rerun leaves the counter alone.
-    const [existing] = await sql`SELECT 1 FROM invoices WHERE id = ${id}`;
-    if (existing != null) return;
-    const totals = taxTotals(values.lines);
-    const sign = values.sign;
-    const dueAt =
-      values.kind === 'invoice'
-        ? new Date(values.issuedAt.getTime() + PAYMENT_TERMS_DAYS * DAY_MS).toISOString()
-        : null;
-    const sentAt = new Date(values.issuedAt.getTime() + 5 * 60_000).toISOString();
-    const issuedAt = values.issuedAt.toISOString();
-    try {
-      await db.transaction(async (tx) => {
-        const number = await allocateInvoiceNumber(tx, values.kind, values.issuedAt);
-        const rows = await tx.execute(dsql`
-          INSERT INTO invoices (id, invoice_number, driver_id, status, kind, credited_invoice_id,
-            credit_reason, issued_at, due_at, currency, subtotal_cents, tax_cents, total_cents,
-            fleet_id, period_start, period_end, bill_to, language, sent_at, created_at, updated_at)
-          VALUES (${id}, ${number}, NULL, ${values.status}, ${values.kind},
-            ${values.creditedInvoiceId}, ${values.creditReason}, ${issuedAt}::timestamptz,
-            ${dueAt}::timestamptz, ${currency}, ${signed(totals.netCents, sign)},
-            ${signed(totals.taxCents, sign)}, ${signed(totals.grossCents, sign)}, ${demo.fleetId},
-            ${values.period.start}::date, ${values.period.end}::date,
-            ${JSON.stringify(BILL_TO)}::jsonb, 'en', ${sentAt}::timestamptz,
-            ${issuedAt}::timestamptz, ${issuedAt}::timestamptz)
-          ON CONFLICT (id) DO NOTHING
-          RETURNING id
-        `);
-        if (rows.length === 0) throw new DemoInvoiceExists();
-      });
-    } catch (err) {
-      // A concurrent seed inserted this invoice; the rollback gave its number back.
-      if (!(err instanceof DemoInvoiceExists)) throw err;
-    }
+  return {
+    stationName:
+      place == null
+        ? ''
+        : place.site_name != null && place.site_name !== ''
+          ? `${place.site_name} ${place.station_id}`
+          : place.station_id,
+    electricityCostOf: (endedAt, energyWh) =>
+      computeSessionElectricityCost({
+        periods: ratePeriods,
+        endedAt,
+        energyWh,
+        timezone: place?.timezone,
+      }).costCents,
   };
+}
 
-  const sessionLines = (list: DemoSession[]): TaxLine[] => list.flatMap(linesOf);
+/** A billed session as an invoice line prints it. */
+export interface DemoLineSession {
+  id: string;
+  endedAt: Date;
+  energyWh: number;
+  costCents: number;
+  driverId: string;
+  driverName: string;
+}
 
-  // The credited invoice must exist before its credit note; the credit note
-  // before the re-billing invoice is not required, but keeps the issue order.
-  await insertInvoice(demo.creditedInvoiceId, {
-    kind: 'invoice',
-    status: 'credited',
-    issuedAt: creditedIssuedAt,
-    period: twoMonths,
-    lines: sessionLines(credited),
-    sign: 1,
-    creditedInvoiceId: null,
-    creditReason: null,
-  });
-  await insertInvoice(demo.creditNoteId, {
-    kind: 'credit_note',
-    status: 'issued',
-    issuedAt: creditNoteIssuedAt,
-    period: twoMonths,
-    lines: sessionLines(credited),
-    sign: -1,
-    creditedInvoiceId: demo.creditedInvoiceId,
-    creditReason: 'Wrong tariff applied; the sessions are billed again on the next invoice',
-  });
-  await insertInvoice(demo.invoiceId, {
-    kind: 'invoice',
-    status: 'issued',
-    issuedAt: invoiceIssuedAt,
-    period: lastMonth,
-    lines: sessionLines(invoiced),
-    sign: 1,
-    creditedInvoiceId: null,
-    creditReason: null,
-  });
+export interface DemoInvoiceValues {
+  kind: 'invoice' | 'credit_note';
+  status: 'issued' | 'credited';
+  issuedAt: Date;
+  period: { start: string; end: string };
+  sessions: DemoLineSession[];
+  taxRate: number;
+  sign: 1 | -1;
+  creditedInvoiceId: string | null;
+  creditReason: string | null;
+  fleetId: string;
+  /** Null on a fleet invoice, the member on a member invoice. */
+  driverId: string | null;
+  memberBilled: boolean;
+  billTo: Record<string, string | null>;
+  language: string;
+  currency: string;
+  paymentTermsDays: number;
+}
 
-  let inserted = 0;
-  for (const session of sessions) {
-    const member = MEMBERS[session.driverIndex];
-    const breakdown = chargedCostBreakdown(session.costCents, TAX_RATE, DEFAULT_TAX_BASIS);
-    const rows = await sql`
-      INSERT INTO charging_sessions (id, station_id, evse_id, driver_id, transaction_id, status,
-        started_at, ended_at, meter_start, meter_stop, energy_delivered_wh, final_cost_cents,
-        tariff_tax_rate, net_cents, tax_cents, cost_breakdown, currency, stopped_reason,
-        billing_mode, billing_fleet_id, invoice_id, electricity_cost_cents, created_at, updated_at)
-      VALUES (${session.id}, ${input.stationId}, ${input.evseId}, ${member.id},
-        ${session.transactionId}, 'completed', ${session.startedAt}, ${session.endedAt}, 0,
-        ${session.energyWh}, ${String(session.energyWh)}, ${session.costCents},
-        ${String(TAX_RATE)}, ${breakdown.netCents}, ${breakdown.taxCents},
-        ${sql.json(breakdown as unknown as postgres.JSONValue)}, ${currency},
-        'EVDisconnected', 'account', ${demo.fleetId}, ${session.invoiceId},
-        ${electricityCostOf(session)}, ${session.startedAt},
-        ${session.endedAt})
-      ON CONFLICT DO NOTHING
-      RETURNING id
-    `;
-    inserted += rows.length;
+function sessionTaxLines(costCents: number, taxRate: number): TaxLine[] {
+  return chargedCostBreakdown(costCents, taxRate, DEFAULT_TAX_BASIS).taxLines;
+}
+
+/**
+ * Inserts a demo account invoice or credit note when its id does not exist
+ * yet. The number comes from the gap-free counter in the same transaction as
+ * the insert, so a rerun allocates nothing and a concurrent seed that wins
+ * the insert gives the number back.
+ */
+export async function insertDemoInvoice(
+  sql: postgres.Sql,
+  id: string,
+  values: DemoInvoiceValues,
+): Promise<void> {
+  const [existing] = await sql`SELECT 1 FROM invoices WHERE id = ${id}`;
+  if (existing != null) return;
+  const totals = taxTotals(
+    values.sessions.flatMap((session) => sessionTaxLines(session.costCents, values.taxRate)),
+  );
+  const sign = values.sign;
+  const dueAt =
+    values.kind === 'invoice'
+      ? new Date(values.issuedAt.getTime() + values.paymentTermsDays * DAY_MS).toISOString()
+      : null;
+  const sentAt = new Date(values.issuedAt.getTime() + 5 * 60_000).toISOString();
+  const issuedAt = values.issuedAt.toISOString();
+  try {
+    await db.transaction(async (tx) => {
+      const number = await allocateInvoiceNumber(tx, values.kind, values.issuedAt);
+      const rows = await tx.execute(dsql`
+        INSERT INTO invoices (id, invoice_number, status, kind, credited_invoice_id,
+          credit_reason, issued_at, due_at, currency, subtotal_cents, tax_cents, total_cents,
+          fleet_id, period_start, period_end, bill_to, language, sent_at, created_at, updated_at,
+          driver_id, member_billed)
+        VALUES (${id}, ${number}, ${values.status}, ${values.kind},
+          ${values.creditedInvoiceId}, ${values.creditReason}, ${issuedAt}::timestamptz,
+          ${dueAt}::timestamptz, ${values.currency}, ${signed(totals.netCents, sign)},
+          ${signed(totals.taxCents, sign)}, ${signed(totals.grossCents, sign)}, ${values.fleetId},
+          ${values.period.start}::date, ${values.period.end}::date,
+          ${JSON.stringify(values.billTo)}::jsonb, ${values.language}, ${sentAt}::timestamptz,
+          ${issuedAt}::timestamptz, ${issuedAt}::timestamptz, ${values.driverId},
+          ${values.memberBilled})
+        ON CONFLICT (id) DO NOTHING
+        RETURNING id
+      `);
+      if (rows.length === 0) throw new DemoInvoiceExists();
+    });
+  } catch (err) {
+    // A concurrent seed inserted this invoice; the rollback gave its number back.
+    if (!(err instanceof DemoInvoiceExists)) throw err;
   }
+}
 
-  // Line items: one 'session' line per tax line, grouped by driver (driver order, then end time).
-  const lineRows = (invoiceId: string, list: DemoSession[], sign: 1 | -1) =>
-    [...list]
-      .sort((a, b) => a.driverIndex - b.driverIndex || a.endedAt.getTime() - b.endedAt.getTime())
-      .flatMap((session) => {
-        const member = MEMBERS[session.driverIndex];
-        const driverName = `${member.firstName} ${member.lastName}`;
-        const sessionDate = session.endedAt.toISOString().slice(0, 10);
-        return linesOf(session).map((line) => ({
-          invoice_id: invoiceId,
-          session_id: session.id,
-          description: `Charging session ${sessionDate}, ${stationName}, ${driverName} (${(session.energyWh / 1000).toFixed(2)} kWh)`,
-          quantity: '1',
-          unit_price_cents: signed(line.netCents, sign),
-          total_cents: signed(line.netCents, sign),
-          tax_cents: signed(line.taxCents, sign),
-          tax_rate: String(line.taxRate),
-          metadata: {
-            kind: 'session',
-            sessionDate,
-            energyWh: session.energyWh,
-            driverId: member.id,
-            driverName,
-            stationName,
-          },
-        }));
-      });
+/** A completed account session of a demo fleet. */
+export interface DemoAccountSession {
+  id: string;
+  transactionId: string;
+  startedAt: Date;
+  endedAt: Date;
+  energyWh: number;
+  costCents: number;
+  invoiceId: string | null;
+  stationId: string;
+  evseId: string | null;
+  driverId: string;
+  fleetId: string;
+  memberBilled: boolean;
+  taxRate: number;
+  currency: string;
+  electricityCostCents: number | null;
+}
 
-  for (const [invoiceId, list, sign] of [
-    [demo.creditedInvoiceId, credited, 1],
-    [demo.creditNoteId, credited, -1],
-    [demo.invoiceId, invoiced, 1],
-  ] as const) {
-    // Line items have a serial id: insert them only with the invoice's first seed.
-    const [existing] =
-      await sql`SELECT 1 FROM invoice_line_items WHERE invoice_id = ${invoiceId} LIMIT 1`;
-    if (existing != null) continue;
-    for (const row of lineRows(invoiceId, list, sign)) {
+/** Inserts a demo account session when missing. Returns 1 when inserted, else 0. */
+export async function insertDemoAccountSession(
+  sql: postgres.Sql,
+  session: DemoAccountSession,
+): Promise<number> {
+  const breakdown = chargedCostBreakdown(session.costCents, session.taxRate, DEFAULT_TAX_BASIS);
+  const rows = await sql`
+    INSERT INTO charging_sessions (id, station_id, evse_id, driver_id, transaction_id, status,
+      started_at, ended_at, meter_start, meter_stop, energy_delivered_wh, final_cost_cents,
+      tariff_tax_rate, net_cents, tax_cents, cost_breakdown, currency, stopped_reason,
+      billing_mode, billing_fleet_id, invoice_id, electricity_cost_cents, created_at, updated_at,
+      member_billed)
+    VALUES (${session.id}, ${session.stationId}, ${session.evseId}, ${session.driverId},
+      ${session.transactionId}, 'completed', ${session.startedAt}, ${session.endedAt}, 0,
+      ${session.energyWh}, ${String(session.energyWh)}, ${session.costCents},
+      ${String(session.taxRate)}, ${breakdown.netCents}, ${breakdown.taxCents},
+      ${sql.json(breakdown as unknown as postgres.JSONValue)}, ${session.currency},
+      'EVDisconnected', 'account', ${session.fleetId}, ${session.invoiceId},
+      ${session.electricityCostCents}, ${session.startedAt}, ${session.endedAt},
+      ${session.memberBilled})
+    ON CONFLICT DO NOTHING
+    RETURNING id
+  `;
+  return rows.length;
+}
+
+/**
+ * Inserts the line items of a demo invoice, one 'session' line per tax line in
+ * the given session order, only with the invoice's first seed (line items have
+ * a serial id, so a rerun must not add them again).
+ */
+export async function insertDemoLineItems(
+  sql: postgres.Sql,
+  invoiceId: string,
+  sessions: DemoLineSession[],
+  sign: 1 | -1,
+  options: { stationName: string; taxRate: number },
+): Promise<void> {
+  const [existing] =
+    await sql`SELECT 1 FROM invoice_line_items WHERE invoice_id = ${invoiceId} LIMIT 1`;
+  if (existing != null) return;
+  const { stationName } = options;
+  for (const session of sessions) {
+    const sessionDate = session.endedAt.toISOString().slice(0, 10);
+    const description = `Charging session ${sessionDate}, ${stationName}, ${session.driverName} (${(session.energyWh / 1000).toFixed(2)} kWh)`;
+    const metadata = {
+      kind: 'session',
+      sessionDate,
+      energyWh: session.energyWh,
+      driverId: session.driverId,
+      driverName: session.driverName,
+      stationName,
+    };
+    for (const line of sessionTaxLines(session.costCents, options.taxRate)) {
       await sql`
         INSERT INTO invoice_line_items (invoice_id, session_id, description, quantity,
           unit_price_cents, total_cents, tax_cents, tax_rate, metadata)
-        VALUES (${row.invoice_id}, ${row.session_id}, ${row.description}, ${row.quantity},
-          ${row.unit_price_cents}, ${row.total_cents}, ${row.tax_cents}, ${row.tax_rate},
-          ${sql.json(row.metadata)})
+        VALUES (${invoiceId}, ${session.id}, ${description}, ${'1'},
+          ${signed(line.netCents, sign)}, ${signed(line.netCents, sign)},
+          ${signed(line.taxCents, sign)}, ${String(line.taxRate)}, ${sql.json(metadata)})
       `;
     }
   }
-
-  return inserted;
 }

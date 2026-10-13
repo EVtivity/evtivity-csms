@@ -45,13 +45,14 @@ beforeEach(() => {
 function membershipRow(
   id: number,
   fleet: string,
-  options: { enabled?: boolean; optOut?: boolean; created?: string } = {},
+  options: { enabled?: boolean; optOut?: boolean; created?: string; recipient?: string } = {},
 ): Record<string, unknown> {
   return {
     id,
     fleet_id: `flt_${fleet}`,
     fleet_name: fleet,
     account_billing_enabled: options.enabled ?? true,
+    account_invoice_recipient: options.recipient ?? 'fleet',
     account_billing_opt_out: options.optOut ?? false,
     created_at: options.created ?? '2026-10-01T00:00:00.000Z',
   };
@@ -73,8 +74,35 @@ describe('resolveAccountBilling', () => {
     expect(await resolveAccountBilling(sql, 'drv_1')).toEqual({
       fleetId: 'flt_Alpha',
       fleetName: 'Alpha',
+      recipient: 'fleet',
     });
     expect(calls[0]?.values).toEqual(['drv_1']);
+  });
+
+  it("returns the winning fleet's invoice recipient", async () => {
+    const { sql, calls } = makeSql([
+      [
+        'FROM fleet_drivers',
+        [
+          membershipRow(1, 'Employer', {
+            recipient: 'member',
+            created: '2026-01-01T00:00:00.000Z',
+          }),
+          membershipRow(2, 'Later', { created: '2026-02-01T00:00:00.000Z' }),
+        ],
+      ],
+    ]);
+    expect(await resolveAccountBilling(sql, 'drv_1')).toEqual({
+      fleetId: 'flt_Employer',
+      fleetName: 'Employer',
+      recipient: 'member',
+    });
+    expect(calls[0]?.text).toContain('f.account_invoice_recipient');
+  });
+
+  it('reads an unknown stored recipient as fleet', async () => {
+    const { sql } = makeSql([['FROM fleet_drivers', [membershipRow(1, 'A', { recipient: 'x' })]]]);
+    expect(await resolveAccountBilling(sql, 'drv_1')).toMatchObject({ recipient: 'fleet' });
   });
 
   it('breaks a created_at tie by the membership id', async () => {
@@ -123,7 +151,22 @@ describe('stampSessionBilling', () => {
     });
     const update = calls[1];
     expect(update?.text).toContain('WHERE id = ? AND billing_mode IS NULL');
-    expect(update?.values.slice(0, 3)).toEqual(['account', 'flt_a', 'ses_1']);
+    expect(update?.text).toContain('member_billed = ?');
+    expect(update?.values.slice(0, 4)).toEqual(['account', 'flt_a', false, 'ses_1']);
+  });
+
+  it('stamps member billed in the same write when the fleet invoices its members', async () => {
+    const { sql, calls } = makeSql([
+      ['FROM fleet_drivers', [membershipRow(1, 'a', { recipient: 'member' })]],
+      [
+        'WITH stamped AS',
+        [{ billing_mode: 'account', billing_fleet_id: 'flt_a', fleet_name: 'Alpha' }],
+      ],
+    ]);
+    await stampSessionBilling(sql, 'ses_1', 'drv_1');
+    const update = calls[1];
+    expect(update?.text).toContain('WHERE id = ? AND billing_mode IS NULL');
+    expect(update?.values.slice(0, 4)).toEqual(['account', 'flt_a', true, 'ses_1']);
   });
 
   it('stamps card when the driver has no account billing', async () => {
@@ -135,7 +178,7 @@ describe('stampSessionBilling', () => {
       fleetId: null,
       fleetName: null,
     });
-    expect(calls[1]?.values.slice(0, 2)).toEqual(['card', null]);
+    expect(calls[1]?.values.slice(0, 3)).toEqual(['card', null, false]);
   });
 
   it('returns the earlier stamp when the session already has one (write once)', async () => {
@@ -161,11 +204,18 @@ describe('stampSessionBilling', () => {
 
 describe('sessionBillingColumns and toSessionBilling', () => {
   it('maps a resolver result to the stamp columns', () => {
-    expect(sessionBillingColumns(null)).toEqual({ billingMode: 'card', billingFleetId: null });
-    expect(sessionBillingColumns({ fleetId: 'flt_a', fleetName: 'A' })).toEqual({
-      billingMode: 'account',
-      billingFleetId: 'flt_a',
+    expect(sessionBillingColumns(null)).toEqual({
+      billingMode: 'card',
+      billingFleetId: null,
+      memberBilled: false,
     });
+    expect(sessionBillingColumns({ fleetId: 'flt_a', fleetName: 'A', recipient: 'fleet' })).toEqual(
+      { billingMode: 'account', billingFleetId: 'flt_a', memberBilled: false },
+    );
+    // A fleet that invoices its members stamps the session member billed.
+    expect(
+      sessionBillingColumns({ fleetId: 'flt_a', fleetName: 'A', recipient: 'member' }),
+    ).toEqual({ billingMode: 'account', billingFleetId: 'flt_a', memberBilled: true });
   });
 
   it('reads an account stamp with its fleet and anything else as card', () => {

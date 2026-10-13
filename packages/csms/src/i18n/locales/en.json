@@ -1090,7 +1090,8 @@
     "electricityCostAll": "All",
     "electricityCostMissing": "Missing",
     "costMissingNotice": "These sessions have no electricity cost and are left out of profit.",
-    "costMissingSelectSite": "These sessions have no electricity cost and are left out of profit. Select a site to recalculate its costs."
+    "costMissingSelectSite": "These sessions have no electricity cost and are left out of profit. Select a site to recalculate its costs.",
+    "billedToMember": "On account: {{fleet}} (driver invoice)"
   },
   "drivers": {
     "title": "Drivers",
@@ -1166,7 +1167,26 @@
       "pricingDriverGroup": "Driver pricing group {{group}} (overrides fleet pricing)",
       "none": "None",
       "helpAccount": "New sessions are billed to the billing fleet, with no card. The pricing fleet sets the tariff and can be a different fleet.",
-      "helpCard": "New sessions are paid with the driver's saved card."
+      "helpCard": "New sessions are paid with the driver's saved card.",
+      "invoicedTo": "Invoiced to",
+      "invoicedToFleet": "The fleet",
+      "invoicedToMember": "The driver",
+      "helpAccountMember": "New sessions are billed on account of the billing fleet and invoiced to this driver each month, with no card. The pricing fleet sets the tariff and can be a different fleet."
+    },
+    "billingAddress": {
+      "title": "Billing Address",
+      "description": "The bill-to block of the invoices a fleet addresses to this driver. The driver can edit it in the portal and the app.",
+      "name": "Name on Invoice",
+      "nameHelp": "Leave empty to use the driver's first and last name.",
+      "street": "Street",
+      "city": "City",
+      "state": "State or Region",
+      "zip": "Postal Code",
+      "country": "Country",
+      "billTo": "Bill To",
+      "empty": "No billing address. Invoices show the name and email.",
+      "updated": "Billing address updated",
+      "updateFailed": "Could not update the billing address"
     }
   },
   "transactions": {
@@ -1511,7 +1531,17 @@
       "optOutTitle": "Pay by Card",
       "optOutConfirm": "This member pays by card although the fleet bills on account. The driver is notified when the fleet bills on account.",
       "optInTitle": "Charge on Account",
-      "optInConfirm": "This member's new sessions are billed to the fleet when it bills on account. The driver is notified when the fleet bills on account."
+      "optInConfirm": "This member's new sessions are billed to the fleet when it bills on account. The driver is notified when the fleet bills on account.",
+      "invoiceTo": "Invoice To",
+      "recipientFleet": "Fleet",
+      "recipientMember": "Each Driver",
+      "recipientHelpFleet": "Sessions billed on account go on one monthly invoice to the fleet billing contacts.",
+      "recipientHelpMember": "Each driver gets a monthly invoice for their own sessions billed on account, sent to the driver only.",
+      "recipientTitleMember": "Invoice Each Driver",
+      "recipientConfirmMember": "Sessions that start from now on are invoiced to each driver, with the driver's billing address and email. Sessions already started stay on the fleet invoice. Each affected driver is notified.",
+      "recipientTitleFleet": "Invoice the Fleet",
+      "recipientConfirmFleet": "Sessions that start from now on go on the fleet invoice. Sessions already started stay on each driver's invoice. Each affected driver is notified.",
+      "recipientChange": "Change"
     },
     "billingProfile": {
       "title": "Billing Profile",
@@ -1588,7 +1618,36 @@
       "send": "Send",
       "sendTitle": "Email Fleet Invoice",
       "sendConfirm": "Email {{number}} with its PDF to the fleet billing contacts?",
-      "sent": "Invoice emailed"
+      "sent": "Invoice emailed",
+      "membersTitle": "Driver Invoices",
+      "membersDescription": "Sessions billed on account to each driver of this fleet that no invoice billed yet and that ended before the end of the month.",
+      "noMembers": "No driver has unbilled sessions with a cost in this month.",
+      "noEmail": "No Email",
+      "noAddress": "No Address",
+      "invoice": "Invoice",
+      "generateMember": "Generate",
+      "generateMemberTitle": "Generate Driver Invoice",
+      "generateMemberConfirm": "Issue the invoice for {{period}} to {{driver}} over {{total}} and send it with its PDF to the driver? An issued invoice can only be corrected with a credit note.",
+      "memberGenerated": "Driver invoice issued and sent",
+      "memberGeneratedNotSent": "Driver invoice issued but not sent. Add the driver's email, then send it.",
+      "invoiceAll": "Invoice All Members",
+      "invoiceAllConfirm": "Issue the invoices for {{period}} in the background, one for each driver with unbilled sessions ({{count}}), and send each to its driver?",
+      "invoiceAllStarted": "Issuing driver invoices: {{count}}",
+      "recipient": "Invoice To",
+      "recipientAll": "All",
+      "recipientFleet": "Fleet",
+      "recipientMember": "Driver",
+      "billedTo": "Billed To",
+      "sendMemberTitle": "Send Driver Invoice",
+      "sendMemberConfirm": "Send {{number}} with its PDF to the driver?"
+    },
+    "bookingStatus": {
+      "scheduled": "Scheduled",
+      "active": "Active",
+      "partial": "Partial",
+      "completed": "Completed",
+      "expired": "Expired",
+      "cancelled": "Cancelled"
     }
   },
   "tokens": {
@@ -2725,7 +2784,7 @@
     "fleetEvents": "Fleet Billing",
     "fleetBillingAlertEvents": "Fleet Billing Alerts",
     "fleetInvoiceEvents": "Fleet Invoices",
-    "requiredEventTooltip": "Always on. Drivers need this notification to get into their account.",
+    "requiredEventTooltip": "Always on. Drivers need this notification to get into their account or to receive their invoices.",
     "eventSwitchTooltip": "When off, no driver receives this notification. When on, each driver's notification preferences apply.",
     "eventTurnedOn": "Notification turned on.",
     "eventTurnedOff": "Notification turned off.",
@@ -2770,6 +2829,9 @@
       "session.IdlingStarted": "Session Idling Started",
       "invoice.Sent": "Invoice Sent",
       "invoice.CreditNote": "Credit Note Issued",
+      "invoice.MemberInvoice": "Member Invoice Issued",
+      "invoice.MemberCreditNote": "Member Credit Note Issued",
+      "invoice.MemberOverdue": "Member Invoice Overdue",
       "payment.AccountCreditLimit": "Fleet Credit Limit Reached",
       "fleet.CreditLimitWarning": "Fleet Credit Limit Warning",
       "fleet.CreditLimitReached": "Fleet Credit Limit Reached",
@@ -2974,11 +3036,13 @@
     "FAVORITE_NOT_FOUND": "Favorite not found",
     "FLEET_CREDIT_LIMIT_REACHED": "The credit limit of the fleet your sessions are billed to is reached. Contact your fleet manager.",
     "FLEET_DISABLED": "Fleet is disabled",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "A process older than v0.1.41 is still connected. Finish the upgrade, then turn on account billing.",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "A process of an older release is still connected. Finish the upgrade, then change the fleet billing.",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "The worker's version check has not run recently, so the upgrade cannot be confirmed. Check that the worker is running, then change the fleet billing.",
     "FLEET_BILLING_CONTACT_REQUIRED": "The fleet needs at least one billing contact for automatic invoicing and invoice emails.",
     "FLEET_INVOICE_PERIOD_EXISTS": "The fleet already has an invoice for this period. Credit it to bill the period again.",
     "FLEET_INVOICE_NOTHING_TO_BILL": "The fleet has no unbilled sessions with a cost to invoice for this period.",
     "FLEET_HAS_OPEN_BILLING": "The fleet has sessions billed to its account and cannot be deleted. Turn off account billing instead.",
+    "FLEET_HAS_RESERVATIONS": "The fleet has fleet reservations and cannot be deleted. Reservations are kept as history.",
     "FLEET_NOT_FOUND": "Fleet not found",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "Fleet reservation is already cancelled",
     "FLEET_RESERVATION_CREATE_FAILED": "Failed to create fleet reservation",
@@ -3012,6 +3076,7 @@
     "INVOICE_NOT_VOIDABLE": "Only a draft invoice can be voided. Correct an issued invoice with a credit note",
     "INVOICE_NO_SESSIONS": "No uninvoiced sessions in the selected date range",
     "INVOICE_NO_DRIVER": "This invoice has no driver to send to",
+    "INVOICE_NO_DRIVER_EMAIL": "The driver of this invoice has no email address",
     "INVOICE_NOT_FOUND": "Invoice not found",
     "LOAD_NOT_FOUND": "Load not found",
     "LOCATION_NOT_FOUND": "Location not found",
@@ -4170,6 +4235,7 @@
       "assigned": "Assigned",
       "attachment_added": "Attachment added",
       "availability_changed": "Availability changed",
+      "billing_address_updated": "Billing address updated",
       "billing_updated": "Billing updated",
       "ca_certificate_added": "CA certificate added",
       "ca_certificate_deleted": "CA certificate deleted",
@@ -4505,7 +4571,11 @@
     "confirmResendFleet": "Email this invoice with its PDF to the fleet billing contacts?",
     "sentAt": "Emailed",
     "overdueNoticeSentAt": "Overdue Reminder Sent",
-    "notSent": "Not emailed"
+    "notSent": "Not emailed",
+    "driver": "Driver",
+    "viaFleet": "Via Fleet",
+    "viaFleetBadge": "Via {{fleet}}",
+    "confirmResendMember": "Send this invoice with its PDF to the driver?"
   },
   "authFooter": {
     "privacyPolicy": "Privacy Policy",

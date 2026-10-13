@@ -380,6 +380,8 @@ export interface FleetInvoiceHeader {
   billTo: Record<string, unknown>;
   /** Language of the invoice PDF and email. */
   language: string;
+  /** A member invoice: billed to `driverId` for their sessions on the fleet's account. */
+  memberBilled?: boolean;
 }
 
 /** The transaction an invoice is inserted in. */
@@ -470,6 +472,7 @@ export async function insertInvoiceInTransaction(
             periodEnd: input.fleet.periodEnd,
             billTo: input.fleet.billTo,
             language: input.fleet.language,
+            memberBilled: input.fleet.memberBilled === true,
           }
         : {}),
     })

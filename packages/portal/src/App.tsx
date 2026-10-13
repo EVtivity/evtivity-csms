@@ -34,6 +34,10 @@ const MonthlyStatement = lazy(() =>
   import('@/pages/MonthlyStatement').then((m) => ({ default: m.MonthlyStatement })),
 );
 const Account = lazy(() => import('@/pages/Account').then((m) => ({ default: m.Account })));
+const Invoices = lazy(() => import('@/pages/Invoices').then((m) => ({ default: m.Invoices })));
+const InvoiceDetail = lazy(() =>
+  import('@/pages/InvoiceDetail').then((m) => ({ default: m.InvoiceDetail })),
+);
 const PersonalInfo = lazy(() =>
   import('@/pages/PersonalInfo').then((m) => ({ default: m.PersonalInfo })),
 );
@@ -186,6 +190,8 @@ export function App(): React.JSX.Element {
                     <Route path="account/security" element={<Security />} />
                     <Route path="account/notifications" element={<NotificationPrefs />} />
                     <Route path="account/home-cards" element={<HomeScreen />} />
+                    <Route path="account/invoices" element={<Invoices />} />
+                    <Route path="account/invoices/:id" element={<InvoiceDetail />} />
                     <Route path="sessions" element={<Sessions />} />
                     <Route path="sessions/:id" element={<SessionDetail />} />
                     <Route path="reservations" element={<Reservations />} />

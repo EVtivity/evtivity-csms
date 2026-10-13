@@ -308,6 +308,7 @@ export type {
   Recipient,
   RenderedTemplate,
   EmailAttachment,
+  DriverNotificationOptions,
   NotificationDelivery,
   NotificationDispatchResult,
 } from './notification-dispatch.js';

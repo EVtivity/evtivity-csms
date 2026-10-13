@@ -9,6 +9,7 @@ import {
   BellRing,
   LayoutGrid,
   CreditCard,
+  FileText,
   Nfc,
   Car,
   Star,
@@ -98,6 +99,12 @@ export function Account(): React.JSX.Element {
           icon={<CreditCard className="h-5 w-5" />}
           title={t('account.paymentMethods')}
           to="/payment-methods"
+        />
+        <Row
+          icon={<FileText className="h-5 w-5" />}
+          title={t('account.invoices')}
+          to="/account/invoices"
+          divider
         />
         <Row
           icon={<Nfc className="h-5 w-5" />}

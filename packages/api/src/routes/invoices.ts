@@ -45,6 +45,11 @@ export const invoiceListItem = z
       .describe(
         'On a fleet invoice and its credit note: the billed fleet. Null on driver invoices',
       ),
+    memberBilled: z
+      .boolean()
+      .describe(
+        'A member invoice (or its credit note): an account invoice of fleetId addressed to the driver driverId instead of the fleet',
+      ),
     periodStart: z
       .string()
       .nullable()
@@ -106,6 +111,11 @@ const invoiceRecord = z
       .nullable()
       .describe(
         'On a fleet invoice and its credit note: the billed fleet. Null on driver invoices',
+      ),
+    memberBilled: z
+      .boolean()
+      .describe(
+        'A member invoice (or its credit note): an account invoice of fleetId addressed to the driver driverId instead of the fleet',
       ),
     periodStart: z
       .string()
@@ -293,7 +303,7 @@ export const invoiceDetailItem = z
   })
   .passthrough();
 import { authorize } from '../middleware/rbac.js';
-import { sendFleetInvoiceEmail } from '@evtivity/services/fleet-invoice-notice';
+import { sendAccountInvoiceEmail } from '@evtivity/services/fleet-invoice-notice';
 import {
   createSessionInvoice,
   createAggregatedInvoice,
@@ -458,6 +468,7 @@ export const invoiceListColumns = {
   invoiceNumber: invoices.invoiceNumber,
   driverId: invoices.driverId,
   fleetId: invoices.fleetId,
+  memberBilled: invoices.memberBilled,
   fleetName: fleets.name,
   periodStart: invoices.periodStart,
   periodEnd: invoices.periodEnd,
@@ -477,31 +488,46 @@ export const invoiceListColumns = {
 };
 
 /**
- * Emails a fleet invoice or the credit note of one to the fleet billing
- * contacts with its PDF. Fail-open (P9): a failure is logged and reported as
- * not sent.
+ * Sends the credit note of an account invoice once with its PDF
+ * (sendAccountInvoiceEmail): a fleet invoice's to the fleet billing contacts
+ * (invoice.FleetCreditNote), a member invoice's to its driver only
+ * (invoice.MemberCreditNote). Fail-open (P9): a failure, or a recipient
+ * without an address, is logged and the credit stands.
  */
-async function notifyFleetDocument(
-  invoiceId: string,
-  mode: 'once' | 'resend',
+async function notifyAccountCreditNote(
+  detail: InvoiceDetail,
   actor: InvoiceAuditActor,
   log: FastifyInstance['log'],
-): Promise<'sent' | 'no_contacts' | 'failed' | 'skipped'> {
+): Promise<void> {
+  const { invoice } = detail;
+  const kind = invoice.memberBilled ? 'Member' : 'Fleet';
   try {
-    const result = await sendFleetInvoiceEmail(
-      invoiceId,
-      mode,
+    const result = await sendAccountInvoiceEmail(
+      invoice.id,
+      'once',
       { templatesDirs: ALL_TEMPLATES_DIRS },
       { actor, log },
     );
-    if (result.status === 'sent') return 'sent';
-    if (result.status === 'no_contacts') return 'no_contacts';
-    return 'skipped';
+    if (result.status !== 'sent' && result.status !== 'already_sent') {
+      log.warn(
+        { invoiceId: invoice.id, reason: result.status },
+        `${kind} credit note not sent: no recipient address`,
+      );
+    }
   } catch (err) {
-    log.warn({ err, invoiceId }, 'Fleet invoice email failed; continuing');
-    return 'failed';
+    log.warn({ err, invoiceId: invoice.id }, `${kind} credit note email failed; continuing`);
   }
 }
+
+/** The 400 answer of a resend that found no recipient, by send result. */
+const ACCOUNT_SEND_REFUSALS = {
+  no_contacts: {
+    error: 'The fleet has no billing contact',
+    code: 'FLEET_BILLING_CONTACT_REQUIRED',
+  },
+  no_driver: { error: 'Invoice has no driver', code: 'INVOICE_NO_DRIVER' },
+  no_email: { error: 'The driver has no email address', code: 'INVOICE_NO_DRIVER_EMAIL' },
+} as const;
 
 // Invoices are company-wide money: a driver's invoice bills sessions at any
 // site and a fleet invoice spans sites. Only a user with access to every site
@@ -858,7 +884,7 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Credit an invoice with a credit note',
         description:
-          'Corrects an issued or paid invoice the GoBD way: the invoice is never changed; a credit note (kind credit_note, its own gap-free number CN-YYYYMM-NNNN) credits it in full with every line negated and references it. The invoice moves to credited and its charging sessions are released, so the next invoice bills them again; reservation fee charges stay billed. When the invoice was paid, the refund is made outside EVtivity. The credit is recorded in the invoice audit log (invoice_credited) and the driver gets the invoice.CreditNote notification; the credit note of a fleet invoice is emailed once with its PDF to the fleet billing contacts (invoice.FleetCreditNote) and releases the fleet sessions for the next fleet invoice. Returns 409 INVOICE_ALREADY_CREDITED for a credited invoice, 409 INVOICE_IS_CREDIT_NOTE for a credit note and 409 INVOICE_NOT_ISSUED for a draft or void invoice.',
+          'Corrects an issued or paid invoice the GoBD way: the invoice is never changed; a credit note (kind credit_note, its own gap-free number CN-YYYYMM-NNNN) credits it in full with every line negated and references it. The invoice moves to credited and its charging sessions are released, so the next invoice bills them again; reservation fee charges stay billed. When the invoice was paid, the refund is made outside EVtivity. The credit is recorded in the invoice audit log (invoice_credited) and the driver gets the invoice.CreditNote notification; the credit note of a fleet invoice is emailed once with its PDF to the fleet billing contacts (invoice.FleetCreditNote) and releases the fleet sessions for the next fleet invoice; the credit note of a member invoice goes once with its PDF to the driver only (invoice.MemberCreditNote) and releases the sessions for the next member invoice of the driver. Returns 409 INVOICE_ALREADY_CREDITED for a credited invoice, 409 INVOICE_IS_CREDIT_NOTE for a credit note and 409 INVOICE_NOT_ISSUED for a draft or void invoice.',
         operationId: 'createCreditNote',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),
@@ -911,8 +937,11 @@ export function invoiceRoutes(app: FastifyInstance): void {
       const detail = await getInvoice(creditNote.id);
       if (detail != null) {
         const actor = getAuditActor(request);
+        // A fleet or member invoice's credit note goes through the account
+        // invoice sender, which routes by member_billed; a driver invoice's
+        // credit note is invoice.CreditNote to its driver.
         if (detail.invoice.fleetId != null) {
-          await notifyFleetDocument(creditNote.id, 'once', actor, request.log);
+          await notifyAccountCreditNote(detail, actor, request.log);
         } else {
           await notifyCreditNote(detail, actor, request.log);
         }
@@ -931,16 +960,20 @@ export function invoiceRoutes(app: FastifyInstance): void {
         tags: ['Invoices'],
         summary: 'Email an invoice to its driver or fleet',
         description:
-          'Renders the invoice.Sent driver notification (invoice.CreditNote for a credit note) and dispatches it via the configured channels. A fleet invoice (invoice.FleetInvoice) or its credit note (invoice.FleetCreditNote) goes to the fleet billing contacts with the PDF attached and sets sentAt; 400 FLEET_BILLING_CONTACT_REQUIRED when the fleet has none. Safe to call repeatedly; each call sends again (deliberate resend semantics). A send a provider accepted is recorded in the invoice audit log (invoice_sent).',
+          'Renders the invoice.Sent driver notification (invoice.CreditNote for a credit note) and dispatches it via the configured channels. A fleet invoice (invoice.FleetInvoice) or its credit note (invoice.FleetCreditNote) goes to the fleet billing contacts with the PDF attached and sets sentAt; 400 FLEET_BILLING_CONTACT_REQUIRED when the fleet has none. A member invoice (invoice.MemberInvoice) or its credit note (invoice.MemberCreditNote) goes to its driver only, by email with the PDF attached and by push, and sets sentAt; 400 INVOICE_NO_DRIVER when the driver no longer exists, 400 INVOICE_NO_DRIVER_EMAIL when the driver has no email address. Safe to call repeatedly; each call sends again (deliberate resend semantics). A send a provider accepted is recorded in the invoice audit log (invoice_sent).',
         operationId: 'sendInvoice',
         security: [{ bearerAuth: [] }],
         params: zodSchema(invoiceIdParams),
         response: {
           200: successResponse,
-          400: errorWith('Invoice has no driver or the fleet has no billing contact', [
-            ERROR_CODES.INVOICE_NO_DRIVER,
-            ERROR_CODES.FLEET_BILLING_CONTACT_REQUIRED,
-          ]),
+          400: errorWith(
+            'Invoice has no recipient: no driver, no driver email or no billing contact',
+            [
+              ERROR_CODES.INVOICE_NO_DRIVER,
+              ERROR_CODES.INVOICE_NO_DRIVER_EMAIL,
+              ERROR_CODES.FLEET_BILLING_CONTACT_REQUIRED,
+            ],
+          ),
           404: invoiceNotFound,
         },
       },
@@ -959,17 +992,18 @@ export function invoiceRoutes(app: FastifyInstance): void {
       const actor = getAuditActor(request);
       if (invoice.fleetId != null) {
         // Resend: errors here are not swallowed, the operator sees them.
-        const sent = await sendFleetInvoiceEmail(
+        const sent = await sendAccountInvoiceEmail(
           invoice.id,
           'resend',
           { templatesDirs: ALL_TEMPLATES_DIRS },
           { actor, log: request.log },
         );
-        if (sent.status === 'no_contacts') {
-          await reply.status(400).send({
-            error: 'The fleet has no billing contact',
-            code: 'FLEET_BILLING_CONTACT_REQUIRED',
-          });
+        if (
+          sent.status === 'no_contacts' ||
+          sent.status === 'no_driver' ||
+          sent.status === 'no_email'
+        ) {
+          await reply.status(400).send(ACCOUNT_SEND_REFUSALS[sent.status]);
           return;
         }
         return { success: true };

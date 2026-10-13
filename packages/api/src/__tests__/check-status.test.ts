@@ -50,6 +50,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

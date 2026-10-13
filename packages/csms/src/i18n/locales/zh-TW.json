@@ -1090,7 +1090,8 @@
     "electricityCostAll": "全部",
     "electricityCostMissing": "缺少",
     "costMissingNotice": "這些工作階段沒有電力成本，不計入利潤。",
-    "costMissingSelectSite": "這些工作階段沒有電力成本，不計入利潤。選擇一個站點以重新計算其成本。"
+    "costMissingSelectSite": "這些工作階段沒有電力成本，不計入利潤。選擇一個站點以重新計算其成本。",
+    "billedToMember": "記帳：{{fleet}}（駕駛員發票）"
   },
   "drivers": {
     "title": "駕駛員",
@@ -1166,7 +1167,26 @@
       "pricingDriverGroup": "駕駛員定價群組 {{group}}（優先於車隊定價）",
       "none": "無",
       "helpAccount": "新工作階段計入計費車隊帳單，無需信用卡。定價車隊決定費率，可以是另一個車隊。",
-      "helpCard": "新工作階段以駕駛員儲存的信用卡付款。"
+      "helpCard": "新工作階段以駕駛員儲存的信用卡付款。",
+      "invoicedTo": "開票對象",
+      "invoicedToFleet": "車隊",
+      "invoicedToMember": "駕駛員",
+      "helpAccountMember": "新工作階段透過計費車隊記帳計費，每月向該駕駛員開票，無需信用卡。定價車隊決定費率，可以是另一個車隊。"
+    },
+    "billingAddress": {
+      "title": "帳單地址",
+      "description": "車隊開立給此駕駛員的發票上的帳單抬頭。駕駛員可以在入口網站與應用程式中編輯。",
+      "name": "發票姓名",
+      "nameHelp": "留空則使用駕駛員的姓名。",
+      "street": "街道",
+      "city": "城市",
+      "state": "州或地區",
+      "zip": "郵遞區號",
+      "country": "國家",
+      "billTo": "帳單抬頭",
+      "empty": "沒有帳單地址。發票顯示姓名與電子郵件。",
+      "updated": "帳單地址已更新",
+      "updateFailed": "無法更新帳單地址"
     }
   },
   "transactions": {
@@ -1511,7 +1531,17 @@
       "optOutTitle": "以信用卡付款",
       "optOutConfirm": "即使車隊採用記帳，此成員仍以信用卡付款。車隊採用記帳時會通知該駕駛員。",
       "optInTitle": "車隊記帳",
-      "optInConfirm": "車隊採用記帳時，此成員的新工作階段計入車隊帳單。車隊採用記帳時會通知該駕駛員。"
+      "optInConfirm": "車隊採用記帳時，此成員的新工作階段計入車隊帳單。車隊採用記帳時會通知該駕駛員。",
+      "invoiceTo": "開票對象",
+      "recipientFleet": "車隊",
+      "recipientMember": "每位駕駛員",
+      "recipientHelpFleet": "記帳計費的工作階段合併到一張每月發票上，傳送給車隊的帳單聯絡人。",
+      "recipientHelpMember": "每位駕駛員每月收到一張自己記帳計費工作階段的發票，只傳送給該駕駛員。",
+      "recipientTitleMember": "向每位駕駛員開票",
+      "recipientConfirmMember": "從現在開始的工作階段將依駕駛員的帳單地址和電子郵件向每位駕駛員開票。已開始的工作階段仍在車隊發票上。每位受影響的駕駛員都會收到通知。",
+      "recipientTitleFleet": "向車隊開票",
+      "recipientConfirmFleet": "從現在開始的工作階段計入車隊發票。已開始的工作階段仍在各駕駛員的發票上。每位受影響的駕駛員都會收到通知。",
+      "recipientChange": "變更"
     },
     "billingProfile": {
       "title": "帳單資料",
@@ -1588,7 +1618,36 @@
       "send": "寄送",
       "sendTitle": "寄送車隊發票",
       "sendConfirm": "要將 {{number}} 及其 PDF 以電子郵件寄送給車隊帳單聯絡人嗎？",
-      "sent": "發票已寄送"
+      "sent": "發票已寄送",
+      "membersTitle": "駕駛員發票",
+      "membersDescription": "向本車隊各駕駛員記帳計費、尚未開票且在月底前結束的工作階段。",
+      "noMembers": "本月沒有駕駛員有帶費用的未開票工作階段。",
+      "noEmail": "無電子郵件",
+      "noAddress": "無地址",
+      "invoice": "發票",
+      "generateMember": "產生",
+      "generateMemberTitle": "產生駕駛員發票",
+      "generateMemberConfirm": "為 {{driver}} 開立 {{period}} 的發票（金額 {{total}}），並連同 PDF 傳送給該駕駛員？已開立的發票只能以貸項通知單更正。",
+      "memberGenerated": "駕駛員發票已開立並傳送",
+      "memberGeneratedNotSent": "駕駛員發票已開立但未傳送。請新增駕駛員的電子郵件後再傳送。",
+      "invoiceAll": "向所有成員開票",
+      "invoiceAllConfirm": "在背景為每位有未開票工作階段的駕駛員（{{count}}）各開立一張 {{period}} 的發票，並分別傳送給對應駕駛員？",
+      "invoiceAllStarted": "正在開立駕駛員發票：{{count}}",
+      "recipient": "開票對象",
+      "recipientAll": "全部",
+      "recipientFleet": "車隊",
+      "recipientMember": "駕駛員",
+      "billedTo": "開票對象",
+      "sendMemberTitle": "傳送駕駛員發票",
+      "sendMemberConfirm": "將 {{number}} 連同 PDF 傳送給駕駛員？"
+    },
+    "bookingStatus": {
+      "scheduled": "已排定",
+      "active": "活躍",
+      "partial": "部分",
+      "completed": "已完成",
+      "expired": "已過期",
+      "cancelled": "已取消"
     }
   },
   "tokens": {
@@ -2688,7 +2747,7 @@
     "fleetEvents": "車隊計費",
     "fleetBillingAlertEvents": "車隊計費警示",
     "fleetInvoiceEvents": "車隊發票",
-    "requiredEventTooltip": "始終開啟。駕駛員需要此通知才能存取其帳戶。",
+    "requiredEventTooltip": "始終開啟。駕駛員需要此通知才能存取其帳戶或接收發票。",
     "eventSwitchTooltip": "關閉後，任何駕駛員都不會收到此通知。開啟後，依每位駕駛員的通知偏好傳送。",
     "eventTurnedOn": "通知已開啟。",
     "eventTurnedOff": "通知已關閉。",
@@ -2770,6 +2829,9 @@
       "session.IdlingStarted": "充電工作階段閒置開始",
       "invoice.Sent": "帳單已發送",
       "invoice.CreditNote": "貸項通知單已開立",
+      "invoice.MemberInvoice": "成員發票已開立",
+      "invoice.MemberCreditNote": "成員貸項通知單已開立",
+      "invoice.MemberOverdue": "成員發票已逾期",
       "payment.AccountCreditLimit": "車隊信用額度已用完",
       "fleet.CreditLimitWarning": "車隊信用額度預警",
       "fleet.CreditLimitReached": "車隊信用額度已用完",
@@ -2974,11 +3036,13 @@
     "FAVORITE_NOT_FOUND": "找不到最愛項目",
     "FLEET_CREDIT_LIMIT_REACHED": "為您的工作階段付費的車隊已達到信用額度。請聯絡您的車隊管理員。",
     "FLEET_DISABLED": "車隊已停用",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有早於 v0.1.41 的處理程序處於連線狀態。請完成升級後再開啟記帳計費。",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有舊版本的處理程序處於連線狀態。請完成升級後再變更車隊計費。",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "Worker 最近未執行版本檢查，無法確認升級。請檢查 Worker 是否正在執行，然後再變更車隊計費。",
     "FLEET_BILLING_CONTACT_REQUIRED": "自動開立發票和寄送發票電子郵件需要車隊至少有一個帳單聯絡人。",
     "FLEET_INVOICE_PERIOD_EXISTS": "該車隊在此帳期已有發票。請先開立貸項通知單，再重新為該帳期開立發票。",
     "FLEET_INVOICE_NOTHING_TO_BILL": "該車隊在此帳期沒有可開立發票的未計費且有費用的工作階段。",
     "FLEET_HAS_OPEN_BILLING": "此車隊有記帳到其帳戶的工作階段，無法刪除。請改為關閉記帳計費。",
+    "FLEET_HAS_RESERVATIONS": "此車隊有車隊預約，無法刪除。預約將作為歷史記錄保留。",
     "FLEET_NOT_FOUND": "找不到車隊",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "車隊預約已取消",
     "FLEET_RESERVATION_CREATE_FAILED": "建立車隊預約失敗",
@@ -3012,6 +3076,7 @@
     "INVOICE_NOT_VOIDABLE": "只有草稿發票可以作廢。已開立的發票透過貸項通知單更正",
     "INVOICE_NO_SESSIONS": "所選日期範圍內沒有未開立發票的充電記錄",
     "INVOICE_NO_DRIVER": "此發票沒有可傳送的駕駛員",
+    "INVOICE_NO_DRIVER_EMAIL": "此發票的駕駛員沒有電子郵件地址",
     "INVOICE_NOT_FOUND": "找不到發票",
     "LOAD_NOT_FOUND": "找不到負載",
     "LOCATION_NOT_FOUND": "找不到地點",
@@ -4170,6 +4235,7 @@
       "assigned": "已指派",
       "attachment_added": "已新增附件",
       "availability_changed": "可用性已變更",
+      "billing_address_updated": "帳單地址已更新",
       "billing_updated": "計費已更新",
       "ca_certificate_added": "已新增 CA 憑證",
       "ca_certificate_deleted": "已刪除 CA 憑證",
@@ -4505,7 +4571,11 @@
     "confirmResendFleet": "要將此發票及其 PDF 以電子郵件寄送給車隊帳單聯絡人嗎？",
     "sentAt": "已寄送電子郵件",
     "overdueNoticeSentAt": "已寄送付款提醒",
-    "notSent": "未寄送"
+    "notSent": "未寄送",
+    "driver": "駕駛員",
+    "viaFleet": "經由車隊",
+    "viaFleetBadge": "經由 {{fleet}}",
+    "confirmResendMember": "將此發票連同 PDF 傳送給駕駛員？"
   },
   "authFooter": {
     "privacyPolicy": "隱私政策",

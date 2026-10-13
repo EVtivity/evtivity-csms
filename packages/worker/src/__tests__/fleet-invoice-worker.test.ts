@@ -47,7 +47,8 @@ const {
   setFleetInvoiceQueue,
 } = await import('../fleet-invoice-worker.js');
 const { logJobFailed } = await import('../job-logger.js');
-const { FLEET_INVOICE_JOB_ATTEMPTS, FLEET_INVOICE_JOB_BACKOFF_MS } = await import('../queues.js');
+const { FLEET_INVOICE_JOB_ATTEMPTS, FLEET_INVOICE_JOB_BACKOFF_MS } =
+  await import('@evtivity/services/account-invoice-jobs');
 
 const data = { fleetId: 'flt_1', period: '2026-09' };
 

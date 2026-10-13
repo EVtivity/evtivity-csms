@@ -636,11 +636,13 @@
     "FAVORITE_NOT_FOUND": "즐겨찾기를 찾을 수 없습니다",
     "FLEET_CREDIT_LIMIT_REACHED": "세션 요금이 청구되는 차량대의 신용 한도에 도달했습니다. 차량대 관리자에게 문의하십시오.",
     "FLEET_DISABLED": "차량대가 사용 중지되었습니다",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "v0.1.41 이전 프로세스가 아직 연결되어 있습니다. 업그레이드를 마친 후 계정 청구를 켜십시오.",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "이전 릴리스의 프로세스가 아직 연결되어 있습니다. 업그레이드를 마친 후 차량대 청구를 변경하십시오.",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "워커의 버전 검사가 최근에 실행되지 않아 업그레이드를 확인할 수 없습니다. 워커가 실행 중인지 확인한 후 차량대 청구를 변경하십시오.",
     "FLEET_BILLING_CONTACT_REQUIRED": "자동 청구서 발행과 청구서 이메일 발송에는 차량대 청구 담당자가 한 명 이상 필요합니다.",
     "FLEET_INVOICE_PERIOD_EXISTS": "이 기간에 대한 차량대 청구서가 이미 있습니다. 기간을 다시 청구하려면 크레딧 노트를 발행하십시오.",
     "FLEET_INVOICE_NOTHING_TO_BILL": "이 기간에 청구할 비용이 있는 미청구 세션이 차량대에 없습니다.",
     "FLEET_HAS_OPEN_BILLING": "플릿 계정으로 청구된 세션이 있어 플릿을 삭제할 수 없습니다. 대신 계정 청구를 끄십시오.",
+    "FLEET_HAS_RESERVATIONS": "플릿에 플릿 예약이 있어 삭제할 수 없습니다. 예약은 기록으로 보관됩니다.",
     "FLEET_NOT_FOUND": "차량대를 찾을 수 없습니다",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "차량대 예약이 이미 취소되었습니다",
     "FLEET_RESERVATION_CREATE_FAILED": "차량대 예약 생성에 실패했습니다",
@@ -674,6 +676,7 @@
     "INVOICE_NOT_VOIDABLE": "초안 청구서만 무효 처리할 수 있습니다. 발행된 청구서는 크레딧 노트로 정정합니다",
     "INVOICE_NO_SESSIONS": "선택한 기간에 미청구 세션이 없습니다",
     "INVOICE_NO_DRIVER": "이 청구서에는 보낼 운전자가 없습니다",
+    "INVOICE_NO_DRIVER_EMAIL": "이 송장의 운전자에게 이메일 주소가 없습니다",
     "INVOICE_NOT_FOUND": "청구서를 찾을 수 없습니다",
     "LOAD_NOT_FOUND": "부하를 찾을 수 없습니다",
     "LOCATION_NOT_FOUND": "위치를 찾을 수 없습니다",
@@ -933,7 +936,8 @@
     "managePayments": "결제 수단 관리",
     "totalCases": "전체 문의",
     "viewAllCases": "모든 문의 보기",
-    "homeScreen": "홈 화면"
+    "homeScreen": "홈 화면",
+    "invoices": "청구서"
   },
   "rfid": {
     "addCard": "RFID 카드 추가",
@@ -1143,6 +1147,60 @@
     },
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "충전 요금은 {{fleet}}(으)로 청구됩니다. 충전에 결제 수단이 필요하지 않습니다.",
-    "noMethods": "등록된 결제 수단이 없습니다."
+    "noMethods": "등록된 결제 수단이 없습니다.",
+    "billedToYouVia": "{{fleet}}을(를) 통해 본인에게 청구",
+    "memberStartHint": "이 충전 세션은 월별 청구서에 포함됩니다. 결제 수단이 필요하지 않습니다.",
+    "stateMember": {
+      "unbilled": "아직 청구되지 않음",
+      "invoiced": "본인에게 청구됨",
+      "paid": "결제됨"
+    },
+    "memberSessionLine": "{{fleet}}을(를) 통해 본인에게 청구: {{state}}",
+    "invoice": "청구서",
+    "memberPaymentMethodsNote": "충전 요금은 {{fleet}}을(를) 통해 매월 본인에게 청구됩니다. 충전에 결제 수단이 필요하지 않습니다."
+  },
+  "billingAddress": {
+    "title": "청구지 주소",
+    "description": "차량대가 발행하는 청구서에 표시됩니다.",
+    "nudge": "차량대가 충전 세션을 직접 청구합니다. 청구서에 표시되도록 청구지 주소를 입력하십시오.",
+    "name": "청구서 이름",
+    "nameHelp": "비워 두면 이름과 성을 사용합니다.",
+    "street": "도로명 주소",
+    "city": "도시",
+    "state": "주 또는 지역",
+    "zip": "우편번호",
+    "country": "국가",
+    "updated": "청구지 주소가 저장되었습니다.",
+    "updateFailed": "청구지 주소를 저장하지 못했습니다."
+  },
+  "invoices": {
+    "title": "청구서",
+    "empty": "아직 청구서가 없습니다.",
+    "loadFailed": "청구서를 불러오지 못했습니다. 다시 시도해 주세요.",
+    "notFound": "청구서를 찾을 수 없습니다.",
+    "invoice": "청구서",
+    "creditNote": "크레딧 노트",
+    "viaFleet": "{{fleet}} 경유",
+    "period": "기간",
+    "issued": "발행일",
+    "due": "납부 기한",
+    "paidOn": "결제일",
+    "billTo": "청구 대상",
+    "items": "항목",
+    "net": "순액",
+    "total": "합계",
+    "credits": "청구서 {{number}}에 대한 크레딧",
+    "creditedBy": "크레딧 노트 {{number}}(으)로 크레딧 처리됨",
+    "reason": "사유",
+    "downloadPdf": "PDF 다운로드",
+    "downloadFailed": "PDF를 다운로드하지 못했습니다. 다시 시도해 주세요.",
+    "backToInvoices": "청구서 목록으로 돌아가기",
+    "status": {
+      "draft": "초안",
+      "issued": "발행됨",
+      "paid": "결제됨",
+      "void": "무효",
+      "credited": "크레딧 처리됨"
+    }
   }
 }

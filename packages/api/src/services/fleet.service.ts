@@ -9,14 +9,17 @@ import {
   writeAudit,
   fleetAuditLog,
   pgErrorCode,
+  pgConstraintName,
   PG_FOREIGN_KEY_VIOLATION,
   ACCOUNT_BILLING_MIN_VERSION,
+  MEMBER_INVOICE_MIN_VERSION,
   guardVersion,
   releaseUpgradePending,
   fleetCreditLevel,
   loadFleetCreditExposure,
 } from '@evtivity/database';
 import type {
+  AccountInvoiceRecipient,
   FleetCreditExposure,
   FleetCreditLevel,
   ReleaseUpgradePending,
@@ -31,6 +34,7 @@ import type { AuditActorInfo } from '../lib/audit-actor.js';
 import {
   fleets,
   fleetDrivers,
+  fleetReservations,
   fleetStations,
   drivers,
   vehicles,
@@ -141,12 +145,24 @@ const fleetHasBillingError = (): AppError =>
     'FLEET_HAS_OPEN_BILLING',
   );
 
+const fleetHasReservationsError = (): AppError =>
+  new AppError(
+    'The fleet has fleet reservations and cannot be deleted. Reservations are kept as history.',
+    409,
+    'FLEET_HAS_RESERVATIONS',
+  );
+
+/** The foreign key from fleet_reservations to fleets (no ON DELETE action). */
+const FLEET_RESERVATIONS_FLEET_FK = 'fleet_reservations_fleet_id_fleets_id_fk';
+
 /**
  * Deletes a fleet. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are
  * billed to the fleet (charging_sessions.billing_fleet_id, ON DELETE
  * RESTRICT): their billing (unbilled, invoiced, paid) stays with the fleet.
- * A session stamped between the check and the delete trips the foreign key,
- * answered the same.
+ * Refused with 409 FLEET_HAS_RESERVATIONS while a fleet reservation (any
+ * status, cancelled ones included) names the fleet: reservations are history.
+ * A row added between the checks and the delete trips its foreign key, mapped
+ * by constraint name to the same codes.
  */
 export async function deleteFleet(id: string) {
   const [billed] = await db
@@ -155,31 +171,52 @@ export async function deleteFleet(id: string) {
     .where(eq(chargingSessions.billingFleetId, id))
     .limit(1);
   if (billed != null) throw fleetHasBillingError();
+  const [booked] = await db
+    .select({ id: fleetReservations.id })
+    .from(fleetReservations)
+    .where(eq(fleetReservations.fleetId, id))
+    .limit(1);
+  if (booked != null) throw fleetHasReservationsError();
   try {
     const [fleet] = await db.delete(fleets).where(eq(fleets.id, id)).returning();
     return fleet ?? null;
   } catch (err) {
-    if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) throw fleetHasBillingError();
+    if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
+      if (pgConstraintName(err) === FLEET_RESERVATIONS_FLEET_FK) throw fleetHasReservationsError();
+      throw fleetHasBillingError();
+    }
     throw err;
   }
 }
 
 /**
- * Turning account billing on is refused while processes before v0.1.41 may
- * run (they neither stamp sessions nor keep account sessions off driver
- * invoices): 409 FLEET_BILLING_OLD_PODS_CONNECTED with the guard details.
+ * A fleet billing change that older processes cannot follow is refused while
+ * processes before `minVersion` may run: 409 FLEET_BILLING_OLD_PODS_CONNECTED
+ * with the guard details. Turning account billing on needs v0.1.41 (older
+ * processes neither stamp sessions nor keep account sessions off driver
+ * invoices); invoicing each member needs v0.1.46 (older processes bill member
+ * sessions on the fleet invoice and send member invoices to the fleet
+ * contacts). When no older process is connected or was seen recently but the
+ * worker's version watch is missing or stale, the code is
+ * FLEET_BILLING_VERSION_CHECK_STALE instead: the guard cannot tell, so it
+ * still refuses (fail closed), and the operator checks the worker.
  */
 export class FleetBillingUpgradePendingError extends AppError {
   readonly details: ReleaseUpgradePending;
+  readonly minVersion: string;
 
-  constructor(details: ReleaseUpgradePending) {
+  constructor(details: ReleaseUpgradePending, minVersion: string = ACCOUNT_BILLING_MIN_VERSION) {
+    const stale = details.reason === 'version_check_stale';
     super(
-      `A process older than v${ACCOUNT_BILLING_MIN_VERSION} is still connected. Finish the upgrade, then turn on account billing.`,
+      stale
+        ? `The worker's process version check has not run recently, so the CSMS cannot confirm that every process runs v${minVersion} or later. Check that the worker is running, then change the fleet billing.`
+        : `A process older than v${minVersion} is still connected. Finish the upgrade, then change the fleet billing.`,
       409,
-      'FLEET_BILLING_OLD_PODS_CONNECTED',
+      stale ? 'FLEET_BILLING_VERSION_CHECK_STALE' : 'FLEET_BILLING_OLD_PODS_CONNECTED',
     );
     this.name = 'FleetBillingUpgradePendingError';
     this.details = details;
+    this.minVersion = minVersion;
   }
 }
 
@@ -189,41 +226,81 @@ export interface FleetBillingContext {
   log: FastifyBaseLogger;
 }
 
+/** A change of a fleet's account billing: the switch, the invoice recipient, or both. */
+export interface FleetAccountBillingInput {
+  enabled?: boolean | undefined;
+  recipient?: AccountInvoiceRecipient | undefined;
+}
+
 /**
- * Turns charge on account on or off for a fleet: the only writer of
- * fleets.account_billing_enabled (P3). The conditional UPDATE changes the
- * flag only when it differs, so a repeated request audits and notifies
- * nothing (sends once per change, P7). On a change: fleet_audit_log
- * `billing_updated`, and the member notices (fleet.AccountBillingChanged to
- * each member whose billing the change moved) go to the worker as a
- * `fleet-billing-fanout` job, never inline in the request. Running sessions
- * keep their stamp; unbilled sessions are still billed to the fleet. Null
- * when the fleet does not exist.
+ * The release every process must run before a change is allowed (the P11
+ * rollout layer), or null: invoicing each member needs
+ * MEMBER_INVOICE_MIN_VERSION, turning account billing on
+ * ACCOUNT_BILLING_MIN_VERSION. Turning it off and switching back to the fleet
+ * are never refused.
+ */
+export function fleetBillingMinVersion(change: FleetAccountBillingInput): string | null {
+  if (change.recipient === 'member') return MEMBER_INVOICE_MIN_VERSION;
+  if (change.enabled === true) return ACCOUNT_BILLING_MIN_VERSION;
+  return null;
+}
+
+/**
+ * Changes charge on account (`accountBillingEnabled`) and who the account
+ * invoices go to (`accountInvoiceRecipient`: the fleet, or each member) for a
+ * fleet: the only writer of both columns (P3). One transaction under the
+ * fleet row lock writes only the keys that differ, so a repeated request
+ * audits and notifies nothing (P7). A change older processes cannot follow
+ * runs the release guard first (fleetBillingMinVersion,
+ * FleetBillingUpgradePendingError). On a change: fleet_audit_log
+ * `billing_updated` with the changed keys, and one fan-out to the worker
+ * (fleet.AccountBillingChanged to each member whose billing the change moved),
+ * never inline in the request. Started sessions keep their stamp, so a switch
+ * never moves them to another recipient. Null when the fleet does not exist.
  */
 export async function setFleetAccountBilling(
   fleetId: string,
-  enabled: boolean,
+  input: FleetAccountBillingInput,
   ctx: FleetBillingContext,
 ) {
-  if (enabled) {
-    // Rollout rule (P11): the release guard shared with the payment
-    // provider switch (process-versions.ts). Only a change that turns account
-    // billing on is checked; turning it off is always allowed.
-    const current = await getFleet(fleetId);
+  const result = await db.transaction(async (tx) => {
+    const [current] = await tx.select().from(fleets).where(eq(fleets.id, fleetId)).for('update');
     if (current == null) return null;
-    if (current.accountBillingEnabled) return current;
-    const pending = await releaseUpgradePending(
-      guardVersion(ACCOUNT_BILLING_MIN_VERSION),
-      providerSwitchStore(),
-    );
-    if (pending != null) throw new FleetBillingUpgradePendingError(pending);
-  }
-  const [updated] = await db
-    .update(fleets)
-    .set({ accountBillingEnabled: enabled, updatedAt: new Date() })
-    .where(and(eq(fleets.id, fleetId), ne(fleets.accountBillingEnabled, enabled)))
-    .returning();
-  if (updated == null) return getFleet(fleetId);
+    const before: Partial<
+      Pick<typeof current, 'accountBillingEnabled' | 'accountInvoiceRecipient'>
+    > = {};
+    const after: Partial<
+      Pick<typeof current, 'accountBillingEnabled' | 'accountInvoiceRecipient'>
+    > = {};
+    if (input.enabled !== undefined && input.enabled !== current.accountBillingEnabled) {
+      before.accountBillingEnabled = current.accountBillingEnabled;
+      after.accountBillingEnabled = input.enabled;
+    }
+    if (input.recipient !== undefined && input.recipient !== current.accountInvoiceRecipient) {
+      before.accountInvoiceRecipient = current.accountInvoiceRecipient;
+      after.accountInvoiceRecipient = input.recipient;
+    }
+    if (Object.keys(after).length === 0) return { fleet: current, diff: null };
+    // Rollout rule (P11): the release guard shared with the payment provider
+    // switch (process-versions.ts), only for a change older processes cannot follow.
+    const minVersion = fleetBillingMinVersion({
+      enabled: after.accountBillingEnabled,
+      recipient: after.accountInvoiceRecipient,
+    });
+    if (minVersion != null) {
+      const pending = await releaseUpgradePending(guardVersion(minVersion), providerSwitchStore());
+      if (pending != null) throw new FleetBillingUpgradePendingError(pending, minVersion);
+    }
+    const [updated] = await tx
+      .update(fleets)
+      .set({ ...after, updatedAt: new Date() })
+      .where(eq(fleets.id, fleetId))
+      .returning();
+    return { fleet: updated ?? current, diff: { before, after } };
+  });
+  if (result == null) return null;
+  const { fleet, diff } = result;
+  if (diff == null) return fleet;
 
   await writeAudit(
     { table: fleetAuditLog, idColumn: 'fleet_id' },
@@ -232,18 +309,31 @@ export async function setFleetAccountBilling(
       entityIdSnapshot: fleetId,
       action: 'billing_updated',
       ...ctx.actor,
-      before: { accountBillingEnabled: !enabled },
-      after: { accountBillingEnabled: enabled },
+      before: diff.before,
+      after: diff.after,
     },
     db,
     ctx.log,
   );
 
+  // One fan-out per change. `recipient` only when the recipient changed (a
+  // switch-only change keeps the v0.1.45 payload shape).
+  const recipientChanged = diff.after.accountInvoiceRecipient !== undefined;
   await publishFleetBillingFanout(
-    { fleetId, enabled, changedAt: updated.updatedAt.toISOString() },
+    {
+      fleetId,
+      enabled: fleet.accountBillingEnabled,
+      changedAt: fleet.updatedAt.toISOString(),
+      ...(recipientChanged
+        ? {
+            recipient: fleet.accountInvoiceRecipient,
+            enabledChanged: diff.after.accountBillingEnabled !== undefined,
+          }
+        : {}),
+    },
     ctx.log,
   );
-  return updated;
+  return fleet;
 }
 
 /** The fleet billing profile: who the fleet invoice goes to and how. */
@@ -582,6 +672,7 @@ export async function notifyMemberLeft(
         fleetId: removed.fleetId,
         fleetName: fleet.name,
         accountBillingEnabled: fleet.accountBillingEnabled,
+        invoiceRecipient: fleet.accountInvoiceRecipient,
         optOut: removed.accountBillingOptOut,
         createdAt: removed.createdAt,
       },

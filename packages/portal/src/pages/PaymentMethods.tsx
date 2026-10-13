@@ -88,7 +88,11 @@ export function PaymentMethods(): React.JSX.Element {
       <PageHeader title={t('payments.title')} />
 
       {billing?.mode === 'account' && billing.fleetName != null && (
-        <InfoNote>{t('fleetBilling.paymentMethodsNote', { fleet: billing.fleetName })}</InfoNote>
+        <InfoNote>
+          {billing.invoicedTo === 'member'
+            ? t('fleetBilling.memberPaymentMethodsNote', { fleet: billing.fleetName })
+            : t('fleetBilling.paymentMethodsNote', { fleet: billing.fleetName })}
+        </InfoNote>
       )}
 
       {setupError !== '' && <p className="text-sm text-destructive">{setupError}</p>}

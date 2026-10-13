@@ -42,6 +42,9 @@ export interface DriverInvoice {
   /** credit_note: a credit note that credits creditedInvoiceId in full (negative amounts). */
   kind: 'invoice' | 'credit_note';
   creditedInvoiceId: string | null;
+  /** A member invoice: billed on account by the fleet fleetName, addressed to this driver. */
+  memberBilled?: boolean;
+  fleetName?: string | null;
   issuedAt: string | null;
   dueAt: string | null;
   currency: string;
@@ -183,6 +186,15 @@ export function DriverInvoicesTab({ driverId, timezone }: Props): React.JSX.Elem
                     >
                       <TableCell className="font-medium text-link" data-testid="row-click-target">
                         {inv.invoiceNumber}
+                        {inv.memberBilled === true && (
+                          <Badge
+                            variant="info"
+                            className="ml-2"
+                            data-testid={`invoice-fleet-${inv.id}`}
+                          >
+                            {t('invoices.viaFleetBadge', { fleet: inv.fleetName ?? '' })}
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell>
                         {inv.kind === 'credit_note' ? (

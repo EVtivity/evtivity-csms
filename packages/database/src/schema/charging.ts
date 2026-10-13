@@ -172,6 +172,11 @@ export const chargingSessions = pgTable(
     billingFleetId: text('billing_fleet_id').references((): AnyPgColumn => fleets.id, {
       onDelete: 'restrict',
     }),
+    // The account session goes on the driver's own member invoice, not the
+    // fleet invoice: stamped with billing_mode from the fleet's
+    // account_invoice_recipient at start and never rewritten (P5), so a later
+    // recipient switch never moves a started session.
+    memberBilled: boolean('member_billed').notNull().default(false),
     metadata: jsonb('metadata'),
     freeVend: boolean('free_vend').notNull().default(false),
     co2AvoidedKg: numeric('co2_avoided_kg'),
@@ -220,6 +225,11 @@ export const chargingSessions = pgTable(
     check(
       'charging_sessions_billing_fleet_check',
       sql`coalesce(billing_mode = 'account', false) = (billing_fleet_id IS NOT NULL)`,
+    ),
+    // Added NOT VALID in v0.1.46 (enforced on new writes), validated in v0.1.47.
+    check(
+      'charging_sessions_member_billed_check',
+      sql`NOT member_billed OR (coalesce(billing_mode = 'account', false) AND driver_id IS NOT NULL)`,
     ),
     check(
       'charging_sessions_rebill_status_check',

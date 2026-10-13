@@ -1,1 +1,1 @@
-{{companyName}} - {{#if billedTo}}{{billedTo}}(으)로 청구, 카드 결제 없음.{{else}}{{fleetName}} 청구 종료, 카드로 결제.{{/if}}
+{{companyName}} - {{#if billedTo}}{{#if invoicedToMember}}이제 {{billedTo}}을(를) 통해 매월 회원님께 청구, 카드 결제 없음.{{else}}{{billedTo}}(으)로 청구, 카드 결제 없음.{{/if}}{{else}}{{fleetName}} 청구 종료, 카드로 결제.{{/if}}

@@ -54,7 +54,8 @@ export async function dispatchSessionReceiptIfDue(
     SELECT cs.driver_id, cs.transaction_id, cs.energy_delivered_wh, cs.final_cost_cents,
            cs.started_at, cs.ended_at, cs.net_cents, cs.tax_cents, cs.cost_breakdown,
            UPPER(cs.currency) AS currency,
-           cs.billing_mode, f.name AS billing_fleet_name, st.station_id AS station_ocpp_id,
+           cs.billing_mode, cs.member_billed, f.name AS billing_fleet_name,
+           st.station_id AS station_ocpp_id,
            si.name AS site_name, pr.status AS record_status, pr.failure_reason,
            pr.captured_amount_cents
     FROM charging_sessions cs
@@ -96,6 +97,7 @@ export async function dispatchSessionReceiptIfDue(
         row.billing_mode,
         (row.billing_fleet_name as string | null) ?? null,
         hasRecord,
+        row.member_billed,
       ),
     }),
     deps.templatesDirs,

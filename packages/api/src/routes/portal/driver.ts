@@ -34,6 +34,12 @@ import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import type { DriverJwtPayload } from '../../plugins/auth.js';
 import { config as apiConfig } from '../../lib/config.js';
 import { revokeAllDriverRefreshTokens } from '../../services/refresh-token.service.js';
+import { updateDriverBillingAddress } from '../../services/driver-billing.service.js';
+import {
+  driverBillingAddressBody,
+  driverBillingAddressItem,
+} from '../../lib/driver-billing-address-schema.js';
+import { getAuditActor } from '../../lib/audit-actor.js';
 
 const portalDriverProfile = z
   .object({
@@ -157,6 +163,34 @@ export function portalDriverRoutes(app: FastifyInstance): void {
       }
 
       return updated;
+    },
+  );
+
+  app.patch(
+    '/portal/driver/billing-address',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Driver'],
+        summary: 'Update the authenticated driver billing address',
+        description:
+          'Sets the bill-to block of the invoices a fleet addresses to the driver. Fields left out keep their value; null or a blank string clears a field. A change is audited; a request that changes nothing is not.',
+        operationId: 'portalUpdateBillingAddress',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(driverBillingAddressBody),
+        response: {
+          200: itemResponse(driverBillingAddressItem),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const body = request.body as z.infer<typeof driverBillingAddressBody>;
+      return updateDriverBillingAddress(driverId, body, {
+        actor: getAuditActor(request),
+        log: request.log,
+      });
     },
   );
 

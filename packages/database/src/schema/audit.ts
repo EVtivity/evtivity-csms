@@ -117,6 +117,7 @@ export const driverAuditActionEnum = pgEnum('driver_audit_action', [
   'pricing_assignment_changed',
   'portal_invited',
   'portal_activated',
+  'billing_address_updated',
 ]);
 
 export const driverAuditLog = pgTable(

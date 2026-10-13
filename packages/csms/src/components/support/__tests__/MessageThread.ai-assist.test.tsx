@@ -116,6 +116,32 @@ describe('MessageThread support AI assist', () => {
     expect(screen.getByRole('button', { name: /ai.sources/ })).toBeTruthy();
   });
 
+  it('keeps only the reply written after the last tool step, not the model narration', async () => {
+    postStreamMock.mockImplementation((_p: string, _b: unknown, signal: AbortSignal) =>
+      Promise.resolve(
+        body(
+          [
+            { type: 'text_delta', text: "I'll start by reading the case." },
+            { type: 'tool_step', toolCallId: 't1', name: 'get_support_case', status: 'running' },
+            { type: 'tool_step', toolCallId: 't1', name: 'get_support_case', status: 'ok' },
+            { type: 'text_delta', text: 'Now the session.' },
+            { type: 'tool_step', toolCallId: 't2', name: 'get_session', status: 'ok' },
+            { type: 'text_delta', text: 'Hello, ' },
+            { type: 'text_delta', text: 'your session was refunded.' },
+            { type: 'done', messageId: 'm', finish: 'end' },
+          ],
+          signal,
+        ),
+      ),
+    );
+    renderThread();
+    fireEvent.click(await screen.findByRole('button', { name: /supportCases.aiAssist$/ }));
+    const box = screen.getByLabelText<HTMLTextAreaElement>('supportCases.messagePlaceholder');
+    await waitFor(() => {
+      expect(box.value).toBe('Hello, your session was refunded.');
+    });
+  });
+
   it('Stop ends the draft and keeps the text so far', async () => {
     postStreamMock.mockImplementation((_p: string, _b: unknown, signal: AbortSignal) =>
       Promise.resolve(body([{ type: 'text_delta', text: 'Partial draft' }], signal, true)),

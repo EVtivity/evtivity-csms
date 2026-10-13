@@ -80,6 +80,31 @@ describe('Sessions', () => {
     expect(screen.getAllByText(/fleetBilling\.sessionLine/)).toHaveLength(1);
   });
 
+  it('says a member-billed session is billed to the driver via the fleet', async () => {
+    getMock.mockResolvedValue({
+      data: [
+        {
+          ...session('7', 1000, null),
+          accountBilling: {
+            state: 'invoiced',
+            fleetName: 'Acme',
+            invoicedTo: 'member',
+            invoiceId: 'inv_1',
+            invoiceNumber: 'INV-1',
+          },
+        },
+      ],
+      total: 1,
+    });
+    renderPage();
+    expect(
+      await screen.findByText(
+        'fleetBilling.memberSessionLine:Acme:fleetBilling.stateMember.invoiced',
+      ),
+    ).toBeDefined();
+    expect(screen.queryByText(/fleetBilling\.sessionLine/)).toBeNull();
+  });
+
   it('labels a taxed amount as including tax, through the interpolated key', async () => {
     getMock.mockResolvedValue({ data: [session('1', 1190, 190)], total: 1 });
     renderPage();

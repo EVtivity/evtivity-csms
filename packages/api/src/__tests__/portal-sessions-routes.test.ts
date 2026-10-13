@@ -52,6 +52,7 @@ function makeChain() {
 vi.mock('../lib/session-limit.js', () => ({ sessionLimitReached: vi.fn(async () => null) }));
 
 vi.mock('@evtivity/database', () => ({
+  ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
     select: vi.fn(() => makeChain()),
@@ -238,7 +239,13 @@ describe('Portal sessions routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       const [a, b, c] = response.json().data;
-      expect(a.accountBilling).toEqual({ state: 'invoiced', fleetName: 'Acme' });
+      expect(a.accountBilling).toEqual({
+        state: 'invoiced',
+        fleetName: 'Acme',
+        invoicedTo: 'fleet',
+        invoiceId: null,
+        invoiceNumber: null,
+      });
       // A payment record means the session was paid by card (an operator hold).
       expect(b.accountBilling).toBeNull();
       expect(c.accountBilling).toBeNull();
@@ -554,7 +561,13 @@ describe('Portal sessions routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       const body = response.json();
-      expect(body.accountBilling).toEqual({ state: 'paid', fleetName: 'Acme' });
+      expect(body.accountBilling).toEqual({
+        state: 'paid',
+        fleetName: 'Acme',
+        invoicedTo: 'fleet',
+        invoiceId: null,
+        invoiceNumber: null,
+      });
       expect(body).not.toHaveProperty('billingMode');
       expect(body).not.toHaveProperty('billingInvoiceStatus');
     });

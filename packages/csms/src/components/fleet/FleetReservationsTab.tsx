@@ -248,7 +248,27 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
     createMutation.mutate(body);
   }
 
-  const canCancel = (status: string): boolean => status === 'active' || status === 'partial';
+  // A booking with a live slot can be cancelled; completed, expired and cancelled are final.
+  const canCancel = (status: string): boolean =>
+    status === 'scheduled' || status === 'active' || status === 'partial';
+  const statusLabel = (status: string): string => {
+    switch (status) {
+      case 'scheduled':
+        return t('fleets.bookingStatus.scheduled');
+      case 'active':
+        return t('fleets.bookingStatus.active');
+      case 'partial':
+        return t('fleets.bookingStatus.partial');
+      case 'completed':
+        return t('fleets.bookingStatus.completed');
+      case 'expired':
+        return t('fleets.bookingStatus.expired');
+      case 'cancelled':
+        return t('fleets.bookingStatus.cancelled');
+      default:
+        return status;
+    }
+  };
 
   return (
     <>
@@ -293,7 +313,9 @@ export function FleetReservationsTab({ fleetId }: FleetReservationsTabProps): Re
                       {fr.name != null && fr.name !== '' ? fr.name : fr.id.slice(0, 8)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={fleetReservationStatusVariant(fr.status)}>{fr.status}</Badge>
+                      <Badge variant={fleetReservationStatusVariant(fr.status)}>
+                        {statusLabel(fr.status)}
+                      </Badge>
                     </TableCell>
                     <TableCell>{fr.reservationCount}</TableCell>
                     <TableCell>

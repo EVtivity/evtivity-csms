@@ -15,13 +15,16 @@ vi.mock('@evtivity/services/fleet-invoice-run', () => ({
   scheduledRunPeriod: (now: Date, _timeZone: string, runDay: number) =>
     now.getUTCDate() >= runDay ? '2026-09' : null,
   loadFleetsToInvoice: vi.fn(),
+  loadMembersToInvoice: vi.fn(),
   sendFleetInvoiceOverdueNotices: vi.fn(),
   sendFleetInvoiceRunFailureDigests: vi.fn(),
+  sendMemberInvoiceOverdueNotices: vi.fn(),
 }));
 
 vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: ['/templates'] }));
 
 vi.mock('../../fleet-invoice-worker.js', () => ({ enqueueFleetInvoice: vi.fn() }));
+vi.mock('../../member-invoice-worker.js', () => ({ enqueueMemberInvoice: vi.fn() }));
 
 const { runFleetInvoiceCron } = await import('../../handlers/fleet-invoice-run.js');
 type Deps = Parameters<typeof runFleetInvoiceCron>[1];
@@ -48,8 +51,16 @@ function deps(overrides: Partial<NonNullable<Deps>> = {}): NonNullable<Deps> {
       ]),
     ),
     enqueue: vi.fn(() => Promise.resolve()),
+    loadMembers: vi.fn(() =>
+      Promise.resolve([
+        { fleetId: 'flt_4', driverId: 'drv_1', period: '2026-09' },
+        { fleetId: 'flt_4', driverId: 'drv_2', period: '2026-08' },
+      ]),
+    ),
+    enqueueMember: vi.fn(() => Promise.resolve()),
     sendFailureDigests: vi.fn(() => Promise.resolve({ periods: 0, fleets: 0 })),
     sendOverdue: vi.fn(() => Promise.resolve({ sent: 0, noContacts: 0, failed: 0 })),
+    sendMemberOverdue: vi.fn(() => Promise.resolve({ sent: 0, failed: 0 })),
     ...overrides,
   };
 }
@@ -67,6 +78,39 @@ describe('runFleetInvoiceCron', () => {
     expect(d.enqueue).toHaveBeenCalledWith({ fleetId: 'flt_1', period: '2026-08' });
     expect(d.enqueue).toHaveBeenCalledWith({ fleetId: 'flt_2', period: '2026-09' });
     expect(summary).toMatchObject({ period: '2026-09', enqueued: 3, enqueueFailed: 0 });
+  });
+
+  it('enqueues one member invoice job per driver and month of fleets that invoice members', async () => {
+    const d = deps();
+    const summary = await runFleetInvoiceCron(log, d);
+    expect(d.loadMembers).toHaveBeenCalledWith('2026-09', 'Europe/Berlin', 'EUR');
+    expect(d.enqueueMember).toHaveBeenCalledWith({
+      fleetId: 'flt_4',
+      driverId: 'drv_2',
+      period: '2026-08',
+    });
+    expect(summary).toMatchObject({ memberEnqueued: 2, memberEnqueueFailed: 0 });
+  });
+
+  it('member invoices fail open on their own: a failed listing keeps the fleet jobs', async () => {
+    const d = deps({ loadMembers: vi.fn(() => Promise.reject(new Error('db down'))) });
+    const summary = await runFleetInvoiceCron(log, d);
+    expect(summary).toMatchObject({ enqueued: 3, memberEnqueued: 0 });
+    expect(d.sendMemberOverdue).toHaveBeenCalled();
+    const enqueueMember = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('redis down'))
+      .mockResolvedValue(undefined);
+    const second = await runFleetInvoiceCron(log, deps({ enqueueMember }));
+    expect(second).toMatchObject({ memberEnqueued: 1, memberEnqueueFailed: 1 });
+  });
+
+  it('sends the member overdue reminders in every run, before the run day too', async () => {
+    const sendMemberOverdue = vi.fn(() => Promise.resolve({ sent: 1, failed: 0 }));
+    const d = deps({ runDay: () => Promise.resolve(5), sendMemberOverdue });
+    const summary = await runFleetInvoiceCron(log, d);
+    expect(d.loadMembers).not.toHaveBeenCalled();
+    expect(summary.memberOverdue).toEqual({ sent: 1, failed: 0 });
   });
 
   it('enqueues nothing before the run day but still sends the digest and overdue notices', async () => {

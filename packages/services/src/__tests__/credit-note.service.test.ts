@@ -247,6 +247,19 @@ describe('creditInvoice', () => {
     expect(result?.releasedSessionIds).toEqual(['ses_1']);
   });
 
+  it('copies member_billed: the credit note of a member invoice is a member credit note', async () => {
+    h.state.invoice = invoice({
+      driverId: 'drv_1',
+      fleetId: 'flt_1',
+      memberBilled: true,
+      periodStart: '2026-09-01',
+      periodEnd: '2026-09-30',
+    });
+    await creditInvoice('inv_1', 'Wrong tariff');
+    const [note] = h.state.inserted['invoices'] ?? [];
+    expect(note).toMatchObject({ driverId: 'drv_1', fleetId: 'flt_1', memberBilled: true });
+  });
+
   it('moves the invoice to credited without changing its content', async () => {
     const result = await creditInvoice('inv_1', 'Wrong tariff');
 

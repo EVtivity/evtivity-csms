@@ -141,7 +141,7 @@
 {{#if billedTo}}
   <p
     style="font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
-  >Facturado a {{billedTo}}, no se cargó ninguna tarjeta.</p>
+  >{{#if billedToMember}}Se le factura mensualmente a través de {{billedTo}}, no se cargó ninguna tarjeta.{{else}}Facturado a {{billedTo}}, no se cargó ninguna tarjeta.{{/if}}</p>
 {{/if}}
 {{#if notCharged}}
   <p

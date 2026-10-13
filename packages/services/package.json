@@ -4,6 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./account-invoice-jobs": {
+      "import": "./src/account-invoice-jobs.ts"
+    },
     "./ai-evidence": {
       "import": "./src/ai-evidence/index.ts"
     },
@@ -54,6 +57,9 @@
     },
     "./fleet-invoice.service": {
       "import": "./src/fleet-invoice.service.ts"
+    },
+    "./fleet-reservation-status": {
+      "import": "./src/fleet-reservation-status.ts"
     },
     "./invoice-audit": {
       "import": "./src/invoice-audit.ts"

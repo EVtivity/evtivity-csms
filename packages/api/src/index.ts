@@ -5,6 +5,7 @@ import type { FastifyServerOptions } from 'fastify';
 import { RedisPubSubClient, initSentry, logFormatOptions } from '@evtivity/lib';
 import { client, getSentryConfig } from '@evtivity/database';
 import { createShutdownHandler } from './lib/process-shutdown.js';
+import { closeMemberInvoiceQueue } from './lib/member-invoice-queue.js';
 import { buildApp } from './app.js';
 import { config } from './lib/config.js';
 import { setPubSub } from '@evtivity/lib/pubsub-instance';
@@ -67,6 +68,7 @@ async function start(): Promise<void> {
     stopMetricsCollector();
     await stopMetricsServer();
     await cacheInvalidateSubscription.unsubscribe();
+    await closeMemberInvoiceQueue();
     await pubsub.close();
   });
 

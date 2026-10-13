@@ -106,10 +106,15 @@ export function Sessions(): React.JSX.Element {
                   </p>
                   {session.accountBilling != null && (
                     <p className="text-xs text-muted-foreground">
-                      {t('fleetBilling.sessionLine', {
-                        fleet: session.accountBilling.fleetName,
-                        state: t(`fleetBilling.state.${session.accountBilling.state}`),
-                      })}
+                      {session.accountBilling.invoicedTo === 'member'
+                        ? t('fleetBilling.memberSessionLine', {
+                            fleet: session.accountBilling.fleetName,
+                            state: t(`fleetBilling.stateMember.${session.accountBilling.state}`),
+                          })
+                        : t('fleetBilling.sessionLine', {
+                            fleet: session.accountBilling.fleetName,
+                            state: t(`fleetBilling.state.${session.accountBilling.state}`),
+                          })}
                     </p>
                   )}
                 </div>

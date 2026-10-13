@@ -4,6 +4,7 @@
 import type postgres from 'postgres';
 import { isFleetEnabled } from './fleet-setting.js';
 import type { SessionBillingMode } from '../schema/charging.js';
+import type { AccountInvoiceRecipient } from '../schema/drivers.js';
 
 /**
  * The first release that stamps sessions and reads the stamp. Account billing
@@ -13,10 +14,21 @@ import type { SessionBillingMode } from '../schema/charging.js';
  */
 export const ACCOUNT_BILLING_MIN_VERSION = '0.1.41';
 
+/**
+ * The first release that stamps member-billed sessions, leaves them off the
+ * fleet invoice and invoices each member. A fleet can switch its invoices to
+ * its members only while no older process may run: a v0.1.45 pod would stamp
+ * the fleet's sessions for the fleet invoice and send member invoices to the
+ * fleet contacts.
+ */
+export const MEMBER_INVOICE_MIN_VERSION = '0.1.46';
+
 /** The fleet a driver's sessions are billed to (charge on account). */
 export interface AccountBilling {
   fleetId: string;
   fleetName: string;
+  /** Who the session's account invoice goes to: the fleet or the member driver. */
+  recipient: AccountInvoiceRecipient;
 }
 
 /** A driver's fleet membership as the billing rule reads it. */
@@ -26,6 +38,7 @@ export interface BillingMembership {
   fleetId: string;
   fleetName: string;
   accountBillingEnabled: boolean;
+  invoiceRecipient: AccountInvoiceRecipient;
   optOut: boolean;
   createdAt: Date;
 }
@@ -41,12 +54,13 @@ export async function loadBillingMemberships(
       fleet_id: string;
       fleet_name: string;
       account_billing_enabled: boolean;
+      account_invoice_recipient: string;
       account_billing_opt_out: boolean;
       created_at: Date | string;
     }>
   >`
     SELECT fd.id, f.id AS fleet_id, f.name AS fleet_name, f.account_billing_enabled,
-           fd.account_billing_opt_out, fd.created_at
+           f.account_invoice_recipient, fd.account_billing_opt_out, fd.created_at
     FROM fleet_drivers fd
     JOIN fleets f ON f.id = fd.fleet_id
     WHERE fd.driver_id = ${driverId}
@@ -56,6 +70,7 @@ export async function loadBillingMemberships(
     fleetId: r.fleet_id,
     fleetName: r.fleet_name,
     accountBillingEnabled: r.account_billing_enabled,
+    invoiceRecipient: r.account_invoice_recipient === 'member' ? 'member' : 'fleet',
     optOut: r.account_billing_opt_out,
     createdAt: new Date(r.created_at),
   }));
@@ -75,7 +90,9 @@ export function pickAccountBilling(
     .sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.membershipId - b.membershipId,
     )[0];
-  return winner == null ? null : { fleetId: winner.fleetId, fleetName: winner.fleetName };
+  return winner == null
+    ? null
+    : { fleetId: winner.fleetId, fleetName: winner.fleetName, recipient: winner.invoiceRecipient };
 }
 
 /**
@@ -99,14 +116,23 @@ export type SessionBilling =
   | { mode: 'card'; fleetId: null; fleetName: null }
   | { mode: 'account'; fleetId: string; fleetName: string };
 
-/** The stamp columns for a resolver result (the portal start writes them on insert). */
+/**
+ * The stamp columns for a resolver result (the portal start writes them on
+ * insert). An account session of a fleet that invoices its members is member
+ * billed: it goes on the driver's own invoice, not the fleet invoice.
+ */
 export function sessionBillingColumns(billing: AccountBilling | null): {
   billingMode: SessionBillingMode;
   billingFleetId: string | null;
+  memberBilled: boolean;
 } {
   return billing == null
-    ? { billingMode: 'card', billingFleetId: null }
-    : { billingMode: 'account', billingFleetId: billing.fleetId };
+    ? { billingMode: 'card', billingFleetId: null, memberBilled: false }
+    : {
+        billingMode: 'account',
+        billingFleetId: billing.fleetId,
+        memberBilled: billing.recipient === 'member',
+      };
 }
 
 /**
@@ -124,7 +150,7 @@ export async function stampSessionBilling(
   driverId: string,
 ): Promise<SessionBilling | null> {
   const resolved = await resolveAccountBilling(sql, driverId);
-  const { billingMode, billingFleetId } = sessionBillingColumns(resolved);
+  const { billingMode, billingFleetId, memberBilled } = sessionBillingColumns(resolved);
   const rows = await sql<
     Array<{
       billing_mode: string | null;
@@ -134,7 +160,8 @@ export async function stampSessionBilling(
   >`
     WITH stamped AS (
       UPDATE charging_sessions
-      SET billing_mode = ${billingMode}, billing_fleet_id = ${billingFleetId}, updated_at = now()
+      SET billing_mode = ${billingMode}, billing_fleet_id = ${billingFleetId},
+          member_billed = ${memberBilled}, updated_at = now()
       WHERE id = ${sessionId} AND billing_mode IS NULL
       RETURNING billing_mode, billing_fleet_id
     ),

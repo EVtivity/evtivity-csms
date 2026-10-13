@@ -61,9 +61,9 @@ export function MessageThread({
 }: MessageThreadProps): React.JSX.Element {
   const { t } = useTranslation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  // Set by a tool step that follows draft text: the next text is a new paragraph.
-  const aiTextBreak = useRef(false);
-  const aiDraftHasText = useRef(false);
+  // Set by a tool step: text the model wrote before a tool call is its own narration
+  // ("I'll start by reading the case"), so the text after the step replaces it.
+  const aiNewDraft = useRef(false);
 
   const [messageBody, setMessageBody] = useState('');
   const [isInternal, setIsInternal] = useState(false);
@@ -147,24 +147,18 @@ export function MessageThread({
     setSendError(null);
     setAiErrorCode(null);
     setAiSteps([]);
-    aiTextBreak.current = false;
-    aiDraftHasText.current = false;
+    aiNewDraft.current = false;
     setMessageBody('');
     const outcome = await aiStream.run(
       `/v1/support-cases/${encodeURIComponent(caseId)}/ai-assist`,
       { isInternalNote: isInternal },
       (event) => {
         if (event.type === 'text_delta') {
-          const textBreak = aiTextBreak.current;
-          aiTextBreak.current = false;
-          aiDraftHasText.current = true;
-          setMessageBody((prev) =>
-            textBreak && prev !== '' && !prev.endsWith('\n')
-              ? `${prev}\n\n${event.text}`
-              : prev + event.text,
-          );
+          const newDraft = aiNewDraft.current;
+          aiNewDraft.current = false;
+          setMessageBody((prev) => (newDraft ? event.text : prev + event.text));
         } else if (event.type === 'tool_step') {
-          aiTextBreak.current = aiDraftHasText.current;
+          aiNewDraft.current = true;
           setAiSteps((prev) => {
             const step: AiToolStepView = {
               toolCallId: event.toolCallId,

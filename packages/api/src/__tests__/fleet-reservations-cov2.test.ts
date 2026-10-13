@@ -98,6 +98,17 @@ vi.mock('@evtivity/services/reservation.service', () => ({
   dispatchReservation: vi.fn(),
 }));
 vi.mock('@evtivity/services/ocpp-command', () => ({ sendOcppCommandAndWait: vi.fn() }));
+const mockSyncFleetStatus = vi.fn().mockResolvedValue('cancelled');
+const mockRefreshFleetStatuses = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/services/fleet-reservation-status', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@evtivity/services/fleet-reservation-status')>();
+  return {
+    ...actual,
+    syncFleetReservationStatus: (...args: unknown[]) => mockSyncFleetStatus(...args),
+    refreshFleetReservationStatuses: (...args: unknown[]) => mockRefreshFleetStatuses(...args),
+  };
+});
 
 const mockGetUserSiteIds = vi.fn();
 vi.mock('../lib/site-access.js', () => ({

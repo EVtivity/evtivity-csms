@@ -135,6 +135,7 @@ describe('releaseUpgradePending', () => {
     await expect(
       releaseUpgradePending('0.1.41', store(watch(30_000, null, { '0.1.40': 0 })), NOW),
     ).resolves.toEqual({
+      reason: 'old_processes',
       oldConnections: 2,
       hosts: ['10.0.0.8'],
       lastOldSeenAt: NOW.toISOString(),
@@ -144,15 +145,35 @@ describe('releaseUpgradePending', () => {
 
   it('(b) refuses without a fresh watch, and a version guard without a version watch', async () => {
     connections([]);
-    await expect(releaseUpgradePending(null, store(null), NOW)).resolves.not.toBeNull();
+    const stale = { reason: 'version_check_stale', oldConnections: 0 };
+    await expect(releaseUpgradePending(null, store(null), NOW)).resolves.toMatchObject({
+      ...stale,
+      watchCheckedAt: null,
+    });
     await expect(
       releaseUpgradePending(null, store(watch(WATCH_FRESH_MS, null)), NOW),
-    ).resolves.not.toBeNull();
-    await expect(releaseUpgradePending(null, store('not json'), NOW)).resolves.not.toBeNull();
+    ).resolves.toMatchObject({ ...stale, watchCheckedAt: ago(WATCH_FRESH_MS) });
+    await expect(releaseUpgradePending(null, store('not json'), NOW)).resolves.toMatchObject(stale);
     // A watch of a worker before v0.1.41 records no versions.
     await expect(
       releaseUpgradePending('0.1.41', store(watch(30_000, null)), NOW),
-    ).resolves.not.toBeNull();
+    ).resolves.toMatchObject(stale);
+  });
+
+  it('names an older process, not the stale watch, when both apply', async () => {
+    connections([['evtivity@0.1.40', 1]]);
+    await expect(releaseUpgradePending('0.1.41', store(null), NOW)).resolves.toMatchObject({
+      reason: 'old_processes',
+      oldConnections: 1,
+    });
+    connections([]);
+    await expect(
+      releaseUpgradePending(
+        '0.1.41',
+        store(watch(WATCH_FRESH_MS, null, { '0.1.40': 60_000, '0.1.41': 0 })),
+        NOW,
+      ),
+    ).resolves.toMatchObject({ reason: 'old_processes', lastOldSeenAt: ago(60_000) });
   });
 
   it('(c) refuses when the watch saw an older release within the clean window', async () => {
@@ -163,7 +184,11 @@ describe('releaseUpgradePending', () => {
         store(watch(30_000, null, { '0.1.40': LEGACY_CLEAN_MS - 1, '0.1.41': 0 })),
         NOW,
       ),
-    ).resolves.toMatchObject({ oldConnections: 0, lastOldSeenAt: ago(LEGACY_CLEAN_MS - 1) });
+    ).resolves.toMatchObject({
+      reason: 'old_processes',
+      oldConnections: 0,
+      lastOldSeenAt: ago(LEGACY_CLEAN_MS - 1),
+    });
     await expect(
       releaseUpgradePending(
         '0.1.41',

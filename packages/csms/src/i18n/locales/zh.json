@@ -1090,7 +1090,8 @@
     "electricityCostAll": "全部",
     "electricityCostMissing": "缺失",
     "costMissingNotice": "这些会话没有电力成本，不计入利润。",
-    "costMissingSelectSite": "这些会话没有电力成本，不计入利润。选择一个站点以重新计算其成本。"
+    "costMissingSelectSite": "这些会话没有电力成本，不计入利润。选择一个站点以重新计算其成本。",
+    "billedToMember": "记账：{{fleet}}（驾驶员发票）"
   },
   "drivers": {
     "title": "驾驶员",
@@ -1166,7 +1167,26 @@
       "pricingDriverGroup": "驾驶员定价组 {{group}}（优先于车队定价）",
       "none": "无",
       "helpAccount": "新会话计入计费车队账单，无需银行卡。定价车队决定费率，可以是另一个车队。",
-      "helpCard": "新会话使用驾驶员保存的银行卡支付。"
+      "helpCard": "新会话使用驾驶员保存的银行卡支付。",
+      "invoicedTo": "开票对象",
+      "invoicedToFleet": "车队",
+      "invoicedToMember": "驾驶员",
+      "helpAccountMember": "新会话通过计费车队记账计费，每月向该驾驶员开票，无需银行卡。定价车队决定费率，可以是另一个车队。"
+    },
+    "billingAddress": {
+      "title": "账单地址",
+      "description": "车队开具给该驾驶员的发票上的账单抬头。驾驶员可以在门户和应用中编辑。",
+      "name": "发票姓名",
+      "nameHelp": "留空则使用驾驶员的姓名。",
+      "street": "街道",
+      "city": "城市",
+      "state": "州或地区",
+      "zip": "邮政编码",
+      "country": "国家",
+      "billTo": "账单抬头",
+      "empty": "没有账单地址。发票显示姓名和电子邮件。",
+      "updated": "账单地址已更新",
+      "updateFailed": "无法更新账单地址"
     }
   },
   "transactions": {
@@ -1511,7 +1531,17 @@
       "optOutTitle": "使用银行卡支付",
       "optOutConfirm": "即使车队采用记账，此成员仍使用银行卡支付。车队采用记账时会通知该驾驶员。",
       "optInTitle": "车队记账",
-      "optInConfirm": "车队采用记账时，此成员的新会话计入车队账单。车队采用记账时会通知该驾驶员。"
+      "optInConfirm": "车队采用记账时，此成员的新会话计入车队账单。车队采用记账时会通知该驾驶员。",
+      "invoiceTo": "开票对象",
+      "recipientFleet": "车队",
+      "recipientMember": "每位驾驶员",
+      "recipientHelpFleet": "记账计费的会话合并到一张月度发票上，发送给车队的账单联系人。",
+      "recipientHelpMember": "每位驾驶员每月收到一张自己记账计费会话的发票，只发送给该驾驶员。",
+      "recipientTitleMember": "向每位驾驶员开票",
+      "recipientConfirmMember": "从现在开始的会话将按驾驶员的账单地址和电子邮件向每位驾驶员开票。已开始的会话仍在车队发票上。每位受影响的驾驶员都会收到通知。",
+      "recipientTitleFleet": "向车队开票",
+      "recipientConfirmFleet": "从现在开始的会话计入车队发票。已开始的会话仍在各驾驶员的发票上。每位受影响的驾驶员都会收到通知。",
+      "recipientChange": "更改"
     },
     "billingProfile": {
       "title": "账单资料",
@@ -1588,7 +1618,36 @@
       "send": "发送",
       "sendTitle": "发送车队发票",
       "sendConfirm": "将 {{number}} 及其 PDF 通过电子邮件发送给车队账单联系人？",
-      "sent": "发票已发送"
+      "sent": "发票已发送",
+      "membersTitle": "驾驶员发票",
+      "membersDescription": "向本车队各驾驶员记账计费、尚未开票且在月底前结束的会话。",
+      "noMembers": "本月没有驾驶员有带费用的未开票会话。",
+      "noEmail": "无电子邮件",
+      "noAddress": "无地址",
+      "invoice": "发票",
+      "generateMember": "生成",
+      "generateMemberTitle": "生成驾驶员发票",
+      "generateMemberConfirm": "为 {{driver}} 开具 {{period}} 的发票（金额 {{total}}），并连同 PDF 发送给该驾驶员？已开具的发票只能通过贷项通知单更正。",
+      "memberGenerated": "驾驶员发票已开具并发送",
+      "memberGeneratedNotSent": "驾驶员发票已开具但未发送。请添加驾驶员的电子邮件后再发送。",
+      "invoiceAll": "向所有成员开票",
+      "invoiceAllConfirm": "在后台为每位有未开票会话的驾驶员（{{count}}）各开具一张 {{period}} 的发票，并分别发送给对应驾驶员？",
+      "invoiceAllStarted": "正在开具驾驶员发票：{{count}}",
+      "recipient": "开票对象",
+      "recipientAll": "全部",
+      "recipientFleet": "车队",
+      "recipientMember": "驾驶员",
+      "billedTo": "开票对象",
+      "sendMemberTitle": "发送驾驶员发票",
+      "sendMemberConfirm": "将 {{number}} 连同 PDF 发送给驾驶员？"
+    },
+    "bookingStatus": {
+      "scheduled": "已安排",
+      "active": "活跃",
+      "partial": "部分",
+      "completed": "已完成",
+      "expired": "已过期",
+      "cancelled": "已取消"
     }
   },
   "tokens": {
@@ -2725,7 +2784,7 @@
     "fleetEvents": "车队计费",
     "fleetBillingAlertEvents": "车队计费警报",
     "fleetInvoiceEvents": "车队发票",
-    "requiredEventTooltip": "始终开启。驾驶员需要此通知才能访问其账户。",
+    "requiredEventTooltip": "始终开启。驾驶员需要此通知才能访问其账户或接收发票。",
     "eventSwitchTooltip": "关闭后，任何驾驶员都不会收到此通知。开启后，按每位驾驶员的通知偏好发送。",
     "eventTurnedOn": "通知已开启。",
     "eventTurnedOff": "通知已关闭。",
@@ -2770,6 +2829,9 @@
       "session.IdlingStarted": "充电会话闲置开始",
       "invoice.Sent": "账单已发送",
       "invoice.CreditNote": "贷项通知单已开具",
+      "invoice.MemberInvoice": "成员发票已开具",
+      "invoice.MemberCreditNote": "成员贷项通知单已开具",
+      "invoice.MemberOverdue": "成员发票已逾期",
       "payment.AccountCreditLimit": "车队信用额度已用完",
       "fleet.CreditLimitWarning": "车队信用额度预警",
       "fleet.CreditLimitReached": "车队信用额度已用完",
@@ -2974,11 +3036,13 @@
     "FAVORITE_NOT_FOUND": "未找到收藏",
     "FLEET_CREDIT_LIMIT_REACHED": "为您的会话付费的车队已达到信用额度。请联系您的车队管理员。",
     "FLEET_DISABLED": "车队已禁用",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有早于 v0.1.41 的进程处于连接状态。请完成升级后再开启记账计费。",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有旧版本的进程处于连接状态。请完成升级后再更改车队计费。",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "Worker 最近未运行版本检查，无法确认升级。请检查 Worker 是否正在运行，然后再更改车队计费。",
     "FLEET_BILLING_CONTACT_REQUIRED": "自动开具发票和发送发票邮件需要车队至少有一个账单联系人。",
     "FLEET_INVOICE_PERIOD_EXISTS": "该车队在此账期已有发票。请先开具贷项通知单，再重新为该账期开票。",
     "FLEET_INVOICE_NOTHING_TO_BILL": "该车队在此账期没有可开票的未计费且有费用的会话。",
     "FLEET_HAS_OPEN_BILLING": "该车队有记账到其账户的会话，无法删除。请改为关闭记账计费。",
+    "FLEET_HAS_RESERVATIONS": "该车队有车队预约，无法删除。预约将作为历史记录保留。",
     "FLEET_NOT_FOUND": "未找到车队",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "车队预约已取消",
     "FLEET_RESERVATION_CREATE_FAILED": "创建车队预约失败",
@@ -3012,6 +3076,7 @@
     "INVOICE_NOT_VOIDABLE": "只有草稿发票可以作废。已开具的发票通过贷项通知单更正",
     "INVOICE_NO_SESSIONS": "所选日期范围内没有未开票的充电会话",
     "INVOICE_NO_DRIVER": "此发票没有可发送的驾驶员",
+    "INVOICE_NO_DRIVER_EMAIL": "此发票的驾驶员没有电子邮件地址",
     "INVOICE_NOT_FOUND": "未找到发票",
     "LOAD_NOT_FOUND": "未找到负载",
     "LOCATION_NOT_FOUND": "未找到位置",
@@ -4170,6 +4235,7 @@
       "assigned": "已分配",
       "attachment_added": "已添加附件",
       "availability_changed": "可用性已更改",
+      "billing_address_updated": "账单地址已更新",
       "billing_updated": "计费已更新",
       "ca_certificate_added": "已添加 CA 证书",
       "ca_certificate_deleted": "已删除 CA 证书",
@@ -4505,7 +4571,11 @@
     "confirmResendFleet": "将此发票及其 PDF 通过电子邮件发送给车队账单联系人？",
     "sentAt": "已发送邮件",
     "overdueNoticeSentAt": "已发送付款提醒",
-    "notSent": "未发送"
+    "notSent": "未发送",
+    "driver": "驾驶员",
+    "viaFleet": "经由车队",
+    "viaFleetBadge": "经由 {{fleet}}",
+    "confirmResendMember": "将此发票连同 PDF 发送给驾驶员？"
   },
   "authFooter": {
     "privacyPolicy": "隐私政策",

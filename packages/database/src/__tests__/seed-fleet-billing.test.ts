@@ -194,3 +194,53 @@ describe('seedFleetBillingDemo', () => {
     expect(h.rolledBack).toBe(1);
   });
 });
+
+const { MEMBER_INVOICE_DEMO, memberInvoiceDemoSessions, seedMemberInvoiceDemo } =
+  await import('../seed-member-invoices.js');
+
+describe('memberInvoiceDemoSessions', () => {
+  it('keeps this month unbilled and splits last month into the issued and the credited invoice', () => {
+    const sessions = memberInvoiceDemoSessions(NOW);
+    expect(new Set(sessions.map((s) => s.id)).size).toBe(sessions.length);
+    expect(sessions.every((s) => /^ses_demomemb\d{4}$/.test(s.id))).toBe(true);
+    const thisMonth = sessions.filter((s) => s.startedAt.getTime() >= Date.UTC(2026, 9, 1, 12));
+    expect(thisMonth).toHaveLength(2);
+    expect(thisMonth.every((s) => s.invoiceId == null && s.endedAt < NOW)).toBe(true);
+    const invoiced = sessions.filter((s) => s.invoiceId === MEMBER_INVOICE_DEMO.invoiceId);
+    const credited = sessions.filter(
+      (s) => s.creditedInvoiceId === MEMBER_INVOICE_DEMO.creditedInvoiceId,
+    );
+    expect(invoiced.map((s) => s.driverIndex)).toEqual([0, 0]);
+    expect(credited.map((s) => s.driverIndex)).toEqual([1, 1]);
+    // A credit note releases its sessions: they carry no invoice.
+    expect(credited.every((s) => s.invoiceId == null)).toBe(true);
+    for (const s of [...invoiced, ...credited]) {
+      expect(s.startedAt.getTime()).toBeGreaterThanOrEqual(Date.UTC(2026, 8, 1, 12));
+      expect(s.endedAt.getTime()).toBeLessThan(Date.UTC(2026, 8, 30, 10));
+    }
+  });
+});
+
+describe('seedMemberInvoiceDemo', () => {
+  it('writes member invoices with the driver, the member flag and a negated credit note', async () => {
+    const { sql } = fakeSql();
+    expect(await seedMemberInvoiceDemo(sql as never, seedInput)).toBe(6);
+    const headers = h.calls.filter((c) => c.text.includes('INSERT INTO invoices ('));
+    expect(headers.map((c) => c.values[0])).toEqual([
+      MEMBER_INVOICE_DEMO.invoiceId,
+      MEMBER_INVOICE_DEMO.creditedInvoiceId,
+      MEMBER_INVOICE_DEMO.creditNoteId,
+    ]);
+    // driver_id and member_billed close the VALUES list.
+    expect(headers.map((c) => c.values.slice(-2))).toEqual([
+      [MEMBER_INVOICE_DEMO.addressDriverId, true],
+      [MEMBER_INVOICE_DEMO.noAddressDriverId, true],
+      [MEMBER_INVOICE_DEMO.noAddressDriverId, true],
+    ]);
+    const [, credited, creditNote] = headers;
+    expect(creditNote?.values[11]).toBe(-(credited?.values[11] as number));
+    const sessions = h.calls.filter((c) => c.text.includes('INSERT INTO charging_sessions'));
+    expect(sessions).toHaveLength(6);
+    expect(sessions.every((c) => c.values.at(-1) === true)).toBe(true);
+  });
+});

@@ -43,22 +43,34 @@ export interface SessionReceiptInput {
   billingMode: 'card' | 'account' | null;
   /** The name of the fleet an account session is billed to; null otherwise. */
   billedTo: string | null;
+  /**
+   * The account session is invoiced to the driver each month
+   * (`charging_sessions.member_billed`), not to the fleet. False otherwise.
+   */
+  billedToMember: boolean;
 }
 
 /**
- * The receipt billing of an ended session from its write-once stamp
- * (`charging_sessions.billing_mode`): account only without a payment record
- * (billed to the fleet, no card charged); one with a record (an operator
- * hold) was paid by card.
+ * The receipt billing of an ended session from its write-once stamps
+ * (`charging_sessions.billing_mode` and `member_billed`): account only
+ * without a payment record (billed to the fleet, no card charged, invoiced to
+ * the driver when member-billed); one with a record (an operator hold) was
+ * paid by card.
  */
 export function receiptBilling(
   mode: unknown,
   fleetName: string | null,
   hasPaymentRecord: boolean,
-): Pick<SessionReceiptInput, 'billingMode' | 'billedTo'> {
-  if (mode === 'account' && !hasPaymentRecord)
-    return { billingMode: 'account', billedTo: fleetName };
-  return { billingMode: mode === 'card' || mode === 'account' ? 'card' : null, billedTo: null };
+  memberBilled: unknown,
+): Pick<SessionReceiptInput, 'billingMode' | 'billedTo' | 'billedToMember'> {
+  if (mode === 'account' && !hasPaymentRecord) {
+    return { billingMode: 'account', billedTo: fleetName, billedToMember: memberBilled === true };
+  }
+  return {
+    billingMode: mode === 'card' || mode === 'account' ? 'card' : null,
+    billedTo: null,
+    billedToMember: false,
+  };
 }
 
 const COLLECTED_STATUSES = new Set(['captured', 'partially_refunded', 'refunded']);
@@ -167,5 +179,7 @@ export function sessionReceiptVariables(input: SessionReceiptInput): Record<stri
     // Templates test `{{#if billedTo}}` for the account wording.
     billingMode: input.billingMode ?? '',
     billedTo: input.billingMode === 'account' ? (input.billedTo ?? '') : '',
+    // "Invoiced to you monthly via <fleet>" instead of "Billed to <fleet>".
+    billedToMember: input.billingMode === 'account' && input.billedToMember,
   };
 }

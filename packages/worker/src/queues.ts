@@ -4,6 +4,10 @@
 import { Queue } from 'bullmq';
 import { createBullMQConnection, logBullMQErrors } from '@evtivity/lib';
 import { DRIVER_AI_QUEUE } from '@evtivity/lib/driver-ai';
+import {
+  ACCOUNT_INVOICE_JOB_OPTIONS,
+  MEMBER_INVOICE_QUEUE,
+} from '@evtivity/services/account-invoice-jobs';
 
 export const QUEUE_NAMES = {
   CRON_JOBS: 'cron-jobs',
@@ -14,6 +18,7 @@ export const QUEUE_NAMES = {
   MAINTENANCE_FANOUT: 'maintenance-fanout',
   FLEET_BILLING_FANOUT: 'fleet-billing-fanout',
   FLEET_INVOICES: 'fleet-invoices',
+  MEMBER_INVOICES: MEMBER_INVOICE_QUEUE,
   STATION_WATCH: 'station-watch',
   PAYMENT_WEBHOOKS: 'payment-webhooks',
   REMOTE_START_TIMEOUTS: 'remote-start-timeouts',
@@ -23,15 +28,6 @@ export const QUEUE_NAMES = {
   AI_INSIGHTS: 'ai-insights',
   DRIVER_AI: DRIVER_AI_QUEUE,
 } as const;
-
-/** How long finished fleet invoice jobs keep their job id (40 days). */
-export const FLEET_INVOICE_JOB_RETENTION_SECONDS = 40 * 24 * 60 * 60;
-
-/** Attempts of one fleet invoice job; with the backoff they span about 2.5 hours. */
-export const FLEET_INVOICE_JOB_ATTEMPTS = 6;
-
-/** First retry delay of a fleet invoice job (exponential: 5, 10, 20, 40, 80 minutes). */
-export const FLEET_INVOICE_JOB_BACKOFF_MS = 5 * 60_000;
 
 /** Attempts of one automatic insight job (exponential from 30 s: 30 s, 60 s). */
 export const AI_INSIGHT_JOB_ATTEMPTS = 3;
@@ -52,6 +48,7 @@ export interface WorkerQueues {
   maintenanceFanoutQueue: Queue;
   fleetBillingFanoutQueue: Queue;
   fleetInvoiceQueue: Queue;
+  memberInvoiceQueue: Queue;
   stationWatchQueue: Queue;
   paymentWebhookQueue: Queue;
   remoteStartTimeoutQueue: Queue;
@@ -144,12 +141,16 @@ export function createQueues(redisUrl: string): WorkerQueues {
     // recorded) adds nothing.
     fleetInvoiceQueue: new Queue(QUEUE_NAMES.FLEET_INVOICES, {
       connection: createBullMQConnection(redisUrl),
-      defaultJobOptions: {
-        removeOnComplete: { age: FLEET_INVOICE_JOB_RETENTION_SECONDS },
-        removeOnFail: { age: FLEET_INVOICE_JOB_RETENTION_SECONDS },
-        attempts: FLEET_INVOICE_JOB_ATTEMPTS,
-        backoff: { type: 'exponential', delay: FLEET_INVOICE_JOB_BACKOFF_MS },
-      },
+      defaultJobOptions: ACCOUNT_INVOICE_JOB_OPTIONS,
+    }),
+    // Member invoices: one job per fleet, driver and month (job id
+    // member-invoice.<fleetId>.<driverId>.<yyyy-mm>, plus .<batchId> for
+    // "Invoice All Members", P7). Its own queue: a worker of v0.1.45 runs every
+    // fleet-invoices job as a fleet invoice. Same options as the fleet invoices.
+    // The API adds the "Invoice All Members" jobs with the same options.
+    memberInvoiceQueue: new Queue(QUEUE_NAMES.MEMBER_INVOICES, {
+      connection: createBullMQConnection(redisUrl),
+      defaultJobOptions: ACCOUNT_INVOICE_JOB_OPTIONS,
     }),
     // attempts: 1 — the dispatch claims watches via DELETE ... RETURNING, so a
     // retry after a partial failure would find the rows already gone (no resend)

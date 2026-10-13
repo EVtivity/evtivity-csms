@@ -122,6 +122,22 @@ vi.mock('../services/refresh-token.service.js', () => ({
   createRefreshToken: vi.fn().mockResolvedValue({ rawToken: 'mock', expiresAt: new Date() }),
 }));
 
+const { updateDriverBillingAddressMock } = vi.hoisted(() => ({
+  updateDriverBillingAddressMock: vi.fn(),
+}));
+
+vi.mock('../services/driver-billing.service.js', () => ({
+  DRIVER_BILLING_ADDRESS_MAX_LENGTHS: {
+    billingName: 255,
+    billingStreet: 255,
+    billingCity: 100,
+    billingState: 100,
+    billingZip: 20,
+    billingCountry: 100,
+  },
+  updateDriverBillingAddress: updateDriverBillingAddressMock,
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { portalDriverRoutes } from '../routes/portal/driver.js';
 import * as argon2Module from 'argon2';
@@ -283,6 +299,55 @@ describe('Portal driver routes - handler logic', () => {
         url: '/portal/driver/profile',
         headers: { authorization: `Bearer ${driverToken}` },
         payload: { priceDisplay: 'brutto' },
+      });
+      expect(response.statusCode).toBe(400);
+    });
+  });
+
+  describe('PATCH /v1/portal/driver/billing-address', () => {
+    it('returns 401 without token', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/billing-address',
+        payload: { billingCity: 'Berlin' },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(updateDriverBillingAddressMock).not.toHaveBeenCalled();
+    });
+
+    it('updates the address of the signed-in driver as the driver', async () => {
+      const address = {
+        billingName: 'Erika Muster',
+        billingStreet: null,
+        billingCity: 'Berlin',
+        billingState: null,
+        billingZip: null,
+        billingCountry: null,
+      };
+      updateDriverBillingAddressMock.mockResolvedValueOnce(address);
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/billing-address',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { billingName: 'Erika Muster', billingCity: 'Berlin' },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual(address);
+      expect(updateDriverBillingAddressMock).toHaveBeenCalledWith(
+        DRIVER_ID,
+        { billingName: 'Erika Muster', billingCity: 'Berlin' },
+        expect.objectContaining({
+          actor: expect.objectContaining({ actor: 'driver', actorDriverId: DRIVER_ID }),
+        }),
+      );
+    });
+
+    it('rejects a field longer than its column', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/billing-address',
+        headers: { authorization: `Bearer ${driverToken}` },
+        payload: { billingCountry: 'x'.repeat(101) },
       });
       expect(response.statusCode).toBe(400);
     });

@@ -16,6 +16,7 @@ import {
 } from '@evtivity/database';
 import type { OcppCommand, PubSubClient } from '@evtivity/lib';
 import { createLogger, publishOcppCommand } from '@evtivity/lib';
+import { refreshFleetReservationStatuses } from '@evtivity/services/fleet-reservation-status';
 import { applyReservationCancellation } from '@evtivity/services/reservation-cancel';
 import type { ReservationCancelReason } from '@evtivity/services/reservation-cancel';
 import { notifyReservationDriver } from '@evtivity/services/reservation-notify';
@@ -140,8 +141,12 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
       .update(reservations)
       .set({ status: 'expired', updatedAt: new Date() })
       .where(and(eq(reservations.id, reservationDbId), eq(reservations.status, 'scheduled')))
-      .returning({ id: reservations.id });
+      .returning({ id: reservations.id, fleetReservationId: reservations.fleetReservationId });
     if (expiredRows.length > 0) {
+      await refreshFleetReservationStatuses(
+        expiredRows.map((r) => r.fleetReservationId),
+        log,
+      );
       await writeReservationAudit({
         reservationId: reservationDbId,
         action: 'expired',
@@ -228,8 +233,12 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
           .update(reservations)
           .set({ status: 'in_use', updatedAt: new Date() })
           .where(and(eq(reservations.id, reservationDbId), eq(reservations.status, 'scheduled')))
-          .returning({ id: reservations.id });
+          .returning({ id: reservations.id, fleetReservationId: reservations.fleetReservationId });
         if (flipped.length > 0) {
+          await refreshFleetReservationStatuses(
+            flipped.map((r) => r.fleetReservationId),
+            log,
+          );
           await db
             .update(chargingSessions)
             .set({ reservationId: reservationDbId, updatedAt: new Date() })
@@ -304,7 +313,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     .update(reservations)
     .set({ status: 'active', updatedAt: new Date() })
     .where(and(eq(reservations.id, reservationDbId), eq(reservations.status, 'scheduled')))
-    .returning({ id: reservations.id });
+    .returning({ id: reservations.id, fleetReservationId: reservations.fleetReservationId });
 
   if (updated.length === 0) {
     log.info(
@@ -313,6 +322,10 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
     );
     return;
   }
+  await refreshFleetReservationStatuses(
+    updated.map((r) => r.fleetReservationId),
+    log,
+  );
 
   // Conditional UPDATE guarantees exactly one writer wins, so audit fires
   // exactly once per scheduled->active transition.
@@ -343,8 +356,12 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
           isNull(reservations.stationAckAt),
         ),
       )
-      .returning({ id: reservations.id });
+      .returning({ id: reservations.id, fleetReservationId: reservations.fleetReservationId });
     if (reverted.length > 0) {
+      await refreshFleetReservationStatuses(
+        reverted.map((r) => r.fleetReservationId),
+        log,
+      );
       await writeReservationAudit(
         {
           reservationId: reservationDbId,

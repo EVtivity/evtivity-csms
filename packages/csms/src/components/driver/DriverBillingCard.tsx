@@ -19,6 +19,8 @@ export interface DriverBilling {
   /** driver: a driver pricing group overrides fleet pricing; fleet: pricingFleet prices. */
   pricingSource?: 'driver' | 'fleet' | null;
   pricingGroup?: FleetRef | null;
+  /** On account: the billing fleet invoices the fleet (`fleet`) or this driver (`member`). */
+  invoicedTo?: 'fleet' | 'member' | null;
 }
 
 export interface DriverBillingCardProps {
@@ -39,6 +41,7 @@ export function DriverBillingCard({ billing }: DriverBillingCardProps): React.JS
   const { t } = useTranslation();
   if (billing == null) return null;
   const onAccount = billing.mode === 'account';
+  const invoicedToMember = onAccount && billing.invoicedTo === 'member';
   return (
     <Card data-testid="driver-billing">
       <CardHeader>
@@ -74,9 +77,23 @@ export function DriverBillingCard({ billing }: DriverBillingCardProps): React.JS
               )}
             </dd>
           </div>
+          {onAccount && (
+            <div>
+              <dt className="text-muted-foreground">{t('drivers.billing.invoicedTo')}</dt>
+              <dd className="font-medium" data-testid="driver-invoiced-to">
+                {invoicedToMember
+                  ? t('drivers.billing.invoicedToMember')
+                  : t('drivers.billing.invoicedToFleet')}
+              </dd>
+            </div>
+          )}
         </dl>
         <p className="text-muted-foreground">
-          {onAccount ? t('drivers.billing.helpAccount') : t('drivers.billing.helpCard')}
+          {invoicedToMember
+            ? t('drivers.billing.helpAccountMember')
+            : onAccount
+              ? t('drivers.billing.helpAccount')
+              : t('drivers.billing.helpCard')}
         </p>
       </CardContent>
     </Card>

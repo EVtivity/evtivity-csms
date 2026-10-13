@@ -636,11 +636,13 @@
     "FAVORITE_NOT_FOUND": "Favorit nicht gefunden",
     "FLEET_CREDIT_LIMIT_REACHED": "Das Kreditlimit der Flotte, über die deine Ladevorgänge abgerechnet werden, ist erreicht. Wende dich an deinen Flottenverwalter.",
     "FLEET_DISABLED": "Flotte ist deaktiviert",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "Ein Prozess älter als v0.1.41 ist noch verbunden. Schließe das Upgrade ab und schalte dann die Abrechnung auf Rechnung ein.",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "Ein Prozess einer älteren Version ist noch verbunden. Schließen Sie das Upgrade ab und ändern Sie dann die Abrechnung der Flotte.",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "Die Versionsprüfung des Workers ist in letzter Zeit nicht gelaufen, daher lässt sich das Upgrade nicht bestätigen. Prüfen Sie, ob der Worker läuft, und ändern Sie dann die Abrechnung der Flotte.",
     "FLEET_BILLING_CONTACT_REQUIRED": "Die Flotte benötigt mindestens einen Rechnungskontakt für die automatische Rechnungsstellung und den Rechnungsversand per E-Mail.",
     "FLEET_INVOICE_PERIOD_EXISTS": "Für diesen Zeitraum besteht bereits eine Rechnung der Flotte. Stornieren Sie sie mit einer Stornorechnung, um den Zeitraum neu abzurechnen.",
     "FLEET_INVOICE_NOTHING_TO_BILL": "Die Flotte hat für diesen Zeitraum keine noch nicht abgerechneten Ladevorgänge mit Kosten.",
     "FLEET_HAS_OPEN_BILLING": "Die Flotte hat Ladevorgänge, die auf ihre Rechnung abgerechnet werden, und kann nicht gelöscht werden. Schalte stattdessen die Abrechnung auf Rechnung aus.",
+    "FLEET_HAS_RESERVATIONS": "Die Flotte hat Flottenreservierungen und kann nicht gelöscht werden. Reservierungen bleiben als Verlauf erhalten.",
     "FLEET_NOT_FOUND": "Flotte nicht gefunden",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "Flottenreservierung wurde bereits storniert",
     "FLEET_RESERVATION_CREATE_FAILED": "Flottenreservierung konnte nicht erstellt werden",
@@ -674,6 +676,7 @@
     "INVOICE_NOT_VOIDABLE": "Nur ein Rechnungsentwurf kann storniert werden. Eine ausgestellte Rechnung wird mit einer Stornorechnung korrigiert",
     "INVOICE_NO_SESSIONS": "Keine nicht abgerechneten Ladevorgänge im ausgewählten Zeitraum",
     "INVOICE_NO_DRIVER": "Diese Rechnung hat keinen Fahrer, an den sie gesendet werden kann",
+    "INVOICE_NO_DRIVER_EMAIL": "Der Fahrer dieser Rechnung hat keine E-Mail-Adresse",
     "INVOICE_NOT_FOUND": "Rechnung nicht gefunden",
     "LOAD_NOT_FOUND": "Last nicht gefunden",
     "LOCATION_NOT_FOUND": "Standort nicht gefunden",
@@ -933,7 +936,8 @@
     "managePayments": "Zahlungsmethoden verwalten",
     "totalCases": "Fälle insgesamt",
     "viewAllCases": "Alle Fälle anzeigen",
-    "homeScreen": "Startbildschirm"
+    "homeScreen": "Startbildschirm",
+    "invoices": "Rechnungen"
   },
   "rfid": {
     "addCard": "RFID-Karte hinzufügen",
@@ -1143,6 +1147,60 @@
     },
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "Dein Laden wird über {{fleet}} abgerechnet. Zum Laden brauchst du keine Zahlungsmethode.",
-    "noMethods": "Noch keine Zahlungsmethoden."
+    "noMethods": "Noch keine Zahlungsmethoden.",
+    "billedToYouVia": "Dir in Rechnung gestellt über {{fleet}}",
+    "memberStartHint": "Dieser Ladevorgang kommt auf deine Monatsrechnung. Du brauchst keine Zahlungsmethode.",
+    "stateMember": {
+      "unbilled": "Noch nicht abgerechnet",
+      "invoiced": "Dir in Rechnung gestellt",
+      "paid": "Bezahlt"
+    },
+    "memberSessionLine": "Dir in Rechnung gestellt über {{fleet}}: {{state}}",
+    "invoice": "Rechnung",
+    "memberPaymentMethodsNote": "Dein Laden wird dir monatlich über {{fleet}} in Rechnung gestellt. Zum Laden brauchst du keine Zahlungsmethode."
+  },
+  "billingAddress": {
+    "title": "Rechnungsadresse",
+    "description": "Steht auf den Rechnungen, die deine Flotte an dich richtet.",
+    "nudge": "Deine Flotte stellt dir deine Ladevorgänge in Rechnung. Gib deine Rechnungsadresse ein, damit sie auf deinen Rechnungen steht.",
+    "name": "Name auf der Rechnung",
+    "nameHelp": "Leer lassen, um deinen Vor- und Nachnamen zu verwenden.",
+    "street": "Straße",
+    "city": "Ort",
+    "state": "Bundesland oder Region",
+    "zip": "Postleitzahl",
+    "country": "Land",
+    "updated": "Rechnungsadresse gespeichert.",
+    "updateFailed": "Die Rechnungsadresse konnte nicht gespeichert werden."
+  },
+  "invoices": {
+    "title": "Rechnungen",
+    "empty": "Noch keine Rechnungen.",
+    "loadFailed": "Deine Rechnungen konnten nicht geladen werden. Bitte versuche es erneut.",
+    "notFound": "Rechnung nicht gefunden.",
+    "invoice": "Rechnung",
+    "creditNote": "Stornorechnung",
+    "viaFleet": "Über {{fleet}}",
+    "period": "Zeitraum",
+    "issued": "Ausgestellt",
+    "due": "Fällig",
+    "paidOn": "Bezahlt",
+    "billTo": "Rechnungsempfänger",
+    "items": "Positionen",
+    "net": "Netto",
+    "total": "Gesamt",
+    "credits": "Storniert Rechnung {{number}}",
+    "creditedBy": "Storniert durch Stornorechnung {{number}}",
+    "reason": "Grund",
+    "downloadPdf": "PDF herunterladen",
+    "downloadFailed": "Das PDF konnte nicht heruntergeladen werden. Bitte versuche es erneut.",
+    "backToInvoices": "Zurück zu den Rechnungen",
+    "status": {
+      "draft": "Entwurf",
+      "issued": "Ausgestellt",
+      "paid": "Bezahlt",
+      "void": "Storniert",
+      "credited": "Storniert (Stornorechnung)"
+    }
   }
 }

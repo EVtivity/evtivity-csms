@@ -636,11 +636,13 @@
     "FAVORITE_NOT_FOUND": "Favorite not found",
     "FLEET_CREDIT_LIMIT_REACHED": "The credit limit of the fleet your sessions are billed to is reached. Contact your fleet manager.",
     "FLEET_DISABLED": "Fleet is disabled",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "A process older than v0.1.41 is still connected. Finish the upgrade, then turn on account billing.",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "A process of an older release is still connected. Finish the upgrade, then change the fleet billing.",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "The worker's version check has not run recently, so the upgrade cannot be confirmed. Check that the worker is running, then change the fleet billing.",
     "FLEET_BILLING_CONTACT_REQUIRED": "The fleet needs at least one billing contact for automatic invoicing and invoice emails.",
     "FLEET_INVOICE_PERIOD_EXISTS": "The fleet already has an invoice for this period. Credit it to bill the period again.",
     "FLEET_INVOICE_NOTHING_TO_BILL": "The fleet has no unbilled sessions with a cost to invoice for this period.",
     "FLEET_HAS_OPEN_BILLING": "The fleet has sessions billed to its account and cannot be deleted. Turn off account billing instead.",
+    "FLEET_HAS_RESERVATIONS": "The fleet has fleet reservations and cannot be deleted. Reservations are kept as history.",
     "FLEET_NOT_FOUND": "Fleet not found",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "Fleet reservation is already cancelled",
     "FLEET_RESERVATION_CREATE_FAILED": "Failed to create fleet reservation",
@@ -674,6 +676,7 @@
     "INVOICE_NOT_VOIDABLE": "Only a draft invoice can be voided. Correct an issued invoice with a credit note",
     "INVOICE_NO_SESSIONS": "No uninvoiced sessions in the selected date range",
     "INVOICE_NO_DRIVER": "This invoice has no driver to send to",
+    "INVOICE_NO_DRIVER_EMAIL": "The driver of this invoice has no email address",
     "INVOICE_NOT_FOUND": "Invoice not found",
     "LOAD_NOT_FOUND": "Load not found",
     "LOCATION_NOT_FOUND": "Location not found",
@@ -933,7 +936,8 @@
     "managePayments": "Manage payment methods",
     "totalCases": "total cases",
     "viewAllCases": "View all cases",
-    "homeScreen": "Home Screen"
+    "homeScreen": "Home Screen",
+    "invoices": "Invoices"
   },
   "rfid": {
     "addCard": "Add RFID Card",
@@ -1143,6 +1147,60 @@
     },
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "Your charging is billed to {{fleet}}. You need no payment method to charge.",
-    "noMethods": "No payment methods yet."
+    "noMethods": "No payment methods yet.",
+    "billedToYouVia": "Billed to you via {{fleet}}",
+    "memberStartHint": "This session goes on your monthly invoice. You need no payment method.",
+    "stateMember": {
+      "unbilled": "Not invoiced yet",
+      "invoiced": "Invoiced to you",
+      "paid": "Paid"
+    },
+    "memberSessionLine": "Billed to you via {{fleet}}: {{state}}",
+    "invoice": "Invoice",
+    "memberPaymentMethodsNote": "Your charging is invoiced to you monthly via {{fleet}}. You need no payment method to charge."
+  },
+  "billingAddress": {
+    "title": "Billing Address",
+    "description": "Printed on the invoices your fleet addresses to you.",
+    "nudge": "Your fleet invoices your sessions to you. Add your billing address so it appears on your invoices.",
+    "name": "Name on Invoice",
+    "nameHelp": "Leave empty to use your first and last name.",
+    "street": "Street",
+    "city": "City",
+    "state": "State or Region",
+    "zip": "Postal Code",
+    "country": "Country",
+    "updated": "Billing address saved.",
+    "updateFailed": "Failed to save the billing address."
+  },
+  "invoices": {
+    "title": "Invoices",
+    "empty": "No invoices yet.",
+    "loadFailed": "Could not load your invoices. Please try again.",
+    "notFound": "Invoice not found.",
+    "invoice": "Invoice",
+    "creditNote": "Credit Note",
+    "viaFleet": "Via {{fleet}}",
+    "period": "Period",
+    "issued": "Issued",
+    "due": "Due",
+    "paidOn": "Paid",
+    "billTo": "Bill To",
+    "items": "Items",
+    "net": "Net",
+    "total": "Total",
+    "credits": "Credits invoice {{number}}",
+    "creditedBy": "Credited by credit note {{number}}",
+    "reason": "Reason",
+    "downloadPdf": "Download PDF",
+    "downloadFailed": "Could not download the PDF. Please try again.",
+    "backToInvoices": "Back to Invoices",
+    "status": {
+      "draft": "Draft",
+      "issued": "Issued",
+      "paid": "Paid",
+      "void": "Void",
+      "credited": "Credited"
+    }
   }
 }

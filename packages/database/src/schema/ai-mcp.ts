@@ -30,9 +30,7 @@ export type AiMcpCallStatus = (typeof AI_MCP_CALL_STATUSES)[number];
  * One MCP `tools/call` (migration 0438), reads and writes. The single writer is
  * `packages/api/src/services/ai/mcp/mcp-call.service.ts` (P3). Client name and
  * version come from the request `_meta` and are untrusted. Pruned with
- * `ai.conversationRetentionDays`. The `proposal_id` column (MCP proposals,
- * removed in v0.1.45) stays until v0.1.46 drops it: pods of v0.1.44 still
- * insert it during a rolling upgrade.
+ * `ai.conversationRetentionDays`.
  */
 export const aiMcpCalls = pgTable(
   'ai_mcp_calls',

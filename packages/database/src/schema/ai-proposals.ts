@@ -80,10 +80,6 @@ export const aiProposals = pgTable(
     workerRunId: integer('worker_run_id').references(() => aiWorkerRuns.id, {
       onDelete: 'set null',
     }),
-    // source (default 'worker'), requested_by_user_id, api_key_id,
-    // rationale_text and rationale_language are no longer used (v0.1.45) and
-    // stay in the database until v0.1.46 drops them: pods of v0.1.44 still
-    // read and insert them during a rolling upgrade.
     siteId: text('site_id').references(() => sites.id, { onDelete: 'set null' }),
     stationId: text('station_id').references(() => chargingStations.id, { onDelete: 'cascade' }),
     sessionId: text('session_id').references(() => chargingSessions.id, { onDelete: 'cascade' }),

@@ -1,1 +1,1 @@
-{{companyName}} - {{#if billedTo}}充電現記帳到 {{billedTo}}，不扣卡。{{else}}充電不再記帳到 {{fleetName}}，改用您的付款方式。{{/if}}
+{{companyName}} - {{#if billedTo}}{{#if invoicedToMember}}您的充電現每月透過 {{billedTo}} 向您開立發票，不扣卡。{{else}}充電現記帳到 {{billedTo}}，不扣卡。{{/if}}{{else}}充電不再記帳到 {{fleetName}}，改用您的付款方式。{{/if}}

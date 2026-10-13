@@ -1073,6 +1073,36 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
   c(
+    'POST',
+    '/fleets/:id/member-invoices',
+    'payments:write',
+    (_f, w) => `/fleets/${w.fleet}/member-invoices`,
+    'FLEET_NOT_FOUND',
+    {
+      body: (_f, w) => ({ period: '2026-01', driverId: w.driver }),
+      control: ctl(
+        409,
+        'FLEET_INVOICE_NOTHING_TO_BILL',
+        'the driver has no member-billed session of the fleet in the period',
+      ),
+    },
+  ),
+  c(
+    'POST',
+    '/fleets/:id/member-invoices/batch',
+    'payments:write',
+    (_f, w) => `/fleets/${w.fleet}/member-invoices/batch`,
+    'FLEET_NOT_FOUND',
+    {
+      body: () => ({ period: '2026-01' }),
+      control: ctl(
+        409,
+        'FLEET_INVOICE_NOTHING_TO_BILL',
+        'no driver of the fleet has a member-billed session in the period',
+      ),
+    },
+  ),
+  c(
     'GET',
     '/fleets/:id/invoices',
     'payments:read',
@@ -3851,6 +3881,8 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
       ['GET', '/drivers'],
       ['GET', '/drivers/:id'],
       ['POST', '/drivers/:id/portal-invite'],
+      ['GET', '/drivers/:id/billing-address'],
+      ['PATCH', '/drivers/:id/billing-address'],
       ['POST', '/drivers'],
       ['PATCH', '/drivers/:id'],
       ['DELETE', '/drivers/:id'],

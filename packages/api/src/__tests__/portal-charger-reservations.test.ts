@@ -54,6 +54,7 @@ const { mockRecordSessionEndRequest } = vi.hoisted(() => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   // The shared driver availability rule builds SQL; drizzle is mocked here, so the fragments are stubs.
   availableEvseCountSql: vi.fn(() => 'available_evse_count'),
   evseAvailableSql: vi.fn(() => 'evse_available'),

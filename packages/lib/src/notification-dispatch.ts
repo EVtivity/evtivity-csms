@@ -825,6 +825,17 @@ function subjectMetadata(variables: Record<string, unknown>): Record<string, str
     : {};
 }
 
+/** Per-call options of dispatchDriverNotification. */
+export interface DriverNotificationOptions {
+  /** Sent with the email only (the SMS and push ignore them), such as the PDF of an invoice. */
+  attachments?: EmailAttachment[];
+  /**
+   * `false` sends no SMS and records no SMS attempt; the SMS template still
+   * renders the push text. For notices that carry a document (member invoices).
+   */
+  sms?: false;
+}
+
 export async function dispatchDriverNotification(
   sql: postgres.Sql,
   eventType: string,
@@ -835,6 +846,7 @@ export async function dispatchDriverNotification(
   // "<event> Notification", body a dump of the variables).
   templatesDir: string | string[],
   pubsub?: PubSubClient,
+  options?: DriverNotificationOptions,
 ): Promise<NotificationDispatchResult> {
   const delivered: NotificationDelivery[] = [];
   try {
@@ -889,7 +901,8 @@ export async function dispatchDriverNotification(
     // reaches the driver on every channel they have, whatever their preferences say.
     const prefs = isRequiredDriverEventType(eventType) ? undefined : prefRows[0];
     const emailEnabled = prefs != null ? (prefs.email_enabled as boolean) : true;
-    const smsEnabled = prefs != null ? (prefs.sms_enabled as boolean) : true;
+    const smsEnabled =
+      options?.sms !== false && (prefs != null ? (prefs.sms_enabled as boolean) : true);
     const pushEnabled = prefs != null ? (prefs.push_enabled as boolean) : true;
 
     // Email path. Records a row for every attempt the dispatcher could have
@@ -933,6 +946,7 @@ export async function dispatchDriverNotification(
           rendered.subject,
           rendered.body,
           wrappedHtml,
+          options?.attachments,
         );
         status = ok ? 'sent' : 'failed';
         if (ok) delivered.push({ channel: 'email', recipient: email });
@@ -1040,13 +1054,17 @@ export async function dispatchDriverNotification(
         if (tokenRows.length > 0) {
           const pushTitle = redactSensitiveNotificationContent(smsRendered.subject, eventType);
           const pushMessage = redactSensitiveNotificationContent(smsRendered.body, eventType);
-          // Carry stationId when present so the app can deep-link to the station
-          // from the push (e.g. the station-watch availability alert).
+          // Carry stationId and invoiceId when present so the app can deep-link
+          // from the push (the station-watch availability alert, a member invoice).
           const stationIdVar = variables['stationId'];
-          const pushData: Record<string, unknown> =
-            typeof stationIdVar === 'string' || typeof stationIdVar === 'number'
-              ? { eventType, stationId: String(stationIdVar) }
-              : { eventType };
+          const invoiceIdVar = variables['invoiceId'];
+          const pushData: Record<string, unknown> = { eventType };
+          if (typeof stationIdVar === 'string' || typeof stationIdVar === 'number') {
+            pushData['stationId'] = String(stationIdVar);
+          }
+          if (typeof invoiceIdVar === 'string' && invoiceIdVar !== '') {
+            pushData['invoiceId'] = invoiceIdVar;
+          }
           const results = await sendExpoPush(
             tokenRows.map((r) => ({
               to: r.token as string,

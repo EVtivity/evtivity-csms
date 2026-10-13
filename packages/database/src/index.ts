@@ -125,6 +125,7 @@ export {
 } from './lib/tariff-resolution.js';
 export {
   ACCOUNT_BILLING_MIN_VERSION,
+  MEMBER_INVOICE_MIN_VERSION,
   resolveAccountBilling,
   loadBillingMemberships,
   pickAccountBilling,

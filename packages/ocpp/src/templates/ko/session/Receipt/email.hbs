@@ -141,7 +141,7 @@
 {{#if billedTo}}
   <p
     style="font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
-  >{{billedTo}}(으)로 청구되었으며 카드는 결제되지 않았습니다.</p>
+  >{{#if billedToMember}}{{billedTo}}을(를) 통해 매월 회원님께 청구되며 카드는 결제되지 않았습니다.{{else}}{{billedTo}}(으)로 청구되었으며 카드는 결제되지 않았습니다.{{/if}}</p>
 {{/if}}
 {{#if notCharged}}
   <p

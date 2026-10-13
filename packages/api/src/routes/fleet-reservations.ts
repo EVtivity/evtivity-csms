@@ -19,6 +19,12 @@ import {
   dispatchReservation,
 } from '@evtivity/services/reservation.service';
 import type { ReservationRow, ReservationStation } from '@evtivity/services/reservation.service';
+import {
+  FLEET_RESERVATION_STATUSES,
+  initialFleetReservationStatus,
+  refreshFleetReservationStatuses,
+  syncFleetReservationStatus,
+} from '@evtivity/services/fleet-reservation-status';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
@@ -32,8 +38,10 @@ const fleetReservationListItem = z
     fleetId: z.string().describe('Fleet identifier this reservation belongs to'),
     name: z.string().max(255).nullable().describe('Optional display name'),
     status: z
-      .enum(['active', 'partial', 'failed', 'cancelled', 'expired'])
-      .describe('Aggregate status across all slots'),
+      .enum(FLEET_RESERVATION_STATUSES)
+      .describe(
+        'Status derived from the slots: scheduled (every live slot waits for its start), active (a slot is on its station), partial (a slot is live and another was cancelled or expired), completed (every slot ended and one was used), expired (every slot ended, none used, one expired), cancelled (every slot cancelled). completed, expired and cancelled are final.',
+      ),
     startsAt: z.coerce.date().nullable().describe('Scheduled start time'),
     expiresAt: z.coerce.date().describe('Reservation expiry time'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
@@ -76,7 +84,11 @@ const createFleetReservationResponse = z
 
 const cancelFleetReservationResponse = z
   .object({
-    status: z.literal('cancelled').describe('Resulting status'),
+    status: z
+      .enum(FLEET_RESERVATION_STATUSES)
+      .describe(
+        'Fleet reservation status after the cancel: cancelled, or completed or expired when a slot was used or expired before, or partial while a slot is still in use',
+      ),
     cancelledCount: z
       .number()
       .int()
@@ -191,7 +203,9 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         .values({
           fleetId,
           name: body.name ?? null,
-          status: 'active',
+          status: initialFleetReservationStatus(
+            body.startsAt != null ? new Date(body.startsAt) : null,
+          ),
           startsAt: body.startsAt != null ? new Date(body.startsAt) : null,
           expiresAt: new Date(body.expiresAt),
           chargingProfileData: body.chargingProfile ?? null,
@@ -314,11 +328,9 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         aggregateStatus = 'partial';
       }
 
-      // Update fleet_reservations status
-      await db
-        .update(fleetReservations)
-        .set({ status: aggregateStatus, updatedAt: new Date() })
-        .where(eq(fleetReservations.id, fleetReservation.id));
+      // The stored booking status follows its slots (fail-open: the slots
+      // are created and the response reports each one).
+      await refreshFleetReservationStatuses([fleetReservation.id], request.log);
 
       await reply.status(201).send({
         id: fleetReservation.id,
@@ -422,7 +434,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Cancel all reservations in a fleet reservation',
         description:
-          'Cancels every reservation in the fleet booking. Active reservations get a CancelReservation dispatched to their station; scheduled reservations are cancelled DB-only. Operator-initiated and never charges cancellation fees. Returns counts of cancelled and skipped reservations. A user restricted to some sites gets 404 FLEET_RESERVATION_NOT_FOUND when a reservation is outside its sites or the booking has none.',
+          'Cancels every reservation in the fleet booking. Active reservations get a CancelReservation dispatched to their station; scheduled reservations are cancelled DB-only. Operator-initiated and never charges cancellation fees. Returns the fleet reservation status after the cancel and the number of cancelled reservations. A user restricted to some sites gets 404 FLEET_RESERVATION_NOT_FOUND when a reservation is outside its sites or the booking has none.',
         operationId: 'cancelFleetReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetReservationIdParams),
@@ -539,13 +551,11 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         }
       }
 
-      // Update fleet reservation status
-      await db
-        .update(fleetReservations)
-        .set({ status: 'cancelled', updatedAt: new Date() })
-        .where(eq(fleetReservations.id, id));
+      // Each slot cancel already refreshed the booking; this covers a booking
+      // without a live slot and returns the stored status.
+      const status = (await syncFleetReservationStatus(id)) ?? 'cancelled';
 
-      return { status: 'cancelled' as const, cancelledCount: liveReservations.length };
+      return { status, cancelledCount: liveReservations.length };
     },
   );
 }

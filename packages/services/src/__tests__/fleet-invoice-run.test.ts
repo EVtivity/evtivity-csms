@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 interface RunState {
   statements: Array<{ text: string; values: unknown[] }>;
   fleetRows: Array<{ fleet_id: string; period: string }>;
+  memberRows: Array<{ fleet_id: string; driver_id: string; period: string }>;
   pendingFailures: number;
   claimedFailures: Array<Record<string, unknown>>;
   failRecord: boolean;
@@ -22,6 +23,7 @@ const h = vi.hoisted(
   (): RunState => ({
     statements: [],
     fleetRows: [],
+    memberRows: [],
     pendingFailures: 0,
     claimedFailures: [],
     failRecord: false,
@@ -38,14 +40,16 @@ vi.mock('@evtivity/database', () => ({
   client: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => {
     const text = strings.join('?').replace(/\s+/g, ' ');
     h.statements.push({ text, values });
+    if (text.includes('fleet_member_invoice_run_failures r')) return Promise.resolve(h.memberRows);
     if (text.includes('auto_invoice')) return Promise.resolve(h.fleetRows);
-    if (text.includes('count(*)::int AS n FROM fleet_invoice_run_failures')) {
-      return Promise.resolve([{ n: h.pendingFailures }]);
-    }
+    if (text.includes('::int AS n')) return Promise.resolve([{ n: h.pendingFailures }]);
     if (text.includes('UPDATE fleet_invoice_run_failures')) {
       return Promise.resolve(h.claimedFailures);
     }
-    if (text.includes('INSERT INTO fleet_invoice_run_failures')) {
+    if (
+      text.includes('INSERT INTO fleet_invoice_run_failures') ||
+      text.includes('INSERT INTO fleet_member_invoice_run_failures')
+    ) {
       return h.failRecord ? Promise.reject(new Error('fk violation')) : Promise.resolve([]);
     }
     if (text.includes('FROM users u')) {
@@ -71,17 +75,25 @@ vi.mock('@evtivity/lib', async (importOriginal) => ({
   dispatchSystemNotification: vi.fn((_sql: unknown, _event: string, to: { email: string }) =>
     Promise.resolve({ delivered: [{ channel: 'email', recipient: to.email }] }),
   ),
+  dispatchDriverNotification: vi.fn(() =>
+    Promise.resolve({ delivered: [{ channel: 'email', recipient: 'mia@example.com' }] }),
+  ),
 }));
 
 vi.mock('../fleet-invoice.service.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../fleet-invoice.service.js')>()),
   createFleetInvoice: vi.fn(),
+  createMemberInvoice: vi.fn(),
   findPeriodInvoice: vi.fn(),
+  findMemberPeriodInvoice: vi.fn(),
 }));
+
+const pubsub = vi.hoisted(() => ({ publish: vi.fn(() => Promise.resolve()) }));
+vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => pubsub }));
 
 vi.mock('../fleet-invoice-notice.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../fleet-invoice-notice.js')>()),
-  sendFleetInvoiceEmail: vi.fn(() => Promise.resolve({ status: 'sent', recipients: 1 })),
+  sendAccountInvoiceEmail: vi.fn(() => Promise.resolve({ status: 'sent', recipients: 1 })),
 }));
 
 vi.mock('../invoice-audit.js', async (importOriginal) => ({
@@ -99,24 +111,41 @@ vi.mock('../invoice-pdf.service.js', async (importOriginal) => ({
 }));
 
 import { writeAudit } from '@evtivity/database';
-import { AppError, dispatchSystemNotification } from '@evtivity/lib';
-import { createFleetInvoice, findPeriodInvoice } from '../fleet-invoice.service.js';
-import { sendFleetInvoiceEmail } from '../fleet-invoice-notice.js';
+import { AppError, dispatchDriverNotification, dispatchSystemNotification } from '@evtivity/lib';
+import {
+  createFleetInvoice,
+  createMemberInvoice,
+  findMemberPeriodInvoice,
+  findPeriodInvoice,
+} from '../fleet-invoice.service.js';
+import { sendAccountInvoiceEmail } from '../fleet-invoice-notice.js';
 import { writeInvoiceSentAudit } from '../invoice-audit.js';
 import { generateInvoicePdf } from '../invoice-pdf.service.js';
 import {
+  ACCOUNT_INVOICE_JOB_OPTIONS,
+  MEMBER_INVOICE_JOB_NAME,
+  MEMBER_INVOICE_QUEUE,
+} from '../account-invoice-jobs.js';
+import {
   FLEET_INVOICE_OVERDUE_EVENT,
   FLEET_INVOICE_RUN_FAILED_EVENT,
+  enqueueMemberInvoiceBatch,
   fleetInvoiceJobId,
   fleetInvoiceRunFailureVariables,
   groupFailuresByPeriod,
   loadFleetsToInvoice,
+  loadMembersToInvoice,
+  memberInvoiceJobId,
   recordFleetInvoiceRunFailure,
+  recordMemberInvoiceRunFailure,
+  runMemberInvoiceJob,
+  sendMemberInvoiceOverdueNotices,
   runScheduledFleetInvoice,
   scheduledRunPeriod,
   sendFleetInvoiceOverdueNotice,
   sendFleetInvoiceOverdueNotices,
   sendFleetInvoiceRunFailureDigests,
+  sendMemberInvoiceOverdueNotice,
 } from '../fleet-invoice-run.js';
 
 const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -163,6 +192,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.statements = [];
   h.fleetRows = [];
+  h.memberRows = [];
   h.pendingFailures = 0;
   h.claimedFailures = [];
   h.failRecord = false;
@@ -226,13 +256,15 @@ describe('loadFleetsToInvoice', () => {
     expect(text).toContain("date_trunc('month', cs.ended_at AT TIME ZONE ?)");
     // The sessions the fleet invoice would bill: a cost in the company currency.
     expect(text).toContain("cs.billing_mode = 'account'");
+    expect(text).toContain('NOT cs.member_billed');
+    expect(text).toContain('NOT i.member_billed');
     expect(text).toContain('cs.final_cost_cents > 0');
     expect(text).toContain('NOT EXISTS (SELECT 1 FROM payment_records');
     expect(text).toContain('cs.invoice_id IS NULL');
     expect(text).not.toContain('invoice_line_items');
     // A month with an invoice in any status (a credited one is left to the
     // operator) or a recorded run failure is not billed by the run.
-    expect(text).toContain("i.period_start = u.period_start AND i.kind = 'invoice')");
+    expect(text).toContain("i.period_start = u.period_start AND i.kind = 'invoice'");
     expect(text).toContain('FROM fleet_invoice_run_failures r');
     expect(statement?.values).toEqual(['Europe/Berlin', '2026-09-30T22:00:00.000Z', 'EUR']);
   });
@@ -261,7 +293,7 @@ describe('runScheduledFleetInvoice', () => {
       notes: '2026-09',
     });
     expect(audit?.after).toMatchObject({ sessionIds: ['ses_1'], excludedCount: 2 });
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith('inv_new', 'once', deps, {
+    expect(sendAccountInvoiceEmail).toHaveBeenCalledWith('inv_new', 'once', deps, {
       actor: { actor: 'system', actorLabel: 'fleet-invoice-run' },
       log,
     });
@@ -280,7 +312,7 @@ describe('runScheduledFleetInvoice', () => {
     await expect(runScheduledFleetInvoice('flt_1', '2026-09', deps, log, now)).resolves.toEqual({
       status: 'fleet_not_found',
     });
-    expect(sendFleetInvoiceEmail).not.toHaveBeenCalled();
+    expect(sendAccountInvoiceEmail).not.toHaveBeenCalled();
     expect(writeAudit).not.toHaveBeenCalled();
   });
 
@@ -293,13 +325,13 @@ describe('runScheduledFleetInvoice', () => {
       invoiceNumber: 'INV-202610-0001',
       status: 'issued',
     });
-    vi.mocked(sendFleetInvoiceEmail).mockResolvedValue({ status: 'already_sent' });
+    vi.mocked(sendAccountInvoiceEmail).mockResolvedValue({ status: 'already_sent' });
 
     const result = await runScheduledFleetInvoice('flt_1', '2026-09', deps, log, now);
 
     expect(result).toEqual({ status: 'exists', invoiceId: 'inv_live', email: 'already_sent' });
     expect(findPeriodInvoice).toHaveBeenCalledWith({}, 'flt_1', '2026-09-01');
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith('inv_live', 'once', deps, {
+    expect(sendAccountInvoiceEmail).toHaveBeenCalledWith('inv_live', 'once', deps, {
       actor: { actor: 'system', actorLabel: 'fleet-invoice-run' },
       log,
     });
@@ -321,7 +353,7 @@ describe('runScheduledFleetInvoice', () => {
 
   it('rethrows an email failure (the retry sends it through the existing invoice)', async () => {
     vi.mocked(createFleetInvoice).mockResolvedValue(createdInvoice() as never);
-    vi.mocked(sendFleetInvoiceEmail).mockRejectedValue(new Error('pdf failed'));
+    vi.mocked(sendAccountInvoiceEmail).mockRejectedValue(new Error('pdf failed'));
     await expect(runScheduledFleetInvoice('flt_1', '2026-09', deps, log, now)).rejects.toThrow(
       'pdf failed',
     );
@@ -329,7 +361,7 @@ describe('runScheduledFleetInvoice', () => {
 
   it('warns when the fleet has no billing contact', async () => {
     vi.mocked(createFleetInvoice).mockResolvedValue(createdInvoice() as never);
-    vi.mocked(sendFleetInvoiceEmail).mockResolvedValue({ status: 'no_contacts' });
+    vi.mocked(sendAccountInvoiceEmail).mockResolvedValue({ status: 'no_contacts' });
     const result = await runScheduledFleetInvoice('flt_1', '2026-09', deps, log, now);
     expect(result).toEqual({ status: 'invoiced', invoiceId: 'inv_new', email: 'no_contacts' });
     expect(log.warn).toHaveBeenCalled();
@@ -407,10 +439,46 @@ describe('fleetInvoiceRunFailureVariables', () => {
       period: '2026-09',
       fleetCount: 3,
       fleetNames: 'Acme, Beta, Gamma',
+      memberCount: 0,
       issuedNotEmailedCount: 1,
       issuedNotEmailed: 'Acme (INV-1): smtp timeout',
       notInvoicedCount: 2,
       notInvoiced: 'Beta: db down; Gamma: stalled',
+    });
+  });
+
+  it('names the driver of a member invoice and lists each fleet once', () => {
+    const variables = fleetInvoiceRunFailureVariables('2026-09', [
+      {
+        fleetId: 'f',
+        fleetName: 'Acme',
+        period: '2026-09',
+        invoiceNumber: null,
+        errorMessage: 'e1',
+      },
+      {
+        fleetId: 'f',
+        fleetName: 'Acme',
+        driverName: 'Mia Meyer',
+        period: '2026-09',
+        invoiceNumber: 'INV-2',
+        errorMessage: 'smtp',
+      },
+      {
+        fleetId: 'f',
+        fleetName: 'Acme',
+        driverName: 'Jo Kim',
+        period: '2026-09',
+        invoiceNumber: null,
+        errorMessage: 'db',
+      },
+    ]);
+    expect(variables).toMatchObject({
+      fleetCount: 1,
+      fleetNames: 'Acme',
+      memberCount: 2,
+      issuedNotEmailed: 'Acme, Mia Meyer (INV-2): smtp',
+      notInvoiced: 'Acme: e1; Acme, Jo Kim: db',
     });
   });
 
@@ -509,6 +577,48 @@ describe('sendFleetInvoiceRunFailureDigests', () => {
     });
   });
 
+  it('claims fleet and member failures in one statement and names the member driver', async () => {
+    h.pendingFailures = 2;
+    h.operatorRows = [operators[0] as Record<string, unknown>];
+    h.claimedFailures = [
+      {
+        fleet_id: 'flt_1',
+        name: 'Acme',
+        driver_id: null,
+        first_name: null,
+        last_name: null,
+        period: '2026-09',
+        invoice_number: null,
+        error_message: 'e1',
+      },
+      {
+        fleet_id: 'flt_1',
+        name: 'Acme',
+        driver_id: 'drv_1',
+        first_name: 'Mia',
+        last_name: 'Meyer',
+        period: '2026-09',
+        invoice_number: null,
+        error_message: 'e2',
+      },
+    ];
+
+    await expect(sendFleetInvoiceRunFailureDigests(deps, log)).resolves.toEqual({
+      periods: 1,
+      fleets: 2,
+    });
+    const pending = h.statements.find((st) => st.text.includes('::int AS n'));
+    expect(pending?.text).toContain('fleet_member_invoice_run_failures WHERE reported_at IS NULL');
+    const claim = h.statements.find((st) => st.text.includes('UPDATE fleet_invoice_run_failures'));
+    expect(claim?.text).toContain(
+      'UPDATE fleet_member_invoice_run_failures SET reported_at = now()',
+    );
+    expect(vi.mocked(dispatchSystemNotification).mock.calls[0]?.[3]).toMatchObject({
+      fleetNames: 'Acme',
+      notInvoiced: 'Acme: e1; Acme, Mia Meyer: e2',
+    });
+  });
+
   it('claims nothing when no failure waits or no operator would get it', async () => {
     await expect(sendFleetInvoiceRunFailureDigests(deps, log)).resolves.toEqual({
       periods: 0,
@@ -589,6 +699,7 @@ describe('sendFleetInvoiceOverdueNotice', () => {
     ['credited', { status: 'credited' }],
     ['a credit note', { kind: 'credit_note' }],
     ['a driver invoice', { fleetId: null }],
+    ['a member invoice', { memberBilled: true }],
   ])('leaves an invoice that is %s', async (_label, overrides) => {
     h.details.set('inv_1', invoiceDetail('inv_1', overrides));
     await expect(sendFleetInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('not_overdue');
@@ -608,6 +719,68 @@ describe('sendFleetInvoiceOverdueNotice', () => {
   });
 });
 
+describe('sendMemberInvoiceOverdueNotice', () => {
+  const driver = { id: 'drv_1', firstName: 'Mia', lastName: 'M', email: 'mia@example.com' };
+  function memberDetail(overrides: Record<string, unknown> = {}): unknown {
+    return {
+      ...(invoiceDetail('inv_1', {
+        memberBilled: true,
+        driverId: 'drv_1',
+        ...overrides,
+      }) as object),
+      driver,
+    };
+  }
+
+  it('claims and sends invoice.MemberOverdue to the driver only, with the PDF and no SMS', async () => {
+    h.details.set('inv_1', memberDetail());
+
+    await expect(sendMemberInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('sent');
+
+    const claim = h.statements.find((s) => s.text.includes('UPDATE invoices'));
+    expect(claim?.text).toContain('overdue_notice_sent_at IS NULL');
+    expect(dispatchSystemNotification).not.toHaveBeenCalled();
+    const call = vi.mocked(dispatchDriverNotification).mock.calls[0];
+    expect(call?.[1]).toBe('invoice.MemberOverdue');
+    expect(call?.[2]).toBe('drv_1');
+    expect(call?.[3]).toMatchObject({ invoiceId: 'inv_1', fleetName: 'Acme Logistics' });
+    expect(call?.[6]).toEqual({
+      attachments: [
+        expect.objectContaining({
+          filename: 'INV-202610-inv_1.pdf',
+          contentType: 'application/pdf',
+        }),
+      ],
+      sms: false,
+    });
+    expect(vi.mocked(writeInvoiceSentAudit).mock.calls[0]?.[0]).toMatchObject({
+      eventType: 'invoice.MemberOverdue',
+      actor: { actor: 'system', actorLabel: 'fleet-invoice-run' },
+    });
+  });
+
+  it('does not claim when the driver has no email, so the reminder goes once one is added', async () => {
+    h.details.set('inv_1', { ...(memberDetail() as object), driver: { ...driver, email: '' } });
+    await expect(sendMemberInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('no_email');
+    h.details.set('inv_1', { ...(memberDetail() as object), driver: null });
+    await expect(sendMemberInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('no_driver');
+    expect(h.statements.some((s) => s.text.includes('UPDATE invoices'))).toBe(false);
+    expect(dispatchDriverNotification).not.toHaveBeenCalled();
+  });
+
+  it('sends once and leaves a fleet invoice or one not due', async () => {
+    h.details.set('inv_1', memberDetail());
+    h.claimRows = [];
+    await expect(sendMemberInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('already_sent');
+    h.details.set('inv_1', memberDetail({ memberBilled: false }));
+    await expect(sendMemberInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('not_overdue');
+    h.details.set('inv_1', memberDetail({ dueAt: new Date('2026-10-25T09:00:00Z') }));
+    await expect(sendMemberInvoiceOverdueNotice('inv_1', deps, now)).resolves.toBe('not_overdue');
+    await expect(sendMemberInvoiceOverdueNotice('inv_x', deps, now)).resolves.toBe('not_found');
+    expect(dispatchDriverNotification).not.toHaveBeenCalled();
+  });
+});
+
 describe('sendFleetInvoiceOverdueNotices', () => {
   it('selects issued fleet invoices past due with a contact and goes on after a failure', async () => {
     h.overdueRows = [{ id: 'inv_1' }, { id: 'inv_2' }, { id: 'inv_3' }];
@@ -623,9 +796,267 @@ describe('sendFleetInvoiceOverdueNotices', () => {
     expect(summary).toEqual({ sent: 1, noContacts: 0, failed: 1 });
     const select = h.statements[0];
     expect(select?.text).toContain("i.status = 'issued'");
+    // Member invoices go to their driver, never to the fleet contacts.
+    expect(select?.text).toContain('NOT i.member_billed');
     expect(select?.text).toContain('i.overdue_notice_sent_at IS NULL');
     expect(select?.text).toContain('cardinality(f.billing_contact_emails) > 0');
     expect(select?.values).toEqual([now, 500]);
     expect(log.warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('memberInvoiceJobId', () => {
+  it('is deterministic per fleet, driver and month, plus the batch, with no colon', () => {
+    expect(memberInvoiceJobId('flt_1', 'drv_1', '2026-09')).toBe(
+      'member-invoice.flt_1.drv_1.2026-09',
+    );
+    expect(memberInvoiceJobId('flt_1', 'drv_1', '2026-09', 'b-1')).toBe(
+      'member-invoice.flt_1.drv_1.2026-09.b-1',
+    );
+    expect(memberInvoiceJobId('flt_1', 'drv_1', '2026-09')).not.toContain(':');
+  });
+});
+
+describe('loadMembersToInvoice', () => {
+  it('lists each driver of an auto invoice fleet with the oldest month to bill', async () => {
+    h.memberRows = [{ fleet_id: 'flt_1', driver_id: 'drv_1', period: '2026-08' }];
+    await expect(loadMembersToInvoice('2026-09', 'Europe/Berlin', 'eur')).resolves.toEqual([
+      { fleetId: 'flt_1', driverId: 'drv_1', period: '2026-08' },
+    ]);
+    const query = h.statements[0];
+    expect(query?.text).toContain('f.auto_invoice');
+    expect(query?.text).toContain('AND cs.member_billed');
+    // Any member invoice of the month (credited too) and a recorded failure leave it out.
+    expect(query?.text).toContain('AND i.member_billed');
+    expect(query?.text).toContain('fleet_member_invoice_run_failures r');
+    expect(query?.values).toContain('EUR');
+  });
+});
+
+describe('runMemberInvoiceJob', () => {
+  beforeEach(() => {
+    // Drop any queued one-off answer an earlier test left unused.
+    vi.mocked(sendAccountInvoiceEmail)
+      .mockReset()
+      .mockResolvedValue({ status: 'sent', recipients: 1 });
+  });
+
+  function created(): unknown {
+    return {
+      invoice: { id: 'inv_m', invoiceNumber: 'INV-202610-0002' },
+      lineItems: [{ sessionId: 'ses_1' }],
+      drivers: [],
+      excluded: [],
+      excludedCount: 0,
+    };
+  }
+
+  it('issues a scheduled member invoice for the month only, audited as the system run', async () => {
+    vi.mocked(createMemberInvoice).mockResolvedValue(created() as never);
+
+    const result = await runMemberInvoiceJob(
+      { fleetId: 'flt_1', driverId: 'drv_1', period: '2026-09' },
+      deps,
+      log,
+      now,
+    );
+
+    expect(result).toEqual({ status: 'invoiced', invoiceId: 'inv_m', email: 'sent' });
+    expect(createMemberInvoice).toHaveBeenCalledWith('flt_1', 'drv_1', '2026-09', now, {
+      periodOnly: true,
+    });
+    expect(vi.mocked(writeAudit).mock.calls[0]?.[1]).toMatchObject({
+      action: 'invoice_generated',
+      actor: 'system',
+      actorLabel: 'fleet-invoice-run',
+      notes: '2026-09',
+    });
+    expect(sendAccountInvoiceEmail).toHaveBeenCalledWith('inv_m', 'once', deps, {
+      actor: { actor: 'system', actorLabel: 'fleet-invoice-run' },
+      log,
+    });
+  });
+
+  it('issues a batch member invoice without a lower bound, audited for the requester', async () => {
+    vi.mocked(createMemberInvoice).mockResolvedValue(created() as never);
+    const actor = { actor: 'operator' as const, actorUserId: 'usr_1', actorApiKeyId: null };
+
+    await runMemberInvoiceJob(
+      { fleetId: 'flt_1', driverId: 'drv_1', period: '2026-09', batchId: 'b1', actor },
+      deps,
+      log,
+      now,
+    );
+
+    expect(createMemberInvoice).toHaveBeenCalledWith('flt_1', 'drv_1', '2026-09', now, {
+      periodOnly: false,
+    });
+    expect(vi.mocked(writeAudit).mock.calls[0]?.[1]).toMatchObject({
+      actor: 'operator',
+      actorUserId: 'usr_1',
+      actorLabel: 'member-invoice-batch',
+    });
+  });
+
+  it('sends the live invoice of an issued period once instead of issuing a second', async () => {
+    vi.mocked(createMemberInvoice).mockRejectedValue(
+      new AppError('exists', 409, 'FLEET_INVOICE_PERIOD_EXISTS'),
+    );
+    vi.mocked(findMemberPeriodInvoice).mockResolvedValue({
+      id: 'inv_live',
+      invoiceNumber: 'INV-1',
+      status: 'issued',
+    });
+    vi.mocked(sendAccountInvoiceEmail).mockResolvedValueOnce({ status: 'already_sent' });
+
+    const result = await runMemberInvoiceJob(
+      { fleetId: 'flt_1', driverId: 'drv_1', period: '2026-09' },
+      deps,
+      log,
+      now,
+    );
+    expect(result).toEqual({ status: 'exists', invoiceId: 'inv_live', email: 'already_sent' });
+    expect(writeAudit).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['FLEET_INVOICE_NOTHING_TO_BILL', 'nothing_to_bill'],
+    ['FLEET_NOT_FOUND', 'fleet_not_found'],
+    ['DRIVER_NOT_FOUND', 'driver_not_found'],
+  ])('completes on %s', async (code, status) => {
+    vi.mocked(createMemberInvoice).mockRejectedValue(new AppError('x', 409, code));
+    await expect(
+      runMemberInvoiceJob({ fleetId: 'f', driverId: 'd', period: '2026-09' }, deps, log, now),
+    ).resolves.toEqual({ status });
+    expect(sendAccountInvoiceEmail).not.toHaveBeenCalled();
+  });
+
+  it('rethrows other errors so the job retries, and warns for a driver without email', async () => {
+    vi.mocked(createMemberInvoice).mockRejectedValueOnce(new Error('db down'));
+    await expect(
+      runMemberInvoiceJob({ fleetId: 'f', driverId: 'd', period: '2026-09' }, deps, log, now),
+    ).rejects.toThrow('db down');
+
+    vi.mocked(createMemberInvoice).mockResolvedValue(created() as never);
+    vi.mocked(sendAccountInvoiceEmail).mockResolvedValueOnce({ status: 'no_email' });
+    await expect(
+      runMemberInvoiceJob({ fleetId: 'f', driverId: 'd', period: '2026-09' }, deps, log, now),
+    ).resolves.toMatchObject({ status: 'invoiced', email: 'no_email' });
+    expect(log.warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('recordMemberInvoiceRunFailure', () => {
+  it('records the driver, the month and the live invoice number', async () => {
+    vi.mocked(findMemberPeriodInvoice).mockResolvedValue({
+      id: 'inv_1',
+      invoiceNumber: 'INV-7',
+      status: 'issued',
+    });
+    await expect(
+      recordMemberInvoiceRunFailure('flt_1', 'drv_1', '2026-09', 'smtp', log),
+    ).resolves.toBe('issued_not_emailed');
+    const insert = h.statements.find((st) =>
+      st.text.includes('INSERT INTO fleet_member_invoice_run_failures'),
+    );
+    expect(insert?.text).toContain('ON CONFLICT (fleet_id, driver_id, period_start)');
+    expect(insert?.values).toEqual(['flt_1', 'drv_1', '2026-09-01', 'INV-7', 'smtp']);
+  });
+
+  it('is fail-open: a failed write is logged at error and resolves null', async () => {
+    vi.mocked(findMemberPeriodInvoice).mockResolvedValue(null);
+    h.failRecord = true;
+    await expect(
+      recordMemberInvoiceRunFailure('flt_1', 'drv_1', '2026-09', 'x', log),
+    ).resolves.toBeNull();
+    expect(log.error).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('sendMemberInvoiceOverdueNotices', () => {
+  it('selects issued member invoices past due whose driver has an email', async () => {
+    h.overdueRows = [];
+    await expect(sendMemberInvoiceOverdueNotices(deps, log, now)).resolves.toEqual({
+      sent: 0,
+      failed: 0,
+    });
+    const select = h.statements[0];
+    expect(select?.text).toContain('i.member_billed');
+    expect(select?.text).toContain('i.overdue_notice_sent_at IS NULL');
+    expect(select?.text).toContain("coalesce(d.email, '') <> ''");
+    expect(select?.values).toEqual([now, 500]);
+  });
+
+  it('goes on after a failure (fail-open per invoice)', async () => {
+    h.overdueRows = [{ id: 'inv_1' }, { id: 'inv_2' }];
+    const driver = { id: 'drv_1', firstName: 'Mia', lastName: 'M', email: 'mia@example.com' };
+    h.details.set('inv_2', {
+      ...(invoiceDetail('inv_2', { memberBilled: true, driverId: 'drv_1' }) as object),
+      driver,
+    });
+    h.claimRows = [{ id: 'inv_2' }];
+    vi.mocked(generateInvoicePdf).mockResolvedValue(Buffer.from('%PDF-1.3'));
+    h.details.set('inv_1', {
+      ...(invoiceDetail('inv_1', { memberBilled: true, driverId: 'drv_1' }) as object),
+      driver,
+    });
+    vi.mocked(generateInvoicePdf).mockRejectedValueOnce(new Error('render failed'));
+
+    await expect(sendMemberInvoiceOverdueNotices(deps, log, now)).resolves.toEqual({
+      sent: 1,
+      failed: 1,
+    });
+  });
+});
+
+describe('enqueueMemberInvoiceBatch', () => {
+  const actor = { actor: 'operator' as const, actorUserId: 'usr_1', actorApiKeyId: null };
+  const batch = {
+    fleetId: 'flt_1',
+    period: '2026-09',
+    batchId: 'b1',
+    actor,
+    driverIds: ['drv_1', 'drv_2'],
+  };
+
+  it('adds one member invoice job per driver in one addBulk, job id per batch', async () => {
+    const queue = { addBulk: vi.fn(() => Promise.resolve([])) };
+    await enqueueMemberInvoiceBatch(queue, batch);
+    expect(queue.addBulk).toHaveBeenCalledTimes(1);
+    expect(queue.addBulk).toHaveBeenCalledWith(
+      ['drv_1', 'drv_2'].map((driverId) => ({
+        name: MEMBER_INVOICE_JOB_NAME,
+        data: { fleetId: 'flt_1', driverId, period: '2026-09', batchId: 'b1', actor },
+        opts: { jobId: `member-invoice.flt_1.${driverId}.2026-09.b1` },
+      })),
+    );
+    expect(pubsub.publish).not.toHaveBeenCalled();
+  });
+
+  it('gives a repeated add of the same batch the same job ids', async () => {
+    const queue = { addBulk: vi.fn(() => Promise.resolve([])) };
+    await enqueueMemberInvoiceBatch(queue, batch);
+    await enqueueMemberInvoiceBatch(queue, batch);
+    const ids = queue.addBulk.mock.calls.map((call) =>
+      (call as unknown as [Array<{ opts: { jobId: string } }>])[0].map((j) => j.opts.jobId),
+    );
+    expect(ids[0]).toEqual(ids[1]);
+  });
+
+  it('adds nothing without drivers and throws a failed add', async () => {
+    const queue = { addBulk: vi.fn(() => Promise.reject(new Error('NOPERM'))) };
+    await enqueueMemberInvoiceBatch(queue, { ...batch, driverIds: [] });
+    expect(queue.addBulk).not.toHaveBeenCalled();
+    await expect(enqueueMemberInvoiceBatch(queue, batch)).rejects.toThrow('NOPERM');
+  });
+
+  it('uses the invoice job options of the worker queues', () => {
+    expect(ACCOUNT_INVOICE_JOB_OPTIONS).toEqual({
+      removeOnComplete: { age: 40 * 24 * 60 * 60 },
+      removeOnFail: { age: 40 * 24 * 60 * 60 },
+      attempts: 6,
+      backoff: { type: 'exponential', delay: 300_000 },
+    });
+    expect(MEMBER_INVOICE_QUEUE).toBe('member-invoices');
   });
 });

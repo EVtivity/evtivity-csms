@@ -14,6 +14,7 @@ import {
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
 } from '@evtivity/database';
+import type { AccountInvoiceRecipient } from '@evtivity/database';
 import { eq } from 'drizzle-orm';
 import { AppError } from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -120,6 +121,12 @@ const fleetItem = z
       ),
     // Omitted for a site-restricted user (with the credit limit fields).
     ...optionalBillingProfileFields,
+    accountInvoiceRecipient: z
+      .enum(['fleet', 'member'])
+      .optional()
+      .describe(
+        "Who the account invoices go to: 'fleet' (one invoice to the billing contacts) or 'member' (one invoice per member driver)",
+      ),
     creditLimitCents: z
       .number()
       .int()
@@ -351,11 +358,25 @@ const updateFleetBody = z.object({
   description: z.string().max(500).optional(),
 });
 
+const INVOICE_RECIPIENTS = [
+  'fleet',
+  'member',
+] as const satisfies readonly AccountInvoiceRecipient[];
+
+// At least one field (checked in the handler: Fastify validates the body
+// with the JSON Schema only, which drops a zod refine).
 const fleetBillingBody = z.object({
   accountBillingEnabled: z
     .boolean()
+    .optional()
     .describe(
-      "Charge on account: bill the members' sessions to the fleet (no card, no hold). Off: members pay by card.",
+      "Charge on account: bill the members' sessions on account (no card, no hold). Off: members pay by card.",
+    ),
+  accountInvoiceRecipient: z
+    .enum(INVOICE_RECIPIENTS)
+    .optional()
+    .describe(
+      "Who the account invoices go to: 'fleet' (one invoice per month to the fleet billing contacts) or 'member' (one invoice per month to each member driver). Applies to sessions started after the change.",
     ),
 });
 
@@ -504,11 +525,13 @@ const energyHistoryQuery = z.object({
 });
 
 // Fields of GET /fleets/:id a site-restricted user does not see: the billing
-// profile and the credit limit (account billing spans every site).
+// profile, the invoice recipient and the credit limit (account billing spans
+// every site).
 const FLEET_BILLING_FIELDS = new Set<string>([
   ...Object.keys(billingProfileFields),
   'creditLimitCents',
   'creditLimitWarningPercent',
+  'accountInvoiceRecipient',
 ]);
 
 function omitFleetBillingFields<T extends Record<string, unknown>>(fleet: T): Partial<T> {
@@ -672,13 +695,16 @@ export function fleetRoutes(app: FastifyInstance): void {
         summary: 'Delete a fleet',
         operationId: 'deleteFleet',
         description:
-          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead. A user restricted to some sites gets 404 FLEET_NOT_FOUND: the fleet spans every site.',
+          'Deletes the fleet and its memberships. Refused with 409 FLEET_HAS_OPEN_BILLING while sessions are billed to the fleet account (unbilled, invoiced or paid): turn off account billing instead. Refused with 409 FLEET_HAS_RESERVATIONS while any fleet reservation (cancelled ones included) names the fleet: reservations are kept as history. A user restricted to some sites gets 404 FLEET_NOT_FOUND: the fleet spans every site.',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         response: {
           200: itemResponse(fleetItem),
           404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
-          409: errorWith('Fleet has account billing', [ERROR_CODES.FLEET_HAS_OPEN_BILLING]),
+          409: errorWith('Fleet has account billing or fleet reservations', [
+            ERROR_CODES.FLEET_HAS_OPEN_BILLING,
+            ERROR_CODES.FLEET_HAS_RESERVATIONS,
+          ]),
         },
       },
     },
@@ -693,6 +719,10 @@ export function fleetRoutes(app: FastifyInstance): void {
       } catch (err) {
         if (err instanceof AppError && err.code === 'FLEET_HAS_OPEN_BILLING') {
           await reply.status(409).send({ error: err.message, code: 'FLEET_HAS_OPEN_BILLING' });
+          return;
+        }
+        if (err instanceof AppError && err.code === 'FLEET_HAS_RESERVATIONS') {
+          await reply.status(409).send({ error: err.message, code: 'FLEET_HAS_RESERVATIONS' });
           return;
         }
         throw err;
@@ -726,38 +756,56 @@ export function fleetRoutes(app: FastifyInstance): void {
       onRequest: [authorize('fleets:write')],
       schema: {
         tags: ['Fleets'],
-        summary: 'Turn charge on account on or off for a fleet',
+        summary: 'Change charge on account and the invoice recipient of a fleet',
         description:
-          "On: the members' new sessions are billed to the fleet on its invoice, with no card and no hold (members who opted out pay by card). Off: new sessions are paid by card; running sessions keep how they started and unbilled sessions are still billed to the fleet. Turning it on answers 409 FLEET_BILLING_OLD_PODS_CONNECTED (details: oldConnections, hosts, lastOldSeenAt, watchCheckedAt) while processes before v0.1.41 may run. A change is audited (billing_updated) and the worker sends fleet.AccountBillingChanged to each member whose billing it moved (a background job); a request that changes nothing does neither. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.",
+          "accountBillingEnabled on: the members' new sessions are billed on account, with no card and no hold (members who opted out pay by card). Off: new sessions are paid by card; running sessions keep how they started and unbilled sessions are still billed on account. accountInvoiceRecipient: 'fleet' bills the account sessions on one monthly fleet invoice to the billing contacts, 'member' on one monthly invoice per member driver, sent to that driver only; it applies to sessions started after the change. At least one field (400 VALIDATION_ERROR). Turning account billing on answers 409 FLEET_BILLING_OLD_PODS_CONNECTED (details: reason, oldConnections, hosts, lastOldSeenAt, watchCheckedAt) while processes before v0.1.41 may run, switching to 'member' while processes before v0.1.46 may run. When no older process is connected or was seen recently but the worker's process version check has not run recently (the worker is down), the 409 is FLEET_BILLING_VERSION_CHECK_STALE with the same details (reason version_check_stale). Turning it off and switching back to 'fleet' are never refused. A change is audited (billing_updated with the changed fields) and the worker sends fleet.AccountBillingChanged to each member whose billing it moved (a background job); a request that changes nothing does neither. A user restricted to some sites gets 404 FLEET_NOT_FOUND: account billing spans every site.",
         operationId: 'updateFleetBilling',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetParams),
         body: zodSchema(fleetBillingBody),
         response: {
           200: itemResponse(fleetItem),
+          400: errorWith('No field to change', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Fleet not found', [ERROR_CODES.FLEET_NOT_FOUND]),
-          409: errorWith('Processes of an older release are connected', [
-            ERROR_CODES.FLEET_BILLING_OLD_PODS_CONNECTED,
-          ]),
+          409: errorWith(
+            'Processes of an older release are connected, or the version check is stale',
+            [
+              ERROR_CODES.FLEET_BILLING_OLD_PODS_CONNECTED,
+              ERROR_CODES.FLEET_BILLING_VERSION_CHECK_STALE,
+            ],
+          ),
         },
       },
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof fleetParams>;
-      const { accountBillingEnabled } = request.body as z.infer<typeof fleetBillingBody>;
+      const { accountBillingEnabled, accountInvoiceRecipient } = request.body as z.infer<
+        typeof fleetBillingBody
+      >;
       // Account billing spans every site the members charge at (fleet-billing-access.ts).
       if (await refuseSiteRestrictedFleetBilling(request, reply)) return;
+      if (accountBillingEnabled === undefined && accountInvoiceRecipient === undefined) {
+        await reply.status(400).send({
+          error: 'Set accountBillingEnabled or accountInvoiceRecipient',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
       let fleet;
       try {
-        fleet = await fleetService.setFleetAccountBilling(id, accountBillingEnabled, {
-          actor: getAuditActor(request),
-          log: request.log,
-        });
+        fleet = await fleetService.setFleetAccountBilling(
+          id,
+          { enabled: accountBillingEnabled, recipient: accountInvoiceRecipient },
+          { actor: getAuditActor(request), log: request.log },
+        );
       } catch (err) {
         if (err instanceof fleetService.FleetBillingUpgradePendingError) {
           await reply.status(409).send({
             error: err.message,
-            code: 'FLEET_BILLING_OLD_PODS_CONNECTED',
+            code:
+              err.details.reason === 'version_check_stale'
+                ? 'FLEET_BILLING_VERSION_CHECK_STALE'
+                : 'FLEET_BILLING_OLD_PODS_CONNECTED',
             details: err.details,
           });
           return;

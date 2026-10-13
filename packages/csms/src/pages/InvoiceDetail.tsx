@@ -40,6 +40,8 @@ import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 interface InvoiceRecord extends DriverInvoice {
   /** Fleet invoice (and its credit note): the billed fleet, period and bill-to snapshot. */
   fleetId?: string | null;
+  /** A member invoice (and its credit note): addressed to the driver, billed on account of the fleet. */
+  memberBilled?: boolean;
   periodStart?: string | null;
   periodEnd?: string | null;
   billTo?: Record<string, unknown> | null;
@@ -283,8 +285,10 @@ export function InvoiceDetail(): React.JSX.Element {
   const isCreditNote = invoice.kind === 'credit_note';
   const fleetId = invoice.fleetId ?? null;
   const isFleetInvoice = fleetId != null;
+  // A member invoice lists one driver's sessions: its lines are not grouped by driver.
+  const isMemberInvoice = isFleetInvoice && invoice.memberBilled === true;
   const billTo = readBillTo(invoice.billTo);
-  const driverGroups = isFleetInvoice ? groupLinesByDriver(lineItems) : null;
+  const driverGroups = isFleetInvoice && !isMemberInvoice ? groupLinesByDriver(lineItems) : null;
   const canMarkPaid = canWrite && !isCreditNote && invoice.status === 'issued';
   const canCredit =
     canWrite && !isCreditNote && (invoice.status === 'issued' || invoice.status === 'paid');
@@ -534,7 +538,11 @@ export function InvoiceDetail(): React.JSX.Element {
         variant="default"
         title={t('invoices.resendInvoice')}
         description={
-          isFleetInvoice ? t('invoices.confirmResendFleet') : t('invoices.confirmResend')
+          isMemberInvoice
+            ? t('invoices.confirmResendMember')
+            : isFleetInvoice
+              ? t('invoices.confirmResendFleet')
+              : t('invoices.confirmResend')
         }
         confirmLabel={t('invoices.resend')}
         isPending={resendMutation.isPending}
@@ -591,10 +599,24 @@ export function InvoiceDetail(): React.JSX.Element {
                   )}
                 </dd>
               </div>
+              {isMemberInvoice && invoice.driverId != null && (
+                <div>
+                  <dt className="text-sm text-muted-foreground">{t('invoices.driver')}</dt>
+                  <dd className="text-sm font-medium">
+                    <Link to={`/drivers/${invoice.driverId}`} className="text-link hover:underline">
+                      {data.driver != null
+                        ? `${data.driver.firstName} ${data.driver.lastName}`.trim()
+                        : invoice.driverId}
+                    </Link>
+                  </dd>
+                </div>
+              )}
               {isFleetInvoice && (
                 <div>
-                  <dt className="text-sm text-muted-foreground">{t('invoices.fleet')}</dt>
-                  <dd className="text-sm font-medium">
+                  <dt className="text-sm text-muted-foreground">
+                    {isMemberInvoice ? t('invoices.viaFleet') : t('invoices.fleet')}
+                  </dt>
+                  <dd className="text-sm font-medium" data-testid="invoice-fleet">
                     <Link
                       to={`/fleets/${fleetId}?tab=billing`}
                       className="text-link hover:underline"

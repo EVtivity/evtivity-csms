@@ -53,7 +53,7 @@ export function resolveInvoicePdfLanguage(
   return driverLanguage;
 }
 
-/** The fleet invoice bill-to block as stored on the invoice (FleetBillTo). */
+/** The bill-to block as stored on a fleet or member invoice (FleetBillTo). */
 interface BillToBlock {
   name: string;
   lines: string[];
@@ -65,13 +65,23 @@ function stringField(record: Record<string, unknown>, key: string): string | nul
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
-/** The bill-to snapshot of a fleet invoice, or null on a driver invoice. */
+/**
+ * The bill-to snapshot of a fleet or member invoice, or null on a driver
+ * invoice. A member invoice's snapshot carries the driver's email, printed
+ * after the address lines, so an invoice without an address still names its
+ * recipient.
+ */
 export function readBillTo(billTo: unknown): BillToBlock | null {
   if (billTo == null || typeof billTo !== 'object') return null;
   const record = billTo as Record<string, unknown>;
   const name = stringField(record, 'name');
   if (name == null) return null;
-  return { name, lines: addressLines(record), taxId: stringField(record, 'taxId') };
+  const email = stringField(record, 'email');
+  return {
+    name,
+    lines: [...addressLines(record), ...(email != null ? [email] : [])],
+    taxId: stringField(record, 'taxId'),
+  };
 }
 
 /**
@@ -270,9 +280,12 @@ function ensureSpace(
 }
 
 export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer> {
-  const { invoice, lineItems, driver, taxBreakdown, creditedInvoice, creditNote } = detail;
+  const { invoice, lineItems, driver, fleet, taxBreakdown, creditedInvoice, creditNote } = detail;
   const isCreditNote = invoice.kind === 'credit_note';
-  const isFleetInvoice = invoice.fleetId != null;
+  // A member invoice (and its credit note) bills one driver: its lines are not
+  // grouped by driver, and it names the fleet whose account was charged.
+  const isMemberInvoice = invoice.fleetId != null && invoice.memberBilled;
+  const isFleetInvoice = invoice.fleetId != null && !invoice.memberBilled;
   const language = resolveInvoicePdfLanguage(invoice.language ?? driver?.language);
   const labels: InvoiceLabels = INVOICE_LABELS[language];
   const money = (cents: number): string =>
@@ -346,6 +359,9 @@ export async function generateInvoicePdf(detail: InvoiceDetail): Promise<Buffer>
       : driver?.email != null && driver.email !== ''
         ? [driver.email]
         : [];
+  if (isMemberInvoice && fleet != null) {
+    billedToDetails.push(labels.viaFleet.replace('{fleet}', fleet.name));
+  }
 
   doc.fontSize(9).font(fonts.bold).fillColor(COLOR_MUTED).text(labels.billedTo, MARGIN, y);
   doc

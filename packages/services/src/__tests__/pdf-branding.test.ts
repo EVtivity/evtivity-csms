@@ -202,6 +202,7 @@ function detail(overrides: Partial<InvoiceDetail> = {}): InvoiceDetail {
       driverId: 'drv_1',
       status: 'issued',
       kind: 'invoice',
+      memberBilled: false,
       creditedInvoiceId: null,
       creditReason: null,
       paidAt: null,

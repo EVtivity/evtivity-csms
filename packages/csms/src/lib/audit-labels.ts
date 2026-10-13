@@ -53,6 +53,7 @@ export const AUDIT_ACTIONS = [
   'assigned',
   'attachment_added',
   'availability_changed',
+  'billing_address_updated',
   'billing_updated',
   'ca_certificate_added',
   'ca_certificate_deleted',

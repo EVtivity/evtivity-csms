@@ -49,6 +49,7 @@ table('reservationStatusVariant', reservationStatusVariant, [
 ]);
 
 table('fleetReservationStatusVariant', fleetReservationStatusVariant, [
+  ['scheduled', 'info'],
   ['active', 'success'],
   ['partial', 'warning'],
   ['cancelled', 'destructive'],

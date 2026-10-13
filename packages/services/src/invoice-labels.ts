@@ -42,6 +42,8 @@ export interface InvoiceLabels {
   driverSubtotal: string;
   /** Fleet invoice: the group of sessions whose driver was deleted. */
   unknownDriver: string;
+  /** Member invoice and its credit note: the fleet whose account the sessions were charged on; "{fleet}" is replaced. */
+  viaFleet: string;
   description: string;
   quantity: string;
   unitPrice: string;
@@ -102,6 +104,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     registrationNumber: 'Registration no.: {id}',
     driverSubtotal: 'Subtotal {driver}',
     unknownDriver: 'Unknown driver',
+    viaFleet: 'Charged on account of {fleet}',
     description: 'DESCRIPTION',
     quantity: 'QTY',
     unitPrice: 'UNIT PRICE',
@@ -156,6 +159,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     registrationNumber: 'Registernummer: {id}',
     driverSubtotal: 'Zwischensumme {driver}',
     unknownDriver: 'Unbekannter Fahrer',
+    viaFleet: 'Abgerechnet über das Konto von {fleet}',
     description: 'BESCHREIBUNG',
     quantity: 'MENGE',
     unitPrice: 'EINZELPREIS',
@@ -209,6 +213,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     registrationNumber: 'N.º de registro: {id}',
     driverSubtotal: 'Subtotal {driver}',
     unknownDriver: 'Conductor desconocido',
+    viaFleet: 'Cargado a la cuenta de {fleet}',
     description: 'DESCRIPCIÓN',
     quantity: 'CANT.',
     unitPrice: 'PRECIO UNITARIO',
@@ -262,6 +267,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     registrationNumber: '법인등록번호: {id}',
     driverSubtotal: '{driver} 소계',
     unknownDriver: '알 수 없는 운전자',
+    viaFleet: '{fleet} 계정으로 청구됨',
     description: '설명',
     quantity: '수량',
     unitPrice: '단가',
@@ -315,6 +321,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     registrationNumber: '注册号：{id}',
     driverSubtotal: '{driver} 小计',
     unknownDriver: '未知驾驶员',
+    viaFleet: '通过 {fleet} 账户计费',
     description: '描述',
     quantity: '数量',
     unitPrice: '单价',
@@ -368,6 +375,7 @@ export const INVOICE_LABELS: Record<InvoiceLanguage, InvoiceLabels> = {
     registrationNumber: '登記字號：{id}',
     driverSubtotal: '{driver} 小計',
     unknownDriver: '未知駕駛員',
+    viaFleet: '透過 {fleet} 帳戶計費',
     description: '描述',
     quantity: '數量',
     unitPrice: '單價',

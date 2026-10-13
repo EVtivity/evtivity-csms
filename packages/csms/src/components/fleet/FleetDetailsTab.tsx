@@ -13,7 +13,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EnergyChart } from '@/components/charts/EnergyChart';
+import { useToast } from '@/components/ui/toast';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import { useHasAllSiteAccess } from '@/lib/auth';
@@ -48,6 +50,7 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
+  const { toast } = useToast();
   // Deleting a fleet removes its links at every site: all-site users only.
   const hasAllSiteAccess = useHasAllSiteAccess();
   const timezone = useUserTimezone();
@@ -91,6 +94,14 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['fleets'] });
       void navigate('/fleets');
+    },
+    onError: (err) => {
+      // 409 FLEET_HAS_OPEN_BILLING or FLEET_HAS_RESERVATIONS: the fleet stays.
+      toast({
+        title: t('common.error'),
+        description: getErrorMessage(err, t),
+        variant: 'destructive',
+      });
     },
   });
 

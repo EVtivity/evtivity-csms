@@ -2728,6 +2728,18 @@ async function seed(): Promise<void> {
       now: seedNow,
     });
     console.log(`  Fleet billing demo created (${String(accountSessions)} account sessions).`);
+    // A second fleet that invoices each member: a German driver with a billing
+    // address and her member invoice, an English driver without one whose
+    // member invoice was credited, and unbilled member sessions of both
+    // (seed-member-invoices.ts).
+    const { seedMemberInvoiceDemo } = await import('./seed-member-invoices.js');
+    const memberSessions = await seedMemberInvoiceDemo(client, {
+      stationId: accountStation.id,
+      evseId: accountEvse?.id ?? null,
+      currency: companyCurrency,
+      now: seedNow,
+    });
+    console.log(`  Member invoice demo created (${String(memberSessions)} member sessions).`);
   }
 
   // ------ Reservation insights ------

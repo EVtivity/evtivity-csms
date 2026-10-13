@@ -1090,7 +1090,8 @@
     "electricityCostAll": "Todos",
     "electricityCostMissing": "Faltante",
     "costMissingNotice": "Estas sesiones no tienen costo de electricidad y no se incluyen en la ganancia.",
-    "costMissingSelectSite": "Estas sesiones no tienen costo de electricidad y no se incluyen en la ganancia. Seleccione un sitio para recalcular sus costos."
+    "costMissingSelectSite": "Estas sesiones no tienen costo de electricidad y no se incluyen en la ganancia. Seleccione un sitio para recalcular sus costos.",
+    "billedToMember": "A cuenta: {{fleet}} (factura del conductor)"
   },
   "drivers": {
     "title": "Conductores",
@@ -1166,7 +1167,26 @@
       "pricingDriverGroup": "Grupo de precios del conductor {{group}} (prevalece sobre los precios de la flota)",
       "none": "Ninguna",
       "helpAccount": "Las nuevas sesiones se facturan a la flota de facturación, sin tarjeta. La flota de precios fija la tarifa y puede ser otra flota.",
-      "helpCard": "Las nuevas sesiones se pagan con la tarjeta guardada del conductor."
+      "helpCard": "Las nuevas sesiones se pagan con la tarjeta guardada del conductor.",
+      "invoicedTo": "Facturado a",
+      "invoicedToFleet": "La flota",
+      "invoicedToMember": "El conductor",
+      "helpAccountMember": "Las nuevas sesiones se facturan a cuenta de la flota de facturación y se facturan a este conductor cada mes, sin tarjeta. La flota de precios fija la tarifa y puede ser otra flota."
+    },
+    "billingAddress": {
+      "title": "Dirección de Facturación",
+      "description": "El bloque de facturación de las facturas que una flota emite a este conductor. El conductor puede editarla en el portal y en la app.",
+      "name": "Nombre en la Factura",
+      "nameHelp": "Déjelo vacío para usar el nombre y los apellidos del conductor.",
+      "street": "Calle",
+      "city": "Ciudad",
+      "state": "Estado o Región",
+      "zip": "Código Postal",
+      "country": "País",
+      "billTo": "Facturar a",
+      "empty": "Sin dirección de facturación. Las facturas muestran el nombre y el correo electrónico.",
+      "updated": "Dirección de facturación actualizada",
+      "updateFailed": "No se pudo actualizar la dirección de facturación"
     }
   },
   "transactions": {
@@ -1511,7 +1531,17 @@
       "optOutTitle": "Pagar con tarjeta",
       "optOutConfirm": "Este miembro paga con tarjeta aunque la flota factura a cuenta. Se notifica al conductor si la flota factura a cuenta.",
       "optInTitle": "Carga a cuenta de la flota",
-      "optInConfirm": "Las nuevas sesiones de este miembro se facturan a la flota cuando esta factura a cuenta. Se notifica al conductor si la flota factura a cuenta."
+      "optInConfirm": "Las nuevas sesiones de este miembro se facturan a la flota cuando esta factura a cuenta. Se notifica al conductor si la flota factura a cuenta.",
+      "invoiceTo": "Facturar A",
+      "recipientFleet": "Flota",
+      "recipientMember": "Cada Conductor",
+      "recipientHelpFleet": "Las sesiones facturadas a cuenta van en una factura mensual a los contactos de facturación de la flota.",
+      "recipientHelpMember": "Cada conductor recibe una factura mensual por sus propias sesiones facturadas a cuenta, enviada solo al conductor.",
+      "recipientTitleMember": "Facturar a Cada Conductor",
+      "recipientConfirmMember": "Las sesiones que empiecen a partir de ahora se facturan a cada conductor, con su dirección de facturación y su correo electrónico. Las sesiones ya iniciadas siguen en la factura de la flota. Se notifica a cada conductor afectado.",
+      "recipientTitleFleet": "Facturar a la Flota",
+      "recipientConfirmFleet": "Las sesiones que empiecen a partir de ahora van en la factura de la flota. Las sesiones ya iniciadas siguen en la factura de cada conductor. Se notifica a cada conductor afectado.",
+      "recipientChange": "Cambiar"
     },
     "billingProfile": {
       "title": "Perfil de facturación",
@@ -1588,7 +1618,36 @@
       "send": "Enviar",
       "sendTitle": "Enviar factura de flota",
       "sendConfirm": "¿Enviar {{number}} con su PDF a los contactos de facturación de la flota?",
-      "sent": "Factura enviada"
+      "sent": "Factura enviada",
+      "membersTitle": "Facturas de Conductores",
+      "membersDescription": "Sesiones facturadas a cuenta a cada conductor de esta flota que ninguna factura ha facturado todavía y que terminaron antes del fin de mes.",
+      "noMembers": "Ningún conductor tiene sesiones sin facturar con coste en este mes.",
+      "noEmail": "Sin Correo",
+      "noAddress": "Sin Dirección",
+      "invoice": "Factura",
+      "generateMember": "Generar",
+      "generateMemberTitle": "Generar Factura del Conductor",
+      "generateMemberConfirm": "¿Emitir la factura de {{period}} a {{driver}} por {{total}} y enviarla con su PDF al conductor? Una factura emitida solo se puede corregir con una nota de crédito.",
+      "memberGenerated": "Factura del conductor emitida y enviada",
+      "memberGeneratedNotSent": "Factura del conductor emitida pero no enviada. Añada el correo electrónico del conductor y envíela.",
+      "invoiceAll": "Facturar a Todos los Miembros",
+      "invoiceAllConfirm": "¿Emitir en segundo plano las facturas de {{period}}, una por cada conductor con sesiones sin facturar ({{count}}), y enviar cada una a su conductor?",
+      "invoiceAllStarted": "Emitiendo facturas de conductores: {{count}}",
+      "recipient": "Facturar A",
+      "recipientAll": "Todas",
+      "recipientFleet": "Flota",
+      "recipientMember": "Conductor",
+      "billedTo": "Facturado A",
+      "sendMemberTitle": "Enviar Factura del Conductor",
+      "sendMemberConfirm": "¿Enviar {{number}} con su PDF al conductor?"
+    },
+    "bookingStatus": {
+      "scheduled": "Programada",
+      "active": "Activa",
+      "partial": "Parcial",
+      "completed": "Completada",
+      "expired": "Expirada",
+      "cancelled": "Cancelada"
     }
   },
   "tokens": {
@@ -2725,7 +2784,7 @@
     "fleetEvents": "Facturación de flota",
     "fleetBillingAlertEvents": "Alertas de facturación de flota",
     "fleetInvoiceEvents": "Facturas de flota",
-    "requiredEventTooltip": "Siempre activa. Los conductores necesitan esta notificación para acceder a su cuenta.",
+    "requiredEventTooltip": "Siempre activa. Los conductores necesitan esta notificación para acceder a su cuenta o recibir sus facturas.",
     "eventSwitchTooltip": "Si está desactivada, ningún conductor recibe esta notificación. Si está activada, se aplican las preferencias de notificación de cada conductor.",
     "eventTurnedOn": "Notificación activada.",
     "eventTurnedOff": "Notificación desactivada.",
@@ -2770,6 +2829,9 @@
       "session.IdlingStarted": "Sesión en inactividad",
       "invoice.Sent": "Factura enviada",
       "invoice.CreditNote": "Nota de crédito emitida",
+      "invoice.MemberInvoice": "Factura de miembro emitida",
+      "invoice.MemberCreditNote": "Nota de crédito de miembro emitida",
+      "invoice.MemberOverdue": "Factura de miembro vencida",
       "payment.AccountCreditLimit": "Límite de crédito de la flota alcanzado",
       "fleet.CreditLimitWarning": "Aviso de límite de crédito de la flota",
       "fleet.CreditLimitReached": "Límite de crédito de la flota alcanzado",
@@ -2974,11 +3036,13 @@
     "FAVORITE_NOT_FOUND": "Favorito no encontrado",
     "FLEET_CREDIT_LIMIT_REACHED": "Se alcanzó el límite de crédito de la flota a la que se facturan sus sesiones. Contacte al responsable de su flota.",
     "FLEET_DISABLED": "La flota está deshabilitada",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "Todavía hay conectado un proceso anterior a la v0.1.41. Termine la actualización y después active la facturación a cuenta.",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "Todavía hay conectado un proceso de una versión anterior. Termine la actualización y después cambie la facturación de la flota.",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "La comprobación de versiones del worker no se ha ejecutado recientemente, por lo que no se puede confirmar la actualización. Compruebe que el worker está en ejecución y después cambie la facturación de la flota.",
     "FLEET_BILLING_CONTACT_REQUIRED": "La flota necesita al menos un contacto de facturación para la facturación automática y el envío de facturas por correo.",
     "FLEET_INVOICE_PERIOD_EXISTS": "La flota ya tiene una factura para este periodo. Emita una nota de crédito para volver a facturarlo.",
     "FLEET_INVOICE_NOTHING_TO_BILL": "La flota no tiene sesiones sin facturar con importe para este periodo.",
     "FLEET_HAS_OPEN_BILLING": "La flota tiene sesiones facturadas a su cuenta y no se puede eliminar. Desactive la facturación a cuenta en su lugar.",
+    "FLEET_HAS_RESERVATIONS": "La flota tiene reservas de flota y no se puede eliminar. Las reservas se conservan como historial.",
     "FLEET_NOT_FOUND": "Flota no encontrada",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "La reserva de flota ya está cancelada",
     "FLEET_RESERVATION_CREATE_FAILED": "Error al crear la reserva de flota",
@@ -3012,6 +3076,7 @@
     "INVOICE_NOT_VOIDABLE": "Solo se puede anular un borrador de factura. Una factura emitida se corrige con una nota de crédito",
     "INVOICE_NO_SESSIONS": "No hay sesiones sin facturar en el rango de fechas seleccionado",
     "INVOICE_NO_DRIVER": "Esta factura no tiene un conductor al que enviarla",
+    "INVOICE_NO_DRIVER_EMAIL": "El conductor de esta factura no tiene dirección de correo electrónico",
     "INVOICE_NOT_FOUND": "Factura no encontrada",
     "LOAD_NOT_FOUND": "Carga no encontrada",
     "LOCATION_NOT_FOUND": "Ubicación no encontrada",
@@ -4170,6 +4235,7 @@
       "assigned": "Asignado",
       "attachment_added": "Archivo adjunto añadido",
       "availability_changed": "Disponibilidad cambiada",
+      "billing_address_updated": "Dirección de facturación actualizada",
       "billing_updated": "Facturación actualizada",
       "ca_certificate_added": "Certificado de CA añadido",
       "ca_certificate_deleted": "Certificado de CA eliminado",
@@ -4505,7 +4571,11 @@
     "confirmResendFleet": "¿Enviar esta factura con su PDF a los contactos de facturación de la flota?",
     "sentAt": "Enviada por correo",
     "overdueNoticeSentAt": "Recordatorio de pago enviado",
-    "notSent": "No enviada"
+    "notSent": "No enviada",
+    "driver": "Conductor",
+    "viaFleet": "A Través de la Flota",
+    "viaFleetBadge": "Vía {{fleet}}",
+    "confirmResendMember": "¿Enviar esta factura con su PDF al conductor?"
   },
   "authFooter": {
     "privacyPolicy": "Política de privacidad",

@@ -55,6 +55,7 @@ const { mockResolveAccountBilling, mockResolveDriverPricingSource } = vi.hoisted
 }));
 
 vi.mock('@evtivity/database', () => ({
+  ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   resolveAccountBilling: mockResolveAccountBilling,
   resolveDriverPricingSource: mockResolveDriverPricingSource,
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
@@ -168,6 +169,24 @@ const { getPortalAccessMock, inviteDriverToPortalMock } = vi.hoisted(() => ({
 vi.mock('../services/driver-portal-access.service.js', () => ({
   getPortalAccess: getPortalAccessMock,
   inviteDriverToPortal: inviteDriverToPortalMock,
+}));
+
+const { getDriverBillingAddressMock, updateDriverBillingAddressMock } = vi.hoisted(() => ({
+  getDriverBillingAddressMock: vi.fn(),
+  updateDriverBillingAddressMock: vi.fn(),
+}));
+
+vi.mock('../services/driver-billing.service.js', () => ({
+  DRIVER_BILLING_ADDRESS_MAX_LENGTHS: {
+    billingName: 255,
+    billingStreet: 255,
+    billingCity: 100,
+    billingState: 100,
+    billingZip: 20,
+    billingCountry: 100,
+  },
+  getDriverBillingAddress: getDriverBillingAddressMock,
+  updateDriverBillingAddress: updateDriverBillingAddressMock,
 }));
 
 import { AppError } from '@evtivity/lib';
@@ -390,6 +409,7 @@ describe('Driver routes (operator)', () => {
       mockResolveAccountBilling.mockResolvedValueOnce({
         fleetId: 'flt_000000000001',
         fleetName: 'Acme',
+        recipient: 'member',
       } as never);
       mockResolveDriverPricingSource.mockResolvedValueOnce({
         source: 'fleet',
@@ -409,6 +429,7 @@ describe('Driver routes (operator)', () => {
       expect(res.json().billing).toEqual({
         mode: 'account',
         billingFleet: { id: 'flt_000000000001', name: 'Acme' },
+        invoicedTo: 'member',
         pricingFleet: { id: 'flt_000000000002', name: 'Priced' },
         pricingSource: 'fleet',
         pricingGroup: { id: 'pgr_000000000001', name: 'Fleet prices' },
@@ -448,6 +469,7 @@ describe('Driver routes (operator)', () => {
       expect(res.json().billing).toEqual({
         mode: 'card',
         billingFleet: null,
+        invoicedTo: null,
         pricingFleet: null,
         pricingSource: null,
         pricingGroup: null,
@@ -515,6 +537,86 @@ describe('Driver routes (operator)', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(inviteDriverToPortalMock).not.toHaveBeenCalled();
+    });
+  });
+
+  // -------------------------------------------------------
+  // GET/PATCH /v1/drivers/:id/billing-address
+  // -------------------------------------------------------
+
+  describe('/v1/drivers/:id/billing-address', () => {
+    const address = {
+      billingName: null,
+      billingStreet: 'Hauptstrasse 1',
+      billingCity: 'Berlin',
+      billingState: null,
+      billingZip: '10115',
+      billingCountry: 'Germany',
+    };
+
+    it('returns 401 without token', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/drivers/${VALID_DRIVER_ID}/billing-address`,
+      });
+      expect(res.statusCode).toBe(401);
+      expect(getDriverBillingAddressMock).not.toHaveBeenCalled();
+    });
+
+    it('returns the address', async () => {
+      getDriverBillingAddressMock.mockResolvedValueOnce(address);
+      const res = await app.inject({
+        method: 'GET',
+        url: `/drivers/${VALID_DRIVER_ID}/billing-address`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual(address);
+      expect(getDriverBillingAddressMock).toHaveBeenCalledWith(VALID_DRIVER_ID);
+    });
+
+    it('updates the address as the operator', async () => {
+      updateDriverBillingAddressMock.mockResolvedValueOnce({ ...address, billingCity: 'Hamburg' });
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}/billing-address`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { billingCity: ' Hamburg ', billingState: null },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().billingCity).toBe('Hamburg');
+      expect(updateDriverBillingAddressMock).toHaveBeenCalledWith(
+        VALID_DRIVER_ID,
+        { billingCity: ' Hamburg ', billingState: null },
+        expect.objectContaining({
+          actor: expect.objectContaining({ actor: 'operator', actorUserId: 'test-id' }),
+        }),
+      );
+    });
+
+    it('rejects a field longer than its column', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}/billing-address`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { billingZip: 'x'.repeat(21) },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(updateDriverBillingAddressMock).not.toHaveBeenCalled();
+    });
+
+    it('returns 404 DRIVER_NOT_FOUND from the service', async () => {
+      updateDriverBillingAddressMock.mockRejectedValueOnce(
+        new AppError('Driver not found', 404, 'DRIVER_NOT_FOUND'),
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/drivers/${VALID_DRIVER_ID}/billing-address`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { billingCity: 'Berlin' },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('DRIVER_NOT_FOUND');
     });
   });
 

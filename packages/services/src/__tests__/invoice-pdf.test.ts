@@ -153,6 +153,7 @@ function detail(language: string): InvoiceDetail {
       driverId: 'drv_1',
       status: 'issued',
       kind: 'invoice',
+      memberBilled: false,
       creditedInvoiceId: null,
       creditReason: null,
       paidAt: null,

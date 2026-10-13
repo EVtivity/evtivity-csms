@@ -80,12 +80,14 @@ vi.mock('@evtivity/database', () => ({
   writeAudit: mockWriteAudit,
   releaseUpgradePending: mockReleaseUpgradePending,
   ACCOUNT_BILLING_MIN_VERSION: '0.1.41',
+  MEMBER_INVOICE_MIN_VERSION: '0.1.46',
   guardVersion: (min: string) => min,
   loadFleetCreditExposure: mockLoadExposure,
   fleetCreditLevel: (exposure: number, limit: number, percent: number) =>
     exposure >= limit ? 'reached' : exposure * 100 >= limit * percent ? 'warning' : 'ok',
   fleetAuditLog: 'fleetAuditLog',
   pgErrorCode: (err: unknown) => (err as { code?: string }).code,
+  pgConstraintName: (err: unknown) => (err as { constraint_name?: string }).constraint_name,
   PG_FOREIGN_KEY_VIOLATION: '23503',
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
@@ -106,6 +108,7 @@ vi.mock('@evtivity/database', () => ({
   fleets: {},
   fleetDrivers: {},
   fleetStations: {},
+  fleetReservations: {},
   drivers: {},
   vehicles: {},
   chargingStations: {},
@@ -170,6 +173,7 @@ import {
   notifyMemberJoined,
   notifyMemberLeft,
   FleetBillingUpgradePendingError,
+  fleetBillingMinVersion,
   updateFleetBillingProfile,
   mergeBillingProfile,
   diffBillingProfile,
@@ -266,7 +270,7 @@ describe('updateFleet', () => {
 describe('deleteFleet', () => {
   it('returns deleted fleet when found', async () => {
     const fleet = { id: 'f1', name: 'Deleted' };
-    setupDbResults([], [fleet]);
+    setupDbResults([], [], [fleet]);
 
     const result = await deleteFleet('f1');
 
@@ -274,7 +278,7 @@ describe('deleteFleet', () => {
   });
 
   it('returns null when not found', async () => {
-    setupDbResults([], []);
+    setupDbResults([], [], []);
 
     const result = await deleteFleet('nonexistent');
 
@@ -292,12 +296,37 @@ describe('deleteFleet', () => {
   });
 
   it('answers a session stamped between the check and the delete with 409', async () => {
-    setupDbResults([]);
+    setupDbResults([], []);
     vi.mocked(db.delete).mockImplementationOnce(() => {
-      throw Object.assign(new Error('fk'), { code: '23503' });
+      throw Object.assign(new Error('fk'), {
+        code: '23503',
+        constraint_name: 'charging_sessions_billing_fleet_id_fleets_id_fk',
+      });
     });
 
     await expect(deleteFleet('f1')).rejects.toMatchObject({ code: 'FLEET_HAS_OPEN_BILLING' });
+  });
+
+  it('refuses with 409 FLEET_HAS_RESERVATIONS while a fleet reservation names the fleet', async () => {
+    setupDbResults([], [{ id: 'fr_1' }]);
+
+    await expect(deleteFleet('f1')).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'FLEET_HAS_RESERVATIONS',
+    });
+    expect(db.delete).not.toHaveBeenCalled();
+  });
+
+  it('maps a fleet reservation added between the check and the delete by constraint name', async () => {
+    setupDbResults([], []);
+    vi.mocked(db.delete).mockImplementationOnce(() => {
+      throw Object.assign(new Error('fk'), {
+        code: '23503',
+        constraint_name: 'fleet_reservations_fleet_id_fleets_id_fk',
+      });
+    });
+
+    await expect(deleteFleet('f1')).rejects.toMatchObject({ code: 'FLEET_HAS_RESERVATIONS' });
   });
 });
 
@@ -319,10 +348,16 @@ describe('fleet account billing', () => {
 
   it('turns account billing on: audits once and hands the member notices to the worker', async () => {
     const updatedAt = new Date('2026-10-07T12:00:00.000Z');
-    const fleet = { id: 'f1', name: 'Acme', accountBillingEnabled: true, updatedAt };
+    const fleet = {
+      id: 'f1',
+      name: 'Acme',
+      accountBillingEnabled: true,
+      accountInvoiceRecipient: 'fleet',
+      updatedAt,
+    };
     setupDbResults([{ ...fleet, accountBillingEnabled: false }], [fleet]);
 
-    expect(await setFleetAccountBilling('f1', true, { actor, log })).toEqual(fleet);
+    expect(await setFleetAccountBilling('f1', { enabled: true }, { actor, log })).toEqual(fleet);
 
     expect(mockWriteAudit).toHaveBeenCalledWith(
       { table: 'fleetAuditLog', idColumn: 'fleet_id' },
@@ -335,7 +370,8 @@ describe('fleet account billing', () => {
       db,
       log,
     );
-    // No member is notified inside the request: one fan-out job per change.
+    // No member is notified inside the request: one fan-out job per change,
+    // in the v0.1.45 shape when only the switch changed.
     expect(mockPublishFanout).toHaveBeenCalledWith(
       { fleetId: 'f1', enabled: true, changedAt: updatedAt.toISOString() },
       log,
@@ -346,52 +382,201 @@ describe('fleet account billing', () => {
 
   it('refuses to turn account billing on while processes before v0.1.41 may run', async () => {
     const details = {
+      reason: 'old_processes' as const,
       oldConnections: 2,
       hosts: ['10.0.0.8'],
       lastOldSeenAt: '2026-10-07T11:59:00.000Z',
       watchCheckedAt: '2026-10-07T11:59:30.000Z',
     };
     mockReleaseUpgradePending.mockResolvedValue(details);
-    setupDbResults([{ id: 'f1', name: 'Acme', accountBillingEnabled: false }]);
+    setupDbResults([
+      { id: 'f1', name: 'Acme', accountBillingEnabled: false, accountInvoiceRecipient: 'fleet' },
+    ]);
 
-    const err = await setFleetAccountBilling('f1', true, { actor, log }).catch((e: unknown) => e);
+    const err = await setFleetAccountBilling('f1', { enabled: true }, { actor, log }).catch(
+      (e: unknown) => e,
+    );
     expect(err).toBeInstanceOf(FleetBillingUpgradePendingError);
     expect(err).toMatchObject({
       statusCode: 409,
       code: 'FLEET_BILLING_OLD_PODS_CONNECTED',
       details,
+      minVersion: '0.1.41',
     });
-    expect(db.update).not.toHaveBeenCalled();
+    expect((err as Error).message).toContain('v0.1.41');
+    expect(mockWriteAudit).not.toHaveBeenCalled();
+    expect(mockPublishFanout).not.toHaveBeenCalled();
+  });
+
+  it('refuses with FLEET_BILLING_VERSION_CHECK_STALE when only the worker watch is stale', async () => {
+    const details = {
+      reason: 'version_check_stale' as const,
+      oldConnections: 0,
+      hosts: [],
+      lastOldSeenAt: null,
+      watchCheckedAt: null,
+    };
+    mockReleaseUpgradePending.mockResolvedValue(details);
+    setupDbResults([
+      { id: 'f1', name: 'Acme', accountBillingEnabled: true, accountInvoiceRecipient: 'fleet' },
+    ]);
+
+    const err = await setFleetAccountBilling('f1', { recipient: 'member' }, { actor, log }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(FleetBillingUpgradePendingError);
+    expect(err).toMatchObject({
+      statusCode: 409,
+      code: 'FLEET_BILLING_VERSION_CHECK_STALE',
+      details,
+      minVersion: '0.1.46',
+    });
+    expect((err as Error).message).toContain('Check that the worker is running');
+    expect((err as Error).message).not.toContain('still connected');
     expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('turns account billing off without the release guard', async () => {
-    const fleet = { id: 'f1', name: 'Acme', accountBillingEnabled: false, updatedAt: new Date() };
+    const fleet = {
+      id: 'f1',
+      name: 'Acme',
+      accountBillingEnabled: false,
+      accountInvoiceRecipient: 'fleet',
+      updatedAt: new Date(),
+    };
     mockReleaseUpgradePending.mockResolvedValue({ oldConnections: 1 });
-    setupDbResults([fleet]);
+    setupDbResults([{ ...fleet, accountBillingEnabled: true }], [fleet]);
 
-    expect(await setFleetAccountBilling('f1', false, { actor, log })).toEqual(fleet);
+    expect(await setFleetAccountBilling('f1', { enabled: false }, { actor, log })).toEqual(fleet);
     expect(mockReleaseUpgradePending).not.toHaveBeenCalled();
   });
 
   it('a request that changes nothing audits and publishes nothing (once per change)', async () => {
-    const fleet = { id: 'f1', name: 'Acme', accountBillingEnabled: true };
+    const fleet = {
+      id: 'f1',
+      name: 'Acme',
+      accountBillingEnabled: true,
+      accountInvoiceRecipient: 'member',
+    };
     setupDbResults([fleet]);
 
-    expect(await setFleetAccountBilling('f1', true, { actor, log })).toEqual(fleet);
+    expect(
+      await setFleetAccountBilling('f1', { enabled: true, recipient: 'member' }, { actor, log }),
+    ).toEqual(fleet);
     expect(mockWriteAudit).not.toHaveBeenCalled();
     expect(mockPublishFanout).not.toHaveBeenCalled();
     expect(mockReleaseUpgradePending).not.toHaveBeenCalled();
-    setupDbResults([], [fleet]);
-    expect(await setFleetAccountBilling('f1', false, { actor, log })).toEqual(fleet);
-    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('returns null for an unknown fleet', async () => {
     setupDbResults([]);
-    expect(await setFleetAccountBilling('nope', true, { actor, log })).toBeNull();
-    setupDbResults([], []);
-    expect(await setFleetAccountBilling('nope', false, { actor, log })).toBeNull();
+    expect(await setFleetAccountBilling('nope', { enabled: true }, { actor, log })).toBeNull();
+    setupDbResults([]);
+    expect(await setFleetAccountBilling('nope', { recipient: 'fleet' }, { actor, log })).toBeNull();
+  });
+
+  it('switches the invoice recipient to each member behind the v0.1.46 guard', async () => {
+    const updatedAt = new Date('2026-10-13T12:00:00.000Z');
+    const fleet = {
+      id: 'f1',
+      name: 'Acme',
+      accountBillingEnabled: true,
+      accountInvoiceRecipient: 'member',
+      updatedAt,
+    };
+    setupDbResults([{ ...fleet, accountInvoiceRecipient: 'fleet' }], [fleet]);
+
+    expect(await setFleetAccountBilling('f1', { recipient: 'member' }, { actor, log })).toEqual(
+      fleet,
+    );
+    expect(mockReleaseUpgradePending).toHaveBeenCalledWith('0.1.46', 'watchStore');
+    expect(mockWriteAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        before: { accountInvoiceRecipient: 'fleet' },
+        after: { accountInvoiceRecipient: 'member' },
+      }),
+      db,
+      log,
+    );
+    expect(mockPublishFanout).toHaveBeenCalledWith(
+      {
+        fleetId: 'f1',
+        enabled: true,
+        changedAt: updatedAt.toISOString(),
+        recipient: 'member',
+        enabledChanged: false,
+      },
+      log,
+    );
+  });
+
+  it('refuses the switch to each member while processes before v0.1.46 may run, naming it', async () => {
+    mockReleaseUpgradePending.mockResolvedValue({ oldConnections: 1 });
+    setupDbResults([
+      { id: 'f1', name: 'Acme', accountBillingEnabled: true, accountInvoiceRecipient: 'fleet' },
+    ]);
+    const err = await setFleetAccountBilling('f1', { recipient: 'member' }, { actor, log }).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(FleetBillingUpgradePendingError);
+    expect(err).toMatchObject({ code: 'FLEET_BILLING_OLD_PODS_CONNECTED', minVersion: '0.1.46' });
+    expect((err as Error).message).toContain('v0.1.46');
+    expect(mockWriteAudit).not.toHaveBeenCalled();
+  });
+
+  it('turns billing on and invoices members in one write: one guard, one audit, one fan-out', async () => {
+    const updatedAt = new Date('2026-10-13T12:00:00.000Z');
+    const fleet = {
+      id: 'f1',
+      name: 'Acme',
+      accountBillingEnabled: true,
+      accountInvoiceRecipient: 'member',
+      updatedAt,
+    };
+    setupDbResults(
+      [{ ...fleet, accountBillingEnabled: false, accountInvoiceRecipient: 'fleet' }],
+      [fleet],
+    );
+    await setFleetAccountBilling('f1', { enabled: true, recipient: 'member' }, { actor, log });
+    expect(mockReleaseUpgradePending).toHaveBeenCalledTimes(1);
+    expect(mockReleaseUpgradePending).toHaveBeenCalledWith('0.1.46', 'watchStore');
+    expect(mockWriteAudit).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        before: { accountBillingEnabled: false, accountInvoiceRecipient: 'fleet' },
+        after: { accountBillingEnabled: true, accountInvoiceRecipient: 'member' },
+      }),
+      db,
+      log,
+    );
+    expect(mockPublishFanout).toHaveBeenCalledWith(
+      expect.objectContaining({ recipient: 'member', enabledChanged: true, enabled: true }),
+      log,
+    );
+  });
+
+  it('switches back to the fleet without the release guard', async () => {
+    mockReleaseUpgradePending.mockResolvedValue({ oldConnections: 3 });
+    const fleet = {
+      id: 'f1',
+      name: 'Acme',
+      accountBillingEnabled: true,
+      accountInvoiceRecipient: 'fleet',
+      updatedAt: new Date(),
+    };
+    setupDbResults([{ ...fleet, accountInvoiceRecipient: 'member' }], [fleet]);
+    expect(await setFleetAccountBilling('f1', { recipient: 'fleet' }, { actor, log })).toEqual(
+      fleet,
+    );
+    expect(mockReleaseUpgradePending).not.toHaveBeenCalled();
+  });
+
+  it('fleetBillingMinVersion names the release each change needs', () => {
+    expect(fleetBillingMinVersion({ enabled: true })).toBe('0.1.41');
+    expect(fleetBillingMinVersion({ recipient: 'member' })).toBe('0.1.46');
+    expect(fleetBillingMinVersion({ enabled: true, recipient: 'member' })).toBe('0.1.46');
+    expect(fleetBillingMinVersion({ enabled: false, recipient: 'fleet' })).toBeNull();
   });
 
   it('opts a member out: audits and asks the notice to compare before and after', async () => {

@@ -148,7 +148,7 @@ async function notifySessionEnded(
   const [endedSession] = await sql`
     SELECT cs.driver_id, cs.energy_delivered_wh, cs.final_cost_cents, cs.started_at, cs.ended_at,
            cs.status, cs.net_cents, cs.tax_cents, cs.cost_breakdown,
-           UPPER(cs.currency) AS currency, cs.billing_mode,
+           UPPER(cs.currency) AS currency, cs.billing_mode, cs.member_billed,
            f.name AS billing_fleet_name
     FROM charging_sessions cs
     LEFT JOIN fleets f ON f.id = cs.billing_fleet_id
@@ -195,6 +195,7 @@ async function notifySessionEnded(
       endedSession.billing_mode,
       (endedSession.billing_fleet_name as string | null) ?? null,
       record != null,
+      endedSession.member_billed,
     ),
   });
   const claims = {

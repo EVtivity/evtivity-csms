@@ -4,16 +4,31 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 
+/** Who gets the monthly invoice of account sessions: the fleet, or the driver (member invoice). */
+export type InvoicedTo = 'fleet' | 'member';
+
 /** How the driver pays a session they start (GET /v1/portal/auth/me, charger pricing). */
 export interface DriverBilling {
   mode: 'card' | 'account';
   fleetName: string | null;
+  /** Null for card. Optional: absent in responses of servers before v0.1.46. */
+  invoicedTo?: InvoicedTo | null;
 }
 
 /** The billing state of a session billed to a fleet (portal session list and detail). */
 export interface SessionAccountBilling {
   state: 'unbilled' | 'invoiced' | 'paid';
   fleetName: string;
+  invoicedTo?: InvoicedTo;
+  /** On a member-billed session: the driver's invoice it is on, null until invoiced. */
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+}
+
+/** The fleet a charge on account goes through, and who it is invoiced to. */
+export interface AccountBillingAt {
+  fleetName: string;
+  invoicedTo: InvoicedTo;
 }
 
 /**
@@ -31,15 +46,19 @@ export function useDriverBilling(enabled = true): DriverBilling | undefined {
 }
 
 /**
- * The fleet a session started at this charger is billed to, or null when the
+ * The account billing of a session started at this charger, or null when the
  * driver pays by card. The charger pricing answers for the station (null at a
  * free vend site); until it loads, or when the station has no pricing, the
  * driver profile answers.
  */
-export function billedToFleet(
+export function accountBillingAt(
   pricing: { billing?: DriverBilling | null } | undefined,
   driverBilling: DriverBilling | undefined,
-): string | null {
+): AccountBillingAt | null {
   const billing = pricing != null ? (pricing.billing ?? null) : (driverBilling ?? null);
-  return billing?.mode === 'account' ? billing.fleetName : null;
+  if (billing?.mode !== 'account' || billing.fleetName == null) return null;
+  return {
+    fleetName: billing.fleetName,
+    invoicedTo: billing.invoicedTo === 'member' ? 'member' : 'fleet',
+  };
 }

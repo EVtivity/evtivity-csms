@@ -18,6 +18,7 @@ import { formatDateTime } from '@/lib/timezone';
 import { DriverPortalAccessCard, type PortalAccess } from './DriverPortalAccessCard';
 import { DriverPncContractsCard } from './DriverPncContractsCard';
 import { DriverBillingCard, type DriverBilling } from './DriverBillingCard';
+import { DriverBillingAddressCard } from './DriverBillingAddressCard';
 
 interface Driver {
   id: string;
@@ -249,6 +250,7 @@ export function DriverDetailsTab({ driver, timezone }: DriverDetailsTabProps): R
         </CardContent>
       </Card>
       <DriverBillingCard billing={driver.billing} />
+      <DriverBillingAddressCard driver={driver} />
       <DriverPortalAccessCard driver={driver} timezone={timezone} />
       <DriverPncContractsCard driverId={driver.id} timezone={timezone} />
     </TabsContent>

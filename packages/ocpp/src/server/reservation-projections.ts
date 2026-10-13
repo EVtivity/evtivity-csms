@@ -4,6 +4,7 @@
 import type { DomainEvent } from '@evtivity/lib';
 import { toDate, toDateOrNull, writeReservationAudit } from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
+import { refreshFleetReservationStatuses } from '@evtivity/services/fleet-reservation-status';
 import { applyReservationCancellation } from '@evtivity/services/reservation-cancel';
 import type { ReservationCancelReason } from '@evtivity/services/reservation-cancel';
 import {
@@ -440,12 +441,16 @@ async function linkReservation(
     UPDATE charging_sessions SET reservation_id = ${row.id}, updated_at = now()
     WHERE id = ${sessionId}
   `;
-  const moved = await sql<Array<{ id: string }>>`
+  const moved = await sql<Array<{ id: string; fleet_reservation_id: string | null }>>`
     UPDATE reservations SET status = 'in_use', updated_at = now()
     WHERE id = ${row.id} AND status = 'active'
-    RETURNING id
+    RETURNING id, fleet_reservation_id
   `;
   if (moved.length > 0) {
+    await refreshFleetReservationStatuses(
+      moved.map((m) => m.fleet_reservation_id),
+      logger,
+    );
     await writeReservationAudit(
       {
         reservationId: row.id,
@@ -561,13 +566,14 @@ export async function markReservationUsed(
   input: { reservationDbId: string; sessionId: string; stationUuid: string; siteId: string | null },
 ): Promise<void> {
   const { sql, logger, notify } = deps;
-  const used = await sql<Array<{ driver_id: string | null }>>`
+  const used = await sql<Array<{ driver_id: string | null; fleet_reservation_id: string | null }>>`
     UPDATE reservations SET status = 'used', updated_at = now()
     WHERE id = ${input.reservationDbId} AND status = 'in_use'
-    RETURNING driver_id
+    RETURNING driver_id, fleet_reservation_id
   `;
   const row = used[0];
   if (row == null) return;
+  await refreshFleetReservationStatuses([row.fleet_reservation_id], logger);
   await writeReservationAudit(
     {
       reservationId: input.reservationDbId,

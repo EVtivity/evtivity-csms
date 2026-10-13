@@ -54,6 +54,7 @@ function pgError(code: string): Error {
 }
 
 vi.mock('@evtivity/database', () => ({
+  ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   db: {
     select: vi.fn(() => makeChain('select')),
     selectDistinct: vi.fn(() => makeChain('selectDistinct')),

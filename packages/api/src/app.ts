@@ -74,6 +74,7 @@ import { stationWebPaymentRoutes } from './routes/station-web-payments.js';
 import { supportCaseRoutes } from './routes/support-cases.js';
 import { portalSupportCaseRoutes } from './routes/portal/support-cases.js';
 import { portalVehicleRoutes } from './routes/portal/vehicles.js';
+import { portalInvoiceRoutes } from './routes/portal/invoices.js';
 import { portalTokenRoutes } from './routes/portal/tokens.js';
 import { portalNotificationRoutes } from './routes/portal/notifications.js';
 import { portalRoamingChargerRoutes } from './routes/portal/roaming-chargers.js';
@@ -230,6 +231,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(stationWebPaymentRoutes);
       await v1.register(supportCaseRoutes);
       await v1.register(portalVehicleRoutes);
+      await v1.register(portalInvoiceRoutes);
       await v1.register(portalTokenRoutes);
       await v1.register(portalNotificationRoutes);
       await v1.register(portalSupportCaseRoutes);

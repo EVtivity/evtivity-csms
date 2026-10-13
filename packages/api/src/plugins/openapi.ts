@@ -109,6 +109,7 @@ export async function registerOpenApi(app: FastifyInstance): Promise<void> {
         { name: 'Portal Driver', description: 'Driver portal profile management' },
         { name: 'Portal Sessions', description: 'Driver portal session history' },
         { name: 'Portal Payments', description: 'Driver portal payment methods' },
+        { name: 'Portal Invoices', description: "Driver portal: the driver's own invoices" },
         { name: 'Portal Guest', description: 'Guest checkout flow' },
         { name: 'Portal Support', description: 'Driver portal support cases' },
         { name: 'Portal Roaming', description: 'Driver portal roaming charger search' },

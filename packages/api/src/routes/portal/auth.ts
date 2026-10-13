@@ -38,6 +38,8 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { itemResponse, successResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { checkRecaptcha } from '../../lib/recaptcha-check.js';
+import { driverBillingAddressItem } from '../../lib/driver-billing-address-schema.js';
+import { driverBillingAddressColumns } from '../../services/driver-billing.service.js';
 import {
   isPhoneRegistrationLimited,
   registrationPhone,
@@ -97,6 +99,9 @@ const portalDriverMe = portalDriverItem
   .extend({
     billing: driverBillingSchema.describe(
       'How the driver pays a session they start: account (billed to a fleet, no payment method needed) or card. A free vend site bills nothing either way',
+    ),
+    billingAddress: driverBillingAddressItem.describe(
+      'The bill-to block of the invoices a fleet addresses to the driver (PATCH /v1/portal/driver/billing-address)',
     ),
   })
   .passthrough();
@@ -645,16 +650,36 @@ export function portalAuthRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
 
-      const [driver] = await db.select(driverSelect).from(drivers).where(eq(drivers.id, driverId));
+      const [row] = await db
+        .select({ ...driverSelect, ...driverBillingAddressColumns })
+        .from(drivers)
+        .where(eq(drivers.id, driverId));
 
-      if (driver == null) {
+      if (row == null) {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
         return;
       }
 
+      const {
+        billingName,
+        billingStreet,
+        billingCity,
+        billingState,
+        billingZip,
+        billingCountry,
+        ...driver
+      } = row;
       return {
         ...driver,
         billing: toDriverBilling(await resolveAccountBilling(client, driverId)),
+        billingAddress: {
+          billingName,
+          billingStreet,
+          billingCity,
+          billingState,
+          billingZip,
+          billingCountry,
+        },
       };
     },
   );

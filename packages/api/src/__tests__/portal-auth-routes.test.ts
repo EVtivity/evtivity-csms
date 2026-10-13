@@ -51,6 +51,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -164,6 +165,15 @@ import * as argon2Module from 'argon2';
 const VALID_DRIVER_ID = 'drv_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
+// The billing address columns of a driver row (GET /v1/portal/auth/me).
+const NO_BILLING_ADDRESS = {
+  billingName: null,
+  billingStreet: null,
+  billingCity: null,
+  billingState: null,
+  billingZip: null,
+  billingCountry: null,
+};
 const DRIVER_ID = 'drv_000000000001';
 
 async function buildApp(): Promise<FastifyInstance> {
@@ -634,6 +644,7 @@ describe('Portal auth routes - handler logic', () => {
           isActive: true,
           emailVerified: true,
           createdAt: '2024-01-01',
+          ...NO_BILLING_ADDRESS,
         },
       ]);
       const response = await app.inject({
@@ -672,6 +683,7 @@ describe('Portal auth routes - handler logic', () => {
           isActive: true,
           emailVerified: true,
           createdAt: '2024-01-01',
+          ...NO_BILLING_ADDRESS,
         },
       ]);
       const response = await app.inject({
@@ -683,7 +695,49 @@ describe('Portal auth routes - handler logic', () => {
       const body = response.json();
       expect(body.id).toBe(DRIVER_ID);
       expect(body.email).toBe('john@example.com');
-      expect(body.billing).toEqual({ mode: 'card', fleetName: null });
+      expect(body.billing).toEqual({ mode: 'card', fleetName: null, invoicedTo: null });
+    });
+
+    it('returns the billing address with the profile', async () => {
+      setupDbResults([
+        {
+          id: DRIVER_ID,
+          firstName: 'Erika',
+          lastName: 'Muster',
+          email: 'erika@example.com',
+          phone: null,
+          language: 'de',
+          timezone: null,
+          themePreference: 'light',
+          distanceUnit: 'km',
+          priceDisplay: null,
+          isActive: true,
+          emailVerified: true,
+          createdAt: '2024-01-01',
+          billingName: null,
+          billingStreet: 'Hauptstrasse 1',
+          billingCity: 'Berlin',
+          billingState: null,
+          billingZip: '10115',
+          billingCountry: 'Germany',
+        },
+      ]);
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/auth/me',
+        headers: { authorization: `Bearer ${driverToken}` },
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.billingAddress).toEqual({
+        billingName: null,
+        billingStreet: 'Hauptstrasse 1',
+        billingCity: 'Berlin',
+        billingState: null,
+        billingZip: '10115',
+        billingCountry: 'Germany',
+      });
+      expect(body).not.toHaveProperty('billingCity');
     });
 
     it('returns account billing for a driver whose fleet bills on account', async () => {
@@ -702,11 +756,13 @@ describe('Portal auth routes - handler logic', () => {
           isActive: true,
           emailVerified: true,
           createdAt: '2024-01-01',
+          ...NO_BILLING_ADDRESS,
         },
       ]);
       vi.mocked(resolveAccountBilling).mockResolvedValueOnce({
         fleetId: 'flt_1',
         fleetName: 'Acme Logistics',
+        recipient: 'fleet',
       });
       const response = await app.inject({
         method: 'GET',
@@ -714,7 +770,11 @@ describe('Portal auth routes - handler logic', () => {
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(200);
-      expect(response.json().billing).toEqual({ mode: 'account', fleetName: 'Acme Logistics' });
+      expect(response.json().billing).toEqual({
+        mode: 'account',
+        fleetName: 'Acme Logistics',
+        invoicedTo: 'fleet',
+      });
       expect(resolveAccountBilling).toHaveBeenCalledWith(expect.anything(), DRIVER_ID);
     });
   });
@@ -876,6 +936,7 @@ describe('Portal auth routes - handler logic', () => {
           isActive: true,
           emailVerified: true,
           createdAt: '2024-01-01',
+          ...NO_BILLING_ADDRESS,
         },
       ]);
       const response = await app.inject({
@@ -1027,6 +1088,7 @@ describe('Portal auth routes - handler logic', () => {
           isActive: true,
           emailVerified: true,
           createdAt: '2024-01-01',
+          ...NO_BILLING_ADDRESS,
         },
       ]);
       const response = await csrfApp.inject({

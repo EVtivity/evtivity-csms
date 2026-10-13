@@ -134,6 +134,8 @@ interface RebillSession {
   billingMode: 'card' | 'account' | null;
   /** The fleet an account session is billed to. */
   billingFleetName: string | null;
+  /** The account session is invoiced to its driver (charging_sessions.member_billed). */
+  memberBilled: boolean;
 }
 
 interface RebillRecord {
@@ -154,7 +156,7 @@ async function loadSession(sessionId: string): Promise<RebillSession | null> {
            s.energy_delivered_wh, st.id AS station_uuid, st.station_id AS station_ocpp_id,
            st.site_id, si.name AS site_name,
            (t.prepaid_balance_cents IS NOT NULL) AS prepaid,
-           s.billing_mode, bf.name AS billing_fleet_name,
+           s.billing_mode, s.member_billed, bf.name AS billing_fleet_name,
            EXISTS (SELECT 1 FROM guest_sessions g WHERE g.charging_session_id = s.id) AS guest_session
     FROM charging_sessions s
     JOIN charging_stations st ON st.id = s.station_id
@@ -191,6 +193,7 @@ async function loadSession(sessionId: string): Promise<RebillSession | null> {
         ? (row.billing_mode as 'card' | 'account')
         : null,
     billingFleetName: (row.billing_fleet_name as string | null) ?? null,
+    memberBilled: row.member_billed === true,
   };
 }
 
@@ -471,6 +474,7 @@ async function notifyRebilled(
         billingMode:
           response.result === 'account' ? 'account' : session.billingMode == null ? null : 'card',
         billedTo: response.result === 'account' ? session.billingFleetName : null,
+        billedToMember: response.result === 'account' && session.memberBilled,
       }),
       ALL_TEMPLATES_DIRS,
       getPubSub(),

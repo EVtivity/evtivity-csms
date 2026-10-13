@@ -39,7 +39,7 @@ function field(record: Record<string, unknown>, key: string): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
-/** The bill-to snapshot of a fleet invoice, or null on a driver invoice. */
+/** The bill-to snapshot of a fleet or member invoice, or null on a driver invoice. */
 export function readBillTo(billTo: unknown): InvoiceBillTo | null {
   if (billTo == null || typeof billTo !== 'object') return null;
   const record = billTo as Record<string, unknown>;
@@ -53,6 +53,8 @@ export function readBillTo(billTo: unknown): InvoiceBillTo | null {
     cityLine !== '' ? cityLine : null,
     field(record, 'state'),
     field(record, 'country'),
+    // A member invoice snapshots the driver's email: it follows the address.
+    field(record, 'email'),
   ].filter((line): line is string => line != null);
   return { name, lines, taxId: field(record, 'taxId') };
 }

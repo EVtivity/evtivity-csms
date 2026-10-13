@@ -56,6 +56,7 @@ const { mockRecordSessionEndRequest, mockAvailableEvseCountSql, mockSqlRaw } = v
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
   recordSessionEndRequest: mockRecordSessionEndRequest,
   availableEvseCountSql: mockAvailableEvseCountSql,
@@ -500,7 +501,7 @@ describe('Portal charger routes - handler logic', () => {
       expect(body.idleFeePricePerMinute).toBe('0.05');
       expect(body.taxRate).toBe('0.08');
       expect(body.taxBasis).toBe('net');
-      expect(body.billing).toEqual({ mode: 'card', fleetName: null });
+      expect(body.billing).toEqual({ mode: 'card', fleetName: null, invoicedTo: null });
     });
 
     it('tells an account driver the session is billed to the fleet', async () => {
@@ -522,14 +523,22 @@ describe('Portal charger routes - handler logic', () => {
           timezone: 'UTC',
         }),
       );
-      vi.mocked(resolveAccountBilling).mockResolvedValue({ fleetId: 'flt_1', fleetName: 'Acme' });
+      vi.mocked(resolveAccountBilling).mockResolvedValue({
+        fleetId: 'flt_1',
+        fleetName: 'Acme',
+        recipient: 'fleet',
+      });
       const response = await app.inject({
         method: 'GET',
         url: '/portal/chargers/CS-001/pricing',
         headers: { authorization: `Bearer ${driverToken}` },
       });
       expect(response.statusCode).toBe(200);
-      expect(response.json().billing).toEqual({ mode: 'account', fleetName: 'Acme' });
+      expect(response.json().billing).toEqual({
+        mode: 'account',
+        fleetName: 'Acme',
+        invoicedTo: 'fleet',
+      });
       expect(resolveAccountBilling).toHaveBeenCalledWith(expect.anything(), DRIVER_ID);
     });
 
@@ -1050,7 +1059,11 @@ describe('Portal charger routes - handler logic', () => {
     }
 
     it('starts an account driver without a payment method or a hold, stamped account', async () => {
-      vi.mocked(resolveAccountBilling).mockResolvedValue({ fleetId: 'flt_1', fleetName: 'Acme' });
+      vi.mocked(resolveAccountBilling).mockResolvedValue({
+        fleetId: 'flt_1',
+        fleetName: 'Acme',
+        recipient: 'fleet',
+      });
       vi.mocked(db.insert).mockClear();
       setupStartRows([{ id: VALID_SESSION_ID }]);
 
@@ -1096,7 +1109,11 @@ describe('Portal charger routes - handler logic', () => {
     }
 
     it('refuses an account start at the fleet credit limit with 402 and creates no session', async () => {
-      vi.mocked(resolveAccountBilling).mockResolvedValue({ fleetId: 'flt_1', fleetName: 'Acme' });
+      vi.mocked(resolveAccountBilling).mockResolvedValue({
+        fleetId: 'flt_1',
+        fleetName: 'Acme',
+        recipient: 'fleet',
+      });
       const check = creditCheck('reached', 10_000);
       vi.mocked(checkFleetCreditLimit).mockResolvedValue(check);
       vi.mocked(db.insert).mockClear();
@@ -1122,7 +1139,11 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('refuses an account start when running sessions reserve the rest of the limit (plan S8)', async () => {
-      vi.mocked(resolveAccountBilling).mockResolvedValue({ fleetId: 'flt_1', fleetName: 'Acme' });
+      vi.mocked(resolveAccountBilling).mockResolvedValue({
+        fleetId: 'flt_1',
+        fleetName: 'Acme',
+        recipient: 'fleet',
+      });
       vi.mocked(checkFleetCreditLimit).mockResolvedValue(creditCheck('ok', 2000, 0));
       vi.mocked(db.insert).mockClear();
       setupStartRows([{ id: VALID_SESSION_ID }]);
@@ -1140,7 +1161,11 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('starts an account driver at the warning percent and notifies the fleet', async () => {
-      vi.mocked(resolveAccountBilling).mockResolvedValue({ fleetId: 'flt_1', fleetName: 'Acme' });
+      vi.mocked(resolveAccountBilling).mockResolvedValue({
+        fleetId: 'flt_1',
+        fleetName: 'Acme',
+        recipient: 'fleet',
+      });
       vi.mocked(checkFleetCreditLimit).mockResolvedValue(creditCheck('warning', 8500));
       setupStartRows([{ id: VALID_SESSION_ID }]);
 
@@ -1168,7 +1193,11 @@ describe('Portal charger routes - handler logic', () => {
 
     it('starts an account driver when no payment provider is active', async () => {
       mockActivePaymentProvider.mockResolvedValue(null);
-      vi.mocked(resolveAccountBilling).mockResolvedValue({ fleetId: 'flt_1', fleetName: 'Acme' });
+      vi.mocked(resolveAccountBilling).mockResolvedValue({
+        fleetId: 'flt_1',
+        fleetName: 'Acme',
+        recipient: 'fleet',
+      });
       setupStartRows([{ id: VALID_SESSION_ID }]);
 
       const response = await app.inject({

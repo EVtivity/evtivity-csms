@@ -340,11 +340,34 @@ describe('settleTransactionEnded', () => {
       expect(variablesOf(eventType)).toMatchObject({
         billingMode: 'account',
         billedTo: 'Acme',
+        billedToMember: false,
         notCharged: false,
       });
     }
     expect(notifyChange).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
+  });
+
+  it('member-billed account session: the emails say it is invoiced to the driver', async () => {
+    sqlResults = [
+      [sessionRow],
+      [
+        {
+          ...endedSessionRow('completed'),
+          billing_mode: 'account',
+          member_billed: true,
+          billing_fleet_name: 'Acme',
+        },
+      ],
+      [],
+    ];
+    mockSettleSessionPayment.mockResolvedValue({ mode: 'account', billingFleetId: 'flt-1' });
+
+    await settleTransactionEnded(deps, endedEvent(), attempt);
+
+    for (const eventType of ['session.Completed', 'session.Receipt']) {
+      expect(variablesOf(eventType)).toMatchObject({ billedTo: 'Acme', billedToMember: true });
+    }
   });
 
   it('account with a payment record (operator hold): the emails do not say billed to the fleet', async () => {

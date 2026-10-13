@@ -636,11 +636,13 @@
     "FAVORITE_NOT_FOUND": "找不到最愛項目",
     "FLEET_CREDIT_LIMIT_REACHED": "為您的工作階段付費的車隊已達到信用額度。請聯絡您的車隊管理員。",
     "FLEET_DISABLED": "車隊已停用",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有早於 v0.1.41 的處理程序處於連線狀態。請完成升級後再開啟記帳計費。",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有舊版本的處理程序處於連線狀態。請完成升級後再變更車隊計費。",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "Worker 最近未執行版本檢查，無法確認升級。請檢查 Worker 是否正在執行，然後再變更車隊計費。",
     "FLEET_BILLING_CONTACT_REQUIRED": "自動開立發票和寄送發票電子郵件需要車隊至少有一個帳單聯絡人。",
     "FLEET_INVOICE_PERIOD_EXISTS": "該車隊在此帳期已有發票。請先開立貸項通知單，再重新為該帳期開立發票。",
     "FLEET_INVOICE_NOTHING_TO_BILL": "該車隊在此帳期沒有可開立發票的未計費且有費用的工作階段。",
     "FLEET_HAS_OPEN_BILLING": "此車隊有記帳到其帳戶的工作階段，無法刪除。請改為關閉記帳計費。",
+    "FLEET_HAS_RESERVATIONS": "此車隊有車隊預約，無法刪除。預約將作為歷史記錄保留。",
     "FLEET_NOT_FOUND": "找不到車隊",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "車隊預約已取消",
     "FLEET_RESERVATION_CREATE_FAILED": "建立車隊預約失敗",
@@ -674,6 +676,7 @@
     "INVOICE_NOT_VOIDABLE": "只有草稿發票可以作廢。已開立的發票透過貸項通知單更正",
     "INVOICE_NO_SESSIONS": "所選日期範圍內沒有未開立發票的充電記錄",
     "INVOICE_NO_DRIVER": "此發票沒有可傳送的駕駛員",
+    "INVOICE_NO_DRIVER_EMAIL": "此發票的駕駛員沒有電子郵件地址",
     "INVOICE_NOT_FOUND": "找不到發票",
     "LOAD_NOT_FOUND": "找不到負載",
     "LOCATION_NOT_FOUND": "找不到地點",
@@ -933,7 +936,8 @@
     "managePayments": "管理支付方式",
     "totalCases": "個客服案件",
     "viewAllCases": "查看全部客服案件",
-    "homeScreen": "主畫面"
+    "homeScreen": "主畫面",
+    "invoices": "發票"
   },
   "rfid": {
     "addCard": "新增 RFID 卡",
@@ -1143,6 +1147,60 @@
     },
     "sessionLine": "{{fleet}}：{{state}}",
     "paymentMethodsNote": "您的充電費用記帳到 {{fleet}}，充電無需支付方式。",
-    "noMethods": "尚無支付方式。"
+    "noMethods": "尚無支付方式。",
+    "billedToYouVia": "透過 {{fleet}} 向您開立發票",
+    "memberStartHint": "此充電工作階段將計入您的每月發票，無需支付方式。",
+    "stateMember": {
+      "unbilled": "尚未開立發票",
+      "invoiced": "已向您開立發票",
+      "paid": "已付款"
+    },
+    "memberSessionLine": "透過 {{fleet}} 向您開立發票：{{state}}",
+    "invoice": "發票",
+    "memberPaymentMethodsNote": "您的充電費用每月透過 {{fleet}} 向您開立發票，充電無需支付方式。"
+  },
+  "billingAddress": {
+    "title": "帳單地址",
+    "description": "顯示在車隊開立給您的發票上。",
+    "nudge": "您的車隊將充電工作階段直接開立發票給您。請新增帳單地址，以便顯示在發票上。",
+    "name": "發票姓名",
+    "nameHelp": "留空則使用您的姓名。",
+    "street": "街道",
+    "city": "城市",
+    "state": "州或地區",
+    "zip": "郵遞區號",
+    "country": "國家",
+    "updated": "帳單地址已儲存。",
+    "updateFailed": "無法儲存帳單地址。"
+  },
+  "invoices": {
+    "title": "發票",
+    "empty": "尚無發票。",
+    "loadFailed": "無法載入您的發票，請重試。",
+    "notFound": "找不到發票。",
+    "invoice": "發票",
+    "creditNote": "貸項通知單",
+    "viaFleet": "透過 {{fleet}}",
+    "period": "帳期",
+    "issued": "開立日期",
+    "due": "到期日",
+    "paidOn": "付款日期",
+    "billTo": "帳單抬頭",
+    "items": "明細",
+    "net": "淨額",
+    "total": "合計",
+    "credits": "貸記發票 {{number}}",
+    "creditedBy": "已由貸項通知單 {{number}} 貸記",
+    "reason": "原因",
+    "downloadPdf": "下載 PDF",
+    "downloadFailed": "無法下載 PDF，請重試。",
+    "backToInvoices": "返回發票",
+    "status": {
+      "draft": "草稿",
+      "issued": "已開立",
+      "paid": "已付款",
+      "void": "已作廢",
+      "credited": "已貸記"
+    }
   }
 }

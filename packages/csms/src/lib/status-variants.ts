@@ -30,9 +30,11 @@ export function reservationStatusVariant(status: string): BadgeVariant {
   }
 }
 
-/** Fleet reservation status -> badge variant (active/partial/cancelled/expired/completed) */
+/** Fleet reservation status -> badge variant (scheduled/active/partial/completed/expired/cancelled) */
 export function fleetReservationStatusVariant(status: string): BadgeVariant {
   switch (status) {
+    case 'scheduled':
+      return 'info';
     case 'active':
       return 'success';
     case 'partial':

@@ -14,6 +14,7 @@ import {
 import { chargeReservationFee } from '@evtivity/payments';
 import type { PaymentContext } from '@evtivity/payments';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { refreshFleetReservationStatuses } from './fleet-reservation-status.js';
 
 /** The row the cancelling UPDATE returns, with the fee terms snapshotted at creation. */
 // A type alias, not an interface: db.execute rows must be Record<string, unknown>.
@@ -25,6 +26,7 @@ type CancelledRow = {
   fee_tax_rate: string | null;
   fee_per_minute: string | null;
   fee_cancellation_cents: number | null;
+  fleet_reservation_id: string | null;
 };
 
 /** Who triggered the cancellation. */
@@ -194,7 +196,8 @@ export async function applyReservationCancellation(
       WHERE ${reservations}.id = old.id
       RETURNING ${reservations}.id, old.status_before, ${reservations}.station_id,
                 ${reservations}.fee_tax_basis, ${reservations}.fee_tax_rate,
-                ${reservations}.fee_per_minute, ${reservations}.fee_cancellation_cents
+                ${reservations}.fee_per_minute, ${reservations}.fee_cancellation_cents,
+                ${reservations}.fleet_reservation_id
     `,
   );
 
@@ -228,6 +231,9 @@ export async function applyReservationCancellation(
     reason: input.reason,
     notes: input.note != null && input.note !== '' ? input.note : null,
   });
+
+  // A fleet slot moves its booking's status (cancelled, partial). Fail-open.
+  await refreshFleetReservationStatuses([winningRow.fleet_reservation_id], input.logger);
 
   // Tell the CSMS so the Reservations page reloads itself. Covers every cancel
   // path (operator, portal, fleet, maintenance). Best-effort.

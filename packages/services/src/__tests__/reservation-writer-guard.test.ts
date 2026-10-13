@@ -53,7 +53,25 @@ function isCommentLine(line: string): boolean {
   return t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
 }
 
-function findWrites(): string[] {
+/** Files allowed to write `fleet_reservations` (P3: the booking status has one writer). */
+const FLEET_ALLOWED: RegExp[] = [
+  // The status helper: the only UPDATE of a booking.
+  /^services\/src\/fleet-reservation-status\.ts$/,
+  // The fleet reservation create route inserts the booking with its first status.
+  /^api\/src\/routes\/fleet-reservations\.ts$/,
+  // Demo and fixture seeds.
+  /^database\/src\/seed[^/]*\.ts$/,
+];
+
+const FLEET_WRITE_PATTERNS: RegExp[] = [
+  /\.(?:insert|update|delete)\(\s*fleetReservations\s*\)/g,
+  /\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+fleet_reservations\b/g,
+];
+
+function findWrites(
+  allowed: RegExp[] = ALLOWED,
+  writePatterns: RegExp[] = WRITE_PATTERNS,
+): string[] {
   const violations: string[] = [];
   for (const pkg of readdirSync(PACKAGES_DIR, { withFileTypes: true })) {
     if (!pkg.isDirectory()) continue;
@@ -68,10 +86,10 @@ function findWrites(): string[] {
     }
     for (const file of files) {
       const rel = relative(PACKAGES_DIR, file).split(sep).join('/');
-      if (ALLOWED.some((re) => re.test(rel))) continue;
+      if (allowed.some((re) => re.test(rel))) continue;
       const text = readFileSync(file, 'utf8');
       const lines = text.split('\n');
-      for (const pattern of WRITE_PATTERNS) {
+      for (const pattern of writePatterns) {
         for (const match of text.matchAll(pattern)) {
           const lineNo = text.slice(0, match.index).split('\n').length;
           if (isCommentLine(lines[lineNo - 1] ?? '')) continue;
@@ -97,5 +115,25 @@ describe('reservation writer guard', () => {
     expect(text.match(WRITE_PATTERNS[0] as RegExp)?.length ?? 0).toBeGreaterThan(0);
     const expiry = readFileSync(join(PACKAGES_DIR, 'services/src/reservation-expiry.ts'), 'utf8');
     expect(expiry.match(WRITE_PATTERNS[1] as RegExp)?.length ?? 0).toBeGreaterThan(0);
+  });
+});
+
+describe('fleet reservation writer guard', () => {
+  it('P3: only the fleet reservation status helper updates fleet_reservations; the create route inserts it', () => {
+    const violations = findWrites(FLEET_ALLOWED, FLEET_WRITE_PATTERNS);
+    expect(
+      violations,
+      `Write the fleet booking status through @evtivity/services/fleet-reservation-status:\n${violations.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('P3: the scan finds the helper and the route (the patterns still match)', () => {
+    const helper = readFileSync(
+      join(PACKAGES_DIR, 'services/src/fleet-reservation-status.ts'),
+      'utf8',
+    );
+    expect(helper.match(FLEET_WRITE_PATTERNS[0] as RegExp)?.length ?? 0).toBeGreaterThan(0);
+    const route = readFileSync(join(PACKAGES_DIR, 'api/src/routes/fleet-reservations.ts'), 'utf8');
+    expect(route.match(FLEET_WRITE_PATTERNS[0] as RegExp)?.length ?? 0).toBe(1);
   });
 });

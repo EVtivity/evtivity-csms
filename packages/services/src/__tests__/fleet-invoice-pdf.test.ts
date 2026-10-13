@@ -81,6 +81,7 @@ function fleetDetail(language: string | null = 'en'): InvoiceDetail {
       driverId: null,
       status: 'issued',
       kind: 'invoice',
+      memberBilled: false,
       creditedInvoiceId: null,
       creditReason: null,
       paidAt: null,
@@ -168,5 +169,81 @@ describe('generateInvoicePdf for a fleet invoice', () => {
     expect(text).toContain('Zeitraum');
     expect(text).toContain('Zwischensumme Anna Berg');
     expect(text).toContain('USt-IdNr.: DE123456789');
+  });
+});
+
+function memberDetail(
+  options: { address?: boolean; kind?: 'invoice' | 'credit_note' } = {},
+): InvoiceDetail {
+  const detail = fleetDetail('de');
+  const withAddress = options.address !== false;
+  return {
+    ...detail,
+    invoice: {
+      ...detail.invoice,
+      driverId: 'drv_a',
+      memberBilled: true,
+      kind: options.kind ?? 'invoice',
+      billTo: {
+        name: 'Anna Berg',
+        street: withAddress ? 'Lindenweg 3' : null,
+        city: withAddress ? 'Bremen' : null,
+        state: null,
+        zip: withAddress ? '28195' : null,
+        country: withAddress ? 'Deutschland' : null,
+        taxId: null,
+        email: 'anna@fleet.test',
+      },
+      subtotalCents: 1500,
+      taxCents: 285,
+      totalCents: 1785,
+    },
+    lineItems: [
+      line(1, 'ses_1', 'drv_a', 'Anna Berg', 1000),
+      line(2, 'ses_2', 'drv_a', 'Anna Berg', 500),
+    ],
+    taxBreakdown: [{ taxRate: 0.19, netCents: 1500, taxCents: 285, grossCents: 1785 }],
+  };
+}
+
+describe('generateInvoicePdf for a member invoice', () => {
+  it('reads the driver email after the address lines', () => {
+    expect(readBillTo(memberDetail().invoice.billTo)).toEqual({
+      name: 'Anna Berg',
+      lines: ['Lindenweg 3', '28195 Bremen', 'Deutschland', 'anna@fleet.test'],
+      taxId: null,
+    });
+    expect(readBillTo(memberDetail({ address: false }).invoice.billTo)).toEqual({
+      name: 'Anna Berg',
+      lines: ['anna@fleet.test'],
+      taxId: null,
+    });
+  });
+
+  it('prints the driver bill-to, the fleet charged and the lines without driver groups', async () => {
+    const text = pdfText(await generateInvoicePdf(memberDetail()));
+    expect(text).toContain('Anna Berg');
+    expect(text).toContain('28195 Bremen');
+    expect(text).toContain('anna@fleet.test');
+    expect(text).toContain('Abgerechnet über das Konto von Acme Logistics');
+    expect(text).not.toContain('Zwischensumme Anna Berg');
+    expect(text).not.toContain('USt-IdNr.');
+  });
+
+  it('prints name and email when the driver has no address', async () => {
+    const text = pdfText(await generateInvoicePdf(memberDetail({ address: false })));
+    expect(text).toContain('anna@fleet.test');
+    expect(text).not.toContain('Bremen');
+  });
+
+  it('names the fleet on the credit note of a member invoice', async () => {
+    const text = pdfText(await generateInvoicePdf(memberDetail({ kind: 'credit_note' })));
+    expect(text).toContain('Abgerechnet über das Konto von Acme Logistics');
+    expect(text).not.toContain('Zwischensumme Anna Berg');
+  });
+
+  it('leaves the fleet line off a fleet invoice', async () => {
+    const text = pdfText(await generateInvoicePdf(fleetDetail('de')));
+    expect(text).not.toContain('Abgerechnet über das Konto');
   });
 });

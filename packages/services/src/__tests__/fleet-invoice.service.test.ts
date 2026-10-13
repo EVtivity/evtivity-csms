@@ -11,6 +11,11 @@ const h = vi.hoisted(() => {
     currency: 'EUR',
     fleet: null as Record<string, unknown> | null,
     candidates: [] as Array<Record<string, unknown>>,
+    // Member-billed sessions (a query with `AND cs.member_billed`).
+    memberCandidates: [] as Array<Record<string, unknown>>,
+    drivers: [] as Array<Record<string, unknown>>,
+    // The live member invoices of the period (the preview's lookup).
+    memberInvoices: [] as Array<Record<string, unknown>>,
     // The live invoice of the period each lookup returns, in order (then the last).
     periodInvoices: [] as Array<Record<string, unknown> | null>,
     statements: [] as string[],
@@ -37,7 +42,13 @@ async function execute(query: SQL): Promise<unknown[]> {
   h.state.statements.push(text);
   h.state.params.push(params);
   if (text.includes('FROM fleets WHERE id')) return h.state.fleet == null ? [] : [h.state.fleet];
-  if (text.includes('FROM charging_sessions cs')) return h.state.candidates;
+  if (text.includes('FROM charging_sessions cs')) {
+    return text.includes('AND cs.member_billed') ? h.state.memberCandidates : h.state.candidates;
+  }
+  if (text.includes('FROM drivers WHERE id IN')) {
+    return h.state.drivers.filter((d) => params.includes(d['id']));
+  }
+  if (text.includes('FROM invoices i WHERE')) return h.state.memberInvoices;
   if (text.includes('FROM invoices WHERE fleet_id')) {
     const next =
       h.state.periodInvoices.length > 1
@@ -82,8 +93,11 @@ vi.mock('../invoice.service.js', async (importOriginal) => {
 import { insertInvoiceInTransaction } from '../invoice.service.js';
 import type { InsertInvoiceInput } from '../invoice.service.js';
 import {
+  billToFromDriver,
   billToFromFleet,
   createFleetInvoice,
+  createMemberInvoice,
+  driverHasBillingAddress,
   fleetInvoicePeriod,
   fleetSessionLines,
   planFleetInvoice,
@@ -143,12 +157,29 @@ const fleetRow = {
   payment_terms_days: 14,
 };
 
+const driverRow = {
+  id: 'drv_a',
+  first_name: 'Anna',
+  last_name: 'Berg',
+  email: 'anna@fleet.test',
+  language: 'de',
+  billing_name: null,
+  billing_street: 'Lindenweg 3',
+  billing_city: 'Bremen',
+  billing_state: null,
+  billing_zip: '28195',
+  billing_country: 'Germany',
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   h.state.timeZone = 'UTC';
   h.state.currency = 'EUR';
   h.state.fleet = { ...fleetRow };
   h.state.candidates = [];
+  h.state.memberCandidates = [];
+  h.state.drivers = [{ ...driverRow }];
+  h.state.memberInvoices = [];
   h.state.periodInvoices = [null];
   h.state.statements = [];
   h.state.params = [];
@@ -337,6 +368,8 @@ describe('createFleetInvoice', () => {
     const text = h.state.statements[index] ?? '';
     expect(text).toContain("cs.billing_mode = 'account'");
     expect(text).toContain('cs.billing_fleet_id = $1');
+    // Member-billed sessions go on the member's own invoice, never the fleet's.
+    expect(text).toContain('NOT cs.member_billed');
     expect(text).toContain("cs.status = 'completed'");
     expect(text).toContain('cs.invoice_id IS NULL');
     expect(text).toContain(
@@ -372,8 +405,18 @@ describe('createFleetInvoice', () => {
     const guard = vi.mocked(insertInvoiceInTransaction).mock.calls[0]?.[1].sessionClaimGuard;
     const { text, params } = render(guard as SQL);
     expect(text).toContain("= 'account'");
+    expect(text).toMatch(/AND NOT \$\d+ AND NOT EXISTS/);
     expect(text).toContain('NOT EXISTS (SELECT 1 FROM payment_records fpr');
     expect(params).toContain('flt_1');
+    expect(params).toContain('chargingSessions.memberBilled');
+  });
+
+  it('looks for a live fleet invoice of the period only, never a member invoice', async () => {
+    h.state.candidates = [candidateRow(candidate())];
+    await createFleetInvoice('flt_1', '2026-09', now);
+    const lookups = h.state.statements.filter((s) => s.includes('FROM invoices WHERE fleet_id'));
+    expect(lookups.length).toBeGreaterThan(0);
+    for (const text of lookups) expect(text).toContain('AND NOT member_billed');
   });
 
   it('locks the fleet and refuses a live invoice of the period inside the transaction', async () => {
@@ -516,6 +559,238 @@ describe('previewFleetInvoice', () => {
     });
     expect(preview.drivers).toHaveLength(1);
     expect(preview.excluded[0]).toMatchObject({ sessionId: 'ses_zero', reason: 'zero_cost' });
+  });
+});
+
+describe('billToFromDriver', () => {
+  const driver = {
+    id: 'drv_a',
+    firstName: 'Anna',
+    lastName: 'Berg',
+    email: ' anna@fleet.test ',
+    language: 'de',
+    billingName: null,
+    billingStreet: 'Lindenweg 3',
+    billingCity: 'Bremen',
+    billingState: null,
+    billingZip: '28195',
+    billingCountry: 'Germany',
+  };
+
+  it('takes the driver name, the billing address and the email, never a tax ID', () => {
+    expect(billToFromDriver(driver)).toEqual({
+      name: 'Anna Berg',
+      street: 'Lindenweg 3',
+      city: 'Bremen',
+      state: null,
+      zip: '28195',
+      country: 'Germany',
+      taxId: null,
+      email: 'anna@fleet.test',
+    });
+    expect(driverHasBillingAddress(driver)).toBe(true);
+  });
+
+  it('prefers the billing name and keeps name and email without an address', () => {
+    const bare = {
+      ...driver,
+      billingName: ' Anna Berg-Meyer ',
+      billingStreet: ' ',
+      billingCity: null,
+      billingZip: null,
+      billingCountry: null,
+    };
+    expect(billToFromDriver(bare)).toMatchObject({
+      name: 'Anna Berg-Meyer',
+      street: null,
+      city: null,
+      email: 'anna@fleet.test',
+    });
+    expect(driverHasBillingAddress(bare)).toBe(false);
+  });
+
+  it('falls back to the email for a driver without a name', () => {
+    expect(billToFromDriver({ ...driver, firstName: '', lastName: '' }).name).toBe(
+      'anna@fleet.test',
+    );
+  });
+});
+
+describe('createMemberInvoice', () => {
+  const now = new Date('2026-10-08T10:00:00Z');
+
+  it("issues the driver's invoice with the driver's bill-to, language and the fleet's terms", async () => {
+    h.state.memberCandidates = [
+      candidateRow(candidate()),
+      candidateRow(candidate({ id: 'ses_2' })),
+    ];
+    await createMemberInvoice('flt_1', 'drv_a', '2026-09', now);
+    const input = vi.mocked(insertInvoiceInTransaction).mock.calls[0]?.[1];
+    expect(input).toMatchObject({
+      driverId: 'drv_a',
+      chargedCents: 2380,
+      status: 'issued',
+      paymentTermsDays: 14,
+      fleet: {
+        fleetId: 'flt_1',
+        periodStart: '2026-09-01',
+        language: 'de',
+        memberBilled: true,
+        billTo: { name: 'Anna Berg', city: 'Bremen', taxId: null, email: 'anna@fleet.test' },
+      },
+    });
+  });
+
+  it("selects and locks only the driver's member-billed sessions under the fleet lock", async () => {
+    h.state.memberCandidates = [candidateRow(candidate())];
+    await createMemberInvoice('flt_1', 'drv_a', '2026-09', now, { periodOnly: true });
+    const lockIndex = h.state.statements.findIndex((s) =>
+      /FROM fleets WHERE id = \$1 FOR UPDATE/.test(s),
+    );
+    const index = h.state.statements.findIndex((s) => s.includes('FROM charging_sessions cs'));
+    expect(index).toBeGreaterThan(lockIndex);
+    const text = h.state.statements[index] ?? '';
+    expect(text).toContain('AND cs.member_billed AND cs.driver_id = $2');
+    expect(text).toContain('FOR UPDATE OF cs');
+    expect(text).toContain('cs.ended_at >= $4::timestamptz');
+    expect(h.state.params[index]?.slice(0, 2)).toEqual(['flt_1', 'drv_a']);
+  });
+
+  it("claims only the driver's member-billed sessions of the fleet", async () => {
+    h.state.memberCandidates = [candidateRow(candidate())];
+    await createMemberInvoice('flt_1', 'drv_a', '2026-09', now);
+    const guard = vi.mocked(insertInvoiceInTransaction).mock.calls[0]?.[1].sessionClaimGuard;
+    const { text, params } = render(guard as SQL);
+    expect(text).toContain("= 'account'");
+    expect(text).toContain('NOT EXISTS (SELECT 1 FROM payment_records fpr');
+    expect(text).not.toMatch(/AND NOT \$\d+ AND/);
+    expect(params).toEqual(
+      expect.arrayContaining(['flt_1', 'drv_a', 'chargingSessions.memberBilled']),
+    );
+  });
+
+  it('looks up the live member invoice of the driver and period', async () => {
+    h.state.periodInvoices = [{ id: 'inv_1', invoice_number: 'INV-202610-0001', status: 'issued' }];
+    h.state.memberCandidates = [candidateRow(candidate())];
+    await expect(createMemberInvoice('flt_1', 'drv_a', '2026-09', now)).rejects.toMatchObject({
+      code: 'FLEET_INVOICE_PERIOD_EXISTS',
+      statusCode: 409,
+      message: expect.stringContaining('The driver already has invoice INV-202610-0001'),
+    });
+    const lookup = h.state.statements.find((s) => s.includes('FROM invoices WHERE fleet_id'));
+    expect(lookup).toContain('AND driver_id = $2');
+    expect(lookup).toMatch(/AND member_billed LIMIT/);
+    expect(insertInvoiceInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('maps a violation of the member period index to 409', async () => {
+    h.state.memberCandidates = [candidateRow(candidate())];
+    h.state.periodInvoices = [
+      null,
+      null,
+      { id: 'inv_2', invoice_number: 'INV-202610-0002', status: 'issued' },
+    ];
+    vi.mocked(insertInvoiceInTransaction).mockRejectedValueOnce(
+      Object.assign(new Error('duplicate key'), {
+        code: '23505',
+        constraint_name: 'uq_invoices_member_period',
+      }),
+    );
+    await expect(createMemberInvoice('flt_1', 'drv_a', '2026-09', now)).rejects.toMatchObject({
+      code: 'FLEET_INVOICE_PERIOD_EXISTS',
+    });
+  });
+
+  it('does not map the fleet period index for a member invoice', async () => {
+    h.state.memberCandidates = [candidateRow(candidate())];
+    const violation = Object.assign(new Error('duplicate key'), {
+      code: '23505',
+      constraint_name: 'uq_invoices_fleet_period',
+    });
+    vi.mocked(insertInvoiceInTransaction).mockRejectedValueOnce(violation);
+    await expect(createMemberInvoice('flt_1', 'drv_a', '2026-09', now)).rejects.toBe(violation);
+  });
+
+  it('refuses an unknown driver and a driver with nothing to bill, without numbering', async () => {
+    await expect(createMemberInvoice('flt_1', 'drv_x', '2026-09', now)).rejects.toMatchObject({
+      code: 'DRIVER_NOT_FOUND',
+      statusCode: 404,
+    });
+    await expect(createMemberInvoice('flt_1', 'drv_a', '2026-09', now)).rejects.toMatchObject({
+      code: 'FLEET_INVOICE_NOTHING_TO_BILL',
+      statusCode: 409,
+    });
+    expect(insertInvoiceInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('falls back to English for a driver language without invoice labels', async () => {
+    h.state.drivers = [{ ...driverRow, language: 'fr' }];
+    h.state.memberCandidates = [candidateRow(candidate())];
+    await createMemberInvoice('flt_1', 'drv_a', '2026-09', now);
+    expect(vi.mocked(insertInvoiceInTransaction).mock.calls[0]?.[1].fleet?.language).toBe('en');
+  });
+
+  it('never marks a fleet invoice as member billed', async () => {
+    h.state.candidates = [candidateRow(candidate())];
+    await createFleetInvoice('flt_1', '2026-09', now);
+    expect(vi.mocked(insertInvoiceInTransaction).mock.calls[0]?.[1].fleet?.memberBilled).toBe(
+      false,
+    );
+  });
+});
+
+describe('previewFleetInvoice members', () => {
+  it('lists each member with billable totals, the live invoice and missing contact data', async () => {
+    h.state.drivers = [
+      { ...driverRow },
+      {
+        ...driverRow,
+        id: 'drv_z',
+        first_name: 'Zoe',
+        last_name: 'Ng',
+        email: null,
+        billing_street: null,
+        billing_city: null,
+      },
+    ];
+    h.state.memberCandidates = [
+      candidateRow(candidate()),
+      candidateRow(candidate({ id: 'ses_z', driverId: 'drv_z', driverName: 'Zoe Ng' })),
+    ];
+    h.state.memberInvoices = [
+      { driver_id: 'drv_z', id: 'inv_5', invoice_number: 'INV-202610-0005', status: 'issued' },
+    ];
+    const preview = await previewFleetInvoice('flt_1', '2026-09');
+    expect(preview.sessionCount).toBe(0);
+    expect(preview.members).toEqual([
+      expect.objectContaining({
+        driverId: 'drv_a',
+        driverName: 'Anna Berg',
+        sessionCount: 1,
+        totalCents: 1190,
+        existingInvoice: null,
+        hasEmail: true,
+        hasAddress: true,
+      }),
+      expect.objectContaining({
+        driverId: 'drv_z',
+        driverName: 'Zoe Ng',
+        sessionCount: 1,
+        existingInvoice: { id: 'inv_5', invoiceNumber: 'INV-202610-0005', status: 'issued' },
+        hasEmail: false,
+        hasAddress: false,
+      }),
+    ]);
+  });
+
+  it('lists a member with a live invoice and nothing left to bill', async () => {
+    h.state.memberInvoices = [
+      { driver_id: 'drv_a', id: 'inv_5', invoice_number: 'INV-202610-0005', status: 'paid' },
+    ];
+    const preview = await previewFleetInvoice('flt_1', '2026-09');
+    expect(preview.members).toEqual([
+      expect.objectContaining({ driverId: 'drv_a', sessionCount: 0, totalCents: 0 }),
+    ]);
   });
 });
 

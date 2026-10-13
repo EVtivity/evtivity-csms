@@ -884,6 +884,7 @@ async function sendGuestReceipt(
         notCharged: false,
         billingMode: null,
         billedTo: null,
+        billedToMember: false,
       }),
       deps.templatesDirs,
     );

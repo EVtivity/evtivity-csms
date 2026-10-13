@@ -10,7 +10,7 @@ import {
 } from '@evtivity/lib/currency';
 import { formatNumber as formatLocaleNumber } from '@evtivity/lib/number';
 import { formatTaxRatePercent } from '@evtivity/lib/price-display';
-import { formatDateTime } from '@evtivity/lib/timezone';
+import { formatDateTime, formatDate as formatCalendarDate } from '@evtivity/lib/timezone';
 import i18next from 'i18next';
 
 export function cn(...inputs: ClassValue[]): string {
@@ -70,6 +70,21 @@ export function formatDate(date: string | Date | null | undefined, timezone?: st
     date,
     timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
     { dateStyle: 'medium', timeStyle: 'short' },
+    uiLocale(),
+  );
+}
+
+/**
+ * Format a day in the UI language, e.g. "Mar 5, 2026" (en) or "05.03.2026" (de). A calendar
+ * date ("2026-03-05", an invoice period) is shown as written, whatever the time zone.
+ */
+export function formatDay(date: string | Date | null | undefined, timezone?: string): string {
+  if (date == null) return 'n/a';
+  const calendarDate = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date);
+  return formatCalendarDate(
+    date,
+    calendarDate ? 'UTC' : (timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone),
+    undefined,
     uiLocale(),
   );
 }

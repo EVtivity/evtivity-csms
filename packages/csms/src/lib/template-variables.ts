@@ -85,7 +85,13 @@ export const DRIVER_TOKEN_EVENTS = [
 
 export const DRIVER_MFA_EVENTS = ['mfa.VerificationCode'] as const;
 
-export const DRIVER_INVOICE_EVENTS = ['invoice.Sent', 'invoice.CreditNote'] as const;
+export const DRIVER_INVOICE_EVENTS = [
+  'invoice.Sent',
+  'invoice.CreditNote',
+  'invoice.MemberInvoice',
+  'invoice.MemberCreditNote',
+  'invoice.MemberOverdue',
+] as const;
 
 export const DRIVER_WATCH_EVENTS = ['watch.StationAvailable'] as const;
 
@@ -440,6 +446,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
       description:
         'Fleet the session is billed to, no card charged (charge on account); empty otherwise, use with #if',
     },
+    {
+      name: 'billedToMember',
+      description:
+        'The account session is invoiced to the driver each month, not to the fleet; use with #if',
+    },
   ],
   'session.Faulted': [
     { name: 'firstName', description: 'Driver first name' },
@@ -737,6 +748,11 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
       description:
         'Fleet the session is billed to, no card charged (charge on account); empty otherwise, use with #if',
     },
+    {
+      name: 'billedToMember',
+      description:
+        'The account session is invoiced to the driver each month, not to the fleet; use with #if',
+    },
   ],
   'invoice.Sent': [
     { name: 'firstName', description: 'Driver first name' },
@@ -771,6 +787,71 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
       description:
         'The cancelled invoice was already paid; the refund is made separately. Use with #if',
     },
+    { name: 'companyName', description: 'Company name' },
+  ],
+  'invoice.MemberInvoice': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'fleetName', description: 'Fleet the sessions are charged on account of' },
+    { name: 'invoiceNumber', description: 'Invoice number (INV-YYYYMM-NNNN)' },
+    {
+      name: 'periodLabel',
+      description: 'Billed month in the invoice language (e.g. September 2026)',
+    },
+    { name: 'sessionCount', description: 'Number of charging sessions on the invoice' },
+    { name: 'issuedAt', description: 'Issued timestamp' },
+    { name: 'dueAt', description: 'Due timestamp' },
+    {
+      name: 'total',
+      description: 'Invoice total with currency, in the driver language (e.g. $12.50)',
+    },
+    { name: 'totalCents', description: 'Invoice total in cents' },
+    { name: 'currency', description: 'Currency code' },
+    { name: 'companyName', description: 'Company name' },
+  ],
+  'invoice.MemberCreditNote': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'fleetName', description: 'Fleet the sessions are charged on account of' },
+    { name: 'creditNoteNumber', description: 'Credit note number (CN-YYYYMM-NNNN)' },
+    { name: 'invoiceNumber', description: 'Number of the invoice the credit note cancels' },
+    {
+      name: 'periodLabel',
+      description: 'Billed month in the invoice language (e.g. September 2026)',
+    },
+    { name: 'creditReason', description: 'Reason the operator gave for the credit note' },
+    { name: 'issuedAt', description: 'Issued timestamp of the credit note' },
+    {
+      name: 'total',
+      description: 'Amount credited with currency, in the driver language (e.g. $12.50)',
+    },
+    { name: 'totalCents', description: 'Amount credited in cents' },
+    { name: 'currency', description: 'Currency code' },
+    {
+      name: 'wasPaid',
+      description:
+        'The cancelled invoice was already paid; the refund is made separately. Use with #if',
+    },
+    { name: 'companyName', description: 'Company name' },
+  ],
+  'invoice.MemberOverdue': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'fleetName', description: 'Fleet the sessions are charged on account of' },
+    { name: 'invoiceNumber', description: 'Number of the overdue invoice (INV-YYYYMM-NNNN)' },
+    {
+      name: 'periodLabel',
+      description: 'Billed month in the invoice language (e.g. September 2026)',
+    },
+    { name: 'sessionCount', description: 'Number of charging sessions on the invoice' },
+    { name: 'issuedAt', description: 'Issued timestamp' },
+    { name: 'dueAt', description: 'Due timestamp (passed)' },
+    {
+      name: 'total',
+      description: 'Amount due with currency, in the driver language (e.g. $12.50)',
+    },
+    { name: 'totalCents', description: 'Amount due in cents' },
+    { name: 'currency', description: 'Currency code' },
     { name: 'companyName', description: 'Company name' },
   ],
   'watch.StationAvailable': [
@@ -846,6 +927,15 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     {
       name: 'accountBilling',
       description: 'Whether the driver sessions are now billed to a fleet; use with #if',
+    },
+    {
+      name: 'invoicedTo',
+      description:
+        'Who now gets the monthly invoice for the driver sessions: fleet, member (the driver), or empty for card',
+    },
+    {
+      name: 'invoicedToMember',
+      description: 'The driver now gets the monthly invoice for their sessions; use with #if',
     },
   ],
   'prepaid.CreditExhausted': [
@@ -998,16 +1088,21 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'fleetCount', description: 'Number of fleets in this notice' },
     { name: 'fleetNames', description: 'Names of the fleets in this notice, comma-separated' },
     {
+      name: 'memberCount',
+      description: 'Number of member invoices (invoices to a driver of a fleet) in this notice',
+    },
+    {
       name: 'issuedNotEmailed',
       description:
-        'Fleets whose invoice was issued but not emailed: "Fleet (invoice number): last error", separated by "; " (empty when none)',
+        'Invoices issued but not emailed: "Fleet (invoice number): last error", or "Fleet, Driver (invoice number): last error" for a member invoice, separated by "; " (empty when none)',
     },
-    { name: 'issuedNotEmailedCount', description: 'Number of fleets issued but not emailed' },
+    { name: 'issuedNotEmailedCount', description: 'Number of invoices issued but not emailed' },
     {
       name: 'notInvoiced',
-      description: 'Fleets not invoiced: "Fleet: last error", separated by "; " (empty when none)',
+      description:
+        'Not invoiced: "Fleet: last error", or "Fleet, Driver: last error" for a member invoice, separated by "; " (empty when none)',
     },
-    { name: 'notInvoicedCount', description: 'Number of fleets not invoiced' },
+    { name: 'notInvoicedCount', description: 'Number of invoices not issued' },
     { name: 'companyName', description: 'Company name' },
   ],
   'ai.ProposalDigest': [

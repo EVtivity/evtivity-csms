@@ -2,24 +2,35 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect } from 'vitest';
-import { billedToFleet } from '../fleet-billing';
+import { accountBillingAt } from '../fleet-billing';
 
-const account = { mode: 'account' as const, fleetName: 'Acme' };
-const card = { mode: 'card' as const, fleetName: null };
+const account = { mode: 'account' as const, fleetName: 'Acme', invoicedTo: 'fleet' as const };
+const member = { mode: 'account' as const, fleetName: 'Acme', invoicedTo: 'member' as const };
+const card = { mode: 'card' as const, fleetName: null, invoicedTo: null };
 
-describe('billedToFleet', () => {
+describe('accountBillingAt', () => {
   it('uses the charger pricing once it is loaded', () => {
-    expect(billedToFleet({ billing: account }, card)).toBe('Acme');
-    expect(billedToFleet({ billing: card }, account)).toBeNull();
+    expect(accountBillingAt({ billing: account }, card)).toEqual({
+      fleetName: 'Acme',
+      invoicedTo: 'fleet',
+    });
+    expect(accountBillingAt({ billing: card }, account)).toBeNull();
   });
 
   it('bills nothing to the fleet at a free vend site (pricing billing null)', () => {
-    expect(billedToFleet({ billing: null }, account)).toBeNull();
+    expect(accountBillingAt({ billing: null }, account)).toBeNull();
   });
 
   it('falls back to the driver profile while the pricing is missing', () => {
-    expect(billedToFleet(undefined, account)).toBe('Acme');
-    expect(billedToFleet(undefined, card)).toBeNull();
-    expect(billedToFleet(undefined, undefined)).toBeNull();
+    expect(accountBillingAt(undefined, account)?.fleetName).toBe('Acme');
+    expect(accountBillingAt(undefined, card)).toBeNull();
+    expect(accountBillingAt(undefined, undefined)).toBeNull();
+  });
+
+  it('reports a member invoice, and the fleet for a server without invoicedTo', () => {
+    expect(accountBillingAt({ billing: member }, card)?.invoicedTo).toBe('member');
+    expect(
+      accountBillingAt({ billing: { mode: 'account', fleetName: 'Acme' } }, undefined)?.invoicedTo,
+    ).toBe('fleet');
   });
 });

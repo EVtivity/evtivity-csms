@@ -93,6 +93,17 @@ const mockSendCommand = vi.fn();
 vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: (...args: unknown[]) => mockSendCommand(...args),
 }));
+const mockSyncFleetStatus = vi.fn().mockResolvedValue('cancelled');
+const mockRefreshFleetStatuses = vi.fn().mockResolvedValue(undefined);
+vi.mock('@evtivity/services/fleet-reservation-status', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@evtivity/services/fleet-reservation-status')>();
+  return {
+    ...actual,
+    syncFleetReservationStatus: (...args: unknown[]) => mockSyncFleetStatus(...args),
+    refreshFleetReservationStatuses: (...args: unknown[]) => mockRefreshFleetStatuses(...args),
+  };
+});
 const mockApplyCancellation = vi.fn();
 vi.mock('@evtivity/services/reservation-cancel', () => ({
   applyReservationCancellation: (...args: unknown[]) => mockApplyCancellation(...args),
@@ -306,6 +317,11 @@ describe('Fleet reservation routes', () => {
       );
       // A fleet create does not send the driver a reservation.Created notice.
       expect(mockNotify).not.toHaveBeenCalled();
+      // The stored booking status follows the slots (one writer, P3).
+      expect(mockRefreshFleetStatuses).toHaveBeenCalledWith(
+        [VALID_FLEET_RES_ID],
+        expect.anything(),
+      );
     });
 
     it('TC-RES-20: rejects a slot the service refuses with its message', async () => {
@@ -613,6 +629,7 @@ describe('Fleet reservation routes', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ status: 'cancelled', cancelledCount: 2 });
+      expect(mockSyncFleetStatus).toHaveBeenCalledWith(VALID_FLEET_RES_ID);
       expect(mockApplyCancellation).toHaveBeenCalledWith(
         expect.objectContaining({
           reservationDbId: 'rsv_1',

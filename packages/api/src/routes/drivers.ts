@@ -14,6 +14,7 @@ import {
   resolveDriverPricingSource,
 } from '@evtivity/database';
 import {
+  ACCOUNT_INVOICE_RECIPIENTS,
   drivers,
   driverTokens,
   vehicles,
@@ -42,6 +43,14 @@ import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
 import { reservationsAtSites, sessionsAtSites } from '../lib/session-site-scope.js';
 import * as tokenService from '../services/token.service.js';
 import { getPortalAccess, inviteDriverToPortal } from '../services/driver-portal-access.service.js';
+import {
+  getDriverBillingAddress,
+  updateDriverBillingAddress,
+} from '../services/driver-billing.service.js';
+import {
+  driverBillingAddressBody,
+  driverBillingAddressItem,
+} from '../lib/driver-billing-address-schema.js';
 import { OCPP_TOKEN_TYPES } from './tokens.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { isValidTimezone, UI_LANGUAGES } from '@evtivity/lib';
@@ -109,6 +118,12 @@ const driverBillingItem = z
       .nullable()
       .describe(
         'The fleet new sessions are billed to (the oldest membership in a fleet with account billing that the driver has not opted out of), or null for card',
+      ),
+    invoicedTo: z
+      .enum(ACCOUNT_INVOICE_RECIPIENTS)
+      .nullable()
+      .describe(
+        "Who gets the monthly invoice of the driver's new account sessions: fleet (billingFleet's invoice) or member (the driver's own invoice, via billingFleet); null for card",
       ),
     pricingFleet: fleetRefItem
       .nullable()
@@ -469,6 +484,7 @@ export function driverRoutes(app: FastifyInstance): void {
             billingFleet != null
               ? { id: billingFleet.fleetId, name: billingFleet.fleetName }
               : null,
+          invoicedTo: billingFleet?.recipient ?? null,
           pricingFleet:
             pricing?.source === 'fleet' ? { id: pricing.fleetId, name: pricing.fleetName } : null,
           pricingSource: pricing?.source ?? null,
@@ -505,6 +521,59 @@ export function driverRoutes(app: FastifyInstance): void {
     async (request) => {
       const { id } = request.params as z.infer<typeof driverParams>;
       return inviteDriverToPortal(id, { actor: getAuditActor(request), log: request.log });
+    },
+  );
+
+  app.get(
+    '/drivers/:id/billing-address',
+    {
+      onRequest: [authorize('drivers:read')],
+      schema: {
+        tags: ['Drivers'],
+        summary: 'Get the driver billing address',
+        description:
+          'The bill-to block of the invoices a fleet addresses to each member. A null name prints the first and last name.',
+        operationId: 'getDriverBillingAddress',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(driverParams),
+        response: {
+          200: itemResponse(driverBillingAddressItem),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as z.infer<typeof driverParams>;
+      return getDriverBillingAddress(id);
+    },
+  );
+
+  app.patch(
+    '/drivers/:id/billing-address',
+    {
+      onRequest: [authorize('drivers:write')],
+      schema: {
+        tags: ['Drivers'],
+        summary: 'Update the driver billing address',
+        description:
+          'Sets the bill-to block of the invoices a fleet addresses to each member. Fields left out keep their value; null or a blank string clears a field. A change is audited (billing_address_updated with the changed fields); a request that changes nothing is not. The driver can edit the same address in the portal.',
+        operationId: 'updateDriverBillingAddress',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(driverParams),
+        body: zodSchema(driverBillingAddressBody),
+        response: {
+          200: itemResponse(driverBillingAddressItem),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+        },
+      },
+    },
+    async (request) => {
+      const { id } = request.params as z.infer<typeof driverParams>;
+      const body = request.body as z.infer<typeof driverBillingAddressBody>;
+      return updateDriverBillingAddress(id, body, {
+        actor: getAuditActor(request),
+        log: request.log,
+      });
     },
   );
 

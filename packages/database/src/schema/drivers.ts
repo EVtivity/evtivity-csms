@@ -58,6 +58,15 @@ export const drivers = pgTable(
     isActive: boolean('is_active').notNull().default(true),
     emailVerified: boolean('email_verified').notNull().default(false),
     lastNotificationReadAt: timestamp('last_notification_read_at', { withTimezone: true }),
+    // The driver's billing address, the bill-to block of a member invoice (a
+    // fleet that invoices each member, features/fleet-billing.md). Null name:
+    // first and last name. Edited by the driver and the operator.
+    billingName: varchar('billing_name', { length: 255 }),
+    billingStreet: varchar('billing_street', { length: 255 }),
+    billingCity: varchar('billing_city', { length: 100 }),
+    billingState: varchar('billing_state', { length: 100 }),
+    billingZip: varchar('billing_zip', { length: 20 }),
+    billingCountry: varchar('billing_country', { length: 100 }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -211,6 +220,14 @@ export const vehicles = pgTable(
   (table) => [index('idx_vehicles_driver_id').on(table.driverId)],
 );
 
+/**
+ * Who a fleet's account invoices are addressed to: the fleet (one invoice per
+ * month to the billing contacts) or each member (one invoice per member per
+ * month to the driver). fleets.account_invoice_recipient.
+ */
+export const ACCOUNT_INVOICE_RECIPIENTS = ['fleet', 'member'] as const;
+export type AccountInvoiceRecipient = (typeof ACCOUNT_INVOICE_RECIPIENTS)[number];
+
 export const fleets = pgTable(
   'fleets',
   {
@@ -222,6 +239,12 @@ export const fleets = pgTable(
     // Charge on account: the members' sessions are billed to the fleet (no card,
     // no hold). Off: the members pay by card. See features/fleet-billing.md.
     accountBillingEnabled: boolean('account_billing_enabled').notNull().default(false),
+    // Who the account invoices go to ('fleet' or 'member'). The members'
+    // sessions are stamped with it at start (charging_sessions.member_billed).
+    accountInvoiceRecipient: varchar('account_invoice_recipient', { length: 8 })
+      .$type<AccountInvoiceRecipient>()
+      .notNull()
+      .default('fleet'),
     // Fleet billing profile (who the fleet invoice goes to and how). Written
     // only by updateFleetBillingProfile in fleet.service.ts.
     billingContactEmails: text('billing_contact_emails')
@@ -265,6 +288,10 @@ export const fleets = pgTable(
     check(
       'fleets_credit_limit_warning_percent_check',
       sql`${table.creditLimitWarningPercent} BETWEEN 1 AND 99`,
+    ),
+    check(
+      'fleets_account_invoice_recipient_check',
+      sql`${table.accountInvoiceRecipient} IN ('fleet', 'member')`,
     ),
   ],
 );
@@ -325,6 +352,37 @@ export const fleetInvoiceRunFailures = pgTable(
       columns: [table.fleetId, table.periodStart],
     }),
     index('idx_fleet_invoice_run_failures_unreported')
+      .on(table.failedAt)
+      .where(sql`${table.reportedAt} IS NULL`),
+  ],
+);
+
+/**
+ * One row per fleet, driver and month (system timezone) whose scheduled member
+ * invoice job failed for good, as fleet_invoice_run_failures is per fleet. A
+ * table of its own because v0.1.45 upserts on that table's primary key.
+ */
+export const fleetMemberInvoiceRunFailures = pgTable(
+  'fleet_member_invoice_run_failures',
+  {
+    fleetId: text('fleet_id')
+      .notNull()
+      .references(() => fleets.id, { onDelete: 'cascade' }),
+    driverId: text('driver_id')
+      .notNull()
+      .references(() => drivers.id, { onDelete: 'cascade' }),
+    periodStart: date('period_start').notNull(),
+    invoiceNumber: text('invoice_number'),
+    errorMessage: text('error_message').notNull(),
+    failedAt: timestamp('failed_at', { withTimezone: true }).notNull().defaultNow(),
+    reportedAt: timestamp('reported_at', { withTimezone: true }),
+  },
+  (table) => [
+    primaryKey({
+      name: 'fleet_member_invoice_run_failures_pkey',
+      columns: [table.fleetId, table.driverId, table.periodStart],
+    }),
+    index('idx_fleet_member_invoice_run_failures_unreported')
       .on(table.failedAt)
       .where(sql`${table.reportedAt} IS NULL`),
   ],

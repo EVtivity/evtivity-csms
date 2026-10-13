@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { pgTable, text, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
+import { pgTable, text, timestamp, jsonb, index, check } from 'drizzle-orm/pg-core';
 import { createId } from '../lib/id.js';
 import { fleets } from './drivers.js';
 import { users } from './identity.js';
@@ -16,6 +17,8 @@ export const fleetReservations = pgTable(
       .notNull()
       .references(() => fleets.id),
     name: text('name'),
+    // Derived from the slots by @evtivity/services fleet-reservation-status, the
+    // only writer after the insert. completed, expired and cancelled are final.
     status: text('status').notNull().default('active'),
     startsAt: timestamp('starts_at', { withTimezone: true }),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
@@ -27,5 +30,9 @@ export const fleetReservations = pgTable(
   (table) => [
     index('idx_fleet_reservations_fleet_id').on(table.fleetId),
     index('idx_fleet_reservations_status').on(table.status),
+    check(
+      'fleet_reservations_status_check',
+      sql`${table.status} IN ('scheduled', 'active', 'partial', 'completed', 'expired', 'cancelled')`,
+    ),
   ],
 );

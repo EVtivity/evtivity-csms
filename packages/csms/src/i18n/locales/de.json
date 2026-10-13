@@ -1090,7 +1090,8 @@
     "electricityCostAll": "Alle",
     "electricityCostMissing": "Fehlend",
     "costMissingNotice": "Diese Ladevorgänge haben keine Stromkosten und sind nicht im Gewinn enthalten.",
-    "costMissingSelectSite": "Diese Ladevorgänge haben keine Stromkosten und sind nicht im Gewinn enthalten. Wählen Sie einen Standort, um seine Kosten neu zu berechnen."
+    "costMissingSelectSite": "Diese Ladevorgänge haben keine Stromkosten und sind nicht im Gewinn enthalten. Wählen Sie einen Standort, um seine Kosten neu zu berechnen.",
+    "billedToMember": "Auf Rechnung: {{fleet}} (Fahrerrechnung)"
   },
   "drivers": {
     "title": "Fahrer",
@@ -1166,7 +1167,26 @@
       "pricingDriverGroup": "Fahrer-Preisgruppe {{group}} (hat Vorrang vor Flottenpreisen)",
       "none": "Keine",
       "helpAccount": "Neue Ladevorgänge werden der Abrechnungsflotte in Rechnung gestellt, ohne Karte. Die Preisflotte bestimmt den Tarif und kann eine andere Flotte sein.",
-      "helpCard": "Neue Ladevorgänge werden mit der gespeicherten Karte des Fahrers bezahlt."
+      "helpCard": "Neue Ladevorgänge werden mit der gespeicherten Karte des Fahrers bezahlt.",
+      "invoicedTo": "Rechnung an",
+      "invoicedToFleet": "Die Flotte",
+      "invoicedToMember": "Den Fahrer",
+      "helpAccountMember": "Neue Ladevorgänge werden über die Abrechnungsflotte auf Rechnung abgerechnet und diesem Fahrer monatlich in Rechnung gestellt, ohne Karte. Die Preisflotte legt den Tarif fest und kann eine andere Flotte sein."
+    },
+    "billingAddress": {
+      "title": "Rechnungsadresse",
+      "description": "Der Rechnungsempfänger auf den Rechnungen, die eine Flotte an diesen Fahrer richtet. Der Fahrer kann sie im Portal und in der App bearbeiten.",
+      "name": "Name auf der Rechnung",
+      "nameHelp": "Leer lassen, um den Vor- und Nachnamen des Fahrers zu verwenden.",
+      "street": "Straße",
+      "city": "Ort",
+      "state": "Bundesland oder Region",
+      "zip": "Postleitzahl",
+      "country": "Land",
+      "billTo": "Rechnungsempfänger",
+      "empty": "Keine Rechnungsadresse. Rechnungen zeigen Name und E-Mail-Adresse.",
+      "updated": "Rechnungsadresse aktualisiert",
+      "updateFailed": "Die Rechnungsadresse konnte nicht aktualisiert werden"
     }
   },
   "transactions": {
@@ -1511,7 +1531,17 @@
       "optOutTitle": "Per Karte zahlen",
       "optOutConfirm": "Dieses Mitglied zahlt per Karte, obwohl die Flotte auf Rechnung abrechnet. Der Fahrer wird benachrichtigt, wenn die Flotte auf Rechnung abrechnet.",
       "optInTitle": "Laden auf Flottenrechnung",
-      "optInConfirm": "Neue Ladevorgänge dieses Mitglieds werden der Flotte in Rechnung gestellt, wenn sie auf Rechnung abrechnet. Der Fahrer wird benachrichtigt, wenn die Flotte auf Rechnung abrechnet."
+      "optInConfirm": "Neue Ladevorgänge dieses Mitglieds werden der Flotte in Rechnung gestellt, wenn sie auf Rechnung abrechnet. Der Fahrer wird benachrichtigt, wenn die Flotte auf Rechnung abrechnet.",
+      "invoiceTo": "Rechnung An",
+      "recipientFleet": "Flotte",
+      "recipientMember": "Jeden Fahrer",
+      "recipientHelpFleet": "Auf Rechnung abgerechnete Ladevorgänge kommen auf eine monatliche Rechnung an die Abrechnungskontakte der Flotte.",
+      "recipientHelpMember": "Jeder Fahrer erhält eine monatliche Rechnung für seine eigenen auf Rechnung abgerechneten Ladevorgänge, nur an den Fahrer gesendet.",
+      "recipientTitleMember": "Jedem Fahrer Rechnung Stellen",
+      "recipientConfirmMember": "Ab jetzt gestartete Ladevorgänge werden jedem Fahrer mit seiner Rechnungsadresse und E-Mail in Rechnung gestellt. Bereits gestartete Ladevorgänge bleiben auf der Flottenrechnung. Jeder betroffene Fahrer wird benachrichtigt.",
+      "recipientTitleFleet": "Der Flotte Rechnung Stellen",
+      "recipientConfirmFleet": "Ab jetzt gestartete Ladevorgänge kommen auf die Flottenrechnung. Bereits gestartete Ladevorgänge bleiben auf der Rechnung des jeweiligen Fahrers. Jeder betroffene Fahrer wird benachrichtigt.",
+      "recipientChange": "Ändern"
     },
     "billingProfile": {
       "title": "Rechnungsprofil",
@@ -1588,7 +1618,36 @@
       "send": "Senden",
       "sendTitle": "Flottenrechnung senden",
       "sendConfirm": "{{number}} mit PDF an die Rechnungskontakte der Flotte senden?",
-      "sent": "Rechnung gesendet"
+      "sent": "Rechnung gesendet",
+      "membersTitle": "Fahrerrechnungen",
+      "membersDescription": "Auf Rechnung abgerechnete Ladevorgänge jedes Fahrers dieser Flotte, die noch keine Rechnung abgerechnet hat und die vor Monatsende endeten.",
+      "noMembers": "Kein Fahrer hat in diesem Monat nicht abgerechnete Ladevorgänge mit Kosten.",
+      "noEmail": "Keine E-Mail",
+      "noAddress": "Keine Adresse",
+      "invoice": "Rechnung",
+      "generateMember": "Erstellen",
+      "generateMemberTitle": "Fahrerrechnung Erstellen",
+      "generateMemberConfirm": "Die Rechnung für {{period}} an {{driver}} über {{total}} ausstellen und mit PDF an den Fahrer senden? Eine ausgestellte Rechnung lässt sich nur mit einer Stornorechnung korrigieren.",
+      "memberGenerated": "Fahrerrechnung ausgestellt und gesendet",
+      "memberGeneratedNotSent": "Fahrerrechnung ausgestellt, aber nicht gesendet. Hinterlegen Sie die E-Mail des Fahrers und senden Sie sie dann.",
+      "invoiceAll": "Alle Mitglieder Abrechnen",
+      "invoiceAllConfirm": "Die Rechnungen für {{period}} im Hintergrund ausstellen, eine für jeden Fahrer mit nicht abgerechneten Ladevorgängen ({{count}}), und jede an ihren Fahrer senden?",
+      "invoiceAllStarted": "Fahrerrechnungen werden ausgestellt: {{count}}",
+      "recipient": "Rechnung An",
+      "recipientAll": "Alle",
+      "recipientFleet": "Flotte",
+      "recipientMember": "Fahrer",
+      "billedTo": "Rechnung An",
+      "sendMemberTitle": "Fahrerrechnung Senden",
+      "sendMemberConfirm": "{{number}} mit PDF an den Fahrer senden?"
+    },
+    "bookingStatus": {
+      "scheduled": "Geplant",
+      "active": "Aktiv",
+      "partial": "Teilweise",
+      "completed": "Abgeschlossen",
+      "expired": "Abgelaufen",
+      "cancelled": "Storniert"
     }
   },
   "tokens": {
@@ -2725,7 +2784,7 @@
     "fleetEvents": "Flottenabrechnung",
     "fleetBillingAlertEvents": "Flottenabrechnung: Warnungen",
     "fleetInvoiceEvents": "Flottenrechnungen",
-    "requiredEventTooltip": "Immer aktiv. Fahrer benötigen diese Benachrichtigung, um auf ihr Konto zuzugreifen.",
+    "requiredEventTooltip": "Immer aktiv. Fahrer benötigen diese Benachrichtigung, um auf ihr Konto zuzugreifen oder ihre Rechnungen zu erhalten.",
     "eventSwitchTooltip": "Wenn deaktiviert, erhält kein Fahrer diese Benachrichtigung. Wenn aktiviert, gelten die Benachrichtigungseinstellungen jedes Fahrers.",
     "eventTurnedOn": "Benachrichtigung aktiviert.",
     "eventTurnedOff": "Benachrichtigung deaktiviert.",
@@ -2770,6 +2829,9 @@
       "session.IdlingStarted": "Ladevorgangs-Leerlauf gestartet",
       "invoice.Sent": "Rechnung gesendet",
       "invoice.CreditNote": "Stornorechnung ausgestellt",
+      "invoice.MemberInvoice": "Mitgliedsrechnung ausgestellt",
+      "invoice.MemberCreditNote": "Mitglieds-Stornorechnung ausgestellt",
+      "invoice.MemberOverdue": "Mitgliedsrechnung überfällig",
       "payment.AccountCreditLimit": "Kreditlimit der Flotte erreicht",
       "fleet.CreditLimitWarning": "Kreditlimit-Warnung der Flotte",
       "fleet.CreditLimitReached": "Kreditlimit der Flotte erreicht",
@@ -2974,11 +3036,13 @@
     "FAVORITE_NOT_FOUND": "Favorit nicht gefunden",
     "FLEET_CREDIT_LIMIT_REACHED": "Das Kreditlimit der Flotte, über die Ihre Ladevorgänge abgerechnet werden, ist erreicht. Wenden Sie sich an Ihren Flottenverwalter.",
     "FLEET_DISABLED": "Flotte ist deaktiviert",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "Ein Prozess älter als v0.1.41 ist noch verbunden. Schließen Sie das Upgrade ab und schalten Sie dann die Abrechnung auf Rechnung ein.",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "Ein Prozess einer älteren Version ist noch verbunden. Schließen Sie das Upgrade ab und ändern Sie dann die Abrechnung der Flotte.",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "Die Versionsprüfung des Workers ist in letzter Zeit nicht gelaufen, daher lässt sich das Upgrade nicht bestätigen. Prüfen Sie, ob der Worker läuft, und ändern Sie dann die Abrechnung der Flotte.",
     "FLEET_BILLING_CONTACT_REQUIRED": "Die Flotte benötigt mindestens einen Rechnungskontakt für die automatische Rechnungsstellung und den Rechnungsversand per E-Mail.",
     "FLEET_INVOICE_PERIOD_EXISTS": "Für diesen Zeitraum besteht bereits eine Rechnung der Flotte. Stornieren Sie sie mit einer Stornorechnung, um den Zeitraum neu abzurechnen.",
     "FLEET_INVOICE_NOTHING_TO_BILL": "Die Flotte hat für diesen Zeitraum keine noch nicht abgerechneten Ladevorgänge mit Kosten.",
     "FLEET_HAS_OPEN_BILLING": "Die Flotte hat Ladevorgänge, die auf ihre Rechnung abgerechnet werden, und kann nicht gelöscht werden. Schalten Sie stattdessen die Abrechnung auf Rechnung aus.",
+    "FLEET_HAS_RESERVATIONS": "Die Flotte hat Flottenreservierungen und kann nicht gelöscht werden. Reservierungen bleiben als Verlauf erhalten.",
     "FLEET_NOT_FOUND": "Flotte nicht gefunden",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "Flottenreservierung wurde bereits storniert",
     "FLEET_RESERVATION_CREATE_FAILED": "Flottenreservierung konnte nicht erstellt werden",
@@ -3012,6 +3076,7 @@
     "INVOICE_NOT_VOIDABLE": "Nur ein Rechnungsentwurf kann storniert werden. Eine ausgestellte Rechnung wird mit einer Stornorechnung korrigiert",
     "INVOICE_NO_SESSIONS": "Keine nicht abgerechneten Ladevorgänge im ausgewählten Zeitraum",
     "INVOICE_NO_DRIVER": "Diese Rechnung hat keinen Fahrer, an den sie gesendet werden kann",
+    "INVOICE_NO_DRIVER_EMAIL": "Der Fahrer dieser Rechnung hat keine E-Mail-Adresse",
     "INVOICE_NOT_FOUND": "Rechnung nicht gefunden",
     "LOAD_NOT_FOUND": "Last nicht gefunden",
     "LOCATION_NOT_FOUND": "Standort nicht gefunden",
@@ -4170,6 +4235,7 @@
       "assigned": "Zugewiesen",
       "attachment_added": "Anhang hinzugefügt",
       "availability_changed": "Verfügbarkeit geändert",
+      "billing_address_updated": "Rechnungsadresse aktualisiert",
       "billing_updated": "Abrechnung aktualisiert",
       "ca_certificate_added": "CA-Zertifikat hinzugefügt",
       "ca_certificate_deleted": "CA-Zertifikat gelöscht",
@@ -4505,7 +4571,11 @@
     "confirmResendFleet": "Diese Rechnung mit PDF an die Rechnungskontakte der Flotte senden?",
     "sentAt": "Per E-Mail gesendet",
     "overdueNoticeSentAt": "Zahlungserinnerung gesendet",
-    "notSent": "Nicht gesendet"
+    "notSent": "Nicht gesendet",
+    "driver": "Fahrer",
+    "viaFleet": "Über Flotte",
+    "viaFleetBadge": "Über {{fleet}}",
+    "confirmResendMember": "Diese Rechnung mit PDF an den Fahrer senden?"
   },
   "authFooter": {
     "privacyPolicy": "Datenschutzerklärung",

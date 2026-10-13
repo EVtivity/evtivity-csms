@@ -141,7 +141,7 @@
 {{#if billedTo}}
   <p
     style="font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
-  >已记账到 {{billedTo}}，未从银行卡扣款。</p>
+  >{{#if billedToMember}}通过 {{billedTo}} 按月向您开具发票，未从银行卡扣款。{{else}}已记账到 {{billedTo}}，未从银行卡扣款。{{/if}}</p>
 {{/if}}
 {{#if notCharged}}
   <p

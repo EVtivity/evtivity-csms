@@ -636,11 +636,13 @@
     "FAVORITE_NOT_FOUND": "Favorito no encontrado",
     "FLEET_CREDIT_LIMIT_REACHED": "Se alcanzó el límite de crédito de la flota a la que se facturan sus sesiones. Contacte al responsable de su flota.",
     "FLEET_DISABLED": "La flota está deshabilitada",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "Todavía hay conectado un proceso anterior a la v0.1.41. Termine la actualización y después active la facturación a cuenta.",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "Todavía hay conectado un proceso de una versión anterior. Termine la actualización y después cambie la facturación de la flota.",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "La comprobación de versiones del worker no se ha ejecutado recientemente, por lo que no se puede confirmar la actualización. Compruebe que el worker está en ejecución y después cambie la facturación de la flota.",
     "FLEET_BILLING_CONTACT_REQUIRED": "La flota necesita al menos un contacto de facturación para la facturación automática y el envío de facturas por correo.",
     "FLEET_INVOICE_PERIOD_EXISTS": "La flota ya tiene una factura para este periodo. Emita una nota de crédito para volver a facturarlo.",
     "FLEET_INVOICE_NOTHING_TO_BILL": "La flota no tiene sesiones sin facturar con importe para este periodo.",
     "FLEET_HAS_OPEN_BILLING": "La flota tiene sesiones facturadas a su cuenta y no se puede eliminar. Desactive la facturación a cuenta en su lugar.",
+    "FLEET_HAS_RESERVATIONS": "La flota tiene reservas de flota y no se puede eliminar. Las reservas se conservan como historial.",
     "FLEET_NOT_FOUND": "Flota no encontrada",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "La reserva de flota ya está cancelada",
     "FLEET_RESERVATION_CREATE_FAILED": "Error al crear la reserva de flota",
@@ -674,6 +676,7 @@
     "INVOICE_NOT_VOIDABLE": "Solo se puede anular un borrador de factura. Una factura emitida se corrige con una nota de crédito",
     "INVOICE_NO_SESSIONS": "No hay sesiones sin facturar en el rango de fechas seleccionado",
     "INVOICE_NO_DRIVER": "Esta factura no tiene un conductor al que enviarla",
+    "INVOICE_NO_DRIVER_EMAIL": "El conductor de esta factura no tiene dirección de correo electrónico",
     "INVOICE_NOT_FOUND": "Factura no encontrada",
     "LOAD_NOT_FOUND": "Carga no encontrada",
     "LOCATION_NOT_FOUND": "Ubicación no encontrada",
@@ -933,7 +936,8 @@
     "managePayments": "Administrar métodos de pago",
     "totalCases": "casos totales",
     "viewAllCases": "Ver todos los casos",
-    "homeScreen": "Pantalla de inicio"
+    "homeScreen": "Pantalla de inicio",
+    "invoices": "Facturas"
   },
   "rfid": {
     "addCard": "Agregar tarjeta RFID",
@@ -1143,6 +1147,60 @@
     },
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "Su carga se factura a {{fleet}}. No necesita un método de pago para cargar.",
-    "noMethods": "No hay métodos de pago."
+    "noMethods": "No hay métodos de pago.",
+    "billedToYouVia": "Facturado a usted a través de {{fleet}}",
+    "memberStartHint": "Esta sesión se incluye en su factura mensual. No necesita un método de pago.",
+    "stateMember": {
+      "unbilled": "Aún no facturada",
+      "invoiced": "Facturada a usted",
+      "paid": "Pagada"
+    },
+    "memberSessionLine": "Facturado a usted a través de {{fleet}}: {{state}}",
+    "invoice": "Factura",
+    "memberPaymentMethodsNote": "Su carga se le factura mensualmente a través de {{fleet}}. No necesita un método de pago para cargar."
+  },
+  "billingAddress": {
+    "title": "Dirección de Facturación",
+    "description": "Aparece en las facturas que tu flota te emite.",
+    "nudge": "Tu flota te factura tus sesiones a ti. Añade tu dirección de facturación para que aparezca en tus facturas.",
+    "name": "Nombre en la Factura",
+    "nameHelp": "Déjalo vacío para usar tu nombre y apellidos.",
+    "street": "Calle",
+    "city": "Ciudad",
+    "state": "Estado o Región",
+    "zip": "Código Postal",
+    "country": "País",
+    "updated": "Dirección de facturación guardada.",
+    "updateFailed": "No se pudo guardar la dirección de facturación."
+  },
+  "invoices": {
+    "title": "Facturas",
+    "empty": "Aún no hay facturas.",
+    "loadFailed": "No se pudieron cargar sus facturas. Intente nuevamente.",
+    "notFound": "Factura no encontrada.",
+    "invoice": "Factura",
+    "creditNote": "Nota de Crédito",
+    "viaFleet": "A través de {{fleet}}",
+    "period": "Periodo",
+    "issued": "Emitida",
+    "due": "Vencimiento",
+    "paidOn": "Pagada",
+    "billTo": "Facturar a",
+    "items": "Conceptos",
+    "net": "Neto",
+    "total": "Total",
+    "credits": "Acredita la factura {{number}}",
+    "creditedBy": "Acreditada por la nota de crédito {{number}}",
+    "reason": "Motivo",
+    "downloadPdf": "Descargar PDF",
+    "downloadFailed": "No se pudo descargar el PDF. Intente nuevamente.",
+    "backToInvoices": "Volver a Facturas",
+    "status": {
+      "draft": "Borrador",
+      "issued": "Emitida",
+      "paid": "Pagada",
+      "void": "Anulada",
+      "credited": "Acreditada"
+    }
   }
 }

@@ -1090,7 +1090,8 @@
     "electricityCostAll": "전체",
     "electricityCostMissing": "누락",
     "costMissingNotice": "이 세션들은 전기 비용이 없어 이익에서 제외됩니다.",
-    "costMissingSelectSite": "이 세션들은 전기 비용이 없어 이익에서 제외됩니다. 비용을 다시 계산하려면 사이트를 선택하세요."
+    "costMissingSelectSite": "이 세션들은 전기 비용이 없어 이익에서 제외됩니다. 비용을 다시 계산하려면 사이트를 선택하세요.",
+    "billedToMember": "계정 청구: {{fleet}}(운전자 청구서)"
   },
   "drivers": {
     "title": "운전자",
@@ -1166,7 +1167,26 @@
       "pricingDriverGroup": "운전자 요금제 그룹 {{group}} (차량대 요금제보다 우선)",
       "none": "없음",
       "helpAccount": "새 세션은 카드 없이 청구 차량대로 청구됩니다. 요금제 차량대가 요금을 정하며 다른 차량대일 수 있습니다.",
-      "helpCard": "새 세션은 운전자의 저장된 카드로 결제됩니다."
+      "helpCard": "새 세션은 운전자의 저장된 카드로 결제됩니다.",
+      "invoicedTo": "청구 대상",
+      "invoicedToFleet": "차량대",
+      "invoicedToMember": "운전자",
+      "helpAccountMember": "새 세션은 청구 차량대의 계정으로 청구되며 카드 없이 매월 이 운전자에게 청구됩니다. 요금 차량대가 요금을 정하며 다른 차량대일 수 있습니다."
+    },
+    "billingAddress": {
+      "title": "청구지 주소",
+      "description": "차량대가 이 운전자에게 발행하는 청구서의 청구 대상 정보입니다. 운전자는 포털과 앱에서 수정할 수 있습니다.",
+      "name": "청구서 이름",
+      "nameHelp": "비워 두면 운전자의 이름과 성을 사용합니다.",
+      "street": "도로명 주소",
+      "city": "도시",
+      "state": "주 또는 지역",
+      "zip": "우편번호",
+      "country": "국가",
+      "billTo": "청구 대상",
+      "empty": "청구지 주소가 없습니다. 청구서에는 이름과 이메일이 표시됩니다.",
+      "updated": "청구지 주소가 업데이트되었습니다",
+      "updateFailed": "청구지 주소를 업데이트할 수 없습니다"
     }
   },
   "transactions": {
@@ -1511,7 +1531,17 @@
       "optOutTitle": "카드로 결제",
       "optOutConfirm": "차량대가 계정으로 청구하더라도 이 구성원은 카드로 결제합니다. 차량대가 계정으로 청구하는 경우 운전자에게 알림이 전송됩니다.",
       "optInTitle": "차량대 청구",
-      "optInConfirm": "차량대가 계정으로 청구하는 경우 이 구성원의 새 세션은 차량대로 청구됩니다. 차량대가 계정으로 청구하는 경우 운전자에게 알림이 전송됩니다."
+      "optInConfirm": "차량대가 계정으로 청구하는 경우 이 구성원의 새 세션은 차량대로 청구됩니다. 차량대가 계정으로 청구하는 경우 운전자에게 알림이 전송됩니다.",
+      "invoiceTo": "청구 대상",
+      "recipientFleet": "차량대",
+      "recipientMember": "각 운전자",
+      "recipientHelpFleet": "계정으로 청구되는 세션은 차량대 청구 담당자에게 보내는 월간 청구서 하나에 포함됩니다.",
+      "recipientHelpMember": "각 운전자는 자신의 계정 청구 세션에 대한 월간 청구서를 받으며, 청구서는 해당 운전자에게만 발송됩니다.",
+      "recipientTitleMember": "각 운전자에게 청구",
+      "recipientConfirmMember": "지금부터 시작되는 세션은 운전자의 청구지 주소와 이메일로 각 운전자에게 청구됩니다. 이미 시작된 세션은 차량대 청구서에 남습니다. 영향을 받는 각 운전자에게 알림이 전송됩니다.",
+      "recipientTitleFleet": "차량대에 청구",
+      "recipientConfirmFleet": "지금부터 시작되는 세션은 차량대 청구서에 포함됩니다. 이미 시작된 세션은 각 운전자의 청구서에 남습니다. 영향을 받는 각 운전자에게 알림이 전송됩니다.",
+      "recipientChange": "변경"
     },
     "billingProfile": {
       "title": "청구 프로필",
@@ -1588,7 +1618,36 @@
       "send": "보내기",
       "sendTitle": "차량대 청구서 이메일 발송",
       "sendConfirm": "{{number}}을(를) PDF와 함께 차량대 청구 담당자에게 이메일로 보내시겠습니까?",
-      "sent": "청구서가 이메일로 발송되었습니다"
+      "sent": "청구서가 이메일로 발송되었습니다",
+      "membersTitle": "운전자 청구서",
+      "membersDescription": "이 차량대의 각 운전자에게 계정으로 청구되었으나 아직 청구서에 포함되지 않았고 월말 전에 종료된 세션입니다.",
+      "noMembers": "이번 달에 비용이 있는 미청구 세션이 있는 운전자가 없습니다.",
+      "noEmail": "이메일 없음",
+      "noAddress": "주소 없음",
+      "invoice": "청구서",
+      "generateMember": "생성",
+      "generateMemberTitle": "운전자 청구서 생성",
+      "generateMemberConfirm": "{{period}} 청구서를 {{driver}}에게 {{total}}로 발행하고 PDF와 함께 운전자에게 보내시겠습니까? 발행된 청구서는 크레딧 노트로만 수정할 수 있습니다.",
+      "memberGenerated": "운전자 청구서가 발행되어 발송되었습니다",
+      "memberGeneratedNotSent": "운전자 청구서가 발행되었지만 발송되지 않았습니다. 운전자의 이메일을 추가한 후 보내십시오.",
+      "invoiceAll": "모든 회원에게 청구",
+      "invoiceAllConfirm": "{{period}} 청구서를 백그라운드에서 미청구 세션이 있는 운전자마다 하나씩({{count}}) 발행하고 각 운전자에게 보내시겠습니까?",
+      "invoiceAllStarted": "운전자 청구서 발행 중: {{count}}",
+      "recipient": "청구 대상",
+      "recipientAll": "전체",
+      "recipientFleet": "차량대",
+      "recipientMember": "운전자",
+      "billedTo": "청구 대상",
+      "sendMemberTitle": "운전자 청구서 보내기",
+      "sendMemberConfirm": "{{number}}을(를) PDF와 함께 운전자에게 보내시겠습니까?"
+    },
+    "bookingStatus": {
+      "scheduled": "예약됨",
+      "active": "활성",
+      "partial": "일부",
+      "completed": "완료",
+      "expired": "만료됨",
+      "cancelled": "취소됨"
     }
   },
   "tokens": {
@@ -2688,7 +2747,7 @@
     "fleetEvents": "차량대 청구",
     "fleetBillingAlertEvents": "차량대 청구 알림",
     "fleetInvoiceEvents": "차량대 청구서",
-    "requiredEventTooltip": "항상 켜져 있습니다. 운전자가 계정에 접근하려면 이 알림이 필요합니다.",
+    "requiredEventTooltip": "항상 켜져 있습니다. 운전자가 계정에 접근하거나 청구서를 받으려면 이 알림이 필요합니다.",
     "eventSwitchTooltip": "끄면 어떤 운전자도 이 알림을 받지 않습니다. 켜면 각 운전자의 알림 설정이 적용됩니다.",
     "eventTurnedOn": "알림을 켰습니다.",
     "eventTurnedOff": "알림을 껐습니다.",
@@ -2770,6 +2829,9 @@
       "session.IdlingStarted": "세션 유휴 시작",
       "invoice.Sent": "청구서 발송",
       "invoice.CreditNote": "크레딧 노트 발행",
+      "invoice.MemberInvoice": "회원 청구서 발행",
+      "invoice.MemberCreditNote": "회원 크레딧 노트 발행",
+      "invoice.MemberOverdue": "회원 청구서 연체",
       "payment.AccountCreditLimit": "차량대 신용 한도 도달",
       "fleet.CreditLimitWarning": "차량대 신용 한도 경고",
       "fleet.CreditLimitReached": "차량대 신용 한도 도달",
@@ -2974,11 +3036,13 @@
     "FAVORITE_NOT_FOUND": "즐겨찾기를 찾을 수 없습니다",
     "FLEET_CREDIT_LIMIT_REACHED": "세션 요금이 청구되는 차량대의 신용 한도에 도달했습니다. 차량대 관리자에게 문의하십시오.",
     "FLEET_DISABLED": "차량대가 사용 중지되었습니다",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "v0.1.41 이전 프로세스가 아직 연결되어 있습니다. 업그레이드를 마친 후 계정 청구를 켜십시오.",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "이전 릴리스의 프로세스가 아직 연결되어 있습니다. 업그레이드를 마친 후 차량대 청구를 변경하십시오.",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "워커의 버전 검사가 최근에 실행되지 않아 업그레이드를 확인할 수 없습니다. 워커가 실행 중인지 확인한 후 차량대 청구를 변경하십시오.",
     "FLEET_BILLING_CONTACT_REQUIRED": "자동 청구서 발행과 청구서 이메일 발송에는 차량대 청구 담당자가 한 명 이상 필요합니다.",
     "FLEET_INVOICE_PERIOD_EXISTS": "이 기간에 대한 차량대 청구서가 이미 있습니다. 기간을 다시 청구하려면 크레딧 노트를 발행하십시오.",
     "FLEET_INVOICE_NOTHING_TO_BILL": "이 기간에 청구할 비용이 있는 미청구 세션이 차량대에 없습니다.",
     "FLEET_HAS_OPEN_BILLING": "플릿 계정으로 청구된 세션이 있어 플릿을 삭제할 수 없습니다. 대신 계정 청구를 끄십시오.",
+    "FLEET_HAS_RESERVATIONS": "플릿에 플릿 예약이 있어 삭제할 수 없습니다. 예약은 기록으로 보관됩니다.",
     "FLEET_NOT_FOUND": "차량대를 찾을 수 없습니다",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "차량대 예약이 이미 취소되었습니다",
     "FLEET_RESERVATION_CREATE_FAILED": "차량대 예약 생성에 실패했습니다",
@@ -3012,6 +3076,7 @@
     "INVOICE_NOT_VOIDABLE": "초안 청구서만 무효 처리할 수 있습니다. 발행된 청구서는 크레딧 노트로 정정합니다",
     "INVOICE_NO_SESSIONS": "선택한 기간에 미청구 세션이 없습니다",
     "INVOICE_NO_DRIVER": "이 청구서에는 보낼 운전자가 없습니다",
+    "INVOICE_NO_DRIVER_EMAIL": "이 송장의 운전자에게 이메일 주소가 없습니다",
     "INVOICE_NOT_FOUND": "청구서를 찾을 수 없습니다",
     "LOAD_NOT_FOUND": "부하를 찾을 수 없습니다",
     "LOCATION_NOT_FOUND": "위치를 찾을 수 없습니다",
@@ -4170,6 +4235,7 @@
       "assigned": "할당됨",
       "attachment_added": "첨부 파일 추가됨",
       "availability_changed": "가용성 변경됨",
+      "billing_address_updated": "청구지 주소 업데이트됨",
       "billing_updated": "청구 설정 업데이트됨",
       "ca_certificate_added": "CA 인증서 추가됨",
       "ca_certificate_deleted": "CA 인증서 삭제됨",
@@ -4505,7 +4571,11 @@
     "confirmResendFleet": "이 청구서를 PDF와 함께 차량대 청구 담당자에게 이메일로 보내시겠습니까?",
     "sentAt": "이메일 발송",
     "overdueNoticeSentAt": "납부 안내 발송",
-    "notSent": "발송 안 됨"
+    "notSent": "발송 안 됨",
+    "driver": "운전자",
+    "viaFleet": "경유 차량대",
+    "viaFleetBadge": "{{fleet}} 경유",
+    "confirmResendMember": "이 청구서를 PDF와 함께 운전자에게 보내시겠습니까?"
   },
   "authFooter": {
     "privacyPolicy": "개인정보처리방침",

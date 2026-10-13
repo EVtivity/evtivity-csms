@@ -85,7 +85,7 @@ vi.mock('@evtivity/services/pdf-branding', () => ({
 
 vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: [] }));
 vi.mock('@evtivity/services/fleet-invoice-notice', () => ({
-  sendFleetInvoiceEmail: vi.fn().mockResolvedValue({ status: 'sent', recipients: 1 }),
+  sendAccountInvoiceEmail: vi.fn().mockResolvedValue({ status: 'sent', recipients: 1 }),
 }));
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: vi.fn() }));
 
@@ -119,7 +119,7 @@ import {
   voidInvoice,
 } from '@evtivity/services/invoice.service';
 import { creditInvoice } from '@evtivity/services/credit-note.service';
-import { sendFleetInvoiceEmail } from '@evtivity/services/fleet-invoice-notice';
+import { sendAccountInvoiceEmail } from '@evtivity/services/fleet-invoice-notice';
 import { generateInvoicePdf } from '@evtivity/services/invoice-pdf.service';
 import { loadPdfBranding } from '@evtivity/services/pdf-branding';
 import { wasInvoiceSent, writeInvoiceSentAudit } from '@evtivity/services/invoice-audit';
@@ -132,6 +132,7 @@ function invoiceRow(overrides: Record<string, unknown> = {}): Record<string, unk
     invoiceNumber: 'INV-202606-0042',
     driverId: 'drv_000000000001',
     fleetId: null,
+    memberBilled: false,
     periodStart: null,
     periodEnd: null,
     billTo: null,
@@ -563,11 +564,38 @@ describe('POST /invoices/:id/credit-note', () => {
     const res = await creditRequest();
 
     expect(res.statusCode).toBe(201);
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith(
+    expect(sendAccountInvoiceEmail).toHaveBeenCalledWith(
       CREDIT_NOTE_ID,
       'once',
       { templatesDirs: [] },
       { actor: expect.objectContaining({ actor: 'operator' }), log: expect.anything() },
+    );
+    expect(dispatchDriverNotification).not.toHaveBeenCalled();
+  });
+
+  it("sends a member invoice's credit note to its driver through the account invoice sender", async () => {
+    credited();
+    const detail = creditNoteDetail();
+    vi.mocked(getInvoice).mockResolvedValue({
+      ...detail,
+      invoice: {
+        ...(detail['invoice'] as object),
+        fleetId: 'flt_000000000001',
+        memberBilled: true,
+      },
+    } as never);
+    vi.mocked(sendAccountInvoiceEmail).mockResolvedValueOnce({ status: 'no_email' });
+
+    const res = await creditRequest();
+
+    expect(res.statusCode).toBe(201);
+    // Routed by member_billed inside the sender (invoice.MemberCreditNote to
+    // the driver), never the driver invoice.CreditNote path.
+    expect(sendAccountInvoiceEmail).toHaveBeenCalledWith(
+      CREDIT_NOTE_ID,
+      'once',
+      { templatesDirs: [] },
+      expect.anything(),
     );
     expect(dispatchDriverNotification).not.toHaveBeenCalled();
   });
@@ -579,7 +607,7 @@ describe('POST /invoices/:id/credit-note', () => {
       ...detail,
       invoice: { ...(detail['invoice'] as object), driverId: null, fleetId: 'flt_000000000001' },
     } as never);
-    vi.mocked(sendFleetInvoiceEmail).mockRejectedValueOnce(new Error('smtp down'));
+    vi.mocked(sendAccountInvoiceEmail).mockRejectedValueOnce(new Error('smtp down'));
 
     const res = await creditRequest();
 
@@ -781,7 +809,7 @@ describe('POST /invoices/:id/send', () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(sendFleetInvoiceEmail).toHaveBeenCalledWith(
+    expect(sendAccountInvoiceEmail).toHaveBeenCalledWith(
       INVOICE_ID,
       'resend',
       { templatesDirs: [] },
@@ -796,7 +824,7 @@ describe('POST /invoices/:id/send', () => {
 
   it('returns 400 FLEET_BILLING_CONTACT_REQUIRED when the fleet has no billing contact', async () => {
     vi.mocked(getInvoice).mockResolvedValue(fleetInvoiceDetail() as never);
-    vi.mocked(sendFleetInvoiceEmail).mockResolvedValueOnce({ status: 'no_contacts' });
+    vi.mocked(sendAccountInvoiceEmail).mockResolvedValueOnce({ status: 'no_contacts' });
 
     const res = await app.inject({
       method: 'POST',
@@ -807,6 +835,31 @@ describe('POST /invoices/:id/send', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ code: 'FLEET_BILLING_CONTACT_REQUIRED' });
   });
+
+  it.each([
+    ['no_driver', 'INVOICE_NO_DRIVER'],
+    ['no_email', 'INVOICE_NO_DRIVER_EMAIL'],
+  ] as const)(
+    'answers 400 %s for a member invoice whose driver cannot be reached (%s)',
+    async (status, code) => {
+      const detail = fleetInvoiceDetail();
+      vi.mocked(getInvoice).mockResolvedValue({
+        ...detail,
+        invoice: { ...(detail['invoice'] as object), memberBilled: true },
+      } as never);
+      vi.mocked(sendAccountInvoiceEmail).mockResolvedValueOnce({ status });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/invoices/${INVOICE_ID}/send`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code });
+      expect(dispatchDriverNotification).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('GET /invoices/print-logo', () => {
@@ -944,7 +997,7 @@ describe('invoice routes for a site-restricted user', () => {
     expect(voidInvoice).not.toHaveBeenCalled();
     expect(markInvoicePaid).not.toHaveBeenCalled();
     expect(creditInvoice).not.toHaveBeenCalled();
-    expect(sendFleetInvoiceEmail).not.toHaveBeenCalled();
+    expect(sendAccountInvoiceEmail).not.toHaveBeenCalled();
     expect(generateInvoicePdf).not.toHaveBeenCalled();
     expect(writeAudit).not.toHaveBeenCalled();
     expect(writeInvoiceSentAudit).not.toHaveBeenCalled();

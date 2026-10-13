@@ -15,6 +15,7 @@ import {
   uniqueIndex,
   check,
   bigint,
+  boolean,
   date,
 } from 'drizzle-orm/pg-core';
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
@@ -63,6 +64,9 @@ export const invoices = pgTable(
     // When invoice.FleetOverdue went to the fleet billing contacts (an issued
     // fleet invoice past its due date). The claim that sends it once (S9 run).
     overdueNoticeSentAt: timestamp('overdue_notice_sent_at', { withTimezone: true }),
+    // A member invoice: a fleet's account invoice addressed to one member
+    // (fleet_id, driver_id and member_billed set); its credit note copies it.
+    memberBilled: boolean('member_billed').notNull().default(false),
     status: invoiceStatusEnum('status').notNull().default('draft'),
     kind: varchar('kind', { length: 16, enum: INVOICE_KINDS }).notNull().default('invoice'),
     // The invoice a credit note credits (kind 'credit_note' only). One credit note per invoice.
@@ -94,7 +98,13 @@ export const invoices = pgTable(
     // One live invoice per fleet and period; a void or credited one frees it.
     uniqueIndex('uq_invoices_fleet_period')
       .on(table.fleetId, table.periodStart)
-      .where(sql`fleet_id IS NOT NULL AND kind = 'invoice' AND status NOT IN ('void', 'credited')`),
+      .where(
+        sql`fleet_id IS NOT NULL AND kind = 'invoice' AND status NOT IN ('void', 'credited') AND NOT member_billed`,
+      ),
+    // One live member invoice per fleet, driver and period.
+    uniqueIndex('uq_invoices_member_period')
+      .on(table.fleetId, table.driverId, table.periodStart)
+      .where(sql`member_billed AND kind = 'invoice' AND status NOT IN ('void', 'credited')`),
     uniqueIndex('uq_invoices_credited_invoice_id')
       .on(table.creditedInvoiceId)
       .where(sql`credited_invoice_id IS NOT NULL`),
@@ -102,6 +112,10 @@ export const invoices = pgTable(
     check(
       'invoices_fleet_period_check',
       sql`${table.fleetId} IS NULL OR (${table.periodStart} IS NOT NULL AND ${table.periodEnd} IS NOT NULL AND ${table.periodEnd} >= ${table.periodStart})`,
+    ),
+    check(
+      'invoices_member_billed_check',
+      sql`NOT ${table.memberBilled} OR ${table.fleetId} IS NOT NULL`,
     ),
     check(
       'invoices_credit_note_reference_check',

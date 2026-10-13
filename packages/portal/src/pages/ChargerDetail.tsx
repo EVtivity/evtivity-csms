@@ -36,7 +36,7 @@ import { EvPlugAnimation } from '@/components/EvPlugAnimation';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useAuth } from '@/lib/auth';
-import { billedToFleet, useDriverBilling } from '@/lib/fleet-billing';
+import { accountBillingAt, useDriverBilling } from '@/lib/fleet-billing';
 import { cn, formatDate } from '@/lib/utils';
 import {
   connectorStatusVariant,
@@ -309,7 +309,8 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
       ? noShowFeeNote(t, noShowFee, pricing.currency)
       : t('reservations.noShowFeeNote');
   // Charge on account: the fleet pays, so no card is picked or sent.
-  const fleetName = mode === 'charge' ? billedToFleet(pricing, driverBilling) : null;
+  const accountBilling = mode === 'charge' ? accountBillingAt(pricing, driverBilling) : null;
+  const fleetName = accountBilling?.fleetName ?? null;
 
   async function doStart(): Promise<void> {
     if (selectedEvseId == null) return;
@@ -836,9 +837,15 @@ export function ChargerDetail({ mode = 'charge' }: ChargerDetailProps = {}): Rea
             <Building2 className="mt-0.5 h-4 w-4 text-muted-foreground" />
             <div>
               <p className="text-sm font-medium">
-                {t('fleetBilling.billedTo', { fleet: fleetName })}
+                {accountBilling?.invoicedTo === 'member'
+                  ? t('fleetBilling.billedToYouVia', { fleet: fleetName })
+                  : t('fleetBilling.billedTo', { fleet: fleetName })}
               </p>
-              <p className="text-xs text-muted-foreground">{t('fleetBilling.startHint')}</p>
+              <p className="text-xs text-muted-foreground">
+                {accountBilling?.invoicedTo === 'member'
+                  ? t('fleetBilling.memberStartHint')
+                  : t('fleetBilling.startHint')}
+              </p>
             </div>
           </CardContent>
         </Card>

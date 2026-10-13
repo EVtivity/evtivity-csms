@@ -37,6 +37,7 @@ describe('sessionReceiptVariables', () => {
       notCharged: false,
       billingMode: 'card',
       billedTo: null,
+      billedToMember: false,
     });
     expect(variables).toMatchObject({
       siteName: 'Main',
@@ -73,6 +74,7 @@ describe('sessionReceiptVariables', () => {
       notCharged: false,
       billingMode: null,
       billedTo: null,
+      billedToMember: false,
     });
     expect(variables['startedAt']).toBe('2026-06-04T00:00:00.000Z');
     expect(variables['endedAt']).toBe('2026-06-04T00:45:00.500Z');
@@ -96,6 +98,7 @@ describe('sessionReceiptVariables', () => {
       notCharged: true,
       billingMode: null,
       billedTo: null,
+      billedToMember: false,
     });
     expect(variables['billingMode']).toBe('');
     expect(variables['billedTo']).toBe('');
@@ -122,6 +125,7 @@ describe('sessionReceiptVariables', () => {
       startedAt: '2026-06-04T00:00:00Z',
       endedAt: '2026-06-04T00:30:00Z',
       notCharged: false,
+      billedToMember: false,
     };
     const account = sessionReceiptVariables({
       ...base,
@@ -130,8 +134,32 @@ describe('sessionReceiptVariables', () => {
     });
     expect(account['billingMode']).toBe('account');
     expect(account['billedTo']).toBe('Acme Logistics');
+    expect(account['billedToMember']).toBe(false);
     const card = sessionReceiptVariables({ ...base, billingMode: 'card', billedTo: 'Acme' });
     expect(card['billedTo']).toBe('');
+  });
+
+  it('says a member-billed account session is invoiced to the driver, and only then', () => {
+    const base = {
+      siteName: 'Main',
+      stationId: 'CS-1',
+      transactionId: 'tx-1',
+      energyDeliveredWh: 1000,
+      finalCostCents: 500,
+      netCents: 500,
+      taxCents: 0,
+      costBreakdown: null,
+      capturedCents: null,
+      currency: 'EUR',
+      startedAt: '2026-06-04T00:00:00Z',
+      endedAt: '2026-06-04T00:30:00Z',
+      notCharged: false,
+      billedTo: 'Acme Logistics',
+      billedToMember: true,
+    };
+    const member = sessionReceiptVariables({ ...base, billingMode: 'account' });
+    expect(member).toMatchObject({ billedTo: 'Acme Logistics', billedToMember: true });
+    expect(sessionReceiptVariables({ ...base, billingMode: 'card' })['billedToMember']).toBe(false);
   });
 });
 
@@ -185,6 +213,7 @@ function pricedReceipt(
     notCharged: false,
     billingMode: 'card',
     billedTo: null,
+    billedToMember: false,
     ...extra,
   };
 }
@@ -373,22 +402,33 @@ describe('TC-T3-32 receipt tariff and tax lines', () => {
 
 describe('receiptBilling', () => {
   it('bills an account session without a payment record to its fleet', () => {
-    expect(receiptBilling('account', 'Fleet A', false)).toEqual({
+    expect(receiptBilling('account', 'Fleet A', false, false)).toEqual({
       billingMode: 'account',
       billedTo: 'Fleet A',
+      billedToMember: false,
+    });
+  });
+
+  it('marks a member-billed account session as invoiced to the driver', () => {
+    expect(receiptBilling('account', 'Fleet A', false, true)).toEqual({
+      billingMode: 'account',
+      billedTo: 'Fleet A',
+      billedToMember: true,
     });
   });
 
   it('treats an account session with a payment record (an operator hold) as paid by card', () => {
-    expect(receiptBilling('account', 'Fleet A', true)).toEqual({
+    expect(receiptBilling('account', 'Fleet A', true, true)).toEqual({
       billingMode: 'card',
       billedTo: null,
+      billedToMember: false,
     });
   });
 
   it('keeps card and gives no mode for a missing or unknown stamp', () => {
-    expect(receiptBilling('card', null, true)).toEqual({ billingMode: 'card', billedTo: null });
-    expect(receiptBilling(null, null, false)).toEqual({ billingMode: null, billedTo: null });
-    expect(receiptBilling('other', null, false)).toEqual({ billingMode: null, billedTo: null });
+    const none = { billedTo: null, billedToMember: false };
+    expect(receiptBilling('card', null, true, false)).toEqual({ billingMode: 'card', ...none });
+    expect(receiptBilling(null, null, false, false)).toEqual({ billingMode: null, ...none });
+    expect(receiptBilling('other', null, false, true)).toEqual({ billingMode: null, ...none });
   });
 });

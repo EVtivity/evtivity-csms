@@ -4,6 +4,7 @@
 import { useTranslation } from 'react-i18next';
 import { PageHeader } from '@/components/PageHeader';
 import { AccountPersonalInfo } from '@/components/account/AccountPersonalInfo';
+import { AccountBillingAddress } from '@/components/account/AccountBillingAddress';
 
 export function PersonalInfo(): React.JSX.Element {
   const { t } = useTranslation();
@@ -12,6 +13,8 @@ export function PersonalInfo(): React.JSX.Element {
     <div className="space-y-4">
       <PageHeader title={t('account.personalInfo')} />
       <AccountPersonalInfo />
+      <hr className="border-border" />
+      <AccountBillingAddress />
     </div>
   );
 }

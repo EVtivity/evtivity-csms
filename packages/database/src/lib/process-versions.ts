@@ -68,6 +68,13 @@ export interface OldProcessCheck {
 
 /** Why a guarded change is refused now (the 409 `details`). */
 export interface ReleaseUpgradePending {
+  /**
+   * Why: `old_processes` when a process of an older release is connected or
+   * was seen less than LEGACY_CLEAN_MS ago; `version_check_stale` when none
+   * is, but the worker's watch is missing, stale or records no versions
+   * (the worker is not running, or runs a release before v0.1.41).
+   */
+  reason: 'old_processes' | 'version_check_stale';
   oldConnections: number;
   hosts: string[];
   /** When the watch last saw an old process, or null. */
@@ -246,6 +253,7 @@ export async function releaseUpgradePending(
   const oldClean = lastOld == null || nowMs - Date.parse(lastOld) >= LEGACY_CLEAN_MS;
   if (check.connections === 0 && watchFresh && oldClean) return null;
   return {
+    reason: check.connections === 0 && oldClean ? 'version_check_stale' : 'old_processes',
     oldConnections: check.connections,
     hosts: check.hosts,
     lastOldSeenAt: lastOld,

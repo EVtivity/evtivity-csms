@@ -141,7 +141,7 @@
 {{#if billedTo}}
   <p
     style="font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
-  >Abgerechnet über {{billedTo}}, keine Karte belastet.</p>
+  >{{#if billedToMember}}Wird dir monatlich über {{billedTo}} in Rechnung gestellt, keine Karte belastet.{{else}}Abgerechnet über {{billedTo}}, keine Karte belastet.{{/if}}</p>
 {{/if}}
 {{#if notCharged}}
   <p

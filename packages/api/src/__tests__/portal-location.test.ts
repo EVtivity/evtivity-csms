@@ -60,6 +60,7 @@ const { mockEvseAvailableSql, mockEvseOpenToDriversSql, mockSqlRaw } = vi.hoiste
 }));
 
 vi.mock('@evtivity/database', () => ({
+  ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   evseAvailableSql: mockEvseAvailableSql,
   evseOpenToDriversSql: mockEvseOpenToDriversSql,
   STARTABLE_CONNECTOR_STATUSES: ['available', 'occupied', 'preparing', 'ev_connected', 'finishing'],

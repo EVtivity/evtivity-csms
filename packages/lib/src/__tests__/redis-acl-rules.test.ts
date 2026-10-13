@@ -210,6 +210,11 @@ describe('docker/redis/acl-rules.conf', () => {
     // OCPI pull lock and its own BullMQ queue (ocpi-cdrs), no other queue.
     expect(grantsKey(user('ocpi'), 'opl:partner-1:locations', 'rw')).toBe(true);
     expect(grantsKey(user('ocpi'), 'bull:ocpi-cdrs:wait', 'rw')).toBe(true);
+    // The api adds "Invoice All Members" jobs to the member-invoices queue, no other queue.
+    expect(grantsKey(user('api'), 'bull:member-invoices:wait', 'rw')).toBe(true);
+    expect(grantsKey(user('api'), 'bull:member-invoices:id', 'rw')).toBe(true);
+    expect(grantsKey(user('api'), 'bull:fleet-invoices:wait', 'r')).toBe(false);
+    expect(grantsKey(user('api'), 'bull:payment-webhooks:wait', 'r')).toBe(false);
 
     for (const name of ['api', 'ocpp', 'ocpi', 'css']) {
       expect(grantsKey(user(name), 'bull:cron-jobs:wait', 'r'), name).toBe(false);

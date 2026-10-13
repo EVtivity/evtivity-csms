@@ -15,6 +15,7 @@ import type { ReservationExpiryReason } from '@evtivity/lib/ai-insights';
 import type { PubSubClient, ServiceLogger } from '@evtivity/lib';
 import { chargeReservationFee } from '@evtivity/payments';
 import type { PaymentContext } from '@evtivity/payments';
+import { refreshFleetReservationStatuses } from './fleet-reservation-status.js';
 import { applyReservationCancellation } from './reservation-cancel.js';
 import { cancelReasonNoticeFlags, notifyReservationDriver } from './reservation-notify.js';
 import { publishCancelReservation } from './reservation.service.js';
@@ -44,6 +45,7 @@ type ExpiredRow = {
   expires_at: RawTimestamp;
   no_show_fee_state: string;
   acked: boolean;
+  fleet_reservation_id: string | null;
 };
 
 export interface ExpiredReservation {
@@ -55,6 +57,8 @@ export interface ExpiredReservation {
   stationOcppId: string;
   siteId: string | null;
   noShowFeeState: string;
+  /** The fleet booking of a fleet slot, else null. */
+  fleetReservationId: string | null;
   /** Why it expired (`after.reason` of the `expired` audit row). */
   reason: ReservationExpiryReason;
 }
@@ -109,6 +113,7 @@ async function runExpiry(where: 'due' | { stationUuid: string; reservationOcppId
       stationOcppId: r.station_ocpp_id,
       siteId: r.site_id,
       noShowFeeState: r.no_show_fee_state,
+      fleetReservationId: r.fleet_reservation_id,
       reason: expiryReason(r),
     }),
   );
@@ -134,13 +139,15 @@ function expiryUpdate() {
       FROM pre
       WHERE r.id = pre.id
       RETURNING r.id, r.driver_id, pre.prior_status, r.reservation_id, r.station_id,
-                r.expires_at, r.no_show_fee_state, r.station_ack_at IS NOT NULL AS acked
+                r.expires_at, r.no_show_fee_state, r.station_ack_at IS NOT NULL AS acked,
+                r.fleet_reservation_id
     )
     SELECT updated.id, updated.driver_id, updated.prior_status,
            updated.reservation_id AS reservation_ocpp_id,
            updated.station_id AS station_uuid,
            cs.station_id AS station_ocpp_id, cs.site_id,
-           updated.expires_at, updated.no_show_fee_state, updated.acked
+           updated.expires_at, updated.no_show_fee_state, updated.acked,
+           updated.fleet_reservation_id
     FROM updated
     INNER JOIN charging_stations cs ON cs.id = updated.station_id`;
 }
@@ -198,6 +205,11 @@ async function afterExpiry(
       deps.logger.warn({ err, reservationId: row.id }, 'Station-watch check after expiry failed');
     }
   }
+  // Expired fleet slots move their bookings' status (expired, partial). Fail-open.
+  await refreshFleetReservationStatuses(
+    rows.map((r) => r.fleetReservationId),
+    deps.logger,
+  );
   for (const siteId of new Set(rows.map((r) => r.siteId))) {
     try {
       await deps.pubsub.publish(

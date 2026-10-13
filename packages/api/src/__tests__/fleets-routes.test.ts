@@ -55,8 +55,8 @@ const mockFleetService = vi.hoisted(() => ({
   getFleetCreditLimit: vi.fn(),
   setFleetCreditLimit: vi.fn(),
   FleetBillingUpgradePendingError: class FleetBillingUpgradePendingError extends Error {
-    readonly details: unknown;
-    constructor(details: unknown) {
+    readonly details: { reason: string };
+    constructor(details: { reason: string }) {
       super('A process older than v0.1.41 is still connected.');
       this.details = details;
     }
@@ -459,9 +459,43 @@ describe('Fleet routes - handler logic', () => {
       expect(response.json().accountBillingEnabled).toBe(true);
       expect(mockFleetService.setFleetAccountBilling).toHaveBeenCalledWith(
         VALID_FLEET_ID,
-        true,
+        { enabled: true, recipient: undefined },
         expect.objectContaining({ actor: expect.objectContaining({ actorUserId: VALID_USER_ID }) }),
       );
+    });
+
+    it('sets the invoice recipient through the fleet service', async () => {
+      mockFleetService.setFleetAccountBilling.mockResolvedValue({
+        ...fleet,
+        accountInvoiceRecipient: 'member',
+      });
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/fleets/${VALID_FLEET_ID}/billing`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { accountInvoiceRecipient: 'member' },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json().accountInvoiceRecipient).toBe('member');
+      expect(mockFleetService.setFleetAccountBilling).toHaveBeenCalledWith(
+        VALID_FLEET_ID,
+        { enabled: undefined, recipient: 'member' },
+        expect.anything(),
+      );
+    });
+
+    it('rejects an unknown recipient', async () => {
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/fleets/${VALID_FLEET_ID}/billing`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { accountInvoiceRecipient: 'driver' },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(mockFleetService.setFleetAccountBilling).not.toHaveBeenCalled();
     });
 
     it('returns 404 for an unknown fleet', async () => {
@@ -479,7 +513,13 @@ describe('Fleet routes - handler logic', () => {
     });
 
     it('answers 409 FLEET_BILLING_OLD_PODS_CONNECTED with the guard details', async () => {
-      const details = { oldConnections: 1, hosts: [], lastOldSeenAt: null, watchCheckedAt: null };
+      const details = {
+        reason: 'old_processes',
+        oldConnections: 1,
+        hosts: [],
+        lastOldSeenAt: null,
+        watchCheckedAt: null,
+      };
       mockFleetService.setFleetAccountBilling.mockRejectedValue(
         new mockFleetService.FleetBillingUpgradePendingError(details),
       );
@@ -498,7 +538,33 @@ describe('Fleet routes - handler logic', () => {
       });
     });
 
-    it('rejects a body without the flag', async () => {
+    it('answers 409 FLEET_BILLING_VERSION_CHECK_STALE when only the worker watch is stale', async () => {
+      const details = {
+        reason: 'version_check_stale',
+        oldConnections: 0,
+        hosts: [],
+        lastOldSeenAt: null,
+        watchCheckedAt: null,
+      };
+      mockFleetService.setFleetAccountBilling.mockRejectedValue(
+        new mockFleetService.FleetBillingUpgradePendingError(details),
+      );
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: `/fleets/${VALID_FLEET_ID}/billing`,
+        headers: { authorization: 'Bearer ' + token },
+        payload: { accountInvoiceRecipient: 'member' },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        code: 'FLEET_BILLING_VERSION_CHECK_STALE',
+        details,
+      });
+    });
+
+    it('rejects a body without a field to change', async () => {
       const response = await app.inject({
         method: 'PATCH',
         url: `/fleets/${VALID_FLEET_ID}/billing`,
@@ -507,6 +573,7 @@ describe('Fleet routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
       expect(mockFleetService.setFleetAccountBilling).not.toHaveBeenCalled();
     });
   });
@@ -783,6 +850,22 @@ describe('Fleet routes - handler logic', () => {
 
       expect(response.statusCode).toBe(409);
       expect(response.json().code).toBe('FLEET_HAS_OPEN_BILLING');
+    });
+
+    it('returns 409 FLEET_HAS_RESERVATIONS while fleet reservations name the fleet', async () => {
+      const { AppError } = await import('@evtivity/lib');
+      mockFleetService.deleteFleet.mockRejectedValue(
+        new AppError('The fleet has fleet reservations', 409, 'FLEET_HAS_RESERVATIONS'),
+      );
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/fleets/${VALID_FLEET_ID}`,
+        headers: { authorization: 'Bearer ' + token },
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().code).toBe('FLEET_HAS_RESERVATIONS');
     });
 
     it('deletes fleet and returns it', async () => {
@@ -1540,6 +1623,7 @@ describe('Fleet routes - site-restricted user (owner decision 2026-10-09)', () =
     ...BILLING_PROFILE,
     creditLimitCents: 5000,
     creditLimitWarningPercent: 80,
+    accountInvoiceRecipient: 'member',
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -1588,6 +1672,7 @@ describe('Fleet routes - site-restricted user (owner decision 2026-10-09)', () =
       'autoInvoice',
       'creditLimitCents',
       'creditLimitWarningPercent',
+      'accountInvoiceRecipient',
     ]) {
       expect(body).not.toHaveProperty(key);
     }
@@ -1601,7 +1686,11 @@ describe('Fleet routes - site-restricted user (owner decision 2026-10-09)', () =
       url: `/fleets/${VALID_FLEET_ID}`,
       headers: auth(),
     });
-    expect(res.json()).toMatchObject({ creditLimitCents: 5000, hasPricingGroup: false });
+    expect(res.json()).toMatchObject({
+      creditLimitCents: 5000,
+      accountInvoiceRecipient: 'member',
+      hasPricingGroup: false,
+    });
     expect(res.json()).toHaveProperty('billingContactEmails');
   });
 

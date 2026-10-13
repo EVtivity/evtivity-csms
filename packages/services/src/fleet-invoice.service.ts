@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import {
   db,
   chargingSessions,
@@ -32,8 +32,11 @@ import { isInvoiceLanguage } from './invoice-labels.js';
 /** A billing period: a calendar month, `YYYY-MM`. */
 export const FLEET_INVOICE_PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-/** The unique index of one live invoice per fleet and period. */
+/** The unique index of one live fleet invoice per fleet and period. */
 const FLEET_PERIOD_INDEX = 'uq_invoices_fleet_period';
+
+/** The unique index of one live member invoice per fleet, driver and period. */
+const MEMBER_PERIOD_INDEX = 'uq_invoices_member_period';
 
 /** Excluded sessions the preview lists at most. */
 export const FLEET_INVOICE_EXCLUDED_LIMIT = 100;
@@ -116,9 +119,13 @@ export function dateIn(at: Date, timeZone: string): string {
   return `${value('year')}-${value('month')}-${value('day')}`;
 }
 
-/** The fleet billing profile's bill-to block, snapshotted onto the invoice (GoBD). */
+/**
+ * The bill-to block snapshotted onto an account invoice (GoBD): the fleet
+ * billing profile on a fleet invoice, the driver's billing address on a
+ * member invoice.
+ */
 export interface FleetBillTo {
-  /** The legal name, else the fleet name. */
+  /** The legal name, else the fleet name; on a member invoice the driver's billing name. */
   name: string;
   street: string | null;
   city: string | null;
@@ -126,6 +133,8 @@ export interface FleetBillTo {
   zip: string | null;
   country: string | null;
   taxId: string | null;
+  /** Member invoice: the driver's email at issue, printed after the address lines. */
+  email?: string | null;
 }
 
 /** The fleet fields a fleet invoice reads. */
@@ -154,6 +163,56 @@ export function billToFromFleet(fleet: FleetForInvoice): FleetBillTo {
     country: fleet.billingCountry,
     taxId: fleet.billingTaxId,
   };
+}
+
+/** The driver fields a member invoice reads. */
+export interface DriverForInvoice {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  language: string;
+  billingName: string | null;
+  billingStreet: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingZip: string | null;
+  billingCountry: string | null;
+}
+
+function blankToNull(value: string | null): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed !== '' ? trimmed : null;
+}
+
+/** The driver's full name, else the email, else the driver id. */
+function driverDisplayName(driver: DriverForInvoice): string {
+  const full = `${driver.firstName} ${driver.lastName}`.trim();
+  return full !== '' ? full : (blankToNull(driver.email) ?? driver.id);
+}
+
+/**
+ * The bill-to block of a member invoice: the billing name (else the driver's
+ * name), the driver's billing address, no tax ID (private persons), and the
+ * driver's email, so an invoice without an address still names its recipient
+ * (owner decision: a missing address warns and does not block).
+ */
+export function billToFromDriver(driver: DriverForInvoice): FleetBillTo {
+  return {
+    name: blankToNull(driver.billingName) ?? driverDisplayName(driver),
+    street: blankToNull(driver.billingStreet),
+    city: blankToNull(driver.billingCity),
+    state: blankToNull(driver.billingState),
+    zip: blankToNull(driver.billingZip),
+    country: blankToNull(driver.billingCountry),
+    taxId: null,
+    email: blankToNull(driver.email),
+  };
+}
+
+/** A postal address needs at least the street and the city. */
+export function driverHasBillingAddress(driver: DriverForInvoice): boolean {
+  return blankToNull(driver.billingStreet) != null && blankToNull(driver.billingCity) != null;
 }
 
 /** An ended account session of the fleet that no invoice billed yet. */
@@ -392,7 +451,10 @@ async function loadFleet(
  * a credit note released, are billed too; sessions that end later roll into
  * the next invoice). Billed on account means: stamped `account` for the fleet,
  * no payment record (one with a record was paid by card), completed, and no
- * invoice_id. `lock` takes the selected session rows (`FOR UPDATE OF cs`)
+ * invoice_id. `scope` picks the recipient: the fleet's own sessions (default,
+ * not member billed: those go on the member's own invoice), one member's
+ * member-billed sessions, or every member's.
+ * `lock` takes the selected session rows (`FOR UPDATE OF cs`)
  * in the caller's transaction, so nothing can bill or change them before the
  * invoice claims them. With `startsAt` (the scheduled run), only sessions
  * ended in the month itself: earlier months get their own invoice.
@@ -401,8 +463,15 @@ export async function loadFleetInvoiceCandidates(
   executor: Executor,
   fleetId: string,
   endsAt: Date,
-  options: { lock?: boolean; startsAt?: Date } = {},
+  options: { lock?: boolean; startsAt?: Date; scope?: AccountSessionScope } = {},
 ): Promise<FleetSessionCandidate[]> {
+  const scope = options.scope ?? { kind: 'fleet' };
+  const recipient =
+    scope.kind === 'fleet'
+      ? sql`AND NOT cs.member_billed`
+      : scope.kind === 'member'
+        ? sql`AND cs.member_billed AND cs.driver_id = ${scope.driverId}`
+        : sql`AND cs.member_billed`;
   const lowerBound =
     options.startsAt == null
       ? sql``
@@ -417,6 +486,7 @@ export async function loadFleetInvoiceCandidates(
     LEFT JOIN sites si ON si.id = st.site_id
     WHERE cs.billing_fleet_id = ${fleetId}
       AND cs.billing_mode = 'account'
+      ${recipient}
       AND cs.status = 'completed'
       AND cs.invoice_id IS NULL
       AND cs.ended_at < ${endsAt.toISOString()}::timestamptz
@@ -445,6 +515,16 @@ export async function loadFleetInvoiceCandidates(
   });
 }
 
+/**
+ * Which account sessions of a fleet: the fleet's own (billed on the fleet
+ * invoice), one member's (billed on that driver's member invoice), or every
+ * member's (the preview).
+ */
+export type AccountSessionScope =
+  | { kind: 'fleet' }
+  | { kind: 'member'; driverId: string }
+  | { kind: 'members' };
+
 /** A numeric column as postgres.js returns it (a string), or null. */
 function numericText(value: unknown): string | null {
   if (typeof value === 'string') return value;
@@ -452,7 +532,10 @@ function numericText(value: unknown): string | null {
   return null;
 }
 
-/** The live invoice of a fleet and period (not void, not credited), if any. */
+/**
+ * The live fleet invoice of a fleet and period (not void, not credited, not a
+ * member invoice), if any.
+ */
 export interface FleetPeriodInvoice {
   id: string;
   invoiceNumber: string;
@@ -467,7 +550,7 @@ export async function findPeriodInvoice(
   const rows = (await executor.execute(sql`
     SELECT id, invoice_number, status FROM invoices
     WHERE fleet_id = ${fleetId} AND period_start = ${periodStart}::date
-      AND kind = 'invoice' AND status NOT IN ('void', 'credited')
+      AND kind = 'invoice' AND status NOT IN ('void', 'credited') AND NOT member_billed
     LIMIT 1
   `)) as unknown as Array<Record<string, unknown>>;
   const row = rows[0];
@@ -479,12 +562,140 @@ export async function findPeriodInvoice(
   };
 }
 
-function periodExistsError(existing: FleetPeriodInvoice): AppError {
+function periodInvoiceOf(row: Record<string, unknown>): FleetPeriodInvoice {
+  return {
+    id: String(row['id']),
+    invoiceNumber: String(row['invoice_number']),
+    status: String(row['status']),
+  };
+}
+
+/** The live member invoice of a driver, fleet and period (not void, not credited), if any. */
+export async function findMemberPeriodInvoice(
+  executor: Executor,
+  fleetId: string,
+  driverId: string,
+  periodStart: string,
+): Promise<FleetPeriodInvoice | null> {
+  const rows = (await executor.execute(sql`
+    SELECT id, invoice_number, status FROM invoices
+    WHERE fleet_id = ${fleetId} AND driver_id = ${driverId} AND period_start = ${periodStart}::date
+      AND kind = 'invoice' AND status NOT IN ('void', 'credited') AND member_billed
+    LIMIT 1
+  `)) as unknown as Array<Record<string, unknown>>;
+  const row = rows[0];
+  return row == null ? null : periodInvoiceOf(row);
+}
+
+/** The live member invoices of a fleet and period, by driver id. */
+async function findMemberPeriodInvoices(
+  executor: Executor,
+  fleetId: string,
+  periodStart: string,
+): Promise<Map<string, FleetPeriodInvoice>> {
+  const rows = (await executor.execute(sql`
+    SELECT i.driver_id, i.id, i.invoice_number, i.status FROM invoices i
+    WHERE i.fleet_id = ${fleetId} AND i.period_start = ${periodStart}::date
+      AND i.kind = 'invoice' AND i.status NOT IN ('void', 'credited') AND i.member_billed
+      AND i.driver_id IS NOT NULL
+  `)) as unknown as Array<Record<string, unknown>>;
+  return new Map(rows.map((row) => [String(row['driver_id']), periodInvoiceOf(row)]));
+}
+
+/** The drivers a member invoice or the member preview reads, by id. */
+async function loadDrivers(
+  executor: Executor,
+  driverIds: string[],
+): Promise<Map<string, DriverForInvoice>> {
+  if (driverIds.length === 0) return new Map();
+  const rows = (await executor.execute(sql`
+    SELECT id, first_name, last_name, email, language, billing_name, billing_street,
+           billing_city, billing_state, billing_zip, billing_country
+    FROM drivers WHERE id IN (${sql.join(
+      driverIds.map((id) => sql`${id}`),
+      sql`, `,
+    )})
+  `)) as unknown as Array<Record<string, unknown>>;
+  const drivers = new Map<string, DriverForInvoice>();
+  for (const row of rows) {
+    const text = (key: string): string | null => {
+      const value = row[key];
+      return typeof value === 'string' ? value : null;
+    };
+    const id = String(row['id']);
+    drivers.set(id, {
+      id,
+      firstName: text('first_name') ?? '',
+      lastName: text('last_name') ?? '',
+      email: text('email'),
+      language: text('language') ?? 'en',
+      billingName: text('billing_name'),
+      billingStreet: text('billing_street'),
+      billingCity: text('billing_city'),
+      billingState: text('billing_state'),
+      billingZip: text('billing_zip'),
+      billingCountry: text('billing_country'),
+    });
+  }
+  return drivers;
+}
+
+async function loadDriver(executor: Executor, driverId: string): Promise<DriverForInvoice | null> {
+  return (await loadDrivers(executor, [driverId])).get(driverId) ?? null;
+}
+
+function driverNotFound(): AppError {
+  return new AppError('Driver not found', 404, 'DRIVER_NOT_FOUND');
+}
+
+/** Who an account invoice bills: the fleet, or one driver of it (a member invoice). */
+type AccountInvoiceTarget =
+  | { kind: 'fleet'; fleetId: string }
+  | { kind: 'member'; fleetId: string; driverId: string };
+
+function findTargetPeriodInvoice(
+  executor: Executor,
+  target: AccountInvoiceTarget,
+  periodStart: string,
+): Promise<FleetPeriodInvoice | null> {
+  return target.kind === 'fleet'
+    ? findPeriodInvoice(executor, target.fleetId, periodStart)
+    : findMemberPeriodInvoice(executor, target.fleetId, target.driverId, periodStart);
+}
+
+function periodExistsError(target: AccountInvoiceTarget, existing: FleetPeriodInvoice): AppError {
+  const holder = target.kind === 'fleet' ? 'The fleet' : 'The driver';
   return new AppError(
-    `The fleet already has invoice ${existing.invoiceNumber} for this period; credit it to bill the period again`,
+    `${holder} already has invoice ${existing.invoiceNumber} for this period; credit it to bill the period again`,
     409,
     'FLEET_INVOICE_PERIOD_EXISTS',
   );
+}
+
+function nothingToBillError(target: AccountInvoiceTarget): AppError {
+  return new AppError(
+    target.kind === 'fleet'
+      ? 'The fleet has no unbilled account session with a cost in this period'
+      : 'The driver has no unbilled member session of the fleet with a cost in this period',
+    409,
+    'FLEET_INVOICE_NOTHING_TO_BILL',
+  );
+}
+
+/**
+ * Which sessions the claim of an account invoice may take: still billed on
+ * account to the fleet, with no payment record, and of the invoice's
+ * recipient (the fleet's own, or the driver's member-billed sessions).
+ */
+function accountClaimGuard(target: AccountInvoiceTarget): SQL {
+  const recipient =
+    target.kind === 'fleet'
+      ? sql`AND NOT ${chargingSessions.memberBilled}`
+      : sql`AND ${chargingSessions.memberBilled} AND ${chargingSessions.driverId} = ${target.driverId}`;
+  return sql`${chargingSessions.billingMode} = 'account'
+    AND ${chargingSessions.billingFleetId} = ${target.fleetId}
+    ${recipient}
+    AND NOT EXISTS (SELECT 1 FROM payment_records fpr WHERE fpr.session_id = ${chargingSessions.id})`;
 }
 
 /** Refuses a period that has not started yet in the system timezone. */
@@ -492,6 +703,23 @@ function assertPeriodStarted(bounds: FleetInvoicePeriod, now: Date): void {
   if (bounds.startsAt.getTime() > now.getTime()) {
     throw new AppError('period must not be in the future', 400, 'VALIDATION_ERROR');
   }
+}
+
+/** One member's sessions the member invoice of a period would bill (preview). */
+export interface FleetInvoiceMemberTotal {
+  driverId: string;
+  driverName: string;
+  sessionCount: number;
+  energyWh: number;
+  netCents: number;
+  taxCents: number;
+  totalCents: number;
+  /** The driver's live member invoice of the period; generating again is refused while it exists. */
+  existingInvoice: FleetPeriodInvoice | null;
+  /** The driver has an email: the invoice can be emailed. */
+  hasEmail: boolean;
+  /** The driver has a billing address (street and city); without one the invoice prints name and email. */
+  hasAddress: boolean;
 }
 
 /** What the fleet invoice of a period would bill (GET preview). */
@@ -512,12 +740,19 @@ export interface FleetInvoicePreview {
   excludedCount: number;
   /** The fleet's live invoice of the period; generating again is refused while it exists. */
   existingInvoice: FleetPeriodInvoice | null;
+  /**
+   * Member invoices of the period: each driver with unbilled member-billed
+   * sessions with a cost or a live member invoice of the period, ordered by
+   * name. The totals above cover the fleet's own sessions only.
+   */
+  members: FleetInvoiceMemberTotal[];
 }
 
 /**
  * The unbilled account sessions of a fleet the invoice of `period` would bill,
- * per driver, and the ones it would leave off. Reads only. Throws
- * FLEET_NOT_FOUND (404) and VALIDATION_ERROR (400) for a malformed period.
+ * per driver, and the ones it would leave off, plus what each member invoice
+ * of the period would bill (`members`). Reads only. Throws FLEET_NOT_FOUND
+ * (404) and VALIDATION_ERROR (400) for a malformed period.
  */
 export async function previewFleetInvoice(
   fleetId: string,
@@ -528,11 +763,17 @@ export async function previewFleetInvoice(
   const fleet = await loadFleet(db, fleetId);
   if (fleet == null) throw fleetNotFound();
   const currency = await getCompanyCurrency();
-  const [candidates, existingInvoice] = await Promise.all([
+  const [candidates, existingInvoice, memberCandidates, memberInvoices] = await Promise.all([
     loadFleetInvoiceCandidates(db, fleetId, bounds.endsAt),
     findPeriodInvoice(db, fleetId, bounds.periodStart),
+    loadFleetInvoiceCandidates(db, fleetId, bounds.endsAt, { scope: { kind: 'members' } }),
+    findMemberPeriodInvoices(db, fleetId, bounds.periodStart),
   ]);
   const plan = planFleetInvoice(candidates, currency, timeZone);
+  const members = await previewMembers(
+    planFleetInvoice(memberCandidates, currency, timeZone).drivers,
+    memberInvoices,
+  );
   return {
     fleetId,
     period: bounds.period,
@@ -548,7 +789,37 @@ export async function previewFleetInvoice(
     excluded: plan.excluded.slice(0, FLEET_INVOICE_EXCLUDED_LIMIT),
     excludedCount: plan.excluded.length,
     existingInvoice,
+    members,
   };
+}
+
+/** The member rows of the preview: billable totals and live invoices, per driver. */
+async function previewMembers(
+  totals: FleetInvoiceDriverTotal[],
+  invoices: Map<string, FleetPeriodInvoice>,
+): Promise<FleetInvoiceMemberTotal[]> {
+  const byDriver = new Map<string, FleetInvoiceDriverTotal>();
+  // A member-billed session always has a driver (charging_sessions_member_billed_check).
+  for (const total of totals) if (total.driverId != null) byDriver.set(total.driverId, total);
+  const driverIds = [...new Set([...byDriver.keys(), ...invoices.keys()])];
+  const drivers = await loadDrivers(db, driverIds);
+  const rows = driverIds.map((driverId): FleetInvoiceMemberTotal => {
+    const total = byDriver.get(driverId);
+    const driver = drivers.get(driverId);
+    return {
+      driverId,
+      driverName: driver != null ? driverDisplayName(driver) : (total?.driverName ?? ''),
+      sessionCount: total?.sessionCount ?? 0,
+      energyWh: total?.energyWh ?? 0,
+      netCents: total?.netCents ?? 0,
+      taxCents: total?.taxCents ?? 0,
+      totalCents: total?.totalCents ?? 0,
+      existingInvoice: invoices.get(driverId) ?? null,
+      hasEmail: driver != null && blankToNull(driver.email) != null,
+      hasAddress: driver != null && driverHasBillingAddress(driver),
+    };
+  });
+  return rows.sort(compareDrivers);
 }
 
 /**
@@ -660,44 +931,131 @@ export async function createFleetInvoice(
   now: Date = new Date(),
   options: { periodOnly?: boolean } = {},
 ): Promise<FleetInvoiceResult> {
+  return issueAccountInvoice({ kind: 'fleet', fleetId }, period, now, options);
+}
+
+/**
+ * Issues the member invoice of a calendar month for one driver of a fleet
+ * that invoices its members (features/fleet-billing.md, Member invoices):
+ * the driver's member-billed account sessions of the fleet that no invoice
+ * billed, ended before the end of the month, in the company currency and with
+ * a cost. Same rules as the fleet invoice (issued directly, gap-free number
+ * allocated after the locked read, the fleet's payment terms), with the
+ * driver's bill-to block (billToFromDriver) and language (else English).
+ * The driver need not be a current member: a leaver's unbilled member
+ * sessions stay billable to them.
+ *
+ * One live member invoice per driver, fleet and period: refused with
+ * FLEET_INVOICE_PERIOD_EXISTS (409) before and under the fleet lock, and by
+ * the unique index uq_invoices_member_period at the database. The claim guard
+ * takes only the driver's member-billed sessions still billed on account to
+ * the fleet.
+ *
+ * Throws FLEET_NOT_FOUND (404), DRIVER_NOT_FOUND (404), VALIDATION_ERROR
+ * (400) for a malformed or future period, FLEET_INVOICE_NOTHING_TO_BILL (409)
+ * and INVOICE_CREATION_FAILED (400) as createFleetInvoice.
+ */
+export async function createMemberInvoice(
+  fleetId: string,
+  driverId: string,
+  period: string,
+  now: Date = new Date(),
+  options: { periodOnly?: boolean } = {},
+): Promise<FleetInvoiceResult> {
+  return issueAccountInvoice({ kind: 'member', fleetId, driverId }, period, now, options);
+}
+
+/**
+ * The drivers "Invoice All Members" issues a member invoice for (the batch
+ * route and its worker fan-out): each driver with a member-billed session of
+ * the fleet the member invoice of `period` would bill (account, completed, no
+ * invoice, no payment record, ended before the end of the month, a cost above
+ * zero in the company currency; no lower bound, like the on-demand route) and
+ * no live member invoice of the period. Ordered by driver id. Reads only.
+ * Throws FLEET_NOT_FOUND (404), VALIDATION_ERROR (400) for a malformed or
+ * future period.
+ */
+export async function listMemberInvoiceDrivers(
+  fleetId: string,
+  period: string,
+  now: Date = new Date(),
+): Promise<string[]> {
   const timeZone = await getSystemTimezone();
   const bounds = fleetInvoicePeriod(period, timeZone);
   assertPeriodStarted(bounds, now);
-  // Fast refusals before the transaction; both are checked again under the lock.
   if ((await loadFleet(db, fleetId)) == null) throw fleetNotFound();
-  const existing = await findPeriodInvoice(db, fleetId, bounds.periodStart);
-  if (existing != null) throw periodExistsError(existing);
+  const currency = await getCompanyCurrency();
+  const rows = (await db.execute(sql`
+    SELECT DISTINCT cs.driver_id
+    FROM charging_sessions cs
+    WHERE cs.billing_fleet_id = ${fleetId}
+      AND cs.billing_mode = 'account'
+      AND cs.member_billed
+      AND cs.driver_id IS NOT NULL
+      AND cs.status = 'completed'
+      AND cs.invoice_id IS NULL
+      AND cs.ended_at < ${bounds.endsAt.toISOString()}::timestamptz
+      AND cs.final_cost_cents > 0
+      AND upper(cs.currency) = ${currency.toUpperCase()}
+      AND NOT EXISTS (SELECT 1 FROM payment_records pr WHERE pr.session_id = cs.id)
+      AND NOT EXISTS (
+        SELECT 1 FROM invoices i
+        WHERE i.fleet_id = cs.billing_fleet_id AND i.driver_id = cs.driver_id
+          AND i.period_start = ${bounds.periodStart}::date AND i.kind = 'invoice'
+          AND i.status NOT IN ('void', 'credited') AND i.member_billed)
+    ORDER BY cs.driver_id
+  `)) as unknown as Array<Record<string, unknown>>;
+  return rows.map((row) => String(row['driver_id']));
+}
+
+/** The one writer of account invoices: a fleet invoice or a member invoice. */
+async function issueAccountInvoice(
+  target: AccountInvoiceTarget,
+  period: string,
+  now: Date,
+  options: { periodOnly?: boolean },
+): Promise<FleetInvoiceResult> {
+  const { fleetId } = target;
+  const timeZone = await getSystemTimezone();
+  const bounds = fleetInvoicePeriod(period, timeZone);
+  assertPeriodStarted(bounds, now);
+  // Fast refusals before the transaction; each is checked again under the lock.
+  if ((await loadFleet(db, fleetId)) == null) throw fleetNotFound();
+  if (target.kind === 'member' && (await loadDriver(db, target.driverId)) == null) {
+    throw driverNotFound();
+  }
+  const existing = await findTargetPeriodInvoice(db, target, bounds.periodStart);
+  if (existing != null) throw periodExistsError(target, existing);
 
   const currency = await getCompanyCurrency();
-  const sessionClaimGuard = sql`${chargingSessions.billingMode} = 'account'
-    AND ${chargingSessions.billingFleetId} = ${fleetId}
-    AND NOT EXISTS (SELECT 1 FROM payment_records fpr WHERE fpr.session_id = ${chargingSessions.id})`;
+  const sessionClaimGuard = accountClaimGuard(target);
 
   try {
     return await db.transaction(async (tx: InvoiceTx) => {
-      // Generations of one fleet run one after the other; the second sees the
-      // first's invoice and claimed sessions.
+      // Generations of one fleet (fleet and member invoices alike) run one
+      // after the other; the second sees the first's invoice and claimed sessions.
       const fleet = await loadFleet(tx, fleetId, true);
       if (fleet == null) throw fleetNotFound();
-      const live = await findPeriodInvoice(tx, fleetId, bounds.periodStart);
-      if (live != null) throw periodExistsError(live);
+      const driver = target.kind === 'member' ? await loadDriver(tx, target.driverId) : null;
+      if (target.kind === 'member' && driver == null) throw driverNotFound();
+      const live = await findTargetPeriodInvoice(tx, target, bounds.periodStart);
+      if (live != null) throw periodExistsError(target, live);
 
       const candidates = await loadFleetInvoiceCandidates(tx, fleetId, bounds.endsAt, {
         lock: true,
+        scope:
+          target.kind === 'fleet'
+            ? { kind: 'fleet' }
+            : { kind: 'member', driverId: target.driverId },
         ...(options.periodOnly === true ? { startsAt: bounds.startsAt } : {}),
       });
       const plan = planFleetInvoice(candidates, currency, timeZone);
-      if (plan.sessions.length === 0) {
-        throw new AppError(
-          'The fleet has no unbilled account session with a cost in this period',
-          409,
-          'FLEET_INVOICE_NOTHING_TO_BILL',
-        );
-      }
+      if (plan.sessions.length === 0) throw nothingToBillError(target);
 
-      const billTo = billToFromFleet(fleet);
+      const billTo = driver != null ? billToFromDriver(driver) : billToFromFleet(fleet);
+      const language = driver != null ? driver.language : fleet.invoiceLanguage;
       const created: InvoiceWithLineItems = await insertInvoiceInTransaction(tx, {
-        driverId: null,
+        driverId: driver?.id ?? null,
         currency,
         lines: plan.lines,
         chargedCents: plan.totalCents,
@@ -708,7 +1066,8 @@ export async function createFleetInvoice(
           periodStart: bounds.periodStart,
           periodEnd: bounds.periodEnd,
           billTo: { ...billTo },
-          language: isInvoiceLanguage(fleet.invoiceLanguage) ? fleet.invoiceLanguage : 'en',
+          language: isInvoiceLanguage(language) ? language : 'en',
+          memberBilled: driver != null,
         },
         sessionClaimGuard,
       });
@@ -722,13 +1081,16 @@ export async function createFleetInvoice(
     });
   } catch (err) {
     if (err instanceof AppError) throw err;
-    if (pgErrorCode(err) === PG_UNIQUE_VIOLATION && pgConstraintName(err) === FLEET_PERIOD_INDEX) {
-      const live = await findPeriodInvoice(db, fleetId, bounds.periodStart);
-      if (live != null) throw periodExistsError(live);
+    const periodIndex = target.kind === 'fleet' ? FLEET_PERIOD_INDEX : MEMBER_PERIOD_INDEX;
+    if (pgErrorCode(err) === PG_UNIQUE_VIOLATION && pgConstraintName(err) === periodIndex) {
+      const live = await findTargetPeriodInvoice(db, target, bounds.periodStart);
+      if (live != null) throw periodExistsError(target, live);
     }
     if (err instanceof Error && err.message === 'Session is already invoiced') {
       throw new AppError(
-        'A session of the fleet was billed while the invoice was being created; generate it again',
+        target.kind === 'fleet'
+          ? 'A session of the fleet was billed while the invoice was being created; generate it again'
+          : 'A session of the driver was billed while the invoice was being created; generate it again',
         400,
         'INVOICE_CREATION_FAILED',
       );

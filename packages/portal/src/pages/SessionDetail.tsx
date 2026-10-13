@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router';
+import { Link, useParams, useNavigate, useLocation } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
@@ -563,11 +563,37 @@ export function SessionDetail(): React.JSX.Element {
             <CardTitle className="text-sm">{t('fleetBilling.title')}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Row label={t('fleetBilling.fleet')} value={session.accountBilling.fleetName} />
-            <Row
-              label={t('fleetBilling.status')}
-              value={t(`fleetBilling.state.${session.accountBilling.state}`)}
-            />
+            {session.accountBilling.invoicedTo === 'member' ? (
+              <>
+                <p className="text-sm font-medium">
+                  {t('fleetBilling.billedToYouVia', { fleet: session.accountBilling.fleetName })}
+                </p>
+                <Row
+                  label={t('fleetBilling.status')}
+                  value={t(`fleetBilling.stateMember.${session.accountBilling.state}`)}
+                />
+                {session.accountBilling.invoiceId != null && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">{t('fleetBilling.invoice')}</span>
+                    <Link
+                      to={`/account/invoices/${session.accountBilling.invoiceId}`}
+                      className="font-medium text-link hover:underline"
+                      data-testid="session-invoice-link"
+                    >
+                      {session.accountBilling.invoiceNumber ?? t('fleetBilling.invoice')}
+                    </Link>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <Row label={t('fleetBilling.fleet')} value={session.accountBilling.fleetName} />
+                <Row
+                  label={t('fleetBilling.status')}
+                  value={t(`fleetBilling.state.${session.accountBilling.state}`)}
+                />
+              </>
+            )}
           </CardContent>
         </Card>
       )}

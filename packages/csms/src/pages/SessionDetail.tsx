@@ -64,6 +64,8 @@ interface SessionDetailData {
   freeVend: boolean | null;
   billingMode?: 'card' | 'account' | null;
   billingFleetName?: string | null;
+  /** Billed on the driver's own member invoice (a fleet that invoices each driver). */
+  memberBilled?: boolean;
   invoiceStatus?: string | null;
   rebillStatus?: RebillStatus | null;
   rebillClaimedAt?: string | null;
@@ -172,7 +174,9 @@ export function SessionDetail(): React.JSX.Element {
             className="max-w-full whitespace-normal"
             data-testid="session-billing-badge"
           >
-            {t('sessions.billedTo', { fleet: session.billingFleetName ?? '' })}
+            {t(session.memberBilled === true ? 'sessions.billedToMember' : 'sessions.billedTo', {
+              fleet: session.billingFleetName ?? '',
+            })}
             {' · '}
             {t(`sessions.billingState.${accountBillingState(session.invoiceStatus)}`)}
           </Badge>

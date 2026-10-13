@@ -636,11 +636,13 @@
     "FAVORITE_NOT_FOUND": "未找到收藏",
     "FLEET_CREDIT_LIMIT_REACHED": "为您的会话付费的车队已达到信用额度。请联系您的车队管理员。",
     "FLEET_DISABLED": "车队已禁用",
-    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有早于 v0.1.41 的进程处于连接状态。请完成升级后再开启记账计费。",
+    "FLEET_BILLING_OLD_PODS_CONNECTED": "仍有旧版本的进程处于连接状态。请完成升级后再更改车队计费。",
+    "FLEET_BILLING_VERSION_CHECK_STALE": "Worker 最近未运行版本检查，无法确认升级。请检查 Worker 是否正在运行，然后再更改车队计费。",
     "FLEET_BILLING_CONTACT_REQUIRED": "自动开具发票和发送发票邮件需要车队至少有一个账单联系人。",
     "FLEET_INVOICE_PERIOD_EXISTS": "该车队在此账期已有发票。请先开具贷项通知单，再重新为该账期开票。",
     "FLEET_INVOICE_NOTHING_TO_BILL": "该车队在此账期没有可开票的未计费且有费用的会话。",
     "FLEET_HAS_OPEN_BILLING": "该车队有记账到其账户的会话，无法删除。请改为关闭记账计费。",
+    "FLEET_HAS_RESERVATIONS": "该车队有车队预约，无法删除。预约将作为历史记录保留。",
     "FLEET_NOT_FOUND": "未找到车队",
     "FLEET_RESERVATION_ALREADY_CANCELLED": "车队预约已取消",
     "FLEET_RESERVATION_CREATE_FAILED": "创建车队预约失败",
@@ -674,6 +676,7 @@
     "INVOICE_NOT_VOIDABLE": "只有草稿发票可以作废。已开具的发票通过贷项通知单更正",
     "INVOICE_NO_SESSIONS": "所选日期范围内没有未开票的充电会话",
     "INVOICE_NO_DRIVER": "此发票没有可发送的驾驶员",
+    "INVOICE_NO_DRIVER_EMAIL": "此发票的驾驶员没有电子邮件地址",
     "INVOICE_NOT_FOUND": "未找到发票",
     "LOAD_NOT_FOUND": "未找到负载",
     "LOCATION_NOT_FOUND": "未找到位置",
@@ -933,7 +936,8 @@
     "managePayments": "管理支付方式",
     "totalCases": "个工单",
     "viewAllCases": "查看全部工单",
-    "homeScreen": "主屏幕"
+    "homeScreen": "主屏幕",
+    "invoices": "发票"
   },
   "rfid": {
     "addCard": "添加RFID卡",
@@ -1143,6 +1147,60 @@
     },
     "sessionLine": "{{fleet}}：{{state}}",
     "paymentMethodsNote": "您的充电费用记账到 {{fleet}}，充电无需支付方式。",
-    "noMethods": "暂无支付方式。"
+    "noMethods": "暂无支付方式。",
+    "billedToYouVia": "经由 {{fleet}} 向您开票",
+    "memberStartHint": "此充电会话将计入您的月度发票，无需支付方式。",
+    "stateMember": {
+      "unbilled": "尚未开票",
+      "invoiced": "已向您开票",
+      "paid": "已支付"
+    },
+    "memberSessionLine": "经由 {{fleet}} 向您开票：{{state}}",
+    "invoice": "发票",
+    "memberPaymentMethodsNote": "您的充电费用每月经由 {{fleet}} 向您开票，充电无需支付方式。"
+  },
+  "billingAddress": {
+    "title": "账单地址",
+    "description": "显示在车队开具给您的发票上。",
+    "nudge": "您的车队将充电会话直接开票给您。请添加账单地址，以便显示在发票上。",
+    "name": "发票姓名",
+    "nameHelp": "留空则使用您的姓名。",
+    "street": "街道",
+    "city": "城市",
+    "state": "州或地区",
+    "zip": "邮政编码",
+    "country": "国家",
+    "updated": "账单地址已保存。",
+    "updateFailed": "无法保存账单地址。"
+  },
+  "invoices": {
+    "title": "发票",
+    "empty": "暂无发票。",
+    "loadFailed": "无法加载您的发票，请重试。",
+    "notFound": "未找到发票。",
+    "invoice": "发票",
+    "creditNote": "贷项通知单",
+    "viaFleet": "经由 {{fleet}}",
+    "period": "账期",
+    "issued": "开具日期",
+    "due": "到期日",
+    "paidOn": "支付日期",
+    "billTo": "账单抬头",
+    "items": "明细",
+    "net": "净额",
+    "total": "合计",
+    "credits": "贷记发票 {{number}}",
+    "creditedBy": "已由贷项通知单 {{number}} 贷记",
+    "reason": "原因",
+    "downloadPdf": "下载 PDF",
+    "downloadFailed": "无法下载 PDF，请重试。",
+    "backToInvoices": "返回发票",
+    "status": {
+      "draft": "草稿",
+      "issued": "已开具",
+      "paid": "已支付",
+      "void": "已作废",
+      "credited": "已贷记"
+    }
   }
 }
