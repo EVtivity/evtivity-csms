@@ -1,6 +1,6 @@
 {
   "name": "@evtivity/ocpp",
-  "version": "0.1.45",
+  "version": "0.1.46-beta.1",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
