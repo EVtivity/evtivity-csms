@@ -97,6 +97,17 @@ export function insightSize(
 
 /** A one-line headline: what happened, where and, for an incident, how many. */
 export function insightHeadline(t: TFunction, insight: AiInsightView): string {
+  const text = headlineText(t, insight);
+  // "an unknown station" reads right inside a sentence but must not start a title.
+  const fallbacks = [
+    insight.stationName == null ? t('aiInsights.headline.noStation') : null,
+    insight.siteName == null ? t('aiInsights.headline.noSite') : null,
+  ];
+  const startsWithFallback = fallbacks.some((f) => f != null && f !== '' && text.startsWith(f));
+  return startsWithFallback ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+}
+
+function headlineText(t: TFunction, insight: AiInsightView): string {
   const station = insight.stationName ?? t('aiInsights.headline.noStation');
   const site = insight.siteName ?? t('aiInsights.headline.noSite');
   if (insight.kind === 'site_incident') {

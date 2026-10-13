@@ -388,6 +388,26 @@ describe('insight display helpers', () => {
     );
   });
 
+  it('starts a headline with a capital letter when the station is unknown', () => {
+    const english: Record<string, string> = {
+      'aiInsights.headline.noStation': 'an unknown station',
+      'aiInsights.headline.noSite': 'no site',
+      'aiInsights.headline.station_faulted': '{{station}} is faulted',
+      'aiInsights.headline.stuck_session': 'Session stuck on {{station}}',
+    };
+    const tEn = (key: string, vars?: Record<string, string | number>): string =>
+      (english[key] ?? key).replace(/\{\{(\w+)\}\}/g, (_m, k: string) => String(vars?.[k] ?? ''));
+    expect(
+      insightHeadline(
+        tEn as never,
+        insight({ kind: 'station_faulted', stationName: null, siteName: null }),
+      ),
+    ).toBe('An unknown station is faulted');
+    expect(
+      insightHeadline(tEn as never, insight({ kind: 'stuck_session', stationName: null })),
+    ).toBe('Session stuck on an unknown station');
+  });
+
   it('never collapses site incidents, summaries or an unknown root cause', () => {
     const rows = insightRows(
       [
