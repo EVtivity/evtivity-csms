@@ -32,10 +32,6 @@ import { useDayDeltaContext, type SnapshotData } from '@/hooks/use-day-delta-con
 import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { formatCents, formatNumber, formatNumberUpTo } from '@/lib/formatting';
 import { parseValue, formatParsedValue } from '@/lib/animated-value';
-import {
-  CostMissingDashboardNotice,
-  type CostMissingSite,
-} from '@/components/ElectricityCostNotices';
 
 interface DashboardStats {
   totalStations: number;
@@ -130,10 +126,6 @@ interface FinancialStats {
   dayElectricityCostCents: number;
   totalProfitCents: number;
   dayProfitCents: number;
-  /** Sessions without an electricity cost, left out of profit. */
-  totalCostMissingSessionCount?: number;
-  totalCostMissingRevenueCents?: number;
-  costMissingSites?: CostMissingSite[];
   /** Account sessions whose fleet invoice is not paid yet (not revenue). */
   billedOnAccountCents?: number;
   billedOnAccountCount?: number;
@@ -834,12 +826,7 @@ function AdminDashboard({
             { id: 'cost', content: costGrid },
             ...(billedOnAccountCount > 0 ? [{ id: 'account', content: accountGrid }] : []),
           ]}
-        />
-        <CostMissingDashboardNotice
-          sessionCount={financialStats.data?.totalCostMissingSessionCount ?? 0}
-          revenueCents={financialStats.data?.totalCostMissingRevenueCents ?? 0}
-          currency={liveCurrency}
-          sites={financialStats.data?.costMissingSites ?? []}
+          gap="gap-4"
         />
       </>
     );

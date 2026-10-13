@@ -387,7 +387,18 @@ function redactPart(part: AiPart, surface: RedactionSurface): AiPart {
     // The field pass already checked contiguous card numbers outside id
     // fields; a text pass would treat a numeric `transactionId` as a card.
     const w: Walk = { surface, counts: emptyRedactionCounts() };
-    return { ...part, content: redactString(part.content, w, { contiguousCards: false }) };
+    const content = redactString(part.content, w, { contiguousCards: false });
+    if (part.searchResults === undefined) return { ...part, content };
+    // Documentation passages are public text, checked like any other text sent.
+    return {
+      ...part,
+      content,
+      searchResults: part.searchResults.map((r) => ({
+        ...r,
+        title: redactToolText(r.title, surface).text,
+        text: redactToolText(r.text, surface).text,
+      })),
+    };
   }
   return part;
 }

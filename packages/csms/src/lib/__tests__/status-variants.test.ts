@@ -5,7 +5,6 @@ import { describe, it, expect } from 'vitest';
 import {
   reservationStatusVariant,
   insightStatusVariant,
-  insightActionStatusVariant,
   fleetReservationStatusVariant,
   sessionStatusVariant,
   simpleSessionStatusVariant,
@@ -268,20 +267,18 @@ describe('notificationStatusBadgeClass', () => {
 });
 
 describe('AI status variants', () => {
-  it('maps insight statuses', () => {
-    expect(insightStatusVariant('active')).toBe('warning');
-    expect(insightStatusVariant('pending')).toBe('info');
-    expect(insightStatusVariant('resolved')).toBe('success');
-    expect(insightStatusVariant('failed')).toBe('destructive');
+  it('maps the one insight status', () => {
+    expect(insightStatusVariant('open')).toBe('info');
+    expect(insightStatusVariant('pending')).toBe('warning');
+    expect(insightStatusVariant('done')).toBe('success');
+    expect(insightStatusVariant('resolved')).toBe('default');
+    expect(insightStatusVariant('rejected')).toBe('destructive');
     expect(insightStatusVariant('dismissed')).toBe('secondary');
-    expect(insightStatusVariant('skipped')).toBe('outline');
+    expect(insightStatusVariant('expired')).toBe('outline');
   });
 
-  it('maps insight action statuses', () => {
-    expect(insightActionStatusVariant('pending')).toBe('warning');
-    expect(insightActionStatusVariant('executed')).toBe('success');
-    expect(insightActionStatusVariant('failed')).toBe('destructive');
-    expect(insightActionStatusVariant('rejected')).toBe('secondary');
-    expect(insightActionStatusVariant('stale')).toBe('outline');
+  it('gives every shown insight status its own color', () => {
+    const shown = ['open', 'pending', 'done', 'resolved', 'rejected', 'dismissed', 'expired'];
+    expect(new Set(shown.map(insightStatusVariant)).size).toBe(shown.length);
   });
 });

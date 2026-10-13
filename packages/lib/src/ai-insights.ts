@@ -59,20 +59,53 @@ export function isWorkerActionInsightKind(kind: string): kind is WorkerActionIns
   return (WORKER_ACTION_INSIGHT_KINDS as readonly string[]).includes(kind);
 }
 
-/** List filter on the action: `pending` (waits for a decision) or `any` (carries one). */
-export const INSIGHT_ACTION_FILTERS = ['pending', 'any'] as const;
-export type InsightActionFilter = (typeof INSIGHT_ACTION_FILTERS)[number];
-
-export const INSIGHT_STATUSES = [
+/**
+ * The one status of an insight and the action it carries
+ * (`ai_insights.status`), shown as one badge. Lists, filters, counts and
+ * badges read only it:
+ * - `open`: the problem stands and no action waits;
+ * - `pending`: its action waits for a decision;
+ * - `done`: the action ran;
+ * - `rejected`: the action was rejected;
+ * - `resolved`: the condition cleared (or the action no longer applied);
+ * - `dismissed`: an operator dismissed it;
+ * - `expired`: the action expired undecided.
+ * `done`, `rejected`, `resolved`, `dismissed` and `expired` are terminal.
+ */
+export const INSIGHT_VISIBLE_STATUSES = [
+  'open',
   'pending',
-  'active',
+  'done',
+  'rejected',
   'resolved',
-  'superseded',
-  'skipped',
-  'failed',
   'dismissed',
+  'expired',
+] as const;
+export type InsightVisibleStatus = (typeof INSIGHT_VISIBLE_STATUSES)[number];
+
+/**
+ * Generation states, internal: `analyzing` (the generation runs), `skipped`,
+ * `failed` and `superseded` (a regenerated insight, or a site incident member).
+ * Never listed, filtered, counted or shown as a badge.
+ */
+export const INSIGHT_INTERNAL_STATUSES = ['analyzing', 'skipped', 'failed', 'superseded'] as const;
+
+/** Every stored status. */
+export const INSIGHT_STATUSES = [
+  ...INSIGHT_INTERNAL_STATUSES,
+  ...INSIGHT_VISIBLE_STATUSES,
 ] as const;
 export type InsightStatus = (typeof INSIGHT_STATUSES)[number];
+
+/** Shown and not terminal: the insight still asks for attention. */
+export const INSIGHT_LIVE_STATUSES = [
+  'open',
+  'pending',
+] as const satisfies readonly InsightStatus[];
+
+export function isVisibleInsightStatus(status: string): status is InsightVisibleStatus {
+  return (INSIGHT_VISIBLE_STATUSES as readonly string[]).includes(status);
+}
 
 /** Why an insight ended `skipped` without a model call. */
 export const INSIGHT_SKIP_REASONS = [
@@ -196,7 +229,7 @@ function isFixCode(value: string): value is FixCode {
  * evidence ids that are not in the evidence pack are dropped, notes are cut
  * to their limit and at most three fixes are kept. Returns null when the
  * answer does not have the required shape (the caller retries once, then
- * falls back to the rule insight).
+ * falls back to the rule insight). An `unknown` category gets `low` confidence.
  */
 export function sanitizeInsightModelOutput(
   answer: unknown,
@@ -211,9 +244,12 @@ export function sanitizeInsightModelOutput(
     fixes.push(note != null && note !== '' ? { code: fix.code, note } : { code: fix.code });
     if (fixes.length === INSIGHT_MAX_FIXES) break;
   }
+  // An unknown root cause is never more than low confidence: the confidence
+  // the list shows next to it is about the cause, not the summary.
+  const { category } = parsed.data;
   return {
-    category: parsed.data.category,
-    confidence: parsed.data.confidence,
+    category,
+    confidence: category === 'unknown' ? 'low' : parsed.data.confidence,
     summary: parsed.data.summary,
     fixes,
     evidenceRefs: [...new Set(parsed.data.evidenceRefs)].filter((id) => evidenceIds.has(id)),
@@ -412,7 +448,9 @@ export const INSIGHT_KIND_FALLBACKS: Readonly<Record<InsightKind, RuleInsight>> 
   site_summary: { category: 'unknown', fixes: ['monitor'] },
   company_summary: { category: 'unknown', fixes: ['monitor'] },
   tariff_anomaly: { category: 'tariff', fixes: ['review_tariff_assignment'] },
-  stuck_session: { category: 'unknown', fixes: ['monitor'] },
+  // The stop action the insight carries is its recommendation: a fix code
+  // here would be a second one ("Keep monitoring" next to "Stop the session").
+  stuck_session: { category: 'unknown', fixes: [] },
   station_long_faulted: { category: 'hardware', fixes: ['reboot_station', 'inspect_connector'] },
   reservation_rejected: {
     category: 'configuration',
@@ -471,11 +509,20 @@ export type AiInsightErrorCode = keyof typeof AI_INSIGHT_ERROR_CODES;
 /**
  * Records an Explain conversation can be about (`ai_conversations.context_kind`).
  * The context id is the record's id: `charging_stations.id`,
- * `charging_sessions.id`, `authorize_attempts.id` as a decimal string, or
- * `reservations.id`.
+ * `charging_sessions.id`, `authorize_attempts.id` as a decimal string,
+ * `reservations.id`, or `ai_insights.id` (Explain and "Ask a follow-up" on an
+ * insight).
  */
-export const AI_CONTEXT_KINDS = ['station', 'session', 'authorization', 'reservation'] as const;
+export const AI_CONTEXT_KINDS = [
+  'station',
+  'session',
+  'authorization',
+  'reservation',
+  'insight',
+] as const;
 export type AiContextKind = (typeof AI_CONTEXT_KINDS)[number];
+/** The context kinds of an operational record (every kind but an insight). */
+export type AiRecordContextKind = Exclude<AiContextKind, 'insight'>;
 
 // ---------------------------------------------------------------------------
 // Reservation insights (v0.1.45): raised from `reservation_audit_log` by the

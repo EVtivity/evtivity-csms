@@ -538,7 +538,9 @@ describe('AiPanel Explain (roadmap v0.1.44 item 2)', () => {
     await waitFor(() => {
       expect(input.value).toBe('ai.explain.session');
     });
-    expect(screen.getByTestId('ai-context-card').textContent).toContain('ai.explain.about');
+    expect(screen.getByTestId('ai-context-card').textContent).toBe(
+      'ai.explain.kind.sessionSession 1',
+    );
     // Nothing is sent until the user sends it.
     expect(apiMock.post).not.toHaveBeenCalled();
     expect(useAiPanelStore.getState().request).toBeNull();
@@ -555,51 +557,13 @@ describe('AiPanel Explain (roadmap v0.1.44 item 2)', () => {
     );
   });
 
-  it('TC-AI-EX-04: every kind shows the same context card: the fresh insight headline, cause and fixes, never its body', async () => {
-    const fresh = {
-      id: 'fresh',
-      kind: 'reservation_rejected',
-      status: 'active',
-      skipReason: null,
-      siteId: 's1',
-      stationId: 'st1',
-      sessionId: null,
-      authorizeAttemptId: null,
-      reservationId: 'res1',
-      parentInsightId: null,
-      category: 'hardware',
-      confidence: 'medium',
-      fixes: [{ code: 'inspect_connector', note: 'Model note.' }],
-      scope: {},
-      generatedBy: 'model',
-      language: 'en',
-      summary: 'Connector 2 reports a ground fault. The whole body of the insight.',
-      textStatus: 'ready',
-      stale: false,
-      basisAt: null,
-      createdAt: '2026-10-10T10:00:00Z',
-      resolvedAt: null,
-      dismissedAt: null,
-      stationName: 'CS-0001',
-    };
-    apiMock.get.mockImplementation((path: string) =>
-      Promise.resolve(
-        path.startsWith('/v1/ai/insights?reservationId=res1')
-          ? { data: [fresh], total: 1 }
-          : { data: [], total: 0 },
-      ),
-    );
+  it('TC-AI-EX-04: the context chip shows only the record kind and its id, never an insight', async () => {
     useAiPanelStore.getState().openWithContext({ kind: 'reservation', id: 'res1', label: '#7' });
     renderPanel();
-    const card = await screen.findByTestId('ai-context-insight');
-    expect(card.textContent).toContain('aiInsights.headline.reservation_rejected');
-    expect(card.textContent).toContain('aiInsights.category.hardware');
-    expect(card.textContent).toContain('aiInsights.fix.inspect_connector');
-    expect(screen.getByTestId('ai-panel').textContent).not.toContain('ground fault');
-    expect(screen.getByTestId('ai-panel').textContent).not.toContain('Model note.');
-    expect(screen.getByRole('link', { name: 'ai.explain.viewInsight' }).getAttribute('href')).toBe(
-      '/ai/insights/fresh',
-    );
+    const chip = await screen.findByTestId('ai-context-card');
+    expect(chip.textContent).toBe('ai.explain.kind.reservation#7');
+    // The panel reads no insight: the assistant fetches the record with its tools.
+    expect(apiMock.get).not.toHaveBeenCalledWith(expect.stringContaining('/v1/ai/insights'));
     // The question is prefilled; nothing is sent and no tokens are spent.
     expect(screen.getByLabelText<HTMLTextAreaElement>('ai.inputLabel').value).toBe(
       'ai.explain.reservation',
@@ -608,18 +572,40 @@ describe('AiPanel Explain (roadmap v0.1.44 item 2)', () => {
     expect(postStreamMock).not.toHaveBeenCalled();
   });
 
-  it('TC-AI-EX-04: a station without an insight shows the same card with the record only', async () => {
-    useAiPanelStore.getState().openWithContext({ kind: 'station', id: 'st1', label: 'CS-0001' });
+  it('TC-AI-EX-04: the chip has no icon, and the server label replaces the page label once the conversation exists', async () => {
+    apiMock.post.mockImplementation((path: string) =>
+      path === '/v1/assistant/conversations'
+        ? Promise.resolve({
+            id: 'conv1',
+            title: '',
+            provider: '',
+            model: '',
+            createdAt: '',
+            updatedAt: '',
+            context: { kind: 'session', id: 'se1', label: 'CS-0954' },
+          })
+        : Promise.reject(new Error(`unexpected ${path}`)),
+    );
+    postStreamMock.mockImplementation((_p: string, _b: unknown, signal: AbortSignal) =>
+      Promise.resolve(sseBody([start('m1'), { type: 'text_delta', text: 'It failed' }], signal)),
+    );
+    useAiPanelStore.getState().openWithContext({ kind: 'session', id: 'se1', label: 'CS-1' });
     renderPanel();
-    const card = await screen.findByTestId('ai-context-card');
-    expect(card.textContent).toContain('ai.explain.about');
-    expect(card.textContent).toContain('ai.explain.shared');
-    await waitFor(() => {
-      expect(apiMock.get).toHaveBeenCalledWith(
-        expect.stringContaining('/v1/ai/insights?stationId=st1'),
-      );
-    });
-    expect(screen.queryByTestId('ai-context-insight')).toBeNull();
+    const chip = await screen.findByTestId('ai-context-card');
+    expect(chip.querySelector('svg')).toBeNull();
+    expect(chip.textContent).toBe('ai.explain.kind.sessionCS-1');
+    fireEvent.click(screen.getByRole('button', { name: 'ai.send' }));
+    expect(await screen.findByText('It failed')).toBeTruthy();
+    expect(screen.getByTestId('ai-context-card').textContent).toBe(
+      'ai.explain.kind.sessionCS-0954',
+    );
+  });
+
+  it('TC-AI-EX-04: a record without an id label shows the kind only', async () => {
+    useAiPanelStore.getState().openWithContext({ kind: 'station', id: 'st1' });
+    renderPanel();
+    const chip = await screen.findByTestId('ai-context-card');
+    expect(chip.textContent).toBe('ai.explain.kind.station');
   });
 
   it('New chat drops the record context', async () => {

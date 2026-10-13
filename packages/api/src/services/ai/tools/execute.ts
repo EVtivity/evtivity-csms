@@ -38,6 +38,12 @@ import type { OcppVersion } from './ocpp-version.js';
 import { surfaceOffers, toolPolicy } from './policy.js';
 import type { AiSurface } from './policy.js';
 import { redactToolText, redactToolValue } from '@evtivity/ai/redact';
+import type { AiSearchResult } from '@evtivity/ai/core';
+import {
+  DOCS_SEARCH_OPERATION_ID,
+  docsSearchResponseIds,
+  searchResultsForIds,
+} from '../docs/docs-search.js';
 import type { RedactionCounts } from '@evtivity/ai/redact';
 import { dropStrictNulls } from './schema.js';
 import { frameUntrusted } from '@evtivity/ai/prompt';
@@ -278,6 +284,11 @@ export interface ToolOutcome {
   summary: string;
   redactionCounts: RedactionCounts;
   latencyMs: number;
+  /**
+   * `docs_search` only: the passages it returned, rebuilt from the docs
+   * corpus. The model may cite them; the engine accepts no other id.
+   */
+  searchResults?: AiSearchResult[];
 }
 
 function truncate(text: string): string {
@@ -368,8 +379,13 @@ export async function runToolCall(
   options: ToolCallOptions = {},
 ): Promise<ToolOutcome> {
   const result = await injectToolCall(app, call, authorization, ctx, options);
+  const ok = result.httpStatus < 400;
+  const searchResults =
+    ok && call.entry.tool.operationId === DOCS_SEARCH_OPERATION_ID
+      ? searchResultsForIds(docsSearchResponseIds(result.value))
+      : [];
   return {
-    status: result.httpStatus < 400 ? 'ok' : 'error',
+    status: ok ? 'ok' : 'error',
     httpStatus: result.httpStatus,
     value: result.value,
     content: frameUntrusted(
@@ -380,6 +396,7 @@ export async function runToolCall(
     summary: `${result.request.method} ${result.request.url} ${String(result.httpStatus)}`,
     redactionCounts: result.redactionCounts,
     latencyMs: result.latencyMs,
+    ...(searchResults.length > 0 ? { searchResults } : {}),
   };
 }
 

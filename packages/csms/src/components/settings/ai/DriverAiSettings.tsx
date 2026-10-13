@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
 import {
   AI_DRIVER_NUMBER_SETTINGS,
   DEFAULT_DRIVER_AI_EFFORT,
@@ -15,7 +14,6 @@ import {
 import type { AiDriverNumberSettingKey } from '@evtivity/lib/ai-config';
 import { DRIVER_AI_SETTING_KEYS } from '@evtivity/lib/driver-ai';
 import { SaveButton } from '@/components/save-button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -146,10 +144,6 @@ export function DriverAiSettings({ settings }: DriverAiSettingsProps): React.JSX
           </p>
         </CardHeader>
         <CardContent className="space-y-6">
-          <Alert variant="warning">
-            <AlertTriangle className="h-4 w-4" />
-            <AlertDescription>{t('settings.aiDriverDataWarning')}</AlertDescription>
-          </Alert>
           <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
             <Label htmlFor="driverAi-enabled" className="leading-6">
               {t('settings.aiSurface.driver.enabled')}

@@ -113,7 +113,7 @@ function row(overrides: Record<string, unknown> = {}) {
     sessionId: null,
     authorizeAttemptId: null,
     siteId: 'sit_a',
-    status: 'pending',
+    status: 'analyzing',
     primaryLanguage: 'en',
     requestedBy: null,
     ...overrides,

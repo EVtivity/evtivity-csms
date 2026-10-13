@@ -8,6 +8,7 @@ import type {
   AiPart,
   AiProviderState,
   AiRequest,
+  AiToolResultPart,
   ModelCapabilities,
 } from '../../core/types.js';
 import {
@@ -17,6 +18,7 @@ import {
   textDocumentBlock,
   toBase64,
 } from '../shared.js';
+import { toolResultText } from '../citations.js';
 
 type BlockParam = Anthropic.ContentBlockParam;
 type MessageParam = Anthropic.MessageParam;
@@ -33,7 +35,35 @@ function readOpaque(state: AiProviderState | undefined): BlockParam[] | undefine
   return Array.isArray(opaque?.content) ? opaque.content : undefined;
 }
 
-async function partToBlock(req: AiRequest, part: AiPart): Promise<BlockParam | null> {
+/**
+ * A tool result's content blocks. A model with native citations gets
+ * documentation passages as `search_result` blocks (`source` is the passage
+ * id, so a `search_result_location` citation names it); otherwise the
+ * prompted text with `[doc:<id>]` markers.
+ */
+function toolResultContent(
+  part: AiToolResultPart,
+  caps: ModelCapabilities,
+): NonNullable<Anthropic.ToolResultBlockParam['content']> {
+  const results = part.searchResults ?? [];
+  if (caps.citations === 'native' && results.length > 0 && !part.isError) {
+    return results.map((r) => ({
+      type: 'search_result',
+      source: r.id,
+      title: r.title,
+      content: [{ type: 'text', text: r.text }],
+      citations: { enabled: true },
+    }));
+  }
+  const text = toolResultText(part);
+  return [{ type: 'text', text: text === '' ? '(empty)' : text }];
+}
+
+async function partToBlock(
+  req: AiRequest,
+  part: AiPart,
+  caps: ModelCapabilities,
+): Promise<BlockParam | null> {
   switch (part.type) {
     case 'text':
       return part.text === '' ? null : { type: 'text', text: part.text };
@@ -65,20 +95,24 @@ async function partToBlock(req: AiRequest, part: AiPart): Promise<BlockParam | n
       return {
         type: 'tool_result',
         tool_use_id: part.toolCallId,
-        content: [{ type: 'text', text: part.content === '' ? '(empty)' : part.content }],
+        content: toolResultContent(part, caps),
         is_error: part.isError,
       };
   }
 }
 
-async function messageBlocks(req: AiRequest, message: AiMessage): Promise<BlockParam[]> {
+async function messageBlocks(
+  req: AiRequest,
+  message: AiMessage,
+  caps: ModelCapabilities,
+): Promise<BlockParam[]> {
   if (message.role === 'assistant') {
     const replay = readOpaque(message.providerState);
     if (replay !== undefined) return replay;
   }
   const blocks: BlockParam[] = [];
   for (const part of message.parts) {
-    const block = await partToBlock(req, part);
+    const block = await partToBlock(req, part, caps);
     if (block !== null) blocks.push(block);
   }
   return blocks;
@@ -97,7 +131,7 @@ export async function buildAnthropicParams(
   const messages: MessageParam[] = [];
   for (const message of stripForeignProviderState(req.messages, 'anthropic', req.model)) {
     const role = message.role === 'assistant' ? 'assistant' : 'user';
-    const blocks = await messageBlocks(req, message);
+    const blocks = await messageBlocks(req, message, caps);
     if (blocks.length === 0) continue;
     const last = messages.at(-1);
     if (last !== undefined && last.role === role && Array.isArray(last.content)) {

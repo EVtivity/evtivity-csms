@@ -142,6 +142,12 @@ describe('Dashboard layout (plan v0.1.45, section 6)', () => {
     expect(grid(billed).className).toBe('grid gap-4 grid-cols-1 md:grid-cols-2');
     expect(grid(revenue).className).toBe('grid gap-4 grid-cols-2 lg:grid-cols-4');
     expect(statGridClass(4)).toBe(grid(revenue).className);
+    // The sliding row keeps the stat gap between its pages, so the account page
+    // never sits flush against the cost page on a phone.
+    const row = grid(revenue).parentElement?.parentElement as HTMLElement;
+    expect(row.className).toContain('snap-x');
+    expect(row.className).toContain('gap-4');
+    expect(grid(billed).parentElement?.parentElement).toBe(row);
     expect(statGridClass(8)).toBe('grid gap-4 grid-cols-2 lg:grid-cols-4');
     expect(statGridClass(3)).toBe('grid gap-4 grid-cols-1 md:grid-cols-3');
     expect(statGridClass(1)).toBe('grid gap-4 grid-cols-1');

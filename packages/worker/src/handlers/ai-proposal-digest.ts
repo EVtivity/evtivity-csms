@@ -10,7 +10,7 @@ import { config } from '../lib/config.js';
 /**
  * Cron `ai-proposal-digest` (daily 07:00): the opt-in email with the counts
  * of AI insight actions waiting for a decision (`ai.ProposalDigest`, decision
- * D12), linking the insights with a pending action. Only operators who turned
+ * D12), linking the insights with status pending (an action waits). Only operators who turned
  * it on and have pending actions at their sites get one.
  */
 export async function aiProposalDigestHandler(log: Logger, now = new Date()): Promise<void> {
@@ -19,7 +19,7 @@ export async function aiProposalDigestHandler(log: Logger, now = new Date()): Pr
     digestDate: new Intl.DateTimeFormat('en-CA', { timeZone: await getSystemTimezone() }).format(
       now,
     ),
-    insightsUrl: `${config.CSMS_URL.replace(/\/$/, '')}/ai/insights?action=pending`,
+    insightsUrl: `${config.CSMS_URL.replace(/\/$/, '')}/ai/insights?status=pending`,
     templatesDirs: ALL_TEMPLATES_DIRS,
     log,
   });

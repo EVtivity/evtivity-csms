@@ -42,6 +42,8 @@ vi.mock('@evtivity/database', async () => {
     'maintenance_event',
     'session',
     'invoice',
+    'ai_insight',
+    'ai_proposal',
   ];
   return {
     ...rawTimestamp,
@@ -124,6 +126,36 @@ describe('audit routes site scope', () => {
       const res = await get('/audit/setting/company.name');
       expect(res.statusCode).toBe(200);
       expect(res.json().data[0].createdAt).toBe('2026-10-10T10:49:38.215Z');
+    });
+
+    it("merges an insight's history with its action's history, newest first", async () => {
+      mocks.execute
+        .mockResolvedValueOnce([
+          { id: 1, action: 'created', actor: 'system', created_at: '2026-10-10 10:00:00+00' },
+        ])
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([
+          { id: 7, action: 'confirmed', actor: 'system', created_at: '2026-10-10 11:00:00+00' },
+        ])
+        .mockResolvedValueOnce([{ total: 1 }]);
+      const res = await get('/audit/ai_insight/ain_1');
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.total).toBe(2);
+      expect(body.data.map((r: { action: string }) => r.action)).toEqual(['confirmed', 'created']);
+      expect(executedSql()[2]).toContain('ai_proposal_audit_log');
+      expect(executedSql()[2]).toContain('insight_id');
+    });
+
+    it('breaks a time tie in the merge on id, newest row first', async () => {
+      const at = '2026-10-10 10:00:00+00';
+      mocks.execute
+        .mockResolvedValueOnce([{ id: 3, action: 'rejected', actor: 'system', created_at: at }])
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([{ id: 9, action: 'created', actor: 'system', created_at: at }])
+        .mockResolvedValueOnce([{ total: 1 }]);
+      const res = await get('/audit/ai_insight/ain_1');
+      expect(res.json().data.map((r: { id: number }) => r.id)).toEqual([9, 3]);
     });
 
     it('does not filter by site for an all-site user', async () => {

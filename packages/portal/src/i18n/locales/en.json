@@ -1,5 +1,6 @@
 {
   "common": {
+    "copied": "Copied",
     "loading": "Loading...",
     "pageNotFound": "Page not found",
     "pageNotFoundDescription": "The page you are looking for does not exist or has been moved.",
@@ -22,7 +23,8 @@
     "inclTax": "incl. tax",
     "amountInclTax": "{{amount}} incl. tax",
     "close": "Close",
-    "toggleSuggestions": "Toggle suggestions"
+    "toggleSuggestions": "Toggle suggestions",
+    "copyFailed": "Copy failed"
   },
   "nav": {
     "home": "Home",
@@ -517,7 +519,7 @@
       "changeChoice": "Change",
       "dataNotice": {
         "title": "What the AI Receives",
-        "body": "The AI reads your request and your own charging sessions, payments, reservations and the stations you used. Stored credentials, such as passwords, are never sent. Card numbers and IBANs are cut to their last 4 characters. Email addresses and phone numbers are masked. Charging card and token ids are shortened to their last 4 characters."
+        "body": "The AI reads your request and your own charging sessions, payments, reservations and the stations you used. Stored credentials, such as passwords, are never sent. Card numbers are cut to their last 4 characters. Email addresses and phone numbers are masked. Charging card and token ids are shortened to their last 4 characters."
       },
       "notice": {
         "v1": {
@@ -1142,11 +1144,5 @@
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "Your charging is billed to {{fleet}}. You need no payment method to charge.",
     "noMethods": "No payment methods yet."
-  },
-  "ai": {
-    "dataNotice": {
-      "title": "What the AI Provider Receives",
-      "body": "The AI provider never receives stored credentials, such as passwords, API keys, secrets and station passwords. Card numbers and IBANs are cut to their last 4 characters. Support drafts, automatic insights, background workers and driver support also mask email addresses and phone numbers, and hash or shorten driver token ids. The assistant sends driver contact details as stored, only to users allowed to read them. Text you type and text files you attach are checked for keys and card numbers. Images and PDFs you attach are sent as they are."
-    }
   }
 }

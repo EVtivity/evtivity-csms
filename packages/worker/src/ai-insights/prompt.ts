@@ -66,6 +66,14 @@ export function insightTask(kind: InsightKind): string {
  */
 export const INSIGHT_SUMMARY_TARGET_LENGTH = Math.floor((INSIGHT_SUMMARY_MAX_LENGTH * 2) / 3);
 
+/**
+ * How to pick the root cause. Without it models answered `unknown` for about
+ * one session failure in six although the evidence named a cause, and the
+ * insights list showed no root cause for them.
+ */
+export const INSIGHT_CATEGORY_RULE =
+  'Pick the category the evidence points to most, even when the evidence is incomplete, and say how sure you are with "confidence". Answer "unknown" only when no evidence item points to any category, and then set "confidence" to "low".';
+
 /** The JSON answer contract: closed category and fix code lists. */
 export function insightAnswerContract(language: string): string {
   const lang = promptLanguage(language);
@@ -76,6 +84,7 @@ export function insightAnswerContract(language: string): string {
     ` "summary": plain text in ${LANGUAGE_NAMES[lang]}, 2 or 3 short sentences of about ${String(INSIGHT_SUMMARY_TARGET_LENGTH)} characters; an answer with a summary over ${String(INSIGHT_SUMMARY_MAX_LENGTH)} characters is rejected,`,
     ` "fixes": at most ${String(INSIGHT_MAX_FIXES)} objects {"code": one of ${JSON.stringify(FIX_CODES)}, "note": optional, at most ${String(INSIGHT_FIX_NOTE_MAX_LENGTH)} characters},`,
     ' "evidenceRefs": the ids of the evidence items you used}',
+    INSIGHT_CATEGORY_RULE,
     terminologyNote(lang),
   ]
     .filter((line) => line !== '')

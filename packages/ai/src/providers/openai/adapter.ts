@@ -13,6 +13,7 @@ import { collectAiStream } from '../../core/collect.js';
 import { resolveModelCapabilities } from '../../core/model-registry.js';
 import type { AiAdapter, AiAdapterOptions, AiStreamEvent } from '../../core/types.js';
 import { assertPartsSupported, describeSdkError, isAbort, toProviderError } from '../shared.js';
+import { CitationStream } from '../citations.js';
 import { buildOpenAiParams } from './map-request.js';
 import { OpenAiStreamMapper } from './map-stream.js';
 
@@ -54,11 +55,12 @@ export function createOpenAiAdapter(options: AiAdapterOptions): AiAdapter {
       assertPartsSupported('openai', req, caps);
       const params = await buildOpenAiParams(req, caps);
       const mapper = new OpenAiStreamMapper(req.model);
+      const cite = new CitationStream(caps);
       let aborted = false;
       try {
         const events = await client.responses.create(params, { signal });
         for await (const event of events) {
-          yield* mapper.handle(event);
+          yield* cite.map(mapper.handle(event));
         }
       } catch (err) {
         if (!isAbort(err, signal)) {
@@ -72,7 +74,7 @@ export function createOpenAiAdapter(options: AiAdapterOptions): AiAdapter {
       } catch (err) {
         throw toProviderError('openai', err, options.apiKey, describeSdkError, ERROR_CODES);
       }
-      yield* closing;
+      yield* cite.map(closing);
     },
     complete(req, signal) {
       return collectAiStream(adapter.stream(req, signal));

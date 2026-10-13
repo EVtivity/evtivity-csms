@@ -32,7 +32,6 @@ import {
   EMPTY_REVENUE,
   paymentsKeptCentsSql,
   profitCents,
-  type RevenueTotals,
 } from '@evtivity/services/session-revenue';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -215,33 +214,6 @@ const financialStatsResponse = z
       .int()
       .min(0)
       .describe('Revenue of those sessions in cents, tax included'),
-    costMissingSites: z
-      .array(
-        z
-          .object({
-            siteId: z.string().describe('Site ID'),
-            siteName: z.string().describe('Site name'),
-            hasRatePeriods: z
-              .boolean()
-              .describe(
-                'Whether the site has any electricity rate period. False: set its rates. True: its rates came after these sessions ended, or none matched their end time; POST /v1/sites/{id}/electricity-cost/recalculate fills them',
-              ),
-            sessionCount: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Sessions at the site without an electricity cost'),
-            revenueCents: z
-              .number()
-              .int()
-              .min(0)
-              .describe('Revenue of those sessions in cents, tax included'),
-          })
-          .passthrough(),
-      )
-      .describe(
-        "Sites in the user's scope with sessions without an electricity cost, most sessions first. Sessions at stations without a site are counted in the totals only.",
-      ),
     billedOnAccountCents: z
       .number()
       .int()
@@ -1001,7 +973,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
         totalCostMissingRevenueCents: 0,
         dayCostMissingSessionCount: 0,
         dayCostMissingRevenueCents: 0,
-        costMissingSites: [],
         billedOnAccountCents: 0,
         billedOnAccountCount: 0,
         currency,
@@ -1033,62 +1004,17 @@ export function dashboardRoutes(app: FastifyInstance): void {
       }
 
       // Revenue (session-revenue.ts): ended sessions and reservation fees,
-      // minus refunds, split by site and by today and earlier. The key is
-      // "<today>|<site id>" (empty site id for a station without a site).
+      // minus refunds, split by today and earlier. The key is "true" for today.
       const [[costs], revenueByKey] = await Promise.all([
         costQuery,
         queryRevenue({
           companyCurrency: currency,
-          key: sql`(date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz}))::text || '|' || coalesce(${revenueItem.siteId}::text, '')`,
+          key: sql`(date_trunc('day', ${revenueItem.occurredAt} AT TIME ZONE ${tz}) = date_trunc('day', now() AT TIME ZONE ${tz}))::text`,
           where: siteIds != null ? [revenueAtSites(siteIds)] : [],
         }),
       ]);
-      const todayParts: RevenueTotals[] = [];
-      const bySite = new Map<string, RevenueTotals[]>();
-      for (const [key, totals] of revenueByKey) {
-        const [isToday = '', siteId = ''] = (key ?? '').split('|');
-        if (isToday === 'true') todayParts.push(totals);
-        if (siteId === '') continue;
-        const list = bySite.get(siteId);
-        if (list == null) bySite.set(siteId, [totals]);
-        else list.push(totals);
-      }
-      const todayRevenue = todayParts.length > 0 ? sumRevenue(todayParts) : EMPTY_REVENUE;
+      const todayRevenue = revenueByKey.get('true') ?? EMPTY_REVENUE;
       const totalRevenue = sumRevenue(revenueByKey.values());
-
-      // Sites with sessions without an electricity cost, for the dashboard notice.
-      const missingBySite = [...bySite]
-        .map(([siteId, parts]) => ({ siteId, totals: sumRevenue(parts) }))
-        .filter((s) => s.totals.costMissingCount > 0);
-      const siteNames =
-        missingBySite.length > 0
-          ? await db
-              .select({
-                id: sites.id,
-                name: sites.name,
-                // Qualified by hand: drizzle renders a column of a one-table
-                // select without its table, which the subquery would bind to p.
-                hasRatePeriods: sql<boolean>`EXISTS (SELECT 1 FROM site_electricity_rate_periods p WHERE p.site_id = sites.id)`,
-              })
-              .from(sites)
-              .where(
-                inArray(
-                  sites.id,
-                  missingBySite.map((s) => s.siteId),
-                ),
-              )
-          : [];
-      const siteById = new Map(siteNames.map((s) => [s.id, s]));
-      const costMissingSites = missingBySite
-        .filter((s) => siteById.has(s.siteId))
-        .map((s) => ({
-          siteId: s.siteId,
-          siteName: siteById.get(s.siteId)?.name ?? '',
-          hasRatePeriods: siteById.get(s.siteId)?.hasRatePeriods === true,
-          sessionCount: s.totals.costMissingCount,
-          revenueCents: s.totals.costMissingGrossCents,
-        }))
-        .sort((a, b) => b.sessionCount - a.sessionCount || a.siteName.localeCompare(b.siteName));
 
       const totalElectricityCostCents = costs?.totalElectricityCostCents ?? 0;
       const dayElectricityCostCents = costs?.dayElectricityCostCents ?? 0;
@@ -1113,7 +1039,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
         totalCostMissingRevenueCents: totalRevenue.costMissingGrossCents,
         dayCostMissingSessionCount: todayRevenue.costMissingCount,
         dayCostMissingRevenueCents: todayRevenue.costMissingGrossCents,
-        costMissingSites,
         billedOnAccountCents: totalRevenue.billedOnAccountCents,
         billedOnAccountCount: totalRevenue.billedOnAccountCount,
         currency,

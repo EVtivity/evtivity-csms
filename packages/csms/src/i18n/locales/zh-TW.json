@@ -96,7 +96,8 @@
     "na": "n/a",
     "startDate": "開始日期",
     "endDate": "結束日期",
-    "dateRange": "日期範圍"
+    "dateRange": "日期範圍",
+    "copyFailed": "複製失敗"
   },
   "status": {
     "online": "線上",
@@ -158,8 +159,8 @@
     "smartCharging": "智慧充電",
     "configTemplates": "設定範本",
     "supportCases": "客服案件",
-    "unreadCasesCount_one": "{{count}} 個未讀客服案件",
-    "unreadCasesCount_other": "{{count}} 個未讀客服案件",
+    "unassignedCasesCount_one": "{{count}} 個未分配客服案件",
+    "unassignedCasesCount_other": "{{count}} 個未分配客服案件",
     "settings": "設定",
     "profile": "個人資料",
     "language": "語言",
@@ -451,14 +452,7 @@
     "todayTaxCollected": "今日已收稅額",
     "showPage": "顯示第 {{page}} 頁，共 {{total}} 頁",
     "billedOnAccount": "車隊掛帳",
-    "billedOnAccountSessions": "未付記帳工作階段",
-    "costMissingNotice": "沒有電力成本的工作階段不計入利潤：{{count}} 個（收入 {{revenue}}）。",
-    "costMissingTitle": "缺少電力成本",
-    "costMissingNoRates": "為以下站點設定電價：{{site}}",
-    "costMissingSessions_one": "{{site}} 有 {{count}} 個工作階段沒有電力成本",
-    "costMissingSessions_other": "{{site}} 有 {{count}} 個工作階段沒有電力成本",
-    "costMissingMoreSites_one": "還有 {{count}} 個站點",
-    "costMissingMoreSites_other": "還有 {{count}} 個站點"
+    "billedOnAccountSessions": "未付記帳工作階段"
   },
   "sites": {
     "title": "站點",
@@ -586,7 +580,7 @@
     "electricityCostRecalculateMore_one": "{{count}} 個工作階段仍沒有電力成本。請再次重新計算以繼續。",
     "electricityCostRecalculateMore_other": "{{count}} 個工作階段仍沒有電力成本。請再次重新計算以繼續。",
     "tabs": {
-      "ai": "AI"
+      "ai": "AI 用量"
     }
   },
   "stations": {
@@ -2179,7 +2173,6 @@
     "ssoAttrFirstName": "名字屬性",
     "ssoAttrLastName": "姓氏屬性",
     "ssoCertSet": "憑證已設定",
-    "ssoCopied": "已複製",
     "ssoSaved": "SSO 設定已儲存。",
     "ssoSaveFailed": "SSO 設定儲存失敗。",
     "marketing": "行銷",
@@ -2352,7 +2345,6 @@
     "apiKeyCustomDays": "自訂（天）",
     "apiKeyCreated": "API 金鑰已建立",
     "apiKeyCreatedDescription": "請立即複製金鑰，之後將無法再次檢視。",
-    "apiKeyCopied": "已複製到剪貼簿",
     "apiKeyRevoke": "撤銷",
     "apiKeyRevokeConfirm": "確定要撤銷此 API 金鑰嗎？使用該金鑰的整合將停止工作。",
     "apiKeyRevoked": "API 金鑰已撤銷",
@@ -2469,7 +2461,6 @@
     "emailLayoutPreviewFrame": "電子郵件版面預覽",
     "aiProvidersTitle": "AI 供應商",
     "aiProvidersDescription": "每個供應商一組 API 金鑰。AI 助理和支援 AI 在下方各自選擇供應商。",
-    "aiDataLeavesWarning": "訊息、工具結果和附件會傳送到所選供應商，並離開此部署環境。請查看供應商的資料保留條款。",
     "aiApiKey": "API 金鑰",
     "aiBaseUrl": "基礎 URL（選填）",
     "aiBaseUrlHint": "留空則使用官方端點。必須是公開主機上的 https URL。",
@@ -2543,7 +2534,6 @@
     },
     "aiLimitRange": "範圍 {{min}} 至 {{max}}。",
     "aiLimitZeroNoBudget": "0 表示不設每日上限。",
-    "aiOpsDataWarning": "開啟後，營運資料會在沒有使用者操作的情況下自動傳送給所設定的供應商。",
     "aiInsightsSettings": {
       "title": "自動洞察",
       "station": "充電站洞察",
@@ -2616,7 +2606,6 @@
       "driverPerMinute": "每位駕駛員每分鐘 AI 請求數",
       "overLimitHelp": "超出限制的請求直接轉給客服團隊。"
     },
-    "aiDriverDataWarning": "開啟後，若駕駛員允許，請求內容以及該駕駛員自己的工作階段、付款、預約、使用過的充電站和 Token（後 4 碼）會傳送給所設定的供應商。",
     "aiAdvancedOptions": "進階選項",
     "aiPromptCustomSummary": "自訂系統提示詞",
     "aiPromptDefaultSummary": "內建系統提示詞",
@@ -3914,8 +3903,8 @@
       "unlockAt": "解鎖充電站 {{station}} 的 {{target}}",
       "start": "在充電站 {{station}} 開始充電",
       "startAt": "在充電站 {{station}} 的 {{target}} 開始充電",
-      "stop": "停止充電站 {{station}} 的交易 {{transaction}}",
-      "stopAny": "停止充電站 {{station}} 的交易",
+      "stop": "停止充電站 {{station}} 的充電工作階段（OCPP 交易 {{transaction}}）",
+      "stopAny": "停止充電站 {{station}} 的充電工作階段",
       "chargingProfile": "為充電站 {{station}} 設定充電設定檔",
       "chargingProfileAt": "為充電站 {{station}} 的 {{target}} 設定充電設定檔",
       "ocppCommand": "向充電站 {{station}} 傳送 {{command}}",
@@ -3940,10 +3929,9 @@
     "rejected": "已駁回",
     "expired": "已過期",
     "expiredHint": "此提議已過期。請再次詢問助理。",
-    "citations": "文件",
+    "citations": "來源",
     "code": "程式碼",
     "copyCode": "複製程式碼",
-    "copied": "已複製",
     "image": "圖片",
     "imageBlocked": "AI 回答中的圖片不會載入",
     "tokens": "{{formatted}} 個 Token",
@@ -4022,23 +4010,20 @@
       "session": "這個工作階段為什麼失敗，我應該怎麼做？",
       "authorization": "這次授權為什麼被拒絕，我應該怎麼做？",
       "followUp": "繼續提問",
-      "about": "關於{{record}} {{label}}",
       "kind": {
         "station": "充電站",
         "session": "充電工作階段",
         "authorization": "授權",
-        "reservation": "預約"
+        "reservation": "預約",
+        "insight": "洞察"
       },
       "reservation": "這個預約為什麼失敗，我應該怎麼做？",
-      "aboutRecord": "關於此{{record}}",
-      "contextLabel": "解釋上下文",
-      "latestInsight": "最新的自動洞察",
-      "viewInsight": "檢視洞察",
-      "shared": "助理會讀取此記錄的關鍵資訊、最近事件和最新洞察。在您傳送問題之前不會傳送任何內容。"
+      "insight": "這條洞察是什麼意思，我應該怎麼做？",
+      "contextLabel": "解釋上下文"
     },
     "dataNotice": {
       "title": "AI 供應商收到的內容",
-      "body": "AI 供應商絕不會收到已儲存的憑證，例如密碼、API 金鑰、機密資訊和充電站密碼。卡號和 IBAN 會截短為最後 4 個字元。客服草稿、自動洞察、背景工作和駕駛員支援還會遮蔽電子郵件地址和電話號碼，並對駕駛員的 Token ID 進行雜湊或截短。助理僅為有權查看駕駛員聯絡資訊的使用者，按儲存原樣傳送這些資訊。您輸入的文字和附加的文字檔會檢查是否包含金鑰和卡號。您附加的圖片和 PDF 會按原樣傳送。"
+      "body": "訊息、工具結果和附件會傳送到所選的 AI 供應商。請查看供應商的資料保留條款。AI 供應商絕不會收到已儲存的憑證，例如密碼、API 金鑰、機密資訊和充電站密碼。卡號會截短為最後 4 個字元。客服草稿、自動洞察、背景工作和駕駛員支援還會遮蔽電子郵件地址和電話號碼，並對駕駛員的 Token ID 進行雜湊或截短。助理僅為有權查看駕駛員聯絡資訊的使用者，按儲存原樣傳送這些資訊。您輸入的文字和附加的文字檔會檢查是否包含金鑰和卡號。您附加的圖片和 PDF 會按原樣傳送。"
     }
   },
   "sustainability": {
@@ -4669,7 +4654,6 @@
     "helpful": "有用",
     "wrong": "錯誤",
     "badge": {
-      "resolved": "已解決",
       "outOfDate": "已過時"
     },
     "category": {
@@ -4691,14 +4675,16 @@
       "high": "高"
     },
     "status": {
-      "pending": "分析中",
-      "active": "有效",
+      "open": "未解決",
+      "pending": "待確認",
+      "done": "已完成",
+      "rejected": "已駁回",
       "resolved": "已解決",
-      "superseded": "已被取代",
-      "skipped": "已略過",
-      "failed": "失敗",
-      "dismissed": "已忽略"
+      "dismissed": "已忽略",
+      "expired": "已過期"
     },
+    "analyzing": "分析中",
+    "skipped": "已略過",
     "kind": {
       "station_offline": "充電站離線",
       "station_faulted": "充電站故障",
@@ -4819,7 +4805,9 @@
       "feedback": "評價",
       "allFeedback": "所有評價",
       "feedbackWrong": "標記為錯誤",
-      "feedbackHelpful": "標記為有用"
+      "feedbackHelpful": "標記為有用",
+      "rootCauseNotApplicable": "不適用",
+      "rootCauseNotAnalyzed": "未分析"
     },
     "detail": {
       "recordTitle": "詳細資訊",
@@ -4830,25 +4818,6 @@
     "staleNote": "此分析之後記錄已變更。請重新產生以取得最新分析。",
     "failedNote": "分析未完成。",
     "skippedNote": "未分析：{{reason}}",
-    "scopeTable": {
-      "title": "站點概況",
-      "measureHeader": "指標",
-      "atDetection": "偵測時",
-      "now": "目前",
-      "atDetectionHint": "分析所用的資料",
-      "nowHint": "截至 {{time}}",
-      "measure": {
-        "stations": "充電站",
-        "stationsOffline": "離線充電站",
-        "stationsFaulted": "故障充電站",
-        "sameErrorCode": "相同錯誤代碼（24 小時）",
-        "sessionsInterrupted": "中斷的工作階段（24 小時）",
-        "sessionsFailedSameReason24h": "相同停止原因（24 小時）",
-        "tokenRefusals": "權杖拒絕（24 小時）"
-      },
-      "summaryAtDetection": "偵測時 {{value}}",
-      "summaryChanged": "偵測時 {{value}}，目前 {{now}}"
-    },
     "feedback": {
       "helpfulCount_one": "{{count}} 人認為有用",
       "helpfulCount_other": "{{count}} 人認為有用",
@@ -4861,19 +4830,10 @@
       "reasonSaved": "備註已儲存。"
     },
     "action": {
-      "title": "建議的操作",
       "kind": {
         "stop_transaction": "停止工作階段",
         "soft_reset": "軟重新啟動充電站",
         "change_availability": "變更充電站可用性"
-      },
-      "status": {
-        "pending": "待處理",
-        "executed": "已執行",
-        "failed": "失敗",
-        "rejected": "已駁回",
-        "expired": "已過期",
-        "stale": "不再適用"
       },
       "job": {
         "network_summary": "網路健康",
@@ -4881,17 +4841,10 @@
         "tariff_anomalies": "費率異常"
       },
       "jobLabel": "背景工作",
-      "precondition": {
-        "session_active": "工作階段仍在進行中",
-        "station_faulted": "充電站仍處於故障狀態",
-        "station_availability": "充電站可用性未變更"
-      },
-      "preconditionLabel": "僅在以下條件下執行",
       "confirm": "確認",
       "reject": "駁回",
       "expiresAt": "{{time}} 過期",
       "expires": "到期時間",
-      "arguments": "參數",
       "rationale": "理由",
       "executed": "操作已執行",
       "confirmFailed": "操作未執行",
@@ -4909,9 +4862,8 @@
         "minutes_one": "{{count}} 分鐘",
         "lastActivity": "最近活動",
         "faultedSince": "故障開始時間",
-        "transactionId": "交易 ID"
+        "transactionId": "OCPP 交易 ID"
       },
-      "target": "目標",
       "decided": "已決定",
       "executedAt": "執行時間",
       "refused": {
@@ -4922,13 +4874,10 @@
       },
       "pendingCount_one": "{{count}} 個待處理操作",
       "pendingCount_other": "{{count}} 個待處理操作",
-      "pending": "操作待處理",
-      "filter": "操作",
-      "filterAll": "所有洞察",
-      "filterPending": "操作待處理",
-      "filterAny": "帶有操作",
-      "history": "操作歷程"
-    }
+      "expiresInfo": "建議的操作只在顯示的時間之前有效，因為檢查之後充電站或工作階段可能發生變化。之後它會過期，不會執行任何操作；如果問題仍然存在，會出現新的建議。",
+      "apiRequest": "API 請求"
+    },
+    "openPanel": "開啟自動洞察（{{count}}）"
   },
   "aiWorkers": {
     "title": "AI 背景工作",

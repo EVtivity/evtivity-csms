@@ -3242,6 +3242,9 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   l('/support-cases/unread-count', 'support:read', undefined, {
     provenBy: 'counts unread support cases only at the user sites',
   }),
+  l('/support-cases/unassigned-count', 'support:read', undefined, {
+    provenBy: 'counts unassigned support cases only at the user sites',
+  }),
   s(
     'GET',
     '/support-cases/:id',
@@ -4030,6 +4033,11 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
     method: 'GET',
     path: '/users/me/ai-defaults',
     reason: 'built-in AI prompts and model catalog (code constants, no site data)',
+  },
+  {
+    method: 'GET',
+    path: '/docs/search',
+    reason: 'public documentation passages (website text, no site data)',
   },
   { method: 'GET', path: '/roles', reason: 'role catalog' },
   { method: 'GET', path: '/permissions', reason: 'permission catalog' },

@@ -5,9 +5,10 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Upload, Eye, Trash2, Copy } from 'lucide-react';
+import { RefreshCw, Upload, Eye, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select } from '@/components/ui/select';
 import {
@@ -484,19 +485,13 @@ export function StationChargingProfilesTab({
             </div>
           )}
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (viewProfile != null) {
-                  void navigator.clipboard.writeText(
-                    JSON.stringify(viewProfile.profileData, null, 2),
-                  );
-                }
-              }}
-            >
-              <Copy className="h-4 w-4" />
-              {t('common.copy')}
-            </Button>
+            {viewProfile != null && (
+              <CopyButton
+                value={JSON.stringify(viewProfile.profileData, null, 2)}
+                text={t('common.copy')}
+                size="default"
+              />
+            )}
             <Button
               onClick={() => {
                 setViewProfile(null);

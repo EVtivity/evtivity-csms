@@ -33,6 +33,8 @@ const MINOR_WORDS = new Set([
   'with',
   'at',
   'by',
+  'per',
+  'x',
 ]);
 
 /** Keys of label namespaces: tabs, titles, nav items, column and header labels. */
@@ -42,8 +44,8 @@ const LABEL_KEY =
 /** Intentional exceptions: accessible names, tooltips and sentences, not visible labels. */
 const ALLOWED: Readonly<Record<string, ReadonlySet<string>>> = {
   csms: new Set([
-    'nav.unreadCasesCount_one',
-    'nav.unreadCasesCount_other',
+    'nav.unassignedCasesCount_one',
+    'nav.unassignedCasesCount_other',
     'nav.collapseSidebar',
     'nav.expandSidebar',
     'nav.openMenu',
@@ -55,14 +57,35 @@ const ALLOWED: Readonly<Record<string, ReadonlySet<string>>> = {
 };
 
 function isTitleCase(text: string): boolean {
-  const words = text.split(/\s+/).filter((w) => w !== '' && !w.includes('{{'));
+  // Unit text in parentheses, such as "(kWh per day)", keeps its own case.
+  const words = text
+    .replace(/\([^)]*\)/g, '')
+    .split(/\s+/)
+    .filter((w) => w !== '' && !w.includes('{{'));
   return words.every((word, i) => {
     const core = word.replace(/^[^A-Za-z]+/, '');
     if (core === '') return true;
+    // Units and brand spellings keep their case: kWh, eMAID, reCAPTCHA.
+    if (/[a-z][A-Z]/.test(core)) return true;
     const bare = core.toLowerCase().replace(/[^a-z]/g, '');
-    if (i > 0 && MINOR_WORDS.has(bare)) return core === core.toLowerCase();
+    const last = i === words.length - 1;
+    if (i > 0 && !last && MINOR_WORDS.has(bare)) return core === core.toLowerCase();
     return /^[A-Z0-9]/.test(core);
   });
+}
+
+/** A translated text that opens a title, heading, tab or column element in CSMS source. */
+const TITLE_ELEMENT =
+  /<(CardTitle|DialogTitle|AlertTitle|TabsTrigger|TableHead|BreadcrumbPage|h[1-4])\b[^>]*>\s*\{t\(\s*'([^']+)'/g;
+
+function lookup(node: unknown, key: string): unknown {
+  return key
+    .split('.')
+    .reduce<unknown>(
+      (n, part) =>
+        n != null && typeof n === 'object' ? (n as Record<string, unknown>)[part] : undefined,
+      node,
+    );
 }
 
 function labels(node: unknown, prefix = ''): [string, string][] {
@@ -82,6 +105,10 @@ describe('title case for English UI labels', () => {
     expect(isTitleCase('Disable This Station?')).toBe(true);
     expect(isTitleCase('Providers and keys')).toBe(false);
     expect(isTitleCase('Usage And Limits')).toBe(false);
+    expect(isTitleCase('Starts At')).toBe(true);
+    expect(isTitleCase('Rate per kWh')).toBe(true);
+    expect(isTitleCase('Energy (kWh per day)')).toBe(true);
+    expect(isTitleCase('Active insights')).toBe(false);
   });
 
   it.each([
@@ -101,6 +128,25 @@ describe('title case for English UI labels', () => {
       expect(isTitleCase(csmsEn.settings.aiTabs[tab]), tab).toBe(true);
     }
     expect(csmsEn.settings.aiTabs.providers).toBe('Providers and Keys');
+  });
+
+  it('every key rendered as a title, heading, tab or column is title case', () => {
+    const sources = import.meta.glob<string>(['../../**/*.tsx', '!../../**/__tests__/**'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    });
+    const rendered = new Set<string>();
+    for (const text of Object.values(sources)) {
+      for (const m of text.matchAll(TITLE_ELEMENT)) if (m[2] != null) rendered.add(m[2]);
+    }
+    expect(rendered.size).toBeGreaterThan(50);
+    const bad = [...rendered]
+      .filter((key) => !ALLOWED['csms']?.has(key))
+      .map((key) => [key, lookup(csmsEn, key)] as const)
+      .filter(([, text]) => typeof text === 'string' && !isTitleCase(text))
+      .map(([key, text]) => `${key}: ${String(text)}`);
+    expect(bad).toEqual([]);
   });
 
   it('allowlisted keys still exist, so the allowlist cannot go stale', () => {

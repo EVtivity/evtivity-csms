@@ -1,5 +1,6 @@
 {
   "common": {
+    "copied": "Copiado",
     "loading": "Cargando...",
     "pageNotFound": "Página no encontrada",
     "pageNotFoundDescription": "La página que buscas no existe o ha sido movida.",
@@ -22,7 +23,8 @@
     "inclTax": "impuestos incluidos",
     "amountInclTax": "{{amount}} impuestos incluidos",
     "close": "Cerrar",
-    "toggleSuggestions": "Mostrar u ocultar sugerencias"
+    "toggleSuggestions": "Mostrar u ocultar sugerencias",
+    "copyFailed": "No se pudo copiar"
   },
   "nav": {
     "home": "Inicio",
@@ -517,7 +519,7 @@
       "changeChoice": "Cambiar",
       "dataNotice": {
         "title": "Qué recibe la IA",
-        "body": "La IA lee su solicitud y sus propias sesiones de carga, pagos, reservas y las estaciones que usó. Las credenciales almacenadas, como las contraseñas, nunca se envían. Los números de tarjeta y los IBAN se acortan a los últimos 4 caracteres. Las direcciones de correo electrónico y los números de teléfono se enmascaran. Los ID de tarjetas de carga y tokens se acortan a los últimos 4 caracteres."
+        "body": "La IA lee su solicitud y sus propias sesiones de carga, pagos, reservas y las estaciones que usó. Las credenciales almacenadas, como las contraseñas, nunca se envían. Los números de tarjeta se acortan a los últimos 4 caracteres. Las direcciones de correo electrónico y los números de teléfono se enmascaran. Los ID de tarjetas de carga y tokens se acortan a los últimos 4 caracteres."
       },
       "notice": {
         "v1": {
@@ -1142,11 +1144,5 @@
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "Su carga se factura a {{fleet}}. No necesita un método de pago para cargar.",
     "noMethods": "No hay métodos de pago."
-  },
-  "ai": {
-    "dataNotice": {
-      "title": "Qué recibe el proveedor de IA",
-      "body": "El proveedor de IA nunca recibe credenciales almacenadas, como contraseñas, claves de API, secretos y contraseñas de estaciones. Los números de tarjeta y los IBAN se acortan a sus últimos 4 caracteres. Los borradores de soporte, los análisis automáticos, los procesos en segundo plano y el soporte a conductores también enmascaran las direcciones de correo electrónico y los números de teléfono, y aplican un hash a los identificadores de token de los conductores o los acortan. El asistente envía los datos de contacto de los conductores tal como están almacenados, solo para los usuarios autorizados a leerlos. El texto que escribe y los archivos de texto que adjunta se revisan en busca de claves y números de tarjeta. Las imágenes y los PDF que adjunta se envían tal cual."
-    }
   }
 }

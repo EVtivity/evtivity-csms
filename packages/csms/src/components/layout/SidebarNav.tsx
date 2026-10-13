@@ -13,7 +13,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { usePendingActionCount } from '@/components/ai/insights/insight-api';
 
 /**
- * A nav item's count (AI insight actions waiting for a decision, unread support cases), as a
+ * A nav item's count (AI insight actions waiting for a decision, unassigned support cases), as a
  * pill (expanded) or a dot (collapsed). Every nav count uses this one style.
  */
 function NavCountBadge({
@@ -72,15 +72,16 @@ export function SidebarNav({ items, collapsed, onNavClick }: SidebarNavProps): R
 
   const canReadSupport = useHasPermission('support:read');
   const hasSupportAccess = canReadSupport && items.some((item) => item.to === '/support-cases');
-  // The unread cases assigned to the user: the bold rows of the list. ai_assist
-  // cases are left out until escalated (driver-ai-support.md, D1).
-  const { data: unreadCountData } = useQuery({
-    queryKey: ['support-cases-unread-count'],
-    queryFn: () => api.get<{ count: number }>('/v1/support-cases/unread-count'),
+  // The open cases in the user's sites that nobody is assigned to. Cases the
+  // driver AI is still answering are left out until they reach the team. The key sits
+  // under ['support-cases'], so every support case invalidation refreshes it.
+  const { data: unassignedCountData } = useQuery({
+    queryKey: ['support-cases', 'unassigned-count'],
+    queryFn: () => api.get<{ count: number }>('/v1/support-cases/unassigned-count'),
     refetchInterval: 60_000,
     enabled: hasSupportAccess,
   });
-  const unreadCaseCount = hasSupportAccess ? (unreadCountData?.count ?? 0) : 0;
+  const unassignedCaseCount = hasSupportAccess ? (unassignedCountData?.count ?? 0) : 0;
   const hasInsights = items.some((item) => item.to === '/ai/insights');
   const pendingActions = usePendingActionCount(hasInsights);
 
@@ -92,10 +93,10 @@ export function SidebarNav({ items, collapsed, onNavClick }: SidebarNavProps): R
         testId: 'ai-insights-badge',
       };
     }
-    if (to === '/support-cases' && unreadCaseCount > 0) {
+    if (to === '/support-cases' && unassignedCaseCount > 0) {
       return {
-        count: unreadCaseCount,
-        label: t('nav.unreadCasesCount', { count: unreadCaseCount }),
+        count: unassignedCaseCount,
+        label: t('nav.unassignedCasesCount', { count: unassignedCaseCount }),
         testId: 'support-cases-badge',
       };
     }

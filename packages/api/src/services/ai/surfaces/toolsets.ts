@@ -10,8 +10,8 @@
  */
 
 import { AI_TOOL_CATALOG } from '../tools/catalog.js';
-import type { AiCatalogTool } from '../tools/catalog-types.js';
-import { surfaceOffers, toolPolicy } from '../tools/policy.js';
+import type { AiCatalogCategory, AiCatalogTool } from '../tools/catalog-types.js';
+import { EVERY_TURN_TOOLS, surfaceOffers, toolPolicy } from '../tools/policy.js';
 import type { CasePin } from '../tools/policy.js';
 import { createToolset } from '../tools/execute.js';
 import type { Toolset, ToolsetEntry } from '../tools/execute.js';
@@ -30,7 +30,10 @@ function definitionOf(tool: AiCatalogTool, schema = tool.parameters): ToolsetEnt
   };
 }
 
-/** Chatbot tools of the routed categories. */
+/**
+ * Chatbot tools of the routed categories, plus the tools every turn offers
+ * (`EVERY_TURN_TOOLS`).
+ */
 export function chatbotToolset(
   categories: readonly string[],
   catalog: readonly AiCatalogTool[] = AI_TOOL_CATALOG,
@@ -38,7 +41,7 @@ export function chatbotToolset(
   const wanted = new Set(categories);
   const entries: ToolsetEntry[] = [];
   for (const tool of catalog) {
-    if (!wanted.has(tool.category)) continue;
+    if (!wanted.has(tool.category) && !EVERY_TURN_TOOLS.has(tool.operationId)) continue;
     const policy = toolPolicy(tool.operationId);
     if (!surfaceOffers(policy, 'chatbot')) continue;
     entries.push({
@@ -50,6 +53,19 @@ export function chatbotToolset(
     });
   }
   return createToolset(entries.slice(0, MAX_TOOLS_PER_REQUEST));
+}
+
+/**
+ * The categories the router chooses from: every category but the ones whose
+ * tools every turn offers anyway.
+ */
+export function routerCategories(
+  categories: readonly AiCatalogCategory[],
+  catalog: readonly AiCatalogTool[] = AI_TOOL_CATALOG,
+): AiCatalogCategory[] {
+  return categories.filter((c) =>
+    catalog.some((t) => t.category === c.tag && !EVERY_TURN_TOOLS.has(t.operationId)),
+  );
 }
 
 export interface SupportCaseContext {

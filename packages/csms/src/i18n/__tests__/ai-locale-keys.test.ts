@@ -10,7 +10,7 @@ import {
   INSIGHT_CONFIDENCES,
   INSIGHT_KINDS,
   INSIGHT_SKIP_REASONS,
-  INSIGHT_STATUSES,
+  INSIGHT_VISIBLE_STATUSES,
   ROOT_CAUSE_CATEGORIES,
   insightScopeCountsSchema,
   RESERVATION_FIX_CODES,
@@ -25,9 +25,7 @@ import {
   SUPPORT_CASE_RESOLUTION_SOURCES,
 } from '@evtivity/lib/driver-ai';
 import {
-  AI_PROPOSAL_PRECONDITION_KINDS,
   AI_PROPOSAL_REFUSAL_REASONS,
-  AI_PROPOSAL_STATUSES,
   AI_WORKER_ACTION_KINDS,
   AI_WORKER_JOBS,
 } from '@evtivity/lib/ai-proposals';
@@ -43,13 +41,6 @@ import { WORKER_RATIONALE_CODES } from '../../components/ai/insights/insight-act
 import { AI_SETTINGS_TABS } from '../../components/settings/ai-settings-tabs';
 
 const LOCALES: Record<string, unknown> = { en, de, es, ko, zh, 'zh-TW': zhTW };
-
-// Every CSMS source file except tests.
-const SOURCES = import.meta.glob<string>(['../../**/*.{ts,tsx}', '!**/__tests__/**'], {
-  query: '?raw',
-  import: 'default',
-  eager: true,
-});
 
 function flatten(node: unknown, prefix = ''): string[] {
   if (node == null || typeof node !== 'object') return [prefix];
@@ -110,7 +101,9 @@ describe('AI locale keys (TC-AI-UI-10)', () => {
       ...ROOT_CAUSE_CATEGORIES.map((c) => `aiInsights.category.${c}`),
       ...FIX_CODES.map((c) => `aiInsights.fix.${c}`),
       ...INSIGHT_CONFIDENCES.map((c) => `aiInsights.confidence.${c}`),
-      ...INSIGHT_STATUSES.map((s) => `aiInsights.status.${s}`),
+      ...INSIGHT_VISIBLE_STATUSES.map((s) => `aiInsights.status.${s}`),
+      'aiInsights.analyzing',
+      'aiInsights.skipped',
       ...INSIGHT_KINDS.map((k) => `aiInsights.kind.${k}`),
       ...INSIGHT_SKIP_REASONS.map((r) => `aiInsights.skipReason.${r}`),
       ...Object.keys(insightScopeCountsSchema.shape).flatMap((c) => [
@@ -118,22 +111,15 @@ describe('AI locale keys (TC-AI-UI-10)', () => {
         `aiInsights.scope.${c}_other`,
       ]),
       ...AI_WORKER_JOBS.map((j) => `aiInsights.action.job.${j}`),
-      ...AI_PROPOSAL_STATUSES.map((s) => `aiInsights.action.status.${s}`),
       ...AI_PROPOSAL_REFUSAL_REASONS.map((r) => `aiInsights.action.refused.${r}`),
       ...AI_WORKER_ACTION_KINDS.map((a) => `aiInsights.action.kind.${a}`),
-      ...AI_PROPOSAL_PRECONDITION_KINDS.map((p) => `aiInsights.action.precondition.${p}`),
       ...AI_USAGE_SURFACES.map((s) => `aiUsage.surface.${s}`),
       ...AI_CONTEXT_KINDS.map((k) => `ai.explain.${k}`),
-      // TC-AI-EX-06: the Explain prompt and the context card of every kind.
+      // TC-AI-EX-06: the Explain prompt and the context chip of every kind.
       ...AI_CONTEXT_KINDS.map((k) => `ai.explain.kind.${k}`),
       'ai.explain.button',
       'ai.explain.followUp',
-      'ai.explain.about',
-      'ai.explain.aboutRecord',
       'ai.explain.contextLabel',
-      'ai.explain.latestInsight',
-      'ai.explain.viewInsight',
-      'ai.explain.shared',
       ...WORKER_RATIONALE_CODES.map((c) => `aiWorkers.rationale.${c}`),
     ];
     for (const key of dynamic) expect(english, key).toContain(key);
@@ -149,22 +135,6 @@ describe('AI locale keys (TC-AI-UI-10)', () => {
         expect(got, `${lang} ${key}`).toEqual(vars);
       }
     }
-  });
-
-  it('TC-AI-IC-09 the scope area keys are gone from every locale and no code reads them', () => {
-    for (const [lang, locale] of Object.entries(LOCALES)) {
-      const leftover = flatten(locale).filter(
-        (k) =>
-          k.startsWith('aiInsights.scopeTable.area.') ||
-          k === 'aiInsights.siteScopeLabel' ||
-          k === 'aiInsights.networkScopeLabel',
-      );
-      expect(leftover, lang).toEqual([]);
-    }
-    const readers = Object.entries(SOURCES)
-      .filter(([, text]) => /scopeTable\.area|ScopeLabel'|scope\.network/.test(text))
-      .map(([file]) => file);
-    expect(readers).toEqual([]);
   });
 
   it('no removed sampling keys remain', () => {
@@ -196,7 +166,6 @@ describe('v0.1.45 base locale keys (lane K1)', () => {
       'driverPerMinute',
       'overLimitHelp',
     ].map((f) => `settings.aiDriverSettings.${f}`),
-    'settings.aiDriverDataWarning',
     'settings.aiInsightsSettings.reservation',
     ...['providers', 'assistant', 'support', 'driver', 'insights', 'mcp', 'usage'].flatMap(
       (tab) => [`settings.aiTabs.${tab}`, `settings.aiTabs.${tab}Description`],

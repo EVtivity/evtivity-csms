@@ -12,6 +12,7 @@ import { collectAiStream } from '../../core/collect.js';
 import { resolveModelCapabilities } from '../../core/model-registry.js';
 import type { AiAdapter, AiAdapterOptions, AiStreamEvent } from '../../core/types.js';
 import { assertPartsSupported, describeSdkError, isAbort, toProviderError } from '../shared.js';
+import { CitationStream } from '../citations.js';
 import { buildAnthropicParams } from './map-request.js';
 import { AnthropicStreamMapper } from './map-stream.js';
 
@@ -50,11 +51,12 @@ export function createAnthropicAdapter(options: AiAdapterOptions): AiAdapter {
       assertPartsSupported('anthropic', req, caps);
       const params = await buildAnthropicParams(req, caps);
       const mapper = new AnthropicStreamMapper(req.model);
+      const cite = new CitationStream(caps);
       let aborted = false;
       try {
         const events = await client.messages.create(params, { signal });
         for await (const event of events) {
-          yield* mapper.handle(event);
+          yield* cite.map(mapper.handle(event));
         }
       } catch (err) {
         if (!isAbort(err, signal)) {
@@ -62,7 +64,7 @@ export function createAnthropicAdapter(options: AiAdapterOptions): AiAdapter {
         }
         aborted = true;
       }
-      yield* mapper.end(aborted || signal.aborted);
+      yield* cite.map(mapper.end(aborted || signal.aborted));
     },
     complete(req, signal) {
       return collectAiStream(adapter.stream(req, signal));

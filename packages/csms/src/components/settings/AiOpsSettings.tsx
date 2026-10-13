@@ -6,7 +6,6 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import type { ParseKeys } from 'i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
 import {
   AI_FLAG_SETTINGS,
   AI_SETTING_DEFAULTS,
@@ -31,7 +30,6 @@ import { isCustomModel, isDefaultPrompt } from '@/components/ai/use-ai-defaults'
 import { AiSystemPromptField } from '@/components/ai/AiSystemPromptField';
 import { InsightQualityCard } from '@/components/ai/insights/InsightQualityCard';
 import { SaveButton } from '@/components/save-button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -529,10 +527,6 @@ function AiOpsSurfaceCard({
         <p className="text-sm text-muted-foreground">{t('settings.aiSurface.ops.description')}</p>
       </CardHeader>
       <CardContent className="space-y-6">
-        <Alert variant="warning">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{t('settings.aiOpsDataWarning')}</AlertDescription>
-        </Alert>
         <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
           <Label htmlFor="opsAi-enabled" className="leading-6">
             {t('settings.aiSurface.ops.enabled')}

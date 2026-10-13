@@ -61,6 +61,20 @@ describe('Card variants', () => {
     expect(classes).toContain('bg-card');
   });
 
+  it('the ai tone lays a brand gradient over the card color', () => {
+    render(<Card tone="ai" data-testid="card" />);
+    const classes = screen.getByTestId('card').className.split(' ');
+    expect(classes).toEqual(
+      expect.arrayContaining([
+        'bg-card',
+        'bg-linear-to-br',
+        'from-primary/10',
+        'via-card',
+        'to-info/10',
+      ]),
+    );
+  });
+
   it('a list body runs its rows edge to edge, and a divided footer sits under a border', () => {
     render(
       <MemoryRouter>

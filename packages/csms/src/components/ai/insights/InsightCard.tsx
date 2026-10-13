@@ -2,38 +2,30 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { TFunction } from 'i18next';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
 import { MessageSquare, RefreshCw, ThumbsDown, ThumbsUp, X } from 'lucide-react';
-import { INSIGHT_FEEDBACK_REASON_MAX_LENGTH } from '@evtivity/lib/ai-insights';
-import type { InsightScopeCounts } from '@evtivity/lib/ai-insights';
+import {
+  INSIGHT_FEEDBACK_REASON_MAX_LENGTH,
+  isVisibleInsightStatus,
+} from '@evtivity/lib/ai-insights';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Collapsible } from '@/components/ui/collapsible';
 import { DescriptionItem, DescriptionList } from '@/components/ui/description-list';
 import { IconBadge } from '@/components/ui/icon-badge';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
-import { InfoTooltip } from '@/components/ui/info-tooltip';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Tooltip } from '@/components/ui/tooltip';
-import { formatNumber } from '@/lib/formatting';
 import { useHasPermission } from '@/lib/auth';
-import { formatRelativeTime, useUserTimezone } from '@/lib/timezone';
+import { insightStatusVariant } from '@/lib/status-variants';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { formatDateTime, formatRelativeTime, useUserTimezone } from '@/lib/timezone';
 import { cn } from '@/lib/utils';
 import { aiRequestErrorText } from '../ai-error-text';
 import { InsightActionSection } from './InsightAction';
+import { stepsBesideAction } from './insight-action';
 import type { AiInsightView } from './insight-api';
 import {
   isSummaryInsight,
@@ -41,144 +33,19 @@ import {
   useDismissInsight,
   useInsight,
   useInsightFeedback,
-  useInsightScopeNow,
   useRegenerateInsight,
 } from './insight-api';
-import { INSIGHT_ICONS, fixPath, insightHeadline, insightSize } from './insight-display';
+import { INSIGHT_ICONS, insightHeadline } from './insight-display';
 
-const SCOPE_KEYS = [
-  'stations',
-  'stationsOffline',
-  'stationsFaulted',
-  'sameErrorCode',
-  'sessionsInterrupted',
-  'sessionsFailedSameReason24h',
-  'tokenRefusals',
-] as const satisfies readonly (keyof InsightScopeCounts)[];
-
-interface ScopeRow {
-  key: string;
-  label: string;
-  then: number;
-  now: number | null;
-}
-
-/** One row per measure of the site counts, labelled by the measure alone. */
-function scopeRows(
-  t: TFunction,
-  counts: InsightScopeCounts | undefined,
-  now: InsightScopeCounts | undefined,
-): ScopeRow[] {
-  if (counts == null) return [];
-  return SCOPE_KEYS.filter((k) => (counts[k] ?? 0) > 0 || (now?.[k] ?? 0) > 0).map((k) => ({
-    key: k,
-    label: t(`aiInsights.scopeTable.measure.${k}`),
-    then: counts[k] ?? 0,
-    now: now == null ? null : (now[k] ?? 0),
-  }));
-}
-
-/** The measure the collapsed summary names: the insight's size, else the first row. */
-function mainMeasure(
-  insight: AiInsightView,
-): { key: (typeof SCOPE_KEYS)[number]; then: number } | null {
-  const size = insightSize(insight);
-  if (size != null) return { key: size.key, then: size.count };
-  const counts = insight.scope.site;
-  const key = SCOPE_KEYS.find((k) => (counts?.[k] ?? 0) > 0);
-  return key == null ? null : { key, then: counts?.[key] ?? 0 };
-}
-
-/**
- * The scope figures, collapsed by default (`Collapsible`). Closed, the
- * trigger names the main measure at detection. Opening it asks for the
- * counts now (lazy, SQL only) and shows the table: one row per measure, the
- * value the analysis used ("At detection") and the value now, a skeleton in
- * the Now column while it loads. The counts are the subject site's ("Site
- * context"). A changed value is medium weight, nothing else marks it.
- */
-function ScopeSection({ insight }: { insight: AiInsightView }): React.JSX.Element | null {
-  const { t } = useTranslation();
-  const timezone = useUserTimezone();
-  const [open, setOpen] = useState(false);
-  const live = useInsightScopeNow(insight.id, open);
-  const now = live.scopeNow;
-  const rows = scopeRows(t, insight.scope.site, now?.site ?? undefined);
-  if (rows.length === 0) return null;
-  const main = mainMeasure(insight);
-  let summary: string | null = null;
-  if (main != null) {
-    const value = t(`aiInsights.scope.${main.key}`, { count: main.then });
-    const current = now?.site?.[main.key];
-    summary =
-      current == null
-        ? t('aiInsights.scopeTable.summaryAtDetection', { value })
-        : current === main.then
-          ? value
-          : t('aiInsights.scopeTable.summaryChanged', { value, now: formatNumber(current, 0) });
-  }
-  return (
-    <Collapsible
-      title={t('aiInsights.scopeTable.title')}
-      summary={summary}
-      onOpenChange={setOpen}
-      data-testid="ai-insight-scope-section"
-    >
-      <Table data-testid="ai-insight-scope">
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t('aiInsights.scopeTable.measureHeader')}</TableHead>
-            <TableHead className="text-right">
-              <span className="inline-flex items-center gap-1">
-                {t('aiInsights.scopeTable.atDetection')}
-                <InfoTooltip content={t('aiInsights.scopeTable.atDetectionHint')} />
-              </span>
-            </TableHead>
-            <TableHead className="text-right">
-              <span className="inline-flex items-center gap-1">
-                {t('aiInsights.scopeTable.now')}
-                {live.scopeNowAt != null && (
-                  <InfoTooltip
-                    content={t('aiInsights.scopeTable.nowHint', {
-                      time: formatRelativeTime(live.scopeNowAt, timezone),
-                    })}
-                  />
-                )}
-              </span>
-            </TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.key}>
-              <TableCell className="py-2">{row.label}</TableCell>
-              <TableCell className="py-2 text-right tabular-nums">
-                {formatNumber(row.then, 0)}
-              </TableCell>
-              <TableCell
-                className={cn(
-                  'py-2 text-right tabular-nums',
-                  row.now != null && row.now !== row.then && 'font-medium',
-                )}
-              >
-                {live.isLoading ? (
-                  <Skeleton className="ml-auto h-4 w-8" data-testid="ai-insight-scope-loading" />
-                ) : row.now == null ? (
-                  '-'
-                ) : (
-                  formatNumber(row.now, 0)
-                )}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </Collapsible>
-  );
-}
-
-export interface InsightCardProps {
+interface InsightCardProps {
   insight: AiInsightView;
+  /**
+   * Shows the insight's one status badge in the eyebrow (default). The detail
+   * page shows it in its header instead, so a view never shows two.
+   */
+  showStatus?: boolean;
+  /** Shows the headline (default). The detail page has it as its title instead. */
+  showHeadline?: boolean;
   /** "Ask a follow-up" opens the assistant about the record. Hidden when omitted. */
   onFollowUp?: (() => void) | undefined;
   className?: string | undefined;
@@ -186,11 +53,11 @@ export interface InsightCardProps {
 
 /**
  * One automatic insight: the shared card with a left accent in the kind's tone.
- * Top to bottom: an eyebrow (kind icon, "Automatic insight", status and
- * confidence badges, relative time), the headline built from structured
+ * Top to bottom: an eyebrow (kind icon, "Automatic insight", the one status
+ * badge of the insight and its action, confidence, relative time), the headline built from structured
  * fields (the same builder as the dashboard card), the summary as plain
  * text (the only model text, never markdown or links), a label and value list
- * (likely cause, suggested fixes, scope chips), and a footer with the
+ * (likely cause, suggested fixes), and a footer with the
  * translation note, the helpful count and the actions. No provider or model
  * name (D14). Helpful and Wrong are one vote per user: the chosen thumb is
  * pressed (`aria-pressed`) and pressing it again removes the vote. Wrong
@@ -201,6 +68,8 @@ export interface InsightCardProps {
  */
 export function InsightCard({
   insight: given,
+  showStatus = true,
+  showHeadline = true,
   onFollowUp,
   className,
 }: InsightCardProps): React.JSX.Element {
@@ -253,12 +122,15 @@ export function InsightCard({
   const mine = insight.feedback?.mine ?? null;
   const helpfulCount = insight.feedback?.helpfulCount ?? 0;
   // A worker suggestion is regenerated by its job, never by hand; while its
-  // action waits, Reject is the way to drop it (Dismiss is hidden).
+  // action waits (status pending), Reject is the way to drop it (Dismiss is
+  // hidden). Dismiss is for an open insight only.
   const hasAction = insight.action != null;
-  const actionPending = insight.action?.status === 'pending';
   const canRegenerate =
-    !hasAction && insight.status !== 'pending' && insight.status !== 'dismissed';
-  const pending = insight.status === 'pending';
+    !hasAction && insight.status !== 'analyzing' && insight.status !== 'dismissed';
+  const canDismiss = insight.status === 'open';
+  // The generation runs: a skeleton, never a status badge (internal state).
+  const pending = insight.status === 'analyzing';
+  const visibleStatus = isVisibleInsightStatus(insight.status) ? insight.status : null;
   const stale = insight.stale && insight.status !== 'resolved';
   const brief = insight.status === 'skipped' || insight.status === 'failed' || stale;
   const category = summaryKind || insight.category == null ? null : insight.category;
@@ -267,7 +139,6 @@ export function InsightCard({
     canWrite && canRegenerate && (brief || insight.status === 'resolved') ? (
       <Button
         type="button"
-        size="sm"
         variant="outline"
         disabled={busy}
         data-testid="ai-insight-regenerate"
@@ -301,6 +172,7 @@ export function InsightCard({
       },
     );
   };
+  const steps = stepsBesideAction(insight.fixes, insight.action);
   const showWrongPanel = canWrite && wrongOpen && mine !== true && !pending && !brief;
 
   return (
@@ -313,13 +185,10 @@ export function InsightCard({
     >
       <div className="flex flex-wrap items-center gap-2">
         <IconBadge icon={icon} tone={tone} size="sm" />
-        <h3 className="text-xs uppercase tracking-wide text-muted-foreground">
-          {t('aiInsights.title')}
-        </h3>
-        {pending && <Badge variant="info">{t('aiInsights.status.pending')}</Badge>}
-        {insight.status === 'resolved' && (
-          <Badge variant="success" data-testid="ai-insight-resolved">
-            {t('aiInsights.badge.resolved')}
+        <h3 className="text-xs font-semibold text-muted-foreground">{t('aiInsights.title')}</h3>
+        {showStatus && visibleStatus != null && (
+          <Badge variant={insightStatusVariant(visibleStatus)} data-testid="ai-insight-status">
+            {t(`aiInsights.status.${visibleStatus}`)}
           </Badge>
         )}
         {stale && (
@@ -338,15 +207,17 @@ export function InsightCard({
         </span>
       </div>
 
-      <p
-        className="text-base font-semibold leading-snug wrap-anywhere"
-        data-testid="ai-insight-headline"
-      >
-        {insightHeadline(t, insight)}
-      </p>
+      {showHeadline && (
+        <p
+          className="text-base font-semibold leading-snug wrap-anywhere"
+          data-testid="ai-insight-headline"
+        >
+          {insightHeadline(t, insight)}
+        </p>
+      )}
 
       {pending ? (
-        <div className="space-y-3" role="status" aria-label={t('aiInsights.status.pending')}>
+        <div className="space-y-3" role="status" aria-label={t('aiInsights.analyzing')}>
           <Skeleton className="h-4 w-full max-w-[65ch]" />
           <Skeleton className="h-4 w-4/5 max-w-[52ch]" />
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-[8rem_1fr]">
@@ -366,7 +237,7 @@ export function InsightCard({
                   reason:
                     insight.skipReason != null
                       ? t(`aiInsights.skipReason.${insight.skipReason}`)
-                      : t('aiInsights.status.skipped'),
+                      : t('aiInsights.skipped'),
                 })}
         </p>
       ) : (
@@ -379,49 +250,59 @@ export function InsightCard({
               {summary}
             </p>
           )}
-          {(category != null || insight.fixes.length > 0) && (
+          {category != null && (
             <DescriptionList>
-              {category != null && (
-                <DescriptionItem
-                  label={t('aiInsights.likelyCause')}
-                  valueTestId="ai-insight-category"
-                >
-                  {t(`aiInsights.category.${category}`)}
-                </DescriptionItem>
-              )}
-              {insight.fixes.length > 0 && (
-                <DescriptionItem label={t('aiInsights.fixesLabel')}>
-                  <ul className="space-y-1" data-testid="ai-insight-fixes">
-                    {insight.fixes.map((fix) => {
-                      const path = fixPath(fix.code, insight);
-                      const label = t(`aiInsights.fix.${fix.code}`);
-                      return (
-                        <li key={fix.code}>
-                          {path != null ? (
-                            <Link to={path} className="text-link hover:underline">
-                              {label}
-                            </Link>
-                          ) : (
-                            label
-                          )}
-                          {fix.note != null && fix.note !== '' && (
-                            <span className="block break-words text-xs text-muted-foreground">
-                              {fix.note}
-                            </span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </DescriptionItem>
-              )}
+              <DescriptionItem
+                label={t('aiInsights.likelyCause')}
+                valueTestId="ai-insight-category"
+              >
+                {t(`aiInsights.category.${category}`)}
+              </DescriptionItem>
             </DescriptionList>
           )}
-          <ScopeSection insight={insight} />
         </>
       )}
 
-      {!pending && <InsightActionSection insight={insight} />}
+      {!pending && (insight.action != null || steps.length > 0) && (
+        // One Suggested Fix: the executable action first, then the other steps as plain text.
+        <section
+          aria-label={t('aiInsights.fixesLabel')}
+          data-testid="ai-insight-fix"
+          className="space-y-3 border-t pt-4"
+        >
+          <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
+            <h3 className="text-sm font-semibold">{t('aiInsights.fixesLabel')}</h3>
+            {insight.status === 'pending' && insight.action != null && (
+              <span
+                className="ml-auto inline-flex items-center gap-1 text-xs text-muted-foreground"
+                data-testid="ai-insight-action-expiry"
+              >
+                {t('aiInsights.action.expiresAt', {
+                  time: formatDateTime(insight.action.expiresAt, timezone),
+                })}
+                <InfoTooltip
+                  content={<div className="max-w-64">{t('aiInsights.action.expiresInfo')}</div>}
+                />
+              </span>
+            )}
+          </div>
+          {steps.length > 0 && (
+            <ul className="list-disc space-y-1 pl-5" data-testid="ai-insight-fixes">
+              {steps.map((fix) => (
+                <li key={fix.code}>
+                  {t(`aiInsights.fix.${fix.code}`)}
+                  {fix.note != null && fix.note !== '' && (
+                    <span className="block break-words text-xs text-muted-foreground">
+                      {fix.note}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          <InsightActionSection insight={insight} />
+        </section>
+      )}
 
       {showWrongPanel && (
         <div className="space-y-3 border-t pt-4" data-testid="ai-insight-wrong-panel">
@@ -447,7 +328,6 @@ export function InsightCard({
           <div className="flex flex-wrap items-center gap-2">
             <Button
               type="button"
-              size="sm"
               variant="outline"
               disabled={busy || reason.trim() === ''}
               data-testid="ai-insight-wrong-save"
@@ -458,7 +338,6 @@ export function InsightCard({
             {canRegenerate && (
               <Button
                 type="button"
-                size="sm"
                 variant="outline"
                 disabled={busy}
                 data-testid="ai-insight-wrong-regenerate"
@@ -474,10 +353,9 @@ export function InsightCard({
                 {t('aiInsights.regenerate')}
               </Button>
             )}
-            {insight.status === 'active' && !actionPending && (
+            {canDismiss && (
               <Button
                 type="button"
-                size="sm"
                 variant="outline"
                 disabled={busy}
                 data-testid="ai-insight-wrong-dismiss"
@@ -537,7 +415,6 @@ export function InsightCard({
           {onFollowUp != null && !pending && (
             <Button
               type="button"
-              size="sm"
               variant="outline"
               onClick={onFollowUp}
               data-testid="ai-insight-follow-up"
@@ -547,10 +424,9 @@ export function InsightCard({
             </Button>
           )}
           {regenerateButton}
-          {canWrite && insight.status === 'active' && !actionPending && (
+          {canWrite && canDismiss && (
             <Button
               type="button"
-              size="sm"
               variant="outline"
               disabled={busy}
               onClick={() => {
@@ -570,7 +446,7 @@ export function InsightCard({
               >
                 <Button
                   type="button"
-                  size="icon-sm"
+                  size="icon"
                   variant={mine === true ? 'default' : 'outline'}
                   aria-label={t('aiInsights.helpful')}
                   aria-pressed={mine === true}
@@ -590,7 +466,7 @@ export function InsightCard({
               >
                 <Button
                   type="button"
-                  size="icon-sm"
+                  size="icon"
                   variant={mine === false ? 'default' : 'outline'}
                   aria-label={t('aiInsights.wrong')}
                   aria-pressed={mine === false}

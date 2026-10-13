@@ -73,6 +73,10 @@ export const geminiTarget: AdapterContractTarget = {
   },
   fixtures: {
     text: sseFixture([chunk([{ text: 'Hello' }]), chunk([{ text: ' there!' }], 'STOP', USAGE)]),
+    citation: sseFixture([
+      chunk([{ text: 'Open Settings [do' }]),
+      chunk([{ text: 'c:7]. Then save [doc:7][doc:99].' }], 'STOP', USAGE),
+    ]),
     tool_call: sseFixture([chunk([call('fc_1', 'CS-001', 'SIG-1')], 'STOP', USAGE)]),
     parallel_tool_calls: sseFixture([
       chunk([call('fc_1', 'CS-001', 'SIG-1'), call('fc_2', 'CS-002')], 'STOP', USAGE),

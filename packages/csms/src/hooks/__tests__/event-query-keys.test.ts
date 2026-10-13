@@ -83,11 +83,13 @@ describe('getQueryKeysForEvent', () => {
     });
   });
 
-  it('invalidates support-cases list, detail (via prefix), and unread count on supportCase.newMessage', () => {
-    const keys = getQueryKeysForEvent(makeEvent('supportCase.newMessage', { caseId: 'case-1' }));
-    // ['support-cases'] is a prefix of the detail key ['support-cases', id].
-    expect(hasKey(keys, ['support-cases'])).toBe(true);
-    expect(hasKey(keys, ['support-cases-unread-count'])).toBe(true);
+  it('invalidates support-cases list, detail and nav count (via prefix) on supportCase events', () => {
+    for (const type of ['supportCase.created', 'supportCase.updated', 'supportCase.newMessage']) {
+      const keys = getQueryKeysForEvent(makeEvent(type, { caseId: 'case-1' }));
+      // ['support-cases'] is a prefix of the detail key ['support-cases', id] and
+      // of the nav count key ['support-cases', 'unassigned-count'].
+      expect(hasKey(keys, ['support-cases'])).toBe(true);
+    }
   });
 
   it('treats support-case events as immediate (bypass the invalidation throttle)', () => {

@@ -174,7 +174,11 @@ export const aiProposalResultSchema = z.object({
 });
 export type AiProposalResult = z.infer<typeof aiProposalResultSchema>;
 
-/** The action an insight carries, as the API returns it (`action` of the insight). */
+/**
+ * The action an insight carries, as the API returns it (`action` of the
+ * insight). It has no status of its own: the insight's status covers it
+ * (`INSIGHT_VISIBLE_STATUSES`).
+ */
 export const aiProposalDtoSchema = z.object({
   id: z.string(),
   job: z.enum(AI_WORKER_JOBS).nullable(),
@@ -190,7 +194,6 @@ export const aiProposalDtoSchema = z.object({
   /** Structured fields for the localized confirmation card. */
   summary: z.record(z.unknown()),
   precondition: aiProposalPreconditionSchema.nullable(),
-  status: z.enum(AI_PROPOSAL_STATUSES),
   expiresAt: z.string(),
   decidedBy: z.string().nullable(),
   decidedAt: z.string().nullable(),

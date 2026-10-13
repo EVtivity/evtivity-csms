@@ -10,11 +10,25 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogTitle } from '../ui/dialog';
 import { ConfirmDialog } from '../ui/confirm-dialog';
 
 afterEach(() => {
   cleanup();
+});
+
+describe('DialogFooter', () => {
+  it('spaces its buttons with a gap, stacked on phones and in a row from sm', () => {
+    render(
+      <DialogFooter data-testid="footer">
+        <button type="button">Cancel</button>
+        <button type="button">Confirm</button>
+      </DialogFooter>,
+    );
+    const footer = screen.getByTestId('footer');
+    expect(footer.className).toContain('gap-2');
+    expect(footer.className).not.toMatch(/space-x-/);
+  });
 });
 
 describe('Dialog', () => {

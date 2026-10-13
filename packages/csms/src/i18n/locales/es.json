@@ -96,7 +96,8 @@
     "na": "n/a",
     "startDate": "Fecha de inicio",
     "endDate": "Fecha de fin",
-    "dateRange": "Rango de fechas"
+    "dateRange": "Rango de fechas",
+    "copyFailed": "No se pudo copiar"
   },
   "status": {
     "online": "En línea",
@@ -158,8 +159,8 @@
     "smartCharging": "Carga Inteligente",
     "configTemplates": "Plantillas de configuración",
     "supportCases": "Casos de Soporte",
-    "unreadCasesCount_one": "{{count}} caso de soporte no leído",
-    "unreadCasesCount_other": "{{count}} casos de soporte no leídos",
+    "unassignedCasesCount_one": "{{count}} caso de soporte sin asignar",
+    "unassignedCasesCount_other": "{{count}} casos de soporte sin asignar",
     "settings": "Configuración",
     "profile": "Perfil",
     "language": "Idioma",
@@ -451,14 +452,7 @@
     "todayTaxCollected": "Impuestos recaudados hoy",
     "showPage": "Mostrar página {{page}} de {{total}}",
     "billedOnAccount": "Facturado a la flota",
-    "billedOnAccountSessions": "Sesiones a cuenta pendientes",
-    "costMissingNotice": "Las sesiones sin costo de electricidad no se incluyen en la ganancia: {{count}} ({{revenue}} de ingresos).",
-    "costMissingTitle": "Falta el costo de electricidad",
-    "costMissingNoRates": "Configure las tarifas de electricidad de: {{site}}",
-    "costMissingSessions_one": "{{count}} sesión en {{site}} no tiene costo de electricidad",
-    "costMissingSessions_other": "{{count}} sesiones en {{site}} no tienen costo de electricidad",
-    "costMissingMoreSites_one": "{{count}} sitio más",
-    "costMissingMoreSites_other": "{{count}} sitios más"
+    "billedOnAccountSessions": "Sesiones a cuenta pendientes"
   },
   "sites": {
     "title": "Sitios",
@@ -586,7 +580,7 @@
     "electricityCostRecalculateMore_one": "{{count}} sesión aún no tiene costo de electricidad. Vuelva a recalcular para continuar.",
     "electricityCostRecalculateMore_other": "{{count}} sesiones aún no tienen costo de electricidad. Vuelva a recalcular para continuar.",
     "tabs": {
-      "ai": "IA"
+      "ai": "Uso de IA"
     }
   },
   "stations": {
@@ -2179,7 +2173,6 @@
     "ssoAttrFirstName": "Atributo de nombre",
     "ssoAttrLastName": "Atributo de apellido",
     "ssoCertSet": "Certificado configurado",
-    "ssoCopied": "Copiado",
     "ssoSaved": "Configuración de SSO guardada.",
     "ssoSaveFailed": "Error al guardar configuración de SSO.",
     "marketing": "Marketing",
@@ -2352,7 +2345,6 @@
     "apiKeyCustomDays": "Personalizado (días)",
     "apiKeyCreated": "Clave API creada",
     "apiKeyCreatedDescription": "Copie la clave ahora. No la verá de nuevo.",
-    "apiKeyCopied": "Copiado al portapapeles",
     "apiKeyRevoke": "Revocar",
     "apiKeyRevokeConfirm": "¿Está seguro de que desea revocar esta clave API? Las integraciones que la utilicen dejarán de funcionar.",
     "apiKeyRevoked": "Clave API revocada",
@@ -2469,7 +2461,6 @@
     "emailLayoutPreviewFrame": "Vista previa del diseño de correo electrónico",
     "aiProvidersTitle": "Proveedores de IA",
     "aiProvidersDescription": "Una clave de API por proveedor. El asistente de IA y la IA de soporte eligen cada uno un proveedor más abajo.",
-    "aiDataLeavesWarning": "Los mensajes, los resultados de las herramientas y los adjuntos se envían al proveedor seleccionado y salen de esta instalación. Consulte las condiciones de retención de datos del proveedor.",
     "aiApiKey": "Clave de API",
     "aiBaseUrl": "URL base (opcional)",
     "aiBaseUrlHint": "Déjelo vacío para usar el endpoint oficial. Debe ser una URL https en un host público.",
@@ -2543,7 +2534,6 @@
     },
     "aiLimitRange": "De {{min}} a {{max}}.",
     "aiLimitZeroNoBudget": "0 significa sin límite diario.",
-    "aiOpsDataWarning": "Si está activado, los datos operativos se envían automáticamente al proveedor configurado, sin acción de un usuario.",
     "aiInsightsSettings": {
       "title": "Análisis automáticos",
       "station": "Análisis de estaciones",
@@ -2616,7 +2606,6 @@
       "driverPerMinute": "Solicitudes con IA por conductor por minuto",
       "overLimitHelp": "Las solicitudes que superan un límite pasan directamente al equipo de soporte."
     },
-    "aiDriverDataWarning": "Si esto está activado y un conductor lo permite, el texto de la solicitud y las propias sesiones, pagos, reservas, estaciones usadas y tokens (últimos 4 caracteres) del conductor se envían al proveedor configurado.",
     "aiAdvancedOptions": "Opciones avanzadas",
     "aiPromptCustomSummary": "Prompt del sistema personalizado",
     "aiPromptDefaultSummary": "Prompt del sistema integrado",
@@ -3914,8 +3903,8 @@
       "unlockAt": "Desbloquear {{target}} de la estación {{station}}",
       "start": "Iniciar la carga en la estación {{station}}",
       "startAt": "Iniciar la carga en {{target}} de la estación {{station}}",
-      "stop": "Detener la transacción {{transaction}} en la estación {{station}}",
-      "stopAny": "Detener la transacción en la estación {{station}}",
+      "stop": "Detener la sesión de carga en la estación {{station}} (transacción OCPP {{transaction}})",
+      "stopAny": "Detener la sesión de carga en la estación {{station}}",
       "chargingProfile": "Establecer un perfil de carga en la estación {{station}}",
       "chargingProfileAt": "Establecer un perfil de carga en {{target}} de la estación {{station}}",
       "ocppCommand": "Enviar {{command}} a la estación {{station}}",
@@ -3940,10 +3929,9 @@
     "rejected": "Descartado",
     "expired": "Caducado",
     "expiredHint": "Esta propuesta ha caducado. Vuelva a preguntar al asistente.",
-    "citations": "Documentación",
+    "citations": "Fuentes",
     "code": "Código",
     "copyCode": "Copiar código",
-    "copied": "Copiado",
     "image": "Imagen",
     "imageBlocked": "Las imágenes de las respuestas de IA no se cargan",
     "tokens": "{{formatted}} tokens",
@@ -4022,23 +4010,20 @@
       "session": "¿Por qué falló esta sesión, y qué debo hacer?",
       "authorization": "¿Por qué se rechazó esta autorización, y qué debo hacer?",
       "followUp": "Hacer otra pregunta",
-      "about": "Sobre {{record}} {{label}}",
       "kind": {
-        "station": "la estación",
-        "session": "la sesión",
-        "authorization": "la autorización",
-        "reservation": "la reserva"
+        "station": "Estación",
+        "session": "Sesión",
+        "authorization": "Autorización",
+        "reservation": "Reserva",
+        "insight": "Análisis"
       },
       "reservation": "¿Por qué falló esta reserva, y qué debo hacer?",
-      "aboutRecord": "Sobre {{record}}",
-      "contextLabel": "Contexto de la explicación",
-      "latestInsight": "Último análisis automático",
-      "viewInsight": "Ver análisis",
-      "shared": "El asistente lee los datos clave, los eventos recientes y el último análisis de este registro. No se envía nada hasta que envíe su pregunta."
+      "insight": "¿Qué significa este análisis, y qué debo hacer?",
+      "contextLabel": "Contexto de la explicación"
     },
     "dataNotice": {
       "title": "Qué recibe el proveedor de IA",
-      "body": "El proveedor de IA nunca recibe credenciales almacenadas, como contraseñas, claves de API, secretos y contraseñas de estaciones. Los números de tarjeta y los IBAN se acortan a sus últimos 4 caracteres. Los borradores de soporte, los análisis automáticos, los procesos en segundo plano y el soporte a conductores también enmascaran las direcciones de correo electrónico y los números de teléfono, y aplican un hash a los identificadores de token de los conductores o los acortan. El asistente envía los datos de contacto de los conductores tal como están almacenados, solo para los usuarios autorizados a leerlos. El texto que escribe y los archivos de texto que adjunta se revisan en busca de claves y números de tarjeta. Las imágenes y los PDF que adjunta se envían tal cual."
+      "body": "Los mensajes, los resultados de las herramientas y los adjuntos se envían al proveedor de IA seleccionado. Consulte las condiciones de retención de datos del proveedor. El proveedor de IA nunca recibe credenciales almacenadas, como contraseñas, claves de API, secretos y contraseñas de estaciones. Los números de tarjeta se acortan a sus últimos 4 caracteres. Los borradores de soporte, los análisis automáticos, los procesos en segundo plano y el soporte a conductores también enmascaran las direcciones de correo electrónico y los números de teléfono, y aplican un hash a los identificadores de token de los conductores o los acortan. El asistente envía los datos de contacto de los conductores tal como están almacenados, solo para los usuarios autorizados a leerlos. El texto que escribe y los archivos de texto que adjunta se revisan en busca de claves y números de tarjeta. Las imágenes y los PDF que adjunta se envían tal cual."
     }
   },
   "sustainability": {
@@ -4663,13 +4648,12 @@
     "knownCause": "Causa conocida",
     "categoryLabel": "Causa raíz",
     "confidenceLabel": "Confianza",
-    "fixesLabel": "Soluciones sugeridas",
+    "fixesLabel": "Solución sugerida",
     "regenerate": "Regenerar",
     "dismiss": "Descartar",
     "helpful": "Útil",
     "wrong": "Incorrecto",
     "badge": {
-      "resolved": "Resuelto",
       "outOfDate": "Desactualizado"
     },
     "category": {
@@ -4691,14 +4675,16 @@
       "high": "Alta"
     },
     "status": {
-      "pending": "Analizando",
-      "active": "Activo",
+      "open": "Abierto",
+      "pending": "Pendiente",
+      "done": "Hecho",
+      "rejected": "Rechazado",
       "resolved": "Resuelto",
-      "superseded": "Reemplazado",
-      "skipped": "Omitido",
-      "failed": "Fallido",
-      "dismissed": "Descartado"
+      "dismissed": "Descartado",
+      "expired": "Caducado"
     },
+    "analyzing": "Analizando",
+    "skipped": "Omitido",
     "kind": {
       "station_offline": "Estación desconectada",
       "station_faulted": "Estación en fallo",
@@ -4819,7 +4805,9 @@
       "feedback": "Valoración",
       "allFeedback": "Cualquier valoración",
       "feedbackWrong": "Marcado como incorrecto",
-      "feedbackHelpful": "Marcado como útil"
+      "feedbackHelpful": "Marcado como útil",
+      "rootCauseNotApplicable": "No aplica",
+      "rootCauseNotAnalyzed": "Sin analizar"
     },
     "detail": {
       "recordTitle": "Detalles",
@@ -4830,25 +4818,6 @@
     "staleNote": "El registro cambió después de este análisis. Regénerelo para obtener uno actual.",
     "failedNote": "El análisis no terminó.",
     "skippedNote": "No analizado: {{reason}}",
-    "scopeTable": {
-      "title": "Contexto del sitio",
-      "measureHeader": "Medida",
-      "atDetection": "Al detectarse",
-      "now": "Ahora",
-      "atDetectionHint": "Lo que usó el análisis",
-      "nowHint": "A fecha de {{time}}",
-      "measure": {
-        "stations": "Estaciones",
-        "stationsOffline": "Estaciones desconectadas",
-        "stationsFaulted": "Estaciones con falla",
-        "sameErrorCode": "Mismo código de error (24 h)",
-        "sessionsInterrupted": "Sesiones interrumpidas (24 h)",
-        "sessionsFailedSameReason24h": "Mismo motivo de parada (24 h)",
-        "tokenRefusals": "Rechazos de token (24 h)"
-      },
-      "summaryAtDetection": "{{value}} al detectarse",
-      "summaryChanged": "{{value}} al detectarse, {{now}} ahora"
-    },
     "feedback": {
       "helpfulCount_one": "A {{count}} persona le resultó útil",
       "helpfulCount_other": "A {{count}} personas les resultó útil",
@@ -4861,19 +4830,10 @@
       "reasonSaved": "Nota guardada."
     },
     "action": {
-      "title": "Acción sugerida",
       "kind": {
         "stop_transaction": "Detener la sesión",
         "soft_reset": "Reiniciar la estación en modo suave",
         "change_availability": "Cambiar la disponibilidad de la estación"
-      },
-      "status": {
-        "pending": "Pendiente",
-        "executed": "Ejecutada",
-        "failed": "Fallida",
-        "rejected": "Rechazada",
-        "expired": "Caducada",
-        "stale": "Ya no aplica"
       },
       "job": {
         "network_summary": "Estado de la red",
@@ -4881,17 +4841,10 @@
         "tariff_anomalies": "Anomalías de tarifa"
       },
       "jobLabel": "Proceso",
-      "precondition": {
-        "session_active": "La sesión sigue activa",
-        "station_faulted": "La estación sigue en fallo",
-        "station_availability": "La disponibilidad de la estación no ha cambiado"
-      },
-      "preconditionLabel": "Solo se ejecuta si",
       "confirm": "Confirmar",
       "reject": "Rechazar",
-      "expiresAt": "Caduca {{time}}",
+      "expiresAt": "Caduca el {{time}}",
       "expires": "Vence",
-      "arguments": "Argumentos",
       "rationale": "Motivo",
       "executed": "La acción se ejecutó",
       "confirmFailed": "La acción no se ejecutó",
@@ -4909,9 +4862,8 @@
         "minutes_other": "{{count}} minutos",
         "lastActivity": "Última actividad",
         "faultedSince": "Con falla desde",
-        "transactionId": "ID de transacción"
+        "transactionId": "ID de transacción OCPP"
       },
-      "target": "Destino",
       "decided": "Decidida",
       "executedAt": "Ejecutada",
       "refused": {
@@ -4922,13 +4874,10 @@
       },
       "pendingCount_one": "{{count}} acción pendiente",
       "pendingCount_other": "{{count}} acciones pendientes",
-      "pending": "Acción pendiente",
-      "filter": "Acción",
-      "filterAll": "Todos los análisis",
-      "filterPending": "Acción pendiente",
-      "filterAny": "Con una acción",
-      "history": "Historial de la acción"
-    }
+      "expiresInfo": "Una acción sugerida está abierta hasta la hora indicada, porque la estación o la sesión pueden cambiar después de la comprobación. Después caduca, no se ejecuta nada y aparece una nueva sugerencia si el problema continúa.",
+      "apiRequest": "Solicitud de API"
+    },
+    "openPanel": "Abrir análisis automáticos ({{count}})"
   },
   "aiWorkers": {
     "title": "Procesos de IA en segundo plano",

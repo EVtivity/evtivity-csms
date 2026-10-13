@@ -61,7 +61,13 @@ export const aiInsights = pgTable(
     }),
     /** What created it, unique per subject and kind (P7). */
     triggerKey: varchar('trigger_key', { length: 200 }).notNull(),
-    status: varchar('status', { length: 16 }).notNull().default('pending'),
+    /**
+     * The one status of the insight and its action (`INSIGHT_STATUSES`, 0474):
+     * shown open, pending, done, rejected, resolved, dismissed, expired;
+     * internal analyzing, skipped, failed, superseded. Single writer:
+     * `@evtivity/services/ai-insight.service`.
+     */
+    status: varchar('status', { length: 16 }).notNull().default('analyzing'),
     skipReason: varchar('skip_reason', { length: 40 }),
     category: varchar('category', { length: 32 }),
     confidence: varchar('confidence', { length: 10 }),
@@ -106,7 +112,7 @@ export const aiInsights = pgTable(
     index('idx_ai_insights_reservation').on(table.reservationId),
     check(
       'ai_insights_status_check',
-      sql`${table.status} IN ('pending', 'active', 'resolved', 'superseded', 'skipped', 'failed', 'dismissed')`,
+      sql`${table.status} IN ('analyzing', 'skipped', 'failed', 'superseded', 'open', 'pending', 'done', 'rejected', 'resolved', 'dismissed', 'expired')`,
     ),
     check(
       'ai_insights_subject_type_check',

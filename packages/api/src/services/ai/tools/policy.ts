@@ -198,6 +198,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   listDashboardStationStatus: R,
   listDashboardStats: R,
   listDashboardUtilization: R,
+  // Documentation: public docs passages on every surface (offered every turn, EVERY_TURN_TOOLS).
+  docsSearch: supportRead({}),
   // Display Messages
   clearDisplayMessage: W,
   createDisplayMessage: W,
@@ -852,6 +854,7 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   getSupportCaseAttachmentDownloadUrl: N,
   getSupportCaseAttachmentUploadUrl: N,
   getSupportCaseNeighbors: N,
+  getUnassignedSupportCaseCount: R,
   getUnreadSupportCaseCount: R,
   listSupportCases: R,
   markSupportCaseRead: W,
@@ -961,6 +964,12 @@ export function surfaceOffers(policy: ToolPolicy, surface: AiSurface): boolean {
   return surface === 'chatbot' ? policy.chatbot : policy.support !== null;
 }
 
+/**
+ * Tools every chatbot turn offers, whatever categories the router picks:
+ * the documentation search, so a how-to question always has its source.
+ */
+export const EVERY_TURN_TOOLS: ReadonlySet<string> = new Set(['docsSearch']);
+
 // --- R4 MCP exposure (append-only lane block) ---
 
 /**
@@ -1000,6 +1009,8 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   listDashboardStationStatus: true,
   listDashboardStats: true,
   listDashboardUtilization: true,
+  // Documentation
+  docsSearch: true,
   // Display Messages
   clearDisplayMessage: false,
   createDisplayMessage: false,
@@ -1330,6 +1341,7 @@ export const AI_MCP_EXPOSURE: Readonly<Record<string, boolean>> = {
   addSupportCaseMessage: false,
   createSupportCase: false,
   getSupportCase: true,
+  getUnassignedSupportCaseCount: true,
   getUnreadSupportCaseCount: true,
   listSupportCases: true,
   markSupportCaseRead: false,

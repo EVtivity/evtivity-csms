@@ -45,19 +45,20 @@ import {
   INSIGHT_FEEDBACK_REASON_MAX_LENGTH,
   INSIGHT_FEEDBACK_SUMMARY_DAYS,
   INSIGHT_GENERATORS,
-  INSIGHT_ACTION_FILTERS,
   INSIGHT_KINDS,
+  INSIGHT_LIVE_STATUSES,
   INSIGHT_SKIP_REASONS,
   INSIGHT_STATUSES,
   INSIGHT_TEXT_STATUSES,
+  INSIGHT_VISIBLE_STATUSES,
   isReservationInsightKind,
+  isVisibleInsightStatus,
   isWorkerActionInsightKind,
   RESERVATION_INSIGHT_KINDS,
   ROOT_CAUSE_CATEGORIES,
 } from '@evtivity/lib/ai-insights';
 import {
   AI_PROPOSAL_PRECONDITION_KINDS,
-  AI_PROPOSAL_STATUSES,
   AI_WORKER_JOBS,
   aiProposalConfirmBody,
   aiProposalPreconditionSchema,
@@ -74,8 +75,7 @@ import {
   toAiProposalDto,
 } from '@evtivity/services/ai-proposal.service';
 import type { AiProposalRow } from '@evtivity/services/ai-proposal.service';
-import type { InsightKind, InsightScope } from '@evtivity/lib/ai-insights';
-import { computeLiveInsightScope } from '@evtivity/services/ai-evidence';
+import type { InsightKind } from '@evtivity/lib/ai-insights';
 import type { CheckAiBudgets } from '@evtivity/lib/ai-usage';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
@@ -165,7 +165,6 @@ const actionSchema = z
       .passthrough()
       .nullable()
       .describe('Checked again at confirm; an action whose precondition fails ends stale'),
-    status: z.enum(AI_PROPOSAL_STATUSES).describe('pending, or the final status'),
     expiresAt: z.string().describe('ISO datetime after which it can no longer be confirmed'),
     decidedBy: z.string().nullable().describe('User who confirmed or rejected it'),
     decidedByName: z
@@ -192,7 +191,9 @@ const insightSchema = z
     kind: z.enum(INSIGHT_KINDS).describe('What raised the insight'),
     status: z
       .enum(INSIGHT_STATUSES)
-      .describe('pending, active, resolved, superseded, skipped, failed or dismissed'),
+      .describe(
+        'The one status of the insight and its action: open, pending (the action waits for a decision), done (the action ran), rejected (the action was rejected), resolved, dismissed or expired (the action expired). Lists never return the internal generation states (analyzing, skipped, failed, superseded); a single insight read can (after a regeneration). Localize aiInsights.status.<value>',
+      ),
     skipReason: z.enum(INSIGHT_SKIP_REASONS).nullable().describe('Why it ended skipped'),
     siteId: z.string().nullable().describe('Site of the subject; null for an unsited station'),
     stationId: z.string().nullable().describe('Station of the subject'),
@@ -259,21 +260,6 @@ const insightSchema = z
       .nullable()
       .describe('OCPP identity of the station, for display; null without a station'),
     siteName: z.string().nullable().describe('Name of the site, for display; null without a site'),
-    scopeNow: z
-      .object({
-        site: countsSchema.optional().describe('Counts at the subject site now'),
-      })
-      .passthrough()
-      .nullable()
-      .optional()
-      .describe(
-        'Detail with scopeNow=true only: the same counts as scope, computed at request time with the same SQL (no model call); null for kinds without a scope or when the counts could not be read',
-      ),
-    scopeNowAt: z
-      .string()
-      .nullable()
-      .optional()
-      .describe('Detail with scopeNow=true only: ISO time scopeNow was computed'),
     feedback: z
       .object({
         helpfulCount: z.number().int().describe('Users who marked the insight helpful'),
@@ -291,6 +277,11 @@ const languageField = z
   .enum(UI_LANGUAGES)
   .optional()
   .describe("Language of the summary (en, de, es, ko, zh, zh-TW); default the user's language");
+
+/** One shown status, or several comma-separated (`open,pending`). */
+const STATUS_FILTER_PATTERN = new RegExp(
+  `^(${INSIGHT_VISIBLE_STATUSES.join('|')})(,(${INSIGHT_VISIBLE_STATUSES.join('|')}))*$`,
+);
 
 const listQuery = paginationQuery.extend({
   stationId: z
@@ -314,26 +305,24 @@ const listQuery = paginationQuery.extend({
       'Comma-separated authorize attempt ids (at most 100): the authorization insights covering any of them, grouped refusals included; each item then lists matchedAttemptIds',
     ),
   kind: z.enum(INSIGHT_KINDS).optional().describe('Filter by kind'),
-  status: z.enum(INSIGHT_STATUSES).optional().describe('Filter by status'),
+  status: z
+    .string()
+    .regex(STATUS_FILTER_PATTERN)
+    .optional()
+    .describe(
+      'Filter by status, one or several comma-separated: open, pending, done, rejected, resolved, dismissed, expired',
+    ),
   category: z.enum(ROOT_CAUSE_CATEGORIES).optional().describe('Filter by root cause category'),
   feedback: z
     .enum(INSIGHT_FEEDBACK_FILTERS)
     .optional()
     .describe('helpful or wrong: insights at least one user marked so'),
-  action: z
-    .enum(INSIGHT_ACTION_FILTERS)
-    .optional()
-    .describe('pending: insights whose action waits for a decision; any: insights with an action'),
   language: languageField,
 });
 
 const idParams = z.object({ id: z.string().describe('Insight id') });
 const detailQuery = z.object({
   language: languageField,
-  scopeNow: z
-    .enum(['true', 'false'])
-    .optional()
-    .describe('true: also count the scope now (scopeNow, scopeNowAt); SQL only, no model call'),
   feedback: z
     .enum(['true', 'false'])
     .optional()
@@ -523,6 +512,8 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       schema: {
         tags: ['AI Insights'],
         summary: 'List automatic insights in your sites',
+        description:
+          'Newest first. Lists and totals hold the shown statuses only (open, pending, done, rejected, resolved, dismissed, expired), never the internal generation states.',
         operationId: 'listAiInsights',
         security: [{ bearerAuth: [] }],
         querystring: zodSchema(listQuery),
@@ -541,10 +532,13 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       if (query.reservationId != null) filter.reservationId = query.reservationId;
       if (query.siteId != null) filter.siteId = query.siteId;
       if (query.kind != null) filter.kind = query.kind;
-      if (query.status != null) filter.status = query.status;
+      if (query.status != null) {
+        filter.statuses = [
+          ...new Set(query.status.split(',').filter((v) => isVisibleInsightStatus(v))),
+        ];
+      }
       if (query.category != null) filter.category = query.category;
       if (query.feedback != null) filter.feedback = query.feedback;
-      if (query.action != null) filter.action = query.action;
       const attemptIds = query.authorizeAttemptIds?.split(',').map((id) => Number(id)) ?? null;
       if (attemptIds != null) filter.authorizeAttemptIds = attemptIds;
       if (query.supportCaseId != null) {
@@ -633,11 +627,10 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
     },
     async (request, reply) => {
       const { id } = parseZodRequest(idParams, request.params);
-      const {
-        language: requested,
-        scopeNow: wantScopeNow,
-        feedback: wantFeedback,
-      } = parseZodRequest(detailQuery, request.query);
+      const { language: requested, feedback: wantFeedback } = parseZodRequest(
+        detailQuery,
+        request.query,
+      );
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
       const row = await insightInScope(id, siteIds);
@@ -645,7 +638,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       const language = await viewerLanguage(userId, requested);
       // A model summary is translated once per language and kept (decision D2).
       if (
-        row.status === 'active' &&
+        (INSIGHT_LIVE_STATUSES as readonly string[]).includes(row.status) &&
         row.generatedBy === 'model' &&
         language !== row.primaryLanguage &&
         (await requestInsightTranslation(row.id, language))
@@ -658,20 +651,9 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       }
       const [rendered] = await toView([row], language);
       // Counts and the viewer's vote in one aggregate query, only when asked.
-      const view =
-        wantFeedback === 'true'
-          ? { ...rendered, feedback: await insightFeedbackSummary(row.id, userId) }
-          : rendered;
-      if (wantScopeNow !== 'true') return view;
-      // The live counts beside the snapshot: SQL only, fail-open (the snapshot still shows).
-      const scopeNowAt = new Date().toISOString();
-      let scopeNow: InsightScope | null = null;
-      try {
-        scopeNow = await computeLiveInsightScope(row);
-      } catch (err) {
-        request.log.warn({ err, insightId: row.id }, 'Live insight scope failed');
-      }
-      return { ...view, scopeNow, scopeNowAt: scopeNow == null ? null : scopeNowAt };
+      return wantFeedback === 'true'
+        ? { ...rendered, feedback: await insightFeedbackSummary(row.id, userId) }
+        : rendered;
     },
   );
 
@@ -687,7 +669,11 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
         params: zodSchema(idParams),
         response: {
           202: itemResponse(
-            z.object({ id: z.string().describe('Id of the new pending insight') }).passthrough(),
+            z
+              .object({
+                id: z.string().describe('Id of the new insight, analyzing until generated'),
+              })
+              .passthrough(),
           ),
           400: errorWith('Insights are off for this insight, or it cannot be regenerated', [
             ERROR_CODES.AI_INSIGHTS_DISABLED,
@@ -763,7 +749,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
         security: [{ bearerAuth: [] }],
         params: zodSchema(idParams),
         description:
-          'Closes the insight. A pending action it carries is rejected first; an action a confirm is running answers 409 AI_PROPOSAL_ALREADY_DECIDED.',
+          'Closes the insight (status dismissed). A pending action it carries is rejected with it; an action a confirm is running answers 409 AI_PROPOSAL_ALREADY_DECIDED.',
         response: {
           200: itemResponse(insightSchema),
           404: errorWith('Insight not found', [ERROR_CODES.AI_INSIGHT_NOT_FOUND]),
@@ -780,20 +766,22 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       const row = await insightInScope(id, siteIds);
       if (row == null) return reply.status(404).send(NOT_FOUND);
       const action = await getInsightActionRow(row.id);
+      // The pending action is rejected first (compare-and-set): a confirm that
+      // claimed it meanwhile wins, and the insight stays as it is. A won
+      // rejection closes the insight dismissed, its one status.
       if (action?.status === 'pending') {
-        // Dismissing rejects the pending action, which dismisses the insight.
-        if (action.decidedAt != null) {
-          return sendActionError(reply, 409, 'AI_PROPOSAL_ALREADY_DECIDED');
-        }
         const rejection = await rejectAiProposal(
           action.id,
           { ...getAuditActor(request), actorUserId: userId },
           request.log,
+          { dismissInsight: true },
         );
-        if (rejection.kind === 'decided' && rejection.row.status === 'pending') {
+        if (rejection.kind === 'decided') {
           return sendActionError(reply, 409, 'AI_PROPOSAL_ALREADY_DECIDED');
         }
       }
+      // No action pending, or the rejection's insight close failed (fail-open):
+      // dismiss the insight itself. A no-op when the rejection closed it.
       if (await dismissInsight(row.id, getAuditActor(request))) {
         await publishInsightUpdated(getPubSub(), { ...row, status: 'dismissed' });
       }
@@ -944,6 +932,16 @@ async function decidableAction(
   }
   if (action.status !== 'pending') {
     await decidedError(reply, action);
+    return null;
+  }
+  // The insight's status decides: an insight resolved or dismissed while its
+  // action waited no longer takes a decision.
+  if (insight.status !== 'pending') {
+    await sendActionError(
+      reply,
+      409,
+      insight.status === 'resolved' ? 'AI_PROPOSAL_STALE' : 'AI_PROPOSAL_ALREADY_DECIDED',
+    );
     return null;
   }
   return { insight, action };

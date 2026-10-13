@@ -4,45 +4,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router';
 import { AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Button, buttonVariants } from '@/components/ui/button';
-import {
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
-  CardList,
-  CardListItem,
-  CardListLink,
-  CardTitle,
-} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
 import { RecalculateButton } from '@/components/recalculate-button';
 import { api, ApiError } from '@/lib/api';
 import { useHasPermission } from '@/lib/auth';
-import { formatCents } from '@/lib/formatting';
-
-/** Link to a site's electricity rate settings (Site Detail, Electricity Rates tab). */
-export function electricityRatesPath(siteId: string): string {
-  return `/sites/${siteId}?tab=electricity-rates`;
-}
-
-/** Link to the sessions list filtered to a site's sessions without an electricity cost. */
-export function costMissingSessionsPath(siteId: string): string {
-  return `/sessions?siteId=${encodeURIComponent(siteId)}&costMissing=true`;
-}
-
-export interface CostMissingSite {
-  siteId: string;
-  siteName: string;
-  /** False: the site has no rate period. True: its sessions can be recalculated. */
-  hasRatePeriods: boolean;
-  sessionCount: number;
-  revenueCents: number;
-}
 
 interface RecalculateResult {
   updated: number;
@@ -147,108 +116,6 @@ export function RecalculateElectricityCostAction({
         }}
       />
     </>
-  );
-}
-
-/** Site rows the dashboard card shows at most; a footer links to the rest. */
-export const MAX_COST_MISSING_SITE_ROWS = 5;
-
-/** Every site's sessions without an electricity cost, in the user's site scope. */
-const COST_MISSING_SESSIONS_PATH = '/sessions?costMissing=true';
-
-/** Sites without rate periods first (they need setup), then the most sessions without a cost. */
-export function orderCostMissingSites(sites: readonly CostMissingSite[]): CostMissingSite[] {
-  return [...sites].sort(
-    (a, b) =>
-      Number(a.hasRatePeriods) - Number(b.hasRatePeriods) ||
-      b.sessionCount - a.sessionCount ||
-      a.siteName.localeCompare(b.siteName),
-  );
-}
-
-/**
- * Dashboard card (the stat card layout, warning tone): sessions without an
- * electricity cost are left out of profit. At most 5 site rows, then "<n> more
- * sites" to the sessions list of every site. One row per site: a site without
- * rate periods links to its rate settings; a site with rates names its
- * sessions without a cost, links to them in the sessions list and offers
- * Recalculate. Hidden from users who cannot edit sites.
- */
-export function CostMissingDashboardNotice({
-  sessionCount,
-  revenueCents,
-  currency,
-  sites,
-}: {
-  sessionCount: number;
-  revenueCents: number;
-  currency: string | undefined;
-  sites: readonly CostMissingSite[];
-}): React.JSX.Element | null {
-  const { t } = useTranslation();
-  const canEditSites = useHasPermission('sites:write');
-  if (!canEditSites || currency == null || sites.length === 0 || sessionCount === 0) return null;
-  const ordered = orderCostMissingSites(sites);
-  const shown = ordered.slice(0, MAX_COST_MISSING_SITE_ROWS);
-  const hiddenCount = ordered.length - shown.length;
-
-  return (
-    <Card tone="warning" data-testid="cost-missing-notice">
-      <CardHeader variant="stat">
-        <CardTitle variant="stat">{t('dashboard.costMissingTitle')}</CardTitle>
-        <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
-      </CardHeader>
-      <CardContent className="text-sm">
-        {t('dashboard.costMissingNotice', {
-          count: sessionCount,
-          revenue: formatCents(revenueCents, currency),
-        })}
-      </CardContent>
-      <CardContent variant="list">
-        <CardList>
-          {shown.map((site) =>
-            site.hasRatePeriods ? (
-              <CardListItem
-                key={site.siteId}
-                className="flex-wrap items-center justify-between text-sm"
-                data-testid="cost-missing-site"
-              >
-                <Link
-                  to={costMissingSessionsPath(site.siteId)}
-                  className="min-w-0 text-link hover:underline"
-                >
-                  {t('dashboard.costMissingSessions', {
-                    count: site.sessionCount,
-                    site: site.siteName,
-                  })}
-                </Link>
-                <RecalculateElectricityCostAction siteId={site.siteId} siteName={site.siteName} />
-              </CardListItem>
-            ) : (
-              <CardListLink
-                key={site.siteId}
-                to={electricityRatesPath(site.siteId)}
-                className="text-sm text-link"
-                data-testid="cost-missing-site"
-              >
-                {t('dashboard.costMissingNoRates', { site: site.siteName })} ({site.sessionCount})
-              </CardListLink>
-            ),
-          )}
-        </CardList>
-      </CardContent>
-      {hiddenCount > 0 && (
-        <CardFooter variant="divided">
-          <Link
-            to={COST_MISSING_SESSIONS_PATH}
-            className={buttonVariants({ variant: 'link', size: 'xs' })}
-            data-testid="cost-missing-more"
-          >
-            {t('dashboard.costMissingMoreSites', { count: hiddenCount })}
-          </Link>
-        </CardFooter>
-      )}
-    </Card>
   );
 }
 

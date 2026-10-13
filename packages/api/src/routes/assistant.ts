@@ -82,11 +82,11 @@ const contextSchema = z
       .min(1)
       .max(64)
       .describe(
-        'The record id: a station id, a session id, or an authorize attempt id (decimal string)',
+        'The record id: a station id, a session id, an authorize attempt id (decimal string), a reservation id or an insight id',
       ),
   })
   .describe(
-    'Explain: the record this conversation is about. Every turn adds its current data to the prompt',
+    'Explain: the record this conversation is about. Every turn adds its reference (kind, label and ids) to the prompt',
   );
 
 const createBody = z.object({
@@ -94,7 +94,7 @@ const createBody = z.object({
   context: contextSchema
     .optional()
     .describe(
-      'Explain: open the conversation about a station, session or authorization attempt. Needs the record read permission and site access',
+      'Explain: open the conversation about a station, session, authorization attempt, reservation or insight. Needs the record read permission and site access',
     ),
 });
 
@@ -137,6 +137,15 @@ const conversationItem = z
     createdAt: z.string().describe('ISO 8601 creation time'),
     updatedAt: z.string().describe('ISO 8601 time of the latest turn or rename'),
     context: contextSchema
+      .extend({
+        label: z
+          .string()
+          .nullable()
+          .optional()
+          .describe(
+            'The identifier people know the record by, shown after its kind: the OCPP station id (station, session, authorization), #<OCPP reservation id> or the insight id. Returned on create and get, when the caller can read the record',
+          ),
+      })
       .passthrough()
       .nullable()
       .describe('Explain: the record the conversation is about, null for an ordinary conversation'),
@@ -187,7 +196,10 @@ const streamResponse = {
   content: { 'text/event-stream': { schema: { type: 'string', description: STREAM_DESCRIPTION } } },
 };
 
-function toConversationItem(row: AiConversationRow): z.infer<typeof conversationItem> {
+function toConversationItem(
+  row: AiConversationRow,
+  label?: string | null,
+): z.infer<typeof conversationItem> {
   return {
     id: row.id,
     title: row.title,
@@ -197,7 +209,11 @@ function toConversationItem(row: AiConversationRow): z.infer<typeof conversation
     updatedAt: row.updatedAt.toISOString(),
     context:
       row.contextKind !== null && row.contextId !== null
-        ? { kind: row.contextKind as AiContextKind, id: row.contextId }
+        ? {
+            kind: row.contextKind as AiContextKind,
+            id: row.contextId,
+            ...(label !== undefined ? { label } : {}),
+          }
         : null,
   };
 }
@@ -294,6 +310,7 @@ export function assistantRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const { title, context } = request.body as z.infer<typeof createBody>;
+      let label: string | null | undefined;
       if (context !== undefined) {
         const resolved = await resolveExplainSubject(
           context.kind,
@@ -301,6 +318,7 @@ export function assistantRoutes(app: FastifyInstance): void {
           explainAccess(request, userId),
         );
         if (resolved.status !== 'ok') return reply.status(404).send(AI_CONTEXT_NOT_FOUND_BODY);
+        label = resolved.subject.label;
       }
       const shown = await configuredProviderAndModel();
       const row = await createConversation(
@@ -314,7 +332,7 @@ export function assistantRoutes(app: FastifyInstance): void {
         getAuditActor(request),
         request.log,
       );
-      await reply.status(201).send(toConversationItem(row));
+      await reply.status(201).send(toConversationItem(row, label));
     },
   );
 
@@ -344,7 +362,7 @@ export function assistantRoutes(app: FastifyInstance): void {
         search: q.search,
       });
       return {
-        data: result.data.map(toConversationItem),
+        data: result.data.map((row) => toConversationItem(row)),
         total: result.total,
       } satisfies PaginatedResponse<z.infer<typeof conversationItem>>;
     },
@@ -374,12 +392,18 @@ export function assistantRoutes(app: FastifyInstance): void {
       if (row === null) return reply.status(404).send(notFound);
       // Tool results stored under another access (sites, permissions, API key
       // scope) are hidden, so a result never outlives an access change.
-      const [messages, companyCurrency] = await Promise.all([
+      const [messages, companyCurrency, explain] = await Promise.all([
         listMessages(row.id, await requestAccessScope(request, userId)),
         getCompanyCurrency(),
+        explainContextForTurn(row, explainAccess(request, userId)),
       ]);
+      // The record's label only while the caller can still read the record.
+      const label =
+        explain !== null && explain !== 'forbidden' && explain.resolution.status === 'ok'
+          ? explain.resolution.subject.label
+          : null;
       return {
-        ...toConversationItem(row),
+        ...toConversationItem(row, row.contextKind !== null ? label : undefined),
         messages: messages.map((m) => toMessageItem(m, companyCurrency)),
       };
     },

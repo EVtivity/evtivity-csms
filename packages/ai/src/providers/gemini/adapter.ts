@@ -13,6 +13,7 @@ import { collectAiStream } from '../../core/collect.js';
 import { resolveModelCapabilities } from '../../core/model-registry.js';
 import type { AiAdapter, AiAdapterOptions, AiStreamEvent } from '../../core/types.js';
 import { assertPartsSupported, isAbort, toProviderError } from '../shared.js';
+import { CitationStream } from '../citations.js';
 import { buildGeminiParams } from './map-request.js';
 import { GeminiStreamMapper } from './map-stream.js';
 
@@ -62,11 +63,12 @@ export function createGeminiAdapter(options: AiAdapterOptions): AiAdapter {
       assertPartsSupported('gemini', req, caps);
       const params = await buildGeminiParams(req, caps, signal);
       const mapper = new GeminiStreamMapper(req.model);
+      const cite = new CitationStream(caps);
       let aborted = false;
       try {
         const chunks = await client.models.generateContentStream(params);
         for await (const chunk of chunks) {
-          yield* mapper.handle(chunk);
+          yield* cite.map(mapper.handle(chunk));
         }
       } catch (err) {
         if (!isAbort(err, signal)) {
@@ -80,7 +82,7 @@ export function createGeminiAdapter(options: AiAdapterOptions): AiAdapter {
       } catch (err) {
         throw toProviderError('gemini', err, options.apiKey, describeGeminiError, ERROR_CODES);
       }
-      yield* closing;
+      yield* cite.map(closing);
     },
     complete(req, signal) {
       return collectAiStream(adapter.stream(req, signal));

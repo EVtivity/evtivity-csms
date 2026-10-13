@@ -16,6 +16,7 @@ import {
   resolveAttachment,
   textDocumentBlock,
 } from '../shared.js';
+import { toolResultText } from '../citations.js';
 
 /** `providerState.opaque` of an OpenAI turn: its output items (encrypted reasoning included). */
 export interface OpenAiOpaqueState {
@@ -146,7 +147,7 @@ async function inputItems(req: AiRequest): Promise<ResponseInputItem[]> {
         items.push({
           type: 'function_call_output',
           call_id: part.toolCallId,
-          output: part.content,
+          output: toolResultText(part),
         });
       }
     }

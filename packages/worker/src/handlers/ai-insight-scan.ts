@@ -4,7 +4,7 @@
 /**
  * Cron `ai-insight-scan` (every minute, decision D3): reads the rows the
  * event projections wrote since the last run, one watermark per source table
- * (`ai_insight_scan_state`), and turns them into pending insights. No hook
+ * (`ai_insight_scan_state`), and turns them into analyzing insights. No hook
  * in the OCPP projection lane: failed sessions alone have five writers, and
  * a sweep gives one dedup point. Latency is up to a minute plus the debounce.
  *
@@ -23,7 +23,7 @@
  *   first; a station fault during a hold joins the open site incident its
  *   station is a member of
  *
- * Each pending insight is inserted first (unique trigger key, P7), then a
+ * Each analyzing insight is inserted first (unique trigger key, P7), then a
  * job with the insight id as job id is queued, delayed by the debounce (P4).
  * When `aiInsights.siteIncidentThreshold` stations of one site went offline
  * or faulted inside the debounce window, one `site_incident` takes them as
@@ -58,7 +58,7 @@ import {
   writeScanWatermark,
 } from '@evtivity/services/ai-insight.service';
 import type { NewInsight } from '@evtivity/services/ai-insight.service';
-import { authorizationSubjectId } from '@evtivity/services/ai-evidence';
+import { authorizationSubjectId } from '@evtivity/lib';
 import { enqueueAiInsightJob } from '../ai-insight-worker.js';
 import { config } from '../lib/config.js';
 import type { AiInsightJobData } from '../ai-insight-worker.js';
@@ -69,7 +69,7 @@ const COMMIT_LAG_SECONDS = 10;
 const ID_WINDOW = 2000;
 /** Session rows read per run. */
 const SESSION_BATCH = 500;
-/** A pending insight this much older than the debounce gets its job again. */
+/** An analyzing insight this much older than the debounce gets its job again. */
 const STUCK_MARGIN_MINUTES = 10;
 /** Sessions with the same stop reason at a site group within this window. */
 const SESSION_GROUP_MINUTES = 60;
@@ -239,7 +239,7 @@ async function faultedCandidates(
       AND NOT EXISTS (
         SELECT 1 FROM ai_insights i
         WHERE i.station_id = cs.id AND i.kind = 'station_faulted'
-          AND (i.status IN ('pending', 'active') OR i.created_at > now() - interval '1 hour')
+          AND (i.status IN ('analyzing', 'open', 'pending') OR i.created_at > now() - interval '1 hour')
       )
     LIMIT 500
   `;
@@ -477,7 +477,7 @@ async function noShowGroupParent(insight: NewInsight): Promise<string | null> {
   const [row] = await client<{ id: string }[]>`
     SELECT id FROM ai_insights
     WHERE kind = 'reservation_no_show' AND site_id = ${insight.siteId}
-      AND parent_insight_id IS NULL AND status IN ('pending', 'active')
+      AND parent_insight_id IS NULL AND status IN ('analyzing', 'open', 'pending')
       AND reservation_id IS DISTINCT FROM ${insight.reservationId}
       AND created_at > now() - make_interval(mins => ${NO_SHOW_GROUP_MINUTES})
     ORDER BY created_at ASC, id ASC LIMIT 1
@@ -495,7 +495,7 @@ async function stationIncidentParent(insight: NewInsight): Promise<string | null
     SELECT p.id FROM ai_insights m
     JOIN ai_insights p ON p.id = m.parent_insight_id
     WHERE m.station_id = ${insight.stationId} AND p.kind = 'site_incident'
-      AND p.status IN ('pending', 'active') AND p.site_id IS NOT DISTINCT FROM ${insight.siteId}
+      AND p.status IN ('analyzing', 'open', 'pending') AND p.site_id IS NOT DISTINCT FROM ${insight.siteId}
     ORDER BY p.created_at DESC LIMIT 1
   `;
   return row?.id ?? null;
@@ -521,7 +521,7 @@ async function sessionGroupParent(insight: NewInsight): Promise<string | null> {
     JOIN charging_sessions s ON s.id = i.session_id
     JOIN charging_sessions mine ON mine.id = ${insight.sessionId}
     WHERE i.kind = 'session_failed' AND i.site_id = ${insight.siteId}
-      AND i.parent_insight_id IS NULL AND i.status IN ('pending', 'active')
+      AND i.parent_insight_id IS NULL AND i.status IN ('analyzing', 'open', 'pending')
       AND i.session_id <> ${insight.sessionId}
       AND s.stopped_reason IS NOT DISTINCT FROM mine.stopped_reason
       AND mine.stopped_reason IS NOT NULL
@@ -534,7 +534,7 @@ async function sessionGroupParent(insight: NewInsight): Promise<string | null> {
 /**
  * Site incidents for the sites that got new offline or faulted station
  * insights: an open incident takes the new members; otherwise one is made
- * when enough stations of the site are pending inside the debounce window.
+ * when enough stations of the site are analyzing inside the debounce window.
  */
 async function groupIncidents(
   siteIds: readonly string[],
@@ -547,14 +547,14 @@ async function groupIncidents(
   for (const siteId of siteIds) {
     const members = await client<{ id: string; station_id: string }[]>`
       SELECT id, station_id FROM ai_insights
-      WHERE site_id = ${siteId} AND status = 'pending' AND parent_insight_id IS NULL
+      WHERE site_id = ${siteId} AND status = 'analyzing' AND parent_insight_id IS NULL
         AND kind IN ('station_offline', 'station_faulted')
         AND created_at > now() - make_interval(secs => ${Math.max(settings.insights.debounceSeconds, 60)})
     `;
     if (members.length === 0) continue;
     const [open] = await client<{ id: string }[]>`
       SELECT id FROM ai_insights
-      WHERE site_id = ${siteId} AND kind = 'site_incident' AND status IN ('pending', 'active')
+      WHERE site_id = ${siteId} AND kind = 'site_incident' AND status IN ('analyzing', 'open', 'pending')
       ORDER BY created_at DESC LIMIT 1
     `;
     if (open != null) {
@@ -595,7 +595,7 @@ async function requeueStuck(
   const minutes = Math.ceil(settings.insights.debounceSeconds / 60) + STUCK_MARGIN_MINUTES;
   const rows = await client<{ id: string }[]>`
     SELECT id FROM ai_insights
-    WHERE status = 'pending' AND created_at < now() - make_interval(mins => ${minutes})
+    WHERE status = 'analyzing' AND created_at < now() - make_interval(mins => ${minutes})
     ORDER BY created_at ASC LIMIT 200
   `;
   for (const r of rows) {
@@ -634,7 +634,7 @@ async function enqueueOrWarn(
 }
 
 /**
- * Active station insights whose condition cleared, recovered incidents, a
+ * Open or pending station insights whose condition cleared, recovered incidents, a
  * station fault during a reservation once the station recovered, and a
  * failed reservation fee captured later end resolved.
  */
@@ -642,25 +642,25 @@ async function resolveCleared(deps: AiInsightScanDeps): Promise<number> {
   const cleared = await client<{ id: string }[]>`
     SELECT i.id FROM ai_insights i
     JOIN charging_stations cs ON cs.id = i.station_id
-    WHERE i.status = 'active' AND (
+    WHERE i.status IN ('open', 'pending') AND (
       (i.kind = 'station_offline' AND cs.is_online)
       OR (i.kind = 'station_faulted' AND ${client.unsafe(stationAvailabilitySql('cs'))} <> 'faulted')
     )
     UNION ALL
     SELECT i.id FROM ai_insights i
     JOIN charging_stations cs ON cs.id = i.station_id
-    WHERE i.status = 'active' AND i.kind = 'reservation_station_faulted' AND cs.is_online
+    WHERE i.status IN ('open', 'pending') AND i.kind = 'reservation_station_faulted' AND cs.is_online
       AND ${client.unsafe(stationAvailabilitySql('cs'))} <> 'faulted'
     UNION ALL
     SELECT i.id FROM ai_insights i
-    WHERE i.status = 'active' AND i.kind = 'reservation_fee_failed'
+    WHERE i.status IN ('open', 'pending') AND i.kind = 'reservation_fee_failed'
       AND EXISTS (
         SELECT 1 FROM payment_records p
         WHERE p.reservation_id = i.reservation_id AND p.status = 'captured'
       )
     UNION ALL
     SELECT i.id FROM ai_insights i
-    WHERE i.status = 'active' AND i.kind = 'site_incident'
+    WHERE i.status IN ('open', 'pending') AND i.kind = 'site_incident'
       AND EXISTS (SELECT 1 FROM ai_insights m WHERE m.parent_insight_id = i.id)
       AND NOT EXISTS (
         SELECT 1 FROM ai_insights m

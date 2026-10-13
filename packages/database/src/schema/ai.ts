@@ -68,9 +68,9 @@ export const aiConversations = pgTable(
     title: varchar('title', { length: 200 }).notNull().default(''),
     /**
      * Explain conversations (migration 0428): the record the conversation is
-     * about, 'station', 'session', 'authorization' or 'reservation' (0459), and its id. No FK, the
-     * targets have mixed key types. Access is checked at creation and on every
-     * turn; each turn's dynamic prompt block carries the record's evidence.
+     * about, 'station', 'session', 'authorization', 'reservation' or 'insight' (0474), and its
+     * id. No FK, the targets have mixed key types. Access is checked at creation and on every
+     * turn; each turn's dynamic prompt block carries the record reference only.
      */
     contextKind: varchar('context_kind', { length: 20 }),
     contextId: text('context_id'),
@@ -86,7 +86,7 @@ export const aiConversations = pgTable(
     check('ai_conversations_surface_check', sql`${table.surface} IN ('chatbot', 'support')`),
     check(
       'ai_conversations_context_check',
-      sql`(${table.contextKind} IS NULL AND ${table.contextId} IS NULL) OR (${table.contextKind} IN ('station', 'session', 'authorization', 'reservation') AND ${table.contextId} IS NOT NULL)`,
+      sql`(${table.contextKind} IS NULL AND ${table.contextId} IS NULL) OR (${table.contextKind} IN ('station', 'session', 'authorization', 'reservation', 'insight') AND ${table.contextId} IS NOT NULL)`,
     ),
   ],
 );

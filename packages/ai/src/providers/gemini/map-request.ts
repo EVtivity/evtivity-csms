@@ -18,6 +18,7 @@ import {
   textDocumentBlock,
   toBase64,
 } from '../shared.js';
+import { toolResultText } from '../citations.js';
 
 /** `providerState.opaque` of a Gemini turn: its parts as received, thought signatures included. */
 export interface GeminiOpaqueState {
@@ -75,7 +76,7 @@ async function partToGemini(
         functionResponse: {
           id: part.toolCallId,
           name: part.name,
-          response: part.isError ? { error: part.content } : { result: part.content },
+          response: part.isError ? { error: part.content } : { result: toolResultText(part) },
         },
       };
   }

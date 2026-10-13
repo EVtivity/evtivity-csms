@@ -86,6 +86,20 @@ export default tseslint.config(
       'evtivity/no-raw-switch': 'error',
     },
   },
+  // Copying goes through the shared copy controls (frontend/ui.md, shared
+  // controls): no navigator.clipboard outside components/ui.
+  {
+    files: [
+      'packages/csms/src/**/*.ts',
+      'packages/csms/src/**/*.tsx',
+      'packages/portal/src/**/*.ts',
+      'packages/portal/src/**/*.tsx',
+    ],
+    ignores: ['**/components/ui/**', '**/__tests__/**', '**/*.test.ts', '**/*.test.tsx'],
+    rules: {
+      'evtivity/no-raw-clipboard': 'error',
+    },
+  },
   // Processes couple only through pub/sub and BullMQ (design principle P8).
   // Code shared by the API and the worker lives in lib, database, payments or
   // services, which import no app package. Integration tests may reuse the

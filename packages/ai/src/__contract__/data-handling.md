@@ -22,10 +22,10 @@ Every surface also sends its system prompt: server rules, the operator's surface
 
 ## Note text
 
-The note shown in Settings > AI (`AiDataNotice`, on Providers and keys and every surface tab: Assistant, Support drafts, Driver support, Automatic insights, Background workers, MCP; not on Usage and limits), the portal driver AI consent notice and the website AI docs. Locale keys `ai.dataNotice.*` (K1 adds them in 6 CSMS and 6 portal locales, plus mobile when its consent screen shows it). English source:
+The note shown in Settings > AI (`AiDataNotice`, on Providers and keys and every surface tab: Assistant, Support drafts, Driver support, Automatic insights, Background workers, MCP; not on Usage and limits), the portal driver AI consent notice and the website AI docs. Locale keys `ai.dataNotice.*` (6 CSMS locales; the portal and the app show only the driver note). English source:
 
 ```note
-The AI provider never receives stored credentials, such as passwords, API keys, secrets and station passwords. Card numbers and IBANs are cut to their last 4 characters. Support drafts, automatic insights, background workers and driver support also mask email addresses and phone numbers, and hash or shorten driver token ids. The assistant sends driver contact details as stored, only to users allowed to read them. Text you type and text files you attach are checked for keys and card numbers. Images and PDFs you attach are sent as they are.
+Messages, tool results and attachments are sent to the selected AI provider. Check the provider's data retention terms. The AI provider never receives stored credentials, such as passwords, API keys, secrets and station passwords. Card numbers are cut to their last 4 characters. Support drafts, automatic insights, background workers and driver support also mask email addresses and phone numbers, and hash or shorten driver token ids. The assistant sends driver contact details as stored, only to users allowed to read them. Text you type and text files you attach are checked for keys and card numbers. Images and PDFs you attach are sent as they are.
 ```
 
 ### Driver note
@@ -33,7 +33,7 @@ The AI provider never receives stored credentials, such as passwords, API keys, 
 The driver variant, shown on the portal and app consent step under the notice. Locale keys `supportCases.ai.dataNotice.*` (portal, 6 locales) and `support.ai.dataNotice.*` (mobile, 6 locales). It claims only what the `driver_support` row holds: TC-AI-AD-11 checks every category word against the claims that name `driver_support`, and every data word against that row's sent column; the portal locale test compares the English text. The operator note (`ai.dataNotice.*`) stays for the CSMS.
 
 ```note-driver
-The AI reads your request and your own charging sessions, payments, reservations and the stations you used. Stored credentials, such as passwords, are never sent. Card numbers and IBANs are cut to their last 4 characters. Email addresses and phone numbers are masked. Charging card and token ids are shortened to their last 4 characters.
+The AI reads your request and your own charging sessions, payments, reservations and the stations you used. Stored credentials, such as passwords, are never sent. Card numbers are cut to their last 4 characters. Email addresses and phone numbers are masked. Charging card and token ids are shortened to their last 4 characters.
 ```
 
 ## Note claims

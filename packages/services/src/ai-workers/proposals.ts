@@ -12,6 +12,7 @@
 
 import { AI_WORKER_ACTIONS } from '@evtivity/lib/ai-proposals';
 import type { AiWorkerAction, AiWorkerActionKind, AiWorkerJob } from '@evtivity/lib/ai-proposals';
+import type { InsightConfidence, RootCauseCategory } from '@evtivity/lib/ai-insights';
 import type { WorkerSuggestion } from './suggest.js';
 import type { StuckSession } from './stuck-sessions.js';
 import type { FaultedStation } from './network-summary.js';
@@ -22,6 +23,22 @@ export const STUCK_RATIONALE_CODES = {
   station_offline: 'stuckSessionOffline',
   connector_available: 'stuckSessionConnectorAvailable',
 } as const;
+
+/**
+ * The root cause of a stuck session, from the reason the worker found it. An
+ * offline station is a fact (connectivity, high). A connector the station
+ * reports available under an open session means the station ended the
+ * transaction and its end message never arrived (connectivity, medium). No
+ * activity on an online station names no cause (unknown, low).
+ */
+export const STUCK_ROOT_CAUSES = {
+  station_offline: { category: 'connectivity', confidence: 'high' },
+  connector_available: { category: 'connectivity', confidence: 'medium' },
+  no_activity: { category: 'unknown', confidence: 'low' },
+} as const satisfies Record<
+  StuckSession['reason'],
+  { category: RootCauseCategory; confidence: InsightConfidence }
+>;
 
 /** The action of a kind for a station's OCPP version; 2.1 when the station never connected. */
 export function workerAction(
@@ -70,6 +87,7 @@ export function stopSessionProposal(
       sessionId: session.sessionId,
       triggerKey: `${dedupKey}:${input.period}`,
       narrative: null,
+      rootCause: STUCK_ROOT_CAUSES[session.reason],
     },
     action: {
       job: 'stuck_sessions',

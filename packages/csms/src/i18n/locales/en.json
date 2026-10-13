@@ -1,9 +1,9 @@
 {
   "common": {
     "loading": "Loading...",
-    "pageNotFound": "Page not found",
+    "pageNotFound": "Page Not Found",
     "pageNotFoundDescription": "The page you are looking for does not exist or has been moved.",
-    "allSiteAccessRequired": "Access to every site required",
+    "allSiteAccessRequired": "Access to Every Site Required",
     "allSiteAccessRequiredDescription": "This page covers every site. Only users with access to all sites can open it.",
     "backToHome": "Back to Dashboard",
     "save": "Save",
@@ -96,7 +96,8 @@
     "na": "n/a",
     "startDate": "Start date",
     "endDate": "End date",
-    "dateRange": "Date range"
+    "dateRange": "Date range",
+    "copyFailed": "Copy failed"
   },
   "status": {
     "online": "Online",
@@ -158,8 +159,8 @@
     "smartCharging": "Smart Charging",
     "configTemplates": "Configuration Templates",
     "supportCases": "Support Cases",
-    "unreadCasesCount_one": "{{count}} unread support case",
-    "unreadCasesCount_other": "{{count}} unread support cases",
+    "unassignedCasesCount_one": "{{count}} unassigned support case",
+    "unassignedCasesCount_other": "{{count}} unassigned support cases",
     "settings": "Settings",
     "profile": "Profile",
     "language": "Language",
@@ -451,14 +452,7 @@
     "todayTaxCollected": "Today's Tax Collected",
     "showPage": "Show page {{page}} of {{total}}",
     "billedOnAccount": "Billed on Account",
-    "billedOnAccountSessions": "Unpaid Account Sessions",
-    "costMissingNotice": "Sessions without an electricity cost are left out of profit: {{count}} ({{revenue}} revenue).",
-    "costMissingTitle": "Electricity Cost Missing",
-    "costMissingNoRates": "Set electricity rates for: {{site}}",
-    "costMissingSessions_one": "{{count}} session at {{site}} has no electricity cost",
-    "costMissingSessions_other": "{{count}} sessions at {{site}} have no electricity cost",
-    "costMissingMoreSites_one": "{{count}} more site",
-    "costMissingMoreSites_other": "{{count}} more sites"
+    "billedOnAccountSessions": "Unpaid Account Sessions"
   },
   "sites": {
     "title": "Sites",
@@ -586,7 +580,7 @@
     "electricityCostRecalculateMore_one": "{{count}} session still has no electricity cost. Recalculate again to continue.",
     "electricityCostRecalculateMore_other": "{{count}} sessions still have no electricity cost. Recalculate again to continue.",
     "tabs": {
-      "ai": "AI"
+      "ai": "AI Usage"
     }
   },
   "stations": {
@@ -628,7 +622,7 @@
     "qrCodes": "QR Codes",
     "qrCodesDescription": "Print these QR codes and place them on the charger. Drivers scan to start a guest checkout session.",
     "qrCodesHardwareNote": "Some chargers can display the QR code on the hardware. To configure them, open the <configTab>Configurations</configTab> tab to pull the current values from the station, identify which variables hold the QR or connector URLs, then create a template under <templates>Settings → Station Configurations</templates> to push the new values.",
-    "dynamicQr": "Dynamic QR codes",
+    "dynamicQr": "Dynamic QR Codes",
     "dynamicQrDescription": "The station shows QR codes with a one-time password that changes over time. The portal checks the password, so a copied or fake QR code is refused.",
     "dynamicQrOcpp21Only": "Dynamic QR codes need a station that uses OCPP 2.1.",
     "dynamicQrOn": "On",
@@ -1143,7 +1137,7 @@
       "invited": "The driver has not set a password yet. Resend the invitation if the link was lost or expired.",
       "none": "The driver cannot sign in to the driver portal. Invite them to set a password on this account."
     },
-    "pncContracts": "Plug & Charge contracts",
+    "pncContracts": "Plug & Charge Contracts",
     "pncContractsHelp": "Each contract is an eMAID that the vehicle with this PCID can install over ISO 15118.",
     "pncContractsEmpty": "No contracts.",
     "pncContractCreate": "Create contract",
@@ -1243,7 +1237,7 @@
     "tax": "tax",
     "restrictions": "Restrictions",
     "noRestrictions": "Default (no restrictions)",
-    "tariffType": "Tariff type",
+    "tariffType": "Tariff Type",
     "defaultTariff": "Default",
     "timeRange": "Time of day",
     "dayOfWeek": "Day of week + time",
@@ -1741,7 +1735,7 @@
     "energyKwhPerDay": "Energy (kWh per day)",
     "powerKw": "Power (kW)",
     "sessions": "Sessions",
-    "sessionsPerDay": "Sessions Per Day",
+    "sessionsPerDay": "Sessions per Day",
     "stationStatus": "Station Status",
     "peakUsage": "Peak Usage (Hour x Day)",
     "topUtilization": "Top Utilization by Site",
@@ -2008,7 +2002,7 @@
     "companyPortalUrl": "Driver Portal URL",
     "companyPortalUrlHint": "URL shown as a link on the operator login page.",
     "companyLogo": "Logo",
-    "pdfBranding": "PDF branding",
+    "pdfBranding": "PDF Branding",
     "pdfBrandingDescription": "The logo and footer printed on every PDF the platform creates: invoices, credit notes, fleet invoices and reports.",
     "pdfLogo": "PDF logo",
     "pdfLogoDefault": "Default EVtivity logo",
@@ -2023,7 +2017,7 @@
     "pdfFooterInvalid": "Use at most {{maxLines}} lines and {{maxLength}} characters.",
     "pdfFooterSaved": "PDF footer saved",
     "pdfBrandingSaveFailed": "Could not save the PDF settings.",
-    "invoiceSeller": "Invoice seller details",
+    "invoiceSeller": "Invoice Seller Details",
     "invoiceSellerDescription": "Printed in the From block of every invoice and credit note PDF, under the company name and address above. Leave a field empty to leave it off the invoice.",
     "invoiceSellerTaxId": "Tax ID",
     "invoiceSellerTaxIdHelp": "Your VAT ID or tax number.",
@@ -2179,7 +2173,6 @@
     "ssoAttrFirstName": "First Name Attribute",
     "ssoAttrLastName": "Last Name Attribute",
     "ssoCertSet": "Certificate configured",
-    "ssoCopied": "Copied",
     "ssoSaved": "SSO settings saved.",
     "ssoSaveFailed": "Failed to save SSO settings.",
     "marketing": "Marketing",
@@ -2352,7 +2345,6 @@
     "apiKeyCustomDays": "Custom (days)",
     "apiKeyCreated": "API Key Created",
     "apiKeyCreatedDescription": "Copy the key now. You will not see it again.",
-    "apiKeyCopied": "Copied to clipboard",
     "apiKeyRevoke": "Revoke",
     "apiKeyRevokeConfirm": "Are you sure you want to revoke this API key? Any integrations using it will stop working.",
     "apiKeyRevoked": "API key revoked",
@@ -2393,7 +2385,7 @@
     "webhookReplaceConfirm": "Replace",
     "stripeWebhookEndpoints": "Endpoints",
     "stripeWebhookNoEndpoints": "No EVtivity webhook endpoints at this URL in this Stripe account.",
-    "webhookOtherEndpoints": "Other EVtivity deployments",
+    "webhookOtherEndpoints": "Other EVtivity Deployments",
     "webhookOtherEndpointsHint": "These webhooks belong to other EVtivity deployments that share this provider account. Creating or replacing the webhook here never changes them. Delete one you no longer use in the provider dashboard.",
     "stripeWebhookNotConfigured": "Save the Stripe secret key to create or list webhooks.",
     "stripeWebhookLoadFailed": "Could not read the webhook endpoints from Stripe.",
@@ -2469,7 +2461,6 @@
     "emailLayoutPreviewFrame": "Email layout preview",
     "aiProvidersTitle": "AI Providers",
     "aiProvidersDescription": "One API key per provider. The AI assistant and support AI each pick a provider below.",
-    "aiDataLeavesWarning": "Messages, tool results and attachments are sent to the selected provider and leave this deployment. Check the provider's data retention terms.",
     "aiApiKey": "API key",
     "aiBaseUrl": "Base URL (optional)",
     "aiBaseUrlHint": "Leave blank for the official endpoint. It must be an https URL on a public host.",
@@ -2543,7 +2534,6 @@
     },
     "aiLimitRange": "From {{min}} to {{max}}.",
     "aiLimitZeroNoBudget": "0 means no daily limit.",
-    "aiOpsDataWarning": "When this is on, operational data is sent to the configured provider automatically, without a user action.",
     "aiInsightsSettings": {
       "title": "Automatic Insights",
       "station": "Station insights",
@@ -2616,7 +2606,6 @@
       "driverPerMinute": "AI requests per driver per minute",
       "overLimitHelp": "Requests over a limit go straight to the support team."
     },
-    "aiDriverDataWarning": "When this is on and a driver allows it, the request text and the driver's own sessions, payments, reservations, used stations and tokens (last 4 characters) are sent to the configured provider.",
     "aiAdvancedOptions": "Advanced Options",
     "aiPromptCustomSummary": "Custom system prompt",
     "aiPromptDefaultSummary": "Built-in system prompt",
@@ -3914,8 +3903,8 @@
       "unlockAt": "Unlock {{target}} of station {{station}}",
       "start": "Start charging at station {{station}}",
       "startAt": "Start charging at {{target}} of station {{station}}",
-      "stop": "Stop transaction {{transaction}} at station {{station}}",
-      "stopAny": "Stop the transaction at station {{station}}",
+      "stop": "Stop the charging session at station {{station}} (OCPP transaction {{transaction}})",
+      "stopAny": "Stop the charging session at station {{station}}",
       "chargingProfile": "Set a charging profile on station {{station}}",
       "chargingProfileAt": "Set a charging profile on {{target}} of station {{station}}",
       "ocppCommand": "Send {{command}} to station {{station}}",
@@ -3940,10 +3929,9 @@
     "rejected": "Rejected",
     "expired": "Expired",
     "expiredHint": "This proposal expired. Ask the assistant again.",
-    "citations": "Documentation",
+    "citations": "Sources",
     "code": "Code",
     "copyCode": "Copy code",
-    "copied": "Copied",
     "image": "Image",
     "imageBlocked": "Images in AI answers are not loaded",
     "tokens": "{{formatted}} tokens",
@@ -4022,23 +4010,20 @@
       "session": "Why did this session fail, and what should I do?",
       "authorization": "Why was this authorization refused, and what should I do?",
       "followUp": "Ask a follow-up",
-      "about": "About {{record}} {{label}}",
       "kind": {
-        "station": "station",
-        "session": "session",
-        "authorization": "authorization",
-        "reservation": "reservation"
+        "station": "Station",
+        "session": "Session",
+        "authorization": "Authorization",
+        "reservation": "Reservation",
+        "insight": "Insight"
       },
       "reservation": "Why did this reservation fail, and what should I do?",
-      "aboutRecord": "About this {{record}}",
-      "contextLabel": "Explain Context",
-      "latestInsight": "Latest automatic insight",
-      "viewInsight": "View insight",
-      "shared": "The assistant reads this record's key facts, recent events and latest insight. Nothing is sent until you send your question."
+      "insight": "What does this insight mean, and what should I do?",
+      "contextLabel": "Explain Context"
     },
     "dataNotice": {
       "title": "What the AI Provider Receives",
-      "body": "The AI provider never receives stored credentials, such as passwords, API keys, secrets and station passwords. Card numbers and IBANs are cut to their last 4 characters. Support drafts, automatic insights, background workers and driver support also mask email addresses and phone numbers, and hash or shorten driver token ids. The assistant sends driver contact details as stored, only to users allowed to read them. Text you type and text files you attach are checked for keys and card numbers. Images and PDFs you attach are sent as they are."
+      "body": "Messages, tool results and attachments are sent to the selected AI provider. Check the provider's data retention terms. The AI provider never receives stored credentials, such as passwords, API keys, secrets and station passwords. Card numbers are cut to their last 4 characters. Support drafts, automatic insights, background workers and driver support also mask email addresses and phone numbers, and hash or shorten driver token ids. The assistant sends driver contact details as stored, only to users allowed to read them. Text you type and text files you attach are checked for keys and card numbers. Images and PDFs you attach are sent as they are."
     }
   },
   "sustainability": {
@@ -4066,7 +4051,7 @@
     "failed": "Failed",
     "skipped": "Skipped",
     "errors": "Errors",
-    "notApplicable": "Not applicable",
+    "notApplicable": "Not Applicable",
     "picsItem": "PICS item",
     "duration": "Duration",
     "runDetail": "Run",
@@ -4165,8 +4150,8 @@
     "actor": "Actor",
     "actorId": "Actor id",
     "notes": "Notes",
-    "entityType": "Entity type",
-    "entityId": "Entity id",
+    "entityType": "Entity Type",
+    "entityId": "Entity ID",
     "from": "From",
     "to": "To",
     "all": "All",
@@ -4334,8 +4319,8 @@
     "colStatus": "Status",
     "colStart": "Start",
     "colEnd": "End",
-    "colSessionsStopped": "Sessions stopped",
-    "colReservationsCancelled": "Reservations cancelled",
+    "colSessionsStopped": "Sessions Stopped",
+    "colReservationsCancelled": "Reservations Cancelled",
     "typeImmediate": "Immediate",
     "typeOneOff": "Scheduled",
     "statusScheduled": "Scheduled",
@@ -4344,7 +4329,7 @@
     "statusCancelled": "Cancelled",
     "empty": "No maintenance windows",
     "statusTitle": "Maintenance Status",
-    "schedule": "Schedule maintenance",
+    "schedule": "Schedule Maintenance",
     "activeNow": "Site is currently under maintenance",
     "endNow": "End now",
     "endsAt": "Expected to end at {{time}}",
@@ -4654,22 +4639,21 @@
   },
   "aiInsights": {
     "title": "Automatic Insight",
-    "activeInsights": "Active insights",
+    "activeInsights": "Active Insights",
     "empty": "No insights",
     "summaryTranslating": "Translating…",
     "summaryUnavailable": "No translation is available. The original is shown.",
     "showOriginal": "Show original",
     "hideOriginal": "Hide original",
     "knownCause": "Known cause",
-    "categoryLabel": "Root cause",
+    "categoryLabel": "Root Cause",
     "confidenceLabel": "Confidence",
-    "fixesLabel": "Suggested fixes",
+    "fixesLabel": "Suggested Fix",
     "regenerate": "Regenerate",
     "dismiss": "Dismiss",
     "helpful": "Helpful",
     "wrong": "Wrong",
     "badge": {
-      "resolved": "Resolved",
       "outOfDate": "Out of date"
     },
     "category": {
@@ -4691,14 +4675,16 @@
       "high": "High"
     },
     "status": {
-      "pending": "Analyzing",
-      "active": "Active",
+      "open": "Open",
+      "pending": "Pending",
+      "done": "Done",
+      "rejected": "Rejected",
       "resolved": "Resolved",
-      "superseded": "Superseded",
-      "skipped": "Skipped",
-      "failed": "Failed",
-      "dismissed": "Dismissed"
+      "dismissed": "Dismissed",
+      "expired": "Expired"
     },
+    "analyzing": "Analyzing",
+    "skipped": "Skipped",
     "kind": {
       "station_offline": "Station offline",
       "station_faulted": "Station faulted",
@@ -4771,7 +4757,7 @@
     "widget": {
       "info": "Open issues the automatic analysis found in your sites. Site incidents come first, then the most severe and newest.",
       "empty": "No open insights",
-      "viewAll": "View all",
+      "viewAll": "View All",
       "similar_one": "+{{count}} similar",
       "similar_other": "+{{count}} similar",
       "atDetection": "{{value}} at detection"
@@ -4819,7 +4805,9 @@
       "feedback": "Feedback",
       "allFeedback": "Any feedback",
       "feedbackWrong": "Marked wrong",
-      "feedbackHelpful": "Marked helpful"
+      "feedbackHelpful": "Marked helpful",
+      "rootCauseNotApplicable": "Not Applicable",
+      "rootCauseNotAnalyzed": "Not Analyzed"
     },
     "detail": {
       "recordTitle": "Details",
@@ -4830,25 +4818,6 @@
     "staleNote": "The record changed after this analysis. Regenerate it for a current one.",
     "failedNote": "The analysis did not finish.",
     "skippedNote": "Not analyzed: {{reason}}",
-    "scopeTable": {
-      "title": "Site Context",
-      "measureHeader": "Measure",
-      "atDetection": "At detection",
-      "now": "Now",
-      "atDetectionHint": "What the analysis used",
-      "nowHint": "As of {{time}}",
-      "measure": {
-        "stations": "Stations",
-        "stationsOffline": "Stations offline",
-        "stationsFaulted": "Stations faulted",
-        "sameErrorCode": "Same error code (24 h)",
-        "sessionsInterrupted": "Sessions interrupted (24 h)",
-        "sessionsFailedSameReason24h": "Same stop reason (24 h)",
-        "tokenRefusals": "Token refusals (24 h)"
-      },
-      "summaryAtDetection": "{{value}} at detection",
-      "summaryChanged": "{{value}} at detection, {{now}} now"
-    },
     "feedback": {
       "helpfulCount_one": "{{count}} found this helpful",
       "helpfulCount_other": "{{count}} found this helpful",
@@ -4861,19 +4830,10 @@
       "reasonSaved": "Note saved."
     },
     "action": {
-      "title": "Suggested Action",
       "kind": {
         "stop_transaction": "Stop the session",
         "soft_reset": "Soft reset the station",
         "change_availability": "Change the station availability"
-      },
-      "status": {
-        "pending": "Pending",
-        "executed": "Executed",
-        "failed": "Failed",
-        "rejected": "Rejected",
-        "expired": "Expired",
-        "stale": "No longer applies"
       },
       "job": {
         "network_summary": "Network health",
@@ -4881,17 +4841,10 @@
         "tariff_anomalies": "Tariff anomalies"
       },
       "jobLabel": "Worker job",
-      "precondition": {
-        "session_active": "The session is still active",
-        "station_faulted": "The station is still faulted",
-        "station_availability": "The station availability has not changed"
-      },
-      "preconditionLabel": "Runs only if",
       "confirm": "Confirm",
       "reject": "Reject",
-      "expiresAt": "Expires {{time}}",
+      "expiresAt": "Expires on {{time}}",
       "expires": "Expires",
-      "arguments": "Arguments",
       "rationale": "Rationale",
       "executed": "The action ran",
       "confirmFailed": "The action did not run",
@@ -4904,14 +4857,13 @@
         "title": "Reject This Action?"
       },
       "measured": {
-        "idleTime": "Idle time",
+        "idleTime": "Idle Time",
         "minutes_one": "{{count}} minute",
         "minutes_other": "{{count}} minutes",
-        "lastActivity": "Last activity",
-        "faultedSince": "Faulted since",
-        "transactionId": "Transaction ID"
+        "lastActivity": "Last Activity",
+        "faultedSince": "Faulted Since",
+        "transactionId": "OCPP Transaction ID"
       },
-      "target": "Target",
       "decided": "Decided",
       "executedAt": "Ran at",
       "refused": {
@@ -4922,13 +4874,10 @@
       },
       "pendingCount_one": "{{count}} pending action",
       "pendingCount_other": "{{count}} pending actions",
-      "pending": "Action pending",
-      "filter": "Action",
-      "filterAll": "All insights",
-      "filterPending": "Action pending",
-      "filterAny": "With an action",
-      "history": "Action History"
-    }
+      "expiresInfo": "A suggested action stays open until the time shown, because the station or session can change after the check. After that it expires, nothing runs, and a new suggestion appears if the problem is still there.",
+      "apiRequest": "API Request"
+    },
+    "openPanel": "Open Automatic Insights ({{count}})"
   },
   "aiWorkers": {
     "title": "Background AI Workers",
@@ -4971,9 +4920,9 @@
     "company": "Company",
     "site": "Site",
     "sites": "Sites",
-    "bySurface": "By surface",
+    "bySurface": "By Surface",
     "unattributed": "Assistant (not site-specific)",
-    "topUsers": "Top users",
+    "topUsers": "Top Users",
     "user": "User",
     "cost": "Cost",
     "today": "Today",

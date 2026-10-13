@@ -3,6 +3,7 @@
 
 import { Link, useParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
+import { isVisibleInsightStatus } from '@evtivity/lib/ai-insights';
 import { useCanExplain, useOpenExplain } from '@/components/ai/ExplainButton';
 import { aiRequestErrorText } from '@/components/ai/ai-error-text';
 import { InsightCard } from '@/components/ai/insights/InsightCard';
@@ -12,22 +13,17 @@ import { insightHeadline } from '@/components/ai/insights/insight-display';
 import type { AiPanelContext } from '@/components/ai/use-ai-panel-store';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { BackButton } from '@/components/back-button';
-import { CopyableId } from '@/components/copyable-id';
 import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { LoadingLogo } from '@/components/loading-logo';
 import { Badge } from '@/components/ui/badge';
+import { ScrollFade } from '@/components/ui/scroll-fade';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { insightStatusVariant } from '@/lib/status-variants';
 import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 
-function explainContext(insight: AiInsightView): AiPanelContext | undefined {
-  if (insight.sessionId != null) return { kind: 'session', id: insight.sessionId };
-  if (insight.stationId != null) {
-    return insight.stationName != null
-      ? { kind: 'station', id: insight.stationId, label: insight.stationName }
-      : { kind: 'station', id: insight.stationId };
-  }
-  return undefined;
+/** "Ask a follow-up" opens the assistant about the insight itself ("Insight ain_..."). */
+function explainContext(insight: AiInsightView): AiPanelContext {
+  return { kind: 'insight', id: insight.id, label: insight.id };
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
@@ -71,28 +67,34 @@ export function AiInsightDetail(): React.JSX.Element {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <BackButton to="/ai/insights" />
-        <div className="min-w-0">
-          <h1
-            className="text-2xl md:text-3xl font-bold wrap-anywhere"
-            data-testid="ai-insight-title"
-          >
-            {insightHeadline(t, insight)}
-          </h1>
-          <CopyableId id={insight.id} />
+        {/* Back and title share one line; a long title scrolls under the fade. */}
+        <div className="flex min-w-0 basis-full items-center gap-2 sm:basis-auto sm:flex-1">
+          <BackButton to="/ai/insights" />
+          <ScrollFade surface="background" className="flex-1">
+            <h1
+              className="whitespace-nowrap text-2xl md:text-3xl font-bold"
+              data-testid="ai-insight-title"
+            >
+              {insightHeadline(t, insight)}
+            </h1>
+          </ScrollFade>
         </div>
-        <Badge variant={insightStatusVariant(insight.status)} data-testid="ai-insight-status">
-          {t(`aiInsights.status.${insight.status}`)}
-        </Badge>
+        {isVisibleInsightStatus(insight.status) && (
+          <Badge variant={insightStatusVariant(insight.status)} data-testid="ai-insight-status">
+            {t(`aiInsights.status.${insight.status}`)}
+          </Badge>
+        )}
         <EntityNavButtons resource="ai/insights" basePath="/ai/insights" currentId={insight.id} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <InsightCard
           insight={insight}
+          showStatus={false}
+          showHeadline={false}
           className="min-w-0 lg:col-span-2"
           onFollowUp={
-            canExplain && context != null
+            canExplain
               ? () => {
                   open(context);
                 }
@@ -149,7 +151,7 @@ export function AiInsightDetail(): React.JSX.Element {
                 </Row>
               )}
               {insight.skipReason != null && (
-                <Row label={t('aiInsights.status.skipped')}>
+                <Row label={t('aiInsights.skipped')}>
                   {t(`aiInsights.skipReason.${insight.skipReason}`)}
                 </Row>
               )}
@@ -184,13 +186,6 @@ export function AiInsightDetail(): React.JSX.Element {
       </div>
 
       <EntityHistoryTab entityType="ai_insight" entityId={insight.id} />
-      {action != null && (
-        <EntityHistoryTab
-          entityType="ai_proposal"
-          entityId={action.id}
-          title={t('aiInsights.action.history')}
-        />
-      )}
     </div>
   );
 }

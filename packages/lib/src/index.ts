@@ -47,6 +47,8 @@ export {
 
 export { encryptString, decryptString, decryptSettingOrNull } from './encryption.js';
 
+export { keyedSubjectHash, authorizationSubjectId } from './insight-subject.js';
+
 export {
   assertTemplateAllowed,
   compileAllowedTemplate,

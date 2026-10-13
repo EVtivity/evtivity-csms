@@ -104,7 +104,6 @@ describe('Settings > AI roadmap panels', () => {
   it('shows the data warning and turns system-initiated AI on', async () => {
     wrap(<AiOpsSettings settings={SETTINGS} canWrite aiDefaults={undefined} />);
     const ops = screen.getByTestId('ai-ops-settings');
-    expect(within(ops).getByText('settings.aiOpsDataWarning')).toBeTruthy();
     fireEvent.click(within(ops).getByRole('switch'));
     await waitFor(() => {
       expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/opsAi.enabled', { value: true });

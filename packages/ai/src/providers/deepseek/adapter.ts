@@ -13,6 +13,7 @@ import { collectAiStream } from '../../core/collect.js';
 import { resolveModelCapabilities } from '../../core/model-registry.js';
 import type { AiAdapter, AiAdapterOptions, AiStreamEvent } from '../../core/types.js';
 import { assertPartsSupported, describeSdkError, isAbort, toProviderError } from '../shared.js';
+import { CitationStream } from '../citations.js';
 import { buildDeepSeekParams } from './map-request.js';
 import { DeepSeekStreamMapper } from './map-stream.js';
 
@@ -52,11 +53,12 @@ export function createDeepSeekAdapter(options: AiAdapterOptions): AiAdapter {
       assertPartsSupported('deepseek', req, caps);
       const params = await buildDeepSeekParams(req, caps, strictEndpoint);
       const mapper = new DeepSeekStreamMapper(req.model);
+      const cite = new CitationStream(caps);
       let aborted = false;
       try {
         const chunks = await client.chat.completions.create(params, { signal });
         for await (const chunk of chunks) {
-          yield* mapper.handle(chunk);
+          yield* cite.map(mapper.handle(chunk));
         }
       } catch (err) {
         if (!isAbort(err, signal)) {
@@ -70,7 +72,7 @@ export function createDeepSeekAdapter(options: AiAdapterOptions): AiAdapter {
       } catch (err) {
         throw toProviderError('deepseek', err, options.apiKey, describeSdkError, ERROR_CODES);
       }
-      yield* closing;
+      yield* cite.map(closing);
     },
     complete(req, signal) {
       return collectAiStream(adapter.stream(req, signal));

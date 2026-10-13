@@ -2,10 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import * as React from 'react';
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { useTranslation } from 'react-i18next';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
+import { ScrollFade } from './scroll-fade';
 
 interface TabsContextValue {
   value: string;
@@ -63,74 +62,18 @@ const Tabs = React.forwardRef<HTMLDivElement, TabsProps>(
 Tabs.displayName = 'Tabs';
 
 const TabsList = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-  ({ className, children, ...props }, ref) => {
-    const { t } = useTranslation();
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const [canScrollLeft, setCanScrollLeft] = useState(false);
-    const [canScrollRight, setCanScrollRight] = useState(false);
-
-    const checkScroll = useCallback(() => {
-      const el = scrollRef.current;
-      if (el == null) return;
-      setCanScrollLeft(el.scrollLeft > 1);
-      setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1);
-    }, []);
-
-    useEffect(() => {
-      checkScroll();
-      const el = scrollRef.current;
-      if (el == null) return undefined;
-      el.addEventListener('scroll', checkScroll, { passive: true });
-      const observer = new ResizeObserver(checkScroll);
-      observer.observe(el);
-      return () => {
-        el.removeEventListener('scroll', checkScroll);
-        observer.disconnect();
-      };
-    }, [checkScroll]);
-
-    const scroll = (direction: 'left' | 'right') => {
-      const el = scrollRef.current;
-      if (el == null) return;
-      el.scrollBy({ left: direction === 'left' ? -120 : 120, behavior: 'smooth' });
-    };
-
-    return (
-      <div ref={ref} className={cn('relative max-w-full lg:max-w-[80%]', className)} {...props}>
-        {canScrollLeft && (
-          <button
-            type="button"
-            aria-label={t('common.scrollLeft')}
-            onClick={() => {
-              scroll('left');
-            }}
-            className="absolute left-0 top-0 z-10 flex h-full w-24 cursor-pointer items-center justify-start rounded-l-md bg-linear-to-r from-muted via-muted/60 to-transparent"
-          >
-            <ChevronLeft className="ml-1 h-4 w-4 text-muted-foreground" />
-          </button>
-        )}
-        <div
-          ref={scrollRef}
-          role="tablist"
-          className="inline-flex h-10 max-w-full items-center rounded-md bg-muted p-1 text-muted-foreground overflow-x-auto scrollbar-none"
-        >
-          {children}
-        </div>
-        {canScrollRight && (
-          <button
-            type="button"
-            aria-label={t('common.scrollRight')}
-            onClick={() => {
-              scroll('right');
-            }}
-            className="absolute right-0 top-0 z-10 flex h-full w-24 cursor-pointer items-center justify-end rounded-r-md bg-linear-to-l from-muted via-muted/60 to-transparent"
-          >
-            <ChevronRight className="mr-1 h-4 w-4 text-muted-foreground" />
-          </button>
-        )}
-      </div>
-    );
-  },
+  ({ className, children, ...props }, ref) => (
+    <ScrollFade
+      ref={ref}
+      surface="muted"
+      className={cn('lg:max-w-[80%]', className)}
+      innerProps={{ role: 'tablist' }}
+      innerClassName="inline-flex h-10 items-center rounded-md bg-muted p-1 text-muted-foreground"
+      {...props}
+    >
+      {children}
+    </ScrollFade>
+  ),
 );
 TabsList.displayName = 'TabsList';
 

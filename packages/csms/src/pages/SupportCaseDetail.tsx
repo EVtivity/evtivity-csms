@@ -136,7 +136,6 @@ export function SupportCaseDetail(): React.JSX.Element {
     api
       .post(`/v1/support-cases/${id}/read`, {})
       .then(() => {
-        void queryClient.invalidateQueries({ queryKey: ['support-cases-unread-count'] });
         void queryClient.invalidateQueries({ queryKey: ['support-cases'] });
       })
       .catch((err: unknown) => {

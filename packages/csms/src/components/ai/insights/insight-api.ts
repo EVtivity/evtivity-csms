@@ -4,19 +4,18 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { QueryClient } from '@tanstack/react-query';
 import type { UseMutationResult } from '@tanstack/react-query';
 import type {
-  AiContextKind,
+  AiRecordContextKind,
   AiInsightDto,
-  InsightActionFilter,
   InsightFeedbackFilter,
   InsightFeedbackRate,
   InsightFeedbackSummary,
   InsightKind,
-  InsightScope,
-  InsightStatus,
   RootCauseCategory,
 } from '@evtivity/lib/ai-insights';
+import { INSIGHT_LIVE_STATUSES } from '@evtivity/lib/ai-insights';
 import type { AiProposalDto } from '@evtivity/lib/ai-proposals';
 import { toUiLanguage } from '@evtivity/lib/languages';
 import { api } from '@/lib/api';
@@ -30,7 +29,7 @@ import { useHasPermission } from '@/lib/auth';
  */
 
 /** Root of every insight query; the SSE event invalidates it. */
-export const AI_INSIGHTS_KEY = ['ai', 'insights'] as const;
+const AI_INSIGHTS_KEY = ['ai', 'insights'] as const;
 
 /** The action an insight carries (a background worker suggestion), as the API sends it. */
 export interface AiInsightActionView extends AiProposalDto {
@@ -49,10 +48,6 @@ export interface AiInsightView extends AiInsightDto {
   stationName?: string | null;
   /** Name of the site, for display. */
   siteName?: string | null;
-  /** Detail only: the same counts computed now (snapshot counts are in `scope`). */
-  scopeNow?: InsightScope | null;
-  /** Detail only: when `scopeNow` was computed. */
-  scopeNowAt?: string | null;
   /** Detail only: the votes (one per user) and the viewer's own vote. */
   feedback?: InsightFeedbackSummary;
 }
@@ -66,12 +61,11 @@ export interface InsightFilter {
   /** Comma-separated authorize attempt ids, at most 100. */
   authorizeAttemptIds?: string;
   kind?: InsightKind;
-  status?: InsightStatus;
+  /** One shown status (`InsightVisibleStatus`), or several comma-separated (`open,pending`). */
+  status?: string;
   category?: RootCauseCategory;
   /** Insights someone marked helpful, or wrong. */
   feedback?: InsightFeedbackFilter;
-  /** Insights with an action waiting for a decision (`pending`), or with any action. */
-  action?: InsightActionFilter;
   limit?: number;
 }
 
@@ -91,7 +85,7 @@ const INSIGHT_STALE_TIME_MS = 30_000;
 const MAX_ATTEMPT_IDS = 100;
 export const RECENT_INSIGHT_MS = 24 * 60 * 60 * 1000;
 
-export function useInsightLanguage(): string {
+function useInsightLanguage(): string {
   const { i18n } = useTranslation();
   return toUiLanguage(i18n.language);
 }
@@ -125,7 +119,7 @@ export function useInsights(
     enabled: canRead && enabled,
     staleTime: INSIGHT_STALE_TIME_MS,
     refetchInterval: (query) =>
-      query.state.data?.data.some((i) => i.textStatus === 'pending' || i.status === 'pending')
+      query.state.data?.data.some((i) => i.textStatus === 'pending')
         ? PENDING_TEXT_REFETCH_MS
         : false,
   });
@@ -183,42 +177,11 @@ export function useInsight(id: string | null): {
     staleTime: INSIGHT_STALE_TIME_MS,
     retry: false,
     refetchInterval: (query) =>
-      query.state.data?.textStatus === 'pending' || query.state.data?.status === 'pending'
+      query.state.data?.textStatus === 'pending' || query.state.data?.status === 'analyzing'
         ? PENDING_TEXT_REFETCH_MS
         : false,
   });
   return { insight: data, isLoading: canRead && id != null && isLoading, isError, error };
-}
-
-/**
- * The scope counted now (`GET /v1/ai/insights/:id?scopeNow=true`), asked
- * only while `enabled` (the scope table is open). SQL only on the server.
- */
-export function useInsightScopeNow(
-  id: string,
-  enabled: boolean,
-): {
-  scopeNow: InsightScope | null;
-  scopeNowAt: string | null;
-  isLoading: boolean;
-} {
-  const canRead = useHasPermission('aiInsights:read');
-  const language = useInsightLanguage();
-  const { data, isLoading } = useQuery({
-    queryKey: [...AI_INSIGHTS_KEY, 'scope-now', id, language],
-    queryFn: () =>
-      api.get<AiInsightView>(
-        `/v1/ai/insights/${encodeURIComponent(id)}?language=${encodeURIComponent(language)}&scopeNow=true`,
-      ),
-    enabled: canRead && enabled,
-    staleTime: INSIGHT_STALE_TIME_MS,
-    retry: false,
-  });
-  return {
-    scopeNow: data?.scopeNow ?? null,
-    scopeNowAt: data?.scopeNowAt ?? null,
-    isLoading: canRead && enabled && isLoading,
-  };
 }
 
 /**
@@ -231,32 +194,43 @@ export function isSummaryInsight(insight: Pick<AiInsightDto, 'kind'>): boolean {
   return SUMMARY_KINDS.has(insight.kind);
 }
 
-/** An insight Explain can show instead of starting a conversation: active and current. */
+/** Shown and not closed: open, or its action waits (`pending`). */
+export function isLiveInsight(insight: Pick<AiInsightView, 'status'>): boolean {
+  return (INSIGHT_LIVE_STATUSES as readonly string[]).includes(insight.status);
+}
+
+/** The status filter of the insights that still ask for attention. */
+export const LIVE_INSIGHT_STATUS_FILTER = INSIGHT_LIVE_STATUSES.join(',');
+
+/** An insight Explain can show instead of starting a conversation: live and current. */
 export function isFreshInsight(insight: AiInsightView | undefined | null): boolean {
-  return insight != null && insight.status === 'active' && !insight.stale;
+  return insight != null && isLiveInsight(insight) && !insight.stale;
 }
 
 /**
- * The insight a record's page shows: the active or analyzing one, else one
- * resolved within the last day. Others (skipped, failed, dismissed,
- * superseded) are not shown.
+ * The insight a record's page shows: the open or pending one, else one
+ * resolved within the last day. Others (done, rejected, dismissed, expired)
+ * are not shown.
  */
+/** A record shows a live insight, or one resolved within the recent window. */
+export function isShownInsight(insight: AiInsightView, now: number = Date.now()): boolean {
+  if (isLiveInsight(insight)) return true;
+  return (
+    insight.status === 'resolved' &&
+    insight.resolvedAt != null &&
+    now - Date.parse(insight.resolvedAt) <= RECENT_INSIGHT_MS
+  );
+}
+
 export function pickShownInsight(
   insights: readonly AiInsightView[],
   now: number = Date.now(),
 ): AiInsightView | undefined {
-  const open = insights.find((i) => i.status === 'active' || i.status === 'pending');
-  if (open != null) return open;
-  return insights.find(
-    (i) =>
-      i.status === 'resolved' &&
-      i.resolvedAt != null &&
-      now - Date.parse(i.resolvedAt) <= RECENT_INSIGHT_MS,
-  );
+  return insights.find(isLiveInsight) ?? insights.find((i) => isShownInsight(i, now));
 }
 
 /** Insight filter of an Explain context (an authorization: the insights covering the attempt). */
-export function insightFilterFor(kind: AiContextKind, id: string): InsightFilter {
+export function insightFilterFor(kind: AiRecordContextKind, id: string): InsightFilter {
   if (kind === 'authorization') return { authorizeAttemptIds: id };
   if (kind === 'reservation') return { reservationId: id };
   return kind === 'station' ? { stationId: id } : { sessionId: id };
@@ -273,7 +247,7 @@ export function useAuthorizationInsights(
 ): Map<number, AiInsightView> {
   const ids = [...new Set(attemptIds)].sort((a, b) => a - b).slice(0, MAX_ATTEMPT_IDS);
   const { insights } = useInsights(
-    { authorizeAttemptIds: ids.join(','), status: 'active', limit: MAX_ATTEMPT_IDS },
+    { authorizeAttemptIds: ids.join(','), status: 'open', limit: MAX_ATTEMPT_IDS },
     ids.length > 0,
   );
   return useMemo(() => {
@@ -286,11 +260,13 @@ export function useAuthorizationInsights(
   }, [insights]);
 }
 
-export type InsightMutation<TBody> = UseMutationResult<
-  unknown,
-  unknown,
-  { id: string; body?: TBody }
->;
+type InsightMutation<TBody> = UseMutationResult<unknown, unknown, { id: string; body?: TBody }>;
+
+/** Refreshes every insight view and the insight's History after an action on it. */
+function refreshInsight(queryClient: QueryClient, insightId: string): void {
+  void queryClient.invalidateQueries({ queryKey: AI_INSIGHTS_KEY });
+  void queryClient.invalidateQueries({ queryKey: ['audit', 'ai_insight', insightId] });
+}
 
 function useInsightMutation<TBody>(
   verb: 'regenerate' | 'dismiss' | 'feedback',
@@ -299,8 +275,8 @@ function useInsightMutation<TBody>(
   return useMutation<unknown, unknown, { id: string; body?: TBody }>({
     mutationFn: ({ id, body }) =>
       api.post(`/v1/ai/insights/${encodeURIComponent(id)}/${verb}`, body ?? {}),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: AI_INSIGHTS_KEY });
+    onSuccess: (_data, { id }) => {
+      refreshInsight(queryClient, id);
     },
   });
 }
@@ -314,7 +290,7 @@ export function useDismissInsight(): InsightMutation<never> {
 }
 
 /** The body of a vote: a wrong vote can carry a short note (stored only, never sent to a model). */
-export interface InsightFeedbackBody {
+interface InsightFeedbackBody {
   helpful: boolean;
   reason?: string | null;
 }
@@ -329,8 +305,8 @@ export function useClearInsightFeedback(): InsightMutation<never> {
   const queryClient = useQueryClient();
   return useMutation<unknown, unknown, { id: string; body?: never }>({
     mutationFn: ({ id }) => api.delete(`/v1/ai/insights/${encodeURIComponent(id)}/feedback`),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: AI_INSIGHTS_KEY });
+    onSuccess: (_data, { id }) => {
+      refreshInsight(queryClient, id);
     },
   });
 }
@@ -343,7 +319,7 @@ export function usePendingActionCount(enabled: boolean): number {
   const canRead = useHasPermission('aiInsights:read');
   const { data } = useQuery({
     queryKey: [...AI_INSIGHTS_KEY, 'pending-action-count'],
-    queryFn: () => api.get<InsightList>('/v1/ai/insights?action=pending&limit=1'),
+    queryFn: () => api.get<InsightList>('/v1/ai/insights?status=pending&limit=1'),
     enabled: canRead && enabled,
     staleTime: INSIGHT_STALE_TIME_MS,
     refetchInterval: PENDING_ACTION_REFETCH_MS,
@@ -372,8 +348,8 @@ export function useDecideInsightAction(): UseMutationResult<
         `/v1/ai/insights/${encodeURIComponent(d.insightId)}/action/${d.verb}`,
         d.verb === 'confirm' ? { argsHash: d.argsHash } : {},
       ),
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: AI_INSIGHTS_KEY });
+    onSettled: (_data, _err, d) => {
+      refreshInsight(queryClient, d.insightId);
     },
   });
 }

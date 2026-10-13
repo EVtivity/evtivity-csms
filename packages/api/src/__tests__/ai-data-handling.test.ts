@@ -214,7 +214,7 @@ describe('AI data handling: API surfaces', () => {
     expect(second).toContain('****6789');
   });
 
-  it('TC-AI-AD-05 Explain: the framed record and evidence carry no secret, personal data masked', async () => {
+  it('TC-AI-AD-05 Explain: the framed block carries the record reference only, never its data', async () => {
     const context: ExplainTurnContext = {
       kind: 'station',
       id: 'sta_000000000001',
@@ -224,23 +224,17 @@ describe('AI data handling: API surfaces', () => {
           kind: 'station',
           id: 'sta_000000000001',
           siteId: 'sit_1',
+          label: 'CS-1',
           stationId: 'sta_000000000001',
+          ocppStationId: 'CS-1',
           sessionId: null,
           authorizeAttemptId: null,
           reservationId: null,
-          facts: { stationId: 'CS-1', statusReason: seededText() },
+          insightId: null,
         },
       },
     };
-    const block = await explainPromptBlock(context, 'en', {
-      collectEvidence: () =>
-        Promise.resolve({
-          facts: seededRecord(),
-          items: [{ id: 'error:1', kind: 'status_error', data: { at: '2026-10-10T00:00:00Z' } }],
-          untrusted: [{ id: 'error:1', source: 'station_status_info', text: seededText() }],
-        }),
-      latestInsight: () => Promise.resolve(null),
-    });
+    const block = explainPromptBlock(context);
     const system = buildSystemBlocks({
       surface: 'chatbot',
       language: 'en',
@@ -256,8 +250,9 @@ describe('AI data handling: API surfaces', () => {
       system,
     });
     expect(first).toContain('explain_context');
+    // The request body is JSON, so the framed reference appears escaped.
+    expect(first).toContain(String.raw`\"ocppStationId\":\"CS-1\"`);
     expect(findLeaks(first ?? '', 'support')).toEqual([]);
-    expect(first).toContain('j***@example.com');
   });
 
   it('TC-AI-AD-08 MCP: tool results returned to the client carry no secret (the chatbot redactor)', async () => {

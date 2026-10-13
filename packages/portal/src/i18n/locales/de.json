@@ -1,5 +1,6 @@
 {
   "common": {
+    "copied": "Kopiert",
     "loading": "Wird geladen...",
     "pageNotFound": "Seite nicht gefunden",
     "pageNotFoundDescription": "Die gesuchte Seite existiert nicht oder wurde verschoben.",
@@ -22,7 +23,8 @@
     "inclTax": "inkl. Steuer",
     "amountInclTax": "{{amount}} inkl. Steuer",
     "close": "Schließen",
-    "toggleSuggestions": "Vorschläge ein- oder ausblenden"
+    "toggleSuggestions": "Vorschläge ein- oder ausblenden",
+    "copyFailed": "Kopieren fehlgeschlagen"
   },
   "nav": {
     "home": "Startseite",
@@ -517,7 +519,7 @@
       "changeChoice": "Ändern",
       "dataNotice": {
         "title": "Was die KI erhält",
-        "body": "Die KI liest deine Anfrage sowie deine eigenen Ladevorgänge, Zahlungen, Reservierungen und die Stationen, die du genutzt hast. Gespeicherte Zugangsdaten wie Passwörter werden nie gesendet. Kartennummern und IBANs werden auf die letzten 4 Zeichen gekürzt. E-Mail-Adressen und Telefonnummern werden maskiert. IDs von Ladekarten und Tokens werden auf die letzten 4 Zeichen gekürzt."
+        "body": "Die KI liest deine Anfrage sowie deine eigenen Ladevorgänge, Zahlungen, Reservierungen und die Stationen, die du genutzt hast. Gespeicherte Zugangsdaten wie Passwörter werden nie gesendet. Kartennummern werden auf die letzten 4 Zeichen gekürzt. E-Mail-Adressen und Telefonnummern werden maskiert. IDs von Ladekarten und Tokens werden auf die letzten 4 Zeichen gekürzt."
       },
       "notice": {
         "v1": {
@@ -1142,11 +1144,5 @@
     "sessionLine": "{{fleet}}: {{state}}",
     "paymentMethodsNote": "Dein Laden wird über {{fleet}} abgerechnet. Zum Laden brauchst du keine Zahlungsmethode.",
     "noMethods": "Noch keine Zahlungsmethoden."
-  },
-  "ai": {
-    "dataNotice": {
-      "title": "Was der KI-Anbieter erhält",
-      "body": "Der KI-Anbieter erhält nie gespeicherte Zugangsdaten wie Passwörter, API-Schlüssel, Geheimnisse und Stationspasswörter. Kartennummern und IBANs werden auf ihre letzten 4 Zeichen gekürzt. Support-Entwürfe, automatische Analysen, Hintergrund-Worker und der Fahrer-Support maskieren außerdem E-Mail-Adressen und Telefonnummern und hashen oder kürzen die Token-IDs von Fahrern. Der Assistent sendet Kontaktdaten von Fahrern so, wie sie gespeichert sind, und nur für Benutzer, die sie lesen dürfen. Von dir eingegebener Text und angehängte Textdateien werden auf Schlüssel und Kartennummern geprüft. Von dir angehängte Bilder und PDFs werden unverändert gesendet."
-    }
   }
 }

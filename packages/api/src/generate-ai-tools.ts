@@ -124,6 +124,7 @@ const TAG_DESCRIPTIONS: Record<string, string> = {
   'Display Messages': 'Station display messages.',
   'Local Auth List': 'Station local authorization lists.',
   'Event Alert Rules': 'Event alert rules.',
+  Documentation: 'Search the EVtivity documentation.',
 };
 
 const METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;

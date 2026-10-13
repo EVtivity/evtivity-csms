@@ -162,7 +162,7 @@ async function renderLayout(
         : Promise.resolve(featuresFor(settings));
     }
     if (url === '/v1/portal/branding') return Promise.resolve(branding);
-    if (url === '/v1/support-cases/unread-count') return Promise.resolve({ count: 0 });
+    if (url === '/v1/support-cases/unassigned-count') return Promise.resolve({ count: 0 });
     return Promise.reject(new Error(`unexpected ${url}`));
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

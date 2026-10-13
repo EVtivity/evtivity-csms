@@ -35,7 +35,7 @@ interface Station {
 export function Sessions(): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
-  // The dashboard cost notice links here with ?siteId=<id>&costMissing=true.
+  // ?siteId=<id>&costMissing=true lists a site's sessions without an electricity cost.
   const [searchParams] = useSearchParams();
   const [filterSiteId, setFilterSiteId] = useState(() => searchParams.get('siteId') ?? '');
   const [filterStationId, setFilterStationId] = useState('');

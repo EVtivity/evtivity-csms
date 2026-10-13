@@ -31,7 +31,7 @@ RUN npm ci --ignore-scripts
 
 COPY tsconfig.base.json tsconfig.json ./
 COPY schemas/ schemas/
-COPY docs-index.json* ./
+COPY docs-index.json* docs-passages.json* ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
 COPY packages/payments/ packages/payments/

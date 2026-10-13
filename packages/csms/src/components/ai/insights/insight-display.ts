@@ -18,7 +18,7 @@ import {
   ZapOff,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import type { FixCode, InsightKind, InsightScopeCounts } from '@evtivity/lib/ai-insights';
+import type { InsightKind, InsightScopeCounts } from '@evtivity/lib/ai-insights';
 import type { AiInsightView } from './insight-api';
 import { isSummaryInsight } from './insight-api';
 
@@ -29,7 +29,7 @@ import { isSummaryInsight } from './insight-api';
  */
 
 /** Lower is more severe. A site incident outranks everything it groups. */
-export const INSIGHT_SEVERITY: Readonly<Record<InsightKind, number>> = {
+const INSIGHT_SEVERITY: Readonly<Record<InsightKind, number>> = {
   site_incident: 0,
   station_long_faulted: 1,
   station_faulted: 2,
@@ -48,7 +48,7 @@ export const INSIGHT_SEVERITY: Readonly<Record<InsightKind, number>> = {
   company_summary: 15,
 };
 
-export type InsightTone = 'destructive' | 'warning' | 'info' | 'muted';
+type InsightTone = 'destructive' | 'warning' | 'info' | 'muted';
 
 export const INSIGHT_ICONS: Readonly<Record<InsightKind, { icon: LucideIcon; tone: InsightTone }>> =
   {
@@ -69,42 +69,6 @@ export const INSIGHT_ICONS: Readonly<Record<InsightKind, { icon: LucideIcon; ton
     reservation_fee_failed: { icon: CreditCard, tone: 'warning' },
     reservation_station_faulted: { icon: AlertTriangle, tone: 'destructive' },
   };
-
-/** Station detail tabs a suggested fix leads to (`?tab=`). */
-const FIX_TABS: Readonly<Partial<Record<FixCode, string>>> = {
-  reboot_station: 'commands',
-  update_firmware: 'firmware-history',
-  review_station_configuration: 'configurations',
-  push_local_auth_list: 'local-auth',
-  review_tariff_assignment: 'pricing',
-};
-
-/**
- * Reservation detail tabs a suggested fix leads to: the commands tab to send
- * CancelReservation again, the details tab with the fee payments.
- */
-const RESERVATION_FIX_TABS: Readonly<Partial<Record<FixCode, string>>> = {
-  reservation_retry_cancel: 'commands',
-  reservation_review_fee_payment: 'details',
-};
-
-/**
- * The page a suggested fix is done on, when it maps to one: a station tab,
- * or a reservation tab for a reservation insight.
- */
-export function fixPath(
-  code: FixCode,
-  insight: Pick<AiInsightView, 'stationId' | 'reservationId'>,
-): string | null {
-  const reservationTab = RESERVATION_FIX_TABS[code];
-  if (reservationTab != null) {
-    if (insight.reservationId == null) return null;
-    return `/reservations/${encodeURIComponent(insight.reservationId)}?tab=${reservationTab}`;
-  }
-  const tab = FIX_TABS[code];
-  if (tab == null || insight.stationId == null) return null;
-  return `/stations/${encodeURIComponent(insight.stationId)}?tab=${tab}`;
-}
 
 /** The scope count that says how big an insight is, per kind (site scope). */
 const SIZE_KEYS: Readonly<Partial<Record<InsightKind, readonly (keyof InsightScopeCounts)[]>>> = {

@@ -21,6 +21,7 @@
     "seed:admin": "node --import=tsx/esm src/seed-admin.ts",
     "seed:driver": "node --import=tsx/esm src/seed-driver.ts",
     "seed:dev": "node --env-file-if-exists=../../.env --import=tsx/esm src/seed-dev-stations.ts",
+    "seed:ai-insights": "node --env-file-if-exists=../../.env --import=tsx/esm src/seed-ai-insights-run.ts",
     "studio": "node --import tsx ../../node_modules/drizzle-kit/bin.cjs studio",
     "test": "vitest run"
   },

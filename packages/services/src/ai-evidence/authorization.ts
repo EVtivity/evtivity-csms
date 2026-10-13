@@ -14,23 +14,8 @@
 import { client, toIsoOrNull } from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
 import type { EvidenceItem, EvidencePack } from './pack.js';
-import { keyedSubjectHash } from './subject-hash.js';
 
 export const AUTHORIZATION_ATTEMPT_LIMIT = 10;
-
-/**
- * The subject id of an authorization insight: the station and a keyed hash
- * of the token (HMAC-SHA256 with a server secret, so a short RFID UID cannot
- * be recovered from the id; the raw token value is never stored on an
- * insight).
- */
-export function authorizationSubjectId(
-  stationDbId: string,
-  idToken: string,
-  secret: string,
-): string {
-  return `${stationDbId}:${keyedSubjectHash(idToken, secret)}`;
-}
 
 export interface AuthorizationAttemptRow {
   id: number;

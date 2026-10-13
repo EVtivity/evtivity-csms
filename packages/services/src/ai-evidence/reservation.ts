@@ -25,7 +25,7 @@ import type { RawTimestamp } from '@evtivity/database';
 import { reservationAuditReason } from '@evtivity/lib/ai-insights';
 import type { EvidenceItem, EvidencePack, UntrustedEvidence } from './pack.js';
 import { untrustedString } from './pack.js';
-import { keyedSubjectHash } from './subject-hash.js';
+import { keyedSubjectHash } from '@evtivity/lib';
 import { loadStationEvidenceRows, buildStationEvidence } from './station.js';
 import type { StationEvidenceRows } from './station.js';
 

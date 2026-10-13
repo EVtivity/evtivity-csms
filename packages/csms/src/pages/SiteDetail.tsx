@@ -29,6 +29,8 @@ import { Pagination } from '@/components/ui/pagination';
 import { SessionsTable, type Session } from '@/components/SessionsTable';
 import { ReservationsTable } from '@/components/ReservationsTable';
 import { SiteDetailsTab } from '@/components/site/SiteDetailsTab';
+import { RecordInsight } from '@/components/ai/insights/RecordInsight';
+import { RecordInsightsTab } from '@/components/ai/insights/RecordInsightsTab';
 import { SiteAiCard } from '@/components/ai/usage/SiteAiCard';
 import { SiteMetricsTab } from '@/components/site/SiteMetricsTab';
 import { SiteQrCodesTab } from '@/components/site/SiteQrCodesTab';
@@ -99,9 +101,17 @@ export function SiteDetail(): React.JSX.Element {
   const canReadAiUsage = useHasPermission('aiUsage:read');
   const canWriteSites = useHasPermission('sites:write');
   const allSites = useHasAllSiteAccess();
+  const {
+    flags: { guestChargingEnabled, reservationEnabled, aiInsightsEnabled },
+  } = useFeatureFlags();
+  // AI Usage: the usage card with the site switch and budget. AI Insights: the site's insights.
+  const showSiteInsights = useHasPermission('aiInsights:read') && aiInsightsEnabled;
   const showAiTab = canReadAiUsage || (allSites && canWriteSites);
   // A ?tab=ai link opened by someone without the tab shows Details.
-  const shownTab = activeTab === 'ai' && !showAiTab ? 'details' : activeTab;
+  const shownTab =
+    (activeTab === 'ai' && !showAiTab) || (activeTab === 'ai-insights' && !showSiteInsights)
+      ? 'details'
+      : activeTab;
 
   const { data: site, isLoading } = useQuery({
     queryKey: ['sites', id],
@@ -116,10 +126,6 @@ export function SiteDetail(): React.JSX.Element {
     enabled: id != null && canReadMaintenance,
   });
   const underMaintenance = maintenanceStatus?.current != null;
-
-  const {
-    flags: { guestChargingEnabled, reservationEnabled },
-  } = useFeatureFlags();
 
   const stationsLimit = 10;
   const { data: stationsResponse } = useQuery({
@@ -210,6 +216,14 @@ export function SiteDetail(): React.JSX.Element {
         />
       )}
 
+      {showSiteInsights && id != null && (
+        <RecordInsight
+          filter={{ siteId: id }}
+          onOpen={() => {
+            setActiveTab('ai-insights');
+          }}
+        />
+      )}
       <Tabs value={shownTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="details">{t('common.details')}</TabsTrigger>
@@ -225,6 +239,9 @@ export function SiteDetail(): React.JSX.Element {
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
           )}
           {showAiTab && <TabsTrigger value="ai">{t('sites.tabs.ai')}</TabsTrigger>}
+          {showSiteInsights && (
+            <TabsTrigger value="ai-insights">{t('aiInsights.list.title')}</TabsTrigger>
+          )}
           <TabsTrigger value="free-vend">{t('sites.freeVend')}</TabsTrigger>
           {canReadMaintenance && (
             <TabsTrigger value="maintenance">{t('nav.maintenance')}</TabsTrigger>
@@ -405,6 +422,12 @@ export function SiteDetail(): React.JSX.Element {
         {showAiTab && (
           <TabsContent value="ai">
             <SiteAiCard siteId={id ?? ''} site={site} />
+          </TabsContent>
+        )}
+
+        {showSiteInsights && id != null && (
+          <TabsContent value="ai-insights">
+            <RecordInsightsTab filter={{ siteId: id }} />
           </TabsContent>
         )}
 

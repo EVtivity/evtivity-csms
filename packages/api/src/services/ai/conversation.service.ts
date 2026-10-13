@@ -269,6 +269,17 @@ export async function setTitleIfEmpty(conversationId: string, title: string): Pr
 export const HIDDEN_TOOL_RESULT =
   '{"status":"hidden","note":"Result hidden after an access change. Run the tool again if it is still needed."}';
 
+/** A tool result replaced by HIDDEN_TOOL_RESULT, its passages dropped. */
+function hiddenToolResult(part: AiToolResultPart): AiToolResultPart {
+  return {
+    type: 'tool_result',
+    toolCallId: part.toolCallId,
+    name: part.name,
+    content: HIDDEN_TOOL_RESULT,
+    isError: false,
+  };
+}
+
 /**
  * The rows with the tool results of every message produced under another
  * access fingerprint (sites plus effective permissions, `requestAccessScope`)
@@ -286,11 +297,7 @@ export function hideStaleToolResults(
     if (!parts.some((part) => part.type === 'tool_result')) return row;
     return {
       ...row,
-      parts: parts.map((part) =>
-        part.type === 'tool_result'
-          ? ({ ...part, content: HIDDEN_TOOL_RESULT, isError: false } satisfies AiToolResultPart)
-          : part,
-      ),
+      parts: parts.map((part) => (part.type === 'tool_result' ? hiddenToolResult(part) : part)),
     };
   });
 }
@@ -381,9 +388,7 @@ export async function replaceToolResult(
       if (part.toolCallId === toolCallId) {
         return { ...part, content, isError } satisfies AiToolResultPart;
       }
-      return sameAccess
-        ? part
-        : ({ ...part, content: HIDDEN_TOOL_RESULT, isError: false } satisfies AiToolResultPart);
+      return sameAccess ? part : hiddenToolResult(part);
     });
     await tx.update(aiMessages).set({ parts, accessScope }).where(eq(aiMessages.id, toolMessageId));
   });

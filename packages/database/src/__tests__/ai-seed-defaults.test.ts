@@ -66,8 +66,8 @@ describe('AI roadmap permission backfill matches the role defaults (TC-AI-C-12)'
     expect(roadmap(grants(viewerBlock))).toEqual(roadmap(permissionCatalog.defaultsFor('viewer')));
   });
 
-  it('TC-AI-IA-06 0473 removes the aiProposals permissions from users, roles and API keys', () => {
-    const removal = readFileSync(resolve(MIGRATIONS_DIR, '0473_ai_insight_actions.sql'), 'utf-8');
+  it('TC-AI-IA-06 the v0.1.45 migration removes the aiProposals permissions from users, roles and API keys', () => {
+    const removal = readFileSync(resolve(MIGRATIONS_DIR, '0474_release_0_1_45.sql'), 'utf-8');
     expect(removal).toContain(
       `DELETE FROM "user_permissions" WHERE "permission" IN ('aiProposals:read', 'aiProposals:write')`,
     );
@@ -106,7 +106,7 @@ describe('AI setting defaults (TC-AI-C-08)', () => {
         AI_INSIGHT_SETTING_KEYS.reservationEnabled,
       ]),
     );
-    const sql = readFileSync(resolve(MIGRATIONS_DIR, '0469_seed_driver_ai_settings.sql'), 'utf-8');
+    const sql = readFileSync(resolve(MIGRATIONS_DIR, '0474_release_0_1_45.sql'), 'utf-8');
     for (const key of [
       ...Object.values(DRIVER_AI_SETTING_KEYS),
       AI_INSIGHT_SETTING_KEYS.reservationEnabled,

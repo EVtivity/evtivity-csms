@@ -615,3 +615,84 @@ describe('AI turn runner', () => {
     expect(r.ran).toEqual(['get_station']);
   });
 });
+
+describe('AI turn runner: documentation citations (TC-AI-M-06)', () => {
+  const PASSAGE = {
+    id: '7',
+    title: 'Settings - Company',
+    url: 'https://evtivity.com/docs/csms/settings#company',
+    text: 'Open Settings and select Company.',
+  };
+
+  it('emits a citation only for a passage this turn returned, and stores it with the text', async () => {
+    const adapter = createScriptedAdapter([
+      {
+        events: [
+          ...call('c1', 'get_station'),
+          { type: 'usage', usage: usage(10, 2) },
+          { type: 'finish', reason: 'tool_use' },
+        ],
+      },
+      {
+        events: [
+          { type: 'text_delta', text: 'Open Settings.' },
+          { type: 'citation', citation: { passageId: '7' } },
+          { type: 'citation', citation: { passageId: '7' } },
+          // Not returned this turn: dropped, never a link.
+          { type: 'citation', citation: { passageId: '99' } },
+          { type: 'usage', usage: usage(10, 2) },
+          { type: 'finish', reason: 'end' },
+        ],
+      },
+    ]);
+    const r = recorder({ searchResults: [PASSAGE] });
+    await runTurn(baseInput(adapter, r));
+    const citations = r.events.filter((e) => e.type === 'citation');
+    expect(citations).toEqual([
+      { type: 'citation', id: '7', title: PASSAGE.title, url: PASSAGE.url },
+    ]);
+    for (const e of citations) expect(aiStreamEventSchema.safeParse(e).success).toBe(true);
+    expect(r.toolMessages[0]?.[0]?.searchResults).toEqual([PASSAGE]);
+    expect(r.assistant[1]?.parts).toEqual([
+      {
+        type: 'text',
+        text: 'Open Settings.',
+        citations: [{ id: '7', title: PASSAGE.title, url: PASSAGE.url }],
+      },
+    ]);
+  });
+
+  it('drops a citation whose passage URL is not an allowlisted docs URL', async () => {
+    const adapter = createScriptedAdapter([
+      {
+        events: [...call('c1', 'get_station'), { type: 'finish', reason: 'tool_use' }],
+      },
+      {
+        events: [
+          { type: 'text_delta', text: 'See there.' },
+          { type: 'citation', citation: { passageId: '7' } },
+          { type: 'finish', reason: 'end' },
+        ],
+      },
+    ]);
+    const r = recorder({ searchResults: [{ ...PASSAGE, url: 'https://example.com/docs/x' }] });
+    await runTurn(baseInput(adapter, r));
+    expect(r.events.filter((e) => e.type === 'citation')).toEqual([]);
+    expect(r.assistant[1]?.parts).toEqual([{ type: 'text', text: 'See there.' }]);
+  });
+
+  it('drops a citation when no docs_search result came back in the turn', async () => {
+    const adapter = createScriptedAdapter([
+      {
+        events: [
+          { type: 'text_delta', text: 'Answer.' },
+          { type: 'citation', citation: { passageId: '7' } },
+          { type: 'finish', reason: 'end' },
+        ],
+      },
+    ]);
+    const r = recorder();
+    await runTurn(baseInput(adapter, r));
+    expect(r.events.some((e) => e.type === 'citation')).toBe(false);
+  });
+});

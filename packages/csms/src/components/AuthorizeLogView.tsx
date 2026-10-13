@@ -262,6 +262,7 @@ export function AuthorizeLogView({
                         {row.outcome !== 'accepted' && (
                           <AuthorizeInsightCell
                             attemptId={row.id}
+                            stationOcppId={row.stationOcppId}
                             insight={insightsByAttempt.get(row.id)}
                           />
                         )}

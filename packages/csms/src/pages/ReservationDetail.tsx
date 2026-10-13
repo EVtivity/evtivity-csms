@@ -20,6 +20,7 @@ import { ReservationCommandsTab } from '@/components/reservation/ReservationComm
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { ExplainButton } from '@/components/ai/ExplainButton';
 import { RecordInsight } from '@/components/ai/insights/RecordInsight';
+import { RecordInsightsTab } from '@/components/ai/insights/RecordInsightsTab';
 import { useInsights } from '@/components/ai/insights/insight-api';
 import { useTab } from '@/hooks/use-tab';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
@@ -103,6 +104,8 @@ export function ReservationDetail(): React.JSX.Element {
   // Reservation insights and Explain exist only while reservations are on (owner rule v0.1.45).
   const { flags, isLoaded: flagsLoaded } = useFeatureFlags();
   const aiOn = id != null && flagsLoaded && flags.reservationEnabled;
+  const canReadInsights = useHasPermission('aiInsights:read');
+  const showInsightsTab = aiOn && canReadInsights && flags.aiInsightsEnabled;
   const { insights } = useInsights({ reservationId: id ?? '' }, aiOn);
 
   if (isLoading) {
@@ -141,7 +144,14 @@ export function ReservationDetail(): React.JSX.Element {
         <EntityNavButtons resource="reservations" basePath="/reservations" currentId={id} />
       </div>
 
-      {aiOn && <RecordInsight filter={{ reservationId: id }} context={explainContext} />}
+      {showInsightsTab && (
+        <RecordInsight
+          filter={{ reservationId: id }}
+          onOpen={() => {
+            setTab('ai-insights');
+          }}
+        />
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList>
@@ -151,6 +161,9 @@ export function ReservationDetail(): React.JSX.Element {
             <TabsTrigger value="history">{t('reservations.historyTab')}</TabsTrigger>
           )}
           <TabsTrigger value="commands">{t('reservations.commands')}</TabsTrigger>
+          {showInsightsTab && (
+            <TabsTrigger value="ai-insights">{t('aiInsights.list.title')}</TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="details" className="space-y-6">
@@ -171,6 +184,11 @@ export function ReservationDetail(): React.JSX.Element {
           </TabsContent>
         )}
 
+        {showInsightsTab && (
+          <TabsContent value="ai-insights">
+            <RecordInsightsTab filter={{ reservationId: id }} />
+          </TabsContent>
+        )}
         <TabsContent value="history">
           <EntityHistoryTab entityType="reservation" entityId={id ?? ''} />
         </TabsContent>

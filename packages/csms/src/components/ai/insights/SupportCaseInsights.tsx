@@ -5,23 +5,13 @@ import { useCanExplain, useOpenExplain } from '../ExplainButton';
 import type { AiPanelContext } from '../use-ai-panel-store';
 import { InsightCard } from './InsightCard';
 import type { AiInsightView } from './insight-api';
-import { RECENT_INSIGHT_MS, useInsights } from './insight-api';
+import { isShownInsight, useInsights } from './insight-api';
 
 const SHOWN = 3;
 
-function followUpContext(insight: AiInsightView): AiPanelContext | null {
-  if (insight.sessionId != null) return { kind: 'session', id: insight.sessionId };
-  if (insight.stationId != null) return { kind: 'station', id: insight.stationId };
-  return null;
-}
-
-function isShown(insight: AiInsightView, now: number): boolean {
-  if (insight.status === 'active' || insight.status === 'pending') return true;
-  return (
-    insight.status === 'resolved' &&
-    insight.resolvedAt != null &&
-    now - Date.parse(insight.resolvedAt) <= RECENT_INSIGHT_MS
-  );
+/** "Ask a follow-up" opens the assistant about the insight itself ("Insight ain_..."). */
+function followUpContext(insight: AiInsightView): AiPanelContext {
+  return { kind: 'insight', id: insight.id, label: insight.id };
 }
 
 /**
@@ -34,7 +24,7 @@ export function SupportCaseInsights({ caseId }: { caseId: string }): React.JSX.E
   const canExplain = useCanExplain();
   const open = useOpenExplain();
   const now = Date.now();
-  const shown = insights.filter((i) => isShown(i, now)).slice(0, SHOWN);
+  const shown = insights.filter((i) => isShownInsight(i, now)).slice(0, SHOWN);
   if (shown.length === 0) return null;
   return (
     <div className="space-y-3" data-testid="ai-support-insights">
@@ -45,7 +35,7 @@ export function SupportCaseInsights({ caseId }: { caseId: string }): React.JSX.E
             key={insight.id}
             insight={insight}
             onFollowUp={
-              canExplain && context != null
+              canExplain
                 ? () => {
                     open(context);
                   }

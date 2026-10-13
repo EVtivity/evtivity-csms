@@ -23,6 +23,7 @@ import {
   resolveAttachment,
   textDocumentBlock,
 } from '../shared.js';
+import { toolResultText } from '../citations.js';
 
 /** `providerState.opaque` of a DeepSeek turn: its `reasoning_content`, sent back in tool rounds. */
 export interface DeepSeekOpaqueState {
@@ -132,7 +133,7 @@ async function chatMessages(req: AiRequest, system: string): Promise<ChatComplet
     }
     for (const part of message.parts) {
       if (part.type === 'tool_result') {
-        out.push({ role: 'tool', tool_call_id: part.toolCallId, content: part.content });
+        out.push({ role: 'tool', tool_call_id: part.toolCallId, content: toolResultText(part) });
       }
     }
     const content = await userContent(req, message.parts);

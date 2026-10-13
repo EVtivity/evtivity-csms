@@ -41,10 +41,12 @@ function wrap(ui: React.ReactNode): QueryClient {
   return client;
 }
 
-function serveCounts(unread: number, pending = 0): void {
+function serveCounts(unassigned: number, pending = 0): void {
   apiMock.get.mockImplementation((url: string) =>
     Promise.resolve(
-      url === '/v1/support-cases/unread-count' ? { count: unread } : { data: [], total: pending },
+      url === '/v1/support-cases/unassigned-count'
+        ? { count: unassigned }
+        : { data: [], total: pending },
     ),
   );
 }
@@ -61,15 +63,17 @@ afterEach(() => {
 });
 
 describe('Support Cases nav badge', () => {
-  it('shows the unread case count in the AI Insights badge style', async () => {
+  it('shows the unassigned case count in the AI Insights badge style', async () => {
     serveCounts(3, 4);
     wrap(<SidebarNav items={[SUPPORT, INSIGHTS]} collapsed={false} />);
     const badge = await screen.findByTestId('support-cases-badge');
     expect(badge.textContent).toBe('3');
-    expect(badge.getAttribute('aria-label')).toBe('nav.unreadCasesCount(3)');
+    expect(badge.getAttribute('aria-label')).toBe('nav.unassignedCasesCount(3)');
     const insights = await screen.findByTestId('ai-insights-badge');
     expect(badge.className).toBe(insights.className);
-    expect(apiMock.get).toHaveBeenCalledWith('/v1/support-cases/unread-count');
+    expect(apiMock.get).toHaveBeenCalledWith('/v1/support-cases/unassigned-count');
+    // The badge no longer counts unread cases assigned to the user.
+    expect(apiMock.get).not.toHaveBeenCalledWith('/v1/support-cases/unread-count');
   });
 
   it('caps the pill at 99+', async () => {
@@ -83,10 +87,10 @@ describe('Support Cases nav badge', () => {
     wrap(<SidebarNav items={[SUPPORT]} collapsed />);
     const dot = await screen.findByTestId('support-cases-badge');
     expect(dot.textContent).toBe('');
-    expect(dot.getAttribute('aria-label')).toBe('nav.unreadCasesCount(2)');
+    expect(dot.getAttribute('aria-label')).toBe('nav.unassignedCasesCount(2)');
   });
 
-  it('shows no badge with nothing unread', async () => {
+  it('shows no badge with nothing unassigned', async () => {
     serveCounts(0);
     wrap(<SidebarNav items={[SUPPORT]} collapsed={false} />);
     await waitFor(() => {
@@ -112,7 +116,7 @@ describe('Support Cases nav badge', () => {
     const badge = await screen.findByTestId('ai-insights-badge');
     expect(badge.textContent).toBe('4');
     expect(badge.getAttribute('aria-label')).toBe('aiInsights.action.pendingCount(4)');
-    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights?action=pending&limit=1');
+    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights?status=pending&limit=1');
   });
 
   it('asks for no pending action count without aiInsights:read', async () => {
@@ -122,7 +126,7 @@ describe('Support Cases nav badge', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(apiMock.get).not.toHaveBeenCalledWith('/v1/ai/insights?action=pending&limit=1');
+    expect(apiMock.get).not.toHaveBeenCalledWith('/v1/ai/insights?status=pending&limit=1');
     expect(screen.queryByTestId('ai-insights-badge')).toBeNull();
   });
 

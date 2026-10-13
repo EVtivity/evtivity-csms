@@ -4,7 +4,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle } from 'lucide-react';
 import {
   AI_LIMIT_SETTINGS,
   AI_PROVIDER_IDS,
@@ -14,7 +13,6 @@ import {
 } from '@evtivity/lib/ai-config';
 import type { AiLimitSettingKey } from '@evtivity/lib/ai-config';
 import { SaveButton } from '@/components/save-button';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -270,10 +268,6 @@ function AiProvidersCard({ settings, canWrite }: CardProps): React.JSX.Element {
         <p className="text-sm text-muted-foreground">{t('settings.aiProvidersDescription')}</p>
       </CardHeader>
       <CardContent className="space-y-6">
-        <Alert variant="warning">
-          <AlertTriangle className="h-4 w-4" />
-          <AlertDescription>{t('settings.aiDataLeavesWarning')}</AlertDescription>
-        </Alert>
         {AI_PROVIDER_IDS.map((p) => {
           const keyKey = aiProviderApiKeySettingKey(p);
           const urlKey = aiProviderBaseUrlSettingKey(p);

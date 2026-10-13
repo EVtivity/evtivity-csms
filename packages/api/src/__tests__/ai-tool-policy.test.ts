@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { DOCS_SEARCH_OPERATION_ID } from '../services/ai/docs/docs-search.js';
 import { describe, expect, it } from 'vitest';
 import { AI_OPERATIONS, AI_TOOL_CATALOG } from '../services/ai/tools/catalog.js';
 import type { AiCatalogTool } from '../services/ai/tools/catalog-types.js';
@@ -78,8 +79,11 @@ describe('AI tool policy and catalog', () => {
   it('TC-AI-T-10 the support surface has reads only, every one pinned to the case', () => {
     const toolset = supportToolset(SUPPORT_CASE);
     expect(toolset.byName.size).toBeGreaterThan(5);
+    // The documentation search reads public docs only, so it needs no pin.
+    expect(toolset.byName.get('docs_search')?.tool.operationId).toBe(DOCS_SEARCH_OPERATION_ID);
     for (const e of toolset.byName.values()) {
       expect(e.tool.method).toBe('GET');
+      if (e.tool.operationId === DOCS_SEARCH_OPERATION_ID) continue;
       const pinned = Object.keys(e.fixedArgs).length + Object.keys(e.allowedValues).length;
       expect(pinned).toBeGreaterThan(0);
     }
@@ -95,7 +99,7 @@ describe('AI tool policy and catalog', () => {
       driverId: null,
       sessionIds: [],
     });
-    expect([...toolset.byName.keys()]).toEqual(['get_support_case']);
+    expect([...toolset.byName.keys()]).toEqual(['docs_search', 'get_support_case']);
   });
 
   it('TC-AI-R-01 no exposed tool has a secret-shaped argument or response field', () => {

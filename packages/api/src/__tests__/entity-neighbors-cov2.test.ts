@@ -113,6 +113,7 @@ vi.mock('@evtivity/database', () => {
       ...fakeTable('ai_insights'),
       siteId: { name: 'insight_site_id' },
       kind: { name: 'insight_kind' },
+      status: { name: 'insight_status' },
     },
     isReservationEnabled: vi.fn(() => Promise.resolve(state.reservationEnabled)),
   };
@@ -141,6 +142,9 @@ import {
   reservations,
   sites,
 } from '@evtivity/database';
+import { INSIGHT_VISIBLE_STATUSES } from '@evtivity/lib/ai-insights';
+
+const visibleStatuses = { inArray: [aiInsights.status, [...INSIGHT_VISIBLE_STATUSES]] };
 
 describe('entity neighbor site scoping (cov2)', () => {
   let app: FastifyInstance;
@@ -195,10 +199,23 @@ describe('entity neighbor site scoping (cov2)', () => {
     const [col, kinds] = notInArrayMock.mock.calls.at(-1) ?? [];
     expect(col).toBe(aiInsights.kind);
     expect(kinds).toContain('reservation_no_show');
-    // The gate filters the siblings.
+    // The gate filters the siblings, with the visible statuses.
     const gate = { notInArray: [aiInsights.kind, kinds] };
-    expect(mainWheres()[1]?.and[1]).toEqual({ and: [undefined, gate] });
-    expect(mainWheres()[2]?.and[1]).toEqual({ and: [undefined, gate] });
+    const siblings = { and: [{ and: [undefined, gate] }, visibleStatuses] };
+    expect(mainWheres()[1]?.and[1]).toEqual(siblings);
+    expect(mainWheres()[2]?.and[1]).toEqual(siblings);
+  });
+
+  it('skips internal statuses when paging insights, but finds the current row in any status', async () => {
+    setupDbResults([{ id: 'ins_analyzing' }], [{ id: 'ins_0' }], [{ id: 'ins_2' }]);
+    const res = await get('/ai/insights/ins_analyzing/neighbors');
+    expect(res.statusCode).toBe(200);
+    const scope = { inArray: [aiInsights.siteId, ['sit_a', 'sit_b']] };
+    // The current row: the site scope only.
+    expect(currentScope()).toEqual(scope);
+    // Prev and next: the scope and the visible statuses.
+    expect(mainWheres()[1]?.and[1]).toEqual({ and: [scope, visibleStatuses] });
+    expect(mainWheres()[2]?.and[1]).toEqual({ and: [scope, visibleStatuses] });
   });
 
   it('answers 404 for a reservation insight while reservations are off, like the detail route', async () => {

@@ -1027,6 +1027,7 @@ export const aiInsightAuditActionEnum = pgEnum('ai_insight_audit_action', [
   'feedback_helpful',
   'feedback_wrong',
   'feedback_cleared',
+  'rejected',
 ]);
 
 export const aiInsightAuditLog = pgTable(

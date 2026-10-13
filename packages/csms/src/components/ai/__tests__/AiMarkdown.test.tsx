@@ -82,6 +82,6 @@ describe('AiMarkdown', () => {
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith('{"a": 1}');
     });
-    expect(await screen.findByRole('button', { name: 'ai.copied' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'common.copied' })).toBeTruthy();
   });
 });

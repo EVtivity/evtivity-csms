@@ -1,14 +1,14 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Check, CircleAlert, Copy, FileText, ImageIcon, Square } from 'lucide-react';
+import { CircleAlert, FileText, ImageIcon, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy-button';
 import { formatNumber } from '@/lib/formatting';
 import { cn } from '@/lib/utils';
 import { aiErrorText } from './ai-error-text';
-import { AiMarkdown } from './AiMarkdown';
+import { AiLink, AiMarkdown } from './AiMarkdown';
 import { ConfirmActionCard } from './ConfirmActionCard';
 import { ToolSteps } from './ToolSteps';
 import type { AiMessageView } from './ai-turn';
@@ -23,38 +23,6 @@ function openAttachment(id: string): void {
     (err: unknown) => {
       console.warn('Open an AI attachment failed', err);
     },
-  );
-}
-
-function CopyButton({ text }: { text: string }): React.JSX.Element {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      aria-label={copied ? t('ai.copied') : t('common.copy')}
-      onClick={() => {
-        navigator.clipboard.writeText(text).then(
-          () => {
-            setCopied(true);
-            setTimeout(() => {
-              setCopied(false);
-            }, 2000);
-          },
-          (err: unknown) => {
-            console.warn('Copy the AI message failed', err);
-          },
-        );
-      }}
-    >
-      {copied ? (
-        <Check className="h-3 w-3 text-success" />
-      ) : (
-        <Copy className="h-3 w-3 text-muted-foreground" />
-      )}
-    </Button>
   );
 }
 
@@ -146,21 +114,16 @@ export function MessageBubble({
         )}
         {message.citations.length > 0 && (
           <div className="space-y-0.5 text-xs">
-            <p className="flex items-center gap-1 font-medium text-muted-foreground">
-              <BookOpen className="h-3 w-3" aria-hidden="true" />
+            <p id={`ai-sources-${message.key}`} className="font-medium text-muted-foreground">
               {t('ai.citations')}
             </p>
-            <ol className="list-decimal space-y-0.5 pl-5">
+            <ol
+              aria-labelledby={`ai-sources-${message.key}`}
+              className="list-decimal space-y-0.5 pl-5"
+            >
               {message.citations.map((c) => (
                 <li key={c.id}>
-                  <a
-                    href={c.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-link underline hover:text-link/80"
-                  >
-                    {c.title}
-                  </a>
+                  <AiLink href={c.url}>{c.title}</AiLink>
                 </li>
               ))}
             </ol>
@@ -190,7 +153,7 @@ export function MessageBubble({
               isUser ? 'justify-end' : 'justify-start',
             )}
           >
-            {message.text !== '' && <CopyButton text={message.text} />}
+            {message.text !== '' && <CopyButton value={message.text} variant="ghost" />}
             {totalTokens != null && (
               <span data-testid="ai-usage">
                 {t('ai.tokens', { formatted: formatNumber(totalTokens, 0) })}

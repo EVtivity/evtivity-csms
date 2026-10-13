@@ -3,10 +3,10 @@
 
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Ban, Check, ShieldAlert } from 'lucide-react';
+import { ShieldAlert } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
+import { ConfirmButton } from '@/components/confirm-button';
+import { RejectButton } from '@/components/reject-button';
 import type { AiConfirmationView } from './ai-turn';
 import { confirmSummary } from './confirm-summary';
 
@@ -129,24 +129,20 @@ export function ConfirmActionCard({
       )}
       {!decided && !expired && (
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <Button
-            type="button"
+          <RejectButton
+            label={t('ai.reject')}
             size="sm"
-            variant="outline"
             disabled={!canDecide || busy}
+            pending={state === 'rejecting'}
             onClick={onReject}
-          >
-            {state === 'rejecting' ? <Spinner className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
-            <span className="ml-1">{t('ai.reject')}</span>
-          </Button>
-          <Button type="button" size="sm" disabled={!canDecide || busy} onClick={onConfirm}>
-            {state === 'confirming' ? (
-              <Spinner className="h-4 w-4" />
-            ) : (
-              <Check className="h-4 w-4" />
-            )}
-            <span className="ml-1">{t('ai.confirm')}</span>
-          </Button>
+          />
+          <ConfirmButton
+            label={t('ai.confirm')}
+            size="sm"
+            disabled={!canDecide || busy}
+            pending={state === 'confirming'}
+            onClick={onConfirm}
+          />
         </div>
       )}
       {!decided && expired && (

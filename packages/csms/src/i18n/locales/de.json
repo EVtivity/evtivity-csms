@@ -96,7 +96,8 @@
     "na": "n/a",
     "startDate": "Startdatum",
     "endDate": "Enddatum",
-    "dateRange": "Zeitraum"
+    "dateRange": "Zeitraum",
+    "copyFailed": "Kopieren fehlgeschlagen"
   },
   "status": {
     "online": "Online",
@@ -158,8 +159,8 @@
     "smartCharging": "Smart Charging",
     "configTemplates": "Konfigurationsvorlagen",
     "supportCases": "Supportfälle",
-    "unreadCasesCount_one": "{{count}} ungelesener Supportfall",
-    "unreadCasesCount_other": "{{count}} ungelesene Supportfälle",
+    "unassignedCasesCount_one": "{{count}} nicht zugewiesener Supportfall",
+    "unassignedCasesCount_other": "{{count}} nicht zugewiesene Supportfälle",
     "settings": "Einstellungen",
     "profile": "Profil",
     "language": "Sprache",
@@ -451,14 +452,7 @@
     "todayTaxCollected": "Heute vereinnahmte Steuer",
     "showPage": "Seite {{page}} von {{total}} anzeigen",
     "billedOnAccount": "Auf Flottenrechnung",
-    "billedOnAccountSessions": "Offene Ladevorgänge auf Rechnung",
-    "costMissingNotice": "Ladevorgänge ohne Stromkosten sind nicht im Gewinn enthalten: {{count}} ({{revenue}} Umsatz).",
-    "costMissingTitle": "Stromkosten fehlen",
-    "costMissingNoRates": "Stromtarife festlegen für: {{site}}",
-    "costMissingSessions_one": "{{count}} Ladevorgang bei {{site}} hat keine Stromkosten",
-    "costMissingSessions_other": "{{count}} Ladevorgänge bei {{site}} haben keine Stromkosten",
-    "costMissingMoreSites_one": "{{count}} weiterer Standort",
-    "costMissingMoreSites_other": "{{count}} weitere Standorte"
+    "billedOnAccountSessions": "Offene Ladevorgänge auf Rechnung"
   },
   "sites": {
     "title": "Standorte",
@@ -586,7 +580,7 @@
     "electricityCostRecalculateMore_one": "{{count}} Ladevorgang hat noch keine Stromkosten. Berechnen Sie erneut, um fortzufahren.",
     "electricityCostRecalculateMore_other": "{{count}} Ladevorgänge haben noch keine Stromkosten. Berechnen Sie erneut, um fortzufahren.",
     "tabs": {
-      "ai": "KI"
+      "ai": "KI-Nutzung"
     }
   },
   "stations": {
@@ -2179,7 +2173,6 @@
     "ssoAttrFirstName": "Vorname-Attribut",
     "ssoAttrLastName": "Nachname-Attribut",
     "ssoCertSet": "Zertifikat konfiguriert",
-    "ssoCopied": "Kopiert",
     "ssoSaved": "SSO-Einstellungen gespeichert.",
     "ssoSaveFailed": "SSO-Einstellungen konnten nicht gespeichert werden.",
     "marketing": "Marketing",
@@ -2352,7 +2345,6 @@
     "apiKeyCustomDays": "Benutzerdefiniert (Tage)",
     "apiKeyCreated": "API-Schlüssel erstellt",
     "apiKeyCreatedDescription": "Kopieren Sie den Schlüssel jetzt. Sie werden ihn nicht erneut sehen.",
-    "apiKeyCopied": "In die Zwischenablage kopiert",
     "apiKeyRevoke": "Widerrufen",
     "apiKeyRevokeConfirm": "Möchten Sie diesen API-Schlüssel wirklich widerrufen? Alle Integrationen, die ihn verwenden, funktionieren nicht mehr.",
     "apiKeyRevoked": "API-Schlüssel widerrufen",
@@ -2469,7 +2461,6 @@
     "emailLayoutPreviewFrame": "Vorschau des E-Mail-Layouts",
     "aiProvidersTitle": "KI-Anbieter",
     "aiProvidersDescription": "Ein API-Schlüssel pro Anbieter. Der KI-Assistent und die Support-KI wählen unten jeweils einen Anbieter.",
-    "aiDataLeavesWarning": "Nachrichten, Werkzeugergebnisse und Anhänge werden an den gewählten Anbieter gesendet und verlassen diese Installation. Prüfen Sie die Aufbewahrungsbedingungen des Anbieters.",
     "aiApiKey": "API-Schlüssel",
     "aiBaseUrl": "Basis-URL (optional)",
     "aiBaseUrlHint": "Leer lassen für den offiziellen Endpunkt. Es muss eine https-URL auf einem öffentlichen Host sein.",
@@ -2543,7 +2534,6 @@
     },
     "aiLimitRange": "Von {{min}} bis {{max}}.",
     "aiLimitZeroNoBudget": "0 bedeutet kein Tageslimit.",
-    "aiOpsDataWarning": "Wenn dies eingeschaltet ist, werden Betriebsdaten automatisch und ohne Benutzeraktion an den konfigurierten Anbieter gesendet.",
     "aiInsightsSettings": {
       "title": "Automatische Analysen",
       "station": "Stationsanalysen",
@@ -2616,7 +2606,6 @@
       "driverPerMinute": "KI-Anfragen pro Fahrer und Minute",
       "overLimitHelp": "Anfragen über einem Limit gehen direkt an das Support-Team."
     },
-    "aiDriverDataWarning": "Wenn dies aktiv ist und ein Fahrer zustimmt, werden der Anfragetext und die eigenen Sitzungen, Zahlungen, Reservierungen, genutzten Stationen und Tokens (letzte 4 Zeichen) des Fahrers an den konfigurierten Anbieter gesendet.",
     "aiAdvancedOptions": "Erweiterte Optionen",
     "aiPromptCustomSummary": "Eigener Systemprompt",
     "aiPromptDefaultSummary": "Integrierter Systemprompt",
@@ -3914,8 +3903,8 @@
       "unlockAt": "{{target}} der Station {{station}} entriegeln",
       "start": "Laden an Station {{station}} starten",
       "startAt": "Laden an {{target}} der Station {{station}} starten",
-      "stop": "Transaktion {{transaction}} an Station {{station}} stoppen",
-      "stopAny": "Transaktion an Station {{station}} stoppen",
+      "stop": "Den Ladevorgang an Station {{station}} beenden (OCPP-Transaktion {{transaction}})",
+      "stopAny": "Den Ladevorgang an Station {{station}} beenden",
       "chargingProfile": "Ladeprofil an Station {{station}} setzen",
       "chargingProfileAt": "Ladeprofil an {{target}} der Station {{station}} setzen",
       "ocppCommand": "{{command}} an Station {{station}} senden",
@@ -3940,10 +3929,9 @@
     "rejected": "Verworfen",
     "expired": "Abgelaufen",
     "expiredHint": "Dieser Vorschlag ist abgelaufen. Fragen Sie den Assistenten erneut.",
-    "citations": "Dokumentation",
+    "citations": "Quellen",
     "code": "Code",
     "copyCode": "Code kopieren",
-    "copied": "Kopiert",
     "image": "Bild",
     "imageBlocked": "Bilder in KI-Antworten werden nicht geladen",
     "tokens": "{{formatted}} Tokens",
@@ -4022,23 +4010,20 @@
       "session": "Warum ist diese Sitzung fehlgeschlagen, und was sollte ich tun?",
       "authorization": "Warum wurde diese Autorisierung abgelehnt, und was sollte ich tun?",
       "followUp": "Nachfrage stellen",
-      "about": "Zu {{record}} {{label}}",
       "kind": {
         "station": "Station",
         "session": "Ladevorgang",
         "authorization": "Autorisierung",
-        "reservation": "Reservierung"
+        "reservation": "Reservierung",
+        "insight": "Analyse"
       },
       "reservation": "Warum ist diese Reservierung fehlgeschlagen, und was sollte ich tun?",
-      "aboutRecord": "Zu diesem Datensatz: {{record}}",
-      "contextLabel": "Kontext der Erklärung",
-      "latestInsight": "Neueste automatische Analyse",
-      "viewInsight": "Analyse anzeigen",
-      "shared": "Der Assistent liest die wichtigsten Fakten, die letzten Ereignisse und die neueste Analyse dieses Datensatzes. Erst Ihre Frage wird gesendet."
+      "insight": "Was bedeutet diese Analyse, und was sollte ich tun?",
+      "contextLabel": "Kontext der Erklärung"
     },
     "dataNotice": {
       "title": "Was der KI-Anbieter erhält",
-      "body": "Der KI-Anbieter erhält nie gespeicherte Zugangsdaten wie Passwörter, API-Schlüssel, Geheimnisse und Stationspasswörter. Kartennummern und IBANs werden auf ihre letzten 4 Zeichen gekürzt. Support-Entwürfe, automatische Analysen, Hintergrund-Worker und der Fahrer-Support maskieren außerdem E-Mail-Adressen und Telefonnummern und hashen oder kürzen die Token-IDs von Fahrern. Der Assistent sendet Kontaktdaten von Fahrern so, wie sie gespeichert sind, und nur für Benutzer, die sie lesen dürfen. Von Ihnen eingegebener Text und angehängte Textdateien werden auf Schlüssel und Kartennummern geprüft. Von Ihnen angehängte Bilder und PDFs werden unverändert gesendet."
+      "body": "Nachrichten, Werkzeugergebnisse und Anhänge werden an den gewählten KI-Anbieter gesendet. Prüfen Sie die Aufbewahrungsbedingungen des Anbieters. Der KI-Anbieter erhält nie gespeicherte Zugangsdaten wie Passwörter, API-Schlüssel, Geheimnisse und Stationspasswörter. Kartennummern werden auf ihre letzten 4 Zeichen gekürzt. Support-Entwürfe, automatische Analysen, Hintergrund-Worker und der Fahrer-Support maskieren außerdem E-Mail-Adressen und Telefonnummern und hashen oder kürzen die Token-IDs von Fahrern. Der Assistent sendet Kontaktdaten von Fahrern so, wie sie gespeichert sind, und nur für Benutzer, die sie lesen dürfen. Von Ihnen eingegebener Text und angehängte Textdateien werden auf Schlüssel und Kartennummern geprüft. Von Ihnen angehängte Bilder und PDFs werden unverändert gesendet."
     }
   },
   "sustainability": {
@@ -4663,13 +4648,12 @@
     "knownCause": "Bekannte Ursache",
     "categoryLabel": "Ursache",
     "confidenceLabel": "Sicherheit",
-    "fixesLabel": "Vorgeschlagene Maßnahmen",
+    "fixesLabel": "Vorgeschlagene Lösung",
     "regenerate": "Neu erstellen",
     "dismiss": "Verwerfen",
     "helpful": "Hilfreich",
     "wrong": "Falsch",
     "badge": {
-      "resolved": "Behoben",
       "outOfDate": "Veraltet"
     },
     "category": {
@@ -4691,14 +4675,16 @@
       "high": "Hoch"
     },
     "status": {
-      "pending": "Wird analysiert",
-      "active": "Aktiv",
+      "open": "Offen",
+      "pending": "Ausstehend",
+      "done": "Erledigt",
+      "rejected": "Abgelehnt",
       "resolved": "Behoben",
-      "superseded": "Ersetzt",
-      "skipped": "Übersprungen",
-      "failed": "Fehlgeschlagen",
-      "dismissed": "Verworfen"
+      "dismissed": "Verworfen",
+      "expired": "Abgelaufen"
     },
+    "analyzing": "Wird analysiert",
+    "skipped": "Übersprungen",
     "kind": {
       "station_offline": "Station offline",
       "station_faulted": "Station gestört",
@@ -4819,7 +4805,9 @@
       "feedback": "Bewertung",
       "allFeedback": "Alle Bewertungen",
       "feedbackWrong": "Als falsch markiert",
-      "feedbackHelpful": "Als hilfreich markiert"
+      "feedbackHelpful": "Als hilfreich markiert",
+      "rootCauseNotApplicable": "Nicht zutreffend",
+      "rootCauseNotAnalyzed": "Nicht analysiert"
     },
     "detail": {
       "recordTitle": "Details",
@@ -4830,25 +4818,6 @@
     "staleNote": "Der Datensatz hat sich nach dieser Analyse geändert. Erzeugen Sie sie neu, um eine aktuelle zu erhalten.",
     "failedNote": "Die Analyse wurde nicht abgeschlossen.",
     "skippedNote": "Nicht analysiert: {{reason}}",
-    "scopeTable": {
-      "title": "Standortkontext",
-      "measureHeader": "Messgröße",
-      "atDetection": "Bei Erkennung",
-      "now": "Jetzt",
-      "atDetectionHint": "Was die Analyse verwendet hat",
-      "nowHint": "Stand {{time}}",
-      "measure": {
-        "stations": "Stationen",
-        "stationsOffline": "Stationen offline",
-        "stationsFaulted": "Stationen gestört",
-        "sameErrorCode": "Gleicher Fehlercode (24 h)",
-        "sessionsInterrupted": "Unterbrochene Ladevorgänge (24 h)",
-        "sessionsFailedSameReason24h": "Gleicher Stoppgrund (24 h)",
-        "tokenRefusals": "Token-Ablehnungen (24 h)"
-      },
-      "summaryAtDetection": "{{value}} bei Erkennung",
-      "summaryChanged": "{{value}} bei Erkennung, jetzt {{now}}"
-    },
     "feedback": {
       "helpfulCount_one": "{{count}} fand dies hilfreich",
       "helpfulCount_other": "{{count}} fanden dies hilfreich",
@@ -4861,19 +4830,10 @@
       "reasonSaved": "Notiz gespeichert."
     },
     "action": {
-      "title": "Vorgeschlagene Aktion",
       "kind": {
         "stop_transaction": "Sitzung beenden",
         "soft_reset": "Station sanft zurücksetzen",
         "change_availability": "Verfügbarkeit der Station ändern"
-      },
-      "status": {
-        "pending": "Offen",
-        "executed": "Ausgeführt",
-        "failed": "Fehlgeschlagen",
-        "rejected": "Abgelehnt",
-        "expired": "Abgelaufen",
-        "stale": "Nicht mehr zutreffend"
       },
       "job": {
         "network_summary": "Netzwerkzustand",
@@ -4881,17 +4841,10 @@
         "tariff_anomalies": "Tarifauffälligkeiten"
       },
       "jobLabel": "Worker-Job",
-      "precondition": {
-        "session_active": "Die Sitzung ist noch aktiv",
-        "station_faulted": "Die Station ist noch gestört",
-        "station_availability": "Die Verfügbarkeit der Station hat sich nicht geändert"
-      },
-      "preconditionLabel": "Wird nur ausgeführt, wenn",
       "confirm": "Bestätigen",
       "reject": "Ablehnen",
-      "expiresAt": "Läuft ab {{time}}",
+      "expiresAt": "Läuft ab am {{time}}",
       "expires": "Läuft ab",
-      "arguments": "Argumente",
       "rationale": "Begründung",
       "executed": "Die Aktion wurde ausgeführt",
       "confirmFailed": "Die Aktion wurde nicht ausgeführt",
@@ -4909,9 +4862,8 @@
         "minutes_other": "{{count}} Minuten",
         "lastActivity": "Letzte Aktivität",
         "faultedSince": "Gestört seit",
-        "transactionId": "Transaktions-ID"
+        "transactionId": "OCPP-Transaktions-ID"
       },
-      "target": "Ziel",
       "decided": "Entschieden",
       "executedAt": "Ausgeführt",
       "refused": {
@@ -4922,13 +4874,10 @@
       },
       "pendingCount_one": "{{count}} offene Aktion",
       "pendingCount_other": "{{count}} offene Aktionen",
-      "pending": "Aktion offen",
-      "filter": "Aktion",
-      "filterAll": "Alle Analysen",
-      "filterPending": "Aktion offen",
-      "filterAny": "Mit Aktion",
-      "history": "Aktionsverlauf"
-    }
+      "expiresInfo": "Eine vorgeschlagene Aktion bleibt bis zur angezeigten Zeit offen, weil sich Station oder Ladevorgang nach der Prüfung ändern können. Danach läuft sie ab, nichts wird ausgeführt, und ein neuer Vorschlag erscheint, wenn das Problem weiter besteht.",
+      "apiRequest": "API-Anfrage"
+    },
+    "openPanel": "Automatische Analysen öffnen ({{count}})"
   },
   "aiWorkers": {
     "title": "KI-Hintergrund-Worker",

@@ -117,6 +117,7 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(),
   count: vi.fn(),
   inArray: vi.fn(),
+  isNull: vi.fn(),
 }));
 
 vi.mock('@evtivity/lib', async () => ({
@@ -223,6 +224,31 @@ describe('Support Case Read Tracking', () => {
       const res = await app.inject({
         method: 'GET',
         url: '/support-cases/unread-count',
+      });
+
+      expect(res.statusCode).toBe(401);
+    });
+  });
+
+  describe('GET /v1/support-cases/unassigned-count', () => {
+    it('returns the unassigned open case count', async () => {
+      setupDbResults([{ count: 11 }]);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/support-cases/unassigned-count',
+        headers: { authorization: authHeader(app) },
+      });
+
+      expect(res.statusCode).toBe(200);
+      const body = JSON.parse(res.payload) as { count: number };
+      expect(body.count).toBe(11);
+    });
+
+    it('requires authentication', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/support-cases/unassigned-count',
       });
 
       expect(res.statusCode).toBe(401);

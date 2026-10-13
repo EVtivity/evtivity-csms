@@ -17,9 +17,12 @@ import type { AiInsightView } from './insight-api';
  */
 export function AuthorizeInsightCell({
   attemptId,
+  stationOcppId,
   insight,
 }: {
   attemptId: number;
+  /** The attempt's OCPP station id, shown in the assistant's context chip. */
+  stationOcppId: string | null;
   insight: AiInsightView | undefined;
 }): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -27,7 +30,7 @@ export function AuthorizeInsightCell({
   const iconRef = useRef<HTMLButtonElement>(null);
   const canExplain = useCanExplain();
   const openExplain = useOpenExplain();
-  const context = { kind: 'authorization' as const, id: String(attemptId) };
+  const context = { kind: 'authorization' as const, id: String(attemptId), label: stationOcppId };
 
   if (insight == null) {
     return <ExplainButton context={context} insight={null} iconOnly />;

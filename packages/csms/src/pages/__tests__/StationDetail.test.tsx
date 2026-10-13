@@ -113,6 +113,8 @@ describe('station header actions (ISSUES items 10 and 17)', () => {
     const row = await screen.findByTestId('station-header-actions');
     const disable = within(row).getByRole('button', { name: 'stations.disableStation' });
     expect(disable.className).toContain('bg-destructive');
+    // The shared Disable button carries its power-off icon.
+    expect(disable.querySelector('svg')).not.toBeNull();
     const explain = within(row).getByTestId('ai-explain');
     expect(explain.querySelector('svg')?.getAttribute('class')).toContain('text-link');
   });

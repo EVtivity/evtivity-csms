@@ -63,8 +63,8 @@ const PANEL_OWNED_OVERLAY = '[role="dialog"], [role="alertdialog"], [role="toolt
  * The AI assistant panel (plan 3.10): streaming chat with Stop, tool steps,
  * write confirmation, attachments, conversation history and suggested prompts.
  * Full screen below `md`, a side panel above. Explain (roadmap v0.1.44 item 2)
- * opens it through `useAiPanelStore` about one record: the context card
- * (`ExplainContextCard`, the same for every kind) and the record's question
+ * opens it through `useAiPanelStore` about one record: the context chip
+ * (`ExplainContextCard`: the record kind and its id) and the record's question
  * prefilled in the composer, visible and editable before it is sent.
  * Escape (anywhere, unless a dialog opened above the panel takes it) stops a
  * running answer, then closes; a click outside closes it.
@@ -188,6 +188,8 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
       context != null ? { context: { kind: context.kind, id: context.id } } : {},
     );
     setConversationId(created.id);
+    // The server names the record (its label), so the chip matches the prompt.
+    if (created.context != null) setContext(created.context);
     void queryClient.invalidateQueries({ queryKey: AI_CONVERSATIONS_KEY });
     return created.id;
   }

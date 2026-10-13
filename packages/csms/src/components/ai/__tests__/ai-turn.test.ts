@@ -126,4 +126,24 @@ describe('ai-turn', () => {
     expect(views[1]?.finish).toBe('end');
     expect(views[2]?.text).toBe('It reports a fault.');
   });
+
+  it('restores the stored sources of an answer, well-formed entries once each', () => {
+    const source = {
+      id: '7',
+      title: 'Settings - Company',
+      url: 'https://evtivity.com/docs/csms/settings#company',
+    };
+    const views = messagesFromHistory([
+      {
+        id: 'a1',
+        role: 'assistant',
+        parts: [
+          { type: 'text', text: 'Open Settings.', citations: [source, { id: '8' }, 'x'] },
+          { type: 'text', text: ' Then save.', citations: [source] },
+        ],
+        finishReason: 'end',
+      },
+    ]);
+    expect(views[0]?.citations).toEqual([source]);
+  });
 });

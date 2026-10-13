@@ -35,7 +35,7 @@ const SIZE_HEIGHT: Record<string, number> = {
 
 /** Shared text buttons: the default size unless a `size` prop says otherwise. */
 const SHARED_TEXT_BUTTON =
-  /^(Edit|Remove|Cancel|Save|Abort|Add|Create|Export|Import|Generate|Push|Reset|Start|Template|Refund|Recalculate)Button$/;
+  /^(Edit|Remove|Cancel|Save|Abort|Add|Create|Export|Import|Generate|Push|Reset|Start|Template|Refund|Recalculate|Enable|Disable|Confirm|Reject)Button$/;
 /** Shared icon buttons: `md` (h-10) by default, `sm` is h-9. */
 const SHARED_ICON_BUTTON = /IconButton$/;
 /** Wrappers that hold one button (a link, a tooltip span). */

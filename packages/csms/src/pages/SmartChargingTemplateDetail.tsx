@@ -14,6 +14,7 @@ import { SaveButton } from '@/components/save-button';
 import { CancelButton } from '@/components/cancel-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -917,18 +918,10 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
         <Card>
           <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>{t('smartCharging.rawProfile')}</CardTitle>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                void navigator.clipboard.writeText(
-                  JSON.stringify(buildSetChargingProfilePayload(template), null, 2),
-                );
-              }}
-            >
-              <Copy className="h-4 w-4" />
-              {t('common.copy')}
-            </Button>
+            <CopyButton
+              value={JSON.stringify(buildSetChargingProfilePayload(template), null, 2)}
+              text={t('common.copy')}
+            />
           </CardHeader>
           <CardContent>
             <pre className="overflow-x-auto rounded-md bg-muted p-4 text-xs font-mono">

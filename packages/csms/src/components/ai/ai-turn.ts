@@ -171,6 +171,8 @@ export interface StoredAiPart {
   toolCallId?: unknown;
   isError?: unknown;
   attachmentId?: unknown;
+  /** Text parts: the validated sources the answer cites. */
+  citations?: unknown;
 }
 
 export interface StoredAiMessage {
@@ -182,6 +184,22 @@ export interface StoredAiMessage {
 
 function str(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+/** The stored sources of a text part, well-formed entries only. */
+function storedCitations(value: unknown): AiCitationView[] {
+  if (!Array.isArray(value)) return [];
+  const out: AiCitationView[] = [];
+  for (const item of value as unknown[]) {
+    if (item == null || typeof item !== 'object') continue;
+    const c = item as Record<string, unknown>;
+    const id = str(c['id']);
+    const title = str(c['title']);
+    const url = str(c['url']);
+    if (id === '' || title === '' || url === '') continue;
+    out.push({ id, title, url });
+  }
+  return out;
 }
 
 /**
@@ -208,8 +226,12 @@ export function messagesFromHistory(stored: StoredAiMessage[]): AiMessageView[] 
     const base = m.role === 'user' ? userMessage('') : emptyAssistantMessage();
     const view: AiMessageView = { ...base, key: m.id, id: m.id, finish: toFinish(m.finishReason) };
     for (const part of m.parts) {
-      if (part.type === 'text') view.text += str(part.text);
-      else if (part.type === 'image' || part.type === 'document') {
+      if (part.type === 'text') {
+        view.text += str(part.text);
+        for (const c of storedCitations(part.citations)) {
+          if (!view.citations.some((v) => v.id === c.id)) view.citations.push(c);
+        }
+      } else if (part.type === 'image' || part.type === 'document') {
         view.attachments.push({
           id: str(part.attachmentId),
           name: str(part.name),

@@ -4,7 +4,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Copy, Check } from 'lucide-react';
 import { tryParseJson } from '@evtivity/lib/safe-json';
 import { SaveButton } from '@/components/save-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,7 +11,7 @@ import { Toggle } from '@/components/ui/toggle';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
+import { CopyButton } from '@/components/ui/copy-button';
 import { Select } from '@/components/ui/select';
 import { api } from '@/lib/api';
 
@@ -69,7 +68,6 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
   const [attrEmail, setAttrEmail] = useState('email');
   const [attrFirstName, setAttrFirstName] = useState('firstName');
   const [attrLastName, setAttrLastName] = useState('lastName');
-  const [copied, setCopied] = useState(false);
 
   // Load SSO settings
   const { data: ssoSettings } = useQuery({
@@ -147,15 +145,6 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
       payload['cert'] = cert;
     }
     mutation.mutate(payload);
-  }
-
-  function handleCopyCallbackUrl(): void {
-    const url = `${window.location.origin}/v1/auth/sso/callback`;
-    void navigator.clipboard.writeText(url);
-    setCopied(true);
-    setTimeout(() => {
-      setCopied(false);
-    }, 2000);
   }
 
   const callbackUrl = `${window.location.origin}/v1/auth/sso/callback`;
@@ -245,19 +234,8 @@ export function SecuritySsoSettings({ settings }: Props): React.JSX.Element {
                 <Label htmlFor="sso-callback-url">{t('settings.ssoCallbackUrl')}</Label>
                 <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
                   <Input id="sso-callback-url" value={callbackUrl} readOnly className="bg-muted" />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    onClick={handleCopyCallbackUrl}
-                    aria-label={t('common.copy')}
-                  >
-                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
+                  <CopyButton value={callbackUrl} size="icon" />
                 </div>
-                {copied && (
-                  <p className="text-xs text-muted-foreground">{t('settings.ssoCopied')}</p>
-                )}
               </div>
 
               {/* Auto-Provision */}

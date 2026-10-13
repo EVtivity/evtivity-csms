@@ -32,7 +32,9 @@ import type {
   AiPart,
   AiProviderState,
   AiResult,
+  AiSearchResult,
   AiSystemBlock,
+  AiTextCitation,
   AiToolCallPart,
   AiToolResultPart,
   AiUsage,
@@ -44,6 +46,7 @@ import type { AiToolRefusal, Toolset, ToolsetEntry, ToolOutcome } from '../tools
 import { redactProviderRequest } from '@evtivity/ai/redact';
 import type { RedactionCounts } from '@evtivity/ai/redact';
 import type { ToolCallStatus } from '../conversation.service.js';
+import { isDocsCitationUrl } from '../docs/docs-search.js';
 
 /** Reads run in parallel up to this many at once. */
 export const MAX_PARALLEL_READS = 4;
@@ -201,6 +204,25 @@ function turnFinish(reason: AiFinishReason): AiTurnFinishReason {
   return reason === 'tool_use' ? 'end' : reason;
 }
 
+/**
+ * The validated citations of one model call: ids a `docs_search` call of
+ * this turn returned, with an allowlisted URL, each once. Any other id is
+ * dropped and never becomes a link.
+ */
+export function validCitations(
+  cited: AiResult['citations'],
+  passages: ReadonlyMap<string, AiSearchResult>,
+): AiTextCitation[] {
+  const out: AiTextCitation[] = [];
+  for (const c of cited) {
+    const passage = passages.get(c.passageId);
+    if (passage === undefined || !isDocsCitationUrl(passage.url)) continue;
+    if (out.some((o) => o.id === passage.id)) continue;
+    out.push({ id: passage.id, title: passage.title, url: passage.url });
+  }
+  return out;
+}
+
 function refusedResult(call: AiToolCallPart, message: string): AiToolResultPart {
   return {
     type: 'tool_result',
@@ -244,6 +266,9 @@ export async function runTurn(input: TurnRunInput): Promise<TurnRunResult> {
   let lastText = '';
   let first = true;
   let limitReached = false;
+  /** Passages the turn's `docs_search` calls returned: the only ids a citation may name. */
+  const passages = new Map<string, AiSearchResult>();
+  const emittedCitations = new Set<string>();
 
   const caps = input.adapter.capabilities(input.model);
   const unsupported = findUnsupportedParts({ messages: history }, caps);
@@ -336,8 +361,20 @@ export async function runTurn(input: TurnRunInput): Promise<TurnRunResult> {
         (e): AiToolCallPart => ({ type: 'tool_call', id: e.id, name: e.name, arguments: {} }),
       ),
     ];
+    const citations = validCitations(result.citations, passages);
+    for (const citation of citations) {
+      if (emittedCitations.has(citation.id)) continue;
+      emittedCitations.add(citation.id);
+      emit({ type: 'citation', id: citation.id, title: citation.title, url: citation.url });
+    }
     const parts: AiPart[] = [];
-    if (result.text !== '') parts.push({ type: 'text', text: result.text });
+    if (result.text !== '') {
+      parts.push({
+        type: 'text',
+        text: result.text,
+        ...(citations.length > 0 ? { citations } : {}),
+      });
+    }
     parts.push(...toolCalls);
 
     let finishReason: string = result.finishReason;
@@ -562,12 +599,16 @@ export async function runTurn(input: TurnRunInput): Promise<TurnRunResult> {
         latencyMs: outcome.latencyMs,
         redactionCounts: outcome.redactionCounts,
       });
+      for (const passage of outcome.searchResults ?? []) passages.set(passage.id, passage);
       results.set(read.call.id, {
         type: 'tool_result',
         toolCallId: read.call.id,
         name: read.call.name,
         content: outcome.content,
         isError: outcome.status === 'error',
+        ...(outcome.searchResults !== undefined && outcome.searchResults.length > 0
+          ? { searchResults: outcome.searchResults }
+          : {}),
       });
       emit({
         type: 'tool_step',

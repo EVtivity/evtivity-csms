@@ -6,7 +6,9 @@ import {
   AI_INSIGHT_ERROR_CODES,
   AI_INSIGHT_SETTING_KEYS,
   FIX_CODES,
+  INSIGHT_KIND_FALLBACKS,
   OPS_AI_SETTING_KEYS,
+  WORKER_ACTION_INSIGHT_KINDS,
   ROOT_CAUSE_CATEGORIES,
   RULE_INSIGHTS,
   insightAnswerProblem,
@@ -67,6 +69,14 @@ describe('insight model output', () => {
       pack,
     );
     expect(output?.fixes[0]?.note).toHaveLength(200);
+  });
+
+  it('gives an unknown root cause low confidence', () => {
+    const output = sanitizeInsightModelOutput(
+      { ...answer, category: 'unknown', confidence: 'high' },
+      pack,
+    );
+    expect(output).toMatchObject({ category: 'unknown', confidence: 'low' });
   });
 
   it.each([
@@ -258,5 +268,14 @@ describe('usage DTO', () => {
     };
     expect(aiUsageDtoSchema.safeParse(dto).success).toBe(true);
     expect(aiUsageDtoSchema.safeParse({ ...dto, month: '2026-13' }).success).toBe(false);
+  });
+});
+
+describe('worker action insight fixes', () => {
+  it('never recommend waiting next to the action the insight carries', () => {
+    for (const kind of WORKER_ACTION_INSIGHT_KINDS) {
+      expect(INSIGHT_KIND_FALLBACKS[kind].fixes).not.toContain('monitor');
+    }
+    expect(INSIGHT_KIND_FALLBACKS.stuck_session.fixes).toEqual([]);
   });
 });

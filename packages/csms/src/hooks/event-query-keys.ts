@@ -151,9 +151,9 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
     case 'supportCase.created':
     case 'supportCase.updated':
     case 'supportCase.newMessage':
-      // Prefix also covers the detail page (['support-cases', id]).
+      // Prefix also covers the detail page (['support-cases', id]) and the nav
+      // count (['support-cases', 'unassigned-count']).
       keys.push(['support-cases']);
-      keys.push(['support-cases-unread-count']);
       break;
 
     // AI roadmap v0.1.44: the insight cards, lists and actions (an action's

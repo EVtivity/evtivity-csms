@@ -12,6 +12,11 @@ async function main(): Promise<void> {
   const version = getArg(args, '--version') as OcppVersion | undefined;
   const sut = (getArg(args, '--sut') as SutType | undefined) ?? 'csms';
   const module = getArg(args, '--module');
+  const testArg = getArg(args, '--test');
+  const testIds = testArg
+    ?.split(',')
+    .map((id) => id.trim())
+    .filter((id) => id !== '');
   const concurrency = Number(getArg(args, '--concurrency') ?? '10');
   const password = getArg(args, '--password');
   const tlsServerUrl = getArg(args, '--tls-server');
@@ -36,6 +41,7 @@ async function main(): Promise<void> {
       version,
       sut,
       module,
+      testIds,
       concurrency,
       password,
       apiUrl,

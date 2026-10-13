@@ -90,7 +90,12 @@ vi.mock('@evtivity/database', () => ({
   chargingProfileTemplates: fakeTable('charging_profile_templates'),
   firmwareCampaigns: fakeTable('firmware_campaigns'),
   octtRuns: fakeTable('octt_runs'),
-  aiInsights: { ...fakeTable('ai_insights'), siteId: { name: 'site_id' }, kind: { name: 'kind' } },
+  aiInsights: {
+    ...fakeTable('ai_insights'),
+    siteId: { name: 'site_id' },
+    kind: { name: 'kind' },
+    status: { name: 'status' },
+  },
   isReservationEnabled: vi.fn(() => Promise.resolve(true)),
 }));
 

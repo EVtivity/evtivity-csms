@@ -400,20 +400,13 @@ describe('Dashboard routes', () => {
   });
 
   it('GET /v1/dashboard/financial-stats leaves sessions without an electricity cost out of profit', async () => {
-    // Electricity cost, then the names of the sites with sessions without a cost.
-    setupDbResults(
-      [{ totalElectricityCostCents: 300, dayElectricityCostCents: 100 }],
-      [
-        { id: 'sit_a', name: 'Alpha', hasRatePeriods: true },
-        { id: 'sit_b', name: 'Beta', hasRatePeriods: false },
-      ],
-    );
+    setupDbResults([{ totalElectricityCostCents: 300, dayElectricityCostCents: 100 }]);
     const { aggregateRevenueRows } = sessionRevenueModule;
     mockQueryRevenue.mockResolvedValueOnce(
       aggregateRevenueRows([
-        // Site A: two sessions with a cost (one today), one without (today).
+        // Two sessions with a cost (one today), one without (today).
         {
-          key: 'false|sit_a',
+          key: 'false',
           taxRate: '0',
           grossCents: 1000,
           source: 'session',
@@ -421,7 +414,7 @@ describe('Dashboard routes', () => {
           count: 1,
         },
         {
-          key: 'true|sit_a',
+          key: 'true',
           taxRate: '0',
           grossCents: 1000,
           source: 'session',
@@ -429,25 +422,25 @@ describe('Dashboard routes', () => {
           count: 1,
         },
         {
-          key: 'true|sit_a',
+          key: 'true',
           taxRate: '0',
           grossCents: 400,
           source: 'session',
           costMissing: true,
           count: 1,
         },
-        // Site B: two sessions without a cost, earlier.
+        // Two sessions without a cost, earlier.
         {
-          key: 'false|sit_b',
+          key: 'false',
           taxRate: '0',
           grossCents: 500,
           source: 'session',
           costMissing: true,
           count: 2,
         },
-        // A station without a site: counted in the totals only.
+        // A station without a site: counted too.
         {
-          key: 'false|',
+          key: 'false',
           taxRate: '0',
           grossCents: 700,
           source: 'session',
@@ -473,23 +466,6 @@ describe('Dashboard routes', () => {
     expect(body.totalCostMissingRevenueCents).toBe(400 + 1000 + 700);
     expect(body.dayCostMissingSessionCount).toBe(1);
     expect(body.dayCostMissingRevenueCents).toBe(400);
-    expect(body.costMissingSites).toEqual([
-      // hasRatePeriods tells "set rates" (false) from "recalculate" (true).
-      {
-        siteId: 'sit_b',
-        siteName: 'Beta',
-        hasRatePeriods: false,
-        sessionCount: 2,
-        revenueCents: 1000,
-      },
-      {
-        siteId: 'sit_a',
-        siteName: 'Alpha',
-        hasRatePeriods: true,
-        sessionCount: 1,
-        revenueCents: 400,
-      },
-    ]);
   });
 
   it('GET /v1/dashboard/financial-stats reports no excluded sessions when every session has a cost', async () => {
@@ -498,7 +474,7 @@ describe('Dashboard routes', () => {
     mockQueryRevenue.mockResolvedValueOnce(
       aggregateRevenueRows([
         {
-          key: 'false|sit_a',
+          key: 'false',
           taxRate: '0',
           grossCents: 1000,
           source: 'session',
@@ -516,7 +492,6 @@ describe('Dashboard routes', () => {
     expect(body.totalProfitCents).toBe(2000 - 300);
     expect(body.totalCostMissingSessionCount).toBe(0);
     expect(body.totalCostMissingRevenueCents).toBe(0);
-    expect(body.costMissingSites).toEqual([]);
   });
 
   it('GET /v1/dashboard/financial-stats returns zeroed financials when the user has no site access', async () => {
@@ -535,7 +510,6 @@ describe('Dashboard routes', () => {
     expect(body.dayProfitCents).toBe(0);
     expect(body.billedOnAccountCents).toBe(0);
     expect(body.totalCostMissingSessionCount).toBe(0);
-    expect(body.costMissingSites).toEqual([]);
     expect(body.currency).toBe('EUR');
   });
 

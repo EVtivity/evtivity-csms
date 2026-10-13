@@ -37,6 +37,7 @@ import {
   defaultDriverAiPrompt,
 } from '@evtivity/services/driver-ai-prompt';
 import {
+  DOCS_SEARCH_RULE,
   OCPP_VERSION_RULE,
   SECURITY_RULES,
   SUPPORT_BODY_ONLY,
@@ -129,8 +130,12 @@ describe('AI defaults routes', () => {
   it('returns the rules always added per surface', async () => {
     const res = await app.inject({ method: 'GET', url: '/settings/ai/defaults', headers: READ });
     const body = res.json<DefaultsBody>();
-    expect(body.chatbot.fixedRules).toBe(`${SECURITY_RULES}\n\n${OCPP_VERSION_RULE}`);
-    expect(body.support.fixedRules).toBe(`${SECURITY_RULES}\n\n${SUPPORT_BODY_ONLY}`);
+    expect(body.chatbot.fixedRules).toBe(
+      `${SECURITY_RULES}\n\n${OCPP_VERSION_RULE}\n\n${DOCS_SEARCH_RULE}`,
+    );
+    expect(body.support.fixedRules).toBe(
+      `${SECURITY_RULES}\n\n${DOCS_SEARCH_RULE}\n\n${SUPPORT_BODY_ONLY}`,
+    );
     expect(body.ops.fixedRules).toBe(OPS_SECURITY_RULES);
     expect(body.driver.fixedRules).toBe(`${OPS_SECURITY_RULES}\n\n${DRIVER_AI_RULES}`);
   });

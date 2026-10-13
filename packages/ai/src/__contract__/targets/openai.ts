@@ -136,6 +136,14 @@ export const openaiTarget: AdapterContractTarget = {
   },
   fixtures: {
     text: sseFixture([created(), ...message('msg_1', ['Hello', ' there!']), completed()], named),
+    citation: sseFixture(
+      [
+        created(),
+        ...message('msg_1', ['Open Settings [do', 'c:7]. Then save [doc:7][doc:99].']),
+        completed(),
+      ],
+      named,
+    ),
     tool_call: sseFixture(
       [
         created(),

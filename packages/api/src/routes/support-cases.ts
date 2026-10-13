@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, sql, count, ilike, or, inArray } from 'drizzle-orm';
+import { eq, and, desc, sql, count, ilike, or, inArray, isNull } from 'drizzle-orm';
 import { db, client } from '@evtivity/database';
 import {
   supportCases,
@@ -531,7 +531,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
       if (query.status != null) {
         conditions.push(eq(supportCases.status, query.status));
       } else if (query.aiState == null) {
-        // Cases the driver AI still handles are not in the default list (E4).
+        // Cases the driver AI still handles are not in the default list: no operator needs to act yet.
         conditions.push(sql`${supportCases.status} <> ${SUPPORT_CASE_AI_ASSIST_STATUS}`);
       }
       if (query.aiState != null) {
@@ -630,9 +630,58 @@ export function supportCaseRoutes(app: FastifyInstance): void {
 
       const conditions = [
         eq(supportCases.assignedTo, userId),
-        // ai_assist: the driver AI still handles it (not in operator counts, E4).
+        // ai_assist: the driver AI still handles it, so no operator needs to act yet.
         sql`${supportCases.status} NOT IN ('resolved', 'closed', 'ai_assist')`,
         unreadCondition(userId),
+      ];
+
+      if (accessibleSiteIds != null) {
+        conditions.push(supportCaseSiteCondition(accessibleSiteIds));
+      }
+
+      const result = await db
+        .select({ count: count() })
+        .from(supportCases)
+        .where(and(...conditions));
+
+      return { count: result[0]?.count ?? 0 };
+    },
+  );
+
+  // Open, unassigned support case count: the Support Cases nav badge.
+  app.get(
+    '/support-cases/unassigned-count',
+    {
+      onRequest: [authorize('support:read')],
+      schema: {
+        tags: ['Support Cases'],
+        summary: 'Get the open, unassigned support case count in the current operator sites',
+        operationId: 'getUnassignedSupportCaseCount',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: zodSchema(
+            z
+              .object({
+                count: z
+                  .number()
+                  .describe(
+                    'Number of open support cases with no assignee in the sites the current operator can access',
+                  ),
+              })
+              .passthrough(),
+          ),
+        },
+      },
+    },
+    async (request) => {
+      const { userId } = request.user as JwtPayload;
+
+      const accessibleSiteIds = await getUserSiteIds(userId);
+
+      const conditions = [
+        isNull(supportCases.assignedTo),
+        // ai_assist: the driver AI still handles it, so no operator needs to act yet.
+        sql`${supportCases.status} NOT IN ('resolved', 'closed', 'ai_assist')`,
       ];
 
       if (accessibleSiteIds != null) {

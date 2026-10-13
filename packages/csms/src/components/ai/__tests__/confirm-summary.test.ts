@@ -123,13 +123,13 @@ describe('confirmSummary', () => {
         name: 'ocppv21_request_stop_transaction',
         arguments: { stationId: 'CS-1', transactionId: 'tx-9' },
       }),
-    ).toBe('Stop transaction tx-9 at station CS-1');
+    ).toBe('Stop the charging session at station CS-1 (OCPP transaction tx-9)');
     expect(
       summary('en', {
         name: 'ocppv16_remote_stop_transaction',
         arguments: { stationId: 'CS-1', transactionId: 42 },
       }),
-    ).toBe('Stop transaction 42 at station CS-1');
+    ).toBe('Stop the charging session at station CS-1 (OCPP transaction 42)');
     expect(
       summary('en', {
         name: 'ocppv21_set_charging_profile',

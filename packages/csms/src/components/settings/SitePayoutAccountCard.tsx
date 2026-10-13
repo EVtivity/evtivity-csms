@@ -8,6 +8,7 @@ import { AlertTriangle, Copy, Mail, Plus, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { copyText } from '@/components/ui/clipboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -65,13 +66,6 @@ export interface SitePayoutAccountCardProps {
   siteId: string;
   /** Payments are enabled on the site's payment config. */
   paymentsEnabled: boolean;
-}
-
-/** Copies through the Clipboard API, which non-secure origins do not have. */
-async function copyText(text: string): Promise<void> {
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-  if (navigator.clipboard == null) throw new Error('Clipboard unavailable');
-  await navigator.clipboard.writeText(text);
 }
 
 /**

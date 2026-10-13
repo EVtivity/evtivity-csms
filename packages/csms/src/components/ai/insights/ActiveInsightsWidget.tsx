@@ -3,19 +3,21 @@
 
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
-import { Lightbulb, MapPin, ShieldAlert, Wrench } from 'lucide-react';
+import { isVisibleInsightStatus } from '@evtivity/lib/ai-insights';
 import { LoadingLogo } from '@/components/loading-logo';
 import { Badge } from '@/components/ui/badge';
 import { IconBadge } from '@/components/ui/icon-badge';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { ScrollSnapRow } from '@/components/ui/scroll-snap-row';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { useHasPermission } from '@/lib/auth';
 import { formatNumber } from '@/lib/formatting';
+import { insightStatusVariant } from '@/lib/status-variants';
 import { formatRelativeTime, useUserTimezone } from '@/lib/timezone';
-import { useInsights } from './insight-api';
+import { LIVE_INSIGHT_STATUS_FILTER, useInsights } from './insight-api';
+import { actionLabel } from './insight-action';
 import type { InsightRow } from './insight-display';
 import {
   INSIGHT_ICONS,
@@ -40,7 +42,34 @@ function InsightTile({ row }: { row: InsightRow }): React.JSX.Element {
   const size = insightSize(insight);
   const category = shownCategory(insight);
   const fix = insight.fixes[0];
-  const actionPending = insight.action?.status === 'pending';
+  // Where and when only; what the insight says goes on the line above.
+  const meta = [insight.siteName, formatRelativeTime(insight.createdAt, timezone)].filter(
+    (v): v is string => v != null && v !== '',
+  );
+  const confidence =
+    insight.confidence != null && category != null
+      ? t(`aiInsights.confidenceBadge.${insight.confidence}`)
+      : null;
+  const sizeText =
+    size != null
+      ? t('aiInsights.widget.atDetection', {
+          value: t(`aiInsights.scope.${size.key}`, { count: size.count }),
+        })
+      : null;
+  // Root cause, confidence and size, dot separated like the meta line.
+  const about = [
+    category != null ? t(`aiInsights.category.${category}`) : null,
+    confidence,
+    sizeText,
+  ].filter((v): v is string => v != null);
+  // An insight with an action recommends that action; else its first fix step.
+  const fixText =
+    insight.action != null
+      ? actionLabel(t, insight.action)
+      : fix != null
+        ? t(`aiInsights.fix.${fix.code}`)
+        : null;
+  // Every tile has the same rows: headline, status and root cause, meta line, first fix.
   return (
     <Link
       to={row.href}
@@ -49,64 +78,39 @@ function InsightTile({ row }: { row: InsightRow }): React.JSX.Element {
     >
       <Card accent={tone} className="flex h-full gap-3 p-4 transition-colors hover:bg-accent">
         <IconBadge icon={icon} tone={tone} label={t(`aiInsights.kind.${insight.kind}`)} />
-        <div className="min-w-0 flex-1 space-y-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-medium wrap-anywhere" data-testid="ai-insight-headline">
-              {insightHeadline(t, insight)}
-            </span>
-            {category != null && (
-              <Badge variant="outline" className="max-w-full whitespace-normal">
-                {t(`aiInsights.category.${category}`)}
-              </Badge>
-            )}
-            {size != null && (
-              <Badge variant="secondary" className="max-w-full whitespace-normal">
-                {t('aiInsights.widget.atDetection', {
-                  value: t(`aiInsights.scope.${size.key}`, { count: size.count }),
-                })}
-              </Badge>
-            )}
-            {actionPending && (
+        <div className="min-w-0 flex-1 space-y-2">
+          <p
+            className="line-clamp-2 text-sm font-medium wrap-anywhere"
+            data-testid="ai-insight-headline"
+          >
+            {insightHeadline(t, insight)}
+          </p>
+          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            {isVisibleInsightStatus(insight.status) && (
               <Badge
-                variant="warning"
-                className="max-w-full whitespace-normal"
-                data-testid="ai-insight-action-pending"
+                variant={insightStatusVariant(insight.status)}
+                data-testid={
+                  insight.status === 'pending' ? 'ai-insight-action-pending' : 'ai-insight-status'
+                }
               >
-                <ShieldAlert className="mr-1 h-3 w-3" aria-hidden="true" />
-                {t('aiInsights.action.pending')}
+                {t(`aiInsights.status.${insight.status}`)}
               </Badge>
             )}
+            {about.length > 0 && <span>{about.join(' · ')}</span>}
             {count > 1 && (
-              <Badge
-                variant="info"
-                className="max-w-full whitespace-normal"
-                data-testid="ai-insight-similar"
-              >
+              <span className="text-link" data-testid="ai-insight-similar">
                 {t('aiInsights.widget.similar', { count: count - 1 })}
-              </Badge>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {insight.siteName != null && (
-              <span className="inline-flex min-w-0 items-center gap-1">
-                <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
-                <span className="truncate">{insight.siteName}</span>
               </span>
             )}
-            <span>{formatRelativeTime(insight.createdAt, timezone)}</span>
-            {insight.confidence != null && category != null && (
-              <Badge variant="outline" className="max-w-full whitespace-normal font-normal">
-                {t(`aiInsights.confidenceBadge.${insight.confidence}`)}
-              </Badge>
-            )}
           </div>
-          {fix != null && (
-            <p className="flex items-start gap-1 text-xs" data-testid="ai-insight-fix">
-              <Wrench
-                className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground"
-                aria-hidden="true"
-              />
-              <span>{t(`aiInsights.fix.${fix.code}`)}</span>
+          {meta.length > 0 && (
+            <p className="truncate text-xs text-muted-foreground" title={meta.join(' · ')}>
+              {meta.join(' · ')}
+            </p>
+          )}
+          {fixText != null && (
+            <p className="line-clamp-2 text-xs" data-testid="ai-insight-fix">
+              {fixText}
             </p>
           )}
         </div>
@@ -131,7 +135,7 @@ export function ActiveInsightsWidget(): React.JSX.Element | null {
   const canRead = useHasPermission('aiInsights:read');
   const { flags } = useFeatureFlags();
   const { insights, total, isLoading, isError, refetch } = useInsights(
-    { status: 'active', limit: WIDGET_FETCH },
+    { status: LIVE_INSIGHT_STATUS_FILTER, limit: WIDGET_FETCH },
     flags.aiInsightsEnabled,
   );
   // AI Insights off (or the flags still loading): no card and no insights,
@@ -140,19 +144,25 @@ export function ActiveInsightsWidget(): React.JSX.Element | null {
   const rows = insightRows(insights, WIDGET_ROWS);
 
   return (
-    <Card data-testid="ai-active-insights">
+    <Card tone="ai" data-testid="ai-active-insights">
       <CardHeader variant="stat">
         <CardTitle variant="stat">
           {t('aiInsights.activeInsights')}
           <InfoTooltip content={<div className="max-w-56">{t('aiInsights.widget.info')}</div>} />
         </CardTitle>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {total > 0 && (
             <Badge variant="info" data-testid="ai-insights-total">
               {formatNumber(total, 0)}
             </Badge>
           )}
-          <Lightbulb className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <Link
+            to="/ai/insights"
+            className={buttonVariants({ variant: 'link', size: 'xs' })}
+            data-testid="ai-insights-view-all"
+          >
+            {t('aiInsights.widget.viewAll')}
+          </Link>
         </div>
       </CardHeader>
       {isLoading ? (
@@ -185,15 +195,6 @@ export function ActiveInsightsWidget(): React.JSX.Element | null {
           />
         </CardContent>
       )}
-      <CardFooter variant="divided">
-        <Link
-          to="/ai/insights?status=active"
-          className={buttonVariants({ variant: 'link', size: 'xs' })}
-          data-testid="ai-insights-view-all"
-        >
-          {t('aiInsights.widget.viewAll')}
-        </Link>
-      </CardFooter>
     </Card>
   );
 }

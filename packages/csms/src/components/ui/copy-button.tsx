@@ -1,62 +1,58 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Check, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useCopyFeedback } from '@/components/ui/copy-feedback';
 
 /**
  * The shared copy button: an outline icon button (`icon-xs`) that copies
- * `value`, shows a check for two seconds and names its state in its
- * `aria-label` (Copy, Copied). `IdText` and every other copy control use it.
+ * `value`, shows a check mark for two seconds and names its state in its
+ * `aria-label` (Copy, Copied). Icon only, it also shows the "Copied" bubble
+ * (`useCopyFeedback`, the same feedback as `CopyableId`). With `text` it
+ * shows a visible label instead, which reads Copied for the same two
+ * seconds. `IdText` and every other copy control use it.
  */
 export function CopyButton({
   value,
   label,
+  text,
+  size,
+  variant = 'outline',
   className,
 }: {
   value: string;
-  /** Accessible name before copying (default `common.copy`). */
+  /** Accessible name before copying (default `text`, else `common.copy`). */
   label?: string;
+  /** Visible label next to the icon (for example `common.copy`). */
+  text?: string;
+  /** Button size: `icon-xs` by default, `sm` with `text`. */
+  size?: 'icon-xs' | 'icon-sm' | 'icon' | 'xs' | 'sm' | 'default';
+  variant?: 'outline' | 'ghost';
   className?: string;
 }): React.JSX.Element {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timer.current != null) clearTimeout(timer.current);
-    },
-    [],
-  );
+  const { ref, copied, copy, bubble } = useCopyFeedback<HTMLButtonElement>();
+  const buttonSize = size ?? (text != null ? 'sm' : 'icon-xs');
+  const iconClass = buttonSize === 'icon-xs' || buttonSize === 'xs' ? 'h-3 w-3' : 'h-4 w-4';
 
   return (
     <Button
+      ref={ref}
       type="button"
-      variant="outline"
-      size="icon-xs"
+      variant={variant}
+      size={buttonSize}
       className={className}
-      aria-label={copied ? t('common.copied') : (label ?? t('common.copy'))}
+      aria-label={copied ? t('common.copied') : (label ?? text ?? t('common.copy'))}
       data-testid="copy-button"
       onClick={(e) => {
         e.stopPropagation();
-        void navigator.clipboard.writeText(value).then(
-          () => {
-            setCopied(true);
-            if (timer.current != null) clearTimeout(timer.current);
-            timer.current = setTimeout(() => {
-              setCopied(false);
-            }, 2000);
-          },
-          (err: unknown) => {
-            console.warn('Copy failed', err);
-          },
-        );
+        copy(value);
       }}
     >
-      {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+      {copied ? <Check className={iconClass} /> : <Copy className={iconClass} />}
+      {text != null ? <span>{copied ? t('common.copied') : text}</span> : bubble}
     </Button>
   );
 }

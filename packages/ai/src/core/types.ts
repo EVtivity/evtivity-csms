@@ -74,9 +74,23 @@ export interface ModelCapabilities {
 // Messages
 // ---------------------------------------------------------------------------
 
+/** A documentation source an answer cites, validated by the engine (display data only). */
+export interface AiTextCitation {
+  /** Passage id the model cited. */
+  id: string;
+  title: string;
+  /** Allowlisted https URL of the passage. */
+  url: string;
+}
+
 export interface AiTextPart {
   type: 'text';
   text: string;
+  /**
+   * Assistant text only: the validated sources it cites, stored with the
+   * message so the UI shows them again. Adapters never send them.
+   */
+  citations?: AiTextCitation[];
 }
 
 /** Image bytes are fetched through `AiRequest.resolveAttachment`. */
@@ -112,6 +126,25 @@ export interface AiToolResultPart {
   /** Serialized result (JSON text or plain text). Adapters never parse it. */
   content: string;
   isError: boolean;
+  /**
+   * Passages of a documentation search the model may cite. A model flagged
+   * `citations: 'native'` gets them as the provider's own search results
+   * (citations come back as `citation` events); a `prompted` model gets them
+   * as text with a `[doc:<id>]` marker each, and the adapter turns the
+   * markers it writes into `citation` events. `content` stays the record
+   * for storage and other clients.
+   */
+  searchResults?: AiSearchResult[];
+}
+
+/** One citable passage (server text, never model output). */
+export interface AiSearchResult {
+  /** Passage id the model cites (digits, unique within the turn). */
+  id: string;
+  title: string;
+  /** Allowlisted https URL of the passage. */
+  url: string;
+  text: string;
 }
 
 export type AiPart = AiTextPart | AiImagePart | AiDocumentPart | AiToolCallPart | AiToolResultPart;

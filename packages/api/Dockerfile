@@ -67,7 +67,7 @@ COPY packages/ocpi-simulator/package.json packages/ocpi-simulator/
 
 RUN npm ci --omit=dev --ignore-scripts && npm rebuild argon2
 
-COPY docs-index.json* ./
+COPY docs-index.json* docs-passages.json* ./
 COPY --from=build /app/dist/api.mjs dist/api.mjs
 COPY --from=build /app/dist/api.mjs.map dist/api.mjs.map
 COPY packages/api/src/templates/ templates/api/

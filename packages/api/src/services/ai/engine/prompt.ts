@@ -43,6 +43,14 @@ export const SECURITY_RULES = [
 export const OCPP_VERSION_RULE =
   "Station commands: the ocppv16_* tools are for OCPP 1.6 stations and the ocppv21_* tools for OCPP 2.1 stations. Check the station's OCPP version first (ocppProtocol in the station data) and use the tool of that version. When you cannot look the version up, call the command tool anyway and do not ask the user: the server checks the station's version and the confirmation card shows the command for it.";
 
+/**
+ * Every surface with tools offers `docs_search`. Citing is the adapter's
+ * part (native search results, or `[doc:N]` markers it explains with the
+ * passages), so this rule says only when to search.
+ */
+export const DOCS_SEARCH_RULE =
+  'For a question about how to use, set up or configure EVtivity, call docs_search and base the answer on the passages it returns. Search in the language of the answer.';
+
 /** Support drafts: the text is a message body, ready to send as it is. */
 export const SUPPORT_BODY_ONLY =
   'Output only the message body, ready to send: no subject line (no "Subject:" or "Re:" line), no title or heading, no markdown heading (#), and nothing before or after the body.';
@@ -118,6 +126,7 @@ export function buildSystemBlocks(input: SystemPromptInput): AiSystemBlock[] {
   const staticText = [
     SECURITY_RULES,
     input.surface === 'chatbot' ? OCPP_VERSION_RULE : '',
+    DOCS_SEARCH_RULE,
     prompt,
     docsSection(language),
   ]

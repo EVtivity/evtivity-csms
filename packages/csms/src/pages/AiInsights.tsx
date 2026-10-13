@@ -6,29 +6,31 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
-  INSIGHT_ACTION_FILTERS,
   INSIGHT_FEEDBACK_FILTERS,
   INSIGHT_KINDS,
-  INSIGHT_STATUSES,
+  INSIGHT_VISIBLE_STATUSES,
   ROOT_CAUSE_CATEGORIES,
   isReservationInsightKind,
+  isVisibleInsightStatus,
 } from '@evtivity/lib/ai-insights';
 import type {
-  InsightActionFilter,
   InsightFeedbackFilter,
   InsightKind,
-  InsightStatus,
+  InsightVisibleStatus,
   RootCauseCategory,
 } from '@evtivity/lib/ai-insights';
 import type { InsightFilter } from '@/components/ai/insights/insight-api';
-import { INSIGHTS_PAGE_SIZE, useInsightPage } from '@/components/ai/insights/insight-api';
+import {
+  INSIGHTS_PAGE_SIZE,
+  isSummaryInsight,
+  useInsightPage,
+} from '@/components/ai/insights/insight-api';
 import {
   INSIGHT_ICONS,
   insightHeadline,
   insightPath,
-  shownCategory,
 } from '@/components/ai/insights/insight-display';
-import { insightActionStatusVariant, insightStatusVariant } from '@/lib/status-variants';
+import { insightStatusVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 import { Badge } from '@/components/ui/badge';
 import { IconBadge } from '@/components/ui/icon-badge';
@@ -65,9 +67,9 @@ function pick<T extends string>(values: readonly T[], raw: string | null): T | u
  * user's sites, newest first, with the standard filter bar and table. The
  * filters live in the URL so the dashboard card can open a filtered list
  * (`feedback=wrong`: insights someone marked wrong, linked from Settings;
- * `action=pending`: background worker suggestions waiting for a decision,
- * linked from the digest email). The status column also shows the state of
- * the action an insight carries.
+ * `status=pending`: insights whose action waits for a decision, linked from
+ * the digest email and the sidebar count). The status column shows the one
+ * status of the insight and its action.
  * A row opens the insight's page.
  */
 export function AiInsights(): React.JSX.Element {
@@ -78,7 +80,7 @@ export function AiInsights(): React.JSX.Element {
   const [params, setParams] = useSearchParams();
   const [page, setPage] = useState(1);
 
-  const status = pick<InsightStatus>(INSIGHT_STATUSES, params.get('status'));
+  const status = pick<InsightVisibleStatus>(INSIGHT_VISIBLE_STATUSES, params.get('status'));
   // Reservation kinds only while reservations are on: the same switch the
   // insight routes use to leave reservation insights out (`reservation.enabled`).
   const { flags } = useFeatureFlags();
@@ -89,7 +91,6 @@ export function AiInsights(): React.JSX.Element {
   const category = pick<RootCauseCategory>(ROOT_CAUSE_CATEGORIES, params.get('category'));
   const siteId = params.get('siteId') ?? '';
   const feedback = pick<InsightFeedbackFilter>(INSIGHT_FEEDBACK_FILTERS, params.get('feedback'));
-  const action = pick<InsightActionFilter>(INSIGHT_ACTION_FILTERS, params.get('action'));
 
   const filter: Omit<InsightFilter, 'limit'> = {};
   if (status != null) filter.status = status;
@@ -97,7 +98,6 @@ export function AiInsights(): React.JSX.Element {
   if (category != null) filter.category = category;
   if (siteId !== '') filter.siteId = siteId;
   if (feedback != null) filter.feedback = feedback;
-  if (action != null) filter.action = action;
   const { insights, total, isLoading, isError } = useInsightPage(filter, page);
   const totalPages = Math.max(1, Math.ceil(total / INSIGHTS_PAGE_SIZE));
 
@@ -138,7 +138,7 @@ export function AiInsights(): React.JSX.Element {
               }}
             >
               <option value="">{t('aiInsights.list.allStatuses')}</option>
-              {INSIGHT_STATUSES.map((s) => (
+              {INSIGHT_VISIBLE_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {t(`aiInsights.status.${s}`)}
                 </option>
@@ -202,23 +202,6 @@ export function AiInsights(): React.JSX.Element {
               <option value="helpful">{t('aiInsights.list.feedbackHelpful')}</option>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="ai-insights-action" className="leading-6">
-              {t('aiInsights.action.filter')}
-            </Label>
-            <Select
-              id="ai-insights-action"
-              className="h-9"
-              value={action ?? ''}
-              onChange={(e) => {
-                setFilter('action', e.target.value);
-              }}
-            >
-              <option value="">{t('aiInsights.action.filterAll')}</option>
-              <option value="pending">{t('aiInsights.action.filterPending')}</option>
-              <option value="any">{t('aiInsights.action.filterAny')}</option>
-            </Select>
-          </div>
           {canReadSites && (
             <div className="space-y-2">
               <Label htmlFor="ai-insights-site" className="leading-6">
@@ -275,7 +258,6 @@ export function AiInsights(): React.JSX.Element {
               )}
               {insights.map((insight) => {
                 const { icon, tone } = INSIGHT_ICONS[insight.kind];
-                const shown = shownCategory(insight);
                 return (
                   <TableRow
                     key={insight.id}
@@ -299,37 +281,40 @@ export function AiInsights(): React.JSX.Element {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className="flex flex-col items-start gap-1">
-                        <Badge variant={insightStatusVariant(insight.status)}>
+                      {isVisibleInsightStatus(insight.status) && (
+                        <Badge
+                          variant={insightStatusVariant(insight.status)}
+                          className="whitespace-nowrap"
+                          data-testid="ai-insight-list-status"
+                        >
                           {t(`aiInsights.status.${insight.status}`)}
                         </Badge>
-                        {insight.action != null && (
-                          <Badge
-                            variant={insightActionStatusVariant(insight.action.status)}
-                            className="whitespace-nowrap"
-                            data-testid="ai-insight-list-action"
-                          >
-                            {insight.action.status === 'pending'
-                              ? t('aiInsights.action.pending')
-                              : `${t('aiInsights.action.filter')}: ${t(`aiInsights.action.status.${insight.action.status}`)}`}
+                      )}
+                    </TableCell>
+                    {/* A summary has no root cause, and an insight not analyzed has none yet:
+                        one note across both columns instead of two empty cells. */}
+                    {isSummaryInsight(insight) || insight.category == null ? (
+                      <TableCell colSpan={2} className="text-sm text-muted-foreground">
+                        {isSummaryInsight(insight)
+                          ? t('aiInsights.list.rootCauseNotApplicable')
+                          : t('aiInsights.list.rootCauseNotAnalyzed')}
+                      </TableCell>
+                    ) : (
+                      <>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {t(`aiInsights.category.${insight.category}`)}
                           </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {shown != null ? (
-                        <Badge variant="outline">{t(`aiInsights.category.${shown}`)}</Badge>
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {insight.confidence != null && shown != null ? (
-                        t(`aiInsights.confidence.${insight.confidence}`)
-                      ) : (
-                        <span className="text-muted-foreground">-</span>
-                      )}
-                    </TableCell>
+                        </TableCell>
+                        <TableCell>
+                          {insight.confidence != null ? (
+                            t(`aiInsights.confidence.${insight.confidence}`)
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      </>
+                    )}
                     <TableCell className="whitespace-nowrap">
                       {insight.stationId != null ? (
                         <Link

@@ -7,8 +7,10 @@
  * `ai_proposals` and `ai_proposal_audit_log` (P3). The worker creates them
  * (each with its insight); the API claims, finishes and rejects them. Nothing
  * here runs an action: the API runs a confirmed one through
- * `executeConfirmedToolCall`, as the confirming operator. When an action
- * ends, its insight closes with it (`closeActionInsight`).
+ * `executeConfirmedToolCall`, as the confirming operator. The action has no
+ * status of its own for readers: `ai-insight.service` keeps the insight's one
+ * status, and this service calls it when the action changes state (created:
+ * `markInsightActionPending`; ended: `closeActionInsight`).
  *
  * Status moves once, from `pending` to a terminal status, by compare-and-set
  * (P5). A confirm first claims the row (`decided_by`, `decided_at`, status
@@ -31,7 +33,6 @@ import { aiArgsHash, createLogger } from '@evtivity/lib';
 import type { ServiceLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
-  AI_PROPOSAL_STATUSES,
   AI_WORKER_JOBS,
   aiProposalPreconditionSchema,
   aiProposalResultSchema,
@@ -45,7 +46,12 @@ import type {
   AiProposalStatus,
   AiWorkerJob,
 } from '@evtivity/lib/ai-proposals';
-import { AI_INSIGHT_UPDATED_EVENT, closeActionInsight } from './ai-insight.service.js';
+import {
+  AI_INSIGHT_UPDATED_EVENT,
+  closeActionInsight,
+  markInsightActionPending,
+  publishInsightUpdated,
+} from './ai-insight.service.js';
 
 const moduleLogger = createLogger('ai-proposals');
 
@@ -107,7 +113,6 @@ async function publishUpdated(row: AiProposalRow, log: ServiceLogger): Promise<v
         siteId: row.siteId,
         stationId: row.stationId,
         sessionId: row.sessionId,
-        actionStatus: row.status,
       }),
     );
   } catch (err) {
@@ -116,14 +121,16 @@ async function publishUpdated(row: AiProposalRow, log: ServiceLogger): Promise<v
 }
 
 /**
- * After an action left `pending`: publishes the update and closes its insight
- * (resolved, or dismissed for a rejection). Fail-open (P9): the action's
- * status is already stored.
+ * After an action left `pending`: publishes the update and moves its insight
+ * to the status the end leaves (`closeActionInsight`: done, rejected,
+ * expired, resolved, or open again after a failure). Fail-open (P9): the
+ * action's status is already stored.
  */
 async function afterEnd(
   row: AiProposalRow,
   actor: AiProposalActor,
   log: ServiceLogger,
+  options: { dismissInsight?: boolean } = {},
 ): Promise<void> {
   await publishUpdated(row, log);
   if (row.status === 'pending') return;
@@ -133,6 +140,7 @@ async function afterEnd(
       row.status as Exclude<AiProposalStatus, 'pending'>,
       { actor: actor.actor, actorUserId: actor.actorUserId ?? null },
       getPubSub(),
+      { dismiss: options.dismissInsight === true },
     );
   } catch (err) {
     log.warn({ err, proposalId: row.id }, 'Closing the insight of an ended action failed');
@@ -248,31 +256,46 @@ export async function createAiProposal(
 ): Promise<AiProposalRow | null> {
   checkCreateInput(input, new Date());
   const target = await resolveTarget(input);
-  const [row] = await db
-    .insert(aiProposals)
-    .values({
-      job: input.job,
-      insightId: input.insightId,
-      workerRunId: input.workerRunId ?? null,
-      siteId: target.siteId,
-      stationId: target.stationId,
-      sessionId: target.sessionId,
-      operationId: input.operationId,
-      method: input.method,
-      path: input.path,
-      args: input.args,
-      argsHash: aiArgsHash(input.args),
-      summary: input.summary ?? {},
-      precondition: input.precondition ?? null,
-      dedupKey: input.dedupKey ?? null,
-      expiresAt: input.expiresAt,
+  // The action and its insight's move to pending commit together: an action
+  // whose insight did not move would wait for a decision no one can take.
+  // An insight no longer open (resolved or dismissed meanwhile) gets no action.
+  const created = await db
+    .transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(aiProposals)
+        .values({
+          job: input.job,
+          insightId: input.insightId,
+          workerRunId: input.workerRunId ?? null,
+          siteId: target.siteId,
+          stationId: target.stationId,
+          sessionId: target.sessionId,
+          operationId: input.operationId,
+          method: input.method,
+          path: input.path,
+          args: input.args,
+          argsHash: aiArgsHash(input.args),
+          summary: input.summary ?? {},
+          precondition: input.precondition ?? null,
+          dedupKey: input.dedupKey ?? null,
+          expiresAt: input.expiresAt,
+        })
+        .onConflictDoNothing({
+          target: aiProposals.dedupKey,
+          where: sql`${aiProposals.status} = 'pending' AND ${aiProposals.dedupKey} IS NOT NULL`,
+        })
+        .returning();
+      if (inserted === undefined) return null;
+      const insight = await markInsightActionPending(tx, inserted.insightId);
+      if (insight === null) throw new InsightNotOpen();
+      return { row: inserted, insight };
     })
-    .onConflictDoNothing({
-      target: aiProposals.dedupKey,
-      where: sql`${aiProposals.status} = 'pending' AND ${aiProposals.dedupKey} IS NOT NULL`,
-    })
-    .returning();
-  if (row === undefined) return null;
+    .catch((err: unknown) => {
+      if (err instanceof InsightNotOpen) return null;
+      throw err;
+    });
+  if (created === null) return null;
+  const { row, insight } = created;
   await audit(
     row,
     'created',
@@ -281,8 +304,12 @@ export async function createAiProposal(
     log,
   );
   await publishUpdated(row, log);
+  await publishInsightUpdated(getPubSub(), insight);
   return row;
 }
+
+/** Rolls back an action insert whose insight is no longer open. */
+class InsightNotOpen extends Error {}
 
 // ---------------------------------------------------------------------------
 // Read (site scope)
@@ -432,11 +459,16 @@ export type AiProposalRejection =
   | { kind: 'decided'; row: AiProposalRow }
   | { kind: 'not_found' };
 
-/** Rejects a pending, unclaimed, unexpired proposal. Audits `rejected`. */
+/**
+ * Rejects a pending, unclaimed, unexpired proposal. Audits `rejected`.
+ * `dismissInsight` (the insight's dismiss route) closes the insight
+ * `dismissed` instead of `rejected`.
+ */
 export async function rejectAiProposal(
   id: string,
   actor: AiProposalActor & { actorUserId: string },
   log: ServiceLogger = moduleLogger,
+  options: { dismissInsight?: boolean } = {},
 ): Promise<AiProposalRejection> {
   const [row] = await db
     .update(aiProposals)
@@ -457,7 +489,7 @@ export async function rejectAiProposal(
     .returning();
   if (row !== undefined) {
     await audit(row, 'rejected', actor, { before: PENDING, after: { status: row.status } }, log);
-    await afterEnd(row, actor, log);
+    await afterEnd(row, actor, log, options);
     return { kind: 'rejected', row };
   }
   const expired = await expireOne(id, log);
@@ -625,9 +657,6 @@ export function toAiProposalDto(row: AiProposalRow): AiProposalDto {
     argsHash: row.argsHash,
     summary: row.summary as Record<string, unknown>,
     precondition: row.precondition == null || !precondition.success ? null : precondition.data,
-    status: (AI_PROPOSAL_STATUSES as readonly string[]).includes(row.status)
-      ? (row.status as AiProposalStatus)
-      : 'failed',
     expiresAt: row.expiresAt.toISOString(),
     decidedBy: row.decidedBy,
     decidedAt: iso(row.decidedAt),

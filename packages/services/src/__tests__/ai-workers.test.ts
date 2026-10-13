@@ -61,7 +61,19 @@ describe('worker suggestions', () => {
       sessionId: 'ses_000000000001',
       triggerKey: 'stuck_sessions:ses_000000000001:2026-10-10T10:15',
       narrative: null,
+      rootCause: { category: 'connectivity', confidence: 'high' },
     });
+  });
+
+  it('gives a stuck session the root cause of its reason', () => {
+    const rootCause = (reason: 'no_activity' | 'station_offline' | 'connector_available') =>
+      stopSessionProposal({ ...session, reason }, opts)?.insight.rootCause;
+    expect(rootCause('station_offline')).toEqual({ category: 'connectivity', confidence: 'high' });
+    expect(rootCause('connector_available')).toEqual({
+      category: 'connectivity',
+      confidence: 'medium',
+    });
+    expect(rootCause('no_activity')).toEqual({ category: 'unknown', confidence: 'low' });
   });
 
   it('suggests a soft reset of a long faulted station as a station insight, one per day', () => {
@@ -117,7 +129,7 @@ describe('AI insight action digest templates (TC-AI-WK-14)', () => {
     networkSummaryCount: 1,
     siteCount: 2,
     siteNames: 'Site A, Site B',
-    insightsUrl: 'https://csms.example.com/ai/insights?action=pending',
+    insightsUrl: 'https://csms.example.com/ai/insights?status=pending',
     companyName: 'EVtivity',
   };
 
@@ -131,7 +143,7 @@ describe('AI insight action digest templates (TC-AI-WK-14)', () => {
       );
       const email = compileTemplate(readFileSync(`${dir}/email.hbs`, 'utf8'), variables);
       const subject = compileTemplate(readFileSync(`${dir}/subject.hbs`, 'utf8'), variables);
-      expect(email).toContain('https://csms.example.com/ai/insights?action');
+      expect(email).toContain('https://csms.example.com/ai/insights?status');
       expect(email).toContain('Site A, Site B');
       expect(email).toContain('3');
       expect(subject).toContain('EVtivity');

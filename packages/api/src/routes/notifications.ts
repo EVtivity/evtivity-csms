@@ -1587,7 +1587,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         networkSummaryCount: 1,
         siteCount: 2,
         siteNames: 'Downtown Charging Hub, Airport Parking',
-        insightsUrl: 'https://csms.example.com/ai/insights?action=pending',
+        insightsUrl: 'https://csms.example.com/ai/insights?status=pending',
         balanceCents: 350,
         // Money and rates as the dispatcher formats them, in the template language.
         ...formatLocalizedVariables(

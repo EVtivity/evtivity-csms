@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useAiStatus } from './use-ai-status';
 import { useAiPanelStore } from './use-ai-panel-store';
 import type { AiPanelContext } from './use-ai-panel-store';
+import type { AiRecordContextKind } from '@evtivity/lib/ai-insights';
 import type { AiInsightView } from './insights/insight-api';
 import { insightFilterFor, isFreshInsight, useInsights } from './insights/insight-api';
 
@@ -22,19 +23,20 @@ export function useCanExplain(): boolean {
 }
 
 /**
- * Opens the panel about a record: the context card (the record and its latest
- * insight's headline, cause and fixes) and the prefilled Explain question.
+ * Opens the panel about a record: the context chip (the record kind and its
+ * id) and the prefilled Explain question.
  */
 export function useOpenExplain(): (context: AiPanelContext) => void {
   return useAiPanelStore((s) => s.openWithContext);
 }
 
 interface ExplainButtonProps {
-  context: AiPanelContext;
+  /** An operational record; an insight opens the assistant through its card. */
+  context: AiPanelContext & { kind: AiRecordContextKind };
   /**
    * The record's insight when the caller already has it (authorize log rows),
    * for the icon. Omitted: the button reads it from the same cached query the
-   * insight card and the panel's context card use.
+   * insight card uses.
    */
   insight?: AiInsightView | null | undefined;
   /** An icon button for table rows. */

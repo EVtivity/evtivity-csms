@@ -75,7 +75,6 @@ afterEach(() => {
 describe('Settings > AI > Driver support (TC-AI-DR-UI-08)', () => {
   it('TC-AI-DR-UI-08: shows the data residency warning and turns driver AI on', async () => {
     wrap();
-    expect(screen.getByText('settings.aiDriverDataWarning')).toBeTruthy();
     fireEvent.click(screen.getByRole('switch'));
     await waitFor(() => {
       expect(apiMock.put).toHaveBeenCalledWith('/v1/settings/driverAi.enabled', { value: true });

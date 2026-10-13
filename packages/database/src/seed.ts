@@ -13,12 +13,12 @@
 // db:migrate, then re-run this seed. For production initial setup see
 // seed-admin.ts; for the docker-build dev station fixture see seed-dev-stations.ts.
 
+import { randomUUID } from 'node:crypto';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, client } from './config.js';
 import { sql, eq, and, inArray, isNotNull, isNull } from 'drizzle-orm';
-import { createId } from './lib/id.js';
 import { getCompanyCurrency, clearSystemSettingsCache } from './lib/system-settings.js';
 import {
   settings,
@@ -1892,7 +1892,9 @@ async function seed(): Promise<void> {
       evseId: evse.id,
       connectorId: at(connectorRows, createdEvses.indexOf(evse)).evseId,
       driverId: driver.id,
-      transactionId: createId('session'),
+      // What a real station sends: an integer on OCPP 1.6, a UUID on 2.1.
+      transactionId:
+        at(stationRows, stationIdx).ocppProtocol === 'ocpp1.6' ? String(100000 + i) : randomUUID(),
       status,
       startedAt,
       endedAt,
@@ -2746,6 +2748,26 @@ async function seed(): Promise<void> {
       now: seedNow,
     });
     console.log(`  ${String(reservationInsights)} reservation insights created.`);
+  }
+
+  // ------ AI insights ------
+  // At least one insight of every other kind and every shown status, with
+  // their trigger rows, demo sessions and actions (seed-ai-insights.ts), so
+  // the AI Insights page shows data without a model call.
+  {
+    const [insightActor] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, initialAdminEmail));
+    const { seedAiInsightsDemo } = await import('./seed-ai-insights.js');
+    const aiInsights = await seedAiInsightsDemo(client, {
+      now: seedNow,
+      currency: companyCurrency,
+      driverId: at(createdDrivers, 2).id,
+      actorUserId: insightActor?.id ?? null,
+      subjectSecret: process.env['SETTINGS_ENCRYPTION_KEY'] ?? '',
+    });
+    console.log(`  ${String(aiInsights)} AI insights created.`);
   }
 
   // Portal driver support cases (the portal Support page should show data)

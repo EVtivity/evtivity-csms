@@ -9,7 +9,12 @@
  */
 
 import { listProviderEntries } from '@evtivity/ai/core';
-import { OCPP_VERSION_RULE, SECURITY_RULES, SUPPORT_BODY_ONLY } from '../engine/prompt.js';
+import {
+  DOCS_SEARCH_RULE,
+  OCPP_VERSION_RULE,
+  SECURITY_RULES,
+  SUPPORT_BODY_ONLY,
+} from '../engine/prompt.js';
 import { defaultSystemPrompt } from '../engine/prompt-defaults.js';
 import { defaultOpsPrompt, OPS_SECURITY_RULES } from '@evtivity/services/ai-ops-prompt';
 import { DRIVER_AI_RULES, defaultDriverAiPrompt } from '@evtivity/services/driver-ai-prompt';
@@ -48,8 +53,9 @@ export interface AiDefaults {
 
 /** The rules always added for a surface, in the order the prompt has them. */
 function fixedRules(surface: AiSurface): string {
-  const extra = surface === 'chatbot' ? OCPP_VERSION_RULE : SUPPORT_BODY_ONLY;
-  return `${SECURITY_RULES}\n\n${extra}`;
+  return surface === 'chatbot'
+    ? `${SECURITY_RULES}\n\n${OCPP_VERSION_RULE}\n\n${DOCS_SEARCH_RULE}`
+    : `${SECURITY_RULES}\n\n${DOCS_SEARCH_RULE}\n\n${SUPPORT_BODY_ONLY}`;
 }
 
 export function buildAiDefaults(language: PromptLanguage): AiDefaults {

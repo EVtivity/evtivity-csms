@@ -23,9 +23,8 @@ const {
   buildStationEvidence,
   evidenceIds,
   renderEvidencePack,
-  authorizationSubjectId,
-  keyedSubjectHash,
 } = await import('../ai-evidence/index.js');
+const { authorizationSubjectId, keyedSubjectHash } = await import('@evtivity/lib');
 const { SESSION_END_FAILED_REASON, authorizeOutcomeEnum, reservationCancelReasonEnum } =
   await import('@evtivity/database');
 

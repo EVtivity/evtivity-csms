@@ -66,21 +66,34 @@ function ImageChip({ src, alt }: { src: string | undefined; alt: string }): Reac
   );
 }
 
+/**
+ * A link from an AI answer: clickable only when the link policy allows it
+ * (an https URL on the allowlist), else plain text. Answer markdown and the
+ * sources list both render links through it.
+ */
+export function AiLink({
+  href,
+  children,
+}: {
+  href: string | null | undefined;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  const safe = allowedAiLink(href, LINK_ALLOWLIST);
+  if (safe == null) return <span className="break-all">{children}</span>;
+  return (
+    <a
+      href={safe}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="text-link underline hover:text-link/80"
+    >
+      {children}
+    </a>
+  );
+}
+
 const components: Components = {
-  a: ({ href, children }) => {
-    const safe = allowedAiLink(href, LINK_ALLOWLIST);
-    if (safe == null) return <span className="break-all">{children}</span>;
-    return (
-      <a
-        href={safe}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-link underline hover:text-link/80"
-      >
-        {children}
-      </a>
-    );
-  },
+  a: ({ href, children }) => <AiLink href={href}>{children}</AiLink>,
   img: ({ src, alt }) => (
     <ImageChip src={typeof src === 'string' ? src : undefined} alt={alt ?? ''} />
   ),

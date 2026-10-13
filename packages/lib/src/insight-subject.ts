@@ -14,3 +14,17 @@ export function keyedSubjectHash(value: string, secret: string): string {
   if (secret === '') throw new Error('keyedSubjectHash needs the server secret');
   return createHmac('sha256', secret).update(value).digest('hex').slice(0, 24);
 }
+
+/**
+ * The subject id of an authorization insight: the station and a keyed hash
+ * of the token (HMAC-SHA256 with a server secret, so a short RFID UID cannot
+ * be recovered from the id; the raw token value is never stored on an
+ * insight). Shared by the insight scan and the demo seed.
+ */
+export function authorizationSubjectId(
+  stationDbId: string,
+  idToken: string,
+  secret: string,
+): string {
+  return `${stationDbId}:${keyedSubjectHash(idToken, secret)}`;
+}

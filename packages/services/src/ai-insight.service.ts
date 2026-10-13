@@ -35,6 +35,8 @@ import {
   aiInsightDtoSchema,
   INSIGHT_KIND_FALLBACKS,
   INSIGHT_KINDS,
+  INSIGHT_LIVE_STATUSES,
+  INSIGHT_VISIBLE_STATUSES,
   insightFixSchema,
   insightScopeSchema,
   RESERVATION_INSIGHT_KINDS,
@@ -42,7 +44,6 @@ import {
 import type { AiProposalDto, AiProposalStatus } from '@evtivity/lib/ai-proposals';
 import type {
   AiInsightDto,
-  InsightActionFilter,
   InsightConfidence,
   InsightFeedbackFilter,
   InsightFeedbackRate,
@@ -54,6 +55,7 @@ import type {
   InsightSkipReason,
   InsightStatus,
   InsightTextStatus,
+  InsightVisibleStatus,
   RootCauseCategory,
   WorkerActionInsightKind,
 } from '@evtivity/lib/ai-insights';
@@ -68,9 +70,15 @@ export const AI_INSIGHT_REQUESTS_CHANNEL = 'ai_insight_requests';
 /** SSE event on `csms_events` when an insight is created, generated or closed. */
 export const AI_INSIGHT_UPDATED_EVENT = 'ai.insight.updated';
 
+/**
+ * Not closed yet: the generation runs (`analyzing`), or the insight is shown
+ * and still asks for attention (`open`, `pending`). A resolve or a dismissal
+ * moves only these (P5): every other status is final.
+ */
 export const OPEN_INSIGHT_STATUSES = [
+  'analyzing',
+  'open',
   'pending',
-  'active',
 ] as const satisfies readonly InsightStatus[];
 
 export type AiInsightRow = typeof aiInsights.$inferSelect;
@@ -98,7 +106,7 @@ export interface NewInsight {
   reservationId?: string | null;
   parentInsightId?: string | null;
   /** `superseded`: a member of a site incident, never generated on its own. */
-  status?: 'pending' | 'superseded';
+  status?: 'analyzing' | 'superseded';
   requestedBy?: string | null;
 }
 
@@ -122,7 +130,7 @@ export async function createInsight(input: NewInsight): Promise<string | null> {
       authorizeAttemptId: input.authorizeAttemptId ?? null,
       reservationId: input.reservationId ?? null,
       parentInsightId: input.parentInsightId ?? null,
-      status: input.status ?? 'pending',
+      status: input.status ?? 'analyzing',
       requestedBy: input.requestedBy ?? null,
     })
     .onConflictDoNothing({
@@ -194,9 +202,8 @@ export interface SkippedInsightFields {
 }
 
 /**
- * `pending` to `skipped` with a reason, optionally with the rule fallback's
- * structured fields (a budget refusal still shows a category and fixes).
- * False when the insight was no longer pending.
+ * `analyzing` to `skipped` with a reason, optionally with the rule fallback's
+ * structured fields. False when the insight was no longer analyzing.
  */
 export async function skipInsight(
   id: string,
@@ -219,17 +226,17 @@ export async function skipInsight(
         : {}),
       updatedAt: sql`now()`,
     })
-    .where(and(eq(aiInsights.id, id), eq(aiInsights.status, 'pending')))
+    .where(and(eq(aiInsights.id, id), eq(aiInsights.status, 'analyzing')))
     .returning({ id: aiInsights.id });
   return rows.length > 0;
 }
 
-/** `pending` to `failed` (the job used up its attempts). */
+/** `analyzing` to `failed` (the job used up its attempts). */
 export async function failInsight(id: string): Promise<boolean> {
   const rows = await db
     .update(aiInsights)
     .set({ status: 'failed', updatedAt: sql`now()` })
-    .where(and(eq(aiInsights.id, id), eq(aiInsights.status, 'pending')))
+    .where(and(eq(aiInsights.id, id), eq(aiInsights.status, 'analyzing')))
     .returning({ id: aiInsights.id });
   return rows.length > 0;
 }
@@ -251,16 +258,16 @@ export interface InsightResult {
 }
 
 /**
- * Stores a generated or rule insight: `pending` to `active` with its
+ * Stores a generated or rule insight: `analyzing` to `open` with its
  * structured fields, and the canonical text, in one transaction. False (and
- * nothing written) when the insight was no longer pending (P5).
+ * nothing written) when the insight was no longer analyzing (P5).
  */
 export async function activateInsight(id: string, result: InsightResult): Promise<boolean> {
   return db.transaction(async (tx) => {
     const rows = await tx
       .update(aiInsights)
       .set({
-        status: 'active',
+        status: 'open',
         skipReason: null,
         category: result.category,
         confidence: result.confidence,
@@ -275,7 +282,7 @@ export async function activateInsight(id: string, result: InsightResult): Promis
         model: result.model,
         updatedAt: sql`now()`,
       })
-      .where(and(eq(aiInsights.id, id), eq(aiInsights.status, 'pending')))
+      .where(and(eq(aiInsights.id, id), eq(aiInsights.status, 'analyzing')))
       .returning({ id: aiInsights.id });
     if (rows.length === 0) return false;
     if (result.summary == null) return true;
@@ -301,7 +308,7 @@ export async function activateInsight(id: string, result: InsightResult): Promis
   });
 }
 
-/** Open to `resolved` (the condition cleared). Returns the ids it closed. */
+/** Not closed to `resolved` (the condition cleared). Returns the ids it closed. */
 export async function resolveInsights(ids: readonly string[]): Promise<string[]> {
   if (ids.length === 0) return [];
   const rows = await db
@@ -313,7 +320,7 @@ export async function resolveInsights(ids: readonly string[]): Promise<string[]>
 }
 
 /**
- * Links pending station insights to their site incident: they end
+ * Links analyzing station insights to their site incident: they end
  * `superseded` with the incident as parent and get no model call.
  */
 export async function attachToIncident(
@@ -324,12 +331,12 @@ export async function attachToIncident(
   const rows = await db
     .update(aiInsights)
     .set({ status: 'superseded', parentInsightId: parentId, updatedAt: sql`now()` })
-    .where(and(inArray(aiInsights.id, [...memberIds]), eq(aiInsights.status, 'pending')))
+    .where(and(inArray(aiInsights.id, [...memberIds]), eq(aiInsights.status, 'analyzing')))
     .returning({ id: aiInsights.id });
   return rows.map((r) => r.id);
 }
 
-/** Open to `dismissed` by an operator, audited. False when it was already closed. */
+/** Not closed to `dismissed` by an operator, audited. False when it was already closed. */
 export async function dismissInsight(id: string, actor: InsightAuditActor): Promise<boolean> {
   const rows = await db
     .update(aiInsights)
@@ -475,6 +482,8 @@ export async function insightFeedbackRates(
   ];
   const scope = insightSiteCondition(siteIds);
   if (scope != null) conditions.push(scope);
+  // Internal generation states are never counted.
+  conditions.push(inArray(aiInsights.status, [...INSIGHT_VISIBLE_STATUSES]));
   if (options.excludeReservations) {
     conditions.push(notInArray(aiInsights.kind, [...RESERVATION_INSIGHT_KINDS]));
   }
@@ -496,7 +505,13 @@ export async function insightFeedbackRates(
 
 async function auditInsight(
   id: string,
-  action: 'regenerated' | 'dismissed' | 'feedback_helpful' | 'feedback_wrong' | 'feedback_cleared',
+  action:
+    | 'regenerated'
+    | 'dismissed'
+    | 'rejected'
+    | 'feedback_helpful'
+    | 'feedback_wrong'
+    | 'feedback_cleared',
   actor: InsightAuditActor,
   after: Record<string, unknown>,
   before: Record<string, unknown> | null = null,
@@ -518,21 +533,21 @@ async function auditInsight(
   );
 }
 
-/** Statuses an operator can regenerate from (never a pending or dismissed one). */
-export const REGENERATABLE_STATUSES = ['active', 'resolved', 'skipped', 'failed'] as const;
+/** Statuses an operator can regenerate from (never an analyzing or dismissed one). */
+export const REGENERATABLE_STATUSES = ['open', 'resolved', 'skipped', 'failed'] as const;
 
 export type RegenerateResult =
   | { status: 'created'; insightId: string }
-  /** Not regeneratable: pending, dismissed, superseded or a site incident member. */
+  /** Not regeneratable: analyzing, dismissed, superseded or a site incident member. */
   | { status: 'not_allowed' }
-  /** A generation of the same subject and kind is already pending. */
+  /** A generation of the same subject and kind is already analyzing. */
   | { status: 'busy' };
 
 /**
- * A new generation of an insight an operator asked for: a new `pending`
+ * A new generation of an insight an operator asked for: a new `analyzing`
  * insight of the same subject, charged to the user, and the old one
- * `superseded` when it was still active. The old row is locked, so two
- * clicks make one new insight; a pending generation of the subject refuses
+ * `superseded` when it was still open. The old row is locked, so two clicks
+ * make one new insight; an analyzing generation of the subject refuses
  * another.
  */
 export async function regenerateInsight(
@@ -561,7 +576,7 @@ export async function regenerateInsight(
           eq(aiInsights.kind, old.kind),
           eq(aiInsights.subjectType, old.subjectType),
           eq(aiInsights.subjectId, old.subjectId),
-          eq(aiInsights.status, 'pending'),
+          eq(aiInsights.status, 'analyzing'),
         ),
       )
       .limit(1);
@@ -579,7 +594,7 @@ export async function regenerateInsight(
         authorizeAttemptId: old.authorizeAttemptId,
         reservationId: old.reservationId,
         primaryLanguage: old.primaryLanguage,
-        status: 'pending',
+        status: 'analyzing',
         requestedBy: actor.actorUserId,
       })
       .returning({ id: aiInsights.id });
@@ -594,7 +609,7 @@ export async function regenerateInsight(
     await tx
       .update(aiInsights)
       .set({ status: 'superseded', updatedAt: sql`now()` })
-      .where(and(eq(aiInsights.id, old.id), eq(aiInsights.status, 'active')));
+      .where(and(eq(aiInsights.id, old.id), eq(aiInsights.status, 'open')));
     return { status: 'created', insightId: created.id };
   });
   if (result.status === 'created') {
@@ -763,7 +778,8 @@ export interface InsightListFilter {
   reservationId?: string;
   siteId?: string;
   kind?: InsightKind;
-  status?: InsightStatus;
+  /** Any of these shown statuses; internal statuses are never listed. */
+  statuses?: readonly InsightVisibleStatus[];
   category?: RootCauseCategory;
   /** Support case panel: the case station and its accessible linked sessions. */
   supportCase?: { stationId: string | null; sessionIds: readonly string[] };
@@ -780,8 +796,6 @@ export interface InsightListFilter {
   excludeReservations?: boolean;
   /** Insights someone marked helpful, or wrong (any user's vote). */
   feedback?: InsightFeedbackFilter;
-  /** Insights that carry an action (`any`), or one waiting for a decision (`pending`). */
-  action?: InsightActionFilter;
 }
 
 /** The SQL test that an attempt `a` belongs to the authorization insight's group. */
@@ -837,7 +851,8 @@ export async function listInsightRows(
   siteIds: readonly string[] | null,
   page: { limit: number; offset: number },
 ): Promise<{ rows: AiInsightRow[]; total: number }> {
-  const conditions: SQL[] = [];
+  // Internal generation states (analyzing, skipped, failed, superseded) are never listed or counted.
+  const conditions: SQL[] = [inArray(aiInsights.status, [...INSIGHT_VISIBLE_STATUSES])];
   const scope = insightSiteCondition(siteIds);
   if (scope != null) conditions.push(scope);
   if (filter.stationId != null) {
@@ -857,23 +872,13 @@ export async function listInsightRows(
   }
   if (filter.siteId != null) conditions.push(eq(aiInsights.siteId, filter.siteId));
   if (filter.kind != null) conditions.push(eq(aiInsights.kind, filter.kind));
-  if (filter.status != null) conditions.push(eq(aiInsights.status, filter.status));
+  if (filter.statuses != null) conditions.push(inArray(aiInsights.status, [...filter.statuses]));
   if (filter.category != null) conditions.push(eq(aiInsights.category, filter.category));
   if (filter.feedback != null) {
     conditions.push(sql`EXISTS (
       SELECT 1 FROM ai_insight_feedback f
       WHERE f.insight_id = ${aiInsights.id} AND f.helpful = ${filter.feedback === 'helpful'}
     )`);
-  }
-  if (filter.action != null) {
-    conditions.push(
-      filter.action === 'pending'
-        ? sql`EXISTS (
-            SELECT 1 FROM ai_proposals p
-            WHERE p.insight_id = ${aiInsights.id} AND p.status = 'pending'
-          )`
-        : sql`EXISTS (SELECT 1 FROM ai_proposals p WHERE p.insight_id = ${aiInsights.id})`,
-    );
   }
   if (filter.authorizeAttemptIds != null) {
     if (filter.authorizeAttemptIds.length === 0) {
@@ -895,7 +900,7 @@ export async function listInsightRows(
     if (sessionIds.length > 0) parts.push(inArray(aiInsights.sessionId, [...sessionIds]));
     conditions.push(parts.length === 0 ? sql`false` : (or(...parts) as SQL));
   }
-  const where = conditions.length > 0 ? and(...conditions) : undefined;
+  const where = and(...conditions);
   const [rows, [count]] = await Promise.all([
     db
       .select()
@@ -990,7 +995,7 @@ export function toInsightDto(
     textStatus = 'ready';
   } else if (requested?.status === 'pending') {
     textStatus = 'pending';
-  } else if (row.status === 'pending') {
+  } else if (row.status === 'analyzing') {
     textStatus = 'pending';
   }
   // The schema keeps the site counts only: a key left from an older release is dropped.
@@ -1043,7 +1048,10 @@ export function originalSummary(
  * (`stale`). Closed insights are never reported stale.
  */
 export async function staleFlags(rows: readonly AiInsightRow[]): Promise<Map<string, boolean>> {
-  const open = rows.filter((r) => r.status === 'active' && r.basisFingerprint != null);
+  const open = rows.filter(
+    (r) =>
+      (INSIGHT_LIVE_STATUSES as readonly string[]).includes(r.status) && r.basisFingerprint != null,
+  );
   const current = await currentFingerprints(
     open.map((r) => ({
       id: r.id,
@@ -1060,73 +1068,6 @@ export async function staleFlags(rows: readonly AiInsightRow[]): Promise<Map<str
     out.set(r.id, now !== undefined && now !== null && now !== r.basisFingerprint);
   }
   return out;
-}
-
-export interface InsightSubjectQuery {
-  kind: 'station' | 'session' | 'authorization' | 'reservation';
-  stationId: string | null;
-  sessionId: string | null;
-  authorizeAttemptId: number | null;
-  reservationId: string | null;
-}
-
-/**
- * The newest active, not stale insight of a record, for Explain: its text in
- * `language` when that translation is ready, else the canonical text. Reads
- * only: no model call and no translation request (Explain spends no tokens
- * on the insight). The caller has checked the record's site scope.
- */
-export async function latestActiveInsight(
-  subject: InsightSubjectQuery,
-  language: string,
-): Promise<AiInsightDto | null> {
-  const conditions: SQL[] = [eq(aiInsights.status, 'active')];
-  if (subject.kind === 'station') {
-    if (subject.stationId == null) return null;
-    conditions.push(
-      eq(aiInsights.stationId, subject.stationId),
-      inArray(aiInsights.kind, ['station_offline', 'station_faulted', 'station_alert']),
-    );
-  } else if (subject.kind === 'session') {
-    if (subject.sessionId == null) return null;
-    conditions.push(eq(aiInsights.sessionId, subject.sessionId));
-  } else if (subject.kind === 'reservation') {
-    if (subject.reservationId == null) return null;
-    conditions.push(
-      eq(aiInsights.reservationId, subject.reservationId),
-      inArray(aiInsights.kind, [...RESERVATION_INSIGHT_KINDS]),
-    );
-  } else {
-    if (subject.authorizeAttemptId == null || subject.stationId == null) return null;
-    // The insights of the same token at the station: their first refused
-    // attempt carries the same token value.
-    conditions.push(
-      eq(aiInsights.kind, 'authorization_refused'),
-      eq(aiInsights.stationId, subject.stationId),
-      sql`EXISTS (
-        SELECT 1 FROM authorize_attempts a, authorize_attempts b
-        WHERE a.id = ${aiInsights.authorizeAttemptId} AND b.id = ${subject.authorizeAttemptId}
-          AND a.id_token = b.id_token
-      )`,
-    );
-  }
-  const rows = await db
-    .select()
-    .from(aiInsights)
-    .where(and(...conditions))
-    .orderBy(desc(aiInsights.createdAt), desc(aiInsights.id))
-    .limit(5);
-  if (rows.length === 0) return null;
-  const stale = await staleFlags(rows);
-  const row = rows.find((r) => stale.get(r.id) !== true);
-  if (row == null) return null;
-  const texts = (await insightTexts([row], language)).get(row.id);
-  const requestedReady = texts?.requested?.status === 'ready';
-  const shown = requestedReady || texts?.primary == null ? texts : { requested: texts.primary };
-  return toInsightDto(row, shown, {
-    language: requestedReady ? language : row.primaryLanguage,
-    stale: false,
-  });
 }
 
 /** A background worker's insight (lane R5): a summary or tariff findings. */
@@ -1183,7 +1124,7 @@ export async function storeWorkerInsight(
       stationId: null,
       sessionId: null,
       kind: input.kind,
-      status: 'active',
+      status: 'open',
     });
   }
   return id;
@@ -1202,14 +1143,32 @@ export interface WorkerActionInsightInput {
   narrative: { text: string; language: string; provider: string; model: string } | null;
   /** The language when there is no narrative (`aiInsights.primaryLanguage`). */
   primaryLanguage: string;
+  /**
+   * The root cause the worker knows from its own signal (a stuck session on
+   * an offline station); unset keeps the kind's fallback category.
+   */
+  rootCause?: { category: RootCauseCategory; confidence: InsightConfidence };
 }
 
 /**
- * Stores a background worker suggestion as an active insight with the kind's
- * structured fields (`INSIGHT_KIND_FALLBACKS`); the caller then creates its
- * action (`createAiProposal` with this insight id). One insight per trigger
- * key (P7): a repeated trigger returns null. Publishes the SSE update
- * (fail-open).
+ * The root cause of a worker suggestion: the worker's own when it has one,
+ * else the kind's fallback (`INSIGHT_KIND_FALLBACKS`), with `low` confidence
+ * when that fallback is `unknown` and `medium` otherwise.
+ */
+export function workerActionRootCause(
+  input: Pick<WorkerActionInsightInput, 'kind' | 'rootCause'>,
+): { category: RootCauseCategory; confidence: InsightConfidence } {
+  if (input.rootCause !== undefined) return input.rootCause;
+  const { category } = INSIGHT_KIND_FALLBACKS[input.kind];
+  return { category, confidence: category === 'unknown' ? 'low' : 'medium' };
+}
+
+/**
+ * Stores a background worker suggestion as an open insight with its root
+ * cause (`workerActionRootCause`) and the kind's fixes (`INSIGHT_KIND_FALLBACKS`); the caller then creates its
+ * action (`createAiProposal` with this insight id), which moves the insight to
+ * `pending` (`markInsightActionPending`). One insight per trigger key (P7): a
+ * repeated trigger returns null. Publishes the SSE update (fail-open).
  */
 export async function storeWorkerActionInsight(
   input: WorkerActionInsightInput,
@@ -1228,9 +1187,10 @@ export async function storeWorkerActionInsight(
   });
   if (id == null) return null;
   const rule = INSIGHT_KIND_FALLBACKS[input.kind];
+  const rootCause = workerActionRootCause(input);
   const stored = await activateInsight(id, {
-    category: rule.category,
-    confidence: 'medium',
+    category: rootCause.category,
+    confidence: rootCause.confidence,
     fixes: rule.fixes.map((code) => ({ code })),
     evidenceRefs: [],
     scope: {},
@@ -1249,41 +1209,82 @@ export async function storeWorkerActionInsight(
       stationId: input.stationId,
       sessionId: input.sessionId,
       kind: input.kind,
-      status: 'active',
+      status: 'open',
     });
   }
   return id;
 }
 
+/** The database, or a transaction of it. */
+export type InsightDbOrTx = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /**
- * Closes an open insight when its action ends (P5, compare-and-set from an
- * open status): a rejected action dismisses it (audited, as the rejecting
- * user), any other end resolves it (executed, failed, stale, expired). False
- * when the insight was already closed.
+ * The insight's action now waits for a decision: `open` to `pending`
+ * (compare-and-set, P5). `ai-proposal.service` calls it inside the
+ * transaction that inserts the action, so the action and the status commit
+ * together, and publishes the returned row after the commit. Null when the
+ * insight was no longer open (resolved or dismissed meanwhile): its status
+ * stays.
+ */
+export async function markInsightActionPending(
+  tx: InsightDbOrTx,
+  insightId: string,
+): Promise<AiInsightRow | null> {
+  const [row] = await tx
+    .update(aiInsights)
+    .set({ status: 'pending', updatedAt: sql`now()` })
+    .where(and(eq(aiInsights.id, insightId), eq(aiInsights.status, 'open')))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * The insight status an ended action leaves: executed `done`, rejected
+ * `rejected`, expired `expired`, stale (its precondition no longer held)
+ * `resolved`, failed `open` (the problem stands; the action's result shows
+ * why it did not run).
+ */
+export const ACTION_END_INSIGHT_STATUS = {
+  executed: 'done',
+  rejected: 'rejected',
+  expired: 'expired',
+  stale: 'resolved',
+  failed: 'open',
+} as const satisfies Record<Exclude<AiProposalStatus, 'pending'>, InsightVisibleStatus>;
+
+/**
+ * Moves the insight when its action ends (`ACTION_END_INSIGHT_STATUS`), only
+ * from `pending` (compare-and-set, P5): an insight resolved or dismissed while
+ * its action waited keeps that terminal status. A rejection is audited as the
+ * rejecting user. `dismiss` (a rejection made by dismissing the insight)
+ * closes it `dismissed` instead, audited as the dismissal. False when the
+ * insight was no longer pending.
  */
 export async function closeActionInsight(
   insightId: string,
   actionStatus: Exclude<AiProposalStatus, 'pending'>,
   actor: InsightAuditActor,
   pubsub: PubSubClient,
+  options: { dismiss?: boolean } = {},
 ): Promise<boolean> {
-  const rejected = actionStatus === 'rejected';
+  const dismiss = options.dismiss === true && actionStatus === 'rejected';
+  const status = dismiss ? 'dismissed' : ACTION_END_INSIGHT_STATUS[actionStatus];
   const [row] = await db
     .update(aiInsights)
-    .set(
-      rejected
-        ? {
-            status: 'dismissed',
-            dismissedAt: sql`now()`,
-            dismissedBy: actor.actorUserId ?? null,
-            updatedAt: sql`now()`,
-          }
-        : { status: 'resolved', resolvedAt: sql`now()`, updatedAt: sql`now()` },
-    )
-    .where(and(eq(aiInsights.id, insightId), inArray(aiInsights.status, OPEN_INSIGHT_STATUSES)))
+    .set({
+      status,
+      ...(status === 'resolved' ? { resolvedAt: sql`now()` } : {}),
+      ...(dismiss ? { dismissedAt: sql`now()`, dismissedBy: actor.actorUserId ?? null } : {}),
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(aiInsights.id, insightId), eq(aiInsights.status, 'pending')))
     .returning();
   if (row == null) return false;
-  if (rejected) await auditInsight(insightId, 'dismissed', actor, { status: 'dismissed' });
+  if (dismiss) {
+    await auditInsight(insightId, 'dismissed', actor, { status: 'dismissed' });
+  } else if (status === 'rejected') {
+    await auditInsight(insightId, 'rejected', actor, { status: 'rejected' });
+  }
   await publishInsightUpdated(pubsub, row);
   return true;
 }

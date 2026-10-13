@@ -46,14 +46,20 @@ export interface DigestCounts {
   siteNames: string;
 }
 
-/** Counts of the pending insight actions a user may see (their sites, unsited for all-site users). */
+/**
+ * Counts of the insights with status `pending` (their action waits for a
+ * decision) a user may see (their sites, unsited for all-site users). The
+ * insight's status decides, the same as the list the email links to.
+ */
 export async function pendingDigestCounts(
   userId: string,
   allSites: boolean,
 ): Promise<DigestCounts> {
   const rows = await client<PendingRow[]>`
     SELECT p.job, p.site_id, s.name AS site_name
-    FROM ai_proposals p LEFT JOIN sites s ON s.id = p.site_id
+    FROM ai_proposals p
+    JOIN ai_insights i ON i.id = p.insight_id AND i.status = 'pending'
+    LEFT JOIN sites s ON s.id = p.site_id
     WHERE p.status = 'pending' AND p.decided_at IS NULL
       AND p.expires_at > now()
       AND (${allSites} OR p.site_id IN (

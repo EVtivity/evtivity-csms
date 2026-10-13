@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { INSIGHT_SUMMARY_MAX_LENGTH } from '@evtivity/lib/ai-insights';
 import {
   INSIGHT_SUMMARY_TARGET_LENGTH,
+  INSIGHT_CATEGORY_RULE,
   insightAnswerContract,
   insightRepairRequest,
   insightSystemBlocks,
@@ -20,6 +21,12 @@ describe('insight prompt', () => {
     expect(contract).toContain(
       `summary over ${String(INSIGHT_SUMMARY_MAX_LENGTH)} characters is rejected`,
     );
+  });
+
+  it('asks for the most likely root cause and keeps unknown for no evidence', () => {
+    const contract = insightAnswerContract('en');
+    expect(contract).toContain(INSIGHT_CATEGORY_RULE);
+    expect(INSIGHT_CATEGORY_RULE).toContain('Answer "unknown" only when no evidence item');
   });
 
   it('names the problem in the repair request', () => {
@@ -82,5 +89,14 @@ describe('stuck-session rationale prompt', () => {
       /^Operator prompt\./,
     );
     expect(opsSystemPrompt('network_summary', 'en', '')).not.toContain('measuredSilenceMinutes');
+  });
+
+  it('ties the stuck-session text to the stop action, under the operator prompt too', () => {
+    for (const custom of ['', 'Operator prompt.']) {
+      const prompt = opsSystemPrompt('stuck_sessions', 'en', custom);
+      expect(prompt).toContain('one suggested action: stop this session');
+      expect(prompt).toContain('Never recommend waiting, monitoring or any other action instead');
+    }
+    expect(opsSystemPrompt('tariff_anomalies', 'en', '')).not.toContain('stop this session');
   });
 });

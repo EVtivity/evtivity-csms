@@ -8,6 +8,7 @@ import { Send } from 'lucide-react';
 import { useTab } from '@/hooks/use-tab';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { SaveButton } from '@/components/save-button';
+import { CopyableId } from '@/components/copyable-id';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -84,7 +85,6 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
 
   const [emailWrapperTemplate, setEmailWrapperTemplate] = useState(DEFAULT_EMAIL_WRAPPER);
   const [notificationSubTab, setNotificationSubTab] = useTab('smtp', 'sub');
-  const [copiedVar, setCopiedVar] = useState<string | null>(null);
 
   useEffect(() => {
     if (settings == null) return;
@@ -507,26 +507,11 @@ export function NotificationSettings({ settings }: NotificationSettingsProps): R
                   'companyCountry',
                   'companyCurrency',
                 ].map((v) => (
-                  <span key={v} className="relative">
-                    <button
-                      type="button"
-                      className="cursor-pointer rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground transition-colors hover:bg-muted/70 active:bg-primary/10"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(`{{${v}}}`);
-                        setCopiedVar(v);
-                        setTimeout(() => {
-                          setCopiedVar((cur) => (cur === v ? null : cur));
-                        }, 1500);
-                      }}
-                    >
-                      {`{{${v}}}`}
-                    </button>
-                    {copiedVar === v && (
-                      <span className="absolute -top-7 left-1/2 -translate-x-1/2 rounded bg-foreground px-1.5 py-0.5 text-xs text-background">
-                        Copied
-                      </span>
-                    )}
-                  </span>
+                  <CopyableId
+                    key={v}
+                    id={`{{${v}}}`}
+                    className="rounded bg-muted px-1.5 py-0.5 hover:bg-muted/70"
+                  />
                 ))}
               </div>
             </div>

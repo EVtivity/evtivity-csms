@@ -110,6 +110,7 @@ const mocks = vi.hoisted(() => {
     eq: vi.fn((a: unknown, b: unknown) => ({ eq: [a, b] })),
     ilike: vi.fn((a: unknown, b: unknown) => ({ ilike: [a, b] })),
     inArray: vi.fn((a: unknown, b: unknown) => ({ inArray: [a, b] })),
+    isNull: vi.fn((a: unknown) => ({ isNull: a })),
   };
   dbHolder.db = result.db;
   return result;
@@ -179,6 +180,7 @@ vi.mock('drizzle-orm', () => ({
   desc: vi.fn(),
   count: vi.fn(),
   inArray: mocks.inArray,
+  isNull: mocks.isNull,
 }));
 
 vi.mock('../lib/access-scope.js', () => ({
@@ -552,6 +554,41 @@ describe('support case routes', () => {
       expect(res.json()).toEqual({ count: 0 });
       const where = firstArg(state.calls[0], 'where') as { and: unknown[] };
       expect(where.and).toHaveLength(4);
+    });
+  });
+
+  // ------------------------------------------------------------ unassigned
+  describe('GET /support-cases/unassigned-count', () => {
+    it('counts open cases with no assignee, filtered by site', async () => {
+      mocks.eq.mockClear();
+      mocks.isNull.mockClear();
+      mocks.getUserSiteIds.mockResolvedValue(['sit_a']);
+      queue([{ count: 11 }]);
+      const res = await inject('GET', '/support-cases/unassigned-count');
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ count: 11 });
+      expect(mocks.isNull).toHaveBeenCalledWith('supportCases.assignedTo');
+      expect(mocks.eq).not.toHaveBeenCalledWith('supportCases.assignedTo', USER_ID);
+      const where = firstArg(state.calls[0], 'where') as { and: unknown[] };
+      // isNull(assignedTo), open status, site scope. No unread condition.
+      expect(where.and).toHaveLength(3);
+      expect(where.and).toContainEqual({ isNull: 'supportCases.assignedTo' });
+    });
+
+    it('does not scope by site for a user with access to all sites', async () => {
+      mocks.getUserSiteIds.mockResolvedValue(null);
+      queue([{ count: 2 }]);
+      const res = await inject('GET', '/support-cases/unassigned-count');
+      expect(res.json()).toEqual({ count: 2 });
+      const where = firstArg(state.calls[0], 'where') as { and: unknown[] };
+      expect(where.and).toHaveLength(2);
+    });
+
+    it('returns 0 when no rows come back', async () => {
+      mocks.getUserSiteIds.mockResolvedValue([]);
+      queue([]);
+      const res = await inject('GET', '/support-cases/unassigned-count');
+      expect(res.json()).toEqual({ count: 0 });
     });
   });
 

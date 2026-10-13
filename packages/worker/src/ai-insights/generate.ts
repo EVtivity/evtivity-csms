@@ -6,7 +6,7 @@
  * the worker (decision D1) through `@evtivity/ai`, with no tools: the model
  * reads only the evidence pack. Steps, cheapest first:
  *
- * 1. The insight must still be pending (P5: a closed insight is never revived).
+ * 1. The insight must still be analyzing (P5: a closed insight is never revived).
  * 2. Switches: `opsAi.enabled`, the kind's switch, the site's switch.
  * 3. Debounce re-check: a station back online or no longer faulted ends
  *    `skipped/resolved_before_analysis` at zero cost.
@@ -19,7 +19,7 @@
  *    retry, then the rule fallback of the kind. Each call records its usage.
  *
  * A provider error throws: the job retries with backoff, and the queue's
- * final failure marks the insight `failed` (no `active` row).
+ * final failure marks the insight `failed` (internal, never listed).
  */
 
 import { client, recordAiUsage } from '@evtivity/database';
@@ -109,7 +109,7 @@ export function kindEnabled(kind: InsightKind, settings: AiSettings): boolean {
   if (kind === 'session_failed') return settings.insights.sessionEnabled;
   if (kind === 'authorization_refused') return settings.insights.authorizationEnabled;
   // Background worker suggestions follow their job's switch (translation only:
-  // they are stored active by the worker, never generated here).
+  // they are stored open by the worker, never generated here).
   if (kind === 'stuck_session') return settings.workers.stuckSessionsEnabled;
   if (kind === 'station_long_faulted') return settings.workers.networkSummaryEnabled;
   return false;
@@ -274,7 +274,7 @@ async function finish(
   outcome: InsightJobOutcome,
 ): Promise<InsightJobOutcome> {
   if (!stored) return 'closed';
-  await publishInsightUpdated(deps.pubsub, { ...row, status: 'active' });
+  await publishInsightUpdated(deps.pubsub, { ...row, status: 'open' });
   return outcome;
 }
 
@@ -381,7 +381,7 @@ export async function generateInsight(
   log: Logger,
 ): Promise<InsightJobOutcome> {
   const row = await getInsightRow(insightId);
-  if (row?.status !== 'pending') return 'noop';
+  if (row?.status !== 'analyzing') return 'noop';
   const kind = row.kind as InsightKind;
   const settings = await deps.getSettings();
   if (!settings.ops.enabled || !kindEnabled(kind, settings)) return skip(deps, row, 'disabled');

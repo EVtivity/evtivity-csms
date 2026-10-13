@@ -6,12 +6,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import type { AiInsightView } from '../insights/insight-api';
-import en from '@/i18n/locales/en.json';
-import de from '@/i18n/locales/de.json';
-import es from '@/i18n/locales/es.json';
-import ko from '@/i18n/locales/ko.json';
-import zh from '@/i18n/locales/zh.json';
-import zhTW from '@/i18n/locales/zh-TW.json';
 
 const { apiMock, perms, features } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn() },
@@ -51,7 +45,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
   return {
     id: 'ins1',
     kind: 'station_offline',
-    status: 'active',
+    status: 'open',
     skipReason: null,
     siteId: 'site1',
     stationId: 'st1',
@@ -122,23 +116,28 @@ describe('Active insights card', () => {
     expect(within(row).getByTestId('ai-insight-headline').textContent).toBe(
       'aiInsights.headline.station_offline(CS-1616,Convention Center)',
     );
-    expect(within(row).getByText('aiInsights.category.connectivity')).toBeTruthy();
+    // Root cause, confidence and size share one dot-separated line; the meta line is where and when.
     expect(
-      within(row).getByText('aiInsights.widget.atDetection(aiInsights.scope.stationsOffline(3))'),
+      within(row).getByText(
+        [
+          'aiInsights.category.connectivity',
+          'aiInsights.confidenceBadge.high',
+          'aiInsights.widget.atDetection(aiInsights.scope.stationsOffline(3))',
+        ].join(' · '),
+      ),
     ).toBeTruthy();
-    expect(within(row).getByText('Convention Center')).toBeTruthy();
-    expect(within(row).getByText('ago:2026-10-10T10:00:00Z')).toBeTruthy();
-    expect(within(row).getByText('aiInsights.confidenceBadge.high')).toBeTruthy();
+    expect(within(row).getByText('Convention Center · ago:2026-10-10T10:00:00Z')).toBeTruthy();
     expect(within(row).getByTestId('ai-insight-fix').textContent).toBe(
       'aiInsights.fix.check_network_connection',
     );
     expect(row.closest('a')?.getAttribute('href')).toBe('/ai/insights/ins1');
     expect(screen.queryByText(/modem lost its signal/)).toBeNull();
     expect(screen.queryByText(/Cellular modem/)).toBeNull();
-    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights?status=active&limit=50&language=en');
-    expect(screen.getByTestId('ai-insights-view-all').getAttribute('href')).toBe(
-      '/ai/insights?status=active',
+    expect(apiMock.get).toHaveBeenCalledWith(
+      '/v1/ai/insights?status=open%2Cpending&limit=50&language=en',
     );
+    // The card shows open and pending insights, so View All opens every shown status.
+    expect(screen.getByTestId('ai-insights-view-all').getAttribute('href')).toBe('/ai/insights');
   });
 
   it('marks a card whose action waits for a decision, and never collapses it', async () => {
@@ -156,7 +155,6 @@ describe('Active insights card', () => {
       argsHash: 'h',
       summary: {},
       precondition: null,
-      status: 'pending' as const,
       expiresAt: '2099-01-01T00:00:00Z',
       decidedBy: null,
       decidedAt: null,
@@ -170,6 +168,7 @@ describe('Active insights card', () => {
         kind: 'stuck_session',
         category: 'hardware',
         siteId: 's1',
+        status: 'pending',
         action: pendingAction,
       }),
       insight({
@@ -177,6 +176,7 @@ describe('Active insights card', () => {
         kind: 'stuck_session',
         category: 'hardware',
         siteId: 's1',
+        status: 'pending',
         action: { ...pendingAction, id: 'p2', insightId: 'y' },
       }),
     ]);
@@ -184,7 +184,11 @@ describe('Active insights card', () => {
     const rows = await screen.findAllByTestId('ai-insight-row');
     expect(rows).toHaveLength(2);
     expect(screen.getAllByTestId('ai-insight-action-pending')[0]?.textContent).toBe(
-      'aiInsights.action.pending',
+      'aiInsights.status.pending',
+    );
+    // A stuck session's fix is its action: the tile names it instead of an empty fix line.
+    expect(within(rows[0] as HTMLElement).getByTestId('ai-insight-fix').textContent).toMatch(
+      /^aiInsights\.action\.kind\./,
     );
   });
 
@@ -241,9 +245,13 @@ describe('Active insights card', () => {
       'aiInsights.widget.similar(2)',
     );
     expect(rows[0]?.closest('a')?.getAttribute('href')).toBe(
-      '/ai/insights?status=active&kind=station_offline&siteId=site1&category=connectivity',
+      '/ai/insights?status=open&kind=station_offline&siteId=site1&category=connectivity',
     );
     expect(screen.getByTestId('ai-insights-total').textContent).toBe('3');
+    // The header holds the count and View All, with no extra icon and no footer.
+    const header = screen.getByTestId('ai-insights-total').parentElement as HTMLElement;
+    expect(within(header).getByTestId('ai-insights-view-all')).toBeTruthy();
+    expect(header.querySelector('svg')).toBeNull();
   });
 
   it('shows the empty state while insights are generated, and nothing while they are off', async () => {
@@ -288,106 +296,6 @@ describe('Active insights card', () => {
     wrap(<ActiveInsightsWidget />);
     expect(screen.queryByTestId('ai-active-insights')).toBeNull();
     expect(apiMock.get).not.toHaveBeenCalledWith(expect.stringContaining('/v1/ai/insights'));
-  });
-});
-
-describe('scope on the insight card', () => {
-  it('TC-AI-IC-06 the section is titled "Site Context" in every locale', () => {
-    wrap(<InsightCard insight={insight({ scope: { site: { stationsOffline: 3 } } })} />);
-    expect(screen.getByRole('button', { name: /aiInsights\.scopeTable\.title/ })).toBeTruthy();
-    const titles = Object.fromEntries(
-      Object.entries({ en, de, es, ko, zh, 'zh-TW': zhTW }).map(([lang, locale]) => [
-        lang,
-        locale.aiInsights.scopeTable.title,
-      ]),
-    );
-    expect(titles).toEqual({
-      en: 'Site Context',
-      de: 'Standortkontext',
-      es: 'Contexto del sitio',
-      ko: '사이트 현황',
-      zh: '站点概况',
-      'zh-TW': '站點概況',
-    });
-  });
-
-  it('TC-AI-IC-07 rows show the measure label alone, never an all-sites row, even from a stored network key', async () => {
-    // A row stored before v0.1.45 (or answered by an older API) can still carry network counts.
-    const legacy = {
-      ...insight({ scope: { site: { stations: 4 } } }),
-      scope: { site: { stations: 4 }, network: { stations: 900 } },
-    } as AiInsightView;
-    serve([{ ...legacy, scopeNow: { site: { stations: 4 } }, scopeNowAt: '2026-10-10T10:05:00Z' }]);
-    wrap(<InsightCard insight={legacy} />);
-    fireEvent.click(screen.getByRole('button', { name: /aiInsights\.scopeTable\.title/ }));
-    const table = await screen.findByTestId('ai-insight-scope');
-    await waitFor(() => {
-      const rows = [...table.querySelectorAll('tbody tr')].map((tr) =>
-        [...tr.querySelectorAll('td')].map((td) => td.textContent),
-      );
-      expect(rows).toEqual([['aiInsights.scopeTable.measure.stations', '4', '4']]);
-    });
-    expect(table.textContent).not.toContain('900');
-    expect(table.textContent).not.toContain('area');
-    expect(table.textContent).not.toContain('(site)');
-  });
-
-  it('TC-AI-IC-07 TC-AI-IC-08 is collapsed by default, asks nothing for now until opened, then shows the table', async () => {
-    serve([
-      insight({
-        scope: { site: { stationsOffline: 3, stations: 10 } },
-        scopeNow: { site: { stationsOffline: 1, stations: 10 } },
-        scopeNowAt: '2026-10-10T10:05:00Z',
-      }),
-    ]);
-    wrap(
-      <InsightCard insight={insight({ scope: { site: { stationsOffline: 3, stations: 10 } } })} />,
-    );
-    const trigger = screen.getByRole('button', { name: /aiInsights\.scopeTable\.title/ });
-    expect(trigger.getAttribute('aria-expanded')).toBe('false');
-    // Closed: the main measure at detection only.
-    expect(trigger.textContent).toContain(
-      'aiInsights.scopeTable.summaryAtDetection(aiInsights.scope.stationsOffline(3))',
-    );
-    expect(screen.queryByTestId('ai-insight-scope')).toBeNull();
-    expect(apiMock.get).not.toHaveBeenCalledWith(expect.stringContaining('scopeNow=true'));
-    fireEvent.click(trigger);
-    expect(trigger.getAttribute('aria-expanded')).toBe('true');
-    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/ins1?language=en&scopeNow=true');
-    const table = await screen.findByTestId('ai-insight-scope');
-    await waitFor(() => {
-      const rows = [...table.querySelectorAll('tbody tr')].map((tr) =>
-        [...tr.querySelectorAll('td')].map((td) => td.textContent),
-      );
-      expect(rows).toEqual([
-        ['aiInsights.scopeTable.measure.stations', '10', '10'],
-        ['aiInsights.scopeTable.measure.stationsOffline', '3', '1'],
-      ]);
-    });
-    const head = [...table.querySelectorAll('thead th')].map((th) => th.textContent);
-    expect(head).toEqual([
-      'aiInsights.scopeTable.measureHeader',
-      'aiInsights.scopeTable.atDetection',
-      'aiInsights.scopeTable.now',
-    ]);
-    // The header labels and their tooltips are unchanged (TC-AI-IC-08).
-    expect(en.aiInsights.scopeTable).toMatchObject({
-      measureHeader: 'Measure',
-      atDetection: 'At detection',
-      now: 'Now',
-      atDetectionHint: 'What the analysis used',
-      nowHint: 'As of {{time}}',
-    });
-    // Both header tooltips are still there (At detection, and Now once counted).
-    expect(table.querySelectorAll('thead th .cursor-help')).toHaveLength(2);
-    // Only a changed value is emphasized, with weight and nothing else.
-    const nowCells = table.querySelectorAll('tbody tr td:last-child');
-    expect(nowCells[0]?.className).not.toContain('font-medium');
-    expect(nowCells[1]?.className).toContain('font-medium');
-    // Open, the summary names both values.
-    expect(trigger.textContent).toContain(
-      'aiInsights.scopeTable.summaryChanged(aiInsights.scope.stationsOffline(3),1)',
-    );
   });
 });
 
@@ -503,20 +411,20 @@ describe('insights list and detail pages', () => {
         <Route path="/ai/insights" element={<AiInsights />} />
         <Route path="/ai/insights/:id" element={<p>insight page</p>} />
       </Routes>,
-      '/ai/insights?status=active&siteId=site1&category=connectivity',
+      '/ai/insights?status=open&siteId=site1&category=connectivity',
     );
     const row = await screen.findByTestId('ai-insight-list-row');
     expect(apiMock.get).toHaveBeenCalledWith(
-      '/v1/ai/insights?status=active&category=connectivity&siteId=site1&limit=20&language=en&page=1',
+      '/v1/ai/insights?status=open&category=connectivity&siteId=site1&limit=20&language=en&page=1',
     );
     expect(within(row).getByText('CS-1616')).toBeTruthy();
-    expect(within(row).getByText('aiInsights.status.active')).toBeTruthy();
+    expect(within(row).getByText('aiInsights.status.open')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('aiInsights.list.kind'), {
       target: { value: 'station_faulted' },
     });
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenLastCalledWith(
-        '/v1/ai/insights?status=active&kind=station_faulted&category=connectivity&siteId=site1&limit=20&language=en&page=1',
+        '/v1/ai/insights?status=open&kind=station_faulted&category=connectivity&siteId=site1&limit=20&language=en&page=1',
       );
     });
     fireEvent.click((await screen.findAllByTestId('ai-insight-list-row'))[0] as HTMLElement);
@@ -571,7 +479,7 @@ describe('insights list and detail pages', () => {
     expect((await screen.findByTestId('ai-insight-title')).textContent).toBe(
       'aiInsights.headline.station_offline(CS-1616,Convention Center)',
     );
-    expect(screen.getByTestId('ai-insight-status').textContent).toBe('aiInsights.status.active');
+    expect(screen.getByTestId('ai-insight-status').textContent).toBe('aiInsights.status.open');
     expect(screen.getByTestId('ai-insight-card')).toBeTruthy();
     expect(screen.getByText('CS-1616').closest('a')?.getAttribute('href')).toBe('/stations/st1');
     expect(screen.getByText('se1').closest('a')?.getAttribute('href')).toBe('/sessions/se1');

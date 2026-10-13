@@ -54,6 +54,29 @@ const textBlock = (index: number, pieces: readonly string[]): unknown[] => [
   { type: 'content_block_stop', index },
 ];
 
+/** A text block citing one search result (`source` is the passage id), citation first. */
+const citedTextBlock = (index: number, source: string, text: string): unknown[] => [
+  { type: 'content_block_start', index, content_block: { type: 'text', text: '', citations: [] } },
+  {
+    type: 'content_block_delta',
+    index,
+    delta: {
+      type: 'citations_delta',
+      citation: {
+        type: 'search_result_location',
+        source,
+        title: 'Settings',
+        cited_text: text.trim(),
+        search_result_index: 0,
+        start_block_index: 0,
+        end_block_index: 1,
+      },
+    },
+  },
+  { type: 'content_block_delta', index, delta: { type: 'text_delta', text } },
+  { type: 'content_block_stop', index },
+];
+
 const thinkingBlock = (index: number, signature: string): unknown[] => [
   {
     type: 'content_block_start',
@@ -113,6 +136,15 @@ export const anthropicTarget: AdapterContractTarget = {
   fixtures: {
     text: sseFixture(
       [messageStart(), ...textBlock(0, ['Hello', ' there!']), ...messageEnd('end_turn')],
+      named,
+    ),
+    citation: sseFixture(
+      [
+        messageStart(),
+        ...citedTextBlock(0, '7', 'Open Settings.'),
+        ...citedTextBlock(1, '99', ' Then save.'),
+        ...messageEnd('end_turn'),
+      ],
       named,
     ),
     tool_call: sseFixture(

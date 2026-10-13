@@ -189,7 +189,8 @@ function DialogFooter({
   return (
     <div
       className={cn(
-        'flex flex-col-reverse sm:flex-row sm:justify-end sm:space-x-2 [&>button]:w-full sm:[&>button]:w-auto',
+        // gap, not space-x: stacked buttons on a phone need the space too.
+        'flex flex-col-reverse gap-2 sm:flex-row sm:justify-end [&>button]:w-full sm:[&>button]:w-auto',
         className,
       )}
       {...props}

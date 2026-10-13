@@ -6,12 +6,16 @@ import { Link } from 'react-router';
 import type { LinkProps } from 'react-router';
 import { cn } from '@/lib/utils';
 
-/** `warning`: a card that asks for action (missing configuration), same layout as any card. */
-export type CardTone = 'default' | 'warning';
+/**
+ * `warning`: a card that asks for action (missing configuration), same layout as any card.
+ * `ai`: a card that holds AI output (the dashboard Active Insights), on a soft brand gradient.
+ */
+export type CardTone = 'default' | 'warning' | 'ai';
 
 const CARD_TONES: Record<CardTone, string> = {
   default: '',
   warning: 'border-warning/60',
+  ai: 'border-primary/30 bg-linear-to-br from-primary/10 via-card to-info/10',
 };
 
 /** A thin left accent in a tone color, for a card that marks its kind (an automatic insight). */

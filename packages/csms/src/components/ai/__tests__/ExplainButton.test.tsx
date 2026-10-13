@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
 
@@ -84,7 +84,10 @@ function serve(): void {
     if (url === '/v1/reservations/res1') return Promise.resolve(data.reservation);
     if (url === '/v1/reservations/res1/fee-payments') return Promise.resolve(data.fees);
     if (url === '/v1/portal/features') {
-      return Promise.resolve({ reservationEnabled: data.reservationEnabled });
+      return Promise.resolve({
+        reservationEnabled: data.reservationEnabled,
+        aiInsightsEnabled: true,
+      });
     }
     if (url.startsWith('/v1/ai/insights')) {
       return Promise.resolve({ data: data.insights, total: data.insights.length });
@@ -174,7 +177,7 @@ describe('Explain on the reservation page (TC-AI-RI-UI-02)', () => {
   it('hides Explain and the insight card while reservations are off (owner rule v0.1.45)', async () => {
     data.reservationEnabled = false;
     data.reservation = reservation({ status: 'expired' });
-    data.insights = [{ id: 'ins1', kind: 'reservation_no_show', status: 'active' }];
+    data.insights = [{ id: 'ins1', kind: 'reservation_no_show', status: 'open' }];
     renderPage();
     await screen.findByText('reservations.detail #7', { exact: false });
     await waitFor(() => {
@@ -193,7 +196,7 @@ describe('Explain on the reservation page (TC-AI-RI-UI-02)', () => {
       {
         id: 'ins1',
         kind: 'reservation_no_show',
-        status: 'active',
+        status: 'open',
         skipReason: null,
         siteId: 'site1',
         stationId: 'st1',
@@ -217,7 +220,9 @@ describe('Explain on the reservation page (TC-AI-RI-UI-02)', () => {
       },
     ];
     renderPage();
-    expect(await screen.findByTestId('ai-insight-card')).toBeTruthy();
+    // The floating icon opens the AI Insights tab with the reservation's insight.
+    fireEvent.click(await screen.findByTestId('record-insight-trigger'));
+    expect(await screen.findByTestId('record-insight-row-ins1')).toBeTruthy();
   });
 });
 

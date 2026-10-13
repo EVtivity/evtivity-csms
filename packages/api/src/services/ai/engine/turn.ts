@@ -34,7 +34,7 @@ import type {
   AuditActorFields,
 } from '../conversation.service.js';
 import type { AiSurfaceConfig } from '../surfaces/config.js';
-import { chatbotToolset, supportToolset } from '../surfaces/toolsets.js';
+import { chatbotToolset, routerCategories, supportToolset } from '../surfaces/toolsets.js';
 import type { SupportCaseContext } from '../surfaces/toolsets.js';
 import { AI_TOOL_CATALOG, AI_TOOL_CATEGORIES } from '../tools/catalog.js';
 import { buildToolRequest, runToolCall } from '../tools/execute.js';
@@ -311,7 +311,7 @@ async function routedChatbotToolset(
   const routed = await routeCategories({
     adapter: createAdapterFor(config),
     model: routerModel,
-    categories: AI_TOOL_CATEGORIES,
+    categories: routerCategories(AI_TOOL_CATEGORIES),
     message,
     recentUserMessages: userTexts.slice(-4, -1),
     signal,
@@ -336,7 +336,7 @@ async function chatbotSystem(
   explain: ExplainTurnContext | null,
 ): Promise<AiSystemBlock[]> {
   const user = await userPromptContext(ctx.userId);
-  const explainContext = explain !== null ? await explainPromptBlock(explain, user.language) : null;
+  const explainContext = explain !== null ? explainPromptBlock(explain) : null;
   return buildSystemBlocks({
     surface: 'chatbot',
     language: user.language,

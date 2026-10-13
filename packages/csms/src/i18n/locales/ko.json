@@ -96,7 +96,8 @@
     "na": "n/a",
     "startDate": "시작일",
     "endDate": "종료일",
-    "dateRange": "날짜 범위"
+    "dateRange": "날짜 범위",
+    "copyFailed": "복사 실패"
   },
   "status": {
     "online": "온라인",
@@ -158,8 +159,8 @@
     "smartCharging": "스마트 충전",
     "configTemplates": "구성 템플릿",
     "supportCases": "문의",
-    "unreadCasesCount_one": "읽지 않은 문의 {{count}}건",
-    "unreadCasesCount_other": "읽지 않은 문의 {{count}}건",
+    "unassignedCasesCount_one": "미할당 문의 {{count}}건",
+    "unassignedCasesCount_other": "미할당 문의 {{count}}건",
     "settings": "설정",
     "profile": "프로필",
     "language": "언어",
@@ -451,14 +452,7 @@
     "todayTaxCollected": "오늘 징수 세액",
     "showPage": "{{total}}페이지 중 {{page}}페이지 표시",
     "billedOnAccount": "차량대 청구",
-    "billedOnAccountSessions": "미결제 차량대 청구 세션",
-    "costMissingNotice": "전기 비용이 없는 세션은 이익에서 제외됩니다: {{count}}건 (매출 {{revenue}}).",
-    "costMissingTitle": "전기 비용 누락",
-    "costMissingNoRates": "전기 요금 설정: {{site}}",
-    "costMissingSessions_one": "{{site}}의 세션 {{count}}건에 전기 비용이 없습니다",
-    "costMissingSessions_other": "{{site}}의 세션 {{count}}건에 전기 비용이 없습니다",
-    "costMissingMoreSites_one": "사이트 {{count}}개 더 보기",
-    "costMissingMoreSites_other": "사이트 {{count}}개 더 보기"
+    "billedOnAccountSessions": "미결제 차량대 청구 세션"
   },
   "sites": {
     "title": "사이트",
@@ -586,7 +580,7 @@
     "electricityCostRecalculateMore_one": "세션 {{count}}건에 아직 전기 비용이 없습니다. 계속하려면 다시 계산하세요.",
     "electricityCostRecalculateMore_other": "세션 {{count}}건에 아직 전기 비용이 없습니다. 계속하려면 다시 계산하세요.",
     "tabs": {
-      "ai": "AI"
+      "ai": "AI 사용량"
     }
   },
   "stations": {
@@ -2179,7 +2173,6 @@
     "ssoAttrFirstName": "이름 속성",
     "ssoAttrLastName": "성 속성",
     "ssoCertSet": "인증서가 구성되었습니다",
-    "ssoCopied": "복사됨",
     "ssoSaved": "SSO 설정이 저장되었습니다.",
     "ssoSaveFailed": "SSO 설정 저장에 실패했습니다.",
     "marketing": "마케팅",
@@ -2352,7 +2345,6 @@
     "apiKeyCustomDays": "사용자 지정 (일)",
     "apiKeyCreated": "API 키 생성됨",
     "apiKeyCreatedDescription": "지금 키를 복사하세요. 다시 표시되지 않습니다.",
-    "apiKeyCopied": "클립보드에 복사됨",
     "apiKeyRevoke": "폐기",
     "apiKeyRevokeConfirm": "이 API 키를 폐기하시겠습니까? 이 키를 사용하는 모든 통합이 중단됩니다.",
     "apiKeyRevoked": "API 키가 폐기되었습니다",
@@ -2469,7 +2461,6 @@
     "emailLayoutPreviewFrame": "이메일 레이아웃 미리보기",
     "aiProvidersTitle": "AI 제공업체",
     "aiProvidersDescription": "제공업체마다 API 키 하나를 사용합니다. AI 어시스턴트와 지원 AI는 아래에서 각각 제공업체를 선택합니다.",
-    "aiDataLeavesWarning": "메시지, 도구 결과, 첨부 파일은 선택한 제공업체로 전송되어 이 배포 환경 밖으로 나갑니다. 제공업체의 데이터 보존 약관을 확인하세요.",
     "aiApiKey": "API 키",
     "aiBaseUrl": "기본 URL (선택 사항)",
     "aiBaseUrlHint": "공식 엔드포인트를 쓰려면 비워 두세요. 공개 호스트의 https URL이어야 합니다.",
@@ -2543,7 +2534,6 @@
     },
     "aiLimitRange": "{{min}}~{{max}}",
     "aiLimitZeroNoBudget": "0은 일일 한도 없음을 뜻합니다.",
-    "aiOpsDataWarning": "켜져 있으면 운영 데이터가 사용자 작업 없이 구성된 공급자로 자동 전송됩니다.",
     "aiInsightsSettings": {
       "title": "자동 인사이트",
       "station": "충전소 인사이트",
@@ -2616,7 +2606,6 @@
       "driverPerMinute": "운전자당 분당 AI 요청 수",
       "overLimitHelp": "한도를 넘는 요청은 바로 지원팀으로 전달됩니다."
     },
-    "aiDriverDataWarning": "이 옵션이 켜져 있고 운전자가 허용하면 요청 내용과 운전자 본인의 세션, 결제, 예약, 사용한 충전소, 토큰(마지막 4자)이 설정된 공급자에게 전송됩니다.",
     "aiAdvancedOptions": "고급 옵션",
     "aiPromptCustomSummary": "사용자 지정 시스템 프롬프트",
     "aiPromptDefaultSummary": "기본 제공 시스템 프롬프트",
@@ -3914,8 +3903,8 @@
       "unlockAt": "충전소 {{station}}의 {{target}} 잠금 해제",
       "start": "충전소 {{station}}에서 충전 시작",
       "startAt": "충전소 {{station}}의 {{target}}에서 충전 시작",
-      "stop": "충전소 {{station}}의 거래 {{transaction}} 중지",
-      "stopAny": "충전소 {{station}}의 거래 중지",
+      "stop": "충전소 {{station}}의 충전 세션 중지 (OCPP 트랜잭션 {{transaction}})",
+      "stopAny": "충전소 {{station}}의 충전 세션 중지",
       "chargingProfile": "충전소 {{station}}에 충전 프로필 설정",
       "chargingProfileAt": "충전소 {{station}}의 {{target}}에 충전 프로필 설정",
       "ocppCommand": "충전소 {{station}}에 {{command}} 전송",
@@ -3940,10 +3929,9 @@
     "rejected": "거절됨",
     "expired": "만료됨",
     "expiredHint": "이 제안은 만료되었습니다. 어시스턴트에게 다시 요청하세요.",
-    "citations": "문서",
+    "citations": "출처",
     "code": "코드",
     "copyCode": "코드 복사",
-    "copied": "복사됨",
     "image": "이미지",
     "imageBlocked": "AI 답변의 이미지는 불러오지 않습니다",
     "tokens": "토큰 {{formatted}}개",
@@ -4022,23 +4010,20 @@
       "session": "이 세션이 실패한 이유는 무엇이며, 무엇을 해야 하나요?",
       "authorization": "이 인증이 거부된 이유는 무엇이며, 무엇을 해야 하나요?",
       "followUp": "추가 질문하기",
-      "about": "{{record}} {{label}} 관련",
       "kind": {
         "station": "충전소",
         "session": "세션",
         "authorization": "인증",
-        "reservation": "예약"
+        "reservation": "예약",
+        "insight": "인사이트"
       },
       "reservation": "이 예약이 실패한 이유는 무엇이며, 무엇을 해야 하나요?",
-      "aboutRecord": "이 {{record}} 관련",
-      "contextLabel": "설명 컨텍스트",
-      "latestInsight": "최신 자동 인사이트",
-      "viewInsight": "인사이트 보기",
-      "shared": "어시스턴트는 이 레코드의 주요 정보, 최근 이벤트와 최신 인사이트를 읽습니다. 질문을 보내기 전에는 아무것도 전송되지 않습니다."
+      "insight": "이 인사이트는 무엇을 의미하며, 무엇을 해야 하나요?",
+      "contextLabel": "설명 컨텍스트"
     },
     "dataNotice": {
       "title": "AI 공급자가 받는 정보",
-      "body": "AI 공급자는 비밀번호, API 키, 비밀 값, 충전소 비밀번호 같은 저장된 자격 증명을 절대 받지 않습니다. 카드 번호와 IBAN은 마지막 4자로 줄여 보냅니다. 지원 초안, 자동 인사이트, 백그라운드 작업자, 운전자 지원은 이메일 주소와 전화번호도 마스킹하고, 운전자 토큰 ID는 해시하거나 줄입니다. 어시스턴트는 운전자 연락처를 열람할 권한이 있는 사용자에게만, 저장된 그대로 보냅니다. 입력한 텍스트와 첨부한 텍스트 파일은 키와 카드 번호가 있는지 검사합니다. 첨부한 이미지와 PDF는 그대로 전송됩니다."
+      "body": "메시지, 도구 결과, 첨부 파일은 선택한 AI 제공업체로 전송됩니다. 제공업체의 데이터 보존 약관을 확인하세요. AI 공급자는 비밀번호, API 키, 비밀 값, 충전소 비밀번호 같은 저장된 자격 증명을 절대 받지 않습니다. 카드 번호는 마지막 4자로 줄여 보냅니다. 지원 초안, 자동 인사이트, 백그라운드 작업자, 운전자 지원은 이메일 주소와 전화번호도 마스킹하고, 운전자 토큰 ID는 해시하거나 줄입니다. 어시스턴트는 운전자 연락처를 열람할 권한이 있는 사용자에게만, 저장된 그대로 보냅니다. 입력한 텍스트와 첨부한 텍스트 파일은 키와 카드 번호가 있는지 검사합니다. 첨부한 이미지와 PDF는 그대로 전송됩니다."
     }
   },
   "sustainability": {
@@ -4669,7 +4654,6 @@
     "helpful": "도움이 됨",
     "wrong": "틀림",
     "badge": {
-      "resolved": "해결됨",
       "outOfDate": "오래됨"
     },
     "category": {
@@ -4691,14 +4675,16 @@
       "high": "높음"
     },
     "status": {
-      "pending": "분석 중",
-      "active": "활성",
+      "open": "열림",
+      "pending": "대기 중",
+      "done": "완료",
+      "rejected": "거절됨",
       "resolved": "해결됨",
-      "superseded": "대체됨",
-      "skipped": "건너뜀",
-      "failed": "실패",
-      "dismissed": "닫음"
+      "dismissed": "닫음",
+      "expired": "만료됨"
     },
+    "analyzing": "분석 중",
+    "skipped": "건너뜀",
     "kind": {
       "station_offline": "충전소 오프라인",
       "station_faulted": "충전소 고장",
@@ -4819,7 +4805,9 @@
       "feedback": "평가",
       "allFeedback": "모든 평가",
       "feedbackWrong": "틀림으로 표시됨",
-      "feedbackHelpful": "도움이 됨으로 표시됨"
+      "feedbackHelpful": "도움이 됨으로 표시됨",
+      "rootCauseNotApplicable": "해당 없음",
+      "rootCauseNotAnalyzed": "분석되지 않음"
     },
     "detail": {
       "recordTitle": "세부 정보",
@@ -4830,25 +4818,6 @@
     "staleNote": "이 분석 후 기록이 변경되었습니다. 최신 분석을 받으려면 다시 생성하세요.",
     "failedNote": "분석이 완료되지 않았습니다.",
     "skippedNote": "분석하지 않음: {{reason}}",
-    "scopeTable": {
-      "title": "사이트 현황",
-      "measureHeader": "항목",
-      "atDetection": "감지 시",
-      "now": "현재",
-      "atDetectionHint": "분석에 사용된 값",
-      "nowHint": "{{time}} 기준",
-      "measure": {
-        "stations": "충전소",
-        "stationsOffline": "오프라인 충전소",
-        "stationsFaulted": "고장 충전소",
-        "sameErrorCode": "동일 오류 코드 (24시간)",
-        "sessionsInterrupted": "중단된 세션 (24시간)",
-        "sessionsFailedSameReason24h": "동일 중지 사유 (24시간)",
-        "tokenRefusals": "토큰 거부 (24시간)"
-      },
-      "summaryAtDetection": "감지 시 {{value}}",
-      "summaryChanged": "감지 시 {{value}}, 현재 {{now}}"
-    },
     "feedback": {
       "helpfulCount_one": "{{count}}명이 도움이 된다고 평가함",
       "helpfulCount_other": "{{count}}명이 도움이 된다고 평가함",
@@ -4861,19 +4830,10 @@
       "reasonSaved": "메모를 저장했습니다."
     },
     "action": {
-      "title": "제안된 작업",
       "kind": {
         "stop_transaction": "세션 중지",
         "soft_reset": "충전소 소프트 리셋",
         "change_availability": "충전소 가용성 변경"
-      },
-      "status": {
-        "pending": "대기 중",
-        "executed": "실행됨",
-        "failed": "실패",
-        "rejected": "거절됨",
-        "expired": "만료됨",
-        "stale": "더 이상 해당 없음"
       },
       "job": {
         "network_summary": "네트워크 상태",
@@ -4881,17 +4841,10 @@
         "tariff_anomalies": "요금 이상"
       },
       "jobLabel": "워커 작업",
-      "precondition": {
-        "session_active": "세션이 아직 활성 상태입니다",
-        "station_faulted": "충전소가 아직 고장 상태입니다",
-        "station_availability": "충전소 가용성이 바뀌지 않았습니다"
-      },
-      "preconditionLabel": "실행 조건",
       "confirm": "확인",
       "reject": "거절",
       "expiresAt": "{{time}} 만료",
       "expires": "만료",
-      "arguments": "인수",
       "rationale": "근거",
       "executed": "작업이 실행되었습니다",
       "confirmFailed": "작업이 실행되지 않았습니다",
@@ -4909,9 +4862,8 @@
         "minutes_one": "{{count}}분",
         "lastActivity": "마지막 활동",
         "faultedSince": "고장 시작",
-        "transactionId": "트랜잭션 ID"
+        "transactionId": "OCPP 트랜잭션 ID"
       },
-      "target": "대상",
       "decided": "결정",
       "executedAt": "실행",
       "refused": {
@@ -4922,13 +4874,10 @@
       },
       "pendingCount_one": "대기 중인 작업 {{count}}개",
       "pendingCount_other": "대기 중인 작업 {{count}}개",
-      "pending": "작업 대기 중",
-      "filter": "작업",
-      "filterAll": "모든 인사이트",
-      "filterPending": "작업 대기 중",
-      "filterAny": "작업 있음",
-      "history": "작업 기록"
-    }
+      "expiresInfo": "제안된 작업은 확인 이후 충전소나 세션이 바뀔 수 있으므로 표시된 시간까지만 열려 있습니다. 그 후에는 만료되어 아무것도 실행되지 않으며, 문제가 계속되면 새 제안이 나타납니다.",
+      "apiRequest": "API 요청"
+    },
+    "openPanel": "자동 인사이트 열기 ({{count}})"
   },
   "aiWorkers": {
     "title": "AI 백그라운드 작업자",

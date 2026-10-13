@@ -44,6 +44,7 @@ import { authorizeAttemptRoutes } from './routes/authorize-attempts.js';
 import { dashboardRoutes } from './routes/dashboard.js';
 import { settingsRoutes } from './routes/settings.js';
 import { aiDefaultsRoutes } from './routes/ai-defaults.js';
+import { docsSearchRoutes } from './routes/docs-search.js';
 import { paymentRoutes } from './routes/payments.js';
 import { adyenSettingsRoutes } from './routes/adyen-settings.js';
 import { payoutAccountRoutes } from './routes/payout-accounts.js';
@@ -199,6 +200,7 @@ export async function buildApp(opts: FastifyServerOptions = {}): Promise<Fastify
       await v1.register(dashboardRoutes);
       await v1.register(settingsRoutes);
       await v1.register(aiDefaultsRoutes);
+      await v1.register(docsSearchRoutes);
       await v1.register(paymentRoutes);
       await v1.register(adyenSettingsRoutes);
       await v1.register(payoutAccountRoutes);

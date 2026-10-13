@@ -26,6 +26,7 @@ import {
   octtRuns,
   aiInsights,
 } from '@evtivity/database';
+import { INSIGHT_VISIBLE_STATUSES } from '@evtivity/lib/ai-insights';
 import type { JwtPayload } from '../plugins/auth.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
@@ -105,6 +106,10 @@ const TARGETS: NeighborTarget[] = [
     createdAtColumn: aiInsights.createdAt,
     // The list scope: unsited insights (company summaries) for all-site users only.
     scopeWhere: (siteIds) => inArray(aiInsights.siteId, siteIds),
+    // The list shows only the visible statuses, so paging skips internal ones
+    // (analyzing, skipped, failed, superseded). The current row may be one of
+    // them: a regenerated insight is analyzing on its own page.
+    baseWhere: inArray(aiInsights.status, [...INSIGHT_VISIBLE_STATUSES]),
     // The detail route's gate (insightRowVisible): reservation insights are
     // hidden while reservations are off, the current row included.
     visibleWhereNow: insightFeatureGateSql,

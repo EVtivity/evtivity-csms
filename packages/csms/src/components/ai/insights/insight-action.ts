@@ -21,12 +21,12 @@ export const WORKER_RATIONALE_CODES = [
   'stuckSessionOffline',
   'stuckSessionConnectorAvailable',
 ] as const;
-export type WorkerRationaleCode = (typeof WORKER_RATIONALE_CODES)[number];
+type WorkerRationaleCode = (typeof WORKER_RATIONALE_CODES)[number];
 
 /** The interpolation variables of the `aiWorkers.rationale.*` texts. */
 const RATIONALE_PARAMS = ['minutes'] as const;
 
-export interface ActionSummaryView {
+interface ActionSummaryView {
   action: AiWorkerActionKind | null;
   rationale: { code: WorkerRationaleCode; params: Record<string, string | number> } | null;
   /** The values the worker measured, shown next to the rationale. */
@@ -87,9 +87,41 @@ export function readActionSummary(summary: Record<string, unknown>): ActionSumma
   };
 }
 
+/**
+ * The OCPP transaction id an action is about, as the station knows it: an
+ * integer for OCPP 1.6 (`RemoteStopTransaction.transactionId`), a string
+ * (usually a UUID) for 2.1. The action's arguments win over the summary, so
+ * the card shows the id the command sends. Null for station actions.
+ */
+export function actionTransactionId(
+  action: Pick<AiInsightActionView, 'args' | 'summary'>,
+): string | null {
+  const fromArgs = action.args['transactionId'];
+  if (typeof fromArgs === 'string' && fromArgs !== '') return fromArgs;
+  if (typeof fromArgs === 'number' && Number.isFinite(fromArgs)) return String(fromArgs);
+  return readActionSummary(action.summary).measured.transactionId;
+}
+
 /** The tool name of an operation, as the assistant's catalog names it (`ocppv21_reset`). */
 export function actionToolName(operationId: string): string {
   return operationId.replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase();
+}
+
+/** Fix steps an action performs itself, so the card does not list them again. */
+const STEPS_THE_ACTION_DOES: Readonly<Record<string, readonly string[]>> = {
+  soft_reset: ['reboot_station'],
+};
+
+/** The insight's fix steps without the ones its action already does. */
+export function stepsBesideAction<T extends { code: string }>(
+  fixes: readonly T[],
+  action: AiInsightActionView | null,
+): T[] {
+  if (action == null) return [...fixes];
+  const kind =
+    readActionSummary(action.summary).action ?? findAiWorkerAction(action.operationId)?.kind;
+  const done = new Set(kind != null ? (STEPS_THE_ACTION_DOES[kind] ?? []) : []);
+  return fixes.filter((f) => !done.has(f.code));
 }
 
 /** The localized sentence of what an action runs (`confirm-summary.ts`). */
@@ -111,10 +143,20 @@ export function actionLabel(t: TFunction, action: AiInsightActionView): string {
   return kind != null ? t(`aiInsights.action.kind.${kind}`) : t('ai.confirmTitle');
 }
 
-/** Whether an action can still be confirmed or rejected now. */
+/**
+ * Whether the insight's action can still be confirmed or rejected now: the
+ * insight's one status is `pending` and the action has not expired.
+ */
 export function isActionOpen(
-  action: Pick<AiInsightActionView, 'status' | 'expiresAt'>,
+  insightStatus: string,
+  action: Pick<AiInsightActionView, 'expiresAt'>,
   now: number = Date.now(),
 ): boolean {
-  return action.status === 'pending' && Date.parse(action.expiresAt) > now;
+  return insightStatus === 'pending' && Date.parse(action.expiresAt) > now;
+}
+
+/** Whether the action ran: its stored result answered below 400 (a refusal stores 0). */
+export function actionRan(action: Pick<AiInsightActionView, 'result'>): boolean {
+  const status = action.result?.httpStatus ?? 0;
+  return status > 0 && status < 400;
 }

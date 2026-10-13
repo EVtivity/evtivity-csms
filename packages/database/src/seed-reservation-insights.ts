@@ -27,7 +27,7 @@ import { computeInsightScopeCounts } from './lib/insight-scope.js';
 // The trigger rows are written by writeReservationAudit (reason in
 // after.reason) and the insights have the shape of the insight scan
 // (subject reservation, trigger key `<kind>:<audit id>`) and of a rule
-// insight of generateInsight (status active, generated_by rule, no text row).
+// insight of generateInsight (status open, generated_by rule, no text row).
 // A station fault during a hold has no known cause, so it gets the kind's
 // fallback at confidence low, as the worker stores it without a model.
 // Idempotent (P7): fixed reservation ids, an audit row is written only when
@@ -335,7 +335,7 @@ export async function seedReservationInsightsDemo(
         )
         VALUES (
           ${createId('aiInsight')}, ${kind}, 'reservation', ${r.id}, ${input.stationId}, ${r.id},
-          ${siteId}, ${`${kind}:${String(auditId)}`}, 'active', ${rule.category}, ${confidence},
+          ${siteId}, ${`${kind}:${String(auditId)}`}, 'open', ${rule.category}, ${confidence},
           ${sql.json(rule.fixes.map((code) => ({ code })))}, ${sql.json(scope)}, ${sql.json([])},
           ${input.now}, ${language}, 'rule'
         )

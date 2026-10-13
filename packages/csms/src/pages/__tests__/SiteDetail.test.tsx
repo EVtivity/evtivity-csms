@@ -62,12 +62,21 @@ vi.mock('@/lib/api', async (importOriginal) => {
     ...actual,
     api: {
       get: (path: string) =>
-        path === '/v1/sites/s1' ? Promise.resolve(SITE) : new Promise(() => {}),
+        path === '/v1/sites/s1'
+          ? Promise.resolve(SITE)
+          : path === '/v1/portal/features'
+            ? Promise.resolve({ aiInsightsEnabled: true })
+            : new Promise(() => {}),
     },
   };
 });
 vi.mock('@/components/ai/usage/SiteAiCard', () => ({
   SiteAiCard: () => <div data-testid="site-ai-card" />,
+}));
+vi.mock('@/components/ai/insights/RecordInsightsTab', () => ({
+  RecordInsightsTab: ({ filter }: { filter: { siteId?: string } }) => (
+    <div data-testid="site-insights" data-site={filter.siteId} />
+  ),
 }));
 // The Details tab form is covered elsewhere; its source is checked below.
 vi.mock('@/components/site/SiteDetailsTab', async () => {
@@ -119,6 +128,17 @@ describe('Site detail AI tab (plan v0.1.45, section 6)', () => {
     const tab = await screen.findByRole('tab', { name: 'sites.tabs.ai' });
     expect(tab.getAttribute('aria-selected')).toBe('true');
     expect(screen.getByTestId('site-ai-card')).toBeTruthy();
+  });
+
+  it('shows the site insights in their own AI Insights tab to a user who can read insights', async () => {
+    renderSite(['sites:read', 'aiInsights:read'], false, '?tab=ai-insights');
+    const tab = await screen.findByRole('tab', { name: 'aiInsights.list.title' });
+    // AI Usage is a separate tab this user does not get.
+    expect(screen.queryByRole('tab', { name: 'sites.tabs.ai' })).toBeNull();
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('site-insights').getAttribute('data-site')).toBe('s1');
+    // Without the usage or site write permissions, no AI settings card.
+    expect(screen.queryByTestId('site-ai-card')).toBeNull();
   });
 
   it('TC-UI-LY-03 shows the AI tab to an all-site user with sites:write', async () => {

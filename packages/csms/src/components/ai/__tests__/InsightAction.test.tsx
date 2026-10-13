@@ -40,7 +40,12 @@ vi.mock('@/lib/api', async (importOriginal) => {
 import { ApiError } from '@/lib/api';
 import { InsightActionSection } from '../insights/InsightAction';
 import { InsightCard } from '../insights/InsightCard';
-import { actionToolName, isActionOpen, readActionSummary } from '../insights/insight-action';
+import {
+  actionToolName,
+  actionTransactionId,
+  isActionOpen,
+  readActionSummary,
+} from '../insights/insight-action';
 import { AiInsightDetail } from '@/pages/AiInsightDetail';
 
 const FUTURE = '2099-01-01T00:00:00Z';
@@ -65,7 +70,6 @@ function action(overrides: Partial<AiInsightActionView> = {}): AiInsightActionVi
       rationale: { code: 'stuckSessionIdle', params: { minutes: 95 } },
     },
     precondition: { kind: 'session_active', params: { sessionId: 'se1' } },
-    status: 'pending',
     expiresAt: FUTURE,
     decidedBy: null,
     decidedAt: null,
@@ -80,7 +84,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
   return {
     id: 'ins1',
     kind: 'stuck_session',
-    status: 'active',
+    status: 'pending',
     skipReason: null,
     siteId: 'site1',
     stationId: 'st-db-1',
@@ -143,30 +147,89 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
     expect(screen.getByTestId('ai-insight-action-summary').textContent).toBe(
       'ai.confirmAction.stop(CS-1,tx-9)',
     );
-    expect(within(section).getAllByText('aiInsights.action.kind.stop_transaction')).toHaveLength(1);
-    expect(screen.getByTestId('ai-insight-action-status').textContent).toBe(
-      'aiInsights.action.status.pending',
-    );
+    // The sentence names the action; no separate heading repeats it.
+    expect(within(section).queryByText('aiInsights.action.kind.stop_transaction')).toBeNull();
+    expect(section.getAttribute('aria-label')).toBe('aiInsights.action.kind.stop_transaction');
+    // One status for the insight and its action: the section shows no badge of its own.
+    expect(screen.queryByTestId('ai-insight-action-status')).toBeNull();
     expect(screen.getByTestId('ai-insight-action-rationale').textContent).toBe(
       'aiWorkers.rationale.stuckSessionIdle(95)',
     );
     expect(within(section).getByText('aiInsights.action.measured.minutes(95)')).toBeTruthy();
     expect(within(section).getByText('2026-10-10T08:00:00Z')).toBeTruthy();
-    expect(within(section).getByText('aiInsights.action.precondition.session_active')).toBeTruthy();
+    // The precondition is checked on confirm, not shown as a row.
+    expect(within(section).queryByText('aiInsights.action.precondition.session_active')).toBeNull();
   });
 
-  it('item 15: the full arguments use the shared copy button', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
+  it('shows the OCPP transaction id once, leaves the record rows to the Details panel, and no raw arguments', () => {
     wrap(<InsightActionSection insight={insight()} />);
-    const args = screen.getByTestId('ai-insight-action-arguments');
-    const copy = within(args).getByTestId('copy-button');
-    fireEvent.click(copy);
-    await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith(
-        JSON.stringify({ stationId: 'CS-1', transactionId: 'tx-9' }, null, 2),
-      );
-    });
+    const section = screen.getByTestId('ai-insight-action');
+    expect(within(section).getAllByText('aiInsights.action.measured.transactionId')).toHaveLength(
+      1,
+    );
+    expect(within(section).queryByText('stationId')).toBeNull();
+    expect(within(section).queryByText('transactionId')).toBeNull();
+    expect(screen.queryByTestId('ai-insight-action-arguments')).toBeNull();
+    const row = screen.getByTestId('ai-insight-action-transaction');
+    expect(row.textContent).toBe('tx-9');
+    // Station, site and session are in the insight page's Details panel, not repeated here;
+    // the insight page has no copy controls and no View Session link.
+    expect(within(section).queryByRole('link')).toBeNull();
+    expect(screen.queryByTestId('copy-button')).toBeNull();
+  });
+
+  it('keeps the API request in a closed section that shows the method, path and arguments', () => {
+    wrap(<InsightActionSection insight={insight()} />);
+    const api = screen.getByTestId('ai-insight-action-api');
+    expect(api.textContent).toContain('aiInsights.action.apiRequest');
+    expect(api.textContent).toContain('/v1/ocpp/commands/');
+    // The method is a colored badge, the same colors as the access logs.
+    expect(within(api).getByTestId('ai-insight-action-method').className).toContain('bg-success');
+    // A long path wraps inside the card on a phone instead of widening it.
+    expect(within(api).getByText(/\/v1\/ocpp\/commands\//).className).toContain('wrap-anywhere');
+    expect(within(api).queryByText(/"transactionId"/)).toBeNull();
+    fireEvent.click(within(api).getByRole('button'));
+    expect(within(api).getByText(/"transactionId": "tx-9"/)).toBeTruthy();
+  });
+
+  it('an OCPP 1.6 stop shows the integer transaction id from the arguments', () => {
+    wrap(
+      <InsightActionSection
+        insight={insight({
+          action: action({
+            operationId: 'ocppv16_RemoteStopTransaction',
+            path: '/v1/ocpp/commands/v16/RemoteStopTransaction',
+            args: { stationId: 'CS-1', transactionId: 2 },
+            summary: { action: 'stop_transaction', transactionId: 2 },
+            sessionId: null,
+          }),
+        })}
+      />,
+    );
+    const row = screen.getByTestId('ai-insight-action-transaction');
+    expect(row.textContent).toBe('2');
+    expect(screen.queryByTestId('ai-insight-action-session')).toBeNull();
+  });
+
+  it('a station action has no transaction row', () => {
+    wrap(
+      <InsightActionSection
+        insight={insight({
+          kind: 'station_long_faulted',
+          sessionId: null,
+          action: action({
+            operationId: 'ocppv21_Reset',
+            path: '/v1/ocpp/commands/v21/Reset',
+            args: { stationId: 'CS-1', type: 'OnIdle' },
+            summary: { action: 'soft_reset', faultedSince: '2026-10-10T06:00:00Z' },
+            sessionId: null,
+            precondition: { kind: 'station_faulted', params: {} },
+          }),
+        })}
+      />,
+    );
+    expect(screen.queryByTestId('ai-insight-action-transaction')).toBeNull();
+    expect(screen.queryByText('OnIdle')).toBeNull();
   });
 
   it('item 16: Reject and Confirm sit right-aligned', () => {
@@ -179,7 +242,7 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
 
   it('TC-AI-WK-UI-02: Confirm asks in the standard dialog, then sends the argsHash shown and raises a toast', async () => {
     apiMock.post.mockResolvedValue(
-      insight({ action: action({ status: 'executed', result: { httpStatus: 200 } }) }),
+      insight({ status: 'done', action: action({ result: { httpStatus: 200 } }) }),
     );
     wrap(<InsightActionSection insight={insight()} />);
     fireEvent.click(screen.getByTestId('ai-action-confirm'));
@@ -199,7 +262,7 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
   });
 
   it('Reject asks in the standard dialog, then posts to the reject endpoint', async () => {
-    apiMock.post.mockResolvedValue(insight({ action: action({ status: 'rejected' }) }));
+    apiMock.post.mockResolvedValue(insight({ status: 'rejected', action: action() }));
     wrap(<InsightActionSection insight={insight()} />);
     fireEvent.click(screen.getByTestId('ai-action-reject'));
     await confirmInDialog('aiInsights.action.reject');
@@ -220,7 +283,7 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
     expect(toastMock).not.toHaveBeenCalled();
   });
 
-  it('hides Confirm and Reject without aiInsights:write, after a decision, and once expired', () => {
+  it('hides Confirm and Reject without aiInsights:write, and disables them after a decision or once expired', () => {
     perms.delete('aiInsights:write');
     wrap(<InsightActionSection insight={insight()} />);
     expect(screen.queryByTestId('ai-action-confirm')).toBeNull();
@@ -228,10 +291,11 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
     perms.add('aiInsights:write');
     wrap(
       <InsightActionSection
-        insight={insight({ action: action({ status: 'executed', result: { httpStatus: 200 } }) })}
+        insight={insight({ status: 'done', action: action({ result: { httpStatus: 200 } }) })}
       />,
     );
-    expect(screen.queryByTestId('ai-action-confirm')).toBeNull();
+    expect(screen.getByTestId('ai-action-confirm')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('ai-action-reject')).toHaveProperty('disabled', true);
     expect(screen.getByText('aiInsights.action.executed (HTTP 200)')).toBeTruthy();
     cleanup();
     wrap(
@@ -239,15 +303,16 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
         insight={insight({ action: action({ expiresAt: '2020-01-01T00:00:00Z' }) })}
       />,
     );
-    expect(screen.queryByTestId('ai-action-confirm')).toBeNull();
+    expect(screen.getByTestId('ai-action-confirm')).toHaveProperty('disabled', true);
+    expect(screen.getByTestId('ai-action-reject')).toHaveProperty('disabled', true);
   });
 
   it('localizes a refusal reason and shows no stored text', () => {
     wrap(
       <InsightActionSection
         insight={insight({
+          status: 'open',
           action: action({
-            status: 'failed',
             result: { httpStatus: 0, body: { refused: 'ocpp_version_mismatch' } },
           }),
         })}
@@ -270,6 +335,43 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
     expect(screen.queryByTestId('ai-insight-regenerate')).toBeNull();
   });
 
+  it('lists other steps above the action, never under its buttons, and skips the step the action does', async () => {
+    wrap(
+      <InsightCard
+        insight={insight({
+          kind: 'station_long_faulted',
+          sessionId: null,
+          fixes: [{ code: 'reboot_station' }, { code: 'inspect_connector' }],
+          action: action({
+            operationId: 'ocppv21_Reset',
+            path: '/v1/ocpp/commands/v21/Reset',
+            args: { stationId: 'CS-1', type: 'OnIdle' },
+            summary: { action: 'soft_reset', faultedSince: '2026-10-10T06:00:00Z' },
+            sessionId: null,
+            precondition: { kind: 'station_faulted', params: {} },
+          }),
+        })}
+      />,
+    );
+    const steps = await screen.findByTestId('ai-insight-fixes');
+    // The reset is the reboot, so only the other step is listed.
+    expect(within(steps).queryByText('aiInsights.fix.reboot_station')).toBeNull();
+    expect(within(steps).getByText('aiInsights.fix.inspect_connector')).toBeTruthy();
+    // The steps come before the action, so the buttons end the section at every width.
+    const buttons = screen.getByTestId('ai-action-buttons');
+    expect(steps.compareDocumentPosition(buttons) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('puts the confirm-by time on the Suggested Fix heading row, not under the sentence', async () => {
+    wrap(<InsightCard insight={insight()} />);
+    const fix = await screen.findByTestId('ai-insight-fix');
+    const expiry = within(fix).getByTestId('ai-insight-action-expiry');
+    expect(expiry.parentElement?.textContent).toContain('aiInsights.fixesLabel');
+    // A tooltip explains why the action has a deadline.
+    expect(expiry.querySelector('button, [role="button"], svg')).not.toBeNull();
+    expect(within(screen.getByTestId('ai-insight-action')).queryByText(/expiresAt/)).toBeNull();
+  });
+
   it('item 14: the insight page has Prev and Next, the action history and its job', async () => {
     perms.add('audit:read');
     wrap(
@@ -283,7 +385,8 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
       expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/ins1/neighbors');
     });
     expect(screen.getByText('aiInsights.action.job.stuck_sessions')).toBeTruthy();
-    expect(await screen.findByText('aiInsights.action.history')).toBeTruthy();
+    // One History list covers the insight and its action.
+    expect(await screen.findAllByText('audit.history')).toHaveLength(1);
   });
 
   it('reads only known summary values and maps operation ids to tool names', () => {
@@ -293,7 +396,13 @@ describe('Insight action (AI Inbox merged into AI Insights)', () => {
     expect(actionToolName('ocppv21_RequestStopTransaction')).toBe(
       'ocppv21_request_stop_transaction',
     );
-    expect(isActionOpen({ status: 'pending', expiresAt: FUTURE })).toBe(true);
-    expect(isActionOpen({ status: 'rejected', expiresAt: FUTURE })).toBe(false);
+    expect(actionTransactionId({ args: { transactionId: 7 }, summary: {} })).toBe('7');
+    expect(
+      actionTransactionId({ args: { stationId: 'CS-1' }, summary: { transactionId: 'tx-1' } }),
+    ).toBe('tx-1');
+    expect(actionTransactionId({ args: { stationId: 'CS-1' }, summary: {} })).toBeNull();
+    expect(isActionOpen('pending', { expiresAt: FUTURE })).toBe(true);
+    expect(isActionOpen('rejected', { expiresAt: FUTURE })).toBe(false);
+    expect(isActionOpen('pending', { expiresAt: '2020-01-01T00:00:00Z' })).toBe(false);
   });
 });

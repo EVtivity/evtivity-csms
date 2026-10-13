@@ -25,6 +25,7 @@ import { StationLocalAuthList } from '@/components/StationLocalAuthList';
 import { AuthorizeLogView } from '@/components/AuthorizeLogView';
 import { ExplainButton } from '@/components/ai/ExplainButton';
 import { RecordInsight } from '@/components/ai/insights/RecordInsight';
+import { RecordInsightsTab } from '@/components/ai/insights/RecordInsightsTab';
 import { MeterValuesTable } from '@/components/MeterValuesTable';
 import { StationEventsTab } from '@/components/StationEventsTab';
 import { StationConfigurationsTab } from '@/components/StationConfigurationsTab';
@@ -42,6 +43,8 @@ import { StationSimulatorConflict } from '@/components/station/StationSimulatorC
 import { api } from '@/lib/api';
 import { useFeatureFlags } from '@/hooks/use-feature-flags';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DisableButton } from '@/components/disable-button';
+import { EnableButton } from '@/components/enable-button';
 import { useToast } from '@/components/ui/toast';
 import { getErrorMessage } from '@/lib/error-message';
 import { StationStatusBadge } from '@/components/StationStatusBadge';
@@ -122,8 +125,9 @@ export function StationDetail(): React.JSX.Element {
   });
 
   const {
-    flags: { guestChargingEnabled, reservationEnabled },
+    flags: { guestChargingEnabled, reservationEnabled, aiInsightsEnabled },
   } = useFeatureFlags();
+  const showInsightsTab = useHasPermission('aiInsights:read') && aiInsightsEnabled;
   const sites = sitesResponse?.data;
 
   const { data: station, isLoading } = useQuery({
@@ -217,26 +221,22 @@ export function StationDetail(): React.JSX.Element {
             <ExplainButton context={explainContext} size="header" />
           )}
           {canWriteStations && availabilityActions.enable && (
-            <Button
-              variant="outline"
+            <EnableButton
+              label={t('stations.enableStation')}
               size="header"
               onClick={() => {
                 setAvailabilityConfirm('available');
               }}
-            >
-              {t('stations.enableStation')}
-            </Button>
+            />
           )}
           {canWriteStations && availabilityActions.disable && (
-            <Button
-              variant="destructive"
+            <DisableButton
+              label={t('stations.disableStation')}
               size="header"
               onClick={() => {
                 setAvailabilityConfirm('unavailable');
               }}
-            >
-              {t('stations.disableStation')}
-            </Button>
+            />
           )}
           <EntityNavButtons resource="stations" basePath="/stations" currentId={id} />
         </div>
@@ -324,7 +324,14 @@ export function StationDetail(): React.JSX.Element {
         </Card>
       )}
 
-      <RecordInsight filter={{ stationId: station.id }} context={explainContext} />
+      {showInsightsTab && (
+        <RecordInsight
+          filter={{ stationId: station.id }}
+          onOpen={() => {
+            setDetailsTab('ai-insights');
+          }}
+        />
+      )}
 
       <Tabs value={detailsTab} onValueChange={setDetailsTab}>
         <TabsList>
@@ -357,6 +364,9 @@ export function StationDetail(): React.JSX.Element {
           )}
           {reservationEnabled && (
             <TabsTrigger value="reservations">{t('reservations.title')}</TabsTrigger>
+          )}
+          {showInsightsTab && (
+            <TabsTrigger value="ai-insights">{t('aiInsights.list.title')}</TabsTrigger>
           )}
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
@@ -510,6 +520,11 @@ export function StationDetail(): React.JSX.Element {
           </TabsContent>
         )}
 
+        {showInsightsTab && (
+          <TabsContent value="ai-insights">
+            <RecordInsightsTab filter={{ stationId: station.id }} />
+          </TabsContent>
+        )}
         <TabsContent value="history">
           <EntityHistoryTab entityType="station" entityId={station.id} />
         </TabsContent>

@@ -69,7 +69,10 @@ describe('support draft insights', () => {
       'sit_a',
     ]);
     expect(svc.listInsightRows).toHaveBeenCalledWith(
-      { status: 'active', supportCase: { stationId: 'sta_a', sessionIds: ['ses_1'] } },
+      {
+        statuses: ['open', 'pending'],
+        supportCase: { stationId: 'sta_a', sessionIds: ['ses_1'] },
+      },
       ['sit_a'],
       expect.any(Object),
     );
@@ -87,7 +90,7 @@ describe('support draft insights', () => {
       await supportInsightContext({ stationId: 'sta_a', sessionIds: [] }, null);
       expect(svc.listInsightRows).toHaveBeenLastCalledWith(
         {
-          status: 'active',
+          statuses: ['open', 'pending'],
           supportCase: { stationId: 'sta_a', sessionIds: [] },
           excludeReservations: true,
         },

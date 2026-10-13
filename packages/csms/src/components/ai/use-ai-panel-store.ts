@@ -8,12 +8,18 @@ import type { AiContextKind } from '@evtivity/lib/ai-insights';
 export interface AiPanelContext {
   kind: AiContextKind;
   id: string;
-  /** Shown in the panel (such as the OCPP station id); never sent to the server. */
-  label?: string;
+  /**
+   * The identifier shown after the kind in the context chip ("Session
+   * CS-0954"), the one the server names the record by: the OCPP station id of
+   * a station, session or authorization, `#<OCPP id>` of a reservation, the
+   * insight id. The server's label replaces it once the conversation exists.
+   * Never sent to the server.
+   */
+  label?: string | null;
 }
 
 /** What the panel shows when a page opens it through Explain. */
-export interface AiPanelRequest {
+interface AiPanelRequest {
   context: AiPanelContext;
   /** Changes on every request, so the same record can be explained twice. */
   seq: number;
@@ -32,7 +38,7 @@ interface AiPanelState {
   returnFocus: HTMLElement | null;
   /** Opens the panel on a plain new chat (launcher button, Ctrl/Cmd+K). */
   openPanel: () => void;
-  /** Opens the panel about one record: its context card and a prefilled Explain question. */
+  /** Opens the panel about one record: its context chip and a prefilled Explain question. */
   openWithContext: (context: AiPanelContext) => void;
   close: (reason?: AiPanelCloseReason) => void;
   /** Clears a handled request so a later plain open starts a normal chat. */

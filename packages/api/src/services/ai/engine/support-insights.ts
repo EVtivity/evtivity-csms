@@ -11,6 +11,7 @@
 
 import { frameUntrusted } from '@evtivity/ai/prompt';
 import { isReservationEnabled } from '@evtivity/database';
+import { INSIGHT_LIVE_STATUSES } from '@evtivity/lib/ai-insights';
 import { insightTexts, listInsightRows, staleFlags } from '@evtivity/services/ai-insight.service';
 import type { AiInsightRow, InsightListFilter } from '@evtivity/services/ai-insight.service';
 
@@ -58,7 +59,7 @@ export async function supportInsightContext(
 ): Promise<string | null> {
   if (scope.stationId == null && scope.sessionIds.length === 0) return null;
   // Reservation insights only while reservations are on (owner rule v0.1.45).
-  const filter: InsightListFilter = { status: 'active', supportCase: scope };
+  const filter: InsightListFilter = { statuses: INSIGHT_LIVE_STATUSES, supportCase: scope };
   if (!(await isReservationEnabled())) filter.excludeReservations = true;
   const { rows } = await listInsightRows(filter, siteIds, {
     limit: SUPPORT_INSIGHT_LIMIT * 2,

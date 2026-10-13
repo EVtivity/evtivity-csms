@@ -9,7 +9,8 @@
  * Runner-agnostic: assertions use `node:assert/strict`. Fixture names every
  * target provides: `text`, `tool_call`, `parallel_tool_calls`, `tool_round`
  * (two responses), `malformed_args`, `error_auth`, `error_rate_limited`,
- * `error_overloaded`, `error_context`, `refusal`, `slow_text`, `cached_usage`.
+ * `error_overloaded`, `error_context`, `refusal`, `slow_text`, `cached_usage`,
+ * `citation` (text citing passage 7 and the unknown 99).
  */
 
 import assert from 'node:assert/strict';
@@ -547,6 +548,75 @@ export const CONTRACT_CASES: readonly ContractCase[] = [
         [STATION_TOOL.name]: ctx.capabilities.strictTools,
         [LOOSE_TOOL.name]: false,
       });
+    },
+  },
+  {
+    id: 'P-16',
+    title:
+      'documentation passages: native search results or [doc:N] markers; citations come back as events, never as text',
+    fixtures: ['citation'],
+    async run(ctx) {
+      const passages = [
+        {
+          id: '7',
+          title: 'Settings - Company',
+          url: 'https://evtivity.com/docs/csms/settings#company',
+          text: 'Open Settings and select the Company tab.',
+        },
+        {
+          id: '8',
+          title: 'Sites - Overview',
+          url: 'https://evtivity.com/docs/csms/sites#overview',
+          text: 'A site groups stations at one address.',
+        },
+      ];
+      const run = await ctx.run(
+        req(ctx, {
+          tools: [STATION_TOOL],
+          messages: [
+            { role: 'user', parts: [{ type: 'text', text: 'How do I change the currency?' }] },
+            {
+              role: 'assistant',
+              parts: [
+                {
+                  type: 'tool_call',
+                  id: 'call_docs_1',
+                  name: STATION_TOOL.name,
+                  arguments: { stationId: 'CS-001' },
+                },
+              ],
+            },
+            {
+              role: 'tool',
+              parts: [
+                {
+                  type: 'tool_result',
+                  toolCallId: 'call_docs_1',
+                  name: STATION_TOOL.name,
+                  content: '{"results":"stored record"}',
+                  isError: false,
+                  searchResults: passages,
+                },
+              ],
+            },
+          ],
+        }),
+      );
+      assertWellFormed(run);
+      const body = bodyAt(ctx, 0);
+      if (ctx.capabilities.citations === 'native') {
+        assert.ok(body.includes('"search_result"'), 'passages not sent as search results');
+        assert.ok(body.includes('"source":"7"'), 'passage id not sent as the source');
+        assert.ok(!body.includes('[doc:'), 'markers sent to a native model');
+      } else {
+        assert.ok(body.includes('[doc:7]'), 'passage marker not sent');
+        assert.ok(body.includes('select the Company tab'), 'passage text not sent');
+        assert.ok(!body.includes('stored record'), 'the stored record replaced the passages');
+      }
+      assert.ok(!run.result.text.includes('[doc:'), 'a marker reached the text');
+      assert.ok(run.result.text.includes('Open Settings'), 'cited text lost');
+      // Unknown ids still come back: the engine validates them against the turn.
+      assert.deepEqual([...new Set(run.result.citations.map((c) => c.passageId))], ['7', '99']);
     },
   },
   {

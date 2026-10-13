@@ -89,6 +89,16 @@ export const deepseekTarget: AdapterContractTarget = {
       ],
       done,
     ),
+    citation: sseFixture(
+      [
+        chunk({ role: 'assistant', content: '' }),
+        chunk({ content: 'Open Settings [do' }),
+        chunk({ content: 'c:7]. Then save [doc:7][doc:99].' }),
+        chunk({}, 'stop'),
+        usageChunk(),
+      ],
+      done,
+    ),
     tool_call: sseFixture(
       [
         chunk({ role: 'assistant', content: null }),

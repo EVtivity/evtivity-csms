@@ -379,37 +379,62 @@ export function auditRoutes(app: FastifyInstance): void {
       const { page, limit } = request.query as z.infer<typeof paginationQuery>;
       const offset = (page - 1) * limit;
 
-      const idCol = idColumnFor(entityType as AuditEntityType);
-      const snapshotCol = `${idCol}_snapshot`;
-      const tableName = `${entityType}_audit_log`;
       // A site-restricted user sees the history of entities in its sites only
       // (an empty page otherwise, so the entity's existence does not leak).
       const { userId } = request.user as JwtPayload;
       const entitySiteIds = await getUserSiteIds(userId);
-      const siteCond = auditSiteCondition(entityType as AuditEntityType, idCol, entitySiteIds);
-      if (siteCond === null) return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
-      const scope = siteCond != null ? sql` AND ${siteCond}` : sql``;
-      const [rowsRes, countRes] = await Promise.all([
-        db.execute(sql`
-          SELECT * FROM ${sql.identifier(tableName)}
-          WHERE (${sql.identifier(idCol)} = ${entityId}
-             OR ${sql.identifier(snapshotCol)} = ${entityId})${scope}
-          ORDER BY created_at DESC, id DESC
-          LIMIT ${limit} OFFSET ${offset}
-        `),
-        db.execute(sql`
-          SELECT COUNT(*)::int AS total FROM ${sql.identifier(tableName)}
-          WHERE (${sql.identifier(idCol)} = ${entityId}
-             OR ${sql.identifier(snapshotCol)} = ${entityId})${scope}
-        `),
-      ]);
-      const rows = await redactSupportCaseAuditRows(
-        (rowsRes as unknown as Array<Record<string, unknown>>).map((r) =>
-          normalizeRow(entityType, r),
-        ),
-        entitySiteIds,
+      const primaryIdCol = idColumnFor(entityType as AuditEntityType);
+      const sources: Array<{ type: AuditEntityType; match: SQL }> = [
+        {
+          type: entityType as AuditEntityType,
+          match: sql`(${sql.identifier(primaryIdCol)} = ${entityId}
+             OR ${sql.identifier(`${primaryIdCol}_snapshot`)} = ${entityId})`,
+        },
+      ];
+      // An insight's History also lists its suggested action, one list for both.
+      if (entityType === 'ai_insight') {
+        sources.push({
+          type: 'ai_proposal',
+          match: sql`ai_proposal_id IN (SELECT id FROM ai_proposals WHERE insight_id = ${entityId})`,
+        });
+      }
+
+      const parts = await Promise.all(
+        sources.map(async ({ type, match }) => {
+          const siteCond = auditSiteCondition(type, idColumnFor(type), entitySiteIds);
+          if (siteCond === null) return { rows: [], total: 0 };
+          const scope = siteCond != null ? sql` AND ${siteCond}` : sql``;
+          const table = sql.identifier(`${type}_audit_log`);
+          const [rowsRes, countRes] = await Promise.all([
+            db.execute(sql`
+              SELECT * FROM ${table} WHERE ${match}${scope}
+              ORDER BY created_at DESC, id DESC
+              LIMIT ${offset + limit}
+            `),
+            db.execute(sql`SELECT COUNT(*)::int AS total FROM ${table} WHERE ${match}${scope}`),
+          ]);
+          return {
+            rows: (rowsRes as unknown as Array<Record<string, unknown>>).map((r) =>
+              normalizeRow(type, r),
+            ),
+            total: (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0,
+          };
+        }),
       );
-      const total = (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0;
+      const merged = parts
+        .flatMap((p) => p.rows)
+        // Newest first, as each table's query: ties on the time break on id
+        // (newest row first), then on the entity type, so the order is stable
+        // across pages.
+        .sort(
+          (a, b) =>
+            b.createdAt.localeCompare(a.createdAt) ||
+            b.id - a.id ||
+            a.entityType.localeCompare(b.entityType),
+        )
+        .slice(offset, offset + limit);
+      const rows = await redactSupportCaseAuditRows(merged, entitySiteIds);
+      const total = parts.reduce((sum, p) => sum + p.total, 0);
 
       const resolver = await resolveActorNames(rows);
       for (const row of rows) row.actorName = actorNameFor(row, resolver);

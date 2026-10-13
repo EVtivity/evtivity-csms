@@ -25,7 +25,7 @@ export interface AiConversationItem {
   createdAt: string;
   updatedAt: string;
   /** The record an Explain conversation is about, null for a plain chat. */
-  context?: { kind: AiContextKind; id: string } | null;
+  context?: { kind: AiContextKind; id: string; label?: string | null } | null;
 }
 
 export const AI_CONVERSATIONS_KEY = ['ai-conversations'] as const;

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import type { AiInsightView } from '../insights/insight-api';
@@ -36,6 +36,7 @@ vi.mock('../use-ai-status', () => ({
 
 import { InsightCard } from '../insights/InsightCard';
 import { RecordInsight } from '../insights/RecordInsight';
+import { RecordInsightsTab } from '../insights/RecordInsightsTab';
 import { SupportCaseInsights } from '../insights/SupportCaseInsights';
 import { AuthorizeInsightCell } from '../insights/AuthorizeInsightCell';
 import { pickShownInsight, useAuthorizationInsights } from '../insights/insight-api';
@@ -46,7 +47,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
   return {
     id: 'ins1',
     kind: 'station_offline',
-    status: 'active',
+    status: 'open',
     skipReason: null,
     siteId: 'site1',
     stationId: 'st1',
@@ -95,7 +96,7 @@ afterEach(() => {
 });
 
 describe('InsightCard', () => {
-  it('TC-AI-IN-UI-05: renders category, confidence, fixes and scope through locale keys, the summary as plain text', () => {
+  it('TC-AI-IN-UI-05: renders category, confidence and fixes through locale keys, the summary as plain text', () => {
     wrap(
       <InsightCard
         insight={insight({ summary: '<b>Reboot</b> [link](https://x.example)' })}
@@ -107,17 +108,17 @@ describe('InsightCard', () => {
     );
     expect(screen.getByText('aiInsights.confidenceBadge.high')).toBeTruthy();
     expect(screen.getByText('aiInsights.fix.check_network_connection')).toBeTruthy();
-    // The scope is collapsed by default; its trigger names the main measure at detection.
+    // No Site Context section: the card shows no scope table or summary.
+    expect(screen.queryByTestId('ai-insight-scope-section')).toBeNull();
     expect(screen.queryByTestId('ai-insight-scope')).toBeNull();
-    expect(screen.getByTestId('ai-insight-scope-section').textContent).toContain(
-      'aiInsights.scopeTable.summaryAtDetection',
-    );
     // Model text is plain text: no HTML, no link.
     const summary = screen.getByTestId('ai-insight-summary');
     expect(summary.textContent).toBe('<b>Reboot</b> [link](https://x.example)');
     expect(summary.querySelector('a, b')).toBeNull();
     // D14: no provider or model name.
-    expect(document.body.textContent).not.toMatch(/anthropic|openai|gemini|deepseek|claude|gpt/i);
+    // Locale keys run together in the test text ("status.open" + "aiInsights"): drop them first.
+    const shown = document.body.textContent.replace(/aiInsights\.[\w.]+/g, ' ');
+    expect(shown).not.toMatch(/anthropic|openai|gemini|deepseek|claude|gpt/i);
   });
 
   it('shows the canonical text while the translation is pending, then the translation with Show original', () => {
@@ -157,7 +158,7 @@ describe('InsightCard', () => {
     wrap(
       <InsightCard insight={insight({ status: 'resolved', resolvedAt: '2026-10-10T11:00:00Z' })} />,
     );
-    expect(screen.getByTestId('ai-insight-resolved')).toBeTruthy();
+    expect(screen.getByTestId('ai-insight-status').textContent).toBe('aiInsights.status.resolved');
     fireEvent.click(screen.getByTestId('ai-insight-regenerate'));
     // getErrorMessage maps the code to errors.AI_INSIGHT_COOLDOWN (the test t has no translations).
     expect(
@@ -226,10 +227,12 @@ describe('InsightCard', () => {
   });
 
   it('an analyzing insight shows a skeleton of the card, never an empty box', () => {
-    wrap(<InsightCard insight={insight({ status: 'pending', summary: null })} />);
+    wrap(<InsightCard insight={insight({ status: 'analyzing', summary: null })} />);
     const card = screen.getByTestId('ai-insight-card');
     expect(card.getAttribute('aria-busy')).toBe('true');
-    expect(screen.getByRole('status', { name: 'aiInsights.status.pending' })).toBeTruthy();
+    expect(screen.getByRole('status', { name: 'aiInsights.analyzing' })).toBeTruthy();
+    // An internal state never shows as a badge.
+    expect(screen.queryByTestId('ai-insight-status')).toBeNull();
     expect(screen.queryByTestId('ai-insight-summary')).toBeNull();
   });
 
@@ -244,7 +247,7 @@ describe('InsightCard', () => {
     expect(screen.getByTestId('ai-insight-brief').textContent).toBe('aiInsights.failedNote');
   });
 
-  it('builds the headline and the accent from the kind, and links a fix to its station tab', () => {
+  it('builds the headline and the accent from the kind, and shows a fix as plain text', () => {
     wrap(
       <InsightCard
         insight={insight({ kind: 'station_faulted', fixes: [{ code: 'update_firmware' }] })}
@@ -255,9 +258,11 @@ describe('InsightCard', () => {
     expect(screen.getByTestId('ai-insight-headline').textContent).toBe(
       'aiInsights.headline.station_faulted',
     );
-    expect(
-      screen.getByRole('link', { name: 'aiInsights.fix.update_firmware' }).getAttribute('href'),
-    ).toBe('/stations/st1?tab=firmware-history');
+    // One Suggested Fix section; a step is text, never a link.
+    const fix = screen.getByTestId('ai-insight-fix');
+    expect(within(fix).getByText('aiInsights.fixesLabel')).toBeTruthy();
+    expect(within(fix).getByText('aiInsights.fix.update_firmware')).toBeTruthy();
+    expect(within(fix).queryByRole('link')).toBeNull();
   });
 
   it('hides regenerate, dismiss and feedback without aiInsights:write', () => {
@@ -345,16 +350,6 @@ describe('InsightCard', () => {
     expect(screen.queryByRole('button', { name: 'aiInsights.wrong' })).toBeNull();
     expect(screen.queryByTestId('ai-insight-wrong-panel')).toBeNull();
   });
-
-  it('TC-AI-IC-10 the Site Context summary is not truncated, so it wraps on a phone', () => {
-    wrap(<InsightCard insight={insight()} />);
-    const section = screen.getByTestId('ai-insight-scope-section');
-    const summary = screen.getByText(/aiInsights\.scopeTable\.summaryAtDetection/, {
-      selector: 'button span',
-    });
-    expect(section.contains(summary)).toBe(true);
-    expect(summary.className).not.toMatch(/\btruncate\b|whitespace-nowrap|text-ellipsis/);
-  });
 });
 
 describe('pickShownInsight', () => {
@@ -372,14 +367,19 @@ describe('pickShownInsight', () => {
 describe('record pages', () => {
   it('TC-AI-IN-UI-01: the station card asks for the station insights in the UI language', async () => {
     apiMock.get.mockResolvedValue({ data: [insight()], total: 1 });
-    wrap(<RecordInsight filter={{ stationId: 'st1' }} context={{ kind: 'station', id: 'st1' }} />);
-    expect(await screen.findByTestId('ai-insight-card')).toBeTruthy();
+    const onOpen = vi.fn();
+    wrap(<RecordInsight filter={{ stationId: 'st1' }} onOpen={onOpen} />);
+    // A floating icon pulses while the insight is open and opens the page's AI Insights tab.
+    expect(await screen.findByTestId('record-insight-pulse')).toBeTruthy();
+    expect(screen.queryByTestId('ai-insight-card')).toBeNull();
+    fireEvent.click(screen.getByTestId('record-insight-trigger'));
+    expect(onOpen).toHaveBeenCalledTimes(1);
     expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights?stationId=st1&limit=10&language=ko');
   });
 
   it('TC-AI-IN-UI-02: the session card renders nothing without an insight to show', async () => {
     apiMock.get.mockResolvedValue({ data: [insight({ status: 'skipped' })], total: 1 });
-    wrap(<RecordInsight filter={{ sessionId: 'se1' }} />);
+    wrap(<RecordInsight filter={{ sessionId: 'se1' }} onOpen={vi.fn()} />);
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledWith(
         '/v1/ai/insights?sessionId=se1&limit=10&language=ko',
@@ -390,7 +390,7 @@ describe('record pages', () => {
 
   it('renders nothing and asks nothing without aiInsights:read', () => {
     perms.clear();
-    wrap(<RecordInsight filter={{ stationId: 'st1' }} />);
+    wrap(<RecordInsight filter={{ stationId: 'st1' }} onOpen={vi.fn()} />);
     expect(apiMock.get).not.toHaveBeenCalled();
     expect(screen.queryByTestId('ai-insight-card')).toBeNull();
   });
@@ -413,9 +413,10 @@ describe('record pages', () => {
       <>
         <AuthorizeInsightCell
           attemptId={7}
+          stationOcppId="CS-7"
           insight={insight({ kind: 'authorization_refused', authorizeAttemptId: 7 })}
         />
-        <AuthorizeInsightCell attemptId={8} insight={undefined} />
+        <AuthorizeInsightCell attemptId={8} stationOcppId="CS-8" insight={undefined} />
       </>,
     );
     fireEvent.click(screen.getByTestId('ai-insight-icon'));
@@ -425,11 +426,13 @@ describe('record pages', () => {
     expect(useAiPanelStore.getState().request?.context).toEqual({
       kind: 'authorization',
       id: '7',
+      label: 'CS-7',
     });
     fireEvent.click(screen.getByTestId('ai-explain'));
     expect(useAiPanelStore.getState().request?.context).toEqual({
       kind: 'authorization',
       id: '8',
+      label: 'CS-8',
     });
   });
 
@@ -453,7 +456,7 @@ describe('record pages', () => {
       expect(screen.getByTestId('map').textContent).toBe('7,9');
     });
     expect(apiMock.get).toHaveBeenCalledWith(
-      '/v1/ai/insights?authorizeAttemptIds=7%2C9&status=active&limit=100&language=ko',
+      '/v1/ai/insights?authorizeAttemptIds=7%2C9&status=open&limit=100&language=ko',
     );
   });
 
@@ -534,13 +537,9 @@ describe('reservation insights', () => {
 
   it('TC-AI-RI-UI-01 the reservation page card reads the reservation insights and shows one', async () => {
     apiMock.get.mockResolvedValue({ data: [reservationInsight()], total: 1 });
-    wrap(
-      <RecordInsight
-        filter={{ reservationId: 'res1' }}
-        context={{ kind: 'reservation', id: 'res1' }}
-      />,
-    );
-    expect(await screen.findByTestId('ai-insight-card')).toBeTruthy();
+    wrap(<RecordInsightsTab filter={{ reservationId: 'res1' }} />);
+    // The AI Insights tab lists the reservation's insights; a row opens the insight page.
+    expect(await screen.findByTestId(`record-insight-row-${reservationInsight().id}`)).toBeTruthy();
     expect(apiMock.get).toHaveBeenCalledWith(
       '/v1/ai/insights?reservationId=res1&limit=10&language=ko',
     );
@@ -548,7 +547,7 @@ describe('reservation insights', () => {
 
   it('TC-AI-RI-UI-01 renders nothing for a reservation without an insight', async () => {
     apiMock.get.mockResolvedValue({ data: [], total: 0 });
-    wrap(<RecordInsight filter={{ reservationId: 'res1' }} />);
+    wrap(<RecordInsight filter={{ reservationId: 'res1' }} onOpen={vi.fn()} />);
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalled();
     });
@@ -566,22 +565,12 @@ describe('reservation insights', () => {
     expect(screen.getByText('aiInsights.fix.reservation_check_station_connectivity')).toBeTruthy();
   });
 
-  it('TC-AI-RI-UI-04 a reservation fix links the commands tab or the fee payments', () => {
+  it('TC-AI-RI-UI-04 reservation fixes show as plain steps, never links', () => {
     wrap(<InsightCard insight={reservationInsight()} />);
-    expect(
-      screen
-        .getByRole('link', { name: 'aiInsights.fix.reservation_retry_cancel' })
-        .getAttribute('href'),
-    ).toBe('/reservations/res1?tab=commands');
-    expect(
-      screen
-        .getByRole('link', { name: 'aiInsights.fix.reservation_review_fee_payment' })
-        .getAttribute('href'),
-    ).toBe('/reservations/res1?tab=details');
-    // A fix with no page stays plain text.
-    expect(
-      screen.queryByRole('link', { name: 'aiInsights.fix.reservation_check_station_connectivity' }),
-    ).toBeNull();
+    const fix = screen.getByTestId('ai-insight-fix');
+    expect(within(fix).getByText('aiInsights.fix.reservation_retry_cancel')).toBeTruthy();
+    expect(within(fix).getByText('aiInsights.fix.reservation_review_fee_payment')).toBeTruthy();
+    expect(within(fix).queryByRole('link')).toBeNull();
   });
 
   it('Explain on a reservation looks up the reservation insight', async () => {
