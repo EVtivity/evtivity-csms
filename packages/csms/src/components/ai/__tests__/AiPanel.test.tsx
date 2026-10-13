@@ -155,6 +155,10 @@ describe('AiPanel', () => {
     fireEvent.keyDown(panel, { key: 'Escape' });
     await screen.findByText('ai.stopped');
     expect(onClose).not.toHaveBeenCalled();
+    // The stream has ended only when Stop is gone; before that, Esc still means stop.
+    await waitFor(() => {
+      expect(screen.queryByTestId('ai-stop')).toBeNull();
+    });
     fireEvent.keyDown(panel, { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
   });
