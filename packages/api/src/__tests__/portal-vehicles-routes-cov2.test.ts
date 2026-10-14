@@ -15,7 +15,7 @@ type Chain = Record<string, ReturnType<typeof vi.fn>> & { then: unknown };
 const chains: { kind: string; chain: Chain }[] = [];
 function makeChain(kind: string): Chain {
   const chain = {} as Chain;
-  for (const m of ['from', 'where', 'orderBy', 'limit']) {
+  for (const m of ['from', 'where', 'orderBy', 'limit', 'returning']) {
     chain[m] = vi.fn(() => chain);
   }
   chain.then = (resolve?: (v: unknown) => unknown, reject?: (r: unknown) => unknown) => {
@@ -88,7 +88,7 @@ describe('Portal vehicle routes, uncovered paths', () => {
   describe('DELETE /portal/vehicles/:id', () => {
     it('deletes the vehicle and audits the full row as the driver', async () => {
       const full = { id: VEHICLE_ID, driverId: DRIVER_ID, make: 'Tesla', model: 'Model 3' };
-      setupDbResults([{ id: VEHICLE_ID, driverId: DRIVER_ID }], [full], []);
+      setupDbResults([full]);
       const res = await app.inject({
         method: 'DELETE',
         url: `/portal/vehicles/${VEHICLE_ID}`,
@@ -110,14 +110,17 @@ describe('Portal vehicle routes, uncovered paths', () => {
       );
     });
 
-    it('skips the audit when the full row vanished before the delete', async () => {
-      setupDbResults([{ id: VEHICLE_ID, driverId: DRIVER_ID }], [], []);
+    it('answers 404 and audits nothing when no own vehicle was deleted', async () => {
+      // Another driver's vehicle, a missing one or a concurrent delete: the
+      // owner-guarded DELETE returns no row.
+      setupDbResults([]);
       const res = await app.inject({
         method: 'DELETE',
         url: `/portal/vehicles/${VEHICLE_ID}`,
         headers: auth,
       });
-      expect(res.statusCode).toBe(204);
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('VEHICLE_NOT_FOUND');
       expect(chains.some((c) => c.kind === 'delete')).toBe(true);
       expect(writeAudit).not.toHaveBeenCalled();
     });

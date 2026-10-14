@@ -176,6 +176,17 @@ const { getDriverBillingAddressMock, updateDriverBillingAddressMock } = vi.hoist
   updateDriverBillingAddressMock: vi.fn(),
 }));
 
+vi.mock('../services/driver-erasure.service.js', () => ({ eraseDriver: vi.fn() }));
+
+vi.mock('../lib/driver-email-verification.js', () => ({
+  sendDriverEmailVerification: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../services/driver-status.service.js', () => ({
+  applyDriverDeactivation: vi.fn().mockResolvedValue({ tokensDeactivated: 0 }),
+  revokeDriverEmailLinks: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('../services/driver-billing.service.js', () => ({
   DRIVER_BILLING_ADDRESS_MAX_LENGTHS: {
     billingName: 255,
@@ -722,8 +733,8 @@ describe('Driver routes (operator)', () => {
         phone: '+15559876543',
         isActive: false,
       });
-      // 1: email-collision pre-check (no collision), 2: before SELECT, 3: UPDATE returning
-      setupDbResults([], [updated], [updated]);
+      // 1: before SELECT, 2: email-collision pre-check (no collision), 3: UPDATE returning
+      setupDbResults([makeDriver()], [], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -779,8 +790,8 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 with only email', async () => {
       const updated = makeDriver({ email: 'new@example.com' });
-      // 1: email-collision pre-check (no collision), 2: before SELECT, 3: UPDATE returning
-      setupDbResults([], [updated], [updated]);
+      // 1: before SELECT, 2: email-collision pre-check (no collision), 3: UPDATE returning
+      setupDbResults([makeDriver()], [], [updated]);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -896,8 +907,9 @@ describe('Driver routes (operator)', () => {
 
     it('returns 201 on success', async () => {
       const driverToken = makeToken({ idToken: 'RFID-XYZ' });
-      // tokenService.createToken: dup-check (empty) -> insert returning
-      setupDbResults([], [driverToken]);
+      // tokenService.createToken: dup-check (empty) -> the driver (active)
+      // -> insert returning
+      setupDbResults([], [{ isActive: true }], [driverToken]);
 
       const res = await app.inject({
         method: 'POST',

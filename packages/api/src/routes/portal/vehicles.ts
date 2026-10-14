@@ -159,7 +159,6 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
         params: zodSchema(vehicleParams),
         response: {
           204: { type: 'null' as const },
-          403: errorWith('Forbidden', [ERROR_CODES.FORBIDDEN]),
           404: errorWith('Vehicle not found', [ERROR_CODES.VEHICLE_NOT_FOUND]),
         },
       },
@@ -168,39 +167,31 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const { id } = request.params as z.infer<typeof vehicleParams>;
 
-      const [vehicle] = await db
-        .select({ id: vehicles.id, driverId: vehicles.driverId })
-        .from(vehicles)
-        .where(eq(vehicles.id, id));
+      // Another driver's vehicle answers like a missing one, so vehicle ids
+      // cannot be probed. One statement, so a concurrent delete cannot audit twice.
+      const [deleted] = await db
+        .delete(vehicles)
+        .where(and(eq(vehicles.id, id), eq(vehicles.driverId, driverId)))
+        .returning();
 
-      if (vehicle == null) {
+      if (deleted == null) {
         await reply.status(404).send({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
         return;
       }
 
-      if (vehicle.driverId !== driverId) {
-        await reply.status(403).send({ error: 'Forbidden', code: 'FORBIDDEN' });
-        return;
-      }
-
-      // Capture the full row for the audit before deleting it.
-      const [fullVehicle] = await db.select().from(vehicles).where(eq(vehicles.id, id));
-      await db.delete(vehicles).where(eq(vehicles.id, id));
-      if (fullVehicle != null) {
-        await writeAudit(
-          { table: vehicleAuditLog, idColumn: 'vehicle_id' },
-          {
-            entityId: null,
-            entityIdSnapshot: fullVehicle.id,
-            action: 'deleted',
-            actor: 'driver',
-            actorDriverId: driverId,
-            before: fullVehicle,
-          },
-          db,
-          request.log,
-        );
-      }
+      await writeAudit(
+        { table: vehicleAuditLog, idColumn: 'vehicle_id' },
+        {
+          entityId: null,
+          entityIdSnapshot: deleted.id,
+          action: 'deleted',
+          actor: 'driver',
+          actorDriverId: driverId,
+          before: deleted,
+        },
+        db,
+        request.log,
+      );
       return reply.status(204).send();
     },
   );

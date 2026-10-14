@@ -157,6 +157,7 @@ export const AUDIT_ACTIONS = [
   'resumed',
   'revoked',
   'roaming_session_started',
+  'erased',
   'role_changed',
   'root_certificates_refreshed',
   'session_failed',

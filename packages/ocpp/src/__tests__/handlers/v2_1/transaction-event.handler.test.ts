@@ -15,12 +15,13 @@ const whereFn = vi.fn((): Promise<Record<string, unknown>[]> => {
   if (whereResult instanceof Error) return Promise.reject(whereResult);
   return Promise.resolve(whereResult);
 });
-const fromFn = vi.fn(() => ({ where: whereFn }));
+const fromFn = vi.fn(() => ({ where: whereFn, leftJoin: () => ({ where: whereFn }) }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 const insertValuesFn = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@evtivity/database', () => ({
   db: { select: selectFn, insert: vi.fn(() => ({ values: insertValuesFn })) },
+  drivers: { id: 'drivers.id', isActive: 'drivers.is_active' },
   driverTokens: {
     id: 'id',
     driverId: 'driver_id',

@@ -13,7 +13,11 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@/lib/api', () => ({ api: { patch: patchMock } }));
-vi.mock('@/lib/auth', () => ({ useAuth: () => null, useHasPermission: () => true }));
+vi.mock('@/lib/auth', () => ({
+  useAuth: () => null,
+  useHasPermission: () => true,
+  useHasAllSiteAccess: () => true,
+}));
 vi.mock('@/components/ui/tabs', () => ({
   TabsContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));

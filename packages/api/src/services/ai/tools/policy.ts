@@ -213,6 +213,8 @@ export const AI_TOOL_POLICY: Readonly<Record<string, ToolPolicy>> = {
   createDriverVehicle: W,
   deleteDriver: W,
   deleteDriverVehicle: W,
+  // Irreversible erasure of personal data: an operator decision only.
+  eraseDriver: N,
   getDriver: supportRead({ id: 'case.driverId' }),
   getDriverBillingAddress: N,
   getDriverNeighbors: N,

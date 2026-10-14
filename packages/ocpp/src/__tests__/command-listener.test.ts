@@ -5,6 +5,10 @@ import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import pino from 'pino';
 import type { PubSubClient, Subscription, DomainEvent } from '@evtivity/lib';
 import { CommandListener } from '../server/command-listener.js';
+import {
+  clearIssuedCentralTokens,
+  isIssuedCentralToken,
+} from '../authorization/issued-central-tokens.js';
 import { CommandTimeoutError } from '../server/message-correlator.js';
 
 vi.mock('../protocol/message-types.js', () => ({
@@ -84,6 +88,23 @@ describe('CommandListener', () => {
     expect(dispatcher.sendVersionAwareCommand).toHaveBeenCalledWith('CS-001', 'Reset', {
       type: 'Soft',
     });
+  });
+
+  it('remembers the Central idToken of a remote start for Authorize', async () => {
+    clearIssuedCentralTokens();
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        stationId: 'CS-001',
+        action: 'RequestStartTransaction',
+        payload: { evseId: 1, remoteStartId: 7, idToken: { idToken: 'drv-x', type: 'Central' } },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(isIssuedCentralToken('CS-001', 'drv-x')).toBe(true);
+    expect(isIssuedCentralToken('CS-002', 'drv-x')).toBe(false);
+    clearIssuedCentralTokens();
   });
 
   it('dispatches direct command when version is present', async () => {

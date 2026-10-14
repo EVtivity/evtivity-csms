@@ -240,19 +240,50 @@ function mapReserveNow16(payload: Record<string, unknown>): Record<string, unkno
   };
 }
 
+// OCPP 1.6 AuthorizationStatus has no NoCredit (2.1 only): a prepaid card
+// without credit is Blocked, as the 1.6 Authorize answers it.
+const AUTHORIZATION_STATUS_16 = new Set([
+  'Accepted',
+  'Blocked',
+  'Expired',
+  'Invalid',
+  'ConcurrentTx',
+]);
+
+function authorizationStatus16(status: unknown): string {
+  if (typeof status === 'string' && AUTHORIZATION_STATUS_16.has(status)) return status;
+  return status === 'Unknown' ? 'Invalid' : 'Blocked';
+}
+
+/**
+ * 2.1 SendLocalListRequest to the 1.6 shape (SendLocalList.json): versionNumber
+ * becomes listVersion, each entry { idToken, idTokenInfo } becomes { idTag,
+ * idTagInfo { status, expiryDate, parentIdTag } }. The 1.6 schema allows no
+ * other property, and an entry without idTagInfo would carry no status. An
+ * entry already in 1.6 shape passes through.
+ */
 function mapSendLocalList16(payload: Record<string, unknown>): Record<string, unknown> {
+  const listVersion = payload.listVersion ?? payload.versionNumber;
+  const result: Record<string, unknown> = { listVersion, updateType: payload.updateType };
   const list = payload.localAuthorizationList as Record<string, unknown>[] | undefined;
-  if (list == null) return payload;
-  return {
-    ...payload,
-    localAuthorizationList: list.map((entry) => {
-      const idToken = entry.idToken as Record<string, unknown> | undefined;
-      return {
-        ...entry,
-        idTag: idToken?.idToken ?? entry.idTag,
-      };
-    }),
-  };
+  if (list == null) return result;
+  result.localAuthorizationList = list.map((entry) => {
+    const idToken = entry.idToken as Record<string, unknown> | undefined;
+    const mapped: Record<string, unknown> = { idTag: idToken?.idToken ?? entry.idTag };
+    if (entry.idTagInfo != null) {
+      mapped.idTagInfo = entry.idTagInfo;
+      return mapped;
+    }
+    const info = entry.idTokenInfo as Record<string, unknown> | undefined;
+    if (info == null) return mapped;
+    const idTagInfo: Record<string, unknown> = { status: authorizationStatus16(info.status) };
+    if (info.cacheExpiryDateTime != null) idTagInfo.expiryDate = info.cacheExpiryDateTime;
+    const group = info.groupIdToken as Record<string, unknown> | undefined;
+    if (group?.idToken != null) idTagInfo.parentIdTag = group.idToken;
+    mapped.idTagInfo = idTagInfo;
+    return mapped;
+  });
+  return result;
 }
 
 function mapGetVariables16(payload: Record<string, unknown>): Record<string, unknown> {

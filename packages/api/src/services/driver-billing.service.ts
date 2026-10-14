@@ -119,12 +119,14 @@ export async function updateDriverBillingAddress(
 ): Promise<DriverBillingAddress> {
   const result = await db.transaction(async (tx) => {
     const [row] = await tx
-      .select(driverBillingAddressColumns)
+      .select({ ...driverBillingAddressColumns, erasedAt: drivers.erasedAt })
       .from(drivers)
       .where(eq(drivers.id, driverId))
       .for('update');
     if (row == null) throw driverNotFound();
-    const current: DriverBillingAddress = row;
+    const { erasedAt, ...current } = row;
+    // An erased driver is an anonymized stub: no address comes back.
+    if (erasedAt != null) throw new AppError('The driver was erased', 409, 'DRIVER_ERASED');
     const next = mergeBillingAddress(current, patch);
     const diff = diffBillingAddress(current, next);
     if (diff == null) return { address: current, diff };

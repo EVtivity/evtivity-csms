@@ -149,6 +149,26 @@ describe('title case for English UI labels', () => {
     expect(bad).toEqual([]);
   });
 
+  it('a details tab is named plain Details, never "<Entity> Details"', () => {
+    const sources = import.meta.glob<string>(['../../**/*.tsx', '!../../**/__tests__/**'], {
+      query: '?raw',
+      import: 'default',
+      eager: true,
+    });
+    const tabKeys = new Set<string>();
+    for (const text of Object.values(sources)) {
+      for (const m of text.matchAll(/<TabsTrigger\b[^>]*>\s*\{t\(\s*'([^']+)'/g)) {
+        if (m[1] != null) tabKeys.add(m[1]);
+      }
+    }
+    expect(tabKeys.size).toBeGreaterThan(20);
+    const bad = [...tabKeys]
+      .map((key) => [key, lookup(csmsEn, key)] as const)
+      .filter(([, text]) => typeof text === 'string' && / Details$/.test(text))
+      .map(([key, text]) => `${key}: ${String(text)}`);
+    expect(bad).toEqual([]);
+  });
+
   it('allowlisted keys still exist, so the allowlist cannot go stale', () => {
     const keys = new Set(labels(csmsEn).map(([key]) => key));
     for (const key of ALLOWED['csms'] ?? []) expect(keys.has(key), key).toBe(true);

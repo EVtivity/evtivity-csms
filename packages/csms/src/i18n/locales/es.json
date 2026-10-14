@@ -944,7 +944,8 @@
     "maxPowerUnknownHint": "La gestión de carga no puede limitar este conector hasta que se defina su potencia máxima. Edite el EVSE para definirla. Las estaciones OCPP 2.1 la completan desde su informe de configuración.",
     "removeTag": "Quitar etiqueta {{tag}}",
     "messageCommandQueued": "Estación sin conexión. El comando quedó en cola y se enviará cuando la estación se vuelva a conectar.",
-    "chargingNeedsTab": "Necesidades de Carga y Monitores"
+    "chargingNeedsTab": "Necesidades de Carga y Monitores",
+    "localAuthPrepaidHint": "Solo se listan tokens activos que no son tarjetas prepago. Una estación comprueba en línea el saldo de una tarjeta prepago, así que las tarjetas prepago nunca van en una lista local."
   },
   "eventAlertRules": {
     "title": "Reglas de Alerta de Eventos",
@@ -1111,6 +1112,18 @@
     "phone": "Teléfono",
     "language": "Idioma",
     "languageHelp": "Se usa en el portal del conductor, las notificaciones y las facturas.",
+    "activeHelp": "Al marcar un conductor como inactivo también se desactivan sus tokens y se cierra su sesión en el portal del conductor. Al volver a activarlo, los tokens siguen desactivados.",
+    "erase": "Borrar conductor",
+    "eraseTitle": "Borrar datos personales",
+    "eraseHelp": "Elimina el nombre, el correo electrónico, el teléfono, la dirección de facturación, la contraseña, la MFA, los vehículos y los métodos de pago guardados del conductor, y desactiva los tokens. Las sesiones, los pagos y las facturas se conservan para la contabilidad. Esta acción no se puede deshacer.",
+    "eraseConfirmTitle": "¿Borrar este conductor?",
+    "eraseConfirmDescription": "Los datos personales del conductor se eliminan de forma definitiva y el conductor ya no puede iniciar sesión. Las sesiones, los pagos y las facturas se conservan para la contabilidad.",
+    "eraseConfirmLabel": "Escribe el ID del conductor {{id}} para confirmar",
+    "eraseConfirmMismatch": "El texto no coincide con el ID del conductor.",
+    "eraseSuccess": "Conductor borrado",
+    "erasedOn": "Los datos personales de este conductor se borraron el {{date}}.",
+    "erased": "Borrado",
+    "erasedName": "Conductor borrado",
     "allStatuses": "Todos los estados",
     "noDriversFound": "No se encontraron conductores",
     "driverNotFound": "Conductor no encontrado",
@@ -1717,7 +1730,17 @@
     "prepaid": "Tarjeta prepago",
     "prepaidHint": "La estación consulta el saldo antes de cada carga y se detiene cuando se agota el crédito. Un saldo de cero o menos se rechaza.",
     "prepaidBalance": "Saldo prepago",
-    "notPrepaid": "Sin prepago"
+    "notPrepaid": "Sin prepago",
+    "expiresAtHint": "Déjelo vacío para un token que no expira. Después de esta hora, las estaciones rechazan el token como expirado.",
+    "noExpiry": "Nunca",
+    "deactivatedAt": "Desactivado",
+    "deactivatedBy": "Desactivado Por",
+    "deactivatedByValue": {
+      "operator": "Operador",
+      "driver": "Conductor",
+      "system": "Sistema"
+    },
+    "deactivationReason": "Motivo de Desactivación"
   },
   "commands": {
     "title": "Comandos",
@@ -2808,6 +2831,7 @@
       "driver.Welcome": "Bienvenida",
       "driver.ForgotPassword": "Contraseña Olvidada",
       "driver.PortalInvite": "Invitación al portal de conductores",
+      "driver.RegistrationAttempt": "Intento de registro",
       "session.EndRequestFailed": "No se pudo finalizar la sesión",
       "site.PayoutOnboarding": "Configuración de pagos del sitio",
       "driver.PasswordChanged": "Contraseña Cambiada",
@@ -3016,6 +3040,8 @@
     "DRIVER_ALREADY_IN_FLEET": "El conductor ya está en esta flota",
     "DRIVER_CREATE_FAILED": "Error al crear el conductor",
     "DRIVER_NOT_FOUND": "Conductor no encontrado",
+    "DRIVER_ERASED": "Los datos del conductor se han borrado",
+    "DRIVER_HAS_ACTIVE_SESSION": "El conductor tiene una sesión de carga activa",
     "DRIVER_INACTIVE": "El conductor está inactivo",
     "DUPLICATE_ALERT_RULE": "Ya existe una regla de alerta para este componente y esta variable",
     "DUPLICATE_API_KEY_NAME": "Ya existe una clave API con este nombre",
@@ -3026,7 +3052,6 @@
     "DUPLICATE_PARTNER": "Ya existe un socio con este código de país e ID de parte",
     "DUPLICATE_SITE_NAME": "Ya existe un sitio con este nombre",
     "DUPLICATE_STATION_ID": "El ID de estación ya existe",
-    "EMAIL_EXISTS": "El correo electrónico ya está registrado",
     "EMAIL_NOT_CONFIGURED": "Proveedor de correo no configurado",
     "EMAIL_NOT_VERIFIED": "Correo electrónico no verificado",
     "EMAIL_REQUIRED": "Se requiere correo electrónico para carga de pago",
@@ -3278,7 +3303,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "Ya se decidió sobre esta acción",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
     "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde",
-    "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación."
+    "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación.",
+    "TOKEN_BLOCKED_BY_OPERATOR": "El operador desactivó esta tarjeta. Contacte al operador para reactivarla."
   },
   "logs": {
     "title": "Registros",
@@ -4390,6 +4416,7 @@
       "pnc_contract_issued": "Contrato Plug & Charge emitido",
       "pnc_contract_revoked": "Contrato Plug & Charge revocado",
       "roaming_session_started": "Sesión de roaming iniciada",
+      "erased": "Borrado",
       "invite_resent": "Invitación reenviada",
       "cdr_credited": "CDR abonado",
       "faulted": "Con fallo",

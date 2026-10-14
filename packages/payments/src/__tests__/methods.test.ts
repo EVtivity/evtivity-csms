@@ -137,6 +137,7 @@ vi.mock('drizzle-orm', () => ({
 
 import {
   continueDriverMethodSetup,
+  eraseDriverMethods,
   listDriverMethods,
   removeDriverMethod,
   saveDriverMethod,
@@ -1050,6 +1051,57 @@ describe('removeDriverMethod', () => {
   it('writes no audit row when a concurrent removal deleted the method first', async () => {
     h.results.select.push([method()]);
     expect(await removeDriverMethod(input, ctx)).toEqual({ status: 'removed' });
+    expect(h.writeAudit).not.toHaveBeenCalled();
+  });
+});
+
+describe('eraseDriverMethods', () => {
+  it('detaches every method, deletes the methods and customers and audits without card data', async () => {
+    h.results.select.push([
+      method(),
+      method({
+        id: 2,
+        provider: 'simulated',
+        providerCustomerId: 'cus_sim_1',
+        providerPaymentMethodId: 'pm_sim_1',
+      }),
+    ]);
+    h.results.delete.push(
+      [
+        { id: 1, provider: 'stripe' },
+        { id: 2, provider: 'simulated' },
+      ],
+      [],
+    );
+    expect(await eraseDriverMethods('d1', ctx)).toEqual({ removed: 2 });
+    expect(stripe.detachMethod).toHaveBeenCalledWith({ customerId: 'cus_1', methodId: 'pm_1' });
+    expect(simulated.detachMethod).toHaveBeenCalledWith({
+      customerId: 'cus_sim_1',
+      methodId: 'pm_sim_1',
+    });
+    expect(callsOf('delete')).toHaveLength(2);
+    expect(h.writeAudit).toHaveBeenCalledTimes(2);
+    const args = h.writeAudit.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(args).toMatchObject({
+      action: 'payment_method_removed',
+      before: { paymentMethodId: 1, provider: 'stripe' },
+      after: null,
+    });
+    expect(JSON.stringify(h.writeAudit.mock.calls)).not.toContain('4242');
+  });
+
+  it('logs a failed detach and still deletes the rows', async () => {
+    h.results.select.push([method()]);
+    h.results.delete.push([{ id: 1, provider: 'stripe' }], []);
+    stripe.detachMethod.mockRejectedValue(new Error('gone'));
+    expect(await eraseDriverMethods('d1', ctx)).toEqual({ removed: 1 });
+    expect(logger.warn).toHaveBeenCalled();
+  });
+
+  it('writes nothing for a driver without methods', async () => {
+    h.results.delete.push([], []);
+    expect(await eraseDriverMethods('d1', ctx)).toEqual({ removed: 0 });
+    expect(stripe.detachMethod).not.toHaveBeenCalled();
     expect(h.writeAudit).not.toHaveBeenCalled();
   });
 });

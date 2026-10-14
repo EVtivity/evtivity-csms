@@ -28,7 +28,7 @@ function nextResult(): PromiseLike<unknown[]> & { limit: () => Promise<unknown[]
 }
 
 const whereFn = vi.fn((): unknown => nextResult());
-const fromFn = vi.fn(() => ({ where: whereFn }));
+const fromFn = vi.fn(() => ({ where: whereFn, leftJoin: () => ({ where: whereFn }) }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
 const isRoamingEnabledMock = vi.fn().mockResolvedValue(false);
@@ -40,6 +40,7 @@ vi.mock('@evtivity/database', () => ({
     insert: vi.fn(() => ({ values: insertValuesFn })),
     execute: executeFn,
   },
+  drivers: { id: 'drivers.id', isActive: 'drivers.is_active' },
   driverTokens: {
     id: 'id',
     driverId: 'driver_id',

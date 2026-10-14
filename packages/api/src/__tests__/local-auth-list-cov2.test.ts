@@ -20,6 +20,8 @@ const { results, ops, sendOcppCommandAndWait, getUserSiteIds, drizzle } = vi.hoi
     notInArray: vi.fn((col: unknown, val: unknown) => ({ notInArray: [col, val] })),
     inArray: vi.fn((col: unknown, val: unknown) => ({ inArray: [col, val] })),
     isNull: vi.fn((col: unknown) => ({ isNull: col })),
+    isNotNull: vi.fn((col: unknown) => ({ isNotNull: col })),
+    lt: vi.fn((col: unknown, val: unknown) => ({ lt: [col, val] })),
     sql: vi.fn(() => 'sql'),
     desc: vi.fn(),
     count: vi.fn(() => 'count'),
@@ -63,11 +65,18 @@ vi.mock('@evtivity/database', () => ({
     delete: vi.fn(() => makeChain('delete')),
   },
   chargingStations: { id: 'cs.id' },
-  driverTokens: { id: 'dt.id', isActive: 'dt.isActive', idToken: 'dt.idToken' },
+  driverTokens: {
+    id: 'dt.id',
+    isActive: 'dt.isActive',
+    idToken: 'dt.idToken',
+    prepaidBalanceCents: 'dt.prepaidBalanceCents',
+  },
   drivers: { firstName: 'd.firstName', lastName: 'd.lastName' },
   stationLocalAuthVersions: { stationId: 'v.stationId', localVersion: 'v.localVersion' },
   stationLocalAuthEntries: { id: 'e.id', stationId: 'e.stationId' },
   writeAudit: vi.fn().mockResolvedValue(undefined),
+  pgErrorCode: (err: unknown) => (err as { code?: string }).code,
+  PG_UNIQUE_VIOLATION: '23505',
   localAuthListAuditLog: {},
 }));
 
@@ -212,30 +221,74 @@ describe('local auth list routes - uncovered paths', () => {
     expect(drizzle.ilike).toHaveBeenCalledWith('dt.idToken', '%abc%');
     expect(drizzle.ilike).toHaveBeenCalledWith('d.firstName', '%abc%');
     expect(drizzle.ilike).toHaveBeenCalledWith('d.lastName', '%abc%');
+    // Prepaid cards never go on a local list.
+    expect(drizzle.isNull).toHaveBeenCalledWith('dt.prepaidBalanceCents');
   });
 
   describe('POST push', () => {
-    function queuePush(entries: Array<{ entryId: number; isActive: boolean }>): void {
-      results.push(
-        [onlineStation],
-        [], // delete orphaned
-        entries,
-      );
-      if (entries.some((e) => !e.isActive)) results.push([]); // block update
-      results.push(
-        [{ idToken: 'T1', tokenType: 'ISO14443', authStatus: 'Blocked' }],
-        [{ id: 1, stationId: STATION_ID }], // version row exists
-        [{ localVersion: 5 }],
-      );
+    interface ReconcileRow {
+      entryId: number;
+      entryIdToken: string;
+      entryTokenType: string;
+      entryAuthStatus: string;
+      idToken: string;
+      tokenType: string;
+      isActive: boolean;
+      revokedAt: Date | null;
+      expiresAt: Date | null;
+      driverIsActive: boolean | null;
     }
 
-    it('blocks entries whose token was deactivated before pushing', async () => {
-      queuePush([
-        { entryId: 1, isActive: false },
-        { entryId: 2, isActive: true },
-        { entryId: 3, isActive: false },
-      ]);
-      results.push([]); // pushedAt update
+    function row(over: Partial<ReconcileRow>): ReconcileRow {
+      return {
+        entryId: 1,
+        entryIdToken: 'T1',
+        entryTokenType: 'ISO14443',
+        entryAuthStatus: 'Accepted',
+        idToken: 'T1',
+        tokenType: 'ISO14443',
+        isActive: true,
+        revokedAt: null,
+        expiresAt: null,
+        driverIsActive: true,
+        ...over,
+      };
+    }
+
+    // station, orphan delete, prepaid entries (+ their delete), joined
+    // entries, one update per changed entry, version row, version reservation
+    function queuePush(
+      rows: ReconcileRow[],
+      changedEntries = 0,
+      prepaidEntryIds: number[] = [],
+    ): void {
+      results.push(
+        [onlineStation],
+        [],
+        prepaidEntryIds.map((id) => ({ id })),
+      );
+      if (prepaidEntryIds.length > 0) results.push([]);
+      results.push(rows);
+      for (let i = 0; i < changedEntries; i++) results.push([]);
+      results.push([{ id: 1, stationId: STATION_ID }], [{ localVersion: 5 }]);
+    }
+
+    it('reconciles every entry with its token before pushing', async () => {
+      const past = new Date('2020-01-01T00:00:00Z');
+      const future = new Date('2099-01-01T00:00:00Z');
+      queuePush(
+        [
+          row({ entryId: 1, idToken: 'DEACT', entryIdToken: 'DEACT', isActive: false }),
+          row({ entryId: 2, idToken: 'REACT', entryIdToken: 'REACT', entryAuthStatus: 'Blocked' }),
+          row({ entryId: 3, idToken: 'NEW', entryIdToken: 'OLD' }),
+          row({ entryId: 4, idToken: 'EXP', entryIdToken: 'EXP', expiresAt: past }),
+          row({ entryId: 5, idToken: 'OK', entryIdToken: 'OK', expiresAt: future }),
+          row({ entryId: 6, idToken: 'DRV', entryIdToken: 'DRV', driverIsActive: false }),
+        ],
+        5,
+        [7],
+      );
+      results.push([], []); // lastSyncAt, pushedAt
       sendOcppCommandAndWait.mockResolvedValue({ response: { status: 'Accepted' } });
       const res = await app.inject({
         method: 'POST',
@@ -243,18 +296,47 @@ describe('local auth list routes - uncovered paths', () => {
         headers,
       });
       expect(res.statusCode).toBe(200);
-      expect(drizzle.inArray).toHaveBeenCalledWith('e.id', [1, 3]);
-      const blockSet = ops.find(
-        (o) => o.op === 'update.set' && (o.args[0] as Record<string, unknown>)['authStatus'],
-      );
-      expect(blockSet?.args[0]).toEqual({ authStatus: 'Blocked' });
+      expect(res.json()).toMatchObject({ entriesCount: 6, version: 5 });
+      // The prepaid card's entry is dropped, never pushed.
+      expect(ops.some((o) => o.op === 'delete.where')).toBe(true);
+      expect(drizzle.inArray).toHaveBeenCalledWith('e.id', [7]);
+      const info = (status: string) => ({ status });
       expect(sendOcppCommandAndWait).toHaveBeenCalledWith('CS-001', 'SendLocalList', {
         versionNumber: 5,
         updateType: 'Full',
         localAuthorizationList: [
-          { idToken: { idToken: 'T1', type: 'ISO14443' }, idTokenInfo: { status: 'Blocked' } },
+          { idToken: { idToken: 'DEACT', type: 'ISO14443' }, idTokenInfo: info('Blocked') },
+          { idToken: { idToken: 'REACT', type: 'ISO14443' }, idTokenInfo: info('Accepted') },
+          { idToken: { idToken: 'NEW', type: 'ISO14443' }, idTokenInfo: info('Accepted') },
+          { idToken: { idToken: 'EXP', type: 'ISO14443' }, idTokenInfo: info('Expired') },
+          {
+            idToken: { idToken: 'OK', type: 'ISO14443' },
+            idTokenInfo: { status: 'Accepted', cacheExpiryDateTime: future.toISOString() },
+          },
+          { idToken: { idToken: 'DRV', type: 'ISO14443' }, idTokenInfo: info('Blocked') },
         ],
       });
+      // The renamed entry stores the token's current value.
+      expect(
+        ops.some(
+          (o) =>
+            o.op === 'update.set' &&
+            (o.args[0] as Record<string, unknown>)['idToken'] === 'NEW' &&
+            (o.args[0] as Record<string, unknown>)['authStatus'] === 'Accepted',
+        ),
+      ).toBe(true);
+      // The sync time is written after the station accepted, and only the
+      // pushed entries are stamped.
+      const versionSet = ops.find(
+        (o) => o.op === 'update.set' && 'localVersion' in (o.args[0] as Record<string, unknown>),
+      );
+      expect(versionSet?.args[0]).not.toHaveProperty('lastSyncAt');
+      expect(
+        ops.some(
+          (o) => o.op === 'update.set' && (o.args[0] as Record<string, unknown>)['lastSyncAt'],
+        ),
+      ).toBe(true);
+      expect(drizzle.inArray).toHaveBeenCalledWith('e.id', [1, 2, 3, 4, 5, 6]);
     });
 
     it('returns 504 COMMAND_TIMEOUT when the station does not answer', async () => {
@@ -297,6 +379,12 @@ describe('local auth list routes - uncovered paths', () => {
       expect(
         ops.some(
           (o) => o.op === 'update.set' && (o.args[0] as Record<string, unknown>)['pushedAt'],
+        ),
+      ).toBe(false);
+      // A rejected push keeps the unpushed-changes banner: no sync time.
+      expect(
+        ops.some(
+          (o) => o.op === 'update.set' && (o.args[0] as Record<string, unknown>)['lastSyncAt'],
         ),
       ).toBe(false);
     });

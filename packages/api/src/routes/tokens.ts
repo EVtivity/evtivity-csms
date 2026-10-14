@@ -15,6 +15,7 @@ import {
 import * as tokenService from '../services/token.service.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
+import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -23,20 +24,9 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { sessionsAtSites } from '../lib/session-site-scope.js';
-import type { JwtPayload } from '../plugins/auth.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 
-// OCPP 2.1 IdTokenEnumType. Canonical list shared by operator + portal.
-export const OCPP_TOKEN_TYPES = [
-  'Central',
-  'eMAID',
-  'ISO14443',
-  'ISO15693',
-  'KeyCode',
-  'Local',
-  'MacAddress',
-  'NoAuthorization',
-] as const;
-const tokenTypeSchema = z.enum(OCPP_TOKEN_TYPES);
+const tokenTypeSchema = z.enum(OCPP_ID_TOKEN_TYPES);
 
 const prepaidBalanceSchema = z
   .number()
@@ -59,6 +49,12 @@ const tokenItem = z
     expiresAt: z.coerce.date().nullable().describe('Optional expiration timestamp'),
     revokedAt: z.coerce.date().nullable().describe('Timestamp the token was last deactivated'),
     revokedReason: z.string().nullable().describe('Optional operator-supplied reason'),
+    deactivatedBy: z
+      .enum(['operator', 'driver', 'system'])
+      .nullable()
+      .describe(
+        'Who deactivated the token, null while active. A driver can reactivate only a token the driver deactivated',
+      ),
     prepaidBalanceCents: z
       .number()
       .int()
@@ -167,21 +163,30 @@ const bulkActiveBody = z.object({
   isActive: z.boolean().describe('New active state to apply to every token in ids'),
 });
 
+// Each field is checked per row by the importer, which reports a bad row in
+// `errors` instead of failing the whole file.
 const importTokenRow = z.object({
-  idToken: z.string().min(1).max(255),
-  tokenType: tokenTypeSchema,
-  driverEmail: z.string().email().max(255).optional(),
-  isActive: z.boolean().optional(),
-  expiresAt: z.string().max(50).optional(),
+  idToken: z.string().max(1000).describe('Token identifier, at most 255 characters'),
+  tokenType: z.string().max(50).describe('OCPP IdToken type'),
+  driverEmail: z.string().max(255).optional().describe('Email of the driver to assign'),
+  isActive: z.boolean().optional().describe('Whether the token is active (default true)'),
+  expiresAt: z.string().max(50).optional().describe('ISO 8601 expiry, empty for none'),
 });
 
 const importTokenBody = z.object({
   rows: z.array(importTokenRow).max(10000),
 });
 
-const tokenListQuery = paginationQuery.extend({
+const tokenFilterQuery = {
   tokenType: z.string().max(20).optional().describe('Filter by token type'),
   status: z.enum(['active', 'inactive']).optional().describe('Filter by token status'),
+};
+
+const tokenListQuery = paginationQuery.extend(tokenFilterQuery);
+
+const tokenExportQuery = z.object({
+  search: z.string().max(255).optional().describe('Search token value or driver name or email'),
+  ...tokenFilterQuery,
 });
 
 export function tokenRoutes(app: FastifyInstance): void {
@@ -242,14 +247,16 @@ export function tokenRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Tokens'],
         summary: 'Export tokens as CSV',
+        description:
+          'Every token matching the same filters as the list (search, tokenType, status), as CSV with the columns idToken, tokenType, driverEmail, isActive and expiresAt. The import reads the same columns.',
         operationId: 'exportTokens',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(tokenExportQuery),
       },
     },
     async (request, reply) => {
-      const params = request.query as z.infer<typeof paginationQuery>;
-      const csv = await tokenService.exportTokensCsv(params.search);
+      const params = request.query as z.infer<typeof tokenExportQuery>;
+      const csv = await tokenService.exportTokensCsv(params);
       await reply
         .header('Content-Type', 'text/csv')
         .header('Content-Disposition', 'attachment; filename=tokens.csv')
@@ -271,9 +278,8 @@ export function tokenRoutes(app: FastifyInstance): void {
       },
     },
     async (request) => {
-      const { userId } = request.user as JwtPayload;
       const { rows } = request.body as z.infer<typeof importTokenBody>;
-      return tokenService.importTokensCsv(rows, { type: 'operator', userId });
+      return tokenService.importTokensCsv(rows, tokenService.tokenActorOf(getAuditActor(request)));
     },
   );
 
@@ -287,19 +293,33 @@ export function tokenRoutes(app: FastifyInstance): void {
         operationId: 'bulkSetTokensActive',
         security: [{ bearerAuth: [] }],
         body: zodSchema(bulkActiveBody),
+        description:
+          'Activates or deactivates the tokens. Only tokens not already in that state change. Activation is refused with 409 DRIVER_INACTIVE when one of the tokens belongs to a deactivated driver.',
         response: {
           200: itemResponse(
             z
               .object({ updated: z.number().int().min(0).describe('Number of tokens updated') })
               .passthrough(),
           ),
+          409: errorWith('Driver is inactive', [ERROR_CODES.DRIVER_INACTIVE]),
         },
       },
     },
-    async (request) => {
-      const { userId } = request.user as JwtPayload;
+    async (request, reply) => {
       const { ids, isActive } = request.body as z.infer<typeof bulkActiveBody>;
-      return tokenService.bulkSetActive(ids, isActive, { type: 'operator', userId });
+      try {
+        return await tokenService.bulkSetActive(
+          ids,
+          isActive,
+          tokenService.tokenActorOf(getAuditActor(request)),
+        );
+      } catch (err) {
+        if (err instanceof tokenService.TokenDriverInactiveError) {
+          await reply.status(409).send({ error: 'Driver is inactive', code: 'DRIVER_INACTIVE' });
+          return;
+        }
+        throw err;
+      }
     },
   );
 
@@ -336,7 +356,7 @@ export function tokenRoutes(app: FastifyInstance): void {
       // Filter by token_id directly (the FK on charging_sessions). This shows
       // sessions where the OCPP authorize matched THIS card, not every session
       // by the same driver.
-      const { userId } = request.user as JwtPayload;
+      const { userId } = request.user as { userId: string };
       const siteIds = await getUserSiteIds(userId);
       const where = and(
         eq(chargingSessions.tokenId, id),
@@ -422,17 +442,31 @@ export function tokenRoutes(app: FastifyInstance): void {
         body: zodSchema(createTokenBody),
         response: {
           201: itemResponse(tokenCreated),
-          409: errorWith('Duplicate token', [ERROR_CODES.TOKEN_DUPLICATE]),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
+          409: errorWith('Duplicate token or inactive driver', [
+            ERROR_CODES.TOKEN_DUPLICATE,
+            ERROR_CODES.DRIVER_INACTIVE,
+          ]),
         },
       },
     },
     async (request, reply) => {
-      const { userId } = request.user as JwtPayload;
       const body = parseZodRequest(createTokenBody, request.body);
       try {
-        const token = await tokenService.createToken(body, { type: 'operator', userId });
+        const token = await tokenService.createToken(
+          body,
+          tokenService.tokenActorOf(getAuditActor(request)),
+        );
         await reply.status(201).send(token);
       } catch (err) {
+        if (err instanceof tokenService.TokenDriverNotFoundError) {
+          await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+          return;
+        }
+        if (err instanceof tokenService.TokenDriverInactiveError) {
+          await reply.status(409).send({ error: 'Driver is inactive', code: 'DRIVER_INACTIVE' });
+          return;
+        }
         if (err instanceof tokenService.DuplicateTokenError) {
           await reply
             .status(409)
@@ -457,23 +491,40 @@ export function tokenRoutes(app: FastifyInstance): void {
         body: zodSchema(updateTokenBody),
         response: {
           200: itemResponse(tokenCreated),
-          404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
-          409: errorWith('Duplicate token', [ERROR_CODES.TOKEN_DUPLICATE]),
+          404: errorWith('Token or driver not found', [
+            ERROR_CODES.TOKEN_NOT_FOUND,
+            ERROR_CODES.DRIVER_NOT_FOUND,
+          ]),
+          409: errorWith('Duplicate token or inactive driver', [
+            ERROR_CODES.TOKEN_DUPLICATE,
+            ERROR_CODES.DRIVER_INACTIVE,
+          ]),
         },
       },
     },
     async (request, reply) => {
-      const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof tokenParams>;
       const body = parseZodRequest(updateTokenBody, request.body);
       try {
-        const token = await tokenService.updateToken(id, body, { type: 'operator', userId });
+        const token = await tokenService.updateToken(
+          id,
+          body,
+          tokenService.tokenActorOf(getAuditActor(request)),
+        );
         if (token == null) {
           await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
           return;
         }
         return token;
       } catch (err) {
+        if (err instanceof tokenService.TokenDriverNotFoundError) {
+          await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+          return;
+        }
+        if (err instanceof tokenService.TokenDriverInactiveError) {
+          await reply.status(409).send({ error: 'Driver is inactive', code: 'DRIVER_INACTIVE' });
+          return;
+        }
         if (err instanceof tokenService.DuplicateTokenError) {
           await reply
             .status(409)
@@ -505,7 +556,6 @@ export function tokenRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof tokenParams>;
 
       const [activeSession] = await db
@@ -521,7 +571,10 @@ export function tokenRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const token = await tokenService.deleteToken(id, { type: 'operator', userId });
+      const token = await tokenService.deleteToken(
+        id,
+        tokenService.tokenActorOf(getAuditActor(request)),
+      );
       if (token == null) {
         await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
         return;

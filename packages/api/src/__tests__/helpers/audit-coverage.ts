@@ -228,6 +228,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /css/stations/:stationId/disable': { audited: 'station' },
   'POST /css/stations/:stationId/enable': { audited: 'station' },
   'POST /drivers': { audited: 'driver' },
+  'POST /drivers/:id/erase': {
+    audited: 'driver',
+    service: 'api/src/services/driver-erasure.service.ts',
+  },
   'POST /drivers/:id/payment-methods': { audited: 'driver', service: 'payments/src/methods.ts' },
   'POST /drivers/:id/payment-methods/setup-intent': {
     allow: 'provider setup intent, nothing stored',

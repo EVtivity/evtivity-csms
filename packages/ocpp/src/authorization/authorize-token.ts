@@ -30,6 +30,7 @@ import {
 import type { Logger } from '@evtivity/lib';
 import { logAuthorizeAttempt, parseOcpiValidThru } from './authorize-log.js';
 import { prepaidCredit } from './prepaid.js';
+import { isIssuedCentralToken } from './issued-central-tokens.js';
 import {
   authorizeContextRules,
   type AuthorizeContextRules,
@@ -131,6 +132,7 @@ export function authorizeDecisionMessage(decision: AuthorizeDecision): string {
   if (decision.status === 'concurrent_tx') return 'Token rejected: concurrent transaction';
   if (decision.source === 'ocpi') return `OCPI external token ${decision.status}`;
   if (decision.source === 'not_found') return 'Token not found';
+  if (decision.source === 'issued_central') return 'Central token the CSMS issued, accepting';
   if (decision.source === 'db_error') return 'Token lookup failed, accepting by default';
   if (decision.source === 'driver_id') {
     return decision.status === 'accepted' ? 'Driver-id token accepted' : 'Driver-id token blocked';
@@ -233,6 +235,8 @@ const TOKEN_COLUMNS = {
   expiresAt: driverTokens.expiresAt,
   revokedAt: driverTokens.revokedAt,
   prepaidBalanceCents: driverTokens.prepaidBalanceCents,
+  // Null for a token without a driver (left join).
+  driverIsActive: drivers.isActive,
 };
 
 interface TokenRow {
@@ -242,19 +246,30 @@ interface TokenRow {
   expiresAt: Date | null;
   revokedAt: Date | null;
   prepaidBalanceCents: number | null;
+  driverIsActive: boolean | null;
 }
 
-/** `revoked` when the token was revoked, else `inactive`. */
+/**
+ * `revoked` when the token was revoked, `driver_inactive` when its driver
+ * account is deactivated, else `inactive`.
+ */
 function blockedReason(row: TokenRow | undefined): string {
-  return row?.revokedAt != null ? 'revoked' : 'inactive';
+  if (row?.revokedAt != null) return 'revoked';
+  if (row != null && row.isActive && row.driverIsActive === false) return 'driver_inactive';
+  return 'inactive';
 }
 
 function isExpired(row: TokenRow, now: Date): boolean {
   return row.expiresAt != null && row.expiresAt.getTime() <= now.getTime();
 }
 
+/**
+ * A token is refused when it is inactive or revoked, and when its driver
+ * account is deactivated: deactivating a driver deactivates the tokens, but a
+ * token reactivated or added later must not charge on a closed account.
+ */
 function isBlocked(row: TokenRow): boolean {
-  return !row.isActive || row.revokedAt != null;
+  return !row.isActive || row.revokedAt != null || row.driverIsActive === false;
 }
 
 /**
@@ -322,6 +337,7 @@ async function resolveUntyped(
   const tokens: TokenRow[] = await db
     .select(TOKEN_COLUMNS)
     .from(driverTokens)
+    .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
     .where(eq(driverTokens.idToken, idTag));
 
   if (tokens.length > 0) {
@@ -379,11 +395,26 @@ async function resolveTyped(
   const [token]: TokenRow[] = await db
     .select(TOKEN_COLUMNS)
     .from(driverTokens)
+    .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
     .where(and(eq(driverTokens.idToken, input.token.value), eq(driverTokens.tokenType, type)));
 
   if (token == null) {
     const byDriverId = await resolveDriverId(input, rules);
     if (byDriverId != null) return byDriverId;
+    if (
+      rules.acceptIssuedCentral &&
+      type === DRIVER_ID_TOKEN_TYPE &&
+      isIssuedCentralToken(input.stationId, input.token.value)
+    ) {
+      return {
+        ...NO_MATCH,
+        status: 'accepted',
+        outcome: 'accepted',
+        reason: 'issued_central',
+        source: 'issued_central',
+        echoGroupId: true,
+      };
+    }
     if (!rules.acceptWhenNotFound.has(type)) return notFound(input, rules, logger);
     return {
       ...NO_MATCH,

@@ -25,9 +25,9 @@ import { authorize } from '../middleware/rbac.js';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { config as apiConfig } from '../lib/config.js';
-import type { JwtPayload } from '../plugins/auth.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
 import * as contractService from '../services/pnc-contract.service.js';
+import { tokenActorOf } from '../services/token.service.js';
 
 // Plug and Charge settings and the contract CA serve every site: company-wide,
 // so a site-restricted user gets this 404 before any read or write
@@ -249,11 +249,10 @@ export function pncLocalRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof driverParams>;
       const { pcid } = request.body as z.infer<typeof createContractBody>;
-      const { userId } = request.user as JwtPayload;
       const contract = await contractService.createContract(
         id,
         pcid,
-        { type: 'operator', userId },
+        tokenActorOf(getAuditActor(request)),
         { actor: getAuditActor(request), logger: request.log },
       );
       await reply.status(201).send(contract);
@@ -280,13 +279,10 @@ export function pncLocalRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { id, contractId } = request.params as z.infer<typeof contractParams>;
-      const { userId } = request.user as JwtPayload;
-      return contractService.revokeContract(
-        id,
-        contractId,
-        { type: 'operator', userId },
-        { actor: getAuditActor(request), logger: request.log },
-      );
+      return contractService.revokeContract(id, contractId, tokenActorOf(getAuditActor(request)), {
+        actor: getAuditActor(request),
+        logger: request.log,
+      });
     },
   );
 }

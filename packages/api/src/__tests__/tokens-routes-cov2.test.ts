@@ -7,10 +7,19 @@ import type { FastifyInstance } from 'fastify';
 
 const { state, svc, selectDistinctMock } = vi.hoisted(() => {
   class DuplicateTokenError extends Error {}
+  class TokenDriverNotFoundError extends Error {}
+  class TokenDriverInactiveError extends Error {}
+  // A plain function (not a mock) so the per-test mockReset keeps it.
+  function tokenActorOf(actor: { actorUserId: string | null }) {
+    return { type: 'operator', userId: actor.actorUserId };
+  }
   return {
     state: { results: [] as unknown[][], index: 0 },
     svc: {
       DuplicateTokenError,
+      TokenDriverNotFoundError,
+      TokenDriverInactiveError,
+      tokenActorOf,
       listTokens: vi.fn(),
       getToken: vi.fn(),
       createToken: vi.fn(),
@@ -102,6 +111,7 @@ function token(overrides: Record<string, unknown> = {}): Record<string, unknown>
     expiresAt: null,
     revokedAt: null,
     revokedReason: null,
+    deactivatedBy: null,
     prepaidBalanceCents: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
@@ -183,7 +193,70 @@ describe('token routes (cov2)', () => {
     expect(res.statusCode).toBe(500);
   });
 
+  it('GET /tokens/export applies the same search and filters as the list', async () => {
+    svc.exportTokensCsv.mockResolvedValue('idToken,tokenType,driverEmail,isActive,expiresAt');
+    const res = await app.inject({
+      method: 'GET',
+      url: '/tokens/export?search=RF&tokenType=ISO14443&status=inactive',
+      headers: auth,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(svc.exportTokensCsv).toHaveBeenCalledWith({
+      search: 'RF',
+      tokenType: 'ISO14443',
+      status: 'inactive',
+    });
+  });
+
+  it('POST /tokens/bulk-active answers 409 DRIVER_INACTIVE for a deactivated driver', async () => {
+    svc.bulkSetActive.mockRejectedValue(new svc.TokenDriverInactiveError('drv'));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tokens/bulk-active',
+      headers: auth,
+      payload: { ids: [TOKEN_ID], isActive: true },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'Driver is inactive', code: 'DRIVER_INACTIVE' });
+  });
+
+  it('PATCH /tokens/:id answers 409 DRIVER_INACTIVE when reactivating for a deactivated driver', async () => {
+    svc.updateToken.mockRejectedValue(new svc.TokenDriverInactiveError('drv'));
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/tokens/${TOKEN_ID}`,
+      headers: auth,
+      payload: { isActive: true },
+    });
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe('DRIVER_INACTIVE');
+  });
+
+  it('POST /tokens answers 404 DRIVER_NOT_FOUND for an unknown driver', async () => {
+    svc.createToken.mockRejectedValue(new svc.TokenDriverNotFoundError('missing'));
+    const res = await app.inject({
+      method: 'POST',
+      url: '/tokens',
+      headers: auth,
+      payload: { idToken: 'RFID-9', tokenType: 'VIN', driverId: 'drv_000000000009' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+  });
+
   describe('PATCH /tokens/:id', () => {
+    it('answers 404 DRIVER_NOT_FOUND when assigning an unknown driver', async () => {
+      svc.updateToken.mockRejectedValue(new svc.TokenDriverNotFoundError('missing'));
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { driverId: 'drv_000000000009' },
+      });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('DRIVER_NOT_FOUND');
+    });
+
     it('answers 409 TOKEN_DUPLICATE when the new idToken is taken', async () => {
       svc.updateToken.mockRejectedValue(new svc.DuplicateTokenError('dup'));
       const res = await app.inject({

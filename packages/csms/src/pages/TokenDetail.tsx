@@ -9,7 +9,7 @@ import { BackButton } from '@/components/back-button';
 import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { CopyableId } from '@/components/copyable-id';
-import { Badge } from '@/components/ui/badge';
+import { TokenStatusBadge } from '@/components/token/TokenStatusBadge';
 import { Card, CardContent } from '@/components/ui/card';
 import { Pagination } from '@/components/ui/pagination';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -28,6 +28,10 @@ interface TokenData {
   idToken: string;
   tokenType: string;
   isActive: boolean;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  revokedReason: string | null;
+  deactivatedBy: 'operator' | 'driver' | 'system' | null;
   prepaidBalanceCents: number | null;
   createdAt: string;
   updatedAt: string;
@@ -73,15 +77,13 @@ export function TokenDetail(): React.JSX.Element {
           <h1 className="text-2xl md:text-3xl font-bold">{token.idToken}</h1>
           <CopyableId id={token.id} />
         </div>
-        <Badge variant={token.isActive ? 'default' : 'outline'}>
-          {token.isActive ? t('common.active') : t('common.inactive')}
-        </Badge>
+        <TokenStatusBadge token={token} />
         <EntityNavButtons resource="tokens" basePath="/tokens" currentId={id} />
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
-          <TabsTrigger value="details">{t('tokens.tokenDetails')}</TabsTrigger>
+          <TabsTrigger value="details">{t('common.details')}</TabsTrigger>
           <TabsTrigger value="sessions">{t('sessions.title')}</TabsTrigger>
           {canReadAudit && <TabsTrigger value="history">{t('tokens.history')}</TabsTrigger>}
           <TabsTrigger value="authorize-log">{t('tokens.authorizeLog')}</TabsTrigger>

@@ -944,7 +944,8 @@
     "maxPowerUnknownHint": "在设置最大功率之前，负载管理无法限制此连接器。请编辑 EVSE 进行设置。OCPP 2.1 充电站会根据其配置报告自动填写。",
     "removeTag": "移除标签 {{tag}}",
     "messageCommandQueued": "充电站离线。命令已排队，将在充电站重新连接时发送。",
-    "chargingNeedsTab": "充电需求与监视器"
+    "chargingNeedsTab": "充电需求与监视器",
+    "localAuthPrepaidHint": "仅列出非预付卡的启用令牌。充电站在线检查预付卡余额，因此预付卡不会进入本地列表。"
   },
   "eventAlertRules": {
     "title": "事件告警规则",
@@ -1111,6 +1112,18 @@
     "phone": "电话",
     "language": "语言",
     "languageHelp": "用于驾驶员门户、通知和发票。",
+    "activeHelp": "停用驾驶员也会停用其令牌，并将其从驾驶员门户注销。重新启用驾驶员不会重新启用令牌。",
+    "erase": "清除驾驶员数据",
+    "eraseTitle": "清除个人数据",
+    "eraseHelp": "删除驾驶员的姓名、邮箱、电话、账单地址、密码、MFA、车辆和已保存的支付方式，并停用其令牌。会话、付款和发票会保留用于财务记录。此操作无法撤销。",
+    "eraseConfirmTitle": "清除此驾驶员的数据？",
+    "eraseConfirmDescription": "驾驶员的个人数据将被永久删除，驾驶员将无法再登录。会话、付款和发票会保留用于财务记录。",
+    "eraseConfirmLabel": "输入驾驶员 ID {{id}} 以确认",
+    "eraseConfirmMismatch": "输入内容与驾驶员 ID 不一致。",
+    "eraseSuccess": "驾驶员数据已清除",
+    "erasedOn": "此驾驶员的个人数据已于 {{date}} 清除。",
+    "erased": "已清除",
+    "erasedName": "已清除的驾驶员",
     "allStatuses": "所有状态",
     "noDriversFound": "未找到驾驶员",
     "driverNotFound": "未找到驾驶员",
@@ -1717,7 +1730,17 @@
     "prepaid": "预付卡",
     "prepaidHint": "充电站在每次充电前查询余额，余额用完时停止充电。余额为零或更少时将被拒绝。",
     "prepaidBalance": "预付余额",
-    "notPrepaid": "非预付"
+    "notPrepaid": "非预付",
+    "expiresAtHint": "留空表示令牌不过期。超过此时间后，充电站将以已过期拒绝该令牌。",
+    "noExpiry": "永不",
+    "deactivatedAt": "停用时间",
+    "deactivatedBy": "停用者",
+    "deactivatedByValue": {
+      "operator": "运营商",
+      "driver": "驾驶员",
+      "system": "系统"
+    },
+    "deactivationReason": "停用原因"
   },
   "commands": {
     "title": "命令",
@@ -2808,6 +2831,7 @@
       "driver.Welcome": "欢迎",
       "driver.ForgotPassword": "忘记密码",
       "driver.PortalInvite": "驾驶员门户邀请",
+      "driver.RegistrationAttempt": "注册尝试",
       "session.EndRequestFailed": "会话结束失败",
       "site.PayoutOnboarding": "站点收款设置",
       "driver.PasswordChanged": "密码已更改",
@@ -3016,6 +3040,8 @@
     "DRIVER_ALREADY_IN_FLEET": "驾驶员已在此车队中",
     "DRIVER_CREATE_FAILED": "创建驾驶员失败",
     "DRIVER_NOT_FOUND": "未找到驾驶员",
+    "DRIVER_ERASED": "驾驶员数据已被清除",
+    "DRIVER_HAS_ACTIVE_SESSION": "驾驶员有正在进行的充电会话",
     "DRIVER_INACTIVE": "驾驶员已停用",
     "DUPLICATE_ALERT_RULE": "此组件和变量的告警规则已存在",
     "DUPLICATE_API_KEY_NAME": "已存在同名的 API 密钥",
@@ -3026,7 +3052,6 @@
     "DUPLICATE_PARTNER": "已存在具有相同国家代码和合作方 ID 的合作伙伴",
     "DUPLICATE_SITE_NAME": "已存在同名站点",
     "DUPLICATE_STATION_ID": "充电站 ID 已存在",
-    "EMAIL_EXISTS": "邮箱已注册",
     "EMAIL_NOT_CONFIGURED": "邮件提供商未配置",
     "EMAIL_NOT_VERIFIED": "邮箱未验证",
     "EMAIL_REQUIRED": "付费充电需要提供邮箱",
@@ -3278,7 +3303,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "此操作已处理",
     "AI_CONFIRMATION_REQUIRES_SESSION": "请登录控制台确认此操作，不能使用 API 密钥",
     "AI_MCP_RATE_LIMITED": "MCP 请求过多，请稍后再试",
-    "CHARGING_PROFILE_ID_RESERVED": "充电配置文件 ID 必须大于充电站的 MaxExternalConstraintsId。"
+    "CHARGING_PROFILE_ID_RESERVED": "充电配置文件 ID 必须大于充电站的 MaxExternalConstraintsId。",
+    "TOKEN_BLOCKED_BY_OPERATOR": "此卡已被运营商停用。请联系运营商重新启用。"
   },
   "logs": {
     "title": "日志",
@@ -4390,6 +4416,7 @@
       "pnc_contract_issued": "即插即充合约已签发",
       "pnc_contract_revoked": "即插即充合约已撤销",
       "roaming_session_started": "漫游会话已开始",
+      "erased": "已清除",
       "invite_resent": "邀请已重新发送",
       "cdr_credited": "CDR 已冲销",
       "faulted": "已故障",

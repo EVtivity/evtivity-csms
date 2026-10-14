@@ -3,18 +3,24 @@
 
 import type { OcpiToken, OcpiTokenType, OcpiVersion } from '../types/ocpi.js';
 
-interface DriverTokenRow {
-  id: string;
+/**
+ * A driver token as the eMSP serves it, or a tombstone: a token value that no
+ * longer exists (deleted, or its value or type changed). OCPI cannot delete a
+ * Token (12.1.1), so a tombstone is served as valid = false, with
+ * last_updated = the time it stopped existing.
+ */
+export interface EmspTokenRow {
   idToken: string;
   tokenType: string;
   isActive: boolean;
   expiresAt: Date | null;
   revokedAt: Date | null;
   updatedAt: Date;
+  tombstone: boolean;
 }
 
 interface TokenTransformInput {
-  token: DriverTokenRow;
+  token: EmspTokenRow;
   countryCode: string;
   partyId: string;
   driverName?: string;
@@ -27,9 +33,17 @@ const TOKEN_TYPE_MAP: Record<string, OcpiTokenType> = {
   Central: 'OTHER',
   Local: 'OTHER',
   MacAddress: 'OTHER',
+  EVCCID: 'OTHER',
+  VIN: 'OTHER',
+  DirectPayment: 'AD_HOC_USER',
   NoAuthorization: 'AD_HOC_USER',
   KeyCode: 'OTHER',
 };
+
+/** The OCPI Token type of a driver token type (the `type` URL parameter of a push). */
+export function ocpiTokenTypeOf(tokenType: string): OcpiTokenType {
+  return mapTokenType(tokenType);
+}
 
 function mapTokenType(tokenType: string): OcpiTokenType {
   return TOKEN_TYPE_MAP[tokenType] ?? 'RFID';
@@ -45,6 +59,7 @@ export function transformToken(input: TokenTransformInput, version: OcpiVersion)
   // the OCPP layer — drivers see an inconsistent experience.
   const now = Date.now();
   const valid =
+    !token.tombstone &&
     token.isActive &&
     token.revokedAt == null &&
     (token.expiresAt == null || token.expiresAt.getTime() > now);

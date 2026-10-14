@@ -12,15 +12,28 @@ const { mockInsertFn, mockValuesFn, stationRows } = vi.hoisted(() => ({
 }));
 
 vi.mock('@evtivity/database', () => {
+  // The station row is found only by its OCPP identity (station_id): the
+  // attempt carries the id the station connected with, not the row id.
   const select = vi.fn(() => ({
-    from: () => ({ where: () => Promise.resolve(stationRows.rows) }),
+    from: () => ({
+      where: (cond: { col: string; val: unknown }) =>
+        Promise.resolve(cond.col === 'charging_stations.station_id' ? stationRows.rows : []),
+    }),
   }));
   return {
     db: { insert: mockInsertFn, select },
     authorizeAttempts: { __table: 'authorize_attempts' },
-    chargingStations: { id: 'charging_stations.id', siteId: 'charging_stations.site_id' },
+    chargingStations: {
+      id: 'charging_stations.id',
+      stationId: 'charging_stations.station_id',
+      siteId: 'charging_stations.site_id',
+    },
   };
 });
+
+vi.mock('drizzle-orm', () => ({
+  eq: (col: string, val: unknown) => ({ col, val }),
+}));
 
 import {
   logAuthorizeAttempt,

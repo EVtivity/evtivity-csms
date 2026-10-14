@@ -22,6 +22,8 @@ import { OcpiStatusCode } from '../lib/ocpi-response.js';
 import { getOutboundToken } from '../lib/outbound-token.js';
 import { config } from '../lib/config.js';
 import { transformLocation } from '../transformers/location.transformer.js';
+import { ocpiTokenTypeOf, transformToken } from '../transformers/token.transformer.js';
+import { loadEmspTokens, loadEmspTombstones } from './emsp-tokens.js';
 import { resolvePartnerVersion } from '../lib/ocpi-version.js';
 import { cpoSessionLink, renderCpoSession, syncCpoSessionRow } from './cpo-sessions.js';
 import { connectorTariffIds } from './connector-tariffs.js';
@@ -43,7 +45,7 @@ export interface TariffPushTarget {
 }
 
 export interface PushNotification {
-  type: 'location' | 'session' | 'cdr' | 'tariff';
+  type: 'location' | 'session' | 'cdr' | 'tariff' | 'token';
   siteId?: string;
   /**
    * location: partners that no longer see the site, under the OCPI location
@@ -61,6 +63,10 @@ export interface PushNotification {
   pricingGroupId?: string | null;
   /** tariff: a mapping changed. Each OCPI tariff id is pushed again or deleted. */
   targets?: TariffPushTarget[];
+  /** token: driver tokens that changed; each is pushed as it is now. */
+  tokenIds?: string[];
+  /** token: token values that no longer exist; each is pushed as valid = false. */
+  tombstones?: Array<{ idToken: string; tokenType: string }>;
 }
 
 function getCountryCode(): string {
@@ -494,6 +500,50 @@ async function pushTariffUpdate(notification: PushNotification): Promise<void> {
   );
 }
 
+/**
+ * OCPI 12.1.1 push model: the eMSP PUTs each changed Token to every partner
+ * that receives Tokens (a CPO with a Tokens RECEIVER endpoint), in the
+ * partner's version; a token value that no longer exists goes as valid =
+ * false (Tokens cannot be deleted). Partners are pushed in parallel and
+ * independently; a failed push is logged and the partner still sees the
+ * change on its next pull (last_updated moved).
+ */
+async function pushTokenUpdate(notification: PushNotification): Promise<void> {
+  const [live, dead] = await Promise.all([
+    loadEmspTokens(notification.tokenIds ?? []),
+    loadEmspTombstones(notification.tombstones ?? []),
+  ]);
+  const tokens = [...live, ...dead];
+  if (tokens.length === 0) return;
+  const partners = await getConnectedPartners();
+  await Promise.allSettled(
+    partners.map(async (partner) => {
+      try {
+        const target = await partnerTarget(partner.id, 'tokens');
+        if (target == null) return;
+        const version = resolvePartnerVersion(target.version);
+        const client = createOcpiClient(target.token, target);
+        for (const token of tokens) {
+          const body = transformToken(
+            { token, countryCode: getCountryCode(), partyId: getPartyId() },
+            version,
+          );
+          const type = encodeURIComponent(ocpiTokenTypeOf(token.tokenType));
+          await client.put(
+            `${target.url}/${getCountryCode()}/${getPartyId()}/${encodeURIComponent(token.idToken)}?type=${type}`,
+            body,
+          );
+        }
+        await logSync(partner.id, 'tokens', 'push_update', 'completed', tokens.length);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Push failed';
+        logger.error({ partnerId: partner.id, err }, 'Failed to push token update');
+        await logSync(partner.id, 'tokens', 'push_update', 'failed', 0, message);
+      }
+    }),
+  );
+}
+
 async function handlePushNotification(
   raw: string,
   onSessionCompleted: SessionCompletedHook | null,
@@ -518,6 +568,9 @@ async function handlePushNotification(
       break;
     case 'tariff':
       await pushTariffUpdate(notification);
+      break;
+    case 'token':
+      await pushTokenUpdate(notification);
       break;
     case 'cdr':
       // CDRs are issued and pushed by the ocpi-cdrs queue (cdr-jobs.ts).

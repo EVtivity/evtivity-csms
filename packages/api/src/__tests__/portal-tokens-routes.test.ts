@@ -26,6 +26,7 @@ function makeChain() {
     'groupBy',
     'values',
     'returning',
+    'for',
     'set',
     'onConflictDoUpdate',
     'delete',
@@ -84,6 +85,7 @@ vi.mock('drizzle-orm', () => ({
   sql: vi.fn(),
   desc: vi.fn(),
   inArray: vi.fn(),
+  ne: vi.fn(),
 }));
 
 vi.mock('@evtivity/lib', () => ({
@@ -151,6 +153,8 @@ describe('Portal token routes', () => {
           idToken: 'ABCD1234',
           tokenType: 'ISO14443',
           isActive: true,
+          expiresAt: null,
+          deactivatedBy: null,
           createdAt: new Date(),
         },
       ]);
@@ -174,9 +178,12 @@ describe('Portal token routes', () => {
         idToken: 'NEWTOKEN01',
         tokenType: 'ISO14443',
         isActive: true,
+        expiresAt: null,
+        deactivatedBy: null,
         createdAt: new Date(),
       };
-      setupDbResults([], [newToken]);
+      // existing check (none), the driver (active), insert returning
+      setupDbResults([], [{ isActive: true }], [newToken]);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/tokens',
@@ -232,42 +239,37 @@ describe('Portal token routes', () => {
       expect(response.statusCode).toBe(404);
     });
 
-    it('returns 403 when token belongs to another driver', async () => {
-      setupDbResults([{ id: TOKEN_ID, driverId: 'drv_other0000001' }]);
+    it('returns 404 when token belongs to another driver', async () => {
+      // The ownership filter is part of the lookup: no row for this driver.
+      setupDbResults([]);
       const response = await app.inject({
         method: 'PATCH',
         url: `/portal/tokens/${TOKEN_ID}`,
         headers: { authorization: `Bearer ${driverToken}` },
         payload: { isActive: false },
       });
-      expect(response.statusCode).toBe(403);
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('TOKEN_NOT_FOUND');
     });
 
     it('toggles token active status', async () => {
-      const updatedToken = {
+      const ownRow = {
         id: TOKEN_ID,
         driverId: DRIVER_ID,
         idToken: 'ABCD1234',
         tokenType: 'ISO14443',
-        isActive: false,
+        isActive: true,
+        expiresAt: null,
+        deactivatedBy: null,
         createdAt: new Date(),
       };
-      // 1) Route's ownership check (existing select)
-      // 2) tokenService.updateToken: select current row
+      const updatedToken = { ...ownRow, isActive: false, deactivatedBy: 'driver' };
+      // 1) Route's ownership check
+      // 2) tokenService.updateToken: select current row (locked)
       // 3) tokenService.updateToken: update returning
-      setupDbResults(
-        [{ id: TOKEN_ID, driverId: DRIVER_ID }],
-        [
-          {
-            id: TOKEN_ID,
-            idToken: 'ABCD1234',
-            tokenType: 'ISO14443',
-            driverId: DRIVER_ID,
-            isActive: true,
-          },
-        ],
-        [updatedToken],
-      );
+      // 4) stations holding the token (none)
+      // 5) Route re-reads the token for the response
+      setupDbResults([ownRow], [ownRow], [updatedToken], [], [updatedToken]);
       const response = await app.inject({
         method: 'PATCH',
         url: `/portal/tokens/${TOKEN_ID}`,

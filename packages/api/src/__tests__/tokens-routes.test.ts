@@ -26,6 +26,8 @@ function makeChain() {
     'groupBy',
     'values',
     'returning',
+    'for',
+    'onConflictDoNothing',
     'set',
     'onConflictDoUpdate',
     'delete',
@@ -65,37 +67,34 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
-vi.mock('@evtivity/database', () => ({
-  getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
-  currentAuditViaAi: () => undefined,
-  db: {
+vi.mock('@evtivity/database', () => {
+  // The transaction runs on the same mocked db, so firstChainArg also sees
+  // the writes the token service makes inside a transaction.
+  const db: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
-    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
-      const tx = {
-        select: vi.fn(() => makeChain()),
-        insert: vi.fn(() => makeChain()),
-        update: vi.fn(() => makeChain()),
-        delete: vi.fn(() => makeChain()),
-      };
-      return fn(tx);
-    }),
-  },
-  client: {},
-  chargingSessions: {},
-  chargingStations: {},
-  sites: {},
-  driverTokens: {},
-  drivers: {},
-  users: {},
-  tokenAuditLog: {},
-  stationLocalAuthEntries: {},
-  stationLocalAuthVersions: {},
-  writeAudit: vi.fn().mockResolvedValue(undefined),
-}));
+  };
+  db['transaction'] = vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(db));
+  return {
+    getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
+    currentAuditViaAi: () => undefined,
+    db,
+    client: {},
+    chargingSessions: {},
+    chargingStations: {},
+    sites: {},
+    driverTokens: {},
+    drivers: {},
+    users: {},
+    tokenAuditLog: {},
+    stationLocalAuthEntries: {},
+    stationLocalAuthVersions: {},
+    writeAudit: vi.fn().mockResolvedValue(undefined),
+  };
+});
 
 vi.mock('drizzle-orm', () => {
   const sqlFn = () => ({ as: vi.fn() });
@@ -109,6 +108,8 @@ vi.mock('drizzle-orm', () => {
     count: vi.fn(),
     asc: vi.fn(),
     inArray: vi.fn(),
+    ne: vi.fn(),
+    lt: vi.fn(),
   };
 });
 
@@ -192,6 +193,7 @@ describe('Token routes - handler logic', () => {
           expiresAt: null,
           revokedAt: null,
           revokedReason: null,
+          deactivatedBy: null,
           prepaidBalanceCents: null,
           createdAt: '2024-01-01T00:00:00.000Z',
           updatedAt: '2024-01-01T00:00:00.000Z',
@@ -303,7 +305,7 @@ describe('Token routes - handler logic', () => {
       //  3. insert returning the inserted row
       //  4. audit insert
       setupDbResults(
-        [{ id: VALID_DRIVER_ID, email: 'john@example.com' }],
+        [{ id: VALID_DRIVER_ID, email: 'john@example.com', isActive: true }],
         [],
         [{ id: TOKEN_ID_2, idToken: 'RFID001', tokenType: 'ISO14443', driverId: VALID_DRIVER_ID }],
         [],
@@ -322,23 +324,26 @@ describe('Token routes - handler logic', () => {
       expect(body.errors).toEqual([]);
     });
 
-    it('returns 400 when row has missing fields (Zod validation)', async () => {
-      // Zod schema now enforces idToken/tokenType .min(1); empty strings fail
-      // at validation before reaching the handler's per-row check.
+    it('reports a bad row in errors instead of failing the whole file', async () => {
+      // Each field is checked per row: a blank line is skipped, a missing
+      // type or an unknown type is one error, the other rows still import.
       const response = await app.inject({
         method: 'POST',
         url: '/tokens/import',
         headers: { authorization: `Bearer ${token}` },
         payload: {
-          rows: [{ idToken: '', tokenType: '' }],
+          rows: [
+            { idToken: '', tokenType: '' },
+            { idToken: 'X1', tokenType: '' },
+            { idToken: 'X2', tokenType: 'NotAType' },
+          ],
         },
       });
-      expect(response.statusCode).toBe(400);
-      // Fastify zod-type-provider returns FST_ERR_VALIDATION for body schema
-      // failures; the global error handler maps this to VALIDATION_ERROR in
-      // production, but the test app injects routes directly without that
-      // middleware wired up. Either code is acceptable.
-      expect(['VALIDATION_ERROR', 'FST_ERR_VALIDATION']).toContain(response.json().code);
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        imported: 0,
+        errors: ['Row 2: missing idToken or tokenType', 'Row 3: unknown tokenType NotAType'],
+      });
     });
 
     it('returns errors when driver email not found', async () => {
@@ -529,6 +534,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -580,6 +586,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
@@ -608,11 +615,13 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      setupDbResults([], [created]);
+      // existing check (none), the driver (active), insert returning
+      setupDbResults([], [{ isActive: true }], [created]);
       const response = await app.inject({
         method: 'POST',
         url: '/tokens',
@@ -667,6 +676,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
@@ -695,6 +705,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        deactivatedBy: null,
         prepaidBalanceCents: 2500,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
@@ -746,6 +757,7 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
@@ -776,13 +788,15 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
       };
-      // current-row SELECT, then update returning
+      // current-row SELECT, the new driver (active), then update returning
       setupDbResults(
         [{ id: TOKEN_ID_2, idToken: 'RFID001', tokenType: 'ISO14443', isActive: true }],
+        [{ isActive: true }],
         [updated],
       );
       const response = await app.inject({
@@ -807,12 +821,14 @@ describe('Token routes - handler logic', () => {
         expiresAt: null,
         revokedAt: null,
         revokedReason: null,
+        deactivatedBy: null,
         prepaidBalanceCents: null,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-01T00:00:00.000Z',
       };
-      // Preflight active-session check (empty), then delete returning
-      setupDbResults([], [deleted]);
+      // Preflight active-session check (empty), stations holding the token
+      // (none), then delete returning
+      setupDbResults([], [], [deleted]);
       const response = await app.inject({
         method: 'DELETE',
         url: `/tokens/${VALID_TOKEN_ID}`,

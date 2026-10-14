@@ -141,6 +141,7 @@ export const driverAuditActionEnum = pgEnum('driver_audit_action', [
   'mfa_enabled',
   'mfa_disabled',
   'roaming_session_started',
+  'erased',
 ]);
 
 export const driverAuditLog = pgTable(

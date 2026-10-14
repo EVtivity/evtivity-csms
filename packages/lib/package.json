@@ -44,6 +44,9 @@
     "./station-password": {
       "import": "./src/station-password.ts"
     },
+    "./id-token-types": {
+      "import": "./src/id-token-types.ts"
+    },
     "./secret-config": {
       "import": "./src/secret-config.ts"
     },

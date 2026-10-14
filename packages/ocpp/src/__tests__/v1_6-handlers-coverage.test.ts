@@ -15,11 +15,12 @@ const executeFn = vi.fn();
 vi.mock('@evtivity/database', () => {
   limitFn.mockResolvedValue([]);
   whereFn.mockReturnValue({ limit: limitFn });
-  fromFn.mockReturnValue({ where: whereFn });
+  fromFn.mockReturnValue({ where: whereFn, leftJoin: () => ({ where: whereFn }) });
   selectFn.mockReturnValue({ from: fromFn });
 
   return {
     db: { select: selectFn, execute: executeFn },
+    drivers: { id: 'id', isActive: 'is_active' },
     driverTokens: {
       isActive: 'is_active',
       idToken: 'id_token',
@@ -103,7 +104,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   limitFn.mockResolvedValue([]);
   whereFn.mockReturnValue({ limit: limitFn });
-  fromFn.mockReturnValue({ where: whereFn });
+  fromFn.mockReturnValue({ where: whereFn, leftJoin: () => ({ where: whereFn }) });
   selectFn.mockReturnValue({ from: fromFn });
   executeFn.mockResolvedValue([{ nextval: '1' }]);
 });

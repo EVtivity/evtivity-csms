@@ -9,12 +9,14 @@ vi.mock('@evtivity/database', () => {
   const where = vi.fn().mockResolvedValue([{ isActive: true }]);
   const limit = vi.fn().mockReturnValue({ where });
   const innerJoin = vi.fn().mockReturnValue({ where, limit });
-  const from = vi.fn().mockReturnValue({ where, innerJoin, limit });
+  const leftJoin = vi.fn().mockReturnValue({ where, limit });
+  const from = vi.fn().mockReturnValue({ where, innerJoin, leftJoin, limit });
   return {
     db: {
       select: vi.fn().mockReturnValue({ from }),
       execute: vi.fn().mockResolvedValue([{ nextval: '12345' }]),
     },
+    drivers: { id: 'id', isActive: 'is_active' },
     driverTokens: { isActive: 'is_active', idToken: 'id_token', tokenType: 'token_type' },
     chargingStations: {
       id: 'id',

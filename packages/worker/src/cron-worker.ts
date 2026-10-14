@@ -30,6 +30,7 @@ import { refreshTokenPruneHandler } from './handlers/refresh-token-prune.js';
 import { stationWatchPruneHandler } from './handlers/station-watch-prune.js';
 import { maintenanceSchedulerHandler } from './handlers/maintenance-scheduler.js';
 import { ocpiLocationSyncHandler } from './handlers/ocpi-location-sync.js';
+import { driverTokenExpiryHandler } from './handlers/driver-token-expiry.js';
 import { payoutAccountSyncHandler } from './handlers/payout-account-sync.js';
 import { processVersionWatchHandler } from './handlers/process-version-watch.js';
 import { stationOfflineSweepHandler } from './handlers/station-offline-sweep.js';
@@ -71,6 +72,7 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['station-watch-prune', stationWatchPruneHandler],
   ['maintenance-scheduler', maintenanceSchedulerHandler],
   ['ocpi-location-sync', ocpiLocationSyncHandler],
+  ['driver-token-expiry', driverTokenExpiryHandler],
   ['payout-account-sync', payoutAccountSyncHandler],
   ['process-version-watch', processVersionWatchHandler],
   ['station-offline-sweep', stationOfflineSweepHandler],

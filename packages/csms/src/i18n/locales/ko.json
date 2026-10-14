@@ -944,7 +944,8 @@
     "maxPowerUnknownHint": "최대 출력이 설정될 때까지 부하 관리가 이 커넥터를 제한할 수 없습니다. EVSE를 편집하여 설정하세요. OCPP 2.1 충전소는 구성 보고서에서 자동으로 채웁니다.",
     "removeTag": "{{tag}} 태그 제거",
     "messageCommandQueued": "충전소가 오프라인입니다. 명령이 대기열에 추가되었으며 충전소가 다시 연결되면 전송됩니다.",
-    "chargingNeedsTab": "충전 요구 및 모니터"
+    "chargingNeedsTab": "충전 요구 및 모니터",
+    "localAuthPrepaidHint": "선불 카드가 아닌 활성 토큰만 표시됩니다. 충전소는 선불 카드 잔액을 온라인으로 확인하므로 선불 카드는 로컬 목록에 들어가지 않습니다."
   },
   "eventAlertRules": {
     "title": "이벤트 알림 규칙",
@@ -1111,6 +1112,18 @@
     "phone": "전화번호",
     "language": "언어",
     "languageHelp": "운전자 포털, 알림, 청구서에 사용됩니다.",
+    "activeHelp": "운전자를 비활성으로 설정하면 토큰도 비활성화되고 운전자 포털에서 로그아웃됩니다. 운전자를 다시 활성으로 설정해도 토큰은 다시 활성화되지 않습니다.",
+    "erase": "운전자 정보 삭제",
+    "eraseTitle": "개인 정보 삭제",
+    "eraseHelp": "운전자의 이름, 이메일, 전화번호, 청구 주소, 비밀번호, MFA, 차량, 저장된 결제 수단을 삭제하고 토큰을 비활성화합니다. 세션, 결제, 청구서는 회계 목적으로 유지됩니다. 이 작업은 되돌릴 수 없습니다.",
+    "eraseConfirmTitle": "이 운전자의 정보를 삭제하시겠습니까?",
+    "eraseConfirmDescription": "운전자의 개인 정보가 영구적으로 삭제되며 운전자는 더 이상 로그인할 수 없습니다. 세션, 결제, 청구서는 회계 목적으로 유지됩니다.",
+    "eraseConfirmLabel": "확인하려면 운전자 ID {{id}}를 입력하십시오",
+    "eraseConfirmMismatch": "입력한 내용이 운전자 ID와 일치하지 않습니다.",
+    "eraseSuccess": "운전자 정보가 삭제되었습니다",
+    "erasedOn": "이 운전자의 개인 정보는 {{date}}에 삭제되었습니다.",
+    "erased": "삭제됨",
+    "erasedName": "삭제된 운전자",
     "allStatuses": "전체 상태",
     "noDriversFound": "운전자를 찾을 수 없습니다",
     "driverNotFound": "운전자를 찾을 수 없습니다",
@@ -1717,7 +1730,17 @@
     "prepaid": "선불 카드",
     "prepaidHint": "충전소는 충전할 때마다 잔액을 확인하고 크레딧이 소진되면 충전을 중지합니다. 잔액이 0 이하이면 거부됩니다.",
     "prepaidBalance": "선불 잔액",
-    "notPrepaid": "선불 아님"
+    "notPrepaid": "선불 아님",
+    "expiresAtHint": "만료되지 않는 토큰은 비워 두세요. 이 시간이 지나면 충전소가 토큰을 만료됨으로 거부합니다.",
+    "noExpiry": "없음",
+    "deactivatedAt": "비활성화됨",
+    "deactivatedBy": "비활성화한 주체",
+    "deactivatedByValue": {
+      "operator": "운영자",
+      "driver": "운전자",
+      "system": "시스템"
+    },
+    "deactivationReason": "비활성화 사유"
   },
   "commands": {
     "title": "명령",
@@ -2808,6 +2831,7 @@
       "driver.Welcome": "환영",
       "driver.ForgotPassword": "비밀번호 찾기",
       "driver.PortalInvite": "운전자 포털 초대",
+      "driver.RegistrationAttempt": "가입 시도",
       "session.EndRequestFailed": "세션 종료 실패",
       "site.PayoutOnboarding": "사이트 정산 설정",
       "driver.PasswordChanged": "비밀번호 변경됨",
@@ -3016,6 +3040,8 @@
     "DRIVER_ALREADY_IN_FLEET": "운전자는 이미 이 차량대에 있습니다",
     "DRIVER_CREATE_FAILED": "운전자 생성에 실패했습니다",
     "DRIVER_NOT_FOUND": "운전자를 찾을 수 없습니다",
+    "DRIVER_ERASED": "운전자 정보가 삭제되었습니다",
+    "DRIVER_HAS_ACTIVE_SESSION": "운전자에게 진행 중인 충전 세션이 있습니다",
     "DRIVER_INACTIVE": "비활성화된 운전자입니다",
     "DUPLICATE_ALERT_RULE": "이 컴포넌트와 변수에 대한 알림 규칙이 이미 존재합니다",
     "DUPLICATE_API_KEY_NAME": "이 이름의 API 키가 이미 존재합니다",
@@ -3026,7 +3052,6 @@
     "DUPLICATE_PARTNER": "이 국가 코드와 파티 ID의 파트너가 이미 존재합니다",
     "DUPLICATE_SITE_NAME": "이 이름의 사이트가 이미 존재합니다",
     "DUPLICATE_STATION_ID": "충전소 ID가 이미 존재합니다",
-    "EMAIL_EXISTS": "이미 등록된 이메일입니다",
     "EMAIL_NOT_CONFIGURED": "이메일 제공업체가 구성되지 않았습니다",
     "EMAIL_NOT_VERIFIED": "이메일이 인증되지 않았습니다",
     "EMAIL_REQUIRED": "유료 충전을 위해 이메일이 필요합니다",
@@ -3278,7 +3303,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "이 작업은 이미 처리되었습니다",
     "AI_CONFIRMATION_REQUIRES_SESSION": "API 키가 아닌 대시보드에 로그인한 상태에서 이 작업을 확인하세요",
     "AI_MCP_RATE_LIMITED": "MCP 요청이 너무 많습니다. 나중에 다시 시도하세요",
-    "CHARGING_PROFILE_ID_RESERVED": "충전 프로필 ID는 충전소의 MaxExternalConstraintsId보다 커야 합니다."
+    "CHARGING_PROFILE_ID_RESERVED": "충전 프로필 ID는 충전소의 MaxExternalConstraintsId보다 커야 합니다.",
+    "TOKEN_BLOCKED_BY_OPERATOR": "운영자가 이 카드를 비활성화했습니다. 다시 활성화하려면 운영자에게 문의하세요."
   },
   "logs": {
     "title": "로그",
@@ -4390,6 +4416,7 @@
       "pnc_contract_issued": "Plug & Charge 계약 발급됨",
       "pnc_contract_revoked": "Plug & Charge 계약 취소됨",
       "roaming_session_started": "로밍 세션 시작됨",
+      "erased": "삭제됨",
       "invite_resent": "초대 재전송됨",
       "cdr_credited": "CDR 크레딧 처리됨",
       "faulted": "오류로 종료됨",

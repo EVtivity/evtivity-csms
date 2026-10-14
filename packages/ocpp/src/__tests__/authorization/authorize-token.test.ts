@@ -9,6 +9,10 @@ import type {
   AuthorizeDecision,
   AuthorizeTokenInput,
 } from '../../authorization/authorize-context.js';
+import {
+  clearIssuedCentralTokens,
+  rememberIssuedCentralToken,
+} from '../../authorization/issued-central-tokens.js';
 
 type Row = Record<string, unknown>;
 type Cond =
@@ -54,28 +58,50 @@ function matches(row: Row, cond: Cond): boolean {
   return row[cond.col] !== cond.val;
 }
 
+// A select, optionally with the one left join the pipeline makes (driver
+// tokens to drivers): each row gets the joined driver's isActive as
+// `driverIsActive`, null without a match. Recorded as one query.
+function whereFor(t: Record<string | symbol, unknown>, join?: { table: string; on: Cond }) {
+  return (cond: Cond) => {
+    let pending: Promise<Row[]> | null = null;
+    const run = (): Promise<Row[]> => {
+      if (pending == null) {
+        const name = t[h.TABLE] as string;
+        h.queries.push({ table: name, cond });
+        const data = h.tables[name] ?? [];
+        pending =
+          data instanceof Error
+            ? Promise.reject(data)
+            : Promise.resolve(
+                data
+                  .filter((r) => matches(r, cond))
+                  .map((r) => {
+                    const on = join?.on;
+                    if (join == null || on == null || on.op !== 'eq') return r;
+                    const joined = h.tables[join.table];
+                    const list = Array.isArray(joined) ? joined : [];
+                    const joinCol = (on.val as { col: string }).col;
+                    const match = list.find((j) => j[joinCol] === r[on.col]);
+                    return { ...r, driverIsActive: match == null ? null : match['isActive'] };
+                  }),
+              );
+      }
+      return pending;
+    };
+    return {
+      limit: () => run(),
+      then: (resolve: (v: Row[]) => unknown, reject: (e: unknown) => unknown): Promise<unknown> =>
+        run().then(resolve, reject),
+    };
+  };
+}
+
 const selectFn = vi.fn(() => ({
   from: (t: Record<string | symbol, unknown>) => ({
-    where: (cond: Cond) => {
-      let pending: Promise<Row[]> | null = null;
-      const run = (): Promise<Row[]> => {
-        if (pending == null) {
-          const name = t[h.TABLE] as string;
-          h.queries.push({ table: name, cond });
-          const data = h.tables[name] ?? [];
-          pending =
-            data instanceof Error
-              ? Promise.reject(data)
-              : Promise.resolve(data.filter((r) => matches(r, cond)));
-        }
-        return pending;
-      };
-      return {
-        limit: () => run(),
-        then: (resolve: (v: Row[]) => unknown, reject: (e: unknown) => unknown): Promise<unknown> =>
-          run().then(resolve, reject),
-      };
-    },
+    where: whereFor(t),
+    leftJoin: (j: Record<string | symbol, unknown>, on: Cond) => ({
+      where: whereFor(t, { table: j[h.TABLE] as string, on }),
+    }),
   }),
 }));
 
@@ -326,6 +352,40 @@ describe('authorizeToken: untyped identity resolution', () => {
     });
   });
 
+  it.each(UNTYPED_CONTEXTS)(
+    '%s blocks an active token of a deactivated driver (driver_inactive)',
+    async (context) => {
+      h.tables['driver_tokens'] = [
+        token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', driverId: 'drv-off' }),
+      ];
+      h.tables['drivers'] = [{ id: 'drv-off', isActive: false }];
+      const d = await authorizeToken(input(context, 'TAG', null), logger);
+      expect(d).toMatchObject({
+        status: 'blocked',
+        outcome: 'blocked',
+        reason: 'driver_inactive',
+        matchedTokenId: 'tok-1',
+        matchedDriverId: 'drv-off',
+      });
+    },
+  );
+
+  it('accepts the token of an active driver and a token without a driver', async () => {
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-1', idToken: 'TAG', tokenType: 'ISO14443', driverId: 'drv-on' }),
+    ];
+    h.tables['drivers'] = [{ id: 'drv-on', isActive: true }];
+    expect(await authorizeToken(input('authorize', 'TAG', null), logger)).toMatchObject({
+      status: 'accepted',
+    });
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-2', idToken: 'TAG2', tokenType: 'ISO14443', driverId: null }),
+    ];
+    expect(await authorizeToken(input('authorize', 'TAG2', null), logger)).toMatchObject({
+      status: 'accepted',
+    });
+  });
+
   it('prefers Blocked over Expired when any row is inactive or revoked', async () => {
     h.tables['driver_tokens'] = [
       token({ id: 'tok-2', idToken: 'TAG', tokenType: 'eMAID', expiresAt: PAST }),
@@ -490,14 +550,81 @@ describe('authorizeToken: typed identity resolution', () => {
     });
   });
 
-  it.each(['Central', 'Local'])('authorize accepts an unknown %s token', async (type) => {
-    const d = await authorizeToken(input('authorize', 'X', type), logger);
+  it('authorize accepts an unknown Local token (needs no checking by the CSMS)', async () => {
+    const d = await authorizeToken(input('authorize', 'X', 'Local'), logger);
     expect(d).toMatchObject({
       status: 'accepted',
       outcome: 'accepted',
       reason: 'accept_when_not_found',
       source: 'accept_when_not_found',
       echoGroupId: true,
+    });
+  });
+
+  describe('authorize and Central tokens (C05.FR.01)', () => {
+    beforeEach(() => {
+      clearIssuedCentralTokens();
+    });
+
+    it('answers an unknown Central token Invalid', async () => {
+      const d = await authorizeToken(input('authorize', 'X', 'Central'), logger);
+      expect(d).toMatchObject({ status: 'invalid', outcome: 'unknown', reason: 'token_not_found' });
+    });
+
+    it('accepts a Central token the CSMS sent this station in a remote start', async () => {
+      rememberIssuedCentralToken('CS-001', 'RequestStartTransaction', {
+        idToken: { idToken: 'RS-1', type: 'Central' },
+      });
+      const d = await authorizeToken(input('authorize', 'RS-1', 'Central'), logger);
+      expect(d).toMatchObject({
+        status: 'accepted',
+        reason: 'issued_central',
+        source: 'issued_central',
+        echoGroupId: true,
+      });
+    });
+
+    it('does not accept it at another station or after it aged out', async () => {
+      rememberIssuedCentralToken('CS-002', 'RequestStartTransaction', {
+        idToken: { idToken: 'RS-1', type: 'Central' },
+      });
+      expect(await authorizeToken(input('authorize', 'RS-1', 'Central'), logger)).toMatchObject({
+        status: 'invalid',
+      });
+      rememberIssuedCentralToken(
+        'CS-001',
+        'RequestStartTransaction',
+        { idToken: { idToken: 'RS-2', type: 'Central' } },
+        Date.now() - 16 * 60 * 1000,
+      );
+      expect(await authorizeToken(input('authorize', 'RS-2', 'Central'), logger)).toMatchObject({
+        status: 'invalid',
+      });
+    });
+
+    it('accepts the Central token of a ReserveNow until the reservation expires', async () => {
+      rememberIssuedCentralToken('CS-001', 'ReserveNow', {
+        idToken: { idToken: 'operator', type: 'Central' },
+        expiryDateTime: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      });
+      expect(await authorizeToken(input('authorize', 'operator', 'Central'), logger)).toMatchObject(
+        { status: 'accepted', reason: 'issued_central' },
+      );
+    });
+
+    it('ignores other commands and other token types', async () => {
+      rememberIssuedCentralToken('CS-001', 'SetVariables', {
+        idToken: { idToken: 'RS-3', type: 'Central' },
+      });
+      rememberIssuedCentralToken('CS-001', 'RequestStartTransaction', {
+        idToken: { idToken: 'RS-4', type: 'ISO14443' },
+      });
+      expect(await authorizeToken(input('authorize', 'RS-3', 'Central'), logger)).toMatchObject({
+        status: 'invalid',
+      });
+      expect(await authorizeToken(input('authorize', 'RS-4', 'Central'), logger)).toMatchObject({
+        status: 'invalid',
+      });
     });
   });
 
@@ -1063,9 +1190,9 @@ describe('driver id fallback for typed tokens', () => {
     },
   );
 
-  it('an unknown Central driver id falls through to accept-when-not-found', async () => {
+  it('an unknown Central driver id is Invalid on Authorize', async () => {
     const d = await authorizeToken(input('authorize', 'drv_abc', 'Central'), logger);
-    expect(d.source).toBe('accept_when_not_found');
+    expect(d.source).toBe('not_found');
     expect(tables()).toEqual(['driver_tokens', 'drivers']);
   });
 

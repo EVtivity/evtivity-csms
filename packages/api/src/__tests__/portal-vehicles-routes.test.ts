@@ -178,18 +178,20 @@ describe('Portal vehicle routes', () => {
       expect(response.statusCode).toBe(404);
     });
 
-    it('returns 403 when vehicle belongs to another driver', async () => {
-      setupDbResults([{ id: VEHICLE_ID, driverId: 'drv_other0000001' }]);
+    it('returns 404, not 403, when the vehicle belongs to another driver', async () => {
+      // The owner-guarded DELETE matches no row, like a missing vehicle.
+      setupDbResults([]);
       const response = await app.inject({
         method: 'DELETE',
         url: `/portal/vehicles/${VEHICLE_ID}`,
         headers: { authorization: `Bearer ${driverToken}` },
       });
-      expect(response.statusCode).toBe(403);
+      expect(response.statusCode).toBe(404);
+      expect(response.json().code).toBe('VEHICLE_NOT_FOUND');
     });
 
     it('deletes own vehicle', async () => {
-      setupDbResults([{ id: VEHICLE_ID, driverId: DRIVER_ID }], []);
+      setupDbResults([{ id: VEHICLE_ID, driverId: DRIVER_ID }]);
       const response = await app.inject({
         method: 'DELETE',
         url: `/portal/vehicles/${VEHICLE_ID}`,

@@ -57,9 +57,10 @@ vi.mock('../services/charging-needs.js', () => ({
 vi.mock('@evtivity/database', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   const select = vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn().mockResolvedValue([]),
-    })),
+    from: vi.fn(() => {
+      const where = vi.fn().mockResolvedValue([]);
+      return { where, leftJoin: vi.fn(() => ({ where })) };
+    }),
   }));
   return {
     ...actual,

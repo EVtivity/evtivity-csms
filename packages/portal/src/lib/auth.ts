@@ -114,19 +114,10 @@ export const useAuth = create<AuthState>((set, get) => ({
     api.post('/v1/portal/access-logs', { action: 'login' }).catch(() => {});
   },
 
+  // The API answers the same for a new and a known email and signs nobody in:
+  // the driver opens the emailed link, then signs in.
   register: async (body) => {
-    const data = await api.post<LoginResponse>('/v1/portal/auth/register', body);
-    localStorage.setItem('portal_language', data.driver.language);
-    localStorage.setItem('portal_timezone', data.driver.timezone);
-    localStorage.setItem('portal_theme', data.driver.themePreference);
-    localStorage.setItem('portal_distance_unit', data.driver.distanceUnit);
-    applyTheme(data.driver.themePreference);
-    await loadLanguage(data.driver.language);
-    set({
-      driver: data.driver,
-      theme: data.driver.themePreference,
-      isAuthenticated: true,
-    });
+    await api.post('/v1/portal/auth/register', body);
   },
 
   completeMfaLogin: async (driver: Driver) => {

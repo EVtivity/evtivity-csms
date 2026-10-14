@@ -42,6 +42,8 @@
     "signIn": "Iniciar sesión",
     "signingIn": "Iniciando sesión...",
     "createAccount": "Crear cuenta",
+    "registerCheckEmailTitle": "Revisa tu correo",
+    "registerCheckEmail": "Enviamos un correo a {{email}}. Abre el enlace que contiene para continuar y luego inicia sesión.",
     "creatingAccount": "Creando cuenta...",
     "email": "Correo electrónico",
     "password": "Contraseña",
@@ -615,6 +617,8 @@
     "DRIVER_ALREADY_IN_FLEET": "El conductor ya está en esta flota",
     "DRIVER_CREATE_FAILED": "Error al crear el conductor",
     "DRIVER_NOT_FOUND": "Conductor no encontrado",
+    "DRIVER_ERASED": "Los datos del conductor se han borrado",
+    "DRIVER_HAS_ACTIVE_SESSION": "El conductor tiene una sesión de carga activa",
     "DRIVER_INACTIVE": "El conductor está inactivo",
     "DUPLICATE_ALERT_RULE": "Ya existe una regla de alerta para este componente y esta variable",
     "DUPLICATE_API_KEY_NAME": "Ya existe una clave API con este nombre",
@@ -625,7 +629,6 @@
     "DUPLICATE_PARTNER": "Ya existe un socio con este código de país e ID de parte",
     "DUPLICATE_SITE_NAME": "Ya existe un sitio con este nombre",
     "DUPLICATE_STATION_ID": "El ID de estación ya existe",
-    "EMAIL_EXISTS": "El correo electrónico ya está registrado",
     "EMAIL_NOT_CONFIGURED": "Proveedor de correo no configurado",
     "EMAIL_NOT_VERIFIED": "Correo electrónico no verificado",
     "EMAIL_REQUIRED": "Se requiere correo electrónico para carga de pago",
@@ -877,7 +880,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "Ya se decidió sobre esta acción",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
     "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde",
-    "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación."
+    "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación.",
+    "TOKEN_BLOCKED_BY_OPERATOR": "El operador desactivó esta tarjeta. Contacte al operador para reactivarla."
   },
   "validation": {
     "required": "Este campo es obligatorio",
@@ -950,7 +954,10 @@
     "confirmDeactivateDescription": "¿Estás seguro de que deseas desactivar esta tarjeta RFID? Ya no funcionará en las estaciones de carga.",
     "removeCard": "Eliminar",
     "reactivateCard": "Reactivar tarjeta RFID",
-    "tokenType": "Tipo de token"
+    "tokenType": "Tipo de token",
+    "blockedByOperator": "Desactivada por el operador",
+    "expired": "Vencida",
+    "toggleFailed": "No se pudo cambiar la tarjeta. Inténtelo de nuevo."
   },
   "vehicles": {
     "addVehicle": "Agregar vehículo",

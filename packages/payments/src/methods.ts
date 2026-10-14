@@ -663,6 +663,58 @@ export async function removeDriverMethod(
 }
 
 /**
+ * Driver erasure: detaches every saved method from its provider (best effort,
+ * logged, P9 fail open) and deletes the driver's method and provider customer
+ * rows. One `payment_method_removed` audit row per method, holding only the
+ * method id and provider: no card brand or digits, since the erasure must not
+ * write the erased data into a new row. The caller checks that no session of
+ * the driver is active, so no open hold depends on a method.
+ */
+export async function eraseDriverMethods(
+  driverId: string,
+  ctx: PaymentContext,
+): Promise<{ removed: number }> {
+  const methods = await db
+    .select()
+    .from(driverPaymentMethods)
+    .where(eq(driverPaymentMethods.driverId, driverId));
+
+  for (const method of methods) {
+    try {
+      const provider = await pinnedProvider(ctx.registry, method.provider);
+      await provider.detachMethod({
+        customerId: method.providerCustomerId,
+        methodId: method.providerPaymentMethodId,
+      });
+    } catch (err) {
+      // fail-open: an unconfigured provider or an already detached method;
+      // the provider-side method is left for manual cleanup.
+      ctx.logger.warn(
+        { err, driverId, paymentMethodRowId: method.id },
+        'Failed to detach the payment method at the provider during erasure; deleting the local row anyway',
+      );
+    }
+  }
+
+  const removed = await db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(driverPaymentMethods)
+      .where(eq(driverPaymentMethods.driverId, driverId))
+      .returning({ id: driverPaymentMethods.id, provider: driverPaymentMethods.provider });
+    await tx.delete(driverPaymentCustomers).where(eq(driverPaymentCustomers.driverId, driverId));
+    return deleted;
+  });
+
+  for (const method of removed) {
+    await auditMethod(ctx, driverId, 'payment_method_removed', {
+      before: { paymentMethodId: method.id, provider: method.provider },
+      after: null,
+    });
+  }
+  return { removed: removed.length };
+}
+
+/**
  * Makes a method the driver's default in one UPDATE, so two concurrent calls
  * never leave two defaults. Null when the method is not the driver's.
  */

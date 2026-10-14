@@ -299,6 +299,7 @@ export const DRIVER_EVENT_TYPES = [
   'driver.AccountVerification',
   'driver.MfaDisabled',
   'driver.PortalInvite',
+  'driver.RegistrationAttempt',
   'payment.Complete',
   'payment.Refunded',
   'payment.FeeRefunded',
@@ -389,7 +390,7 @@ const driverEventSettingBody = z.object({
   isEnabled: z
     .boolean()
     .describe(
-      'Whether the driver event type is sent. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, mfa.VerificationCode) cannot be turned off.',
+      'Whether the driver event type is sent. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, driver.RegistrationAttempt, mfa.VerificationCode) cannot be turned off.',
     ),
 });
 
@@ -559,6 +560,7 @@ const TEMPLATE_VARIABLES: Record<string, string[]> = {
   'driver.Welcome': ['firstName', 'lastName', 'email'],
   'driver.ForgotPassword': ['firstName', 'lastName', 'email'],
   'driver.PortalInvite': ['firstName', 'lastName', 'email', 'activateUrl', 'expiresInDays'],
+  'driver.RegistrationAttempt': ['firstName', 'lastName', 'email', 'signInUrl', 'resetUrl'],
   'invoice.Sent': [
     'firstName',
     'lastName',
@@ -1350,7 +1352,7 @@ export function notificationRoutes(app: FastifyInstance): void {
         tags: ['Notifications'],
         summary: 'Turn a driver event type on or off',
         description:
-          "Operators turn each driver notification type on or off. Drivers' own notification preferences apply on top when it is on. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, mfa.VerificationCode) are always on: turning one off returns 400 NOTIFICATION_EVENT_REQUIRED.",
+          "Operators turn each driver notification type on or off. Drivers' own notification preferences apply on top when it is on. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, driver.RegistrationAttempt, mfa.VerificationCode) are always on: turning one off returns 400 NOTIFICATION_EVENT_REQUIRED.",
         operationId: 'updateDriverEventSettings',
         security: [{ bearerAuth: [] }],
         body: zodSchema(driverEventSettingBody),

@@ -29,19 +29,24 @@ vi.mock('@evtivity/database', () => ({
   driverTokens: {},
 }));
 
-vi.mock('drizzle-orm', () => ({ eq: vi.fn(), desc: vi.fn() }));
+vi.mock('drizzle-orm', () => ({ eq: vi.fn(), desc: vi.fn(), and: vi.fn() }));
 
 const { createTokenMock, updateTokenMock } = vi.hoisted(() => ({
   createTokenMock: vi.fn(),
   updateTokenMock: vi.fn(),
 }));
 
-vi.mock('../services/token.service.js', () => {
-  class DuplicateTokenError extends Error {}
-  return { createToken: createTokenMock, updateToken: updateTokenMock, DuplicateTokenError };
-});
+const { DuplicateTokenError, TokenReactivationBlockedError } = vi.hoisted(() => ({
+  DuplicateTokenError: class DuplicateTokenError extends Error {},
+  TokenReactivationBlockedError: class TokenReactivationBlockedError extends Error {},
+}));
 
-vi.mock('../routes/tokens.js', () => ({ OCPP_TOKEN_TYPES: ['ISO14443', 'ISO15693', 'Central'] }));
+vi.mock('../services/token.service.js', () => ({
+  createToken: createTokenMock,
+  updateToken: updateTokenMock,
+  DuplicateTokenError,
+  TokenReactivationBlockedError,
+}));
 
 import { registerAuth } from '../plugins/auth.js';
 import { portalTokenRoutes } from '../routes/portal/tokens.js';
@@ -72,6 +77,8 @@ describe('Portal token routes, uncovered paths', () => {
 
   beforeEach(() => {
     setupDbResults();
+    createTokenMock.mockReset();
+    updateTokenMock.mockReset();
   });
 
   it('POST returns 500 when the token service fails for a reason other than a duplicate', async () => {
@@ -89,8 +96,50 @@ describe('Portal token routes, uncovered paths', () => {
     );
   });
 
+  function ownToken(over: Record<string, unknown> = {}) {
+    return {
+      id: TOKEN_ID,
+      driverId: DRIVER_ID,
+      idToken: 'CARD-0001',
+      tokenType: 'ISO14443',
+      isActive: true,
+      expiresAt: null,
+      deactivatedBy: null,
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      ...over,
+    };
+  }
+
+  it('GET marks a card the operator deactivated as blocked, not one the driver removed', async () => {
+    setupDbResults([
+      ownToken({ isActive: false, deactivatedBy: 'operator' }),
+      ownToken({ id: 'dtk_000000000002', isActive: false, deactivatedBy: 'driver' }),
+      ownToken({ id: 'dtk_000000000003' }),
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/portal/tokens', headers: auth });
+    expect(res.statusCode).toBe(200);
+    const rows: Array<Record<string, unknown>> = res.json();
+    expect(rows.map((r) => r['blockedByOperator'])).toEqual([true, false, false]);
+    // Who deactivated it is not part of the driver response.
+    expect(rows[0]).not.toHaveProperty('deactivatedBy');
+  });
+
+  it('POST answers 403 TOKEN_BLOCKED_BY_OPERATOR when re-adding a card the operator blocked', async () => {
+    createTokenMock.mockRejectedValueOnce(new TokenReactivationBlockedError());
+    const res = await app.inject({
+      method: 'POST',
+      url: '/portal/tokens',
+      headers: auth,
+      payload: { idToken: 'CARD-0001' },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.json().code).toBe('TOKEN_BLOCKED_BY_OPERATOR');
+  });
+
   describe('PATCH /portal/tokens/:id', () => {
-    it('returns 404 for an unknown token', async () => {
+    it('returns 404 for an unknown token or one owned by another driver', async () => {
+      // The lookup filters by the signed-in driver, so another driver's
+      // token is not found either.
       setupDbResults([]);
       const res = await app.inject({
         method: 'PATCH',
@@ -103,29 +152,8 @@ describe('Portal token routes, uncovered paths', () => {
       expect(updateTokenMock).not.toHaveBeenCalled();
     });
 
-    it('returns 403 for a token owned by another driver', async () => {
-      setupDbResults([{ id: TOKEN_ID, driverId: 'drv_000000000002' }]);
-      const res = await app.inject({
-        method: 'PATCH',
-        url: `/portal/tokens/${TOKEN_ID}`,
-        headers: auth,
-        payload: { isActive: false },
-      });
-      expect(res.statusCode).toBe(403);
-      expect(res.json().code).toBe('FORBIDDEN');
-      expect(updateTokenMock).not.toHaveBeenCalled();
-    });
-
-    it('toggles the active flag through the token service as the driver', async () => {
-      setupDbResults([{ id: TOKEN_ID, driverId: DRIVER_ID }]);
-      updateTokenMock.mockResolvedValueOnce({
-        id: TOKEN_ID,
-        driverId: DRIVER_ID,
-        idToken: 'CARD-0001',
-        tokenType: 'ISO14443',
-        isActive: true,
-        createdAt: new Date().toISOString(),
-      });
+    it('changes nothing when the card is already in the requested state', async () => {
+      setupDbResults([ownToken()]);
       const res = await app.inject({
         method: 'PATCH',
         url: `/portal/tokens/${TOKEN_ID}`,
@@ -133,17 +161,46 @@ describe('Portal token routes, uncovered paths', () => {
         payload: { isActive: true },
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json()).toMatchObject({ id: TOKEN_ID, isActive: true });
+      expect(updateTokenMock).not.toHaveBeenCalled();
+    });
+
+    it('toggles the active flag through the token service as the driver', async () => {
+      setupDbResults(
+        [ownToken({ isActive: false, deactivatedBy: 'driver' })],
+        [ownToken({ isActive: true })],
+      );
+      updateTokenMock.mockResolvedValueOnce({});
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { isActive: true },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ id: TOKEN_ID, isActive: true, blockedByOperator: false });
       expect(updateTokenMock).toHaveBeenCalledWith(
         TOKEN_ID,
         { isActive: true },
         { type: 'driver', driverId: DRIVER_ID },
       );
     });
+
+    it('answers 403 TOKEN_BLOCKED_BY_OPERATOR when the operator deactivated the card', async () => {
+      setupDbResults([ownToken({ isActive: false, deactivatedBy: 'operator' })]);
+      updateTokenMock.mockRejectedValueOnce(new TokenReactivationBlockedError());
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/portal/tokens/${TOKEN_ID}`,
+        headers: auth,
+        payload: { isActive: true },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('TOKEN_BLOCKED_BY_OPERATOR');
+    });
   });
 
   describe('DELETE /portal/tokens/:id', () => {
-    it('returns 404 for an unknown token', async () => {
+    it('returns 404 for an unknown token or one owned by another driver', async () => {
       setupDbResults([]);
       const res = await app.inject({
         method: 'DELETE',
@@ -152,21 +209,22 @@ describe('Portal token routes, uncovered paths', () => {
       });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('TOKEN_NOT_FOUND');
+      expect(updateTokenMock).not.toHaveBeenCalled();
     });
 
-    it('returns 403 for a token owned by another driver', async () => {
-      setupDbResults([{ id: TOKEN_ID, driverId: 'drv_000000000002' }]);
+    it('leaves an inactive card as it is, keeping the operator reason', async () => {
+      setupDbResults([ownToken({ isActive: false, deactivatedBy: 'operator' })]);
       const res = await app.inject({
         method: 'DELETE',
         url: `/portal/tokens/${TOKEN_ID}`,
         headers: auth,
       });
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(200);
       expect(updateTokenMock).not.toHaveBeenCalled();
     });
 
     it('deactivates the token instead of deleting it', async () => {
-      setupDbResults([{ id: TOKEN_ID, driverId: DRIVER_ID }]);
+      setupDbResults([ownToken()]);
       updateTokenMock.mockResolvedValueOnce({});
       const res = await app.inject({
         method: 'DELETE',

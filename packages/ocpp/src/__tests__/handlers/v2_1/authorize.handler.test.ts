@@ -4,6 +4,10 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
+import {
+  clearIssuedCentralTokens,
+  rememberIssuedCentralToken,
+} from '../../../authorization/issued-central-tokens.js';
 
 // db.select(...).from(...).where(...) is used for three different lookups in
 // the handler: driver_tokens (no .limit), ocpi_external_tokens (.limit(1)) and
@@ -30,7 +34,7 @@ function nextResult(): PromiseLike<unknown[]> & { limit: () => Promise<unknown[]
 }
 
 const whereFn = vi.fn((): unknown => nextResult());
-const fromFn = vi.fn(() => ({ where: whereFn }));
+const fromFn = vi.fn(() => ({ where: whereFn, leftJoin: () => ({ where: whereFn }) }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
 const isRoamingEnabledMock = vi.fn().mockResolvedValue(false);
@@ -42,6 +46,7 @@ vi.mock('@evtivity/database', () => ({
     insert: vi.fn(() => ({ values: insertValuesFn })),
   },
   client: clientMock,
+  drivers: { id: 'drivers.id', isActive: 'drivers.is_active' },
   driverTokens: {
     id: 'id',
     driverId: 'driver_id',
@@ -300,10 +305,21 @@ describe('v2_1 Authorize handler', () => {
     expect(response).not.toHaveProperty('certificateStatus');
   });
 
-  it('accepts Central token not found in DB and returns groupIdToken', async () => {
+  it('answers Invalid for an unknown Central token (C05.FR.01)', async () => {
+    clearIssuedCentralTokens();
+    whereQueue = [[]];
+    const { ctx } = makeCtx({ idToken: { idToken: 'central-token', type: 'Central' } });
+    expect(await handleAuthorize(ctx)).toEqual({ idTokenInfo: { status: 'Invalid' } });
+  });
+
+  it('accepts a Central token the CSMS issued and returns groupIdToken', async () => {
+    rememberIssuedCentralToken('CS-001', 'RequestStartTransaction', {
+      idToken: { idToken: 'central-token', type: 'Central' },
+    });
     whereQueue = [[]];
     const { ctx } = makeCtx({ idToken: { idToken: 'central-token', type: 'Central' } });
     const response = await handleAuthorize(ctx);
+    clearIssuedCentralTokens();
 
     expect(response).toEqual({
       idTokenInfo: {

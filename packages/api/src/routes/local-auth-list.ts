@@ -3,8 +3,27 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, notInArray, ilike, or, isNull, inArray, sql } from 'drizzle-orm';
-import { db, writeAudit, localAuthListAuditLog } from '@evtivity/database';
+import {
+  eq,
+  and,
+  desc,
+  count,
+  notInArray,
+  ilike,
+  or,
+  isNull,
+  isNotNull,
+  inArray,
+  sql,
+  lt,
+} from 'drizzle-orm';
+import {
+  db,
+  writeAudit,
+  localAuthListAuditLog,
+  pgErrorCode,
+  PG_UNIQUE_VIOLATION,
+} from '@evtivity/database';
 import {
   chargingStations,
   driverTokens,
@@ -40,9 +59,7 @@ const localAuthEntryItem = z
     tokenType: z.string().describe('OCPP token type (e.g., ISO14443, Central)'),
     authStatus: z
       .string()
-      .describe(
-        'OCPP authorization status pushed to the station (Accepted, Blocked, Expired, Invalid, ConcurrentTx)',
-      ),
+      .describe('OCPP authorization status of the last push (Accepted, Blocked, Expired)'),
     addedAt: z.coerce.date().describe('Timestamp when the entry was added to the tracked list'),
     pushedAt: z.coerce
       .date()
@@ -141,6 +158,127 @@ async function getOrCreateVersionRow(stationId: string) {
   const [created] = await db.insert(stationLocalAuthVersions).values({ stationId }).returning();
   if (created == null) throw new Error('Failed to create version row');
   return created;
+}
+
+type LocalAuthStatus = 'Accepted' | 'Blocked' | 'Expired';
+
+interface PushedEntry {
+  entryId: number;
+  idToken: string;
+  tokenType: string;
+  authStatus: LocalAuthStatus;
+  cacheExpiryDateTime: string | null;
+}
+
+/**
+ * The status a station's local list holds for a postpaid token, the way the
+ * authorize check answers it: Blocked when the token is inactive or revoked or
+ * its driver is deactivated, Expired after its expiry, else Accepted.
+ */
+export function localAuthStatusOf(
+  token: {
+    isActive: boolean;
+    revokedAt: Date | null;
+    expiresAt: Date | null;
+    driverIsActive: boolean | null;
+  },
+  now: Date,
+): LocalAuthStatus {
+  if (!token.isActive || token.revokedAt != null || token.driverIsActive === false) {
+    return 'Blocked';
+  }
+  if (token.expiresAt != null && token.expiresAt.getTime() <= now.getTime()) return 'Expired';
+  return 'Accepted';
+}
+
+/**
+ * Brings a station's tracked entries in line with their tokens before a push:
+ * removes entries whose token was deleted or is a prepaid card (a station
+ * must check a prepaid balance online, so it never holds one locally), and
+ * gives each entry the token's
+ * current value, type and status, so a reactivated, renamed or expired token
+ * reaches the station as it is now. Returns the entries to push, one per
+ * idToken value.
+ */
+async function reconcileLocalAuthEntries(stationId: string, now: Date): Promise<PushedEntry[]> {
+  await db
+    .delete(stationLocalAuthEntries)
+    .where(
+      and(
+        eq(stationLocalAuthEntries.stationId, stationId),
+        isNull(stationLocalAuthEntries.driverTokenId),
+      ),
+    );
+  const prepaidEntries = await db
+    .select({ id: stationLocalAuthEntries.id })
+    .from(stationLocalAuthEntries)
+    .innerJoin(driverTokens, eq(stationLocalAuthEntries.driverTokenId, driverTokens.id))
+    .where(
+      and(
+        eq(stationLocalAuthEntries.stationId, stationId),
+        isNotNull(driverTokens.prepaidBalanceCents),
+      ),
+    );
+  if (prepaidEntries.length > 0) {
+    await db.delete(stationLocalAuthEntries).where(
+      inArray(
+        stationLocalAuthEntries.id,
+        prepaidEntries.map((e) => e.id),
+      ),
+    );
+  }
+
+  const rows = await db
+    .select({
+      entryId: stationLocalAuthEntries.id,
+      entryIdToken: stationLocalAuthEntries.idToken,
+      entryTokenType: stationLocalAuthEntries.tokenType,
+      entryAuthStatus: stationLocalAuthEntries.authStatus,
+      idToken: driverTokens.idToken,
+      tokenType: driverTokens.tokenType,
+      isActive: driverTokens.isActive,
+      revokedAt: driverTokens.revokedAt,
+      expiresAt: driverTokens.expiresAt,
+      driverIsActive: drivers.isActive,
+    })
+    .from(stationLocalAuthEntries)
+    .innerJoin(driverTokens, eq(stationLocalAuthEntries.driverTokenId, driverTokens.id))
+    .leftJoin(drivers, eq(driverTokens.driverId, drivers.id))
+    .where(eq(stationLocalAuthEntries.stationId, stationId))
+    .orderBy(stationLocalAuthEntries.id);
+
+  const pushed: PushedEntry[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const authStatus = localAuthStatusOf(row, now);
+    if (
+      row.entryIdToken !== row.idToken ||
+      row.entryTokenType !== row.tokenType ||
+      row.entryAuthStatus !== authStatus
+    ) {
+      try {
+        await db
+          .update(stationLocalAuthEntries)
+          .set({ idToken: row.idToken, tokenType: row.tokenType, authStatus })
+          .where(eq(stationLocalAuthEntries.id, row.entryId));
+      } catch (err) {
+        // Another entry of this station already has the new value (unique
+        // per station and idToken): that entry carries it to the station.
+        if (pgErrorCode(err) !== PG_UNIQUE_VIOLATION) throw err;
+      }
+    }
+    if (seen.has(row.idToken)) continue;
+    seen.add(row.idToken);
+    pushed.push({
+      entryId: row.entryId,
+      idToken: row.idToken,
+      tokenType: row.tokenType,
+      authStatus,
+      cacheExpiryDateTime:
+        authStatus === 'Accepted' && row.expiresAt != null ? row.expiresAt.toISOString() : null,
+    });
+  }
+  return pushed;
 }
 
 export function localAuthListRoutes(app: FastifyInstance): void {
@@ -248,6 +386,8 @@ export function localAuthListRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Local Auth List'],
         summary: 'List active driver tokens not on this station local auth list',
+        description:
+          'Active, postpaid driver tokens that are not on the list yet. Prepaid cards are left out: a station must check their balance online.',
         operationId: 'listAvailableTokensForLocalAuth',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
@@ -285,7 +425,12 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         .map((e) => e.driverTokenId)
         .filter((id): id is string => id != null);
 
-      const conditions = [eq(driverTokens.isActive, true)];
+      // Prepaid cards are checked online on every start (balance), never
+      // from a local list.
+      const conditions = [
+        eq(driverTokens.isActive, true),
+        isNull(driverTokens.prepaidBalanceCents),
+      ];
       if (excludeIds.length > 0) {
         conditions.push(notInArray(driverTokens.id, excludeIds));
       }
@@ -350,7 +495,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         tags: ['Local Auth List'],
         summary: 'Push tracked entries to station via OCPP SendLocalList Full',
         description:
-          'Reconciles tracked entries (drops orphans, blocks deactivated tokens), increments the local list version, and dispatches SendLocalList(Full) to the station. On Accepted, updates lastSyncAt and stamps pushedAt on every entry. Returns 400 if the station is offline and 502 on station rejection or timeout.',
+          'Reconciles tracked entries with their tokens (drops entries of deleted tokens; each entry gets the token current value, type and status: Blocked when the token or its driver is deactivated, Expired after its expiry, else Accepted with the expiry as cacheExpiryDateTime; entries of prepaid cards are dropped, since a station checks a prepaid balance online), increments the local list version, and dispatches SendLocalList(Full) to the station. On Accepted, updates lastSyncAt and stamps pushedAt on the pushed entries. Returns 400 if the station is offline, 502 on station rejection or command failure, 504 on timeout.',
         operationId: 'pushLocalAuthList',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
@@ -358,8 +503,11 @@ export function localAuthListRoutes(app: FastifyInstance): void {
           200: itemResponse(pushResponse),
           400: errorWith('Station offline', [ERROR_CODES.STATION_OFFLINE]),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
-          502: errorWith('Push rejected', [ERROR_CODES.PUSH_REJECTED]),
-          504: errorWith('Station did not respond within timeout', [ERROR_CODES.STATION_TIMEOUT]),
+          502: errorWith('Push rejected or command failed', [
+            ERROR_CODES.PUSH_REJECTED,
+            ERROR_CODES.COMMAND_FAILED,
+          ]),
+          504: errorWith('Station did not respond within timeout', [ERROR_CODES.COMMAND_TIMEOUT]),
         },
       },
     },
@@ -384,63 +532,22 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Reconcile entries before push
-      // 1. Remove entries where the backing token was deleted (FK set null)
-      await db
-        .delete(stationLocalAuthEntries)
-        .where(
-          and(
-            eq(stationLocalAuthEntries.stationId, stationId),
-            isNull(stationLocalAuthEntries.driverTokenId),
-          ),
-        );
-
-      // 2. Block entries where the backing token was deactivated
-      const entriesWithTokens = await db
-        .select({
-          entryId: stationLocalAuthEntries.id,
-          isActive: driverTokens.isActive,
-        })
-        .from(stationLocalAuthEntries)
-        .innerJoin(driverTokens, eq(stationLocalAuthEntries.driverTokenId, driverTokens.id))
-        .where(eq(stationLocalAuthEntries.stationId, stationId));
-
-      const deactivatedEntryIds = entriesWithTokens
-        .filter((e) => !e.isActive)
-        .map((e) => e.entryId);
-
-      if (deactivatedEntryIds.length > 0) {
-        await db
-          .update(stationLocalAuthEntries)
-          .set({ authStatus: 'Blocked' })
-          .where(inArray(stationLocalAuthEntries.id, deactivatedEntryIds));
-      }
-
-      // Fetch reconciled entries for this station
-      const trackedEntries = await db
-        .select({
-          idToken: stationLocalAuthEntries.idToken,
-          tokenType: stationLocalAuthEntries.tokenType,
-          authStatus: stationLocalAuthEntries.authStatus,
-        })
-        .from(stationLocalAuthEntries)
-        .where(eq(stationLocalAuthEntries.stationId, stationId));
+      // Changes after this moment stay "unpushed" (lastModifiedAt > lastSyncAt).
+      const pushStartedAt = new Date();
+      const pushed = await reconcileLocalAuthEntries(stationId, pushStartedAt);
 
       // Atomic version reservation: read-modify-write was racy when two
       // operators clicked Push simultaneously (both computed newVersion = N+1,
       // station treated the second push as a duplicate version and ignored
       // its entries). UPDATE ... SET localVersion = localVersion + 1 RETURNING
       // claims a unique version per request, guaranteed by PostgreSQL row
-      // locking. We also stamp lastSyncAt + updatedAt up front so the
-      // unpushed-changes banner clears even if the OCPP send hangs; if the
-      // station rejects below we revert by leaving lastModifiedAt unchanged
-      // (the banner will reappear on the next bump).
+      // locking. lastSyncAt moves only when the station accepts the list, so
+      // a failed push keeps the unpushed-changes banner.
       await getOrCreateVersionRow(stationId);
       const [reserved] = await db
         .update(stationLocalAuthVersions)
         .set({
           localVersion: sql`${stationLocalAuthVersions.localVersion} + 1`,
-          lastSyncAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(stationLocalAuthVersions.stationId, stationId))
@@ -454,10 +561,15 @@ export function localAuthListRoutes(app: FastifyInstance): void {
       };
 
       // localAuthorizationList has minItems: 1 in OCPP schema, omit when empty
-      if (trackedEntries.length > 0) {
-        payload.localAuthorizationList = trackedEntries.map((entry) => ({
+      if (pushed.length > 0) {
+        payload.localAuthorizationList = pushed.map((entry) => ({
           idToken: { idToken: entry.idToken, type: entry.tokenType },
-          idTokenInfo: { status: entry.authStatus },
+          idTokenInfo: {
+            status: entry.authStatus,
+            ...(entry.cacheExpiryDateTime != null
+              ? { cacheExpiryDateTime: entry.cacheExpiryDateTime }
+              : {}),
+          },
         }));
       }
 
@@ -481,14 +593,30 @@ export function localAuthListRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Version + lastSyncAt already stamped above as part of the atomic
-      // reservation; nothing to do here on success.
-
-      // Mark all entries as pushed
+      // The station holds this list: the sync time is the start of the push,
+      // so a change made while it ran still shows as unpushed. The guard
+      // keeps a newer concurrent push's time.
       await db
-        .update(stationLocalAuthEntries)
-        .set({ pushedAt: new Date() })
-        .where(eq(stationLocalAuthEntries.stationId, stationId));
+        .update(stationLocalAuthVersions)
+        .set({ lastSyncAt: pushStartedAt, updatedAt: new Date() })
+        .where(
+          and(
+            eq(stationLocalAuthVersions.stationId, stationId),
+            or(
+              isNull(stationLocalAuthVersions.lastSyncAt),
+              lt(stationLocalAuthVersions.lastSyncAt, pushStartedAt),
+            ),
+          ),
+        );
+
+      // Mark the pushed entries; an entry added while the push ran stays pending.
+      const pushedIds = pushed.map((e) => e.entryId);
+      if (pushedIds.length > 0) {
+        await db
+          .update(stationLocalAuthEntries)
+          .set({ pushedAt: pushStartedAt })
+          .where(inArray(stationLocalAuthEntries.id, pushedIds));
+      }
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -498,7 +626,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
           entityIdSnapshot: stationId,
           action: 'pushed',
           ...actor,
-          notes: `Pushed ${String(trackedEntries.length)} entries (version ${String(newVersion)})`,
+          notes: `Pushed ${String(pushed.length)} entries (version ${String(newVersion)})`,
         },
         db,
         request.log,
@@ -506,7 +634,7 @@ export function localAuthListRoutes(app: FastifyInstance): void {
 
       return {
         status: 'Accepted',
-        entriesCount: trackedEntries.length,
+        entriesCount: pushed.length,
         version: newVersion,
       };
     },
@@ -520,6 +648,8 @@ export function localAuthListRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Local Auth List'],
         summary: 'Add tokens to station local auth list (DB-only)',
+        description:
+          'Adds active, postpaid tokens. Inactive and prepaid tokens are skipped; 400 NO_VALID_TOKENS when none is left.',
         operationId: 'addLocalAuthTokens',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationIdParams),
@@ -562,7 +692,13 @@ export function localAuthListRoutes(app: FastifyInstance): void {
                 tokenType: driverTokens.tokenType,
               })
               .from(driverTokens)
-              .where(and(eq(driverTokens.isActive, true), inArray(driverTokens.id, tokenIds)));
+              .where(
+                and(
+                  eq(driverTokens.isActive, true),
+                  isNull(driverTokens.prepaidBalanceCents),
+                  inArray(driverTokens.id, tokenIds),
+                ),
+              );
 
       if (requestedTokens.length === 0) {
         await reply.status(400).send({ error: 'No valid tokens found', code: 'NO_VALID_TOKENS' });

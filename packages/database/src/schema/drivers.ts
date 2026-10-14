@@ -67,6 +67,9 @@ export const drivers = pgTable(
     billingState: varchar('billing_state', { length: 100 }),
     billingZip: varchar('billing_zip', { length: 20 }),
     billingCountry: varchar('billing_country', { length: 100 }),
+    // When the driver's personal data was erased (POST /v1/drivers/:id/erase).
+    // The row stays as an anonymized stub for the sessions and invoices.
+    erasedAt: timestamp('erased_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -147,6 +150,11 @@ export const driverTokens = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
     revokedReason: varchar('revoked_reason', { length: 100 }),
+    // Who deactivated the token: 'operator', 'driver' or 'system'. Null while
+    // active. A driver may reactivate only a token the driver deactivated.
+    deactivatedBy: varchar('deactivated_by', { length: 10 }).$type<
+      'operator' | 'driver' | 'system'
+    >(),
     // Prepaid credit in cents of the company currency (OCPP 2.1 C17). Null
     // means the token is not prepaid. Zero or less is answered NoCredit.
     prepaidBalanceCents: integer('prepaid_balance_cents'),
@@ -157,6 +165,25 @@ export const driverTokens = pgTable(
     index('idx_driver_tokens_id_token').on(table.idToken),
     index('idx_driver_tokens_driver_id').on(table.driverId),
     index('idx_driver_tokens_expires_at').on(table.expiresAt),
+  ],
+);
+
+// A token value that no longer exists: the token was deleted, or its value or
+// type changed. OCPI cannot delete a Token (12.1.1): the eMSP Tokens sender
+// serves these as valid = false with last_updated = invalidated_at, so a CPO
+// that cached the token learns it on its next pull. Written only by the token
+// service. A live token with the same value and type supersedes it.
+export const driverTokenTombstones = pgTable(
+  'driver_token_tombstones',
+  {
+    id: serial('id').primaryKey(),
+    idToken: varchar('id_token', { length: 255 }).notNull(),
+    tokenType: varchar('token_type', { length: 20 }).notNull(),
+    invalidatedAt: timestamp('invalidated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('uq_driver_token_tombstones_token').on(table.idToken, table.tokenType),
+    index('idx_driver_token_tombstones_invalidated_at').on(table.invalidatedAt),
   ],
 );
 

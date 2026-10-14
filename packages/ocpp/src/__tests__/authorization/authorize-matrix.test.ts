@@ -19,6 +19,10 @@ import { handleStartTransaction } from '../../handlers/v1_6/start-transaction.ha
 import { handleAuthorize as handleAuthorize21 } from '../../handlers/v2_1/authorize.handler.js';
 import { handleTransactionEvent } from '../../handlers/v2_1/transaction-event.handler.js';
 import {
+  clearIssuedCentralTokens,
+  rememberIssuedCentralToken,
+} from '../../authorization/issued-central-tokens.js';
+import {
   clearPrepaidAuthorizations,
   rememberPrepaidAuthorization,
 } from '../../authorization/prepaid.js';
@@ -77,6 +81,30 @@ function runSelect(tableName: string, cond: Cond): Promise<Row[]> {
   return Promise.resolve(data.filter((r) => matches(r, cond)));
 }
 
+/**
+ * A select with one left join: the base table's rows, each with the joined
+ * row's isActive as `driverIsActive` (the only join the pipeline makes:
+ * driver_tokens to drivers), null without a match. One trace entry, one query.
+ */
+function runJoinedSelect(
+  tableName: string,
+  joined: Record<string | symbol, unknown>,
+  on: Cond,
+  cond: Cond,
+): Promise<Row[]> {
+  return runSelect(tableName, cond).then((rows) => {
+    const joinRows = h.state.tables[joined[h.TABLE] as string];
+    const list = Array.isArray(joinRows) ? joinRows : [];
+    if (on == null || on.op !== 'eq') return rows;
+    const baseCol = on.col;
+    const joinCol = (on.val as { col: string }).col;
+    return rows.map((r) => {
+      const match = list.find((j) => j[joinCol] === r[baseCol]);
+      return { ...r, driverIsActive: match == null ? null : match['isActive'] };
+    });
+  });
+}
+
 function setting(name: string, value: boolean | Error): Promise<boolean> {
   h.state.trace.push(name);
   return value instanceof Error ? Promise.reject(value) : Promise.resolve(value);
@@ -85,19 +113,29 @@ function setting(name: string, value: boolean | Error): Promise<boolean> {
 vi.mock('@evtivity/database', () => ({
   db: {
     select: () => ({
-      from: (t: Record<string | symbol, unknown>) => ({
-        where: (cond: Cond) => {
-          let pending: Promise<Row[]> | null = null;
-          const run = (): Promise<Row[]> => (pending ??= runSelect(t[h.TABLE] as string, cond));
-          return {
-            limit: () => run(),
-            then: (
-              resolve: (v: Row[]) => unknown,
-              reject: (e: unknown) => unknown,
-            ): Promise<unknown> => run().then(resolve, reject),
-          };
-        },
-      }),
+      from: (t: Record<string | symbol, unknown>) => {
+        const whereOn = (run: () => Promise<Row[]>) => ({
+          limit: () => run(),
+          then: (
+            resolve: (v: Row[]) => unknown,
+            reject: (e: unknown) => unknown,
+          ): Promise<unknown> => run().then(resolve, reject),
+        });
+        return {
+          where: (cond: Cond) => {
+            let pending: Promise<Row[]> | null = null;
+            return whereOn(() => (pending ??= runSelect(t[h.TABLE] as string, cond)));
+          },
+          leftJoin: (j: Record<string | symbol, unknown>, on: Cond) => ({
+            where: (cond: Cond) => {
+              let pending: Promise<Row[]> | null = null;
+              return whereOn(
+                () => (pending ??= runJoinedSelect(t[h.TABLE] as string, j, on, cond)),
+              );
+            },
+          }),
+        };
+      },
     }),
     execute: (query: { raw: string }): Promise<Row[]> => {
       if (query.raw.includes('nextval')) {
@@ -284,6 +322,8 @@ interface Kind {
   certificate?: string | Error;
   /** TE21: the stored ad hoc payment limit. */
   adHocLimit?: Record<string, number>;
+  /** The CSMS sent this Central idToken to the station in a RequestStartTransaction. */
+  issuedCentral?: boolean;
   /**
    * TE21 Started: the cost ceiling the projection reserved for the prepaid
    * session (default 1500, the whole balance of the prepaid kinds), null when
@@ -375,6 +415,17 @@ const KINDS: Kind[] = [
       driver_tokens: [
         token({ id: 'tok-1', idToken: 'TAG-1', tokenType: 'ISO14443', driverId: null }),
       ],
+    },
+  },
+  {
+    name: 'active, driver deactivated',
+    idToken: 'TAG-1',
+    type: 'ISO14443',
+    tables: {
+      driver_tokens: [
+        token({ id: 'tok-1', idToken: 'TAG-1', tokenType: 'ISO14443', driverId: 'drv-owner' }),
+      ],
+      drivers: [{ id: 'drv-owner', isActive: false }],
     },
   },
   {
@@ -585,6 +636,12 @@ const KINDS: Kind[] = [
         token({ id: 'tok-1', idToken: 'CEN-1', tokenType: 'Central', isActive: false }),
       ],
     },
+  },
+  {
+    name: 'Central issued by the CSMS',
+    idToken: 'RS-1',
+    type: 'Central',
+    issuedCentral: true,
   },
   {
     name: 'Central unknown with ad hoc limit',
@@ -1023,6 +1080,12 @@ function setUp(kind: Kind | null, roaming: boolean): void {
   logs = [];
   events = [];
   clearPrepaidAuthorizations();
+  clearIssuedCentralTokens();
+  if (kind?.issuedCentral === true) {
+    rememberIssuedCentralToken(STATION, 'RequestStartTransaction', {
+      idToken: { idToken: kind.idToken, type: 'Central' },
+    });
+  }
   if (kind?.rememberedMsAgo != null) {
     rememberPrepaidAuthorization(
       STATION,

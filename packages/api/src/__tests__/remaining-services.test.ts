@@ -28,6 +28,8 @@ function makeChain() {
     'returning',
     'set',
     'onConflictDoUpdate',
+    'onConflictDoNothing',
+    'for',
     'delete',
   ];
   for (const m of methods) {
@@ -47,7 +49,9 @@ function makeChain() {
   return chain;
 }
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  // The real SQLSTATE readers, so the token service maps errors as in production.
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -271,8 +275,9 @@ describe('Driver Service', () => {
   describe('createDriverToken', () => {
     it('creates and returns token', async () => {
       const token = { id: 't1', driverId: 'd1', idToken: 'ABC', tokenType: 'ISO14443' };
-      // tokenService.createToken: dup-check (empty), then insert returning
-      setupDbResults([], [token]);
+      // tokenService.createToken: dup-check (empty), the driver (active), then
+      // insert returning
+      setupDbResults([], [{ isActive: true }], [token]);
 
       const result = await createDriverToken('d1', { idToken: 'ABC', tokenType: 'ISO14443' });
 

@@ -16,7 +16,7 @@ const h = vi.hoisted(() => ({
 
 function makeSelectChain(): Record<string, unknown> {
   const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'from', 'where', 'orderBy']) {
+  for (const m of ['select', 'from', 'where', 'orderBy', 'unionAll']) {
     chain[m] = vi.fn(() => chain);
   }
   chain['limit'] = vi.fn((n: number) => {
@@ -59,13 +59,13 @@ const updatedAt = new Date('2026-09-01T00:00:00Z');
 
 function tokenRow(over: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    id: 'tok_1',
     idToken: 'RFID0001',
     tokenType: 'ISO14443',
     isActive: true,
     expiresAt: null,
     revokedAt: null,
     updatedAt,
+    tombstone: false,
     ...over,
   };
 }
@@ -100,8 +100,16 @@ describe('GET emsp tokens', () => {
         tokenRow({ id: 'tok_2', idToken: 'EMAID01', tokenType: 'eMAID', isActive: false }),
         tokenRow({ id: 'tok_3', idToken: 'OLD', revokedAt: updatedAt }),
         tokenRow({ id: 'tok_4', idToken: 'EXP', expiresAt: new Date('2020-01-01T00:00:00Z') }),
+        // A deleted token value: OCPI cannot delete a Token, so it is invalid.
+        tokenRow({
+          idToken: 'GONE',
+          isActive: false,
+          revokedAt: updatedAt,
+          tombstone: true,
+        }),
       ],
       [{ count: 4 }],
+      [{ count: 1 }],
     ];
     const res = await app.inject({ method: 'GET', url: '/ocpi/2.2.1/emsp/tokens' });
     expect(res.statusCode).toBe(200);
@@ -122,8 +130,13 @@ describe('GET emsp tokens', () => {
       expect.objectContaining({ uid: 'EMAID01', type: 'APP_USER', valid: false }),
       expect.objectContaining({ uid: 'OLD', valid: false }),
       expect.objectContaining({ uid: 'EXP', valid: false }),
+      expect.objectContaining({
+        uid: 'GONE',
+        valid: false,
+        last_updated: '2026-09-01T00:00:00.000Z',
+      }),
     ]);
-    expect(res.headers['x-total-count']).toBe('4');
+    expect(res.headers['x-total-count']).toBe('5');
     expect(res.headers['x-limit']).toBe('50');
     expect(res.headers['link']).toBeUndefined();
     expect(h.limits).toEqual([50]);
@@ -131,7 +144,7 @@ describe('GET emsp tokens', () => {
   });
 
   it('pages with offset and limit and links the next page with the date filters', async () => {
-    h.selects = [[tokenRow()], [{ count: 5 }]];
+    h.selects = [[tokenRow()], [{ count: 4 }], [{ count: 1 }]];
     const res = await app.inject({
       method: 'GET',
       url: '/ocpi/2.3.0/emsp/tokens?offset=2&limit=1&date_from=2026-01-01T00:00:00Z&date_to=2026-12-31T00:00:00Z',
@@ -151,7 +164,7 @@ describe('GET emsp tokens', () => {
   });
 
   it('clamps the limit and ignores invalid offsets and dates', async () => {
-    h.selects = [[], []];
+    h.selects = [[], [], []];
     const res = await app.inject({
       method: 'GET',
       url: '/ocpi/2.2.1/emsp/tokens?offset=-5&limit=5000&date_from=nope&date_to=',

@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import { translateCommand, translateResponse } from '../server/command-translation.js';
 import { validateSetChargingProfile } from '../generated/v1_6/validators/SetChargingProfile.validator.js';
 import { validateClearChargingProfile } from '../generated/v1_6/validators/ClearChargingProfile.validator.js';
+import { validateSendLocalList } from '../generated/v1_6/validators/SendLocalList.validator.js';
 
 describe('command-translation', () => {
   describe('translateCommand', () => {
@@ -466,12 +467,69 @@ describe('command-translation', () => {
         expect(list[1]).toHaveProperty('idTag', 'TAG002');
       });
 
-      it('passes payload through when no list for ocpp1.6', () => {
+      it('maps versionNumber to listVersion when there is no list for ocpp1.6', () => {
         const result = translateCommand('SendLocalList', 'ocpp1.6', {
           versionNumber: 1,
           updateType: 'Full',
         });
-        expect(result?.payload).toHaveProperty('versionNumber', 1);
+        expect(result?.payload).toEqual({ listVersion: 1, updateType: 'Full' });
+      });
+
+      it('maps a 2.1 list to the 1.6 schema shape for ocpp1.6', () => {
+        const result = translateCommand('SendLocalList', 'ocpp1.6', {
+          versionNumber: 7,
+          updateType: 'Full',
+          localAuthorizationList: [
+            {
+              idToken: { idToken: 'TAG-A', type: 'ISO14443' },
+              idTokenInfo: {
+                status: 'Accepted',
+                cacheExpiryDateTime: '2027-01-01T00:00:00.000Z',
+                groupIdToken: { idToken: 'GROUP-1', type: 'Central' },
+              },
+            },
+            { idToken: { idToken: 'TAG-B', type: 'ISO14443' }, idTokenInfo: { status: 'Blocked' } },
+            {
+              idToken: { idToken: 'TAG-C', type: 'ISO14443' },
+              idTokenInfo: { status: 'NoCredit' },
+            },
+            { idToken: { idToken: 'TAG-D', type: 'ISO14443' } },
+          ],
+        });
+        // SendLocalList.json (1.6): listVersion and updateType, each entry
+        // only idTag and idTagInfo { status, expiryDate, parentIdTag }.
+        expect(validateSendLocalList(result?.payload)).toBe(true);
+        expect(result?.payload).toEqual({
+          listVersion: 7,
+          updateType: 'Full',
+          localAuthorizationList: [
+            {
+              idTag: 'TAG-A',
+              idTagInfo: {
+                status: 'Accepted',
+                expiryDate: '2027-01-01T00:00:00.000Z',
+                parentIdTag: 'GROUP-1',
+              },
+            },
+            { idTag: 'TAG-B', idTagInfo: { status: 'Blocked' } },
+            // 1.6 has no NoCredit: a prepaid card without credit is Blocked.
+            { idTag: 'TAG-C', idTagInfo: { status: 'Blocked' } },
+            { idTag: 'TAG-D' },
+          ],
+        });
+      });
+
+      it('keeps a list already in the 1.6 shape for ocpp1.6', () => {
+        const result = translateCommand('SendLocalList', 'ocpp1.6', {
+          listVersion: 3,
+          updateType: 'Differential',
+          localAuthorizationList: [{ idTag: 'T', idTagInfo: { status: 'Accepted' } }],
+        });
+        expect(result?.payload).toEqual({
+          listVersion: 3,
+          updateType: 'Differential',
+          localAuthorizationList: [{ idTag: 'T', idTagInfo: { status: 'Accepted' } }],
+        });
       });
     });
 

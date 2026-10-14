@@ -226,6 +226,7 @@ export {
 export type { ReconciliationDiscrepancy, ReconciliationResult } from './reconciliation.js';
 export {
   continueDriverMethodSetup,
+  eraseDriverMethods,
   listDriverMethods,
   removeDriverMethod,
   saveDriverMethod,

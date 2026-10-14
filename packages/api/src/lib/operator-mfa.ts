@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { FastifyInstance } from 'fastify';
 import { client } from '@evtivity/database';
 import { createMfaChallenge, dispatchSystemNotification } from '@evtivity/lib';
+import { mfaCodeRecipient } from './mfa-contact.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = process.env['API_TEMPLATES_DIR'] ?? resolve(currentDir, '..', 'templates');
@@ -58,12 +59,7 @@ export async function beginOperatorMfa(
     await dispatchSystemNotification(
       client,
       'mfa.VerificationCode',
-      {
-        email: user.email,
-        phone: user.phone ?? undefined,
-        firstName: user.firstName ?? undefined,
-        language: user.language,
-      },
+      mfaCodeRecipient(user.mfaMethod, user),
       { code: challenge.code },
       TEMPLATES_DIR,
     );

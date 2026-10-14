@@ -4,8 +4,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Send, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { CancelButton } from '@/components/cancel-button';
+import { RefreshButton } from '@/components/refresh-button';
+import { SendButton } from '@/components/send-button';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -210,29 +212,24 @@ export function StationDisplayMessages({
       <CardHeader className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 md:gap-4">
         <CardTitle>{t('stations.displayMessages')}</CardTitle>
         <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!isOnline || refreshMutation.isPending}
+          <RefreshButton
+            label={
+              refreshMutation.isPending ? t('stations.refreshing') : t('stations.refreshMessages')
+            }
+            disabled={!isOnline}
+            isPending={refreshMutation.isPending}
             onClick={() => {
               refreshMutation.mutate();
             }}
-          >
-            <RefreshCw className={`h-4 w-4 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
-            {refreshMutation.isPending ? t('stations.refreshing') : t('stations.refreshMessages')}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
+          />
+          <SendButton
+            label={t('stations.sendMessage')}
             disabled={!isOnline}
             onClick={() => {
               setHasSubmitted(false);
               setCreateOpen(true);
             }}
-          >
-            <Send className="h-4 w-4" />
-            {t('stations.sendMessage')}
-          </Button>
+          />
         </div>
       </CardHeader>
       <CardContent>

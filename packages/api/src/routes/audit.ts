@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { sql, inArray } from 'drizzle-orm';
+import { sql, and, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import {
   db,
@@ -24,6 +24,7 @@ import { errorWith, paginatedResponse } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
+import { manageableUsersCondition } from '../lib/user-management-scope.js';
 import {
   redactSupportCaseAuditRows,
   supportCaseAuditSessionCondition,
@@ -225,6 +226,69 @@ function actorNameFor(
   if (row.actorDriverId != null) return resolver.byDriverId.get(row.actorDriverId) ?? null;
   if (row.actorApiKeyId != null) return resolver.byApiKeyId.get(row.actorApiKeyId) ?? null;
   return null;
+}
+
+/**
+ * The actor users a site-restricted viewer may see: itself and the users it
+ * sees in the user list (manageableUsersCondition). All-site users and users
+ * of other sites are invisible to it. Null for an all-site viewer (all).
+ */
+async function visibleActorUserIds(
+  userIds: Iterable<string>,
+  viewerId: string,
+  siteIds: string[] | null,
+): Promise<Set<string> | null> {
+  if (siteIds == null) return null;
+  const ids = new Set(userIds);
+  ids.delete(viewerId);
+  const visible = new Set<string>([viewerId]);
+  if (ids.size === 0) return visible;
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(inArray(users.id, [...ids]), manageableUsersCondition(siteIds)));
+  for (const r of rows) visible.add(r.id);
+  return visible;
+}
+
+function viaAiConfirmedBy(viaAi: unknown): string | null {
+  if (viaAi == null || typeof viaAi !== 'object') return null;
+  const confirmedBy = (viaAi as { confirmedBy?: unknown }).confirmedBy;
+  return typeof confirmedBy === 'string' ? confirmedBy : null;
+}
+
+/**
+ * Removes from audit rows the identity of every operator a site-restricted
+ * viewer cannot see (the acting user and its API key, the user who confirmed
+ * an AI action). The row and its actor type stay: a change to an entity of the
+ * viewer's sites is shown, without naming an all-site user or a user of other
+ * sites. Runs before the actor names are resolved, so no name is resolved.
+ */
+async function hideInvisibleActors(
+  rows: Array<{ actorUserId: string | null; actorApiKeyId: string | null; viaAi: unknown }>,
+  viewerId: string,
+  siteIds: string[] | null,
+): Promise<void> {
+  const referenced: string[] = [];
+  for (const row of rows) {
+    if (row.actorUserId != null) referenced.push(row.actorUserId);
+    const confirmedBy = viaAiConfirmedBy(row.viaAi);
+    if (confirmedBy != null) referenced.push(confirmedBy);
+  }
+  const visible = await visibleActorUserIds(referenced, viewerId, siteIds);
+  if (visible == null) return;
+  for (const row of rows) {
+    if (row.actorUserId != null && !visible.has(row.actorUserId)) {
+      row.actorUserId = null;
+      row.actorApiKeyId = null;
+    }
+    const confirmedBy = viaAiConfirmedBy(row.viaAi);
+    if (confirmedBy != null && !visible.has(confirmedBy)) {
+      const rest = { ...(row.viaAi as Record<string, unknown>) };
+      delete rest['confirmedBy'];
+      row.viaAi = rest;
+    }
+  }
 }
 
 // id-column name varies per table. Most tables follow `<entity>_id`, with
@@ -466,6 +530,7 @@ export function auditRoutes(app: FastifyInstance): void {
         )
         .slice(offset, offset + limit);
       const rows = await redactSupportCaseAuditRows(merged, entitySiteIds);
+      await hideInvisibleActors(rows, userId, entitySiteIds);
       const total = parts.reduce((sum, p) => sum + p.total, 0);
 
       const resolver = await resolveActorNames(rows);
@@ -506,6 +571,14 @@ export function auditRoutes(app: FastifyInstance): void {
         requested.length > 0 ? [...new Set(requested)] : auditEntityTypes
       ).filter((t) => auditSiteCondition(t, idColumnFor(t), siteIds) !== null);
       if (types.length === 0) return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
+      // A restricted viewer filters only on an operator it can see: the rows of
+      // any other operator are not attributed to it, so the filter matches none.
+      if (q.actorUserId != null) {
+        const visible = await visibleActorUserIds([q.actorUserId], userId, siteIds);
+        if (visible != null && !visible.has(q.actorUserId)) {
+          return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
+        }
+      }
 
       // Build per-table SELECT branches with shared filters. We project a
       // common shape: id, entity_type literal, idCol AS entity_id, snapshot
@@ -586,6 +659,7 @@ export function auditRoutes(app: FastifyInstance): void {
         createdAt: toIsoOrNull(r['created_at'] as Date | string | null) ?? '',
       }));
       const out = await redactSupportCaseAuditRows(mapped, siteIds);
+      await hideInvisibleActors(out, userId, siteIds);
       const resolver = await resolveActorNames(out);
       for (const row of out) row.actorName = actorNameFor(row, resolver);
       const total = (countRes as unknown as Array<{ total: number }>)[0]?.total ?? 0;

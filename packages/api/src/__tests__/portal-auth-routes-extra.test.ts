@@ -65,6 +65,11 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
+    // The transaction runs its callback on the same mocked builders.
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const { db } = await import('@evtivity/database');
+      return fn(db);
+    }),
   },
   client: {},
   drivers: { id: 'drivers.id', passwordHash: 'drivers.password_hash' },
@@ -82,6 +87,7 @@ vi.mock('drizzle-orm', () => ({
   ilike: vi.fn(),
   isNull: vi.fn(),
   isNotNull: vi.fn(),
+  gt: vi.fn(),
   sql: vi.fn(),
 }));
 
@@ -361,34 +367,57 @@ describe('Portal auth routes - extra coverage', () => {
       expect(db.insert).not.toHaveBeenCalled();
     });
 
-    it('returns tokens in the body and sets no cookies for an attested mobile client', async () => {
-      setupDbResults([], [driverRow], []);
+    it('signs an attested mobile client in nowhere: no tokens, no cookies', async () => {
+      setupDbResults([], [driverRow], [], []);
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/register',
         headers: MOBILE,
         payload: body,
       });
-      expect(res.statusCode).toBe(201);
-      const json = res.json();
-      expect(json.refreshToken).toBe('new-refresh-token');
-      expect(json.expiresIn).toBe(3600);
-      expect(app.jwt.verify<{ driverId: string }>(json.token).driverId).toBe(DRIVER_ID);
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ success: true });
       expect(cookieMap(res).size).toBe(0);
-      expect(createRefreshToken).toHaveBeenCalledWith({
-        driverId: DRIVER_ID,
-        deviceId: 'device-123',
-      });
+      expect(createRefreshToken).not.toHaveBeenCalled();
+    });
+
+    it('answers a known email the same way, changes nothing and emails the owner', async () => {
+      setupDbResults([
+        {
+          id: DRIVER_ID,
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'john@example.com',
+          language: 'de',
+        },
+      ]);
+      const res = await app.inject({ method: 'POST', url: '/portal/auth/register', payload: body });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ success: true });
+      expect(cookieMap(res).size).toBe(0);
+      // The password is hashed for a known email too, so both answers take as long.
+      expect(argon2.hash).toHaveBeenCalledWith(STRONG);
+      expect(valuesWrites()).toEqual([]);
+      expect(setWrites()).toEqual([]);
+      expect(writeAudit).not.toHaveBeenCalled();
+      const call = vi.mocked(dispatchSystemNotification).mock.calls[0];
+      expect(call?.[1]).toBe('driver.RegistrationAttempt');
+      expect(call?.[2]).toEqual({ email: 'john@example.com', firstName: 'John', language: 'de' });
+      const vars = call?.[3] as { signInUrl: string; resetUrl: string };
+      expect(vars.signInUrl).toMatch(/\/login$/);
+      expect(vars.resetUrl).toMatch(/\/forgot-password$/);
     });
 
     it('stores the hashed password and a verification token, and emails the link', async () => {
-      setupDbResults([], [driverRow], []);
+      setupDbResults([], [driverRow], [], []);
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/register',
         payload: { ...body, phone: '555-1234' },
       });
-      expect(res.statusCode).toBe(201);
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ success: true });
+      expect(cookieMap(res).has('portal_token')).toBe(false);
       expect(argon2.hash).toHaveBeenCalledWith(STRONG);
       const [driverInsert, tokenInsert] = valuesWrites();
       expect(driverInsert).toEqual({
@@ -432,18 +461,18 @@ describe('Portal auth routes - extra coverage', () => {
     });
 
     it('does not check the phone cap without a phone', async () => {
-      setupDbResults([], [driverRow], []);
+      setupDbResults([], [driverRow], [], []);
       const res = await app.inject({ method: 'POST', url: '/portal/auth/register', payload: body });
-      expect(res.statusCode).toBe(201);
+      expect(res.statusCode).toBe(202);
       expect(signupLimits.isPhoneRegistrationLimited).not.toHaveBeenCalled();
     });
 
-    it('maps a concurrent unique violation on insert to 409 EMAIL_EXISTS', async () => {
+    it('answers a concurrent unique violation on insert like a known email', async () => {
       setupDbResults([], Object.assign(new Error('duplicate key'), { code: '23505' }));
       const res = await app.inject({ method: 'POST', url: '/portal/auth/register', payload: body });
-      expect(res.statusCode).toBe(409);
-      expect(res.json().code).toBe('EMAIL_EXISTS');
-      expect(dispatchSystemNotification).not.toHaveBeenCalled();
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ success: true });
+      expect(writeAudit).not.toHaveBeenCalled();
     });
 
     it('rethrows other insert errors as 500', async () => {
@@ -967,8 +996,34 @@ describe('Portal auth routes - extra coverage', () => {
       });
       const call = vi.mocked(dispatchSystemNotification).mock.calls[0];
       expect(call?.[1]).toBe('mfa.VerificationCode');
-      expect(call?.[2]).toMatchObject({ phone: '555-1234', email: 'john@example.com' });
+      // The SMS method sends the code by SMS only, never to the email address.
+      expect(call?.[2]).toEqual({ phone: '555-1234', firstName: 'John', language: 'en' });
       expect(call?.[3]).toEqual({ code: '654321' });
+    });
+
+    it('sends an email code to the email address only', async () => {
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'email' }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/resend',
+        payload: { mfaToken },
+      });
+      expect(res.statusCode).toBe(200);
+      const call = vi.mocked(dispatchSystemNotification).mock.calls[0];
+      expect(call?.[2]).toEqual({ email: 'john@example.com', firstName: 'John', language: 'en' });
+    });
+
+    it('returns 403 ACCOUNT_DISABLED and sends no code to a deactivated driver', async () => {
+      setupDbResults([{ ...driverRow, mfaEnabled: true, mfaMethod: 'sms', isActive: false }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/mfa/resend',
+        payload: { mfaToken },
+      });
+      expect(res.statusCode).toBe(403);
+      expect(res.json().code).toBe('ACCOUNT_DISABLED');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+      expect(dispatchSystemNotification).not.toHaveBeenCalled();
     });
   });
 
@@ -1074,7 +1129,8 @@ describe('Portal auth routes - extra coverage', () => {
       expect(db.select).not.toHaveBeenCalled();
     });
 
-    it('returns 400 INVALID_TOKEN for an unknown token', async () => {
+    it('returns 400 INVALID_TOKEN for an unknown, used or expired token', async () => {
+      // The guarded UPDATE (unrevoked, unexpired) matches no row.
       setupDbResults([]);
       const res = await app.inject({
         method: 'POST',
@@ -1083,11 +1139,24 @@ describe('Portal auth routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('INVALID_TOKEN');
-      expect(db.update).not.toHaveBeenCalled();
+      // Only the token consume ran: no password was written.
+      expect(setWrites()).toHaveLength(1);
+      expect(setWrites()[0]?.['passwordHash']).toBeUndefined();
+      expect(revokeAllDriverRefreshTokens).not.toHaveBeenCalled();
     });
 
-    it('returns 400 INVALID_TOKEN for an expired token', async () => {
-      setupDbResults([{ id: 7, driverId: DRIVER_ID, expiresAt: new Date(Date.now() - 1000) }]);
+    it('hashes the password before the token lookup, so both answers take as long', async () => {
+      setupDbResults([]);
+      await app.inject({
+        method: 'POST',
+        url: '/portal/auth/reset-password',
+        payload: { token: 'abc', password: STRONG },
+      });
+      expect(argon2.hash).toHaveBeenCalledWith(STRONG);
+    });
+
+    it('returns 400 INVALID_TOKEN when the driver was deactivated after the link went out', async () => {
+      setupDbResults([{ driverId: DRIVER_ID }], []);
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/reset-password',
@@ -1095,15 +1164,12 @@ describe('Portal auth routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('INVALID_TOKEN');
-      expect(argon2.hash).not.toHaveBeenCalled();
+      expect(revokeAllDriverRefreshTokens).not.toHaveBeenCalled();
+      expect(writeAudit).not.toHaveBeenCalled();
     });
 
-    it('sets the new hash, consumes the token and revokes every refresh token', async () => {
-      setupDbResults(
-        [{ id: 7, driverId: DRIVER_ID, expiresAt: new Date(Date.now() + 60_000) }],
-        [],
-        [],
-      );
+    it('consumes the token, sets the new hash, verifies the email and revokes every refresh token', async () => {
+      setupDbResults([{ driverId: DRIVER_ID }], [{ id: DRIVER_ID }]);
       const res = await app.inject({
         method: 'POST',
         url: '/portal/auth/reset-password',
@@ -1112,9 +1178,10 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
       expect(argon2.hash).toHaveBeenCalledWith(STRONG);
-      const [driverSet, tokenSet] = setWrites();
-      expect(driverSet?.['passwordHash']).toBe('$argon2id$hashed_password');
+      const [tokenSet, driverSet] = setWrites();
       expect(tokenSet?.['revokedAt']).toBeInstanceOf(Date);
+      expect(driverSet?.['passwordHash']).toBe('$argon2id$hashed_password');
+      expect(driverSet?.['emailVerified']).toBe(true);
       expect(revokeAllDriverRefreshTokens).toHaveBeenCalledWith(DRIVER_ID);
       expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
         expect.objectContaining({ idColumn: 'driver_id' }),

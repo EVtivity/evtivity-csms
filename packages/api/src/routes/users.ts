@@ -55,6 +55,8 @@ import {
 } from '../services/refresh-token.service.js';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { emailEquals } from '../lib/email-match.js';
+import { verifyAgainstDummyHash } from '../lib/dummy-password-hash.js';
+import { hasMfaContact, mfaCodeRecipient, removesSmsMfaPhone } from '../lib/mfa-contact.js';
 import { generateUserToken, hashUserToken } from '../lib/user-token.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -106,14 +108,20 @@ const OCPP_TEMPLATES_DIR =
   resolve(currentDir, '..', '..', '..', 'ocpp', 'src', 'templates');
 const ALL_TEMPLATES_DIRS = [OCPP_TEMPLATES_DIR, TEMPLATES_DIR];
 
-// Lazily computed argon2 hash of random data, used to equalize timing on
-// authentication endpoints when the lookup returns no user. Running
-// argon2.verify against this on the no-user branch hides whether the email
-// exists, mitigating email-enumeration timing attacks.
-let dummyPasswordHashPromise: Promise<string> | null = null;
-async function getDummyPasswordHash(): Promise<string> {
-  dummyPasswordHashPromise ??= argon2.hash(crypto.randomBytes(32).toString('hex'));
-  return dummyPasswordHashPromise;
+const SMS_MFA_PHONE_REQUIRED = {
+  error: 'The user signs in with SMS codes: turn them off before you remove the phone number',
+  code: 'VALIDATION_ERROR',
+} as const;
+
+/** Whether the phone update would remove the phone the user's SMS second factor needs. */
+async function smsMfaNeedsPhone(userId: string, nextPhone: string | null): Promise<boolean> {
+  // A new number never locks anyone out: no read needed.
+  if (nextPhone != null && nextPhone.trim() !== '') return false;
+  const [row] = await db
+    .select({ mfaEnabled: users.mfaEnabled, mfaMethod: users.mfaMethod })
+    .from(users)
+    .where(eq(users.id, userId));
+  return row != null && removesSmsMfaPhone(nextPhone, row);
 }
 
 const loginBody = z.object({
@@ -485,7 +493,7 @@ export function userRoutes(app: FastifyInstance): void {
       if (user == null) {
         // Equalize timing with the user-exists branch so email enumeration
         // via response-time analysis fails.
-        await argon2.verify(await getDummyPasswordHash(), password).catch(() => false);
+        await verifyAgainstDummyHash(password);
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
@@ -961,7 +969,7 @@ export function userRoutes(app: FastifyInstance): void {
 
       if (user == null) {
         // Equalize timing with the user-exists branch (see login handler).
-        await argon2.verify(await getDummyPasswordHash(), currentPassword).catch(() => false);
+        await verifyAgainstDummyHash(currentPassword);
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
@@ -1128,6 +1136,9 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(updateMeBody),
         response: {
           200: itemResponse(userWithRole),
+          400: errorWith('The phone of an SMS second factor cannot be removed', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
       },
@@ -1135,6 +1146,11 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof updateMeBody>;
+
+      if (body.phone !== undefined && (await smsMfaNeedsPhone(userId, body.phone))) {
+        await reply.status(400).send(SMS_MFA_PHONE_REQUIRED);
+        return;
+      }
 
       const fields: Record<string, unknown> = { updatedAt: new Date() };
       if (body.firstName !== undefined) fields['firstName'] = body.firstName;
@@ -1606,6 +1622,12 @@ export function userRoutes(app: FastifyInstance): void {
         await reply
           .status(400)
           .send({ error: 'At least one site is required', code: 'INVALID_SITE_IDS' });
+        return;
+      }
+
+      // SMS codes need the phone: removing it would lock the user out.
+      if (body.phone !== undefined && (await smsMfaNeedsPhone(id, body.phone))) {
+        await reply.status(400).send(SMS_MFA_PHONE_REQUIRED);
         return;
       }
 
@@ -2373,12 +2395,7 @@ export function userRoutes(app: FastifyInstance): void {
       await dispatchSystemNotification(
         client,
         'mfa.VerificationCode',
-        {
-          email: user.email,
-          phone: user.phone ?? undefined,
-          firstName: user.firstName ?? undefined,
-          language: user.language,
-        },
+        mfaCodeRecipient(user.mfaMethod, user),
         { code: challenge.code },
         TEMPLATES_DIR,
       );
@@ -2414,15 +2431,22 @@ export function userRoutes(app: FastifyInstance): void {
     async (request) => {
       const { userId } = request.user as { userId: string; roleId: string };
       const [user] = await db
-        .select({ mfaEnabled: users.mfaEnabled, mfaMethod: users.mfaMethod })
+        .select({
+          mfaEnabled: users.mfaEnabled,
+          mfaMethod: users.mfaMethod,
+          email: users.email,
+          phone: users.phone,
+        })
         .from(users)
         .where(eq(users.id, userId));
 
       const mfaConfig = await getMfaConfig();
+      const contact = { email: user?.email ?? null, phone: user?.phone ?? null };
       const availableMethods: string[] = [];
       if (mfaConfig.emailEnabled) availableMethods.push('email');
       if (mfaConfig.totpEnabled) availableMethods.push('totp');
-      if (mfaConfig.smsEnabled) availableMethods.push('sms');
+      // SMS codes need a phone number on the profile.
+      if (mfaConfig.smsEnabled && hasMfaContact('sms', contact)) availableMethods.push('sms');
 
       return {
         mfaEnabled: user?.mfaEnabled ?? false,
@@ -2464,7 +2488,10 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(mfaSetupBody),
         response: {
           200: itemResponse(mfaSetupResponse),
-          400: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
+          400: errorWith('User not found or no phone for SMS codes', [
+            ERROR_CODES.USER_NOT_FOUND,
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           403: errorWith('MFA method disabled', [ERROR_CODES.MFA_METHOD_DISABLED]),
           409: errorResponse,
         },
@@ -2513,6 +2540,15 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // A code sent to nothing would leave the user unable to confirm.
+      if (!hasMfaContact(method, user)) {
+        await reply.status(400).send({
+          error: 'Add a phone number to your profile before you turn on SMS codes',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
+
       if (method === 'totp') {
         const secret = generateTotpSecret();
         const uri = generateTotpUri(secret, user.email, 'EVtivity CSMS');
@@ -2535,12 +2571,7 @@ export function userRoutes(app: FastifyInstance): void {
       await dispatchSystemNotification(
         client,
         'mfa.VerificationCode',
-        {
-          email: user.email,
-          phone: user.phone ?? undefined,
-          firstName: user.firstName ?? undefined,
-          language: user.language,
-        },
+        mfaCodeRecipient(method, user),
         { code: challenge.code },
         TEMPLATES_DIR,
       );
@@ -2574,6 +2605,7 @@ export function userRoutes(app: FastifyInstance): void {
             ERROR_CODES.TOTP_NOT_CONFIGURED,
           ]),
           403: errorResponse,
+          409: errorWith('MFA is already enabled', [ERROR_CODES.MFA_ALREADY_ENABLED]),
         },
       },
     },
@@ -2593,12 +2625,21 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const [user] = await db
+        .select({ totpSecretEnc: users.totpSecretEnc, mfaEnabled: users.mfaEnabled })
+        .from(users)
+        .where(eq(users.id, userId));
+      // Switching the method of an active MFA goes through the password-gated
+      // disable and a new setup, like the setup step itself.
+      if (user?.mfaEnabled === true) {
+        await reply
+          .status(409)
+          .send({ error: 'MFA is already enabled', code: 'MFA_ALREADY_ENABLED' });
+        return;
+      }
+
       let verified = false;
       if (method === 'totp') {
-        const [user] = await db
-          .select({ totpSecretEnc: users.totpSecretEnc })
-          .from(users)
-          .where(eq(users.id, userId));
         if (user?.totpSecretEnc == null) {
           await reply.status(400).send({ error: 'TOTP not set up', code: 'TOTP_NOT_CONFIGURED' });
           return;

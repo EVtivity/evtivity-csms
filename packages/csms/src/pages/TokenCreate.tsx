@@ -15,23 +15,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { DriverCombobox } from '@/components/driver-combobox';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { OCPP_ID_TOKEN_TYPES } from '@evtivity/lib/id-token-types';
 
 interface Token {
   id: string;
   idToken: string;
   tokenType: string;
 }
-
-const TOKEN_TYPES = [
-  'DirectPayment',
-  'eMAID',
-  'EVCCID',
-  'ISO14443',
-  'ISO15693',
-  'KeyCode',
-  'MacAddress',
-  'VIN',
-] as const;
 
 export function TokenCreate(): React.JSX.Element {
   const { t } = useTranslation();
@@ -108,7 +98,7 @@ export function TokenCreate(): React.JSX.Element {
                   setTokenType(e.target.value);
                 }}
               >
-                {TOKEN_TYPES.map((type) => (
+                {OCPP_ID_TOKEN_TYPES.map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>

@@ -42,6 +42,8 @@
     "signIn": "Anmelden",
     "signingIn": "Wird angemeldet...",
     "createAccount": "Konto erstellen",
+    "registerCheckEmailTitle": "Prüfe deine E-Mails",
+    "registerCheckEmail": "Wir haben eine E-Mail an {{email}} gesendet. Öffne den Link darin, um fortzufahren, und melde dich dann an.",
     "creatingAccount": "Konto wird erstellt...",
     "email": "E-Mail",
     "password": "Passwort",
@@ -615,6 +617,8 @@
     "DRIVER_ALREADY_IN_FLEET": "Fahrer ist bereits in dieser Flotte",
     "DRIVER_CREATE_FAILED": "Fahrer konnte nicht erstellt werden",
     "DRIVER_NOT_FOUND": "Fahrer nicht gefunden",
+    "DRIVER_ERASED": "Die Daten des Fahrers wurden gelöscht",
+    "DRIVER_HAS_ACTIVE_SESSION": "Der Fahrer hat einen aktiven Ladevorgang",
     "DRIVER_INACTIVE": "Fahrer ist inaktiv",
     "DUPLICATE_ALERT_RULE": "Für diese Komponente und Variable existiert bereits eine Alarmregel",
     "DUPLICATE_API_KEY_NAME": "Ein API-Schlüssel mit diesem Namen existiert bereits",
@@ -625,7 +629,6 @@
     "DUPLICATE_PARTNER": "Partner mit diesem Ländercode und dieser Party-ID existiert bereits",
     "DUPLICATE_SITE_NAME": "Ein Standort mit diesem Namen existiert bereits",
     "DUPLICATE_STATION_ID": "Stations-ID existiert bereits",
-    "EMAIL_EXISTS": "E-Mail-Adresse bereits registriert",
     "EMAIL_NOT_CONFIGURED": "E-Mail-Anbieter nicht konfiguriert",
     "EMAIL_NOT_VERIFIED": "E-Mail-Adresse nicht verifiziert",
     "EMAIL_REQUIRED": "E-Mail-Adresse für kostenpflichtiges Laden erforderlich",
@@ -877,7 +880,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "Über diese Aktion wurde bereits entschieden",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Bestätigen Sie diese Aktion angemeldet im Dashboard, nicht mit einem API-Schlüssel",
     "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut",
-    "CHARGING_PROFILE_ID_RESERVED": "Die ID des Ladeprofils muss größer als MaxExternalConstraintsId der Ladestation sein."
+    "CHARGING_PROFILE_ID_RESERVED": "Die ID des Ladeprofils muss größer als MaxExternalConstraintsId der Ladestation sein.",
+    "TOKEN_BLOCKED_BY_OPERATOR": "Der Betreiber hat diese Karte deaktiviert. Wenden Sie sich an den Betreiber, um sie wieder zu aktivieren."
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",
@@ -950,7 +954,10 @@
     "confirmDeactivateDescription": "Möchtest du diese RFID-Karte wirklich deaktivieren? Sie funktioniert dann nicht mehr an Stationen.",
     "removeCard": "Entfernen",
     "reactivateCard": "RFID-Karte reaktivieren",
-    "tokenType": "Token-Typ"
+    "tokenType": "Token-Typ",
+    "blockedByOperator": "Vom Betreiber deaktiviert",
+    "expired": "Abgelaufen",
+    "toggleFailed": "Die Karte konnte nicht geändert werden. Versuchen Sie es erneut."
   },
   "vehicles": {
     "addVehicle": "Fahrzeug hinzufügen",

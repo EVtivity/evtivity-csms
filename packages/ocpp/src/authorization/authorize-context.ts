@@ -51,6 +51,7 @@ export type AuthorizeSource =
   | 'ocpi'
   | 'no_lookup_type'
   | 'accept_when_not_found'
+  | 'issued_central'
   | 'no_authorization'
   | 'not_found'
   | 'db_error';
@@ -107,6 +108,12 @@ export interface AuthorizeContextRules {
   /** Typed tokens: the types accepted when no driver token matches (CSMS-issued or station-local tokens). */
   acceptWhenNotFound: ReadonlySet<string>;
   /**
+   * Typed tokens: accept an unknown Central token the CSMS issued to this
+   * station (RequestStartTransaction or ReserveNow idToken, see
+   * issued-central-tokens.ts).
+   */
+  acceptIssuedCentral: boolean;
+  /**
    * The drv_ driver id fallback, checked when no driver token matches: any 1.6
    * idTag, a 2.1 token of type Central (the type the CSMS sends a driver id as).
    */
@@ -149,6 +156,7 @@ const UNTYPED_BASE: Omit<
   // 2.1: the operator's revocation is the stronger, sticky state (P5).
   rejectPrecedence: 'blocked_first',
   acceptWhenNotFound: NONE,
+  acceptIssuedCentral: false,
   dbErrorLogLevel: 'error',
   concurrentTx: 'every_token',
 };
@@ -172,6 +180,7 @@ const TYPED_TX_START: AuthorizeContextRules = {
     'MasterPass',
     'NoAuthorization',
   ]),
+  acceptIssuedCentral: false,
   driverIdFallback: true,
   guestAcceptedStatuses: null,
   ocpi: true,
@@ -247,7 +256,11 @@ export const AUTHORIZE_CONTEXT_RULES: Readonly<
         ],
       ]),
       rejectPrecedence: 'blocked_first',
-      acceptWhenNotFound: new Set(['Central', 'Local']),
+      // Local needs no checking by the CSMS (IdTokenEnumStringType). An
+      // unknown Central token only when the CSMS issued it to this station:
+      // a station must not Authorize a Central token (C05.FR.01).
+      acceptWhenNotFound: new Set(['Local']),
+      acceptIssuedCentral: true,
       driverIdFallback: true,
       guestAcceptedStatuses: null,
       ocpi: true,

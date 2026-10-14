@@ -148,6 +148,13 @@ ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "billing_zip" varchar(20);
 --> statement-breakpoint
 ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "billing_country" varchar(100);
 --> statement-breakpoint
+-- Driver erasure (POST /v1/drivers/:id/erase): when the driver's personal data
+-- was anonymized. Null for every existing driver. No statement of this file
+-- uses the audit value.
+ALTER TABLE "drivers" ADD COLUMN IF NOT EXISTS "erased_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'erased';
+--> statement-breakpoint
 ALTER TABLE "invoices" ADD COLUMN IF NOT EXISTS "member_billed" boolean DEFAULT false NOT NULL;
 --> statement-breakpoint
 DO $$ BEGIN
@@ -441,6 +448,72 @@ CREATE INDEX IF NOT EXISTS "idx_report_schedule_audit_created_at" ON "report_sch
 -- An operator value already set stays.
 INSERT INTO settings (key, value) VALUES ('logs.loginAudit.retentionDays', '90'::jsonb)
 ON CONFLICT (key) DO NOTHING;
+--> statement-breakpoint
+-- Who deactivated a driver token. A driver may reactivate only a token the
+-- driver deactivated, never one an operator blocked. The one-time backfill
+-- (while the column is new) takes the actor of the token's last deactivation
+-- audit row (an API key counts as an operator), else 'operator', so an
+-- earlier operator block stays a block.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'driver_tokens' AND column_name = 'deactivated_by'
+  ) THEN
+    ALTER TABLE "driver_tokens" ADD COLUMN "deactivated_by" varchar(10);
+    UPDATE "driver_tokens" t
+      SET "deactivated_by" = coalesce(
+        (SELECT CASE WHEN a."actor"::text IN ('driver', 'system') THEN a."actor"::text
+                     ELSE 'operator' END
+          FROM "token_audit_log" a
+          WHERE a."token_id" = t."id" AND a."action" = 'deactivated'
+          ORDER BY a."id" DESC LIMIT 1),
+        'operator')
+      WHERE t."is_active" = false;
+  END IF;
+END $$;
+--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'driver_tokens_deactivated_by_check'
+  ) THEN
+    ALTER TABLE "driver_tokens" ADD CONSTRAINT "driver_tokens_deactivated_by_check"
+      CHECK ("deactivated_by" IS NULL OR "deactivated_by" IN ('operator', 'driver', 'system'));
+  END IF;
+END $$;
+--> statement-breakpoint
+-- Prepaid cards never go on a station's local auth list (a station checks a
+-- prepaid balance online). Lists that hold one are marked changed, so the
+-- operator is prompted to push and the push drops the entry. A rerun finds
+-- the same lists and moves their change time again, which changes nothing
+-- else.
+UPDATE "station_local_auth_versions" v
+  SET "last_modified_at" = now(), "updated_at" = now()
+  WHERE EXISTS (
+    SELECT 1 FROM "station_local_auth_entries" e
+    JOIN "driver_tokens" t ON t."id" = e."driver_token_id"
+    WHERE e."station_id" = v."station_id" AND t."prepaid_balance_cents" IS NOT NULL
+  );
+--> statement-breakpoint
+-- Token values that no longer exist (deleted or renamed driver tokens). The
+-- OCPI eMSP Tokens sender serves them as valid = false, since OCPI cannot
+-- delete a Token.
+CREATE TABLE IF NOT EXISTS "driver_token_tombstones" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "id_token" varchar(255) NOT NULL,
+  "token_type" varchar(20) NOT NULL,
+  "invalidated_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_driver_token_tombstones_token" ON "driver_token_tombstones" ("id_token", "token_type");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_driver_token_tombstones_invalidated_at" ON "driver_token_tombstones" ("invalidated_at");
+--> statement-breakpoint
+-- Hourly: a driver token whose expiry passed gets a new updated_at, so OCPI
+-- partners pulling Tokens changed since their last pull see it invalid, and
+-- the change is pushed to them.
+INSERT INTO cronjobs (name, schedule, status, next_run_at)
+SELECT 'driver-token-expiry', '5 * * * *', 'pending', NOW() + INTERVAL '1 hour'
+WHERE NOT EXISTS (SELECT 1 FROM cronjobs WHERE name = 'driver-token-expiry');
 --> statement-breakpoint
 -- Last: the hot table's ACCESS EXCLUSIVE lock is held to the commit. A constant
 -- default needs no rewrite. The check is NOT VALID (no scan) and enforced on

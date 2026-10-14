@@ -944,7 +944,8 @@
     "maxPowerUnknownHint": "在設定最大功率之前，負載管理無法限制此連接器。請編輯 EVSE 進行設定。OCPP 2.1 充電站會根據其組態報告自動填寫。",
     "removeTag": "移除標籤 {{tag}}",
     "messageCommandQueued": "充電站離線。命令已排入佇列，將在充電站重新連線時傳送。",
-    "chargingNeedsTab": "充電需求與監視器"
+    "chargingNeedsTab": "充電需求與監視器",
+    "localAuthPrepaidHint": "僅列出非預付卡的啟用權杖。充電站會線上檢查預付卡餘額，因此預付卡不會進入本地列表。"
   },
   "eventAlertRules": {
     "title": "事件警示規則",
@@ -1111,6 +1112,18 @@
     "phone": "電話",
     "language": "語言",
     "languageHelp": "用於駕駛員入口網站、通知和發票。",
+    "activeHelp": "停用駕駛員也會停用其權杖，並將其從駕駛員入口網站登出。重新啟用駕駛員不會重新啟用權杖。",
+    "erase": "清除駕駛員資料",
+    "eraseTitle": "清除個人資料",
+    "eraseHelp": "刪除駕駛員的姓名、電子郵件、電話、帳單地址、密碼、MFA、車輛與已儲存的付款方式，並停用其權杖。工作階段、付款與發票會保留供會計使用。此動作無法復原。",
+    "eraseConfirmTitle": "清除此駕駛員的資料？",
+    "eraseConfirmDescription": "駕駛員的個人資料將被永久刪除，駕駛員將無法再登入。工作階段、付款與發票會保留供會計使用。",
+    "eraseConfirmLabel": "輸入駕駛員 ID {{id}} 以確認",
+    "eraseConfirmMismatch": "輸入內容與駕駛員 ID 不符。",
+    "eraseSuccess": "駕駛員資料已清除",
+    "erasedOn": "此駕駛員的個人資料已於 {{date}} 清除。",
+    "erased": "已清除",
+    "erasedName": "已清除的駕駛員",
     "allStatuses": "所有狀態",
     "noDriversFound": "找不到駕駛員",
     "driverNotFound": "駕駛員不存在",
@@ -1717,7 +1730,17 @@
     "prepaid": "預付卡",
     "prepaidHint": "充電站在每次充電前查詢餘額，餘額用完時停止充電。餘額為零或更少時將被拒絕。",
     "prepaidBalance": "預付餘額",
-    "notPrepaid": "非預付"
+    "notPrepaid": "非預付",
+    "expiresAtHint": "留空表示權杖不會到期。超過此時間後，充電站會以已到期拒絕此權杖。",
+    "noExpiry": "永不",
+    "deactivatedAt": "停用時間",
+    "deactivatedBy": "停用者",
+    "deactivatedByValue": {
+      "operator": "營運商",
+      "driver": "駕駛員",
+      "system": "系統"
+    },
+    "deactivationReason": "停用原因"
   },
   "commands": {
     "title": "命令",
@@ -2808,6 +2831,7 @@
       "driver.Welcome": "歡迎",
       "driver.ForgotPassword": "忘記密碼",
       "driver.PortalInvite": "駕駛員入口網站邀請",
+      "driver.RegistrationAttempt": "註冊嘗試",
       "session.EndRequestFailed": "工作階段結束失敗",
       "site.PayoutOnboarding": "站點收款設定",
       "driver.PasswordChanged": "密碼已更改",
@@ -3016,6 +3040,8 @@
     "DRIVER_ALREADY_IN_FLEET": "駕駛員已在此車隊中",
     "DRIVER_CREATE_FAILED": "建立駕駛員失敗",
     "DRIVER_NOT_FOUND": "找不到駕駛員",
+    "DRIVER_ERASED": "駕駛員資料已被清除",
+    "DRIVER_HAS_ACTIVE_SESSION": "駕駛員有進行中的充電工作階段",
     "DRIVER_INACTIVE": "駕駛員已停用",
     "DUPLICATE_ALERT_RULE": "此元件和變數的警示規則已存在",
     "DUPLICATE_API_KEY_NAME": "已存在相同名稱的 API 金鑰",
@@ -3026,7 +3052,6 @@
     "DUPLICATE_PARTNER": "已存在相同國家代碼與 party ID 的合作夥伴",
     "DUPLICATE_SITE_NAME": "已存在同名站點",
     "DUPLICATE_STATION_ID": "充電站 ID 已存在",
-    "EMAIL_EXISTS": "電子郵件已註冊",
     "EMAIL_NOT_CONFIGURED": "尚未設定電子郵件服務提供者",
     "EMAIL_NOT_VERIFIED": "電子郵件尚未驗證",
     "EMAIL_REQUIRED": "付費充電需要提供電子郵件",
@@ -3278,7 +3303,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "此操作已處理",
     "AI_CONFIRMATION_REQUIRES_SESSION": "請登入控制台確認此操作，不能使用 API 金鑰",
     "AI_MCP_RATE_LIMITED": "MCP 請求過多，請稍後再試",
-    "CHARGING_PROFILE_ID_RESERVED": "充電設定檔 ID 必須大於充電站的 MaxExternalConstraintsId。"
+    "CHARGING_PROFILE_ID_RESERVED": "充電設定檔 ID 必須大於充電站的 MaxExternalConstraintsId。",
+    "TOKEN_BLOCKED_BY_OPERATOR": "此卡已被營運商停用。請聯絡營運商重新啟用。"
   },
   "logs": {
     "title": "日誌",
@@ -4390,6 +4416,7 @@
       "pnc_contract_issued": "隨插即充合約已簽發",
       "pnc_contract_revoked": "隨插即充合約已撤銷",
       "roaming_session_started": "漫遊工作階段已開始",
+      "erased": "已清除",
       "invite_resent": "邀請已重新傳送",
       "cdr_credited": "CDR 已沖銷",
       "faulted": "已故障",

@@ -33,6 +33,7 @@ import { UnplugIconButton } from '@/components/unplug-icon-button';
 import { useToast } from '@/components/ui/toast';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { Select } from '@/components/ui/select';
 import { connectorStatusVariant } from '@/lib/status-variants';
 
@@ -183,11 +184,14 @@ export function ConnectorStatus({
           variables.action === 'plugIn' ? 'stations.simPlugInSent' : 'stations.simUnplugSent',
         ),
       });
-      void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'connectors'] });
-      void queryClient.invalidateQueries({ queryKey: ['station', stationId] });
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'connectors'] });
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId] });
     },
-    onError: () => {
-      toast({ variant: 'destructive', title: t('stations.simActionFailed') });
+    onError: (err: unknown) => {
+      toast({
+        variant: 'destructive',
+        title: getErrorMessage(err, t, 'stations.simActionFailed'),
+      });
     },
     onSettled: () => {
       setSimActionEvseId(null);
@@ -203,8 +207,8 @@ export function ConnectorStatus({
       ),
     onSettled: () => {
       setRefreshingEvseId(null);
-      void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'connectors'] });
-      void queryClient.invalidateQueries({ queryKey: ['station', stationId] });
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'connectors'] });
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId] });
     },
   });
 
@@ -216,9 +220,9 @@ export function ConnectorStatus({
       ),
     onSuccess: () => {
       toast({ variant: 'success', title: t('stations.stopSessionDispatched') });
-      void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'connectors'] });
-      void queryClient.invalidateQueries({ queryKey: ['station', stationId, 'sessions'] });
-      void queryClient.invalidateQueries({ queryKey: ['station', stationId] });
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'connectors'] });
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'sessions'] });
+      void queryClient.invalidateQueries({ queryKey: ['stations', stationId] });
     },
     onError: (err: unknown) => {
       const code = (err as { body?: { code?: string } }).body?.code;

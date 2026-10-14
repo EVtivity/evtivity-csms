@@ -42,6 +42,8 @@
     "signIn": "로그인",
     "signingIn": "로그인 중...",
     "createAccount": "계정 만들기",
+    "registerCheckEmailTitle": "이메일을 확인하세요",
+    "registerCheckEmail": "{{email}}(으)로 이메일을 보냈습니다. 이메일의 링크를 열어 계속 진행한 다음 로그인하세요.",
     "creatingAccount": "계정 생성 중...",
     "email": "이메일",
     "password": "비밀번호",
@@ -615,6 +617,8 @@
     "DRIVER_ALREADY_IN_FLEET": "운전자는 이미 이 차량대에 있습니다",
     "DRIVER_CREATE_FAILED": "운전자 생성에 실패했습니다",
     "DRIVER_NOT_FOUND": "운전자를 찾을 수 없습니다",
+    "DRIVER_ERASED": "운전자 정보가 삭제되었습니다",
+    "DRIVER_HAS_ACTIVE_SESSION": "운전자에게 진행 중인 충전 세션이 있습니다",
     "DRIVER_INACTIVE": "비활성화된 운전자입니다",
     "DUPLICATE_ALERT_RULE": "이 컴포넌트와 변수에 대한 알림 규칙이 이미 존재합니다",
     "DUPLICATE_API_KEY_NAME": "이 이름의 API 키가 이미 존재합니다",
@@ -625,7 +629,6 @@
     "DUPLICATE_PARTNER": "이 국가 코드와 파티 ID의 파트너가 이미 존재합니다",
     "DUPLICATE_SITE_NAME": "이 이름의 사이트가 이미 존재합니다",
     "DUPLICATE_STATION_ID": "충전소 ID가 이미 존재합니다",
-    "EMAIL_EXISTS": "이미 등록된 이메일입니다",
     "EMAIL_NOT_CONFIGURED": "이메일 제공업체가 구성되지 않았습니다",
     "EMAIL_NOT_VERIFIED": "이메일이 인증되지 않았습니다",
     "EMAIL_REQUIRED": "유료 충전을 위해 이메일이 필요합니다",
@@ -877,7 +880,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "이 작업은 이미 처리되었습니다",
     "AI_CONFIRMATION_REQUIRES_SESSION": "API 키가 아닌 대시보드에 로그인한 상태에서 이 작업을 확인하세요",
     "AI_MCP_RATE_LIMITED": "MCP 요청이 너무 많습니다. 나중에 다시 시도하세요",
-    "CHARGING_PROFILE_ID_RESERVED": "충전 프로필 ID는 충전소의 MaxExternalConstraintsId보다 커야 합니다."
+    "CHARGING_PROFILE_ID_RESERVED": "충전 프로필 ID는 충전소의 MaxExternalConstraintsId보다 커야 합니다.",
+    "TOKEN_BLOCKED_BY_OPERATOR": "운영자가 이 카드를 비활성화했습니다. 다시 활성화하려면 운영자에게 문의하세요."
   },
   "validation": {
     "required": "필수 항목입니다",
@@ -950,7 +954,10 @@
     "confirmDeactivateDescription": "이 RFID 카드를 비활성화하시겠습니까? 비활성화하면 충전소에서 사용할 수 없습니다.",
     "removeCard": "삭제",
     "reactivateCard": "RFID 카드 재활성화",
-    "tokenType": "토큰 유형"
+    "tokenType": "토큰 유형",
+    "blockedByOperator": "운영자가 비활성화함",
+    "expired": "만료됨",
+    "toggleFailed": "카드를 변경할 수 없습니다. 다시 시도하세요."
   },
   "vehicles": {
     "addVehicle": "차량 추가",

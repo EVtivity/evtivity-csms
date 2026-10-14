@@ -39,6 +39,8 @@ const mocks = vi.hoisted(() => ({
   connectorTariffIds: vi.fn(),
   ocpiLocationAudience: vi.fn(),
   transformLocation: vi.fn(),
+  loadEmspTokens: vi.fn(),
+  loadEmspTombstones: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', () => ({
@@ -77,6 +79,10 @@ vi.mock('../services/location-render.js', () => ({
 }));
 vi.mock('../services/connector-tariffs.js', () => ({
   connectorTariffIds: mocks.connectorTariffIds,
+}));
+vi.mock('../services/emsp-tokens.js', () => ({
+  loadEmspTokens: mocks.loadEmspTokens,
+  loadEmspTombstones: mocks.loadEmspTombstones,
 }));
 vi.mock('../services/cpo-sessions.js', () => ({
   cpoSessionLink: mocks.cpoSessionLink,
@@ -424,6 +430,79 @@ describe('tariff push', () => {
     expect(mocks.client.delete).toHaveBeenCalledWith('https://p/tariffs/US/EVT/T-1');
     expect(syncLogs).toEqual([
       expect.objectContaining({ action: 'push_delete', status: 'completed' }),
+    ]);
+  });
+});
+
+describe('token push', () => {
+  const updatedAt = new Date('2026-10-01T00:00:00Z');
+  const live = {
+    idToken: 'RFID 01',
+    tokenType: 'ISO14443',
+    isActive: true,
+    expiresAt: null,
+    revokedAt: null,
+    updatedAt,
+    tombstone: false,
+  };
+  const gone = { ...live, idToken: 'VIN123', tokenType: 'VIN', isActive: false, tombstone: true };
+
+  beforeEach(() => {
+    mocks.loadEmspTokens.mockReset().mockResolvedValue([]);
+    mocks.loadEmspTombstones.mockReset().mockResolvedValue([]);
+  });
+
+  it('PUTs each changed token, and a deleted value as invalid, to a Tokens receiver', async () => {
+    mocks.loadEmspTokens.mockResolvedValue([live]);
+    mocks.loadEmspTombstones.mockResolvedValue([gone]);
+    selectResults = [[{ id: 'opr_1', ...PARTNER }], [{ url: 'https://cpo/tokens' }], [PARTNER]];
+
+    await deliver([
+      {
+        type: 'token',
+        tokenIds: ['dtk_1'],
+        tombstones: [{ idToken: 'VIN123', tokenType: 'VIN' }],
+      },
+    ]);
+
+    expect(mocks.loadEmspTokens).toHaveBeenCalledWith(['dtk_1']);
+    expect(mocks.client.put).toHaveBeenCalledWith(
+      'https://cpo/tokens/US/EVT/RFID%2001?type=RFID',
+      expect.objectContaining({ uid: 'RFID 01', valid: true }),
+    );
+    expect(mocks.client.put).toHaveBeenCalledWith(
+      'https://cpo/tokens/US/EVT/VIN123?type=OTHER',
+      expect.objectContaining({ uid: 'VIN123', valid: false }),
+    );
+    expect(syncLogs).toEqual([
+      expect.objectContaining({ module: 'tokens', status: 'completed', objectsCount: '2' }),
+    ]);
+  });
+
+  it('sends nothing to a partner without a Tokens receiver', async () => {
+    mocks.loadEmspTokens.mockResolvedValue([live]);
+    selectResults = [[{ id: 'opr_1', ...PARTNER }], [], [PARTNER]];
+
+    await deliver([{ type: 'token', tokenIds: ['dtk_1'] }]);
+
+    expect(mocks.client.put).not.toHaveBeenCalled();
+    expect(syncLogs).toHaveLength(0);
+  });
+
+  it('does nothing when no pushable token is left (internal type or replaced value)', async () => {
+    await deliver([{ type: 'token', tokenIds: ['dtk_central'] }]);
+    expect(mocks.client.put).not.toHaveBeenCalled();
+  });
+
+  it('logs a failed token push', async () => {
+    mocks.loadEmspTokens.mockResolvedValue([live]);
+    mocks.client.put.mockRejectedValue(new Error('timeout'));
+    selectResults = [[{ id: 'opr_1', ...PARTNER }], [{ url: 'https://cpo/tokens' }], [PARTNER]];
+
+    await deliver([{ type: 'token', tokenIds: ['dtk_1'] }]);
+
+    expect(syncLogs).toEqual([
+      expect.objectContaining({ module: 'tokens', status: 'failed', errorMessage: 'timeout' }),
     ]);
   });
 });

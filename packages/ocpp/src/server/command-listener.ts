@@ -19,6 +19,7 @@ import {
   MESSAGE_TYPE_CALLRESULT,
   MESSAGE_TYPE_CALLERROR,
 } from '../protocol/message-types.js';
+import { rememberIssuedCentralToken } from '../authorization/issued-central-tokens.js';
 
 const CHANNEL = OCPP_COMMANDS_CHANNEL;
 
@@ -127,6 +128,10 @@ export class CommandListener {
         );
       }
     }
+
+    // A Central idToken the CSMS sends (remote start, reservation) is one the
+    // station may present to Authorize (issued-central-tokens.ts).
+    rememberIssuedCentralToken(stationId, action, payload);
 
     // Log outbound CALL to station
     const messageId = commandId ?? crypto.randomUUID();

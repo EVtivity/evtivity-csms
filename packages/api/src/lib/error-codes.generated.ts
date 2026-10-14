@@ -76,6 +76,8 @@ export const ERROR_CODES = {
   DRIVER_AI_NOTICE_OUTDATED: 'DRIVER_AI_NOTICE_OUTDATED',
   DRIVER_ALREADY_IN_FLEET: 'DRIVER_ALREADY_IN_FLEET',
   DRIVER_CREATE_FAILED: 'DRIVER_CREATE_FAILED',
+  DRIVER_ERASED: 'DRIVER_ERASED',
+  DRIVER_HAS_ACTIVE_SESSION: 'DRIVER_HAS_ACTIVE_SESSION',
   DRIVER_INACTIVE: 'DRIVER_INACTIVE',
   DRIVER_NOT_FOUND: 'DRIVER_NOT_FOUND',
   DUPLICATE_ALERT_RULE: 'DUPLICATE_ALERT_RULE',
@@ -89,12 +91,12 @@ export const ERROR_CODES = {
   DUPLICATE_STATION_ID: 'DUPLICATE_STATION_ID',
   ELECTRICITY_RATE_NOT_FOUND: 'ELECTRICITY_RATE_NOT_FOUND',
   EMAID_PREFIX_NOT_CONFIGURED: 'EMAID_PREFIX_NOT_CONFIGURED',
-  EMAIL_EXISTS: 'EMAIL_EXISTS',
   EMAIL_NOT_CONFIGURED: 'EMAIL_NOT_CONFIGURED',
   EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
   EMAIL_REQUIRED: 'EMAIL_REQUIRED',
   EMAIL_SEND_FAILED: 'EMAIL_SEND_FAILED',
   ENCRYPTION_KEY_MISSING: 'ENCRYPTION_KEY_MISSING',
+  EVSE_HAS_HISTORY: 'EVSE_HAS_HISTORY',
   EVSE_IN_USE: 'EVSE_IN_USE',
   EVSE_NOT_FOUND: 'EVSE_NOT_FOUND',
   FAVORITE_NOT_FOUND: 'FAVORITE_NOT_FOUND',
@@ -282,6 +284,7 @@ export const ERROR_CODES = {
   STATION_ALREADY_AVAILABLE: 'STATION_ALREADY_AVAILABLE',
   STATION_ALREADY_IN_FLEET: 'STATION_ALREADY_IN_FLEET',
   STATION_CREDENTIALS_ROUTE_REQUIRED: 'STATION_CREDENTIALS_ROUTE_REQUIRED',
+  STATION_HAS_ACTIVE_SESSION: 'STATION_HAS_ACTIVE_SESSION',
   STATION_ID_EXISTS: 'STATION_ID_EXISTS',
   STATION_NOT_FOUND: 'STATION_NOT_FOUND',
   STATION_OFFLINE: 'STATION_OFFLINE',
@@ -304,6 +307,7 @@ export const ERROR_CODES = {
   TARIFF_NOT_FOUND: 'TARIFF_NOT_FOUND',
   TARIFF_OVERLAP: 'TARIFF_OVERLAP',
   TEMPLATE_NOT_FOUND: 'TEMPLATE_NOT_FOUND',
+  TOKEN_BLOCKED_BY_OPERATOR: 'TOKEN_BLOCKED_BY_OPERATOR',
   TOKEN_DUPLICATE: 'TOKEN_DUPLICATE',
   TOKEN_IN_USE: 'TOKEN_IN_USE',
   TOKEN_NOT_FOUND: 'TOKEN_NOT_FOUND',
@@ -391,6 +395,8 @@ export type ErrorCode =
   | 'DRIVER_AI_NOTICE_OUTDATED'
   | 'DRIVER_ALREADY_IN_FLEET'
   | 'DRIVER_CREATE_FAILED'
+  | 'DRIVER_ERASED'
+  | 'DRIVER_HAS_ACTIVE_SESSION'
   | 'DRIVER_INACTIVE'
   | 'DRIVER_NOT_FOUND'
   | 'DUPLICATE_ALERT_RULE'
@@ -404,12 +410,12 @@ export type ErrorCode =
   | 'DUPLICATE_STATION_ID'
   | 'ELECTRICITY_RATE_NOT_FOUND'
   | 'EMAID_PREFIX_NOT_CONFIGURED'
-  | 'EMAIL_EXISTS'
   | 'EMAIL_NOT_CONFIGURED'
   | 'EMAIL_NOT_VERIFIED'
   | 'EMAIL_REQUIRED'
   | 'EMAIL_SEND_FAILED'
   | 'ENCRYPTION_KEY_MISSING'
+  | 'EVSE_HAS_HISTORY'
   | 'EVSE_IN_USE'
   | 'EVSE_NOT_FOUND'
   | 'FAVORITE_NOT_FOUND'
@@ -597,6 +603,7 @@ export type ErrorCode =
   | 'STATION_ALREADY_AVAILABLE'
   | 'STATION_ALREADY_IN_FLEET'
   | 'STATION_CREDENTIALS_ROUTE_REQUIRED'
+  | 'STATION_HAS_ACTIVE_SESSION'
   | 'STATION_ID_EXISTS'
   | 'STATION_NOT_FOUND'
   | 'STATION_OFFLINE'
@@ -619,6 +626,7 @@ export type ErrorCode =
   | 'TARIFF_NOT_FOUND'
   | 'TARIFF_OVERLAP'
   | 'TEMPLATE_NOT_FOUND'
+  | 'TOKEN_BLOCKED_BY_OPERATOR'
   | 'TOKEN_DUPLICATE'
   | 'TOKEN_IN_USE'
   | 'TOKEN_NOT_FOUND'
@@ -719,6 +727,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   DRIVER_AI_NOTICE_OUTDATED: 'The AI notice has changed. Read it and choose again',
   DRIVER_ALREADY_IN_FLEET: 'Driver is already in this fleet',
   DRIVER_CREATE_FAILED: 'Failed to create driver',
+  DRIVER_ERASED: 'The driver was erased',
+  DRIVER_HAS_ACTIVE_SESSION: 'The driver has an active charging session',
   DRIVER_INACTIVE: 'Driver is inactive',
   DRIVER_NOT_FOUND: 'Driver not found',
   DUPLICATE_ALERT_RULE: 'An alert rule for this component and variable already exists',
@@ -732,12 +742,12 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   DUPLICATE_STATION_ID: 'Station ID already exists',
   ELECTRICITY_RATE_NOT_FOUND: 'Electricity rate not found',
   EMAID_PREFIX_NOT_CONFIGURED: 'Set the eMAID country code and provider ID first',
-  EMAIL_EXISTS: 'Email already registered',
   EMAIL_NOT_CONFIGURED: 'Email provider not configured',
   EMAIL_NOT_VERIFIED: 'Email not verified',
   EMAIL_REQUIRED: 'Email required for paid charging',
   EMAIL_SEND_FAILED: 'Failed to send email',
   ENCRYPTION_KEY_MISSING: 'SETTINGS_ENCRYPTION_KEY not configured on server',
+  EVSE_HAS_HISTORY: 'The EVSE or connector has charging history and cannot be deleted',
   EVSE_IN_USE: 'Another session is already active on this connector',
   EVSE_NOT_FOUND: 'EVSE not found',
   FAVORITE_NOT_FOUND: 'Favorite not found',
@@ -946,6 +956,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STATION_ALREADY_IN_FLEET: 'Station is already in this fleet',
   STATION_CREDENTIALS_ROUTE_REQUIRED:
     'Station passwords are changed with POST /v1/stations/:id/credentials, not with a generic OCPP command',
+  STATION_HAS_ACTIVE_SESSION:
+    'The station has an active charging session. Stop it before deleting the station.',
   STATION_ID_EXISTS: 'A station with this ID already exists',
   STATION_NOT_FOUND: 'Station not found',
   STATION_OFFLINE: 'Station is offline',
@@ -972,6 +984,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   TARIFF_NOT_FOUND: 'Tariff not found',
   TARIFF_OVERLAP: 'Tariff overlaps with an existing tariff',
   TEMPLATE_NOT_FOUND: 'Template not found',
+  TOKEN_BLOCKED_BY_OPERATOR:
+    'This card was deactivated by the operator. Contact the operator to reactivate it.',
   TOKEN_DUPLICATE: 'Token already registered',
   TOKEN_IN_USE: 'Token is currently in use by an active charging session',
   TOKEN_NOT_FOUND: 'Token not found',

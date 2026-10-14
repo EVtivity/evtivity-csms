@@ -130,4 +130,15 @@ describe('Register', () => {
     });
     expect(recaptchaMock).toHaveBeenCalledWith('site-key', 'register');
   });
+
+  it('asks to check the inbox after the request, for a new and a known email alike', async () => {
+    getMock.mockResolvedValue({ recaptchaEnabled: false, recaptchaSiteKey: '' });
+    registerMock.mockResolvedValue(undefined);
+    renderPage();
+    fill('Abcdefghijk1');
+    fireEvent.click(screen.getByRole('button', { name: 'auth.createAccount' }));
+    expect(await screen.findByText('auth.registerCheckEmailTitle')).toBeTruthy();
+    expect(screen.getByText('auth.registerCheckEmail')).toBeTruthy();
+    expect(screen.queryByLabelText('auth.password')).toBeNull();
+  });
 });

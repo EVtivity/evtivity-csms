@@ -944,7 +944,8 @@
     "maxPowerUnknownHint": "Load management cannot cap this connector until its max power is set. Edit the EVSE to set it. OCPP 2.1 stations fill it in from their configuration report.",
     "removeTag": "Remove tag {{tag}}",
     "messageCommandQueued": "Station offline. The command is queued and sent when the station reconnects.",
-    "chargingNeedsTab": "Charging Needs and Monitors"
+    "chargingNeedsTab": "Charging Needs and Monitors",
+    "localAuthPrepaidHint": "Only active tokens that are not prepaid cards are listed. A station checks a prepaid card's balance online, so prepaid cards never go on a local list."
   },
   "eventAlertRules": {
     "title": "Event Alert Rules",
@@ -1111,6 +1112,18 @@
     "phone": "Phone",
     "language": "Language",
     "languageHelp": "Used for the driver portal, notifications, and invoices.",
+    "activeHelp": "Making a driver inactive also deactivates their tokens and signs them out of the driver portal. Making the driver active again does not reactivate the tokens.",
+    "erase": "Erase Driver",
+    "eraseTitle": "Erase Personal Data",
+    "eraseHelp": "Removes the driver's name, email, phone, billing address, password, MFA, vehicles and saved payment methods, and deactivates the tokens. Sessions, payments and invoices stay for accounting. This cannot be undone.",
+    "eraseConfirmTitle": "Erase This Driver?",
+    "eraseConfirmDescription": "The driver's personal data is removed for good and the driver can no longer sign in. Sessions, payments and invoices stay for accounting.",
+    "eraseConfirmLabel": "Type the driver ID {{id}} to confirm",
+    "eraseConfirmMismatch": "The text does not match the driver ID.",
+    "eraseSuccess": "Driver erased",
+    "erasedOn": "The personal data of this driver was erased on {{date}}.",
+    "erased": "Erased",
+    "erasedName": "Erased Driver",
     "allStatuses": "All Statuses",
     "noDriversFound": "No drivers found",
     "driverNotFound": "Driver not found",
@@ -1717,7 +1730,17 @@
     "prepaid": "Prepaid card",
     "prepaidHint": "The station asks for the balance before every charge and stops when the credit runs out. A balance of zero or less is refused.",
     "prepaidBalance": "Prepaid balance",
-    "notPrepaid": "Not prepaid"
+    "notPrepaid": "Not prepaid",
+    "expiresAtHint": "Leave empty for a token that does not expire. After this time stations refuse the token as Expired.",
+    "noExpiry": "Never",
+    "deactivatedAt": "Deactivated",
+    "deactivatedBy": "Deactivated By",
+    "deactivatedByValue": {
+      "operator": "Operator",
+      "driver": "Driver",
+      "system": "System"
+    },
+    "deactivationReason": "Deactivation Reason"
   },
   "commands": {
     "title": "Commands",
@@ -2808,6 +2831,7 @@
       "driver.Welcome": "Welcome",
       "driver.ForgotPassword": "Forgot Password",
       "driver.PortalInvite": "Driver Portal Invite",
+      "driver.RegistrationAttempt": "Registration Attempt",
       "session.EndRequestFailed": "Session End Failed",
       "site.PayoutOnboarding": "Site Payout Onboarding",
       "driver.PasswordChanged": "Password Changed",
@@ -3016,6 +3040,8 @@
     "DRIVER_ALREADY_IN_FLEET": "Driver is already in this fleet",
     "DRIVER_CREATE_FAILED": "Failed to create driver",
     "DRIVER_NOT_FOUND": "Driver not found",
+    "DRIVER_ERASED": "The driver was erased",
+    "DRIVER_HAS_ACTIVE_SESSION": "The driver has an active charging session",
     "DRIVER_INACTIVE": "Driver is inactive",
     "DUPLICATE_ALERT_RULE": "An alert rule for this component and variable already exists",
     "DUPLICATE_API_KEY_NAME": "An API key with this name already exists",
@@ -3026,7 +3052,6 @@
     "DUPLICATE_PARTNER": "Partner with this country code and party ID already exists",
     "DUPLICATE_SITE_NAME": "A site with this name already exists",
     "DUPLICATE_STATION_ID": "Station ID already exists",
-    "EMAIL_EXISTS": "Email already registered",
     "EMAIL_NOT_CONFIGURED": "Email provider not configured",
     "EMAIL_NOT_VERIFIED": "Email not verified",
     "EMAIL_REQUIRED": "Email required for paid charging",
@@ -3278,7 +3303,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "This action was already decided",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirm this action while signed in to the dashboard, not with an API key",
     "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later",
-    "CHARGING_PROFILE_ID_RESERVED": "The charging profile ID must be above the station's MaxExternalConstraintsId."
+    "CHARGING_PROFILE_ID_RESERVED": "The charging profile ID must be above the station's MaxExternalConstraintsId.",
+    "TOKEN_BLOCKED_BY_OPERATOR": "This card was deactivated by the operator. Contact the operator to reactivate it."
   },
   "logs": {
     "title": "Logs",
@@ -4390,6 +4416,7 @@
       "pnc_contract_issued": "Plug & Charge contract issued",
       "pnc_contract_revoked": "Plug & Charge contract revoked",
       "roaming_session_started": "Roaming session started",
+      "erased": "Erased",
       "invite_resent": "Invitation resent",
       "cdr_credited": "CDR credited",
       "faulted": "Faulted",

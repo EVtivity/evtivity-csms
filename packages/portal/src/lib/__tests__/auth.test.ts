@@ -139,16 +139,15 @@ describe('portal useAuth', () => {
     });
   });
 
-  it('register signs the new driver in', async () => {
-    mockPost.mockResolvedValueOnce({ driver });
+  it('register sends the request and signs nobody in', async () => {
+    mockPost.mockResolvedValueOnce({ success: true });
     const body = { firstName: 'Grace', lastName: 'Hopper', email: 'g@h.io', password: 'pw' };
 
     await useAuth.getState().register(body);
 
     expect(mockPost).toHaveBeenCalledWith('/v1/portal/auth/register', body);
-    expectStoredPreferences();
-    expect(useAuth.getState().isAuthenticated).toBe(true);
-    expect(useAuth.getState().driver?.id).toBe('d1');
+    expect(useAuth.getState().isAuthenticated).toBe(false);
+    expect(useAuth.getState().driver).toBeNull();
   });
 
   it('register propagates an API failure without signing in', async () => {

@@ -84,6 +84,20 @@ describe('DriverBillingAddressCard', () => {
     expect(screen.queryByRole('button', { name: /common\.edit/ })).toBeNull();
   });
 
+  it('hides the edit button for an erased driver', async () => {
+    getMock.mockResolvedValue(ADDRESS);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <DriverBillingAddressCard
+          driver={{ id: 'drv_1', firstName: '', lastName: '', erasedAt: '2026-10-14T00:00:00Z' }}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByText('Hauptstrasse 1');
+    expect(screen.queryByRole('button', { name: /common\.edit/ })).toBeNull();
+  });
+
   it('saves the trimmed form, blank fields as null', async () => {
     getMock.mockResolvedValue(ADDRESS);
     patchMock.mockResolvedValue({ ...ADDRESS, billingName: 'Acme Employee', billingCity: null });

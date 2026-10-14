@@ -36,6 +36,8 @@ export function Register(): React.JSX.Element {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   // The API refused the password (WEAK_PASSWORD). Translated at render, cleared on edit.
   const [serverWeakPassword, setServerWeakPassword] = useState(false);
+  // Set once the API accepted the request: the page then asks to check the inbox.
+  const [submittedEmail, setSubmittedEmail] = useState<string | null>(null);
 
   const { companyName, companyLogo, branding } = useAuthBranding();
 
@@ -82,13 +84,41 @@ export function Register(): React.JSX.Element {
         ...(phone !== '' ? { phone } : {}),
         ...(recaptchaToken != null ? { recaptchaToken } : {}),
       });
-      void navigate('/verify-email');
+      setSubmittedEmail(email);
     } catch (err: unknown) {
       if (getApiErrorCode(err) === 'WEAK_PASSWORD') setServerWeakPassword(true);
       else setError(getErrorMessage(err, t, 'auth.registrationFailed'));
     } finally {
       setLoading(false);
     }
+  }
+
+  if (submittedEmail != null) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background px-4">
+        <AuthBranding companyName={companyName} companyLogo={companyLogo} />
+        <Card className="w-full max-w-sm">
+          <CardHeader className="text-center">
+            <h2 className="text-2xl font-semibold">{t('auth.registerCheckEmailTitle')}</h2>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {t('auth.registerCheckEmail', { email: submittedEmail })}
+            </p>
+            <Button
+              type="button"
+              className="w-full"
+              onClick={() => {
+                void navigate('/login');
+              }}
+            >
+              {t('auth.backToLogin')}
+            </Button>
+          </CardContent>
+        </Card>
+        <AuthFooter companyName={companyName} branding={branding} />
+      </div>
+    );
   }
 
   return (

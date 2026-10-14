@@ -65,7 +65,7 @@ function selectResolving(rows: unknown[]): { from: ReturnType<typeof vi.fn> } {
     then: (resolve: (v: unknown) => unknown): unknown => resolve(rows),
   };
   const where = vi.fn().mockReturnValue(whereResult);
-  const from = vi.fn().mockReturnValue({ where });
+  const from = vi.fn().mockReturnValue({ where, leftJoin: vi.fn().mockReturnValue({ where }) });
   return { from };
 }
 
@@ -76,7 +76,7 @@ function selectThrowing(err: unknown): { from: ReturnType<typeof vi.fn> } {
       reject(err),
   };
   const where = vi.fn().mockReturnValue(whereResult);
-  const from = vi.fn().mockReturnValue({ where });
+  const from = vi.fn().mockReturnValue({ where, leftJoin: vi.fn().mockReturnValue({ where }) });
   return { from };
 }
 

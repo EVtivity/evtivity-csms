@@ -86,6 +86,10 @@ vi.mock('@evtivity/database', () => ({
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
+    // The transaction runs on the same mocked db.
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn((await import('@evtivity/database')).db),
+    ),
   },
   firmwareCampaigns: { id: 'id', createdAt: 'createdAt', status: 'status' },
   firmwareCampaignStatusEnum: {

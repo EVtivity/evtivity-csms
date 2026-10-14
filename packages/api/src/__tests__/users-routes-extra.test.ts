@@ -512,7 +512,8 @@ describe('User routes (extended coverage)', () => {
       expect(dispatchSystemNotification).toHaveBeenCalledWith(
         client,
         'mfa.VerificationCode',
-        { email: 'op@example.com', phone: '+15550001111', firstName: 'Op', language: 'de' },
+        // The email method sends the code by email only.
+        { email: 'op@example.com', firstName: 'Op', language: 'de' },
         { code: '654321' },
         expect.any(String),
       );
@@ -1024,7 +1025,13 @@ describe('User routes (extended coverage)', () => {
     it('updates only the supplied profile fields and writes an audit row', async () => {
       const before = userRow({ id: ME, firstName: 'Old' });
       const after = userRow({ id: ME, firstName: 'New', phone: null, language: 'zh-TW' });
-      setupDbResults([before], [after], [{ id: ROLE, name: 'operator' }]);
+      // 1: the SMS factor check of the phone removal
+      setupDbResults(
+        [{ mfaEnabled: false, mfaMethod: null }],
+        [before],
+        [after],
+        [{ id: ROLE, name: 'operator' }],
+      );
       const res = await app.inject({
         method: 'PATCH',
         url: '/users/me',
@@ -2335,7 +2342,7 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('creates a new challenge and sends the code', async () => {
-      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'sms', phone: null })]);
+      setupDbResults([fullUser({ mfaEnabled: true, mfaMethod: 'sms', phone: '+15550001111' })]);
       const res = await app.inject({
         method: 'POST',
         url: '/auth/mfa/resend',
@@ -2344,10 +2351,11 @@ describe('User routes (extended coverage)', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ challengeId: 42 });
       expect(createMfaChallenge).toHaveBeenCalledWith(client, { userId: OTHER, method: 'sms' });
+      // The SMS method sends the code by SMS only.
       expect(dispatchSystemNotification).toHaveBeenCalledWith(
         client,
         'mfa.VerificationCode',
-        { email: 'op@example.com', phone: undefined, firstName: 'Op', language: 'de' },
+        { phone: '+15550001111', firstName: 'Op', language: 'de' },
         { code: '654321' },
         expect.any(String),
       );
@@ -2363,7 +2371,9 @@ describe('User routes (extended coverage)', () => {
         totpEnabled: true,
         smsEnabled: true,
       });
-      setupDbResults([{ mfaEnabled: true, mfaMethod: 'totp' }]);
+      setupDbResults([
+        { mfaEnabled: true, mfaMethod: 'totp', email: 'op@example.com', phone: '+15550001111' },
+      ]);
       const res = await app.inject({ method: 'GET', url: '/users/me/mfa', headers: auth });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({
@@ -2371,6 +2381,75 @@ describe('User routes (extended coverage)', () => {
         mfaMethod: 'totp',
         availableMethods: ['totp', 'sms'],
       });
+    });
+
+    it('GET /users/me/mfa leaves out SMS without a phone number', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: true,
+        smsEnabled: true,
+      });
+      setupDbResults([
+        { mfaEnabled: false, mfaMethod: null, email: 'op@example.com', phone: null },
+      ]);
+      const res = await app.inject({ method: 'GET', url: '/users/me/mfa', headers: auth });
+      expect(res.json().availableMethods).toEqual(['email', 'totp']);
+    });
+
+    it('POST /users/me/mfa/setup refuses SMS codes without a phone number', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: true,
+        smsEnabled: true,
+      });
+      setupDbResults([
+        {
+          email: 'op@example.com',
+          phone: null,
+          firstName: 'Op',
+          language: 'de',
+          mfaEnabled: false,
+        },
+      ]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/setup',
+        headers: auth,
+        payload: { method: 'sms' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+    });
+
+    it('POST /users/me/mfa/confirm answers 409 while MFA is enabled', async () => {
+      vi.mocked(getMfaConfig).mockResolvedValue({
+        emailEnabled: true,
+        totpEnabled: true,
+        smsEnabled: true,
+      });
+      setupDbResults([{ totpSecretEnc: null, mfaEnabled: true }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users/me/mfa/confirm',
+        headers: auth,
+        payload: { method: 'email', code: '123456', challengeId: 3 },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('MFA_ALREADY_ENABLED');
+    });
+
+    it('PATCH /users/me refuses to remove the phone of an SMS second factor', async () => {
+      setupDbResults([{ mfaEnabled: true, mfaMethod: 'sms' }]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/users/me',
+        headers: auth,
+        payload: { phone: null },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(opsFor('update', 'users')).toHaveLength(0);
     });
 
     it('GET /users/me/mfa defaults to disabled when the user row is missing', async () => {

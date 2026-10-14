@@ -42,6 +42,8 @@
     "signIn": "Sign In",
     "signingIn": "Signing in...",
     "createAccount": "Create Account",
+    "registerCheckEmailTitle": "Check Your Email",
+    "registerCheckEmail": "We sent an email to {{email}}. Open the link in it to continue, then sign in.",
     "creatingAccount": "Creating Account...",
     "email": "Email",
     "password": "Password",
@@ -615,6 +617,8 @@
     "DRIVER_ALREADY_IN_FLEET": "Driver is already in this fleet",
     "DRIVER_CREATE_FAILED": "Failed to create driver",
     "DRIVER_NOT_FOUND": "Driver not found",
+    "DRIVER_ERASED": "The driver was erased",
+    "DRIVER_HAS_ACTIVE_SESSION": "The driver has an active charging session",
     "DRIVER_INACTIVE": "Driver is inactive",
     "DUPLICATE_ALERT_RULE": "An alert rule for this component and variable already exists",
     "DUPLICATE_API_KEY_NAME": "An API key with this name already exists",
@@ -625,7 +629,6 @@
     "DUPLICATE_PARTNER": "Partner with this country code and party ID already exists",
     "DUPLICATE_SITE_NAME": "A site with this name already exists",
     "DUPLICATE_STATION_ID": "Station ID already exists",
-    "EMAIL_EXISTS": "Email already registered",
     "EMAIL_NOT_CONFIGURED": "Email provider not configured",
     "EMAIL_NOT_VERIFIED": "Email not verified",
     "EMAIL_REQUIRED": "Email required for paid charging",
@@ -877,7 +880,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "This action was already decided",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirm this action while signed in to the dashboard, not with an API key",
     "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later",
-    "CHARGING_PROFILE_ID_RESERVED": "The charging profile ID must be above the station's MaxExternalConstraintsId."
+    "CHARGING_PROFILE_ID_RESERVED": "The charging profile ID must be above the station's MaxExternalConstraintsId.",
+    "TOKEN_BLOCKED_BY_OPERATOR": "This card was deactivated by the operator. Contact the operator to reactivate it."
   },
   "validation": {
     "required": "This field is required",
@@ -950,7 +954,10 @@
     "confirmDeactivateDescription": "Are you sure you want to deactivate this RFID card? It will no longer work at charging stations.",
     "removeCard": "Remove",
     "reactivateCard": "Reactivate RFID Card",
-    "tokenType": "Token type"
+    "tokenType": "Token type",
+    "blockedByOperator": "Deactivated by the operator",
+    "expired": "Expired",
+    "toggleFailed": "Could not change the card. Try again."
   },
   "vehicles": {
     "addVehicle": "Add Vehicle",

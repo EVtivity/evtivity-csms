@@ -1,0 +1,31 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}Hallo {{firstName}},{{else}}Hallo,{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Jemand wollte sich mit deiner E-Mail-Adresse registrieren</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Jemand hat versucht, mit dieser E-Mail-Adresse ein {{companyName}}-Fahrerkonto anzulegen. Du hast bereits ein Konto, daher wurde nichts geändert. Melde dich an oder setze dein Passwort zurück, falls du es vergessen hast.</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  <tr>
+    <td align='center' style='padding:32px 0 16px 0;'>
+      <a
+        href='{{signInUrl}}'
+        style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;"
+      >Anmelden</a>
+    </td>
+  </tr>
+</table>
+<p
+  style="text-align:center;font-size:14px;line-height:1.6;margin:0 0 24px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+><a href='{{resetUrl}}' style="color:#2563eb;">Passwort zurücksetzen</a></p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Falls du das nicht warst, kannst du diese E-Mail ignorieren. Dein Konto ist unverändert.</p>

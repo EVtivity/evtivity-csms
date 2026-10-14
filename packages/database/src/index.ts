@@ -283,6 +283,7 @@ export type {
   ReleaseUpgradePending,
 } from './lib/process-versions.js';
 export { isPortalRegistrationEnabled } from './lib/portal-registration-setting.js';
+export { touchExpiredDriverTokens } from './lib/driver-token-expiry.js';
 export { isGuestChargingEnabled, clearGuestChargingCache } from './lib/guest-setting.js';
 export { getIdlingGracePeriodMinutes, clearIdlingSettingCache } from './lib/idling-setting.js';
 export {

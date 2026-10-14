@@ -5,8 +5,8 @@
 
 /**
  * Driver notification event types that are always on: what a driver needs to get into
- * their account (password reset, MFA codes, email verification, the portal invitation)
- * and the member invoice documents a fleet bills them with (invoice, credit note,
+ * their account (password reset, MFA codes, email verification, the portal invitation,
+ * the notice that someone tried to register with their address) and the member invoice documents a fleet bills them with (invoice, credit note,
  * overdue reminder). The API refuses to turn them off, dispatch ignores a stored
  * disabled setting, and a recipient's own notification preferences do not suppress them.
  */
@@ -14,6 +14,7 @@ export const REQUIRED_DRIVER_EVENT_TYPES = [
   'driver.ForgotPassword',
   'driver.AccountVerification',
   'driver.PortalInvite',
+  'driver.RegistrationAttempt',
   'mfa.VerificationCode',
   'invoice.MemberInvoice',
   'invoice.MemberCreditNote',

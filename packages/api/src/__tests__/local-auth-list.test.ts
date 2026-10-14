@@ -115,7 +115,9 @@ vi.mock('drizzle-orm', () => ({
   asc: vi.fn(),
   notInArray: vi.fn(),
   isNull: vi.fn(),
+  isNotNull: vi.fn(),
   inArray: vi.fn(),
+  lt: vi.fn(),
 }));
 
 // -- PubSub mock --
@@ -341,14 +343,20 @@ describe('Local auth list routes', () => {
         isOnline: true,
         ocppProtocol: 'ocpp2.1',
       };
-      const entriesWithTokenStatus = [
-        { entryId: 1, isActive: true },
-        { entryId: 2, isActive: true },
-      ];
-      const trackedEntries = [
-        { idToken: 'TOKEN001', tokenType: 'ISO14443', authStatus: 'Accepted' },
-        { idToken: 'TOKEN002', tokenType: 'ISO14443', authStatus: 'Accepted' },
-      ];
+      const tokenRow = (entryId: number, idToken: string) => ({
+        entryId,
+        entryIdToken: idToken,
+        entryTokenType: 'ISO14443',
+        entryAuthStatus: 'Accepted',
+        idToken,
+        tokenType: 'ISO14443',
+        isActive: true,
+        revokedAt: null,
+        expiresAt: null,
+        prepaidBalanceCents: null,
+        driverIsActive: true,
+      });
+      const entriesWithTokens = [tokenRow(1, 'TOKEN001'), tokenRow(2, 'TOKEN002')];
       const versionRow = {
         id: 1,
         stationId: VALID_STATION_ID,
@@ -360,16 +368,18 @@ describe('Local auth list routes', () => {
         updatedAt: new Date().toISOString(),
       };
 
-      // 1. getStation, 2. delete orphaned entries, 3. entries with token status,
-      // 4. reconciled entries, 5. getOrCreateVersionRow,
-      // 6. UPDATE ... RETURNING (atomic version increment), 7. update pushedAt
+      // 1. getStation, 2. delete orphaned entries, 3. entries joined with
+      // their tokens (unchanged, no entry update), 4. getOrCreateVersionRow,
+      // 5. UPDATE ... RETURNING (atomic version increment), 6. lastSyncAt,
+      // 7. update pushedAt
       setupDbResults(
         [station],
         [],
-        entriesWithTokenStatus,
-        trackedEntries,
+        [], // entries of prepaid cards (none)
+        entriesWithTokens,
         [versionRow],
         [{ localVersion: versionRow.localVersion + 1 }],
+        [],
         [],
       );
 
@@ -417,13 +427,13 @@ describe('Local auth list routes', () => {
         updatedAt: new Date().toISOString(),
       };
 
-      // 1. getStation, 2. delete orphaned, 3. entries with token status (none),
-      // 4. reconciled entries (none), 5. getOrCreateVersionRow,
-      // 6. UPDATE ... RETURNING (atomic version increment), 7. update pushedAt
+      // 1. getStation, 2. delete orphaned, 3. entries joined with their
+      // tokens (none), 4. getOrCreateVersionRow, 5. UPDATE ... RETURNING
+      // (atomic version increment), 6. lastSyncAt
       setupDbResults(
         [station],
         [],
-        [],
+        [], // entries of prepaid cards (none)
         [],
         [versionRow],
         [{ localVersion: versionRow.localVersion + 1 }],

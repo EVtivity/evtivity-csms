@@ -11,25 +11,23 @@ import { Input } from '@/components/ui/input';
 import { Select } from '@/components/ui/select';
 import { Toggle } from '@/components/ui/toggle';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { useToast } from '@/components/ui/toast';
 import { api, ApiError } from '@/lib/api';
-
-// Driver-facing OCPP IdToken types. Mirrors PORTAL_TOKEN_TYPES on the API
-// route. Central and NoAuthorization are excluded because they don't
-// correspond to anything a driver would have on a physical card.
-const PORTAL_TOKEN_TYPES = [
-  'ISO14443',
-  'ISO15693',
-  'KeyCode',
-  'Local',
-  'MacAddress',
-  'eMAID',
-] as const;
+import { getErrorMessage } from '@/lib/error-message';
+import { DRIVER_ID_TOKEN_TYPES, type DriverIdTokenType } from '@evtivity/lib/id-token-types';
 
 interface DriverToken {
   id: string;
   idToken: string;
   tokenType: string;
   isActive: boolean;
+  expiresAt?: string | null;
+  /** The operator deactivated the card: only the operator can reactivate it. */
+  blockedByOperator?: boolean;
+}
+
+function isExpired(token: DriverToken): boolean {
+  return token.expiresAt != null && new Date(token.expiresAt).getTime() <= Date.now();
 }
 
 // RFID values authorize charging, so mask all but the last 4 characters
@@ -42,9 +40,10 @@ function maskToken(value: string): string {
 export function AccountRfidCards(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const { toast } = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [newToken, setNewToken] = useState('');
-  const [newTokenType, setNewTokenType] = useState<(typeof PORTAL_TOKEN_TYPES)[number]>('ISO14443');
+  const [newTokenType, setNewTokenType] = useState<DriverIdTokenType>('ISO14443');
   const [addError, setAddError] = useState('');
   const [confirmDeactivate, setConfirmDeactivate] = useState<DriverToken | null>(null);
 
@@ -54,7 +53,7 @@ export function AccountRfidCards(): React.JSX.Element {
   });
 
   const addMutation = useMutation({
-    mutationFn: (body: { idToken: string; tokenType: (typeof PORTAL_TOKEN_TYPES)[number] }) =>
+    mutationFn: (body: { idToken: string; tokenType: DriverIdTokenType }) =>
       api.post<DriverToken>('/v1/portal/tokens', body),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['portal-tokens'] });
@@ -67,7 +66,7 @@ export function AccountRfidCards(): React.JSX.Element {
       setAddError(
         error instanceof ApiError && error.status === 409
           ? t('rfid.duplicate')
-          : t('rfid.addFailed'),
+          : getErrorMessage(error, t, 'rfid.addFailed'),
       );
     },
   });
@@ -76,6 +75,9 @@ export function AccountRfidCards(): React.JSX.Element {
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       api.patch<DriverToken>(`/v1/portal/tokens/${id}`, { isActive }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['portal-tokens'] }),
+    onError: (error) => {
+      toast({ variant: 'destructive', title: getErrorMessage(error, t, 'rfid.toggleFailed') });
+    },
   });
 
   const sortedTokens = tokens
@@ -116,13 +118,18 @@ export function AccountRfidCards(): React.JSX.Element {
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">{maskToken(token.idToken)}</p>
                 <p className="text-xs text-muted-foreground">{token.tokenType}</p>
+                {token.blockedByOperator === true ? (
+                  <p className="text-xs text-destructive">{t('rfid.blockedByOperator')}</p>
+                ) : token.isActive && isExpired(token) ? (
+                  <p className="text-xs text-destructive">{t('rfid.expired')}</p>
+                ) : null}
               </div>
               <Toggle
                 checked={token.isActive}
                 onCheckedChange={(next) => {
                   onToggle(token, next);
                 }}
-                disabled={toggleMutation.isPending}
+                disabled={toggleMutation.isPending || token.blockedByOperator === true}
                 aria-label={token.isActive ? t('rfid.removeCard') : t('rfid.reactivateCard')}
               />
             </CardContent>
@@ -160,11 +167,11 @@ export function AccountRfidCards(): React.JSX.Element {
           <Select
             value={newTokenType}
             onChange={(e) => {
-              setNewTokenType(e.target.value as (typeof PORTAL_TOKEN_TYPES)[number]);
+              setNewTokenType(e.target.value as DriverIdTokenType);
             }}
             aria-label={t('rfid.tokenType')}
           >
-            {PORTAL_TOKEN_TYPES.map((tt) => (
+            {DRIVER_ID_TOKEN_TYPES.map((tt) => (
               <option key={tt} value={tt}>
                 {tt}
               </option>

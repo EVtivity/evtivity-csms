@@ -46,6 +46,8 @@ export interface Driver {
   email: string | null;
   phone: string | null;
   isActive: boolean;
+  /** Set when the personal data was erased: the name is blank. */
+  erasedAt?: string | null;
   createdAt: string;
 }
 
@@ -124,7 +126,9 @@ export function DriversTable({
                 )}
                 {isVisible('driverName') && (
                   <TableCell className="font-medium text-link" data-testid="row-click-target">
-                    {driver.firstName} {driver.lastName}
+                    {driver.erasedAt != null
+                      ? t('drivers.erasedName')
+                      : `${driver.firstName} ${driver.lastName}`}
                   </TableCell>
                 )}
                 {isVisible('email') && <TableCell>{driver.email ?? '-'}</TableCell>}

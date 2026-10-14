@@ -71,6 +71,7 @@ vi.mock('@evtivity/lib', () => ({
   verifyTotpCode: vi.fn(() => true),
   createMfaChallenge: vi.fn().mockResolvedValue({ challengeId: 17, code: '654321' }),
   verifyMfaChallenge: vi.fn().mockResolvedValue(true),
+  isValidTimezone: vi.fn((tz: string) => tz !== 'Mars/Olympus'),
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
@@ -180,6 +181,61 @@ describe('Portal driver routes, uncovered paths', () => {
         }),
       );
     });
+
+    it('rejects an unknown IANA timezone before any write', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: auth,
+        payload: { timezone: 'Mars/Olympus' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toEqual({ error: 'Invalid IANA timezone', code: 'VALIDATION_ERROR' });
+      expect(updates).toHaveLength(0);
+    });
+
+    it('stores an empty phone as no phone', async () => {
+      setupDbResults(
+        [{ phone: '+15550001111', mfaEnabled: false, mfaMethod: null }],
+        [
+          {
+            id: DRIVER_ID,
+            firstName: 'Jane',
+            lastName: 'Doe',
+            email: 'jane@example.com',
+            phone: null,
+            language: 'en',
+            timezone: 'Asia/Seoul',
+            themePreference: 'light',
+            distanceUnit: 'km',
+            priceDisplay: null,
+            isActive: true,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      );
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: auth,
+        payload: { phone: ' ' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(updates[0]?.['set']).toHaveBeenCalledWith(expect.objectContaining({ phone: null }));
+    });
+
+    it('refuses to remove the phone while the driver signs in with SMS codes', async () => {
+      setupDbResults([{ phone: '+15550001111', mfaEnabled: true, mfaMethod: 'sms' }]);
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/portal/driver/profile',
+        headers: auth,
+        payload: { phone: '' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(updates).toHaveLength(0);
+    });
   });
 
   describe('PATCH /portal/driver/password', () => {
@@ -203,7 +259,9 @@ describe('Portal driver routes, uncovered paths', () => {
 
   describe('GET /portal/driver/mfa', () => {
     it('lists the enabled methods and the driver MFA state', async () => {
-      setupDbResults([{ mfaEnabled: true, mfaMethod: 'totp' }]);
+      setupDbResults([
+        { mfaEnabled: true, mfaMethod: 'totp', email: 'jane@example.com', phone: '+15550001111' },
+      ]);
       const res = await app.inject({ method: 'GET', url: '/portal/driver/mfa', headers: auth });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({
@@ -211,6 +269,12 @@ describe('Portal driver routes, uncovered paths', () => {
         mfaMethod: 'totp',
         availableMethods: ['email', 'totp', 'sms'],
       });
+    });
+
+    it('leaves out SMS without a phone number and email without an email address', async () => {
+      setupDbResults([{ mfaEnabled: false, mfaMethod: null, email: null, phone: null }]);
+      const res = await app.inject({ method: 'GET', url: '/portal/driver/mfa', headers: auth });
+      expect(res.json().availableMethods).toEqual(['totp']);
     });
 
     it('defaults to disabled with no methods when the driver row is missing', async () => {
@@ -300,17 +364,18 @@ describe('Portal driver routes, uncovered paths', () => {
         driverId: DRIVER_ID,
         method: 'sms',
       });
+      // The SMS code goes by SMS only.
       expect(dispatchSystemNotification).toHaveBeenCalledWith(
         expect.anything(),
         'mfa.VerificationCode',
-        { email: 'jane@example.com', phone: '+15550001111', firstName: 'Jane', language: 'de' },
+        { phone: '+15550001111', firstName: 'Jane', language: 'de' },
         { code: '654321' },
         ['/mock/templates'],
       );
     });
 
-    it('sends an email challenge with undefined contact fields when they are null', async () => {
-      setupDbResults([{ ...driver, email: null, phone: null }]);
+    it('sends an email code to the email address only', async () => {
+      setupDbResults([driver]);
       const res = await app.inject({
         method: 'POST',
         url: '/portal/driver/mfa/setup',
@@ -321,14 +386,45 @@ describe('Portal driver routes, uncovered paths', () => {
       expect(dispatchSystemNotification).toHaveBeenCalledWith(
         expect.anything(),
         'mfa.VerificationCode',
-        expect.objectContaining({ email: undefined, phone: undefined }),
+        { email: 'jane@example.com', firstName: 'Jane', language: 'de' },
         { code: '654321' },
         ['/mock/templates'],
       );
     });
+
+    it.each([
+      ['sms', { phone: null }],
+      ['email', { email: null }],
+    ] as const)('refuses %s codes without the contact to send them to', async (method, contact) => {
+      setupDbResults([{ ...driver, ...contact }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/driver/mfa/setup',
+        headers: auth,
+        payload: { method },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(createMfaChallenge).not.toHaveBeenCalled();
+      expect(dispatchSystemNotification).not.toHaveBeenCalled();
+    });
   });
 
   describe('POST /portal/driver/mfa/confirm', () => {
+    it('returns 409 and keeps the method when MFA is already enabled', async () => {
+      setupDbResults([{ totpSecretEnc: null, mfaEnabled: true }]);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/portal/driver/mfa/confirm',
+        headers: auth,
+        payload: { method: 'email', code: '654321', challengeId: 17 },
+      });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('MFA_ALREADY_ENABLED');
+      expect(verifyMfaChallenge).not.toHaveBeenCalled();
+      expect(updates).toHaveLength(0);
+    });
+
     it('returns 400 TOTP_NOT_CONFIGURED when no secret is stored', async () => {
       setupDbResults([{ totpSecretEnc: null }]);
       const res = await app.inject({

@@ -46,7 +46,7 @@ function toForm(address: DriverBillingAddress | undefined): FormState {
 }
 
 export interface DriverBillingAddressCardProps {
-  driver: { id: string; firstName: string; lastName: string };
+  driver: { id: string; firstName: string; lastName: string; erasedAt?: string | null };
 }
 
 /** The bill-to block of the invoices a fleet addresses to this driver. */
@@ -56,7 +56,8 @@ export function DriverBillingAddressCard({
   const { t } = useTranslation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const canWrite = useHasPermission('drivers:write');
+  // An erased driver is an anonymized stub that cannot be re-addressed.
+  const canWrite = useHasPermission('drivers:write') && driver.erasedAt == null;
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState<FormState>(() => toForm(undefined));
   const queryKey = ['drivers', driver.id, 'billing-address'];

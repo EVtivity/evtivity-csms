@@ -45,7 +45,7 @@ const attemptItem = z
       .string()
       .nullable()
       .describe(
-        'charging_sessions.id when this attempt resulted in a charging session (correlated by matched token + start within 10 minutes of the attempt). Null when no session followed.',
+        'charging_sessions.id when this attempt resulted in a charging session (correlated by matched token, the same station and a start within 10 minutes of the attempt). Null when no session followed.',
       ),
     outcome: z.string().describe('Outcome enum'),
     ocppVersion: z.string().nullable().describe('OCPP protocol version of the request'),
@@ -141,7 +141,7 @@ export function authorizeAttemptRoutes(app: FastifyInstance): void {
               WHERE ${chargingSessions.tokenId} = ${authorizeAttempts.matchedTokenId}
                 AND ${chargingSessions.startedAt} >= ${authorizeAttempts.createdAt}
                 AND ${chargingSessions.startedAt} <= ${authorizeAttempts.createdAt} + interval '10 minutes'
-                ${siteIds != null ? sql`AND ${chargingSessions.stationId} = ${chargingStations.id}` : sql``}
+                AND ${chargingSessions.stationId} = ${chargingStations.id}
               ORDER BY ${chargingSessions.startedAt} ASC
               LIMIT 1
             )`,

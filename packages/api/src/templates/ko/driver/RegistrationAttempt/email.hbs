@@ -1,0 +1,31 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if firstName}}{{firstName}}님, 안녕하세요.{{else}}안녕하세요.{{/if}}</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>누군가 회원님의 이메일로 가입을 시도했습니다</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>누군가 이 이메일 주소로 {{companyName}} 운전자 계정을 만들려고 했습니다. 이미 계정이 있으므로 변경된 내용은 없습니다. 로그인하거나, 비밀번호를 잊으셨다면 재설정하십시오.</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='border-collapse:collapse;border-spacing:0;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  <tr>
+    <td align='center' style='padding:32px 0 16px 0;'>
+      <a
+        href='{{signInUrl}}'
+        style="display:inline-block;background-color:#2563eb;color:#ffffff;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:16px;"
+      >로그인</a>
+    </td>
+  </tr>
+</table>
+<p
+  style="text-align:center;font-size:14px;line-height:1.6;margin:0 0 24px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+><a href='{{resetUrl}}' style="color:#2563eb;">비밀번호 재설정</a></p>
+<p
+  style="font-size:14px;color:#6b7280;line-height:1.6;margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>본인이 시도한 것이 아니라면 이 이메일을 무시하셔도 됩니다. 계정은 변경되지 않았습니다.</p>

@@ -76,13 +76,13 @@ export async function logAuthorizeAttempt(
     try {
       // The station's site scopes the event on the operator SSE stream: an
       // attempt at an unknown or unsited station reaches all-site operators
-      // only.
+      // only. stationId is the OCPP identity the station connected with.
       let siteId: string | null = null;
       if (args.stationId != null) {
         const [station] = await db
           .select({ siteId: chargingStations.siteId })
           .from(chargingStations)
-          .where(eq(chargingStations.id, args.stationId));
+          .where(eq(chargingStations.stationId, args.stationId));
         siteId = station?.siteId ?? null;
       }
       await pubsub.publish(

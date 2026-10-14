@@ -21,7 +21,7 @@ const {
   const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 
   mockSelect.mockReturnValue({ from: mockFrom });
-  mockFrom.mockReturnValue({ where: mockWhere });
+  mockFrom.mockReturnValue({ where: mockWhere, leftJoin: () => ({ where: mockWhere }) });
   mockWhere.mockReturnValue({ limit: mockLimit });
   mockLimit.mockResolvedValue([]);
 
@@ -37,6 +37,7 @@ const {
 
 vi.mock('@evtivity/database', () => ({
   db: { select: mockSelect },
+  drivers: { id: 'drivers.id', isActive: 'drivers.is_active' },
   driverTokens: { idToken: 'idToken', isActive: 'isActive' },
   chargingStations: { id: 'id', availability: 'availability' },
   ocpiExternalTokens: { uid: 'uid', isValid: 'isValid' },
@@ -96,7 +97,7 @@ describe('Authorize 1.6 - hardened', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelect.mockReturnValue({ from: mockFrom });
-    mockFrom.mockReturnValue({ where: mockWhere });
+    mockFrom.mockReturnValue({ where: mockWhere, leftJoin: () => ({ where: mockWhere }) });
     mockWhere.mockReturnValue({ limit: mockLimit });
     mockLimit.mockResolvedValue([]);
     mockIsRoamingEnabled.mockResolvedValue(false);
@@ -145,7 +146,7 @@ describe('BootNotification 1.6 - hardened', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSelect.mockReturnValue({ from: mockFrom });
-    mockFrom.mockReturnValue({ where: mockWhere });
+    mockFrom.mockReturnValue({ where: mockWhere, leftJoin: () => ({ where: mockWhere }) });
   });
 
   it('uses configurable heartbeat interval', async () => {

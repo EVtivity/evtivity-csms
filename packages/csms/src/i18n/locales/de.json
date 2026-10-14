@@ -944,7 +944,8 @@
     "maxPowerUnknownHint": "Das Lastmanagement kann diesen Anschluss erst begrenzen, wenn seine maximale Leistung gesetzt ist. Bearbeiten Sie das EVSE, um sie festzulegen. OCPP-2.1-Stationen tragen sie aus ihrem Konfigurationsbericht ein.",
     "removeTag": "Tag {{tag}} entfernen",
     "messageCommandQueued": "Station offline. Der Befehl wird in die Warteschlange gestellt und gesendet, sobald die Station wieder verbunden ist.",
-    "chargingNeedsTab": "Ladebedarf und Monitore"
+    "chargingNeedsTab": "Ladebedarf und Monitore",
+    "localAuthPrepaidHint": "Nur aktive Token, die keine Prepaid-Karten sind, werden aufgeführt. Eine Station prüft das Guthaben einer Prepaid-Karte online, daher kommen Prepaid-Karten nie auf eine lokale Liste."
   },
   "eventAlertRules": {
     "title": "Ereigniswarnregeln",
@@ -1111,6 +1112,18 @@
     "phone": "Telefon",
     "language": "Sprache",
     "languageHelp": "Gilt für das Fahrerportal, Benachrichtigungen und Rechnungen.",
+    "activeHelp": "Wenn Sie einen Fahrer inaktiv setzen, werden auch seine Token deaktiviert und er wird vom Fahrerportal abgemeldet. Wird der Fahrer wieder aktiv gesetzt, bleiben die Token deaktiviert.",
+    "erase": "Fahrer löschen",
+    "eraseTitle": "Personenbezogene Daten löschen",
+    "eraseHelp": "Entfernt Name, E-Mail, Telefon, Rechnungsadresse, Passwort, MFA, Fahrzeuge und gespeicherte Zahlungsmethoden des Fahrers und deaktiviert die Token. Ladevorgänge, Zahlungen und Rechnungen bleiben für die Buchhaltung erhalten. Dies kann nicht rückgängig gemacht werden.",
+    "eraseConfirmTitle": "Diesen Fahrer löschen?",
+    "eraseConfirmDescription": "Die personenbezogenen Daten des Fahrers werden endgültig entfernt, und der Fahrer kann sich nicht mehr anmelden. Ladevorgänge, Zahlungen und Rechnungen bleiben für die Buchhaltung erhalten.",
+    "eraseConfirmLabel": "Geben Sie zur Bestätigung die Fahrer-ID {{id}} ein",
+    "eraseConfirmMismatch": "Der Text stimmt nicht mit der Fahrer-ID überein.",
+    "eraseSuccess": "Fahrer gelöscht",
+    "erasedOn": "Die personenbezogenen Daten dieses Fahrers wurden am {{date}} gelöscht.",
+    "erased": "Gelöscht",
+    "erasedName": "Gelöschter Fahrer",
     "allStatuses": "Alle Status",
     "noDriversFound": "Keine Fahrer gefunden",
     "driverNotFound": "Fahrer nicht gefunden",
@@ -1717,7 +1730,17 @@
     "prepaid": "Prepaid-Karte",
     "prepaidHint": "Die Station fragt vor jedem Ladevorgang das Guthaben ab und stoppt, wenn es aufgebraucht ist. Ein Guthaben von null oder weniger wird abgelehnt.",
     "prepaidBalance": "Prepaid-Guthaben",
-    "notPrepaid": "Kein Prepaid"
+    "notPrepaid": "Kein Prepaid",
+    "expiresAtHint": "Leer lassen für einen Token ohne Ablauf. Nach diesem Zeitpunkt lehnen Ladestationen den Token als abgelaufen ab.",
+    "noExpiry": "Nie",
+    "deactivatedAt": "Deaktiviert",
+    "deactivatedBy": "Deaktiviert Von",
+    "deactivatedByValue": {
+      "operator": "Betreiber",
+      "driver": "Fahrer",
+      "system": "System"
+    },
+    "deactivationReason": "Grund der Deaktivierung"
   },
   "commands": {
     "title": "Befehle",
@@ -2808,6 +2831,7 @@
       "driver.Welcome": "Willkommen",
       "driver.ForgotPassword": "Passwort vergessen",
       "driver.PortalInvite": "Einladung zum Fahrerportal",
+      "driver.RegistrationAttempt": "Registrierungsversuch",
       "session.EndRequestFailed": "Beenden des Ladevorgangs fehlgeschlagen",
       "site.PayoutOnboarding": "Einrichtung der Standortauszahlungen",
       "driver.PasswordChanged": "Passwort geändert",
@@ -3016,6 +3040,8 @@
     "DRIVER_ALREADY_IN_FLEET": "Fahrer ist bereits in dieser Flotte",
     "DRIVER_CREATE_FAILED": "Fahrer konnte nicht erstellt werden",
     "DRIVER_NOT_FOUND": "Fahrer nicht gefunden",
+    "DRIVER_ERASED": "Die Daten des Fahrers wurden gelöscht",
+    "DRIVER_HAS_ACTIVE_SESSION": "Der Fahrer hat einen aktiven Ladevorgang",
     "DRIVER_INACTIVE": "Fahrer ist inaktiv",
     "DUPLICATE_ALERT_RULE": "Für diese Komponente und Variable existiert bereits eine Alarmregel",
     "DUPLICATE_API_KEY_NAME": "Ein API-Schlüssel mit diesem Namen existiert bereits",
@@ -3026,7 +3052,6 @@
     "DUPLICATE_PARTNER": "Partner mit diesem Ländercode und dieser Party-ID existiert bereits",
     "DUPLICATE_SITE_NAME": "Ein Standort mit diesem Namen existiert bereits",
     "DUPLICATE_STATION_ID": "Stations-ID existiert bereits",
-    "EMAIL_EXISTS": "E-Mail-Adresse bereits registriert",
     "EMAIL_NOT_CONFIGURED": "E-Mail-Anbieter nicht konfiguriert",
     "EMAIL_NOT_VERIFIED": "E-Mail-Adresse nicht verifiziert",
     "EMAIL_REQUIRED": "E-Mail-Adresse für kostenpflichtiges Laden erforderlich",
@@ -3278,7 +3303,8 @@
     "AI_PROPOSAL_ALREADY_DECIDED": "Über diese Aktion wurde bereits entschieden",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Bestätigen Sie diese Aktion angemeldet im Dashboard, nicht mit einem API-Schlüssel",
     "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut",
-    "CHARGING_PROFILE_ID_RESERVED": "Die ID des Ladeprofils muss größer als MaxExternalConstraintsId der Ladestation sein."
+    "CHARGING_PROFILE_ID_RESERVED": "Die ID des Ladeprofils muss größer als MaxExternalConstraintsId der Ladestation sein.",
+    "TOKEN_BLOCKED_BY_OPERATOR": "Der Betreiber hat diese Karte deaktiviert. Wenden Sie sich an den Betreiber, um sie wieder zu aktivieren."
   },
   "logs": {
     "title": "Protokolle",
@@ -4390,6 +4416,7 @@
       "pnc_contract_issued": "Plug & Charge-Vertrag ausgestellt",
       "pnc_contract_revoked": "Plug & Charge-Vertrag widerrufen",
       "roaming_session_started": "Roaming-Ladevorgang gestartet",
+      "erased": "Gelöscht",
       "invite_resent": "Einladung erneut gesendet",
       "cdr_credited": "CDR gutgeschrieben",
       "faulted": "Fehlerhaft beendet",

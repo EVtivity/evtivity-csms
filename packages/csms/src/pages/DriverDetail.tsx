@@ -40,6 +40,7 @@ interface Driver {
   phone: string | null;
   language: string;
   isActive: boolean;
+  erasedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   portalAccess?: PortalAccess;
@@ -112,12 +113,18 @@ export function DriverDetail(): React.JSX.Element {
         <BackButton to="/drivers" />
         <div className="min-w-0">
           <h1 className="text-2xl md:text-3xl font-bold wrap-anywhere">
-            {driver.firstName} {driver.lastName}
+            {driver.erasedAt != null
+              ? t('drivers.erasedName')
+              : `${driver.firstName} ${driver.lastName}`}
           </h1>
           <CopyableId id={driver.id} />
         </div>
         <Badge variant={driver.isActive ? 'default' : 'outline'}>
-          {driver.isActive ? t('common.active') : t('common.inactive')}
+          {driver.erasedAt != null
+            ? t('drivers.erased')
+            : driver.isActive
+              ? t('common.active')
+              : t('common.inactive')}
         </Badge>
         <EntityNavButtons resource="drivers" basePath="/drivers" currentId={id} />
       </div>

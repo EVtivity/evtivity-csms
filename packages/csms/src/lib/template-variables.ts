@@ -44,10 +44,14 @@ export const DRIVER_ACCOUNT_EVENTS = [
   'driver.AccountVerification',
   'driver.MfaDisabled',
   'driver.PortalInvite',
+  'driver.RegistrationAttempt',
 ] as const;
 
 /** Driver events sent by email only. The verification link proves the email address, so it never goes to an unverified phone. */
-export const EMAIL_ONLY_DRIVER_EVENTS: readonly string[] = ['driver.AccountVerification'];
+export const EMAIL_ONLY_DRIVER_EVENTS: readonly string[] = [
+  'driver.AccountVerification',
+  'driver.RegistrationAttempt',
+];
 
 export const DRIVER_PAYMENT_EVENTS = [
   'payment.Complete',
@@ -509,6 +513,13 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'email', description: 'Driver email address' },
     { name: 'activateUrl', description: 'Link to set the portal password' },
     { name: 'expiresInDays', description: 'Days until the link expires' },
+  ],
+  'driver.RegistrationAttempt': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'signInUrl', description: 'Driver portal sign-in URL' },
+    { name: 'resetUrl', description: 'Driver portal password reset URL' },
   ],
   'driver.PasswordChanged': [
     { name: 'firstName', description: 'Driver first name' },

@@ -807,30 +807,36 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       // this CAS both would dispatch UpdateFirmware twice. CAS makes the
       // second caller's UPDATE return zero rows; we surface that as the same
       // 409 NOT_DRAFT the pre-check would have raised.
-      const claimed = await db
-        .update(firmwareCampaigns)
-        .set({ status: 'active', updatedAt: new Date() })
-        .where(and(eq(firmwareCampaigns.id, id), eq(firmwareCampaigns.status, 'draft')))
-        .returning({ id: firmwareCampaigns.id });
-      if (claimed.length === 0) {
+      //
+      // The campaign station rows are inserted in the same transaction, after
+      // the CAS, so only the winning operator's targets are recorded and a
+      // failed insert leaves the campaign a draft instead of an active
+      // campaign without stations, which would never complete.
+      // dispatchedAt marks the stations sent now; an offline station's row
+      // waits for its connect-time dispatch, which claims it once.
+      const now = new Date();
+      const claimed = await db.transaction(async (tx) => {
+        const won = await tx
+          .update(firmwareCampaigns)
+          .set({ status: 'active', updatedAt: now })
+          .where(and(eq(firmwareCampaigns.id, id), eq(firmwareCampaigns.status, 'draft')))
+          .returning({ id: firmwareCampaigns.id });
+        if (won.length === 0) return false;
+        await tx.insert(firmwareCampaignStations).values(
+          targets.map((t) => ({
+            campaignId: id,
+            stationId: t.id,
+            dispatchedAt: t.isOnline ? now : null,
+          })),
+        );
+        return true;
+      });
+      if (!claimed) {
         await reply
           .status(409)
           .send({ error: 'Campaign is not in draft state', code: 'NOT_DRAFT' });
         return;
       }
-
-      // Insert campaign station rows AFTER the CAS so only the winning
-      // operator's targets are recorded.
-      // dispatchedAt marks the stations sent now; an offline station's row
-      // waits for its connect-time dispatch, which claims it once.
-      const now = new Date();
-      await db.insert(firmwareCampaignStations).values(
-        targets.map((t) => ({
-          campaignId: id,
-          stationId: t.id,
-          dispatchedAt: t.isOnline ? now : null,
-        })),
-      );
       const online = targets.filter((t) => t.isOnline);
 
       const actor = getAuditActor(request);

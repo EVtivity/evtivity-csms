@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label';
 import { Combobox } from '@/components/ui/combobox';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
 import { LoadingLogo } from '@/components/loading-logo';
 
 interface Vehicle {
@@ -90,9 +91,9 @@ export function VehicleDetail(): React.JSX.Element {
     mutationFn: (body: {
       make?: string;
       model?: string;
-      year?: string;
-      vin?: string;
-      licensePlate?: string;
+      year?: string | null;
+      vin?: string | null;
+      licensePlate?: string | null;
     }) => api.patch<Vehicle>(`/v1/drivers/${id ?? ''}/vehicles/${vehicleId ?? ''}`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', id, 'vehicles', vehicleId] });
@@ -118,6 +119,7 @@ export function VehicleDetail(): React.JSX.Element {
     setVin(vehicle.vin ?? '');
     setLicensePlate(vehicle.licensePlate ?? '');
     setHasSubmitted(false);
+    updateMutation.reset();
     setEditing(true);
   }
 
@@ -140,12 +142,21 @@ export function VehicleDetail(): React.JSX.Element {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(validationErrors).length > 0) return;
+    // An emptied optional field removes the stored value.
+    const optional = (value: string, stored: string | null): string | null | undefined => {
+      const trimmed = value.trim();
+      if (trimmed !== '') return trimmed;
+      return stored != null ? null : undefined;
+    };
+    const yearValue = optional(year, vehicle?.year ?? null);
+    const vinValue = optional(vin, vehicle?.vin ?? null);
+    const plateValue = optional(licensePlate, vehicle?.licensePlate ?? null);
     updateMutation.mutate({
       make,
       model,
-      ...(year.trim() !== '' ? { year } : {}),
-      ...(vin.trim() !== '' ? { vin } : {}),
-      ...(licensePlate.trim() !== '' ? { licensePlate } : {}),
+      ...(yearValue !== undefined ? { year: yearValue } : {}),
+      ...(vinValue !== undefined ? { vin: vinValue } : {}),
+      ...(plateValue !== undefined ? { licensePlate: plateValue } : {}),
     });
   }
 
@@ -265,6 +276,11 @@ export function VehicleDetail(): React.JSX.Element {
                   />
                 </div>
               </div>
+              {updateMutation.isError && (
+                <p className="text-sm text-destructive">
+                  {getErrorMessage(updateMutation.error, t)}
+                </p>
+              )}
               <div className="flex justify-end gap-2">
                 <CancelButton
                   onClick={() => {
@@ -325,7 +341,11 @@ export function VehicleDetail(): React.JSX.Element {
         onConfirm={() => {
           deleteMutation.mutate();
         }}
-      />
+      >
+        {deleteMutation.isError && (
+          <p className="text-sm text-destructive">{getErrorMessage(deleteMutation.error, t)}</p>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

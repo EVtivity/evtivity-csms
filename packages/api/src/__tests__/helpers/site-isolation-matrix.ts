@@ -65,6 +65,8 @@ export interface SiteFixture {
   campaign: string;
   /** An active firmware campaign at the site, for the cancel route. */
   activeCampaign: string;
+  /** A draft firmware campaign at the site with no station rows yet, for the start control. */
+  startCampaign: string;
   profileTemplate: string;
   profilePush: string;
   maintenance: string;
@@ -952,6 +954,20 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     (_f, w) => `/drivers/${w.driver}/pricing-groups/${w.pricingGroup}`,
     'PRICING_GROUP_NOT_FOUND',
   ),
+  // The erasure reaches the driver's data at every site: all-site users only.
+  // The control sends a confirmation that does not match, so the shared
+  // fixture driver is never erased.
+  c(
+    'POST',
+    '/drivers/:id/erase',
+    'drivers:write',
+    (_f, w) => `/drivers/${w.driver}/erase`,
+    'DRIVER_NOT_FOUND',
+    {
+      body: () => ({ confirm: 'not-the-driver-id' }),
+      control: ctl(400, 'VALIDATION_ERROR', 'the confirmation does not repeat the driver id'),
+    },
+  ),
 
   // event alert rules (company-wide writes)
   c('POST', '/event-alert-rules', 'stations:write', () => '/event-alert-rules', 'RULE_NOT_FOUND', {
@@ -1030,7 +1046,9 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'CAMPAIGN_NOT_FOUND',
     {
       body: () => ({}),
-      control: ctl(409, 'NO_TARGETS', 'no station is connected, so none matches the campaign'),
+      // Every matching station is a target, online or not (an offline one
+      // gets the update when it connects), so A's own draft starts.
+      control: { url: (f) => `/firmware-campaigns/${f.startCampaign}/start` },
     },
   ),
   s(

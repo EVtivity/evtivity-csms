@@ -89,6 +89,7 @@ vi.mock('drizzle-orm', () => ({
   ilike: vi.fn(),
   isNull: vi.fn(),
   isNotNull: vi.fn(),
+  gt: vi.fn(),
   sql: vi.fn(),
   desc: vi.fn(),
   count: vi.fn(),
@@ -289,8 +290,16 @@ describe('Portal auth routes - handler logic', () => {
       expect(response.statusCode).toBe(400);
     });
 
-    it('returns 409 when email already registered', async () => {
-      setupDbResults([{ id: VALID_DRIVER_ID }]);
+    it('answers 202 for an already registered email, like a new one', async () => {
+      setupDbResults([
+        {
+          id: VALID_DRIVER_ID,
+          firstName: 'John',
+          lastName: 'Doe',
+          email: 'existing@example.com',
+          language: 'en',
+        },
+      ]);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/auth/register',
@@ -301,11 +310,12 @@ describe('Portal auth routes - handler logic', () => {
           password: 'TestPassword1',
         },
       });
-      expect(response.statusCode).toBe(409);
-      expect(response.json().code).toBe('EMAIL_EXISTS');
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toEqual({ success: true });
+      expect(auditCalls()).toEqual([]);
     });
 
-    it('registers a new driver and sets auth cookies', async () => {
+    it('registers a new driver without signing in', async () => {
       const driverRow = {
         id: DRIVER_ID,
         firstName: 'John',
@@ -321,7 +331,7 @@ describe('Portal auth routes - handler logic', () => {
         emailVerified: false,
         createdAt: '2024-01-01',
       };
-      setupDbResults([], [driverRow], []);
+      setupDbResults([], [driverRow], [], []);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/auth/register',
@@ -332,11 +342,8 @@ describe('Portal auth routes - handler logic', () => {
           password: 'TestPassword1',
         },
       });
-      expect(response.statusCode).toBe(201);
-      const body = response.json();
-      expect(body.token).toBeUndefined();
-      expect(body.driver.id).toBe(DRIVER_ID);
-      expect(body.driver.firstName).toBe('John');
+      expect(response.statusCode).toBe(202);
+      expect(response.json()).toEqual({ success: true });
       expect(auditCalls()).toEqual([
         {
           table: driverAuditLog,
@@ -349,13 +356,10 @@ describe('Portal auth routes - handler logic', () => {
         },
       ]);
 
+      // The driver signs in after opening the verification link.
       const cookies = parseCookies(response);
-      expect(cookies.has('portal_token')).toBe(true);
-      expect(cookies.get('portal_token')?.httpOnly).toBe(true);
-      expect(cookies.has('portal_refresh')).toBe(true);
-      expect(cookies.get('portal_refresh')?.httpOnly).toBe(true);
-      expect(cookies.has('portal_csrf')).toBe(true);
-      expect(cookies.get('portal_csrf')?.httpOnly).toBe(false);
+      expect(cookies.has('portal_token')).toBe(false);
+      expect(cookies.has('portal_refresh')).toBe(false);
     });
 
     it('returns 500 when insert returns no rows', async () => {
@@ -401,6 +405,9 @@ describe('Portal auth routes - handler logic', () => {
       expect(response.json().code).toBe('INVALID_CREDENTIALS');
       // An unknown email has no driver to key on: no audit row.
       expect(auditCalls()).toEqual([]);
+      // A password check still runs (against a dummy hash), so the answer
+      // takes as long as a wrong password and does not reveal the email.
+      expect(argon2Module.default.verify).toHaveBeenCalledWith(expect.any(String), 'TestPassword1');
     });
 
     it('records a refused login on an inactive driver', async () => {
@@ -874,8 +881,10 @@ describe('Portal auth routes - handler logic', () => {
       expect(response.json().code).toBe('INVALID_TOKEN');
     });
 
-    it('returns 400 when token is expired', async () => {
-      setupDbResults([{ id: 1, driverId: DRIVER_ID, expiresAt: new Date(Date.now() - 60000) }]);
+    it('returns 400 and verifies nothing when the token is expired or already used', async () => {
+      // The guarded consume (unrevoked, unexpired) matches no row: a second
+      // click on the link sends no second welcome email.
+      setupDbResults([]);
       const response = await app.inject({
         method: 'POST',
         url: '/portal/auth/verify-email',
@@ -883,13 +892,13 @@ describe('Portal auth routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(400);
       expect(response.json().code).toBe('INVALID_TOKEN');
+      expect(auditCalls()).toEqual([]);
     });
 
     it('verifies email with valid token', async () => {
       setupDbResults(
-        [{ id: 1, driverId: DRIVER_ID, expiresAt: new Date(Date.now() + 3600000) }],
+        [{ driverId: DRIVER_ID }], // consume the token
         [], // update drivers
-        [], // revoke token
         [{ id: DRIVER_ID, firstName: 'John', lastName: 'Doe', email: 'john@example.com' }],
       );
       const response = await app.inject({
@@ -1031,43 +1040,6 @@ describe('Portal auth routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().emailVerified).toBe(true);
-    });
-  });
-
-  describe('Registration - emailVerified', () => {
-    it('returns emailVerified: false for new registrations', async () => {
-      const driverRow = {
-        id: DRIVER_ID,
-        firstName: 'John',
-        lastName: 'Doe',
-        email: 'john@example.com',
-        phone: null,
-        language: 'en',
-        timezone: 'America/New_York',
-        themePreference: 'light',
-        distanceUnit: 'miles',
-        priceDisplay: null,
-        isActive: true,
-        emailVerified: false,
-        createdAt: '2024-01-01',
-      };
-      setupDbResults(
-        [], // no existing driver
-        [driverRow], // insert returns driver
-        [], // insert verification token
-      );
-      const response = await app.inject({
-        method: 'POST',
-        url: '/portal/auth/register',
-        payload: {
-          firstName: 'John',
-          lastName: 'Doe',
-          email: 'john@example.com',
-          password: 'TestPassword1',
-        },
-      });
-      expect(response.statusCode).toBe(201);
-      expect(response.json().driver.emailVerified).toBe(false);
     });
   });
 

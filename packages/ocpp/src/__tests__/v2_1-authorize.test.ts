@@ -4,17 +4,22 @@
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
+import {
+  clearIssuedCentralTokens,
+  rememberIssuedCentralToken,
+} from '../authorization/issued-central-tokens.js';
 
 const selectFn = vi.fn();
 const fromFn = vi.fn();
 const whereFn = vi.fn();
 
 vi.mock('@evtivity/database', () => {
-  fromFn.mockReturnValue({ where: whereFn });
+  fromFn.mockReturnValue({ where: whereFn, leftJoin: () => ({ where: whereFn }) });
   selectFn.mockReturnValue({ from: fromFn });
 
   return {
     db: { select: selectFn },
+    drivers: { id: 'id', isActive: 'is_active' },
     driverTokens: {
       isActive: 'is_active',
       idToken: 'id_token',
@@ -80,7 +85,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  fromFn.mockReturnValue({ where: whereFn });
+  fromFn.mockReturnValue({ where: whereFn, leftJoin: () => ({ where: whereFn }) });
   selectFn.mockReturnValue({ from: fromFn });
 });
 
@@ -99,17 +104,30 @@ describe('v2_1 Authorize handler', () => {
     );
   });
 
-  it('accepts Central token not found in DB', async () => {
+  it('answers Invalid for an unknown Central token (C05.FR.01)', async () => {
+    clearIssuedCentralTokens();
+    whereFn.mockResolvedValue([]);
+    const { handleAuthorize } = authorizeHandlerModule;
+    const { ctx } = makeCtx({
+      idToken: { idToken: 'central-token', type: 'Central' },
+    });
+    expect(await handleAuthorize(ctx)).toEqual({ idTokenInfo: { status: 'Invalid' } });
+  });
+
+  it('accepts a Central token the CSMS issued to the station', async () => {
+    rememberIssuedCentralToken('CS-001', 'RequestStartTransaction', {
+      idToken: { idToken: 'central-token', type: 'Central' },
+    });
     whereFn.mockResolvedValue([]);
     const { handleAuthorize } = authorizeHandlerModule;
     const { ctx } = makeCtx({
       idToken: { idToken: 'central-token', type: 'Central' },
     });
     const response = await handleAuthorize(ctx);
+    clearIssuedCentralTokens();
 
-    // For ACCEPT_WHEN_NOT_FOUND token types (Central, NoAuthorization), the
-    // handler returns groupIdToken so the station can identify the token's
-    // group. This matches the OCPP 2.1 spec for idTokenInfo response shape.
+    // An accepted Central token echoes groupIdToken so the station can
+    // identify the token's group (OCPP 2.1 idTokenInfo).
     expect(response).toEqual({
       idTokenInfo: {
         status: 'Accepted',
