@@ -69,6 +69,23 @@ describe('AI tool result redactor', () => {
     expect(counts.values).toBeGreaterThanOrEqual(9);
   });
 
+  it('masks each PEM block up to its first END line and keeps the text around it', () => {
+    const block = (label: string): string =>
+      `-----BEGIN ${label}-----\nAAAA\n-----END ${label}-----`;
+    const text = `a ${block('CERTIFICATE')} b ${block('RSA PRIVATE KEY')} c -----BEGIN x-----`;
+    const { text: out, counts } = redactToolText(text, 'chatbot');
+    expect(out).toBe(`a ${REDACTED} b ${REDACTED} c -----BEGIN x-----`);
+    expect(counts.values).toBe(2);
+  });
+
+  it('masks PEM blocks in linear time on many headers without an END line', () => {
+    const text = '-----BEGIN  -----'.repeat(20_000);
+    const started = performance.now();
+    const { text: out } = redactToolText(text, 'chatbot');
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(out).toBe(text);
+  });
+
   it('TC-AI-R-04 masks cards and IBANs everywhere, emails, phones and id tokens on support', () => {
     const input = {
       note: 'card 4242 4242 4242 4242, iban DE89 3704 0044 0532 0130 00, mail jane.doe@example.com',

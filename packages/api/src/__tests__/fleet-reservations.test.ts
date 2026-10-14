@@ -49,6 +49,17 @@ function makeChain() {
   return chain;
 }
 
+vi.mock('../lib/charging-profile-id.js', async () => {
+  const actual = await vi.importActual<typeof import('../lib/charging-profile-id.js')>(
+    '../lib/charging-profile-id.js',
+  );
+  return {
+    ...actual,
+    maxExternalConstraintsIds: vi.fn(async () => new Map<string, number>()),
+    maxExternalConstraintsIdByIdentity: vi.fn(async () => null),
+  };
+});
+
 vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain()),

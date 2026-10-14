@@ -26,6 +26,11 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { assertFirmwareSignature } from '../lib/firmware-signature.js';
 import { assertNoStationCredentialWrite } from '../lib/station-credential-guard.js';
+import {
+  isReservedProfileId,
+  maxExternalConstraintsIdByIdentity,
+  reservedProfileIdMessage,
+} from '../lib/charging-profile-id.js';
 
 // --- v21 type imports ---
 import {
@@ -264,6 +269,25 @@ async function dispatchCommandRaw(
       };
     }
     stationInternalId = station.id;
+  }
+
+  // K01.FR.81: a 2.1 station rejects a profile id at or below its
+  // MaxExternalConstraintsId. 1.6 has no such variable.
+  if (action === 'SetChargingProfile' && ocppVersion !== 'ocpp1.6') {
+    const profileId = (payload['chargingProfile'] as { id?: unknown } | undefined)?.id;
+    if (typeof profileId === 'number') {
+      const maxExternalId = await maxExternalConstraintsIdByIdentity(stationId);
+      if (isReservedProfileId(profileId, maxExternalId) && maxExternalId != null) {
+        return {
+          code: 400,
+          body: {
+            error: reservedProfileIdMessage(profileId, maxExternalId),
+            code: 'CHARGING_PROFILE_ID_RESERVED',
+            action,
+          },
+        };
+      }
+    }
   }
 
   const commandId = crypto.randomUUID();

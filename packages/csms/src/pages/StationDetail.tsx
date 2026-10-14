@@ -48,6 +48,7 @@ import { EnableButton } from '@/components/enable-button';
 import { useToast } from '@/components/ui/toast';
 import { getErrorMessage } from '@/lib/error-message';
 import { StationStatusBadge } from '@/components/StationStatusBadge';
+import { StationChargingNeedsTab } from '@/components/StationChargingNeedsTab';
 import { useHasPermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 
@@ -356,6 +357,9 @@ export function StationDetail(): React.JSX.Element {
           <TabsTrigger value="configurations">{t('stations.configurations')}</TabsTrigger>
           <TabsTrigger value="firmware-history">{t('stations.firmwareHistory')}</TabsTrigger>
           <TabsTrigger value="charging-profiles">{t('stations.chargingProfiles')}</TabsTrigger>
+          {station.ocppProtocol !== 'ocpp1.6' && (
+            <TabsTrigger value="charging-needs">{t('stations.chargingNeedsTab')}</TabsTrigger>
+          )}
           <TabsTrigger value="qr">{t('stations.qrCodes')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('stations.pricing')}</TabsTrigger>
           <TabsTrigger value="local-auth">{t('stations.localAuthList')}</TabsTrigger>
@@ -467,6 +471,16 @@ export function StationDetail(): React.JSX.Element {
             ocppProtocol={station.ocppProtocol}
           />
         </TabsContent>
+
+        {station.ocppProtocol !== 'ocpp1.6' && (
+          <TabsContent value="charging-needs" className="space-y-6">
+            <StationChargingNeedsTab
+              stationId={station.id}
+              isOnline={station.isOnline}
+              timezone={siteTimezone}
+            />
+          </TabsContent>
+        )}
 
         <TabsContent value="qr">
           <StationQrTab

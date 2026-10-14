@@ -1,20 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Worker, type Queue, type ConnectionOptions, type JobsOptions } from 'bullmq';
+import { Worker, type ConnectionOptions } from 'bullmq';
 import type { Redis } from 'ioredis';
-import type { PubSubClient } from '@evtivity/lib';
-import { createLogger, tryParseJson, withLock } from '@evtivity/lib';
+import { createLogger, withLock } from '@evtivity/lib';
 import {
   pushAllMessagesToAllStations,
-  parseStationRefreshPayload,
-  parseStationTransactionPayload,
   runStationRefresh,
   runStationRender,
   runStationTransaction,
-  STATION_MESSAGE_REFRESH_CHANNEL,
-  STATION_MESSAGE_REPUSH_CHANNEL,
-  STATION_MESSAGE_TRANSACTION_CHANNEL,
+  STATION_MESSAGE_JOBS,
   type StationMessageRepushJob,
   type StationRefreshJob,
   type StationRenderRunner,
@@ -24,124 +19,6 @@ import { QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
 
 const log = createLogger('station-message-worker');
-
-export const STATION_MESSAGE_JOBS = {
-  REPUSH: 'station-message-repush',
-  REFRESH: 'station-message-refresh',
-  TRANSACTION: 'station-message-transaction',
-} as const;
-
-/**
- * Repush requests within this window collapse into one job: saving a settings
- * tab writes several keys at once.
- */
-export const STATION_MESSAGE_REPUSH_DEBOUNCE_MS = 3000;
-
-/**
- * Station events within this window collapse into one render. Every worker
- * replica bridges the same pub/sub message, so the window also makes one
- * event one job across replicas. The job renders the state stored at run
- * time, so the last event wins.
- */
-export const STATION_MESSAGE_EVENT_DEBOUNCE_MS = 500;
-
-/** Deduplication id of a repush scope ('.' separated: BullMQ ids reject ':'). */
-export function stationMessageRepushDedupId(job: StationMessageRepushJob): string {
-  if (job.siteId != null) return `smr.site.${job.siteId}`;
-  if (job.stationId != null) return `smr.station.${job.stationId}`;
-  if (job.pricingGroupId != null) return `smr.group.${job.pricingGroupId}`;
-  return 'smr.all';
-}
-
-function debounced(id: string, ms: number): JobsOptions {
-  return { delay: ms, deduplication: { id, ttl: ms, extend: true, replace: true } };
-}
-
-function parseRepushPayload(raw: string): StationMessageRepushJob | null {
-  const parsed = tryParseJson(raw);
-  if (typeof parsed !== 'object' || parsed == null) return null;
-  const value = parsed as Record<string, unknown>;
-  for (const key of ['siteId', 'stationId', 'pricingGroupId'] as const) {
-    const field = value[key];
-    if (typeof field === 'string' && field !== '') return { [key]: field };
-  }
-  return {};
-}
-
-/**
- * Bridges the three station message channels into the station-messages queue.
- * Every worker replica runs the bridge; the deduplication ids keep one job
- * per station event, per session event, and per repush scope.
- */
-export async function startStationMessageBridge(
-  pubsub: PubSubClient,
-  queue: Queue,
-): Promise<() => Promise<void>> {
-  const enqueue = (name: string, data: object, opts: JobsOptions, context: object): void => {
-    void queue.add(name, data, opts).catch((err: unknown) => {
-      log.error({ err, ...context }, `Failed to enqueue ${name} job`);
-    });
-  };
-
-  const repush = await pubsub.subscribe(STATION_MESSAGE_REPUSH_CHANNEL, (payload: string) => {
-    const data = parseRepushPayload(payload);
-    if (data == null) {
-      log.warn({ payload: payload.slice(0, 200) }, 'Malformed station_message_repush payload');
-      return;
-    }
-    enqueue(
-      STATION_MESSAGE_JOBS.REPUSH,
-      data,
-      debounced(stationMessageRepushDedupId(data), STATION_MESSAGE_REPUSH_DEBOUNCE_MS),
-      data,
-    );
-  });
-
-  const refresh = await pubsub.subscribe(STATION_MESSAGE_REFRESH_CHANNEL, (payload: string) => {
-    const data = parseStationRefreshPayload(payload);
-    if (data == null) {
-      log.warn({ payload: payload.slice(0, 200) }, 'Malformed station_message_refresh payload');
-      return;
-    }
-    enqueue(
-      STATION_MESSAGE_JOBS.REFRESH,
-      data,
-      debounced(`smf.${data.internalStationId}`, STATION_MESSAGE_EVENT_DEBOUNCE_MS),
-      { stationId: data.stationOcppId },
-    );
-  });
-
-  const transaction = await pubsub.subscribe(
-    STATION_MESSAGE_TRANSACTION_CHANNEL,
-    (payload: string) => {
-      const data = parseStationTransactionPayload(payload);
-      if (data == null) {
-        log.warn(
-          { payload: payload.slice(0, 200) },
-          'Malformed station_message_transaction payload',
-        );
-        return;
-      }
-      // One id per session: a later event replaces a pending one, and the job
-      // clears the slots when the session has ended by the time it runs.
-      enqueue(
-        STATION_MESSAGE_JOBS.TRANSACTION,
-        data,
-        debounced(`smt.${data.sessionId}`, STATION_MESSAGE_EVENT_DEBOUNCE_MS),
-        { sessionId: data.sessionId },
-      );
-    },
-  );
-
-  log.info('Station message bridge started');
-
-  return async () => {
-    await repush.unsubscribe();
-    await refresh.unsubscribe();
-    await transaction.unsubscribe();
-    log.info('Station message bridge stopped');
-  };
-}
 
 /**
  * Renders of one station run one at a time across worker replicas (Redis
@@ -176,7 +53,12 @@ async function runRepushJob(
   }
 }
 
-/** Runs the station message jobs. Renders skip screens whose content hash is unchanged. */
+/**
+ * Runs the station message jobs, which the OCPP server, the API and the
+ * worker cron add themselves (enqueueStationRefresh, enqueueStationTransaction,
+ * requestStationMessageRepush). Renders skip screens whose content hash is
+ * unchanged.
+ */
 export function createStationMessageWorker(
   connection: ConnectionOptions,
   lockRedis: Redis,

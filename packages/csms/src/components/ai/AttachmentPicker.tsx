@@ -21,8 +21,6 @@ import type { AttachmentRejection } from './ai-attachments';
 export interface PendingAttachment {
   localId: string;
   file: File;
-  /** Object URL of the user's own image, for the thumbnail. */
-  previewUrl: string | null;
   /** `uploading` until the server confirmed (sniffed and sanitized) the file. */
   status: 'uploading' | 'ready' | 'error';
   /** Set once the upload is confirmed; the message sends it in `attachmentIds`. */
@@ -61,7 +59,6 @@ export function addPendingFiles(current: PendingAttachment[], files: File[]): Pe
     next.push({
       localId: `att-${String(counter)}`,
       file,
-      previewUrl: rejection == null && isImage ? URL.createObjectURL(file) : null,
       status: rejection == null ? 'uploading' : 'error',
       attachmentId: null,
       kind: isImage ? 'image' : 'document',
@@ -72,8 +69,62 @@ export function addPendingFiles(current: PendingAttachment[], files: File[]): Pe
   return next;
 }
 
-export function releasePreview(att: PendingAttachment): void {
-  if (att.previewUrl != null) URL.revokeObjectURL(att.previewUrl);
+const THUMBNAIL_PX = 40;
+
+/**
+ * The thumbnail of the user's own image, drawn on a canvas from the decoded
+ * pixels. The file never becomes a URL in the page (an object URL of a
+ * user-chosen file is same-origin content), and nothing needs revoking.
+ */
+function ImageThumbnail({ file }: { file: File }): React.JSX.Element {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    // Not every runtime decodes images (test DOMs): the canvas stays blank.
+    if (typeof createImageBitmap !== 'function') return;
+    let cancelled = false;
+    createImageBitmap(file)
+      .then((bitmap) => {
+        const canvas = canvasRef.current;
+        const ctx = cancelled || canvas == null ? null : canvas.getContext('2d');
+        if (ctx != null && canvas != null) {
+          // Cover: the centered square of the image, scaled to the canvas.
+          const side = Math.min(bitmap.width, bitmap.height);
+          const scale = window.devicePixelRatio > 1 ? 2 : 1;
+          canvas.width = THUMBNAIL_PX * scale;
+          canvas.height = THUMBNAIL_PX * scale;
+          ctx.drawImage(
+            bitmap,
+            (bitmap.width - side) / 2,
+            (bitmap.height - side) / 2,
+            side,
+            side,
+            0,
+            0,
+            canvas.width,
+            canvas.height,
+          );
+        }
+        bitmap.close();
+      })
+      .catch((err: unknown) => {
+        // The server sniffs and refuses a file that is not an image; the chip
+        // keeps its name and size without a thumbnail.
+        console.warn('Decoding an attachment thumbnail failed', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+  return (
+    <canvas
+      ref={canvasRef}
+      role="img"
+      aria-label={file.name}
+      width={THUMBNAIL_PX}
+      height={THUMBNAIL_PX}
+      className="h-10 w-10 shrink-0 rounded bg-muted"
+    />
+  );
 }
 
 interface AttachmentPickerButtonProps {
@@ -147,12 +198,8 @@ export function AttachmentPreviews({
             att.error != null ? 'border-destructive' : 'border-border',
           )}
         >
-          {att.previewUrl != null ? (
-            <img
-              src={att.previewUrl}
-              alt={att.file.name}
-              className="h-10 w-10 shrink-0 rounded object-cover"
-            />
+          {att.kind === 'image' && att.error == null ? (
+            <ImageThumbnail file={att.file} />
           ) : (
             <FileText className="h-6 w-6 shrink-0 text-muted-foreground" aria-hidden="true" />
           )}
@@ -192,19 +239,5 @@ export function AttachmentPreviews({
         </li>
       ))}
     </ul>
-  );
-}
-
-/** Revokes every preview URL when the owner unmounts. */
-export function useReleasePreviews(attachments: PendingAttachment[]): void {
-  const ref = useRef(attachments);
-  useEffect(() => {
-    ref.current = attachments;
-  }, [attachments]);
-  useEffect(
-    () => () => {
-      ref.current.forEach(releasePreview);
-    },
-    [],
   );
 }

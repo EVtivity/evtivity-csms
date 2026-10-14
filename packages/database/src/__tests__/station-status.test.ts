@@ -154,7 +154,11 @@ describe('station status entry point', () => {
         /c\.status_reported_at IS NULL OR \?::timestamptz IS NULL\s+OR \?::timestamptz >= c\.status_reported_at/,
       );
       expect(write?.values).toContainEqual(new Date('2026-10-04T10:00:00Z'));
-      expect(calls[2]?.text).toContain('INSERT INTO port_status_log');
+      // The history row is written by the same statement, only for a change.
+      expect(write?.text).toContain('INSERT INTO port_status_log');
+      expect(write?.text).toContain('WHERE EXISTS (SELECT 1 FROM upd)');
+      expect(write?.text).toContain('prev.status::text IS DISTINCT FROM ?::text');
+      expect(calls.filter((c) => c.text.includes('port_status_log'))).toHaveLength(1);
     });
 
     it('a report older than the stored one writes nothing else', async () => {
@@ -185,7 +189,10 @@ describe('station status entry point', () => {
       expect(calls[2]?.text).toContain(
         'EXCLUDED.status_reported_at >= connectors.status_reported_at',
       );
-      expect(calls[3]?.text).toContain('INSERT INTO port_status_log');
+      // The history row is written by the connector's own statement; no
+      // separate log statement follows.
+      expect(calls[2]?.text).toContain('INSERT INTO port_status_log');
+      expect(calls[3]?.text ?? '').not.toContain('port_status_log');
     });
 
     it('a concurrent newer report wins the connector insert race', async () => {
@@ -210,7 +217,10 @@ describe('station status entry point', () => {
       expect(calls[0]?.text).toContain('FOR UPDATE');
       expect(calls[0]?.text).toContain('reported_status_at = ?::timestamptz');
       expect(calls[0]?.text).toContain('>= cs.reported_status_at');
-      expect(calls[1]?.text).toContain('INSERT INTO port_status_log');
+      // The history row (EVSE 0) is written by the same statement.
+      expect(calls[0]?.text).toContain('INSERT INTO port_status_log');
+      expect(calls[0]?.text).toContain('SELECT prev.id, 0, 0');
+      expect(calls.filter((c) => c.text.includes('port_status_log'))).toHaveLength(1);
     });
 
     it('ignores an older report', async () => {

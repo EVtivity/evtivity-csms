@@ -37,6 +37,17 @@ import { handleStatusNotification } from '../handlers/v2_1/status-notification.h
 import { handleTransactionEvent } from '../handlers/v2_1/transaction-event.handler.js';
 import { handleVatNumberValidation } from '../handlers/v2_1/vat-number-validation.handler.js';
 import { isPncEnabled } from '@evtivity/database';
+import {
+  evScheduleWithinLimits,
+  loadChargingNeedsProfile,
+  scheduledChargingTransaction,
+} from '../services/charging-needs.js';
+
+vi.mock('../services/charging-needs.js', () => ({
+  scheduledChargingTransaction: vi.fn(() => Promise.resolve(null)),
+  loadChargingNeedsProfile: vi.fn(() => Promise.resolve(null)),
+  evScheduleWithinLimits: vi.fn(() => true),
+}));
 
 // Mock isPncEnabled to return true for certificate handler tests, and stub
 // the Drizzle `db.select(...).from(...).where(...)` chain to return [] so
@@ -153,6 +164,21 @@ describe('FirmwareStatusNotification handler', () => {
     expect(response).toEqual({});
     expect(publishMock).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'ocpp.FirmwareStatusNotification' }),
+    );
+  });
+
+  it('passes the statusInfo on to the projection', async () => {
+    const statusInfo = { reasonCode: 'DiskFull', additionalInfo: 'No space left' };
+    const { ctx, publishMock } = makeCtx('FirmwareStatusNotification', {
+      status: 'DownloadFailed',
+      requestId: 43,
+      statusInfo,
+    });
+    await handleFirmwareStatusNotification(ctx);
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ requestId: 43, statusInfo }) as unknown,
+      }),
     );
   });
 });
@@ -337,30 +363,80 @@ describe('NotifyDisplayMessages handler', () => {
 });
 
 describe('NotifyEVChargingNeeds handler', () => {
-  it('publishes event and returns NoChargingProfile', async () => {
+  it('answers Accepted and passes the transaction on when the CSMS will send a schedule', async () => {
+    vi.mocked(scheduledChargingTransaction).mockResolvedValueOnce('tx-1');
     const { ctx, publishMock } = makeCtx('NotifyEVChargingNeeds', {
       evseId: 1,
       chargingNeeds: { requestedEnergyTransfer: 'AC_single_phase' },
     });
     const response = await handleNotifyEVChargingNeeds(ctx);
+    expect(response).toEqual({ status: 'Accepted' });
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'ocpp.NotifyEVChargingNeeds',
+        payload: expect.objectContaining({ evseId: 1, transactionId: 'tx-1' }),
+      }),
+    );
+  });
+
+  it('answers NoChargingProfile, never Rejected, when the CSMS will not send one', async () => {
+    vi.mocked(scheduledChargingTransaction).mockResolvedValueOnce(null);
+    const { ctx, publishMock } = makeCtx('NotifyEVChargingNeeds', {
+      evseId: 1,
+      chargingNeeds: { requestedEnergyTransfer: 'AC_BPT', controlMode: 'DynamicControl' },
+    });
+    const response = await handleNotifyEVChargingNeeds(ctx);
     expect(response).toEqual({ status: 'NoChargingProfile' });
     expect(publishMock).toHaveBeenCalledWith(
-      expect.objectContaining({ eventType: 'ocpp.NotifyEVChargingNeeds' }),
+      expect.objectContaining({ payload: expect.objectContaining({ transactionId: null }) }),
     );
   });
 });
 
 describe('NotifyEVChargingSchedule handler', () => {
-  it('publishes event and returns Accepted', async () => {
-    const { ctx, publishMock } = makeCtx('NotifyEVChargingSchedule', {
-      timeBase: '2024-01-01T00:00:00Z',
-      evseId: 1,
-      chargingSchedule: { id: 1, chargingRateUnit: 'W', chargingSchedulePeriod: [] },
-    });
+  const request = {
+    timeBase: '2024-01-01T00:00:00Z',
+    evseId: 1,
+    chargingSchedule: { id: 1, chargingRateUnit: 'W', chargingSchedulePeriod: [] },
+  };
+
+  it('answers Accepted when the CSMS sent no profile to compare with', async () => {
+    const { ctx, publishMock } = makeCtx('NotifyEVChargingSchedule', request);
     const response = await handleNotifyEVChargingSchedule(ctx);
     expect(response).toEqual({ status: 'Accepted' });
     expect(publishMock).toHaveBeenCalledWith(
-      expect.objectContaining({ eventType: 'ocpp.NotifyEVChargingSchedule' }),
+      expect.objectContaining({
+        eventType: 'ocpp.NotifyEVChargingSchedule',
+        payload: expect.objectContaining({ withinLimits: true }),
+      }),
+    );
+  });
+
+  it('answers Rejected when the EV schedule exceeds the CSMS schedule', async () => {
+    vi.mocked(loadChargingNeedsProfile).mockResolvedValueOnce({
+      payload: {
+        evseId: 1,
+        chargingProfile: {
+          id: 1,
+          stackLevel: 1,
+          chargingProfilePurpose: 'TxProfile',
+          chargingProfileKind: 'Absolute',
+          transactionId: 'tx-1',
+          chargingSchedule: [],
+        },
+      },
+      renegotiations: 0,
+    });
+    vi.mocked(evScheduleWithinLimits).mockReturnValueOnce(false);
+    const { ctx, publishMock } = makeCtx('NotifyEVChargingSchedule', request);
+    ctx.stationDbId = 'sta_000000000001';
+    const response = await handleNotifyEVChargingSchedule(ctx);
+    expect(response).toMatchObject({
+      status: 'Rejected',
+      statusInfo: { reasonCode: 'InvalidSchedule' },
+    });
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({ payload: expect.objectContaining({ withinLimits: false }) }),
     );
   });
 });
@@ -526,9 +602,9 @@ describe('NotifyReport handler', () => {
     );
   });
 
-  it('sends SetChargingProfile when MaxExternalConstraintsId is reported', async () => {
+  it('sends no charging profile when MaxExternalConstraintsId is reported', async () => {
     const sendCommandMock = vi.fn().mockResolvedValue({ status: 'Accepted' });
-    const { ctx } = makeCtx('NotifyReport', {
+    const { ctx, publishMock } = makeCtx('NotifyReport', {
       requestId: 1,
       generatedAt: '2024-01-01T00:00:00Z',
       seqNo: 0,
@@ -543,16 +619,10 @@ describe('NotifyReport handler', () => {
     ctx.dispatcher = { sendCommand: sendCommandMock } as unknown as HandlerContext['dispatcher'];
     const response = await handleNotifyReport(ctx);
     expect(response).toEqual({});
-    expect(sendCommandMock).toHaveBeenCalledWith(
-      'CS-001',
-      'SetChargingProfile',
-      expect.objectContaining({
-        evseId: 0,
-        chargingProfile: expect.objectContaining({
-          id: 2147400000,
-          chargingProfilePurpose: 'ChargingStationExternalConstraints',
-        }),
-      }),
+    expect(sendCommandMock).not.toHaveBeenCalled();
+    // The value reaches the projection, which records it.
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'ocpp.NotifyReport' }),
     );
   });
 });

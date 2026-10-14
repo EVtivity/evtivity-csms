@@ -258,6 +258,16 @@ export const transactionEvents = pgTable(
   (table) => [
     index('idx_transaction_events_session_id').on(table.sessionId),
     index('idx_transaction_events_timestamp').on(table.timestamp),
+    // One row per event identity, the TransactionEvent resend check's key.
+    // Built CONCURRENTLY by 0476_release_0_1_46_indexes.sql; inserts use
+    // ON CONFLICT DO NOTHING, so a resend projected on a second pod adds no row.
+    uniqueIndex('uq_transaction_events_event').on(
+      table.sessionId,
+      table.eventType,
+      table.seqNo,
+      table.timestamp,
+      table.triggerReason,
+    ),
   ],
 );
 
@@ -325,7 +335,24 @@ export const meterValues = pgTable(
     // drizzle schema can't express NULLS NOT DISTINCT in this version, so the
     // schema declaration is for drift detection only and the migration is the
     // source of truth.
+    // It leaves out station_id, so station-wide readings (no session, no EVSE)
+    // of two stations with the same timestamp and measurand collide. v0.1.46
+    // builds meter_values_station_dedup_idx (below) CONCURRENTLY; this index
+    // stays until v0.1.47 because v0.1.45 pods name its columns in their
+    // ON CONFLICT. Inserts use a targetless ON CONFLICT DO NOTHING, so the
+    // swap needs no code change.
     uniqueIndex('meter_values_dedup_idx').on(
+      table.sessionId,
+      table.evseId,
+      table.timestamp,
+      table.measurand,
+      table.phase,
+      table.location,
+    ),
+    // The dedup key with the station (NULLS NOT DISTINCT in the migration,
+    // 0476_release_0_1_46_indexes.sql).
+    uniqueIndex('meter_values_station_dedup_idx').on(
+      table.stationId,
       table.sessionId,
       table.evseId,
       table.timestamp,

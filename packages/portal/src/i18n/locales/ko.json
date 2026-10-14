@@ -876,7 +876,8 @@
     "AI_PROPOSAL_STALE": "상황이 바뀌어 이 작업은 더 이상 유효하지 않습니다",
     "AI_PROPOSAL_ALREADY_DECIDED": "이 작업은 이미 처리되었습니다",
     "AI_CONFIRMATION_REQUIRES_SESSION": "API 키가 아닌 대시보드에 로그인한 상태에서 이 작업을 확인하세요",
-    "AI_MCP_RATE_LIMITED": "MCP 요청이 너무 많습니다. 나중에 다시 시도하세요"
+    "AI_MCP_RATE_LIMITED": "MCP 요청이 너무 많습니다. 나중에 다시 시도하세요",
+    "CHARGING_PROFILE_ID_RESERVED": "충전 프로필 ID는 충전소의 MaxExternalConstraintsId보다 커야 합니다."
   },
   "validation": {
     "required": "필수 항목입니다",

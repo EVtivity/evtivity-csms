@@ -21,6 +21,27 @@ const {
   mockDispatchSystem: vi.fn(),
 }));
 
+// Jobs the projections add to the worker queues themselves (station screens,
+// maintenance re-assert, station-watch alerts), kept as [job name, JSON data]
+// rows in add order.
+const queuedJobs = vi.hoisted(() => [] as Array<[string, string]>);
+const failNextAdd = vi.hoisted(() => ({ error: null as Error | null }));
+vi.mock('@evtivity/lib/job-queues', () => ({
+  jobQueue: () => ({
+    add: (name: string, data: unknown) => {
+      const error = failNextAdd.error;
+      failNextAdd.error = null;
+      if (error != null) return Promise.reject(error);
+      queuedJobs.push([name, JSON.stringify(data)]);
+      return Promise.resolve();
+    },
+    addBulk: () => Promise.resolve(),
+  }),
+}));
+function jobsNamed(name: string): Array<[string, string]> {
+  return queuedJobs.filter((j) => j[0] === name);
+}
+
 vi.mock('@evtivity/database', () => ({
   isRoamingEnabled: mockIsRoamingEnabled,
   getIdlingGracePeriodMinutes: mockGetIdlingGrace,
@@ -62,6 +83,7 @@ function makeHarness(): Harness {
 describe('createProjectionNotifier', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    queuedJobs.length = 0;
     mockIsRoamingEnabled.mockResolvedValue(true);
     mockGetIdlingGrace.mockResolvedValue(10);
     mockGetCompanyPriceDisplay.mockResolvedValue('net');
@@ -113,20 +135,22 @@ describe('createProjectionNotifier', () => {
   describe('publishStationMessageTransaction', () => {
     const screen = { stationUuid: 'st-uuid', stationId: 'CS-1', protocol: 'ocpp2.1' };
 
-    it('publishes on station_message_transaction for an OCPP 2.x station', async () => {
+    it('queues the transaction screen render for an OCPP 2.x station', async () => {
       const h = makeHarness();
       await h.notify.publishStationMessageTransaction(screen, 'sess-1', 'updated', 'Charging');
-      expect(h.publish).toHaveBeenCalledWith(
-        'station_message_transaction',
-        JSON.stringify({
-          sessionId: 'sess-1',
-          internalStationId: 'st-uuid',
-          stationOcppId: 'CS-1',
-          ocppProtocol: 'ocpp2.1',
-          eventType: 'updated',
-          chargingState: 'Charging',
-        }),
-      );
+      expect(jobsNamed('station-message-transaction')).toEqual([
+        [
+          'station-message-transaction',
+          JSON.stringify({
+            sessionId: 'sess-1',
+            internalStationId: 'st-uuid',
+            stationOcppId: 'CS-1',
+            ocppProtocol: 'ocpp2.1',
+            eventType: 'updated',
+            chargingState: 'Charging',
+          }),
+        ],
+      ]);
     });
 
     it('skips OCPP 1.6 and unknown protocols', async () => {
@@ -143,18 +167,18 @@ describe('createProjectionNotifier', () => {
         'started',
         null,
       );
-      expect(h.publish).not.toHaveBeenCalled();
+      expect(jobsNamed('station-message-transaction')).toEqual([]);
     });
 
-    it('logs a publish failure at debug and continues', async () => {
+    it('logs a failed job add at debug and continues', async () => {
       const h = makeHarness();
-      h.publish.mockRejectedValueOnce(new Error('redis down'));
+      failNextAdd.error = new Error('redis down');
       await expect(
         h.notify.publishStationMessageTransaction(screen, 'sess-1', 'ended', null),
       ).resolves.toBeUndefined();
       expect(h.logger.debug).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId: 'sess-1', kind: 'ended' }),
-        'Station-message transaction publish failed; continuing',
+        'Station-message transaction not queued; continuing',
       );
     });
   });

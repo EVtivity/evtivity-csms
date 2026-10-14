@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { TemplateNotAllowedError } from '../template-safety.js';
 import {
   renderStationMessage,
   clearStationMessageCache,
@@ -97,6 +98,16 @@ describe('renderStationMessage', () => {
     clearStationMessageCache();
     vi.clearAllMocks();
     (await dbMocks()).getStationMessageLanguage.mockResolvedValue('en');
+  });
+
+  it('renders a stored template without running helpers or reading prototype paths', async () => {
+    await setBody('{{companyName}}');
+    expect(await renderStationMessage('available', baseContext, 'en')).toBe('EVtivity');
+    clearStationMessageCache();
+    await setBody('{{#with this}}{{constructor.constructor}}{{/with}}', new Date(2026, 0, 2));
+    await expect(renderStationMessage('available', baseContext, 'en')).rejects.toThrow(
+      TemplateNotAllowedError,
+    );
   });
 
   describe('display language', () => {

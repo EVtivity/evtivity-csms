@@ -105,7 +105,9 @@ export function FirmwareCampaignHistoryTab({ campaignId }: Props): React.JSX.Ele
                   </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_VARIANT[displayStatus] ?? 'outline'}>
-                      {displayStatus}
+                      {t(`firmwareCampaigns.statuses.${displayStatus}`, {
+                        defaultValue: displayStatus,
+                      })}
                     </Badge>
                   </TableCell>
                   <TableCell>{campaign.stationsTotal}</TableCell>

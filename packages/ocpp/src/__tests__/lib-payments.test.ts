@@ -20,7 +20,7 @@ vi.mock('@evtivity/payments', async (importOriginal) => {
 vi.stubEnv('OCPP_PORT', '8080');
 vi.stubEnv('SETTINGS_ENCRYPTION_KEY', 'k');
 
-const { activePaymentProvider, paymentRegistry, setPaymentPubSub } =
+const { activePaymentProvider, paymentRegistry, setSimulatedEventSink } =
   await import('../lib/payments.js');
 
 const delivery: SimulatedWebhookDelivery = {
@@ -35,19 +35,16 @@ describe('OCPP payment registry: simulated events', () => {
     expect(registryOptions.value?.simulated?.logger).toBeDefined();
   });
 
-  it('rejects deliveries until the pub/sub client is set, then publishes on the channel', async () => {
+  it('rejects deliveries until the sink is connected at startup, then forwards them', async () => {
     const sink = registryOptions.value!.simulated!.events!;
     await expect(sink.deliver(delivery)).rejects.toThrow('not connected');
 
-    const publish = vi.fn().mockResolvedValue(undefined);
-    setPaymentPubSub({ publish });
+    const deliver = vi.fn().mockResolvedValue(undefined);
+    setSimulatedEventSink({ deliver });
     await sink.deliver(delivery);
-    expect(publish).toHaveBeenCalledWith(
-      'payment_webhook_deliveries',
-      JSON.stringify({ provider: 'simulated', ...delivery }),
-    );
+    expect(deliver).toHaveBeenCalledWith(delivery);
 
-    setPaymentPubSub(null);
+    setSimulatedEventSink(null);
     await expect(sink.deliver(delivery)).rejects.toThrow('not connected');
   });
 });

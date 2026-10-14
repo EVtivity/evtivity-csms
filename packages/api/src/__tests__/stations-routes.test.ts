@@ -64,6 +64,12 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   setPubSub: vi.fn(),
 }));
 
+// Jobs the routes add to the worker queues (station screen repushes).
+const mockAddJob = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('@evtivity/lib/job-queues', () => ({
+  jobQueue: () => ({ add: mockAddJob, addBulk: vi.fn() }),
+}));
+
 // -- DB mock helpers --
 
 let dbResults: unknown[][] = [];
@@ -616,7 +622,7 @@ describe('Station routes - handler logic', () => {
       };
       const moved = { ...station, siteId: 'sit_000000000002' };
 
-      mockPublish.mockClear();
+      mockAddJob.mockClear();
       setupDbResults([station], [moved]);
       const response = await app.inject({
         method: 'PATCH',
@@ -625,10 +631,10 @@ describe('Station routes - handler logic', () => {
         payload: { siteId: 'sit_000000000002' },
       });
       expect(response.statusCode).toBe(200);
-      const repush = mockPublish.mock.calls.find((c) => c[0] === 'station_message_repush');
-      expect(JSON.parse(repush?.[1] as string)).toEqual({ stationId: VALID_STATION_ID });
+      const repush = mockAddJob.mock.calls.find((c) => c[0] === 'station-message-repush');
+      expect(repush?.[1]).toEqual({ stationId: VALID_STATION_ID });
 
-      mockPublish.mockClear();
+      mockAddJob.mockClear();
       setupDbResults([moved], [moved]);
       await app.inject({
         method: 'PATCH',
@@ -636,7 +642,7 @@ describe('Station routes - handler logic', () => {
         headers: { authorization: 'Bearer ' + token },
         payload: { siteId: 'sit_000000000002' },
       });
-      expect(mockPublish.mock.calls.some((c) => c[0] === 'station_message_repush')).toBe(false);
+      expect(mockAddJob.mock.calls.some((c) => c[0] === 'station-message-repush')).toBe(false);
     });
 
     it('updates and returns the station', async () => {
@@ -2518,8 +2524,25 @@ describe('Station routes - handler logic', () => {
       updatedAt: '2026-01-01T00:00:00.000Z',
     };
 
-    it('publishes SetVariableMonitoring with the command message shape', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001' }], [ruleRow]);
+    it('sends SetVariableMonitoring as an OCPP 2.1 command and waits for the reply', async () => {
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
+      const sendMock = vi.mocked(sendOcppCommandAndWait);
+      sendMock.mockResolvedValueOnce({
+        commandId: 'c',
+        response: { setMonitoringResult: [{ id: 42, status: 'Accepted' }] },
+      });
+      setupDbResults(
+        [
+          {
+            id: VALID_STATION_ID,
+            stationId: 'STATION-001',
+            isOnline: true,
+            ocppProtocol: 'ocpp2.1',
+          },
+        ],
+        [ruleRow],
+        [{ ...ruleRow, status: 'active' }],
+      );
 
       const response = await app.inject({
         method: 'POST',
@@ -2535,14 +2558,11 @@ describe('Station routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(201);
-      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-      expect(call).toBeDefined();
-      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
-      expect(Object.keys(message)).toEqual(['commandId', 'stationId', 'action', 'payload']);
-      expect(message).toMatchObject({
-        stationId: 'STATION-001',
-        action: 'SetVariableMonitoring',
-        payload: {
+      expect(response.json().status).toBe('active');
+      expect(sendMock).toHaveBeenCalledWith(
+        'STATION-001',
+        'SetVariableMonitoring',
+        {
           setMonitoringData: [
             {
               component: { name: 'EVSE' },
@@ -2553,27 +2573,22 @@ describe('Station routes - handler logic', () => {
             },
           ],
         },
-      });
-      expect(typeof message['commandId']).toBe('string');
+        '2.1',
+      );
     });
 
-    it('returns 502 STATION_REJECTED when the publish fails', async () => {
-      setupDbResults([{ id: VALID_STATION_ID, stationId: 'STATION-001' }], [ruleRow]);
-      mockPublish.mockRejectedValueOnce(new Error('redis down'));
-
-      const response = await app.inject({
-        method: 'POST',
-        url: `/stations/${VALID_STATION_ID}/monitoring-rules`,
-        headers: { authorization: 'Bearer ' + token },
-        payload: { component: 'EVSE', variable: 'Power', type: 'UpperThreshold', value: 1 },
+    it('sends ClearVariableMonitoring for an active rule', async () => {
+      const { sendOcppCommandAndWait } = await import('@evtivity/services/ocpp-command');
+      const sendMock = vi.mocked(sendOcppCommandAndWait);
+      sendMock.mockResolvedValueOnce({
+        commandId: 'c',
+        response: { clearMonitoringResult: [{ id: 42, status: 'Accepted' }] },
       });
-
-      expect(response.statusCode).toBe(502);
-      expect(response.json().code).toBe('STATION_REJECTED');
-    });
-
-    it('publishes ClearVariableMonitoring for a rule the station acknowledged', async () => {
-      setupDbResults([ruleRow], [{ stationId: 'STATION-001' }], []);
+      setupDbResults(
+        [{ ...ruleRow, status: 'active' }],
+        [{ stationId: 'STATION-001', isOnline: true }],
+        [],
+      );
 
       const response = await app.inject({
         method: 'DELETE',
@@ -2582,14 +2597,12 @@ describe('Station routes - handler logic', () => {
       });
 
       expect(response.statusCode).toBe(204);
-      const call = mockPublish.mock.calls.find((c) => c[0] === 'ocpp_commands');
-      const message = JSON.parse(call?.[1] as string) as Record<string, unknown>;
-      expect(message).toMatchObject({
-        stationId: 'STATION-001',
-        action: 'ClearVariableMonitoring',
-        payload: { id: [42] },
-      });
-      expect(message).not.toHaveProperty('version');
+      expect(sendMock).toHaveBeenCalledWith(
+        'STATION-001',
+        'ClearVariableMonitoring',
+        { id: [42] },
+        '2.1',
+      );
     });
   });
 

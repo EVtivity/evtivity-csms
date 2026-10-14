@@ -74,9 +74,100 @@ function mapUnlockConnector16(payload: Record<string, unknown>): Record<string, 
   };
 }
 
+// OCPP 2.1 profile purposes and their 1.6 names. A CSMS never sends
+// ChargingStationExternalConstraints (2.1 K01.FR.22, K10.FR.06), and
+// PriorityCharging and LocalGeneration have no 1.6 form.
+const PROFILE_PURPOSE_16: Record<string, string> = {
+  ChargingStationMaxProfile: 'ChargePointMaxProfile',
+  TxDefaultProfile: 'TxDefaultProfile',
+  TxProfile: 'TxProfile',
+};
+
+function profilePurpose16(purpose: unknown): string {
+  const mapped = typeof purpose === 'string' ? PROFILE_PURPOSE_16[purpose] : undefined;
+  if (mapped == null) {
+    throw new Error(
+      `Charging profile purpose "${String(purpose)}" is not supported on ocpp1.6 stations`,
+    );
+  }
+  return mapped;
+}
+
+// 1.6 limits and minChargingRate are multiples of 0.1.
+function tenth(value: unknown): unknown {
+  return typeof value === 'number' ? Math.round(value * 10) / 10 : value;
+}
+
+function withoutUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+}
+
+/**
+ * 2.1 `{ evseId, chargingProfile }` to 1.6 `{ connectorId, csChargingProfiles }`.
+ * The 1.6 profile names its id `chargingProfileId`, holds one schedule object
+ * (2.1 sends an array) and a numeric transactionId. The 1.6 schema is
+ * `additionalProperties: false` throughout, so only its fields are copied.
+ */
 function mapSetChargingProfile16(payload: Record<string, unknown>): Record<string, unknown> {
-  const { evseId, ...rest } = payload;
-  return { ...rest, connectorId: evseId };
+  const profile = payload.chargingProfile as Record<string, unknown> | undefined;
+  if (profile == null) {
+    throw new Error('SetChargingProfile has no chargingProfile');
+  }
+  if (profile.chargingProfileKind === 'Dynamic') {
+    throw new Error('Charging profile kind "Dynamic" is not supported on ocpp1.6 stations');
+  }
+  const schedules = profile.chargingSchedule;
+  const schedule = (Array.isArray(schedules) ? schedules[0] : schedules) as
+    | Record<string, unknown>
+    | undefined;
+  if (schedule == null) {
+    throw new Error('SetChargingProfile has no charging schedule');
+  }
+  if (Array.isArray(schedules) && schedules.length > 1) {
+    throw new Error('OCPP 1.6 stations take exactly one charging schedule');
+  }
+  let transactionId: number | undefined;
+  const rawTransactionId = profile.transactionId;
+  if (rawTransactionId != null) {
+    transactionId =
+      typeof rawTransactionId === 'number'
+        ? rawTransactionId
+        : typeof rawTransactionId === 'string' && /^-?\d+$/.test(rawTransactionId)
+          ? Number(rawTransactionId)
+          : NaN;
+    if (!Number.isInteger(transactionId)) {
+      throw new Error(
+        `Invalid transactionId for an OCPP 1.6 charging profile: ${JSON.stringify(rawTransactionId)}`,
+      );
+    }
+  }
+  const periods = (schedule.chargingSchedulePeriod as Record<string, unknown>[] | undefined) ?? [];
+  return {
+    connectorId: payload.evseId ?? 0,
+    csChargingProfiles: withoutUndefined({
+      chargingProfileId: profile.id,
+      transactionId,
+      stackLevel: profile.stackLevel,
+      chargingProfilePurpose: profilePurpose16(profile.chargingProfilePurpose),
+      chargingProfileKind: profile.chargingProfileKind,
+      recurrencyKind: profile.recurrencyKind,
+      validFrom: profile.validFrom,
+      validTo: profile.validTo,
+      chargingSchedule: withoutUndefined({
+        duration: schedule.duration,
+        startSchedule: schedule.startSchedule,
+        chargingRateUnit: schedule.chargingRateUnit,
+        chargingSchedulePeriod: periods.map((period) =>
+          withoutUndefined({
+            startPeriod: period.startPeriod,
+            limit: tenth(period.limit),
+            numberPhases: period.numberPhases,
+          }),
+        ),
+        minChargingRate: tenth(schedule.minChargingRate),
+      }),
+    }),
+  };
 }
 
 function mapClearChargingProfile16(payload: Record<string, unknown>): Record<string, unknown> {
@@ -90,6 +181,9 @@ function mapClearChargingProfile16(payload: Record<string, unknown>): Record<str
   const { evseId, customData: _customData, ...flat } = criteria;
   void _customData;
   const result: Record<string, unknown> = { ...flat };
+  if (flat.chargingProfilePurpose != null) {
+    result.chargingProfilePurpose = profilePurpose16(flat.chargingProfilePurpose);
+  }
   if (chargingProfileId != null) result.id = chargingProfileId;
   if (evseId != null) result.connectorId = evseId;
   return result;
@@ -100,6 +194,29 @@ function mapGetCompositeSchedule16(payload: Record<string, unknown>): Record<str
   const { evseId, customData: _customData, ...rest } = payload;
   void _customData;
   return { ...rest, connectorId: evseId ?? 0 };
+}
+
+/**
+ * 1.6 `{ status, connectorId, scheduleStart, chargingSchedule }` back to the 2.1
+ * `{ status, schedule: { evseId, duration, scheduleStart, chargingRateUnit,
+ * chargingSchedulePeriod } }`, so callers read one shape for both versions.
+ */
+function mapGetCompositeScheduleResponse16(
+  response: Record<string, unknown>,
+  request: Record<string, unknown>,
+): Record<string, unknown> {
+  const chargingSchedule = response.chargingSchedule as Record<string, unknown> | undefined;
+  if (chargingSchedule == null) return { status: response.status };
+  return {
+    status: response.status,
+    schedule: withoutUndefined({
+      evseId: response.connectorId ?? request.evseId ?? 0,
+      duration: chargingSchedule.duration ?? request.duration,
+      scheduleStart: response.scheduleStart ?? chargingSchedule.startSchedule,
+      chargingRateUnit: chargingSchedule.chargingRateUnit,
+      chargingSchedulePeriod: chargingSchedule.chargingSchedulePeriod ?? [],
+    }),
+  };
 }
 
 // A 1.6 configuration key is the 2.1 variable name (HeartbeatInterval), not the
@@ -443,7 +560,7 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
     'ocpp1.6': {
       action: 'GetCompositeSchedule',
       translatePayload: mapGetCompositeSchedule16,
-      translateResponse: identity,
+      translateResponse: mapGetCompositeScheduleResponse16,
     },
   },
   ClearCache: {

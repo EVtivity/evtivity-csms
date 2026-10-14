@@ -51,7 +51,15 @@ export function resolveNotificationTestSinkUrl(env: NotificationTestSinkEnv): st
   if (parsed == null || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
     throw new Error('NOTIFICATIONS_TEST_SINK_URL must be an http or https URL');
   }
-  return url.replace(/\/+$/, '');
+  return trimTrailingSlashes(url);
+}
+
+// A backwards scan, linear in the length. The regex form /\/+$/ is quadratic
+// on a value with many slashes that do not end it.
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end--;
+  return value.slice(0, end);
 }
 
 let cached: { url: string | null } | undefined;

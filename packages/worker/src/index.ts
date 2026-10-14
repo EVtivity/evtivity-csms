@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Worker } from 'bullmq';
+import { Worker, type Queue } from 'bullmq';
 import {
   createLogger,
   tryParseJson,
@@ -14,10 +14,13 @@ import {
 } from '@evtivity/lib';
 import {
   getSentryConfig,
+  guardPgConnectionRejections,
   clearStationMessageSettingsCache,
   clearSystemSettingsCache,
 } from '@evtivity/database';
 import { setPubSub } from '@evtivity/lib/pubsub-instance';
+import { setJobQueueResolver } from '@evtivity/lib/job-queues';
+import { queueSimulatedSink } from '@evtivity/payments';
 import { createDriverAiWorker, setDriverAiQueue, startDriverAiBridge } from './driver-ai/queue.js';
 import { createQueues, QUEUE_NAMES } from './queues.js';
 import { createCronWorker } from './cron-worker.js';
@@ -30,28 +33,18 @@ import {
   setReservationQueue,
   startReservationBridge,
 } from './reservation-worker.js';
-import {
-  createMaintenanceFanoutWorker,
-  startMaintenanceFanoutBridge,
-} from './maintenance-fanout-worker.js';
-import {
-  createFleetBillingFanoutWorker,
-  startFleetBillingFanoutBridge,
-} from './fleet-billing-fanout-worker.js';
+import { createMaintenanceFanoutWorker } from './maintenance-fanout-worker.js';
+import { createFleetBillingFanoutWorker } from './fleet-billing-fanout-worker.js';
 import { createFleetInvoiceWorker, setFleetInvoiceQueue } from './fleet-invoice-worker.js';
 import { createMemberInvoiceWorker, setMemberInvoiceQueue } from './member-invoice-worker.js';
-import { createStationWatchWorker, startStationWatchBridge } from './station-watch-worker.js';
-import {
-  createPaymentWebhookWorker,
-  queueSimulatedSink,
-  startPaymentWebhookBridge,
-} from './payment-webhook-worker.js';
+import { createStationWatchWorker } from './station-watch-worker.js';
+import { createPaymentWebhookWorker } from './payment-webhook-worker.js';
 import { setSimulatedEventSink } from './lib/payments.js';
 import {
   createRemoteStartTimeoutWorker,
   startRemoteStartTimeoutBridge,
 } from './remote-start-timeout-worker.js';
-import { createStationMessageWorker, startStationMessageBridge } from './station-message-worker.js';
+import { createStationMessageWorker } from './station-message-worker.js';
 import { createReportWorker, setReportQueue, startReportBridge } from './report-worker.js';
 import { createAiWorker, setAiWorkerQueue } from './ai-worker-queue.js';
 import {
@@ -67,6 +60,9 @@ const log = createLogger('worker');
 const REDIS_URL = process.env['REDIS_URL'] ?? 'redis://localhost:6379';
 
 async function start(): Promise<void> {
+  // A backend terminated while postgres.js fetches its array types must not end
+  // the process (pg-connection-rejections.ts).
+  guardPgConnectionRejections(log);
   const sentryConfig = await getSentryConfig();
   initSentry('evtivity-worker', sentryConfig);
 
@@ -103,7 +99,19 @@ async function start(): Promise<void> {
     aiInsightQueue,
     driverAiQueue,
   } = createQueues(REDIS_URL);
-  setSimulatedEventSink(queueSimulatedSink(paymentWebhookQueue));
+  // Jobs this process adds to its own queues through the shared producers
+  // (maintenance cron, station-watch alerts, station screens, simulated
+  // payment events) go to the queues created above.
+  const queuesByName = new Map<string, Queue>([
+    [QUEUE_NAMES.MAINTENANCE_FANOUT, maintenanceFanoutQueue],
+    [QUEUE_NAMES.FLEET_BILLING_FANOUT, fleetBillingFanoutQueue],
+    [QUEUE_NAMES.MEMBER_INVOICES, memberInvoiceQueue],
+    [QUEUE_NAMES.STATION_WATCH, stationWatchQueue],
+    [QUEUE_NAMES.PAYMENT_WEBHOOKS, paymentWebhookQueue],
+    [QUEUE_NAMES.STATION_MESSAGES, stationMessageQueue],
+  ]);
+  setJobQueueResolver((name) => queuesByName.get(name));
+  setSimulatedEventSink(queueSimulatedSink());
   setReportQueue(reportQueue);
   setAiWorkerQueue(aiWorkerQueue);
   setFleetInvoiceQueue(fleetInvoiceQueue);
@@ -117,20 +125,6 @@ async function start(): Promise<void> {
 
   // Schedule load management coordinator (runs every 10s, fans out per-site)
   await scheduleLoadManagementCoordinator(loadQueue);
-
-  // Redis without persistence loses schedulers and delayed jobs on a restart
-  // or failover: rebuild the delayed jobs the database knows about now (a
-  // restart together with Redis), and watch for a later loss.
-  const recoveryQueues = {
-    cronQueue,
-    loadQueue,
-    reservationQueue,
-    remoteStartTimeoutQueue,
-    guestSessionQueue,
-  };
-  const rebuilt = await rebuildDelayedJobs(recoveryQueues);
-  log.info({ ...rebuilt }, 'Delayed jobs checked against the database');
-  const redisRecoveryWatch = await startRedisRecoveryWatch(recoveryQueues, log);
 
   // Create workers (each needs its own Redis connection per BullMQ docs)
   // Lock connections (withLock), closed on shutdown after their workers.
@@ -213,24 +207,31 @@ async function start(): Promise<void> {
   // Start bridges (pub/sub -> BullMQ)
   const stopGuestBridge = await startGuestSessionBridge(pubsub, guestSessionQueue);
   const stopReservationBridge = await startReservationBridge(pubsub, reservationQueue);
-  const stopMaintenanceFanoutBridge = await startMaintenanceFanoutBridge(
-    pubsub,
-    maintenanceFanoutQueue,
-  );
-  const stopFleetBillingFanoutBridge = await startFleetBillingFanoutBridge(
-    pubsub,
-    fleetBillingFanoutQueue,
-  );
-  const stopStationWatchBridge = await startStationWatchBridge(pubsub, stationWatchQueue);
-  const stopPaymentWebhookBridge = await startPaymentWebhookBridge(pubsub, paymentWebhookQueue);
   const stopRemoteStartTimeoutBridge = await startRemoteStartTimeoutBridge(
     pubsub,
     remoteStartTimeoutQueue,
   );
-  const stopStationMessageBridge = await startStationMessageBridge(pubsub, stationMessageQueue);
   const stopReportBridge = await startReportBridge(pubsub);
   const stopAiInsightBridge = await startAiInsightBridge(pubsub);
   const stopDriverAiBridge = await startDriverAiBridge(pubsub);
+
+  // Redis without persistence loses schedulers and delayed jobs on a restart
+  // or failover: rebuild the delayed jobs the database knows about now (a
+  // restart together with Redis), and watch for a later loss. The rebuild
+  // runs after the bridges subscribe, so a reservation or remote start
+  // published while this worker was down (no subscriber, message lost) is
+  // rebuilt from the database, and one published from now on reaches a
+  // bridge: no gap between the two.
+  const recoveryQueues = {
+    cronQueue,
+    loadQueue,
+    reservationQueue,
+    remoteStartTimeoutQueue,
+    guestSessionQueue,
+  };
+  const rebuilt = await rebuildDelayedJobs(recoveryQueues);
+  log.info({ ...rebuilt }, 'Delayed jobs checked against the database');
+  const redisRecoveryWatch = await startRedisRecoveryWatch(recoveryQueues, log);
 
   // Listen for credential-rotation invalidations from the API so the next
   // dispatchDriverNotification / scheduled report email reads fresh SMTP and
@@ -275,12 +276,7 @@ async function start(): Promise<void> {
     await redisRecoveryWatch.stop();
     await stopGuestBridge();
     await stopReservationBridge();
-    await stopMaintenanceFanoutBridge();
-    await stopFleetBillingFanoutBridge();
-    await stopStationWatchBridge();
-    await stopPaymentWebhookBridge();
     await stopRemoteStartTimeoutBridge();
-    await stopStationMessageBridge();
     await stopReportBridge();
     await stopAiInsightBridge();
     await stopDriverAiBridge();
@@ -308,6 +304,7 @@ async function start(): Promise<void> {
     await guestSessionQueue.close();
     await reservationQueue.close();
     await octtQueue.close();
+    setJobQueueResolver(null);
     await maintenanceFanoutQueue.close();
     await fleetBillingFanoutQueue.close();
     setFleetInvoiceQueue(null);

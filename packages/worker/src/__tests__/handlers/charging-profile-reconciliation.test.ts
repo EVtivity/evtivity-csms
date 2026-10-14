@@ -49,7 +49,11 @@ vi.mock('@evtivity/database', () => ({
     sentAt: 'chargingProfiles.sentAt',
     reportedAt: 'chargingProfiles.reportedAt',
   },
-  chargingStations: { id: 'chargingStations.id', siteId: 'chargingStations.siteId' },
+  chargingStations: {
+    id: 'chargingStations.id',
+    siteId: 'chargingStations.siteId',
+    ocppProtocol: 'chargingStations.ocppProtocol',
+  },
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -93,9 +97,9 @@ describe('chargingProfileReconciliationHandler', () => {
   it('publishes a profileMismatch event when the station never reported a matching profile', async () => {
     setupQueries(
       [{ stationId: 'sta_1' }], // stationsWithProfiles
-      [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }], // csmsRows
+      [{ stationId: 'sta_1', evseId: 1, profileData: { id: 5, stackLevel: 0 } }], // csmsRows
       [], // reportedRows: nothing reported
-      [{ id: 'sta_1', siteId: 'sit_1' }], // station sites
+      [{ id: 'sta_1', siteId: 'sit_1', ocppProtocol: 'ocpp2.1' }], // station sites
     );
     const log = makeLog();
     const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
@@ -118,24 +122,20 @@ describe('chargingProfileReconciliationHandler', () => {
     );
   });
 
-  it('publishes a mismatch when reported profile data differs from the csms-set profile', async () => {
+  it('matches a profile the station reports in its report array by id', async () => {
+    // The stored copy is one object, the station report an array whose fields
+    // the station renders its own way: comparing the JSON flagged every station.
     setupQueries(
       [{ stationId: 'sta_1' }],
-      [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }],
-      [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 16 } }], // differs
-    );
-    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
-
-    await chargingProfileReconciliationHandler(makeLog());
-
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-  });
-
-  it('does NOT publish when reported profile data matches the csms-set profile', async () => {
-    setupQueries(
-      [{ stationId: 'sta_1' }],
-      [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }],
-      [{ stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }], // identical
+      [{ stationId: 'sta_1', evseId: 0, profileData: { id: 5, stackLevel: 0, limit: 32 } }],
+      [
+        {
+          stationId: 'sta_1',
+          evseId: 0,
+          profileData: [{ id: 4 }, { id: 5, stackLevel: 0, limit: 32.0, extra: true }],
+        },
+      ],
+      [{ id: 'sta_1', siteId: 'sit_1', ocppProtocol: 'ocpp2.1' }],
     );
     const log = makeLog();
     const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
@@ -143,27 +143,34 @@ describe('chargingProfileReconciliationHandler', () => {
     await chargingProfileReconciliationHandler(log);
 
     expect(mockPublish).not.toHaveBeenCalled();
-    // No mismatches -> the summary log line is skipped.
     expect(log.info).not.toHaveBeenCalled();
   });
 
-  it('uses only the first (most recent) profile per evse and ignores stale duplicates', async () => {
+  it('reads the id of a profile stored in 1.6 form', async () => {
     setupQueries(
       [{ stationId: 'sta_1' }],
-      [
-        { stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }, // newest, kept
-        { stationId: 'sta_1', evseId: 1, profileData: { limit: 99 } }, // stale, ignored
-      ],
-      [
-        { stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }, // newest, matches
-        { stationId: 'sta_1', evseId: 1, profileData: { limit: 1 } }, // stale, ignored
-      ],
+      [{ stationId: 'sta_1', evseId: 1, profileData: { chargingProfileId: 9 } }],
+      [{ stationId: 'sta_1', evseId: 1, profileData: [{ id: 9 }] }],
+      [{ id: 'sta_1', siteId: 'sit_1', ocppProtocol: 'ocpp2.1' }],
     );
     const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 
     await chargingProfileReconciliationHandler(makeLog());
 
-    // Newest-vs-newest match -> no mismatch.
+    expect(mockPublish).not.toHaveBeenCalled();
+  });
+
+  it('skips OCPP 1.6 stations, which cannot report their profiles', async () => {
+    setupQueries(
+      [{ stationId: 'sta_16' }],
+      [{ stationId: 'sta_16', evseId: 1, profileData: { id: 3 } }],
+      [],
+      [{ id: 'sta_16', siteId: 'sit_1', ocppProtocol: 'ocpp1.6' }],
+    );
+    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
+
+    await chargingProfileReconciliationHandler(makeLog());
+
     expect(mockPublish).not.toHaveBeenCalled();
   });
 
@@ -171,12 +178,13 @@ describe('chargingProfileReconciliationHandler', () => {
     setupQueries(
       [{ stationId: 'sta_1' }, { stationId: 'sta_2' }],
       [
-        { stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } },
-        { stationId: 'sta_2', evseId: 1, profileData: { limit: 10 } },
+        { stationId: 'sta_1', evseId: 1, profileData: { id: 1 } },
+        { stationId: 'sta_2', evseId: 1, profileData: { id: 2 } },
       ],
+      [{ stationId: 'sta_1', evseId: 1, profileData: [{ id: 1 }] }],
       [
-        { stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } }, // matches
-        // sta_2 not reported -> mismatch
+        { id: 'sta_1', siteId: 'sit_1', ocppProtocol: 'ocpp2.1' },
+        { id: 'sta_2', siteId: 'sit_1', ocppProtocol: 'ocpp2.1' },
       ],
     );
     const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
@@ -190,36 +198,19 @@ describe('chargingProfileReconciliationHandler', () => {
     );
   });
 
-  it('counts every mismatched evse and reports the total', async () => {
-    setupQueries(
-      [{ stationId: 'sta_1' }],
-      [
-        { stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } },
-        { stationId: 'sta_1', evseId: 2, profileData: { limit: 16 } },
-      ],
-      [], // neither reported
-    );
-    const log = makeLog();
-    const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
-
-    await chargingProfileReconciliationHandler(log);
-
-    expect(mockPublish).toHaveBeenCalledTimes(2);
-    expect(log.info).toHaveBeenCalledWith(
-      { mismatchCount: 2 },
-      'Charging profile mismatches detected',
-    );
-  });
-
   it('swallows a pubsub publish failure so the reconciliation loop is not aborted (fail-open)', async () => {
     mockPublish.mockRejectedValueOnce(new Error('redis down'));
     setupQueries(
-      [{ stationId: 'sta_1' }],
+      [{ stationId: 'sta_1' }, { stationId: 'sta_2' }],
       [
-        { stationId: 'sta_1', evseId: 1, profileData: { limit: 32 } },
-        { stationId: 'sta_1', evseId: 2, profileData: { limit: 16 } },
+        { stationId: 'sta_1', evseId: 1, profileData: { id: 1 } },
+        { stationId: 'sta_2', evseId: 1, profileData: { id: 2 } },
       ],
-      [], // both mismatch
+      [],
+      [
+        { id: 'sta_1', siteId: 'sit_1', ocppProtocol: 'ocpp2.1' },
+        { id: 'sta_2', siteId: 'sit_1', ocppProtocol: 'ocpp2.1' },
+      ],
     );
     const { chargingProfileReconciliationHandler } = chargingProfileReconciliationModule;
 

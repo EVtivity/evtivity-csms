@@ -1,9 +1,8 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Job, Queue } from 'bullmq';
+import type { Job } from 'bullmq';
 import type { PubSubClient } from '@evtivity/lib';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
@@ -48,7 +47,6 @@ class MockWebhookNotConfiguredError extends Error {}
 const mockIngest = vi.fn();
 const mockDispatchNotices = vi.fn();
 vi.mock('@evtivity/payments', () => ({
-  PAYMENT_WEBHOOK_CHANNEL: 'payment_webhook_deliveries',
   ingestPaymentWebhook: (...args: unknown[]) => mockIngest(...args),
   dispatchPaymentWebhookNotices: (...args: unknown[]) => mockDispatchNotices(...args),
   WebhookSignatureError: MockWebhookSignatureError,
@@ -61,12 +59,7 @@ vi.mock('../lib/payments.js', () => ({
   paymentContext: () => paymentCtx,
 }));
 
-const {
-  createPaymentWebhookWorker,
-  paymentWebhookJobId,
-  queueSimulatedSink,
-  startPaymentWebhookBridge,
-} = await import('../payment-webhook-worker.js');
+const { createPaymentWebhookWorker } = await import('../payment-webhook-worker.js');
 
 const signed = {
   rawBody: '{"events":[{"eventId":"evt_sim_1"}]}',
@@ -74,43 +67,10 @@ const signed = {
   delaySeconds: 30,
 };
 const delivery = { provider: 'simulated' as const, ...signed };
-const expectedJobId = `simulated-${crypto.createHash('sha256').update(delivery.rawBody).digest('hex')}`;
-
-function makeQueue(): { queue: Queue; add: ReturnType<typeof vi.fn> } {
-  const add = vi.fn().mockResolvedValue({ id: 'job' });
-  return { queue: { add } as unknown as Queue, add };
-}
-
-function makePubsub(): {
-  pubsub: PubSubClient;
-  handler: () => (payload: string) => void;
-  unsubscribe: ReturnType<typeof vi.fn>;
-} {
-  let captured: ((payload: string) => void) | undefined;
-  const unsubscribe = vi.fn().mockResolvedValue(undefined);
-  const pubsub = {
-    subscribe: vi.fn((_channel: string, h: (payload: string) => void) => {
-      captured = h;
-      return Promise.resolve({ unsubscribe });
-    }),
-  } as unknown as PubSubClient;
-  return {
-    pubsub,
-    handler: () => {
-      if (captured == null) throw new Error('not subscribed');
-      return captured;
-    },
-    unsubscribe,
-  };
-}
 
 function processor(): (job: Job) => Promise<void> {
   if (capturedProcessor == null) throw new Error('worker not created');
   return capturedProcessor;
-}
-
-async function flush(): Promise<void> {
-  for (let i = 0; i < 5; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 beforeEach(() => {
@@ -119,88 +79,6 @@ beforeEach(() => {
   workerCtorCalls.length = 0;
   mockLogJobStarted.mockResolvedValue(41);
   mockIngest.mockResolvedValue({ ack: { status: 200 }, applied: 1, duplicates: 0, notices: [] });
-});
-
-describe('paymentWebhookJobId', () => {
-  it('is the provider plus the SHA-256 of the body, so replicas dedupe (P7)', () => {
-    expect(paymentWebhookJobId(delivery)).toBe(expectedJobId);
-    expect(paymentWebhookJobId({ ...delivery, delaySeconds: 3 })).toBe(expectedJobId);
-  });
-});
-
-describe('startPaymentWebhookBridge', () => {
-  it('subscribes to the payment webhook channel', async () => {
-    const { pubsub } = makePubsub();
-    const { queue } = makeQueue();
-    await startPaymentWebhookBridge(pubsub, queue);
-    expect(pubsub.subscribe).toHaveBeenCalledWith(
-      'payment_webhook_deliveries',
-      expect.any(Function),
-    );
-  });
-
-  it('adds a delayed job with the deterministic job id', async () => {
-    const { pubsub, handler } = makePubsub();
-    const { queue, add } = makeQueue();
-    await startPaymentWebhookBridge(pubsub, queue);
-    handler()(JSON.stringify(delivery));
-    await flush();
-    expect(add).toHaveBeenCalledWith('deliver', delivery, {
-      jobId: expectedJobId,
-      delay: 30_000,
-    });
-  });
-
-  it('drops malformed messages with a warning', async () => {
-    const { pubsub, handler } = makePubsub();
-    const { queue, add } = makeQueue();
-    await startPaymentWebhookBridge(pubsub, queue);
-    handler()('not json');
-    handler()(JSON.stringify({ ...delivery, provider: 'stripe' }));
-    handler()(JSON.stringify({ ...delivery, delaySeconds: -1 }));
-    handler()(JSON.stringify({ ...delivery, rawBody: '' }));
-    await flush();
-    expect(add).not.toHaveBeenCalled();
-    expect(mockLog.warn).toHaveBeenCalledTimes(4);
-  });
-
-  it('logs a failed enqueue', async () => {
-    const { pubsub, handler } = makePubsub();
-    const { queue, add } = makeQueue();
-    add.mockRejectedValueOnce(new Error('redis down'));
-    await startPaymentWebhookBridge(pubsub, queue);
-    handler()(JSON.stringify(delivery));
-    await flush();
-    expect(mockLog.error).toHaveBeenCalledWith(
-      expect.objectContaining({ err: expect.any(Error) }),
-      'Failed to enqueue payment webhook delivery',
-    );
-  });
-
-  it('unsubscribes on stop', async () => {
-    const { pubsub, unsubscribe } = makePubsub();
-    const { queue } = makeQueue();
-    const stop = await startPaymentWebhookBridge(pubsub, queue);
-    await stop();
-    expect(unsubscribe).toHaveBeenCalled();
-  });
-});
-
-describe('queueSimulatedSink', () => {
-  it('enqueues the worker’s own simulated events directly, without pub/sub', async () => {
-    const { queue, add } = makeQueue();
-    await queueSimulatedSink(queue).deliver(signed);
-    expect(add).toHaveBeenCalledWith('deliver', delivery, {
-      jobId: expectedJobId,
-      delay: 30_000,
-    });
-  });
-
-  it('rejects when the enqueue fails, so the provider logs it', async () => {
-    const { queue, add } = makeQueue();
-    add.mockRejectedValueOnce(new Error('redis down'));
-    await expect(queueSimulatedSink(queue).deliver(signed)).rejects.toThrow('redis down');
-  });
 });
 
 describe('createPaymentWebhookWorker', () => {

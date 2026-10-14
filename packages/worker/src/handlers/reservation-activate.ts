@@ -163,7 +163,7 @@ export async function handleReservationActivate(job: Job, pubsub: PubSubClient):
       // The lapsed reservation no longer holds the EVSE: alert watching drivers
       // when the station is now free by the shared rule. Fail-open.
       try {
-        await alertStationWatchersIfAvailable(client, pubsub, reservation.stationDbId);
+        await alertStationWatchersIfAvailable(client, reservation.stationDbId);
       } catch (err) {
         log.warn({ err, reservationDbId }, 'Station-watch check after reservation expiry failed');
       }

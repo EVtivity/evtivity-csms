@@ -8,7 +8,12 @@ import { hostname } from 'node:os';
 import type { Redis } from 'ioredis';
 import { OcppServer } from './server/ocpp-server.js';
 import { CommandListener } from './server/command-listener.js';
-import { PgEventPersistence, client, getSentryConfig } from '@evtivity/database';
+import {
+  PgEventPersistence,
+  client,
+  getSentryConfig,
+  guardPgConnectionRejections,
+} from '@evtivity/database';
 import {
   RedisPubSubClient,
   RedisConnectionRegistry,
@@ -20,7 +25,9 @@ import { subscribeOcppEventSettingsInvalidation } from './server/notification-di
 import { subscribePncCommands } from './services/pki/root-certificate-refresh.js';
 import { startSessionEndSweep, subscribeSessionEndRequests } from './server/csms-session-end.js';
 import { setAuthorizeLogPubSub } from './authorization/authorize-log.js';
-import { setPaymentPubSub } from './lib/payments.js';
+import { setSimulatedEventSink } from './lib/payments.js';
+import { queueSimulatedSink } from '@evtivity/payments';
+import { closeJobQueues, initJobQueues } from '@evtivity/lib/job-queues';
 import { config } from './lib/config.js';
 import { connectionAuthLimitsFromConfig } from './server/connection-auth-limiter.js';
 
@@ -87,10 +94,19 @@ let registryRedis: Redis | null = null;
 let shuttingDown = false;
 
 async function start(): Promise<void> {
+  // A backend terminated while postgres.js fetches its array types must not end
+  // the process (pg-connection-rejections.ts).
+  guardPgConnectionRejections(server.getLogger());
   const sentryConfig = await getSentryConfig();
   initSentry('evtivity-ocpp', sentryConfig);
 
   const instanceId = await deriveInstanceId();
+
+  // Station events add worker jobs (maintenance re-assert, station screens,
+  // station-watch alerts, simulated payment events) to the worker's queues
+  // directly, so the queues are ready before the first station connects.
+  initJobQueues(REDIS_URL);
+  setSimulatedEventSink(queueSimulatedSink());
 
   const tls =
     OCPP_TLS_CERT != null && OCPP_TLS_KEY != null
@@ -100,7 +116,6 @@ async function start(): Promise<void> {
 
   pubsub = new RedisPubSubClient(REDIS_URL);
   setAuthorizeLogPubSub(pubsub);
-  setPaymentPubSub(pubsub);
 
   // Create a separate Redis client for the connection registry (not the pub/sub client)
   registryRedis = createRedisClient(REDIS_URL, 'connection-registry');
@@ -239,8 +254,9 @@ async function shutdown(): Promise<void> {
   // Those handlers use pub/sub, the connection registry and the database, so
   // the clients close only after it returns.
   await server.stop();
+  setSimulatedEventSink(null);
+  await closeJobQueues();
   if (pubsub != null) {
-    setPaymentPubSub(null);
     await pubsub.close();
   }
   if (registryRedis != null) {

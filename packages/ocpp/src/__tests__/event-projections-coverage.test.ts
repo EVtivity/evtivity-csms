@@ -67,6 +67,23 @@ class MockPostgresError extends Error {
   }
 }
 
+// Jobs the projections add to the worker queues themselves (station screens,
+// maintenance re-assert, station-watch alerts), kept as [job name, JSON data]
+// rows in add order.
+const queuedJobs = vi.hoisted(() => [] as Array<[string, string]>);
+vi.mock('@evtivity/lib/job-queues', () => ({
+  jobQueue: () => ({
+    add: (name: string, data: unknown) => {
+      queuedJobs.push([name, JSON.stringify(data)]);
+      return Promise.resolve();
+    },
+    addBulk: () => Promise.resolve(),
+  }),
+}));
+function jobsNamed(name: string): Array<[string, string]> {
+  return queuedJobs.filter((j) => j[0] === name);
+}
+
 vi.mock('postgres', () => {
   const factory = () => createSqlMock();
   factory.PostgresError = MockPostgresError;
@@ -160,7 +177,17 @@ vi.mock('../../../database/src/lib/pricing-settings.js', () => ({
   isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
 }));
 
+// The firmware campaign helpers write their completion audit through the
+// audit module directly.
+vi.mock('../../../database/src/lib/audit.js', () => ({
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@evtivity/database', async () => ({
+  // The real firmware update and campaign progress writes, on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/firmware-updates.js',
+  )),
   // The session end request channel and reasons.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-end-request.js',
@@ -345,6 +372,7 @@ describe('Event projections - coverage expansion', () => {
     sqlCallIndex = 0;
     sqlErrors = new Map();
     vi.clearAllMocks();
+    queuedJobs.length = 0;
     mockAuthorizeSessionHold.mockResolvedValue({
       outcome: 'authorized',
       paymentRecordId: 1,
@@ -720,7 +748,6 @@ describe('Event projections - coverage expansion', () => {
         [], // SELECT evses (not found, auto-create)
         [{ id: 'evs_000000000002' }], // INSERT evses
         [{ id: 'con_000000000002' }], // INSERT connectors RETURNING
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: 'site-status' }], // resolveSiteId
@@ -751,7 +778,6 @@ describe('Event projections - coverage expansion', () => {
         [{ id: 'evs_000000000001' }], // SELECT evses (found but no status field)
         [], // guarded UPDATE connectors (not found)
         [{ id: 'con_000000000001' }], // INSERT connectors RETURNING
-        [], // INSERT port_status_log (previousStatus will be null)
         [{ site_id: null }], // resolveSiteId
       );
 
@@ -1376,7 +1402,7 @@ describe('Event projections - coverage expansion', () => {
         [], // carbon query (no region found)
         [{ site_id: null }], // resolveSiteId
         // notifyChange and TransactionEnded go through pubsub (not SQL)
-        [], // SELECT ocpp_protocol (station_message_transaction)
+        [], // SELECT ocpp_protocol (station screen render)
         // Second subscriber (auto-capture Ended)
         [{ id: 'session-1', final_cost_cents: 2500, site_id: null }], // SELECT session
         // Driver notifications after the settlement (notifySessionEnded)
@@ -1480,7 +1506,7 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [], // carbon query (no region found)
         [{ site_id: null }], // resolveSiteId
-        [], // SELECT ocpp_protocol (station_message_transaction)
+        [], // SELECT ocpp_protocol (station screen render)
         [{ id: 'session-min', final_cost_cents: 22, site_id: null }], // settlement session
         [
           {
@@ -1891,9 +1917,9 @@ describe('Event projections - coverage expansion', () => {
       current_cost_cents: 100,
     });
     const screenPublishes = () =>
-      (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls
-        .filter((c: unknown[]) => c[0] === 'station_message_transaction')
-        .map((c: unknown[]) => JSON.parse(c[1] as string) as Record<string, unknown>);
+      jobsNamed('station-message-transaction').map(
+        (c) => JSON.parse(c[1]) as Record<string, unknown>,
+      );
 
     it('re-renders the screen of an OCPP 2.1 session once its new cost is stored', async () => {
       await setup();
@@ -3352,7 +3378,7 @@ describe('Event projections - coverage expansion', () => {
       [], // INSERT transaction_events
       [], // carbon query (no region found)
       [{ site_id: null }], // resolveSiteId
-      [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_transaction)
+      [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station screen render)
       // Settlement subscriber
       settlementSession == null ? [] : [settlementSession], // SELECT session + station
       // Driver notifications after the settlement (notifySessionEnded)
@@ -3655,7 +3681,7 @@ describe('Event projections - coverage expansion', () => {
 
       await eventBus.emit('ocpp.Authorize', event);
 
-      expect(mockDispatchOcpp).toHaveBeenCalledWith(expect.anything(), event);
+      expect(mockDispatchOcpp).toHaveBeenCalledWith(expect.anything(), event, expect.anything());
     });
 
     it('calls dispatchOcppNotification for ocpp.DataTransfer', async () => {
@@ -3665,7 +3691,7 @@ describe('Event projections - coverage expansion', () => {
 
       await eventBus.emit('ocpp.DataTransfer', event);
 
-      expect(mockDispatchOcpp).toHaveBeenCalledWith(expect.anything(), event);
+      expect(mockDispatchOcpp).toHaveBeenCalledWith(expect.anything(), event, expect.anything());
     });
 
     it('skips a connector status taken from a NotifyEvent', async () => {
@@ -4191,7 +4217,7 @@ describe('Event projections - coverage expansion', () => {
         [], // INSERT transaction_events
         [], // carbon query (no region found)
         [{ site_id: null }], // resolveSiteId
-        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_transaction)
+        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station screen render)
         // Second subscriber (settlement)
         [{ id: 'session-connect-timeout', final_cost_cents: 0, site_id: null }],
         [
@@ -4336,6 +4362,7 @@ describe('Event projections - coverage expansion', () => {
             acChargingParameters: { evMaxCurrent: 32, evMaxVoltage: 230 },
           },
           maxScheduleTuples: 10,
+          transactionId: 'tx-1',
         }),
       );
 
@@ -4349,8 +4376,24 @@ describe('Event projections - coverage expansion', () => {
           stationUuid: 'sta_000000000001',
           stationOcppId: 'CS-TEST',
           evseId: 1,
+          transactionId: 'tx-1',
         }),
       );
+    });
+
+    it('sends no profile when the handler found no transaction to address', async () => {
+      await setup();
+      setupSqlResults([{ id: 'sta_000000000001' }], [], [{ site_id: 'sit_test' }]);
+      await eventBus.emit(
+        'ocpp.NotifyEVChargingNeeds',
+        makeDomainEvent('ocpp.NotifyEVChargingNeeds', 'CS-TEST', {
+          evseId: 1,
+          chargingNeeds: { requestedEnergyTransfer: 'AC_single_phase' },
+          transactionId: null,
+        }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(mockComputeAndSendChargingProfile).not.toHaveBeenCalled();
     });
   });
   describe('prepaid tokens (C17)', () => {

@@ -72,7 +72,7 @@ vi.mock('../lib/provider-switch.js', () => ({ providerSwitchStore: () => 'watchS
 
 vi.mock('@evtivity/services/fleet-billing-notice', () => ({
   notifyAccountBillingChange: mockNotifyChange,
-  publishFleetBillingFanout: mockPublishFanout,
+  enqueueFleetBillingFanout: mockPublishFanout,
 }));
 
 vi.mock('@evtivity/database', () => ({

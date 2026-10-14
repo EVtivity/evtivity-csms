@@ -880,6 +880,8 @@
     "rebootFailed": "重启失败。",
     "rebootRejectedStatus": "充电站拒绝重启 ({{status}})",
     "limitSource": "限制来源",
+    "profileSourceCsms": "CSMS",
+    "profileSourceStation": "充电站",
     "evChargingNeeds": "电动车充电需求",
     "noEvChargingNeeds": "没有报告充电需求",
     "departureTime": "出发时间",
@@ -941,7 +943,8 @@
     "maxPowerUnknown": "最大功率未知",
     "maxPowerUnknownHint": "在设置最大功率之前，负载管理无法限制此连接器。请编辑 EVSE 进行设置。OCPP 2.1 充电站会根据其配置报告自动填写。",
     "removeTag": "移除标签 {{tag}}",
-    "messageCommandQueued": "充电站离线。命令已排队，将在充电站重新连接时发送。"
+    "messageCommandQueued": "充电站离线。命令已排队，将在充电站重新连接时发送。",
+    "chargingNeedsTab": "充电需求与监视器"
   },
   "eventAlertRules": {
     "title": "事件告警规则",
@@ -3276,7 +3279,8 @@
     "AI_PROPOSAL_STALE": "情况已变化，此操作不再适用",
     "AI_PROPOSAL_ALREADY_DECIDED": "此操作已处理",
     "AI_CONFIRMATION_REQUIRES_SESSION": "请登录控制台确认此操作，不能使用 API 密钥",
-    "AI_MCP_RATE_LIMITED": "MCP 请求过多，请稍后再试"
+    "AI_MCP_RATE_LIMITED": "MCP 请求过多，请稍后再试",
+    "CHARGING_PROFILE_ID_RESERVED": "充电配置文件 ID 必须大于充电站的 MaxExternalConstraintsId。"
   },
   "logs": {
     "title": "日志",
@@ -3634,14 +3638,14 @@
     "noCampaignRuns": "暂无活动运行",
     "error": "错误",
     "confirmStart": "启动活动",
-    "confirmStartDescription": "这将向所有匹配的充电站发送固件更新。继续？",
+    "confirmStartDescription": "这将立即向所有符合条件的在线充电站发送固件更新。离线充电站在连接时收到。是否继续?",
     "confirmCancel": "取消活动",
     "confirmCancelDescription": "中止操作可能损坏正在下载或安装固件的充电站。已完成更新的充电站不会受到影响。是否继续？",
     "cancelWarning": "此时中止操作可能损坏正在更新中的充电站。请仅在必要时继续。",
     "confirmDelete": "删除活动",
     "confirmDeleteDescription": "这将永久删除此草稿活动。",
     "targetFilter": "目标过滤器",
-    "targetFilterHelp": "留空以针对所有在线充电站",
+    "targetFilterHelp": "留空则面向所有充电站。离线充电站在连接时收到更新。",
     "allSites": "所有站点",
     "allVendors": "所有供应商",
     "allModels": "所有型号",
@@ -3649,7 +3653,7 @@
     "vendor": "供应商",
     "model": "型号",
     "matchingStations": "匹配的充电站",
-    "noMatchingStations": "没有在线充电站匹配当前过滤器",
+    "noMatchingStations": "没有充电站符合当前筛选条件",
     "currentFirmware": "当前固件",
     "signingCertificate": "签名证书 (PEM)",
     "signature": "固件签名 (base64)",
@@ -3661,7 +3665,32 @@
     "signatureTooLong": "签名最多 800 个字符",
     "signatureStatus": "签名",
     "signed": "已签名",
-    "unsigned": "未签名"
+    "unsigned": "未签名",
+    "statuses": {
+      "draft": "草稿",
+      "active": "进行中",
+      "completed": "已完成",
+      "cancelled": "已取消"
+    },
+    "stationStatuses": {
+      "pending": "待处理",
+      "downloading": "下载中",
+      "downloaded": "已下载",
+      "installing": "安装中",
+      "installed": "已安装",
+      "failed": "失败"
+    },
+    "retries": "下载重试次数",
+    "retriesHelp": "充电站重试失败下载的次数。0 表示不重试。留空则由充电站决定。",
+    "retryInterval": "重试间隔(秒)",
+    "retryIntervalHelp": "下载重试之间的秒数。留空则由充电站决定。",
+    "installDateTime": "安装时间",
+    "installDateTimeHelp": "充电站先下载固件，并在此时间安装。未使用签名更新的 1.6 充电站在下载后立即安装。留空则在下载后立即安装。",
+    "invalidRetries": "请输入 0 到 {{max}} 之间的整数",
+    "invalidRetryInterval": "请输入 1 到 {{max}} 之间的整数秒",
+    "installInPast": "请输入将来的时间",
+    "stationDecides": "由充电站决定",
+    "afterDownload": "下载后"
   },
   "smartCharging": {
     "title": "智能充电",
@@ -3895,7 +3924,15 @@
     "oversubscribed": "超额认购",
     "oversubscriptionWarning": "比率高于1.0允许安装超过配电盘额定值的充电站容量。负荷管理将动态执行断路器限制。",
     "priorityFor": "{{stationId}} 的优先级",
-    "deleteLoad": "删除负载 {{name}}"
+    "deleteLoad": "删除负载 {{name}}",
+    "historyDraw": "用电: {{kw}} kW",
+    "historyAvailable": "可用: {{kw}} kW",
+    "historyLimit": "站点上限: {{kw}} kW",
+    "threePhaseVoltageHint": "三相配电盘使用相线对中性线的电压：208Y/120 为 120 V，400Y/230 为 230 V，480Y/277 为 277 V。",
+    "minPower": "最小功率 (kW)",
+    "minPowerFor": "{{stationId}} 的最小功率",
+    "limitUnit": "限值单位",
+    "minPowerHint": "充电会话获得的功率不会低于其充电站的最小功率。当最小功率之和超出容量时，优先级最低的会话最先停止。仅支持安培的充电站以 A 为单位接收限值。"
   },
   "ai": {
     "title": "AI 助手",
@@ -4882,6 +4919,9 @@
     "detail": {
       "recordTitle": "详细信息",
       "session": "会话",
+      "reservation": "预约",
+      "driver": "驾驶员",
+      "token": "令牌",
       "partOf": "所属"
     },
     "likelyCause": "可能原因",
@@ -5023,5 +5063,46 @@
     "siteInsights": "自动洞察",
     "siteInsightsHelp": "关闭后将停止此站点的自动洞察。",
     "allSitesOnly": "只有可访问所有站点的用户才能更改此项。"
+  },
+  "stationChargingNeeds": {
+    "needsTitle": "电动汽车充电需求",
+    "noNeeds": "没有电动汽车为活动会话报告 ISO 15118 充电需求。",
+    "evse": "EVSE",
+    "energyTransfer": "能量传输",
+    "controlMode": "控制模式",
+    "requestedEnergy": "请求能量",
+    "departureTime": "出发时间",
+    "csmsLimit": "CSMS 限值",
+    "noProfileSent": "未发送配置",
+    "updated": "更新时间",
+    "schedulesTitle": "电动汽车充电计划",
+    "noSchedules": "未收到电动汽车充电计划。",
+    "timeBase": "时间基准",
+    "firstLimit": "首个限值",
+    "periods": "时段",
+    "check": "检查",
+    "received": "接收时间",
+    "notChecked": "未检查",
+    "withinLimits": "在限值内",
+    "exceedsLimits": "超出限值",
+    "monitorsTitle": "变量监视器",
+    "noMonitors": "未设置变量监视器。",
+    "addMonitor": "添加监视器",
+    "stationOffline": "充电站必须在线才能设置监视器。",
+    "component": "组件",
+    "variable": "变量",
+    "monitorType": "监视器类型",
+    "value": "值",
+    "severity": "严重级别",
+    "monitorId": "监视器 ID",
+    "clearMonitor": "清除监视器",
+    "confirmClearMonitor": "从充电站移除此监视器？活动的监视器会先在充电站上清除。",
+    "valueMustBePositive": "此监视器类型的值必须大于 0",
+    "status": {
+      "pending": "待处理",
+      "active": "活动",
+      "error": "错误",
+      "cleared": "已清除"
+    }
   }
 }

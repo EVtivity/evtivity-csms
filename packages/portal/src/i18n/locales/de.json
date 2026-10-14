@@ -876,7 +876,8 @@
     "AI_PROPOSAL_STALE": "Diese Aktion gilt nicht mehr, weil sich die Lage geändert hat",
     "AI_PROPOSAL_ALREADY_DECIDED": "Über diese Aktion wurde bereits entschieden",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Bestätigen Sie diese Aktion angemeldet im Dashboard, nicht mit einem API-Schlüssel",
-    "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut"
+    "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut",
+    "CHARGING_PROFILE_ID_RESERVED": "Die ID des Ladeprofils muss größer als MaxExternalConstraintsId der Ladestation sein."
   },
   "validation": {
     "required": "Dieses Feld ist erforderlich",

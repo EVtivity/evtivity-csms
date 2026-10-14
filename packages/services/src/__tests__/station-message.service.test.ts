@@ -162,6 +162,16 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: vi.fn(() => ({ publish: mockPublish, subscribe: mockSubscribe })),
 }));
 
+// Jobs added to the worker's station-messages queue.
+const mockAddJob = vi.fn();
+const mockJobQueueNames: string[] = [];
+vi.mock('@evtivity/lib/job-queues', () => ({
+  jobQueue: (name: string) => {
+    mockJobQueueNames.push(name);
+    return { add: mockAddJob, addBulk: vi.fn() };
+  },
+}));
+
 // -- Import under test (after mocks) --
 
 import {
@@ -172,8 +182,12 @@ import {
   clearAllTransactionMessages,
   pushAllMessagesToAllStations,
   requestStationMessageRepush,
-  parseStationRefreshPayload,
-  parseStationTransactionPayload,
+  enqueueStationRefresh,
+  enqueueStationTransaction,
+  stationMessageRepushDedupId,
+  STATION_MESSAGE_EVENT_DEBOUNCE_MS,
+  STATION_MESSAGE_JOBS,
+  STATION_MESSAGE_REPUSH_DEBOUNCE_MS,
   runStationRefresh,
   runStationTransaction,
   runStationRender,
@@ -186,6 +200,7 @@ import {
   type TransactionSessionRow,
 } from '../station-message.service.js';
 import { formatStationElapsed } from '@evtivity/lib';
+import { STATION_MESSAGE_QUEUE } from '@evtivity/lib/worker-queues';
 import * as nodeCryptoModule from 'node:crypto';
 import * as drizzleOrmModule from 'drizzle-orm';
 
@@ -1213,30 +1228,6 @@ describe('station-message.service', () => {
     });
   });
 
-  describe('parseStationRefreshPayload', () => {
-    it('accepts a complete payload', () => {
-      expect(
-        parseStationRefreshPayload(
-          JSON.stringify({
-            stationOcppId: STATION_OCPP_ID,
-            internalStationId: INTERNAL_STATION_ID,
-            ocppProtocol: 'ocpp1.6',
-          }),
-        ),
-      ).toEqual({
-        stationOcppId: STATION_OCPP_ID,
-        internalStationId: INTERNAL_STATION_ID,
-        ocppProtocol: 'ocpp1.6',
-      });
-    });
-
-    it('rejects missing fields and malformed JSON', () => {
-      expect(parseStationRefreshPayload(JSON.stringify({ stationOcppId: 'CS-1' }))).toBeNull();
-      expect(parseStationRefreshPayload('{not json')).toBeNull();
-      expect(parseStationRefreshPayload('null')).toBeNull();
-    });
-  });
-
   describe('runStationRefresh', () => {
     it('pushes all messages for the station through the render runner', async () => {
       setupDbResults([STATION_ROW], [], [], [], [], [], [], []);
@@ -1254,34 +1245,6 @@ describe('station-message.service', () => {
 
       expect(render).toHaveBeenCalledWith(INTERNAL_STATION_ID, expect.any(Function));
       expect(mockRenderStationMessage).toHaveBeenCalledWith('available', expect.any(Object), 'en');
-    });
-  });
-
-  describe('parseStationTransactionPayload', () => {
-    const base = {
-      sessionId: 'ses_1',
-      internalStationId: INTERNAL_STATION_ID,
-      stationOcppId: STATION_OCPP_ID,
-      ocppProtocol: 'ocpp2.1',
-    };
-
-    it('accepts a payload with or without a chargingState', () => {
-      expect(
-        parseStationTransactionPayload(
-          JSON.stringify({ ...base, eventType: 'updated', chargingState: 'Charging' }),
-        ),
-      ).toEqual({ ...base, eventType: 'updated', chargingState: 'Charging' });
-      expect(
-        parseStationTransactionPayload(JSON.stringify({ ...base, eventType: 'ended' })),
-      ).toEqual({ ...base, eventType: 'ended', chargingState: null });
-    });
-
-    it('rejects missing fields, an unknown event type, and malformed JSON', () => {
-      expect(parseStationTransactionPayload(JSON.stringify({ sessionId: 'ses_1' }))).toBeNull();
-      expect(
-        parseStationTransactionPayload(JSON.stringify({ ...base, eventType: 'paused' })),
-      ).toBeNull();
-      expect(parseStationTransactionPayload('not-json')).toBeNull();
     });
   });
 
@@ -1478,31 +1441,104 @@ describe('station-message.service', () => {
 describe('requestStationMessageRepush', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockJobQueueNames.length = 0;
     mockPublish.mockResolvedValue(undefined);
+    mockAddJob.mockResolvedValue(undefined);
   });
 
-  it('asks every process to drop its caches, then the worker to re-render', async () => {
+  it('asks every process to drop its caches, then queues one debounced repush per scope', async () => {
     await requestStationMessageRepush(mockLogger, { siteId: 'sit_1' });
 
-    expect(mockPublish).toHaveBeenNthCalledWith(
-      1,
+    expect(mockPublish).toHaveBeenCalledWith(
       'cache_invalidate',
       JSON.stringify({ kind: 'station_message' }),
     );
-    expect(mockPublish).toHaveBeenNthCalledWith(
-      2,
-      'station_message_repush',
-      JSON.stringify({ siteId: 'sit_1' }),
+    expect(mockJobQueueNames).toEqual([STATION_MESSAGE_QUEUE]);
+    expect(mockAddJob).toHaveBeenCalledWith(
+      STATION_MESSAGE_JOBS.REPUSH,
+      { siteId: 'sit_1' },
+      {
+        delay: STATION_MESSAGE_REPUSH_DEBOUNCE_MS,
+        deduplication: {
+          id: 'smr.site.sit_1',
+          ttl: STATION_MESSAGE_REPUSH_DEBOUNCE_MS,
+          extend: true,
+          replace: true,
+        },
+      },
     );
   });
 
-  it('logs a warning and does not throw when the publish fails', async () => {
+  it('still queues the repush when the cache invalidation publish fails', async () => {
     mockPublish.mockRejectedValueOnce(new Error('redis down'));
+    await requestStationMessageRepush(mockLogger);
+    expect(mockAddJob).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs a warning and does not throw when the job cannot be added', async () => {
+    mockAddJob.mockRejectedValueOnce(new Error('redis down'));
 
     await expect(requestStationMessageRepush(mockLogger as never)).resolves.toBeUndefined();
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ error: expect.any(Error) }),
       'Station message repush request failed',
     );
+  });
+
+  it('builds one dedup id per repush scope', () => {
+    expect(stationMessageRepushDedupId({ siteId: 's1' })).toBe('smr.site.s1');
+    expect(stationMessageRepushDedupId({ stationId: 'st1' })).toBe('smr.station.st1');
+    expect(stationMessageRepushDedupId({ pricingGroupId: 'pg1' })).toBe('smr.group.pg1');
+    expect(stationMessageRepushDedupId({})).toBe('smr.all');
+  });
+});
+
+describe('station event renders', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAddJob.mockResolvedValue(undefined);
+  });
+
+  const debounced = (id: string): object => ({
+    delay: STATION_MESSAGE_EVENT_DEBOUNCE_MS,
+    deduplication: { id, ttl: STATION_MESSAGE_EVENT_DEBOUNCE_MS, extend: true, replace: true },
+  });
+
+  it('queues a station refresh, one job per station within the debounce window', async () => {
+    const job = { stationOcppId: 'CS-1', internalStationId: 'sta_1', ocppProtocol: 'ocpp2.1' };
+    await enqueueStationRefresh(job);
+    expect(mockAddJob).toHaveBeenCalledWith(
+      STATION_MESSAGE_JOBS.REFRESH,
+      job,
+      debounced('smf.sta_1'),
+    );
+  });
+
+  it('queues a transaction render, one job per session within the debounce window', async () => {
+    const job = {
+      sessionId: 'ses_1',
+      internalStationId: 'sta_1',
+      stationOcppId: 'CS-1',
+      ocppProtocol: 'ocpp2.1',
+      eventType: 'updated' as const,
+      chargingState: 'Charging',
+    };
+    await enqueueStationTransaction(job);
+    expect(mockAddJob).toHaveBeenCalledWith(
+      STATION_MESSAGE_JOBS.TRANSACTION,
+      job,
+      debounced('smt.ses_1'),
+    );
+  });
+
+  it('throws when the job cannot be added, so the caller logs it', async () => {
+    mockAddJob.mockRejectedValueOnce(new Error('redis down'));
+    await expect(
+      enqueueStationRefresh({
+        stationOcppId: 'CS-1',
+        internalStationId: 'sta_1',
+        ocppProtocol: 'x',
+      }),
+    ).rejects.toThrow('redis down');
   });
 });

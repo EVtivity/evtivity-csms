@@ -73,6 +73,14 @@ describe('compileAllowedTemplate', () => {
     expect(render({ v: '<b>&"</b>' })).toBe('&lt;b&gt;&amp;&quot;&lt;/b&gt;|<b>&"</b>');
   });
 
+  it('leaves {{var}} raw with noEscape, as Handlebars noEscape does', () => {
+    const source = '{{v}}|{{{v}}}|{{#if v}}{{v}}{{/if}}';
+    const variables = { v: '<b>&"</b>' };
+    expect(compileAllowedTemplate(source, { noEscape: true })(variables)).toBe(
+      Handlebars.compile(source, { noEscape: true })(variables),
+    );
+  });
+
   it('never reads inherited properties', () => {
     const render = compileAllowedTemplate('[{{toString}}][{{a.hasOwnProperty}}]');
     expect(render({ a: {} })).toBe('[][]');

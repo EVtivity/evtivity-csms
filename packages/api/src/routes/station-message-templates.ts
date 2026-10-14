@@ -3,7 +3,6 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import Handlebars from 'handlebars';
 import {
   db,
   stationMessageTemplates,
@@ -16,8 +15,10 @@ import {
 import {
   STATION_MESSAGE_DEFAULTS,
   STATION_MESSAGE_LANGUAGES,
+  assertTemplateAllowed,
   buildStationPriceContext,
   clearStationMessageCache,
+  compileAllowedTemplate,
   formatCurrencyAmount,
   formatStationElapsed,
   formatStationIdleFeeRate,
@@ -205,6 +206,9 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
         body: zodSchema(updateBody),
         response: {
           200: itemResponse(templateItem),
+          400: errorWith('The template uses a construct templates do not allow', [
+            ERROR_CODES.VALIDATION_ERROR,
+          ]),
           404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
         },
       },
@@ -214,6 +218,18 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
       const { state } = request.params as z.infer<typeof stateParams>;
       const { language } = request.query as z.infer<typeof languageQuery>;
       const { body } = request.body as z.infer<typeof updateBody>;
+      // Same rules as the renderer (plain variables and if/unless only), so a
+      // template that saves is a template the stations get.
+      try {
+        assertTemplateAllowed(body);
+      } catch (err: unknown) {
+        await reply.status(400).send({
+          error: 'Template is invalid',
+          code: 'VALIDATION_ERROR',
+          details: { body: err instanceof Error ? err.message : String(err) },
+        });
+        return;
+      }
       const jwtUser = request.user as unknown as JwtPayload;
       const userId = typeof jwtUser.userId === 'string' ? jwtUser.userId : null;
 
@@ -323,8 +339,9 @@ export function stationMessageTemplateRoutes(app: FastifyInstance): void {
 
       let rendered: string;
       try {
-        const template = Handlebars.compile(body, { noEscape: true });
-        rendered = template(ctx);
+        // Operator text is never compiled to JavaScript: the allowed-template
+        // renderer walks the parsed template (variables and if/unless only).
+        rendered = compileAllowedTemplate(body, { noEscape: true })(ctx);
       } catch (err) {
         request.log.debug(
           { err },

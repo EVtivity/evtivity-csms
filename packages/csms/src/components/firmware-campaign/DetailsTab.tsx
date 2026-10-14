@@ -17,6 +17,13 @@ import {
   getFirmwareSignatureErrors,
   type FirmwareSignatureValue,
 } from '@/components/FirmwareSignatureFields';
+import {
+  FirmwareDeliveryFields,
+  firmwareDeliveryPayload,
+  firmwareDeliveryValue,
+  getFirmwareDeliveryErrors,
+  type FirmwareDeliveryValue,
+} from '@/components/FirmwareDeliveryFields';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -32,6 +39,9 @@ export interface CampaignDetail {
   version: string | null;
   signingCertificate: string | null;
   signature: string | null;
+  retries: number | null;
+  retryInterval: number | null;
+  installDateTime: string | null;
   status: string;
   targetFilter: Record<string, string> | null;
   createdAt: string;
@@ -55,6 +65,9 @@ interface UpdateCampaignBody {
   version?: string;
   signingCertificate?: string | null;
   signature?: string | null;
+  retries?: number | null;
+  retryInterval?: number | null;
+  installDateTime?: string | null;
   targetFilter?: TargetFilterValue | null;
 }
 
@@ -73,6 +86,9 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
     signingCertificate: '',
     signature: '',
   });
+  const [editDelivery, setEditDelivery] = useState<FirmwareDeliveryValue>(
+    firmwareDeliveryValue(campaign),
+  );
   const [editFilter, setEditFilter] = useState<TargetFilterValue>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [startOpen, setStartOpen] = useState(false);
@@ -127,7 +143,12 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
   }
 
   const signingErrors = getFirmwareSignatureErrors(editSigning, t);
-  const validationErrors: Record<string, string> = { ...getValidationErrors(), ...signingErrors };
+  const deliveryErrors = getFirmwareDeliveryErrors(editDelivery, t);
+  const validationErrors: Record<string, string> = {
+    ...getValidationErrors(),
+    ...signingErrors,
+    ...deliveryErrors,
+  };
 
   function startEdit(): void {
     setEditName(campaign.name);
@@ -137,6 +158,7 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
       signingCertificate: campaign.signingCertificate ?? '',
       signature: campaign.signature ?? '',
     });
+    setEditDelivery(firmwareDeliveryValue(campaign));
     setEditFilter({
       ...(campaign.targetFilter?.siteId != null ? { siteId: campaign.targetFilter.siteId } : {}),
       ...(campaign.targetFilter?.vendorId != null
@@ -220,6 +242,8 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                   // Both empty clears them (an unsigned update).
                   signingCertificate: signingCertificate !== '' ? signingCertificate : null,
                   signature: signature !== '' ? signature : null,
+                  // An empty field clears the stored value.
+                  ...firmwareDeliveryPayload(editDelivery, true),
                 };
                 if (editVersion !== '') body.version = editVersion;
                 body.targetFilter = Object.keys(editFilter).length > 0 ? editFilter : null;
@@ -271,6 +295,13 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                 </div>
               </div>
 
+              <FirmwareDeliveryFields
+                value={editDelivery}
+                onChange={setEditDelivery}
+                idPrefix="fcd-edit"
+                errors={hasSubmitted ? deliveryErrors : {}}
+              />
+
               <FirmwareSignatureFields
                 value={editSigning}
                 onChange={setEditSigning}
@@ -284,6 +315,7 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                 value={editFilter}
                 onChange={setEditFilter}
                 idPrefix="fw-edit-filter"
+                helpText={t('firmwareCampaigns.targetFilterHelp')}
               />
               {hasSubmitted && validationErrors.editTargetFilter && (
                 <p className="text-sm text-destructive">{validationErrors.editTargetFilter}</p>
@@ -315,6 +347,26 @@ export function FirmwareCampaignDetailsTab({ campaign }: Props): React.JSX.Eleme
                   {campaign.signingCertificate != null && campaign.signature != null
                     ? t('firmwareCampaigns.signed')
                     : t('firmwareCampaigns.unsigned')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('firmwareCampaigns.retries')}</dt>
+                <dd className="font-medium">
+                  {campaign.retries ?? t('firmwareCampaigns.stationDecides')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('firmwareCampaigns.retryInterval')}</dt>
+                <dd className="font-medium">
+                  {campaign.retryInterval ?? t('firmwareCampaigns.stationDecides')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('firmwareCampaigns.installDateTime')}</dt>
+                <dd className="font-medium">
+                  {campaign.installDateTime != null
+                    ? formatDateTime(campaign.installDateTime, timezone)
+                    : t('firmwareCampaigns.afterDownload')}
                 </dd>
               </div>
               <div>

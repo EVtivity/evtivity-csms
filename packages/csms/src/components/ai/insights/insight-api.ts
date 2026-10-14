@@ -48,6 +48,16 @@ export interface AiInsightView extends AiInsightDto {
   stationName?: string | null;
   /** Name of the site, for display. */
   siteName?: string | null;
+  /** OCPP reservation id of the reservation, for display. */
+  reservationNumber?: number | null;
+  /** The driver of a reservation insight, or the one matched by a refused token. */
+  driverId?: string | null;
+  /** The driver's name; null without `drivers:read` or when the driver is gone. */
+  driverName?: string | null;
+  /** The token matched by the refused attempt of an authorization insight. */
+  tokenId?: string | null;
+  /** The token's idToken; null without `drivers:read` or when the token is gone. */
+  tokenLabel?: string | null;
   /** Detail only: the votes (one per user) and the viewer's own vote. */
   feedback?: InsightFeedbackSummary;
 }

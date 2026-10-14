@@ -297,7 +297,7 @@ describe('handleReservationActivate', () => {
         }),
       );
       expect(reserveNowCalls()).toHaveLength(0);
-      expect(mockAlertStationWatchers).toHaveBeenCalledWith(expect.anything(), pubsub, 'sta_1');
+      expect(mockAlertStationWatchers).toHaveBeenCalledWith(expect.anything(), 'sta_1');
     });
 
     it('does not audit expiry when the guarded expire-update matches no row', async () => {

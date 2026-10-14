@@ -51,11 +51,11 @@ function makeChain(): Record<string, unknown> {
 
 // -- Hoisted mocks --
 
-const { mockIsStationMessageEnabled, mockGetStationMessageRefreshSeconds, mockPublish } =
+const { mockIsStationMessageEnabled, mockGetStationMessageRefreshSeconds, mockEnqueue } =
   vi.hoisted(() => ({
     mockIsStationMessageEnabled: vi.fn(),
     mockGetStationMessageRefreshSeconds: vi.fn(),
-    mockPublish: vi.fn().mockResolvedValue(undefined),
+    mockEnqueue: vi.fn().mockResolvedValue(undefined),
   }));
 
 vi.mock('@evtivity/database', () => ({
@@ -92,8 +92,9 @@ vi.mock('drizzle-orm', () => ({
   ),
 }));
 
-vi.mock('@evtivity/lib/pubsub-instance', () => ({
-  getPubSub: () => ({ publish: mockPublish }),
+// The cron adds the transaction render jobs to the worker's queue itself.
+vi.mock('@evtivity/services/station-message.service', () => ({
+  enqueueStationTransaction: mockEnqueue,
 }));
 
 // -- Import under test --
@@ -111,7 +112,7 @@ describe('stationMessageChargingRefreshHandler', () => {
     setupDbResults();
     mockIsStationMessageEnabled.mockResolvedValue(true);
     mockGetStationMessageRefreshSeconds.mockResolvedValue(30);
-    mockPublish.mockResolvedValue(undefined);
+    mockEnqueue.mockResolvedValue(undefined);
   });
 
   it('returns early when station messages are disabled', async () => {
@@ -120,7 +121,7 @@ describe('stationMessageChargingRefreshHandler', () => {
     const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
-    expect(mockPublish).not.toHaveBeenCalled();
+    expect(mockEnqueue).not.toHaveBeenCalled();
   });
 
   it('selects only sessions on stations that are online', async () => {
@@ -131,7 +132,7 @@ describe('stationMessageChargingRefreshHandler', () => {
     expect(eq).toHaveBeenCalledWith('isOnline', true);
   });
 
-  it('publishes one transaction event per active OCPP 2.1 session', async () => {
+  it('queues one transaction render per active OCPP 2.1 session', async () => {
     setupDbResults(
       [
         {
@@ -153,15 +154,10 @@ describe('stationMessageChargingRefreshHandler', () => {
     const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
-    expect(mockPublish).toHaveBeenCalledTimes(2);
-    const events = mockPublish.mock.calls.map((c) => {
-      const body = JSON.parse(c[1] as string) as {
-        sessionId: string;
-        eventType: string;
-        chargingState?: string;
-      };
-      return body;
-    });
+    expect(mockEnqueue).toHaveBeenCalledTimes(2);
+    const events = mockEnqueue.mock.calls.map(
+      (c) => c[0] as { sessionId: string; eventType: string; chargingState?: string },
+    );
     expect(events).toEqual([
       expect.objectContaining({ sessionId: 'ses_1', eventType: 'updated' }),
       expect.objectContaining({ sessionId: 'ses_2', eventType: 'updated' }),
@@ -198,12 +194,12 @@ describe('stationMessageChargingRefreshHandler', () => {
     const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
-    expect(mockPublish).toHaveBeenCalledTimes(1);
-    const body = JSON.parse(mockPublish.mock.calls[0]![1] as string) as { sessionId: string };
+    expect(mockEnqueue).toHaveBeenCalledTimes(1);
+    const body = mockEnqueue.mock.calls[0]![0] as { sessionId: string };
     expect(body.sessionId).toBe('ses_old');
   });
 
-  it('logs a warning and excludes failed publishes from the published count', async () => {
+  it('logs a warning and excludes failed adds from the queued count', async () => {
     setupDbResults(
       [
         {
@@ -221,10 +217,9 @@ describe('stationMessageChargingRefreshHandler', () => {
       ],
       [],
     );
-    mockPublish.mockImplementation((_channel: string, body: string) => {
-      const parsed = JSON.parse(body) as { sessionId: string };
-      if (parsed.sessionId === 'ses_fail') {
-        return Promise.reject(new Error('redis publish failed'));
+    mockEnqueue.mockImplementation((job: { sessionId: string }) => {
+      if (job.sessionId === 'ses_fail') {
+        return Promise.reject(new Error('redis down'));
       }
       return Promise.resolve(undefined);
     });
@@ -232,17 +227,14 @@ describe('stationMessageChargingRefreshHandler', () => {
     const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
-    expect(mockPublish).toHaveBeenCalledTimes(2);
+    expect(mockEnqueue).toHaveBeenCalledTimes(2);
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 'ses_fail' }),
-      'Failed to publish station_message_transaction refresh event',
+      'Failed to queue the station message charging refresh',
     );
-    // Only the successful publish increments the count; the rejected one is
-    // filtered out, so the info log reports exactly one publish.
-    expect(log.info).toHaveBeenCalledWith(
-      { published: 1 },
-      'Station message charging refresh published',
-    );
+    // Only the successful add increments the count; the rejected one is
+    // filtered out, so the info log reports exactly one job.
+    expect(log.info).toHaveBeenCalledWith({ queued: 1 }, 'Station message charging refresh queued');
   });
 
   it('skips the info log when every session is within the refresh window', async () => {
@@ -262,16 +254,16 @@ describe('stationMessageChargingRefreshHandler', () => {
     const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
-    expect(mockPublish).not.toHaveBeenCalled();
+    expect(mockEnqueue).not.toHaveBeenCalled();
     expect(log.info).not.toHaveBeenCalled();
   });
 
-  it('does not publish when there are no active sessions', async () => {
+  it('queues nothing when there are no active sessions', async () => {
     setupDbResults([]);
 
     const { stationMessageChargingRefreshHandler } = stationMessageChargingRefreshModule;
     await stationMessageChargingRefreshHandler(log);
 
-    expect(mockPublish).not.toHaveBeenCalled();
+    expect(mockEnqueue).not.toHaveBeenCalled();
   });
 });

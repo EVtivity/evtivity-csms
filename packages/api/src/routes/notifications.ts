@@ -331,7 +331,8 @@ function safeTemplatePath(
   const lang = TEMPLATE_LANGUAGES.has(language) ? language : 'en';
   const baseResolved = resolve(baseDir);
   const filePath = resolve(baseResolved, lang, eventType.replace(/\./g, '/'), `${channel}.hbs`);
-  if (filePath !== baseResolved && !filePath.startsWith(baseResolved + sep)) return null;
+  // The file always lies below the base (it ends in `<channel>.hbs`).
+  if (!filePath.startsWith(baseResolved + sep)) return null;
   return filePath;
 }
 

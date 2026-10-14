@@ -5,6 +5,9 @@ import type { FastifyInstance } from 'fastify';
 import { state, findPartnerEndpoint } from '../state.js';
 import { ocpiGet, ocpiPost, ocpiPut } from '../client.js';
 
+/** An OCPI id (CiString(36)) that is a safe URL path segment. */
+const OCPI_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,35}$/;
+
 function notRegistered(): Record<string, unknown> {
   return { error: 'Not registered with target. Set OCPI_REGISTRATION_TOKEN and restart.' };
 }
@@ -236,6 +239,12 @@ function registerCpoControls(app: FastifyInstance): void {
 
     const body = request.body as { session_id?: string; kwh?: number } | null;
     const sessionId = body?.session_id ?? `SIM-SESSION-${Date.now().toString()}`;
+    // The id is a path segment of the push URL: an OCPI id (CiString(36)) in
+    // URL-safe characters, never `..` or a `/`.
+    if (typeof sessionId !== 'string' || !OCPI_ID_PATTERN.test(sessionId)) {
+      await reply.status(400).send({ error: 'session_id must be 1-36 letters, digits, ., _ or -' });
+      return;
+    }
     const kwh = body?.kwh ?? 0;
 
     const session = {

@@ -142,6 +142,10 @@ export const chargingStations = pgTable(
     // operator to confirm a real station. Cleared with the flag.
     simulatorConflictAt: timestamp('simulator_conflict_at', { withTimezone: true }),
     loadPriority: integer('load_priority').notNull().default(5),
+    // Lowest power in kW load management gives a charging session at this
+    // station; below it the session is stopped (limit 0), lowest priority
+    // first. Null: no minimum.
+    loadMinPowerKw: numeric('load_min_power_kw'),
     circuitId: text('circuit_id'),
     securityProfile: integer('security_profile').notNull().default(1),
     pendingSecurityProfile: integer('pending_security_profile'),

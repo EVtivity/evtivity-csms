@@ -8,6 +8,10 @@ import { db } from '@evtivity/database';
 import { reservations, chargingStations, fleetReservations, fleets } from '@evtivity/database';
 import { AppError } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
+import {
+  isReservedProfileId,
+  maxExternalConstraintsIdByIdentity,
+} from '../lib/charging-profile-id.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import { paginatedResponse, itemResponse, errorWith } from '../lib/response-schemas.js';
@@ -293,7 +297,26 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
             results[index] = rejected(slot, outcome.error);
             return;
           }
-          if (outcome.kind === 'accepted' && body.chargingProfile != null) {
+          const profileId = body.chargingProfile?.['id'];
+          const maxExternalId =
+            outcome.kind === 'accepted' &&
+            body.chargingProfile != null &&
+            typeof profileId === 'number'
+              ? await maxExternalConstraintsIdByIdentity(station.stationId)
+              : null;
+          if (
+            outcome.kind === 'accepted' &&
+            body.chargingProfile != null &&
+            typeof profileId === 'number' &&
+            maxExternalId != null &&
+            isReservedProfileId(profileId, maxExternalId)
+          ) {
+            // K01.FR.81: the station would reject it; the reservation stands.
+            request.log.warn(
+              { stationId: station.stationId, profileId, maxExternalId },
+              'Charging profile id is not above the station MaxExternalConstraintsId, profile not sent',
+            );
+          } else if (outcome.kind === 'accepted' && body.chargingProfile != null) {
             // Best effort: the reservation stands without the profile.
             const profile = await sendOcppCommandAndWait(station.stationId, 'SetChargingProfile', {
               evseId: slot.evseId ?? 0,

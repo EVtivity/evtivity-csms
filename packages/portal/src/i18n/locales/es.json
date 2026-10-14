@@ -876,7 +876,8 @@
     "AI_PROPOSAL_STALE": "Esta acción ya no es válida porque la situación cambió",
     "AI_PROPOSAL_ALREADY_DECIDED": "Ya se decidió sobre esta acción",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
-    "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde"
+    "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde",
+    "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación."
   },
   "validation": {
     "required": "Este campo es obligatorio",

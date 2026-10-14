@@ -56,6 +56,7 @@ export const ERROR_CODES = {
   CAMPAIGN_NOT_FOUND: 'CAMPAIGN_NOT_FOUND',
   CASE_NOT_FOUND: 'CASE_NOT_FOUND',
   CDR_NOT_FOUND: 'CDR_NOT_FOUND',
+  CHARGING_PROFILE_ID_RESERVED: 'CHARGING_PROFILE_ID_RESERVED',
   CIRCUIT_NOT_FOUND: 'CIRCUIT_NOT_FOUND',
   COMMAND_ERROR: 'COMMAND_ERROR',
   COMMAND_FAILED: 'COMMAND_FAILED',
@@ -370,6 +371,7 @@ export type ErrorCode =
   | 'CAMPAIGN_NOT_FOUND'
   | 'CASE_NOT_FOUND'
   | 'CDR_NOT_FOUND'
+  | 'CHARGING_PROFILE_ID_RESERVED'
   | 'CIRCUIT_NOT_FOUND'
   | 'COMMAND_ERROR'
   | 'COMMAND_FAILED'
@@ -695,6 +697,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CAMPAIGN_NOT_FOUND: 'Campaign not found',
   CASE_NOT_FOUND: 'Case not found',
   CDR_NOT_FOUND: 'CDR not found',
+  CHARGING_PROFILE_ID_RESERVED:
+    "The charging profile ID must be above the station's MaxExternalConstraintsId",
   CIRCUIT_NOT_FOUND: 'Circuit not found',
   COMMAND_ERROR: 'Command failed',
   COMMAND_FAILED: 'Command failed',

@@ -206,9 +206,12 @@ export class TransactionProjector {
    * and the CSMS end (`csms-session-end.ts`, MAX(seq_no) + 1) never matches
    * the station's own Ended.
    *
-   * Race-safe without a unique key on the large table: every event of one
-   * transaction projects on its transaction lane, one at a time, so the
-   * first delivery wrote its row before the resend is checked. Memoized: a
+   * Every event of one transaction projects on its transaction lane, one at
+   * a time, so the first delivery wrote its row before the resend is
+   * checked. A resend projected on another OCPP pod while the first delivery
+   * is still projecting is not caught here, but the unique key
+   * `uq_transaction_events_event` (the same identity) and the inserts'
+   * ON CONFLICT DO NOTHING keep it to one row. Memoized: a
    * projection retry keeps the first answer although the first run has
    * since written this event's row.
    */
@@ -515,12 +518,13 @@ export class TransactionProjector {
         await this.deps.sql`
             INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload)
             VALUES (${sessionId}, 'started', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson})
+            ON CONFLICT DO NOTHING
           `;
       } catch (txEvtErr: unknown) {
         // A statement that never reached the server goes to the projection
         // retry. One interrupted mid-statement may have committed, so the
-        // projection is not retried: it continues to the gate (P11), at the
-        // cost of a possible duplicate log row if the station resends.
+        // projection is not retried: it continues to the gate (P11). A
+        // committed row is never doubled: ON CONFLICT on the event identity.
         if (pgConnectionErrorKind(txEvtErr) === 'not-sent') throw txEvtErr;
         this.deps.logger.warn(
           { err: txEvtErr, sessionId, transactionId },
@@ -673,6 +677,7 @@ export class TransactionProjector {
         stationOcppId: stationId,
         ocppReservationId: typeof payload.reservationId === 'number' ? payload.reservationId : null,
         idToken: (payload.idToken as string | null | undefined) ?? null,
+        attempt: tx.attempt,
       });
     } catch (err) {
       // A lost connection goes to the projection retry. These statements run
@@ -1402,6 +1407,7 @@ export class TransactionProjector {
           await this.deps.sql`
             INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload)
             VALUES (${sessionId}, 'updated', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson})
+            ON CONFLICT DO NOTHING
           `;
         } catch (txEvtErr: unknown) {
           // Only a statement that never reached the server is retried; an
@@ -1680,6 +1686,17 @@ export class TransactionProjector {
       const sessionId = sessionRow.id as string;
       const endedEvseUuid = sessionRow.evse_id as string | null;
 
+      // The ISO 15118 charging needs belong to the EV of this transaction.
+      // Left in place, its departure time would steer the next session on the
+      // EVSE (load management priority) and show as current needs.
+      if (endedEvseUuid != null) {
+        await this.deps.sql`
+          DELETE FROM ev_charging_needs n
+          USING evses e
+          WHERE e.id = ${endedEvseUuid} AND n.station_id = e.station_id AND n.evse_id = e.evse_id
+        `;
+      }
+
       // OCPP 2.1: chargingState is on transactionInfo of the Ended event (e.g. EVConnected
       // when the cable is still plugged after a remote stop). Mirror the Updated-handler
       // behaviour so the connector badge transitions out of 'charging' even when the
@@ -1742,6 +1759,7 @@ export class TransactionProjector {
           await this.deps.sql`
             INSERT INTO transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason, payload)
             VALUES (${sessionId}, 'ended', ${seqNo}, ${timestamp}, ${triggerReason}, ${payloadJson})
+            ON CONFLICT DO NOTHING
           `;
         } catch (txEvtErr: unknown) {
           // Only a statement that never reached the server is retried; an
@@ -1993,13 +2011,17 @@ export class TransactionProjector {
   async endByCsms(event: DomainEvent, attempt: ProjectionAttempt): Promise<void> {
     const stationId = event.payload.stationId as string;
     const transactionId = event.payload.transactionId as string;
-    // Transaction ids are unique per station only (N4).
-    const [row] = await this.deps.sql`
-      SELECT cs.status FROM charging_sessions cs
-      JOIN charging_stations st ON st.id = cs.station_id
-      WHERE st.station_id = ${stationId} AND cs.transaction_id = ${transactionId}
-    `;
-    if (row?.status !== 'active') return;
+    // Transaction ids are unique per station only (N4). Memoized: a projection
+    // retry after the end committed keeps the first answer and still settles.
+    const status = await attempt.memo('csms-end:status', async () => {
+      const [row] = await this.deps.sql`
+        SELECT cs.status FROM charging_sessions cs
+        JOIN charging_stations st ON st.id = cs.station_id
+        WHERE st.station_id = ${stationId} AND cs.transaction_id = ${transactionId}
+      `;
+      return (row?.status as string | undefined) ?? null;
+    });
+    if (status !== 'active') return;
     await this.project(event, attempt);
     await settleTransactionEnded(this.deps, event, attempt);
   }

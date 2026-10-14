@@ -880,6 +880,8 @@
     "rebootFailed": "Reinicio fallido.",
     "rebootRejectedStatus": "La estación rechazó el reinicio ({{status}})",
     "limitSource": "Fuente de Límite",
+    "profileSourceCsms": "CSMS",
+    "profileSourceStation": "Estación",
     "evChargingNeeds": "Necesidades de Carga EV",
     "noEvChargingNeeds": "No se reportaron necesidades de carga",
     "departureTime": "Hora de Salida",
@@ -941,7 +943,8 @@
     "maxPowerUnknown": "Potencia máxima desconocida",
     "maxPowerUnknownHint": "La gestión de carga no puede limitar este conector hasta que se defina su potencia máxima. Edite el EVSE para definirla. Las estaciones OCPP 2.1 la completan desde su informe de configuración.",
     "removeTag": "Quitar etiqueta {{tag}}",
-    "messageCommandQueued": "Estación sin conexión. El comando quedó en cola y se enviará cuando la estación se vuelva a conectar."
+    "messageCommandQueued": "Estación sin conexión. El comando quedó en cola y se enviará cuando la estación se vuelva a conectar.",
+    "chargingNeedsTab": "Necesidades de Carga y Monitores"
   },
   "eventAlertRules": {
     "title": "Reglas de Alerta de Eventos",
@@ -3276,7 +3279,8 @@
     "AI_PROPOSAL_STALE": "Esta acción ya no es válida porque la situación cambió",
     "AI_PROPOSAL_ALREADY_DECIDED": "Ya se decidió sobre esta acción",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
-    "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde"
+    "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde",
+    "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación."
   },
   "logs": {
     "title": "Registros",
@@ -3634,14 +3638,14 @@
     "noCampaignRuns": "Sin ejecuciones de campaña aún",
     "error": "Error",
     "confirmStart": "Iniciar campaña",
-    "confirmStartDescription": "Esto enviará actualizaciones de firmware a todas las estaciones coincidentes. ¿Continuar?",
+    "confirmStartDescription": "Esto enviará ahora la actualización de firmware a todas las estaciones en línea que coincidan. Las estaciones sin conexión la reciben al conectarse. ¿Continuar?",
     "confirmCancel": "Cancelar campaña",
     "confirmCancelDescription": "Abortar podría dejar inutilizables las estaciones que están descargando o instalando firmware. Las estaciones ya actualizadas no se verán afectadas. ¿Continuar?",
     "cancelWarning": "Abortar ahora podría dejar inutilizables las estaciones que están a mitad de actualización. Continúe solo si es necesario.",
     "confirmDelete": "Eliminar campaña",
     "confirmDeleteDescription": "Esto eliminará permanentemente la campaña en borrador.",
     "targetFilter": "Filtro de destino",
-    "targetFilterHelp": "Dejar vacío para apuntar a todas las estaciones en línea",
+    "targetFilterHelp": "Déjelo vacío para dirigirse a todas las estaciones. Las estaciones sin conexión reciben la actualización al conectarse.",
     "allSites": "Todos los sitios",
     "allVendors": "Todos los fabricantes",
     "allModels": "Todos los modelos",
@@ -3649,7 +3653,7 @@
     "vendor": "Fabricante",
     "model": "Modelo",
     "matchingStations": "Estaciones coincidentes",
-    "noMatchingStations": "Ninguna estación en línea coincide con el filtro actual",
+    "noMatchingStations": "Ninguna estación coincide con el filtro actual",
     "currentFirmware": "Firmware actual",
     "signingCertificate": "Certificado de firma (PEM)",
     "signature": "Firma del firmware (base64)",
@@ -3661,7 +3665,32 @@
     "signatureTooLong": "La firma puede tener como máximo 800 caracteres",
     "signatureStatus": "Firma",
     "signed": "Firmado",
-    "unsigned": "Sin firma"
+    "unsigned": "Sin firma",
+    "statuses": {
+      "draft": "Borrador",
+      "active": "Activa",
+      "completed": "Completada",
+      "cancelled": "Cancelada"
+    },
+    "stationStatuses": {
+      "pending": "Pendiente",
+      "downloading": "Descargando",
+      "downloaded": "Descargado",
+      "installing": "Instalando",
+      "installed": "Instalado",
+      "failed": "Fallido"
+    },
+    "retries": "Reintentos de descarga",
+    "retriesHelp": "Cuántas veces la estación reintenta una descarga fallida. 0 significa sin reintentos. Déjelo vacío para que decida la estación.",
+    "retryInterval": "Intervalo de reintento (segundos)",
+    "retryIntervalHelp": "Segundos entre reintentos de descarga. Déjelo vacío para que decida la estación.",
+    "installDateTime": "Hora de instalación",
+    "installDateTimeHelp": "La estación descarga primero el firmware y lo instala a esta hora. Una estación 1.6 sin actualización firmada lo instala justo después de la descarga. Déjelo vacío para instalar justo después de la descarga.",
+    "invalidRetries": "Introduzca un número entero de 0 a {{max}}",
+    "invalidRetryInterval": "Introduzca un número entero de segundos de 1 a {{max}}",
+    "installInPast": "Introduzca una hora futura",
+    "stationDecides": "Decide la estación",
+    "afterDownload": "Después de la descarga"
   },
   "smartCharging": {
     "title": "Carga Inteligente",
@@ -3895,7 +3924,15 @@
     "oversubscribed": "Sobresuscrito",
     "oversubscriptionWarning": "Un ratio superior a 1.0 permite instalar más capacidad de estación que la clasificación del panel. La gestión de carga aplica el límite del interruptor dinámicamente.",
     "priorityFor": "Prioridad de {{stationId}}",
-    "deleteLoad": "Eliminar carga {{name}}"
+    "deleteLoad": "Eliminar carga {{name}}",
+    "historyDraw": "Consumo: {{kw}} kW",
+    "historyAvailable": "Disponible: {{kw}} kW",
+    "historyLimit": "Límite del Sitio: {{kw}} kW",
+    "threePhaseVoltageHint": "Un panel trifásico usa el voltaje entre fase y neutro: 120 V para 208Y/120, 230 V para 400Y/230, 277 V para 480Y/277.",
+    "minPower": "Potencia Mínima (kW)",
+    "minPowerFor": "Potencia mínima para {{stationId}}",
+    "limitUnit": "Unidad del Límite",
+    "minPowerHint": "Una sesión de carga nunca recibe menos que el mínimo de su estación. Si los mínimos no caben, se detienen primero las sesiones de menor prioridad. Las estaciones que solo admiten amperios reciben su límite en A."
   },
   "ai": {
     "title": "Asistente de IA",
@@ -4882,6 +4919,9 @@
     "detail": {
       "recordTitle": "Detalles",
       "session": "Sesión",
+      "reservation": "Reserva",
+      "driver": "Conductor",
+      "token": "Token",
       "partOf": "Parte de"
     },
     "likelyCause": "Causa probable",
@@ -5023,5 +5063,46 @@
     "siteInsights": "Análisis automáticos",
     "siteInsightsHelp": "Desactívelo para detener los análisis automáticos de este sitio.",
     "allSitesOnly": "Solo los usuarios con acceso a todos los sitios pueden cambiar esto."
+  },
+  "stationChargingNeeds": {
+    "needsTitle": "Necesidades de Carga del VE",
+    "noNeeds": "Ningún VE ha informado necesidades de carga ISO 15118 para una sesión activa.",
+    "evse": "EVSE",
+    "energyTransfer": "Transferencia de Energía",
+    "controlMode": "Modo de Control",
+    "requestedEnergy": "Energía Solicitada",
+    "departureTime": "Hora de Salida",
+    "csmsLimit": "Límite del CSMS",
+    "noProfileSent": "Ningún Perfil Enviado",
+    "updated": "Actualizado",
+    "schedulesTitle": "Programas de Carga del VE",
+    "noSchedules": "No se recibieron programas de carga del VE.",
+    "timeBase": "Base de Tiempo",
+    "firstLimit": "Primer Límite",
+    "periods": "Períodos",
+    "check": "Comprobación",
+    "received": "Recibido",
+    "notChecked": "No Comprobado",
+    "withinLimits": "Dentro de los Límites",
+    "exceedsLimits": "Excede los Límites",
+    "monitorsTitle": "Monitores de Variables",
+    "noMonitors": "No hay monitores de variables configurados.",
+    "addMonitor": "Añadir Monitor",
+    "stationOffline": "La estación debe estar en línea para configurar un monitor.",
+    "component": "Componente",
+    "variable": "Variable",
+    "monitorType": "Tipo de Monitor",
+    "value": "Valor",
+    "severity": "Gravedad",
+    "monitorId": "ID del Monitor",
+    "clearMonitor": "Eliminar Monitor",
+    "confirmClearMonitor": "¿Eliminar este monitor de la estación? Un monitor activo se elimina primero en la estación.",
+    "valueMustBePositive": "El valor debe ser mayor que 0 para este tipo de monitor",
+    "status": {
+      "pending": "Pendiente",
+      "active": "Activo",
+      "error": "Error",
+      "cleared": "Eliminado"
+    }
   }
 }

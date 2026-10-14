@@ -26,11 +26,15 @@ import { z } from 'zod';
 import { and, eq, inArray } from 'drizzle-orm';
 import {
   db,
+  authorizeAttempts,
   chargingStations,
   checkAiBudgets,
+  drivers,
+  driverTokens,
   getAiInsightSettings,
   isReservationEnabled,
   isOpsAiEnabled,
+  reservations,
   sites,
   supportCases,
   supportCaseSessions,
@@ -260,6 +264,33 @@ const insightSchema = z
       .nullable()
       .describe('OCPP identity of the station, for display; null without a station'),
     siteName: z.string().nullable().describe('Name of the site, for display; null without a site'),
+    reservationNumber: z
+      .number()
+      .int()
+      .nullable()
+      .describe('OCPP reservation id of the reservation, for display; null without a reservation'),
+    driverId: z
+      .string()
+      .nullable()
+      .describe(
+        'Driver the insight names: the driver of a reservation insight, or the driver matched by the refused token of an authorization insight; null when none',
+      ),
+    driverName: z
+      .string()
+      .nullable()
+      .describe(
+        'Name (else email) of the driver, for display; null without drivers:read or when the driver no longer exists',
+      ),
+    tokenId: z
+      .string()
+      .nullable()
+      .describe('Driver token matched by the refused attempt of an authorization insight'),
+    tokenLabel: z
+      .string()
+      .nullable()
+      .describe(
+        'idToken of that token, for display; null without drivers:read or when the token no longer exists',
+      ),
     feedback: z
       .object({
         helpfulCount: z.number().int().describe('Users who marked the insight helpful'),
@@ -388,13 +419,36 @@ async function insightInScope(id: string, siteIds: string[] | null): Promise<AiI
   return row;
 }
 
-/** Display names of the insights' stations (OCPP identity) and sites. */
+interface RecordNames {
+  stations: Map<string, string>;
+  sites: Map<string, string>;
+  reservations: Map<string, { number: number; driverId: string | null }>;
+  attempts: Map<number, { tokenId: string | null; driverId: string | null }>;
+  /** Filled only for callers with `drivers:read`. */
+  drivers: Map<string, string>;
+  tokens: Map<string, string>;
+}
+
+function distinct<T>(values: readonly (T | null | undefined)[]): T[] {
+  return [...new Set(values.filter((v): v is T => v != null))];
+}
+
+/**
+ * Display labels of the records the insights name: station (OCPP identity),
+ * site, reservation (OCPP reservation id), and the driver and token of a
+ * reservation or authorization insight. Driver names and idTokens are
+ * personal data, so they are read only for callers with `drivers:read`; a
+ * record that no longer exists has no label and the CSMS shows its plain id.
+ */
 async function recordNames(
   rows: readonly AiInsightRow[],
-): Promise<{ stations: Map<string, string>; sites: Map<string, string> }> {
-  const stationIds = [...new Set(rows.map((r) => r.stationId).filter((id) => id != null))];
-  const siteIds = [...new Set(rows.map((r) => r.siteId).filter((id) => id != null))];
-  const [stationRows, siteRows] = await Promise.all([
+  canReadDrivers: boolean,
+): Promise<RecordNames> {
+  const stationIds = distinct(rows.map((r) => r.stationId));
+  const siteIds = distinct(rows.map((r) => r.siteId));
+  const reservationIds = distinct(rows.map((r) => r.reservationId));
+  const attemptIds = distinct(rows.map((r) => r.authorizeAttemptId));
+  const [stationRows, siteRows, reservationRows, attemptRows] = await Promise.all([
     stationIds.length === 0
       ? []
       : db
@@ -404,10 +458,82 @@ async function recordNames(
     siteIds.length === 0
       ? []
       : db.select({ id: sites.id, name: sites.name }).from(sites).where(inArray(sites.id, siteIds)),
+    reservationIds.length === 0
+      ? []
+      : db
+          .select({
+            id: reservations.id,
+            number: reservations.reservationId,
+            driverId: reservations.driverId,
+          })
+          .from(reservations)
+          .where(inArray(reservations.id, reservationIds)),
+    attemptIds.length === 0
+      ? []
+      : db
+          .select({
+            id: authorizeAttempts.id,
+            tokenId: authorizeAttempts.matchedTokenId,
+            driverId: authorizeAttempts.matchedDriverId,
+          })
+          .from(authorizeAttempts)
+          .where(inArray(authorizeAttempts.id, attemptIds)),
   ]);
+  const driverIds = canReadDrivers
+    ? distinct([...reservationRows.map((r) => r.driverId), ...attemptRows.map((r) => r.driverId)])
+    : [];
+  const tokenIds = canReadDrivers ? distinct(attemptRows.map((r) => r.tokenId)) : [];
+  const [driverRows, tokenRows] = await Promise.all([
+    driverIds.length === 0
+      ? []
+      : db
+          .select({
+            id: drivers.id,
+            firstName: drivers.firstName,
+            lastName: drivers.lastName,
+            email: drivers.email,
+          })
+          .from(drivers)
+          .where(inArray(drivers.id, driverIds)),
+    tokenIds.length === 0
+      ? []
+      : db
+          .select({ id: driverTokens.id, idToken: driverTokens.idToken })
+          .from(driverTokens)
+          .where(inArray(driverTokens.id, tokenIds)),
+  ]);
+  const driverNames = new Map<string, string>();
+  for (const d of driverRows) {
+    const label = userName(d) ?? d.email;
+    if (label != null && label !== '') driverNames.set(d.id, label);
+  }
   return {
     stations: new Map(stationRows.map((r) => [r.id, r.name])),
     sites: new Map(siteRows.map((r) => [r.id, r.name])),
+    reservations: new Map(
+      reservationRows.map((r) => [r.id, { number: r.number, driverId: r.driverId }]),
+    ),
+    attempts: new Map(attemptRows.map((r) => [r.id, { tokenId: r.tokenId, driverId: r.driverId }])),
+    drivers: driverNames,
+    tokens: new Map(tokenRows.map((r) => [r.id, r.idToken])),
+  };
+}
+
+/** The labelled records of one insight (`recordNames`), as view fields. */
+function recordFields(row: AiInsightRow, names: RecordNames): Record<string, unknown> {
+  const reservation = row.reservationId != null ? names.reservations.get(row.reservationId) : null;
+  const attempt =
+    row.authorizeAttemptId != null ? names.attempts.get(row.authorizeAttemptId) : null;
+  const driverId = reservation?.driverId ?? attempt?.driverId ?? null;
+  const tokenId = attempt?.tokenId ?? null;
+  return {
+    stationName: row.stationId != null ? (names.stations.get(row.stationId) ?? null) : null,
+    siteName: row.siteId != null ? (names.sites.get(row.siteId) ?? null) : null,
+    reservationNumber: reservation?.number ?? null,
+    driverId,
+    driverName: driverId != null ? (names.drivers.get(driverId) ?? null) : null,
+    tokenId,
+    tokenLabel: tokenId != null ? (names.tokens.get(tokenId) ?? null) : null,
   };
 }
 
@@ -443,11 +569,16 @@ async function actionViews(
   return out;
 }
 
-async function toView(rows: AiInsightRow[], language: string): Promise<Record<string, unknown>[]> {
+async function toView(
+  rows: AiInsightRow[],
+  language: string,
+  request: FastifyRequest,
+): Promise<Record<string, unknown>[]> {
+  const canReadDrivers = await requestHasPermission(request, 'drivers:read');
   const [texts, stale, names, actions] = await Promise.all([
     insightTexts(rows, language),
     staleFlags(rows),
-    recordNames(rows),
+    recordNames(rows, canReadDrivers),
     actionViews(rows),
   ]);
   return rows.map((row) => {
@@ -458,8 +589,7 @@ async function toView(rows: AiInsightRow[], language: string): Promise<Record<st
       // The action again with its display name (the DTO schema keeps known fields only).
       action,
       originalSummary: originalSummary(t),
-      stationName: row.stationId != null ? (names.stations.get(row.stationId) ?? null) : null,
-      siteName: row.siteId != null ? (names.sites.get(row.siteId) ?? null) : null,
+      ...recordFields(row, names),
     };
   });
 }
@@ -551,7 +681,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
         offset: (query.page - 1) * query.limit,
       });
       const language = await viewerLanguage(userId, query.language);
-      const data = await toView(rows, language);
+      const data = await toView(rows, language, request);
       if (attemptIds != null) {
         const covered = await insightCoveredAttempts(
           rows.map((r) => r.id),
@@ -649,7 +779,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
           language,
         });
       }
-      const [rendered] = await toView([row], language);
+      const [rendered] = await toView([row], language, request);
       // Counts and the viewer's vote in one aggregate query, only when asked.
       return wantFeedback === 'true'
         ? { ...rendered, feedback: await insightFeedbackSummary(row.id, userId) }
@@ -787,7 +917,7 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       }
       const fresh = (await getInsightRow(row.id)) ?? row;
       const language = await viewerLanguage(userId, undefined);
-      const [view] = await toView([fresh], language);
+      const [view] = await toView([fresh], language, request);
       return view;
     },
   );
@@ -954,7 +1084,7 @@ async function insightView(
   const row = await getInsightRow(insightId);
   if (row == null) return null;
   const { userId } = request.user as JwtPayload;
-  const [view] = await toView([row], await viewerLanguage(userId, undefined));
+  const [view] = await toView([row], await viewerLanguage(userId, undefined), request);
   return view ?? null;
 }
 

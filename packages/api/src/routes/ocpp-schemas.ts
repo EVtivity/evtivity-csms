@@ -53,9 +53,10 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
       const is16 = version === 'ocpp1.6';
 
       const registry = is16 ? ActionRegistry16 : ActionRegistry;
-      const entry = registry[action as ActionName & ActionName16] as
-        | { validateRequest: (p: unknown) => boolean }
-        | undefined;
+      // Own keys only: an inherited name (`constructor`) is not an action.
+      const entry = (
+        Object.hasOwn(registry, action) ? registry[action as ActionName & ActionName16] : undefined
+      ) as { validateRequest: (p: unknown) => boolean } | undefined;
       if (entry == null) {
         return reply.status(404).send({
           error: 'Unknown OCPP action',
@@ -93,9 +94,10 @@ export function ocppSchemaRoutes(app: FastifyInstance): void {
     const version = is16 ? 'ocpp1.6' : 'ocpp2.1';
 
     const registry = is16 ? ActionRegistry16 : ActionRegistry;
-    const entry = registry[action as ActionName & ActionName16] as
-      | { validateRequest: (p: unknown) => boolean }
-      | undefined;
+    // Own keys only: an inherited name (`constructor`) is not an action.
+    const entry = (
+      Object.hasOwn(registry, action) ? registry[action as ActionName & ActionName16] : undefined
+    ) as { validateRequest: (p: unknown) => boolean } | undefined;
     if (entry == null) {
       return reply.status(404).send({
         error: 'Unknown OCPP action',

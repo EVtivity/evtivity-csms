@@ -43,6 +43,9 @@ export const firmwareUpdateStatusEnum = pgEnum('firmware_update_status', [
   'InstallVerificationFailed',
   'InvalidSignature',
   'SignatureVerified',
+  // CSMS-side: the station never started the update (refused, command error,
+  // queued command expired). status_info.reasonCode says which.
+  'Rejected',
 ]);
 
 export const logUploadStatusEnum = pgEnum('log_upload_status', [
@@ -273,6 +276,8 @@ export const evChargingNeeds = pgTable(
     requestedEnergyTransfer: varchar('requested_energy_transfer', { length: 50 }),
     controlMode: varchar('control_mode', { length: 50 }),
     maxScheduleTuples: integer('max_schedule_tuples'),
+    /** The TxProfile the CSMS sent for these needs (SetChargingProfile payload), or null. */
+    csmsChargingProfile: jsonb('csms_charging_profile'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -292,6 +297,8 @@ export const evChargingSchedules = pgTable(
     evseId: integer('evse_id').notNull(),
     timeBase: timestamp('time_base', { withTimezone: true }),
     chargingSchedule: jsonb('charging_schedule').notNull(),
+    /** The CSMS check of the schedule against its own (K15.FR.11/12); null when not checked. */
+    withinLimits: boolean('within_limits'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [index('idx_ev_charging_schedules_station_id').on(table.stationId)],

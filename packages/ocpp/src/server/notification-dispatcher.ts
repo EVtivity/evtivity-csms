@@ -6,7 +6,8 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CACHE_INVALIDATE_CHANNEL, createLogger } from '@evtivity/lib';
 import type { DomainEvent, NotificationDispatchResult, PubSubClient } from '@evtivity/lib';
-import { getWebhookAllowedPrivateHosts } from '@evtivity/database';
+import { getWebhookAllowedPrivateHosts, pgConnectionErrorKind } from '@evtivity/database';
+import type { ProjectionAttempt } from './projection-retry.js';
 import {
   getNotificationSettings,
   getCompanySettings,
@@ -124,7 +125,12 @@ export async function subscribeOcppEventSettingsInvalidation(
   return sub;
 }
 
-async function loadSettingsCache(sql: postgres.Sql): Promise<Map<string, OcppEventSetting>> {
+// `rethrowConnectionErrors`: a lost connection with no cache to fall back on is
+// thrown, so a retried projection runs again instead of sending nothing.
+async function loadSettingsCache(
+  sql: postgres.Sql,
+  rethrowConnectionErrors: boolean,
+): Promise<Map<string, OcppEventSetting>> {
   const now = Date.now();
   if (settingsCache != null && now - settingsCacheAt < SETTINGS_CACHE_TTL_MS) {
     return settingsCache;
@@ -148,6 +154,9 @@ async function loadSettingsCache(sql: postgres.Sql): Promise<Map<string, OcppEve
     settingsCacheAt = now;
     return cache;
   } catch (err) {
+    if (settingsCache == null && rethrowConnectionErrors && pgConnectionErrorKind(err) != null) {
+      throw err;
+    }
     logger.error({ err }, 'Failed to load OCPP event settings cache');
     return settingsCache ?? new Map();
   }
@@ -157,8 +166,9 @@ async function loadSettingsCache(sql: postgres.Sql): Promise<Map<string, OcppEve
 async function getEnabledChannels(
   sql: postgres.Sql,
   eventType: string,
+  rethrowConnectionErrors: boolean,
 ): Promise<OcppEventSetting[]> {
-  const cache = await loadSettingsCache(sql);
+  const cache = await loadSettingsCache(sql, rethrowConnectionErrors);
   const result: OcppEventSetting[] = [];
   for (const ch of ['email', 'webhook']) {
     const setting = cache.get(`${eventType}:${ch}`);
@@ -171,12 +181,29 @@ async function getEnabledChannels(
 
 // --- OCPP notification dispatch (settings-based) ---
 
+interface SendOutcome {
+  status: 'sent' | 'failed';
+  failureReason: string | null;
+}
+
+/**
+ * Sends an OCPP event to the operator channels enabled for it. Fail-open: an
+ * error is logged, never thrown, except that with `attempt` (a projection
+ * retried on a lost connection) a lost connection before the last run is
+ * thrown so the retry runs it again. Each recipient's send and its
+ * notifications row are `once` steps, so a rerun never sends twice; the reads
+ * before them run again.
+ */
 export async function dispatchOcppNotification(
   sql: postgres.Sql,
   event: DomainEvent,
+  attempt?: ProjectionAttempt,
 ): Promise<void> {
+  const retrying = attempt != null && !attempt.isLast;
+  const once = <T>(key: string, step: () => Promise<T>): Promise<T> =>
+    attempt != null ? attempt.once(key, step) : step();
   try {
-    const enabledSettings = await getEnabledChannels(sql, event.eventType);
+    const enabledSettings = await getEnabledChannels(sql, event.eventType, retrying);
     if (enabledSettings.length === 0) return;
 
     const notificationSettings = await getNotificationSettings(sql);
@@ -203,7 +230,11 @@ export async function dispatchOcppNotification(
       const settingChannel = setting.channel;
       const settingLanguage = setting.language ?? '';
 
-      for (const recipient of recipients) {
+      for (const [index, recipient] of recipients.entries()) {
+        const stepKey = `notify:${settingChannel}:${String(index)}:${recipient.address}`;
+        // True while the notifications INSERT runs: a connection lost there
+        // may have committed it, so it is never retried.
+        let recording = false;
         try {
           const language = settingLanguage !== '' ? settingLanguage : recipient.language;
           const formattedVariables = formatDateVariables(variables, systemTimezone, language);
@@ -233,14 +264,13 @@ export async function dispatchOcppNotification(
                   formattedVariables,
                 )
               : undefined;
-          let status: 'sent' | 'failed' = 'sent';
-          let failureReason: string | null = null;
-
-          if (channel === 'email') {
-            if (notificationSettings.smtp == null) {
-              status = 'failed';
-              failureReason = 'smtp_not_configured';
-            } else {
+          const allowedPrivateHosts =
+            channel === 'webhook' ? await getWebhookAllowedPrivateHosts() : [];
+          const sent = await once(`${stepKey}:send`, async (): Promise<SendOutcome> => {
+            if (channel === 'email') {
+              if (notificationSettings.smtp == null) {
+                return { status: 'failed', failureReason: 'smtp_not_configured' };
+              }
               const ok = await sendEmail(
                 notificationSettings.smtp,
                 recipient.address,
@@ -249,43 +279,51 @@ export async function dispatchOcppNotification(
                 wrappedHtml,
               );
               if (!ok) {
-                status = 'failed';
-                failureReason =
-                  notificationSettings.smtp.credentialError === 'decrypt_failed'
-                    ? 'credentials_decrypt_failed'
-                    : 'smtp_send_failed';
+                return {
+                  status: 'failed',
+                  failureReason:
+                    notificationSettings.smtp.credentialError === 'decrypt_failed'
+                      ? 'credentials_decrypt_failed'
+                      : 'smtp_send_failed',
+                };
               }
+            } else if (channel === 'webhook') {
+              const result = await sendWebhook(
+                recipient.address,
+                rendered.subject,
+                rendered.body,
+                formattedVariables,
+                allowedPrivateHosts,
+              );
+              if (result !== 'ok') {
+                return { status: 'failed', failureReason: `webhook_${result}` };
+              }
+            } else {
+              logNotification(channel, recipient.address, rendered.subject, rendered.body);
             }
-          } else if (channel === 'webhook') {
-            const result = await sendWebhook(
-              recipient.address,
-              rendered.subject,
-              rendered.body,
-              formattedVariables,
-              await getWebhookAllowedPrivateHosts(),
-            );
-            if (result !== 'ok') {
-              status = 'failed';
-              failureReason = `webhook_${result}`;
-            }
-          } else {
-            logNotification(channel, recipient.address, rendered.subject, rendered.body);
-          }
+            return { status: 'sent', failureReason: null };
+          });
+          const { status, failureReason } = sent;
 
           const storedBody =
             channel === 'email' && wrappedHtml != null ? wrappedHtml : rendered.body;
           const metadata: Record<string, string> = {};
           if (failureReason != null) metadata['failureReason'] = failureReason;
-          await recordNotificationAttempt(sql, {
-            channel: channel as 'email' | 'sms' | 'push' | 'webhook' | 'log',
-            recipient: recipient.address,
-            subject: rendered.subject,
-            body: storedBody,
-            status,
-            eventType: event.eventType,
-            metadata,
-          });
+          recording = true;
+          await once(`${stepKey}:record`, () =>
+            recordNotificationAttempt(sql, {
+              channel: channel as 'email' | 'sms' | 'push' | 'webhook' | 'log',
+              recipient: recipient.address,
+              subject: rendered.subject,
+              body: storedBody,
+              status,
+              eventType: event.eventType,
+              metadata,
+            }),
+          );
         } catch (err) {
+          const kind = pgConnectionErrorKind(err);
+          if (retrying && kind != null && !(recording && kind === 'interrupted')) throw err;
           logger.error(
             { err, eventType: event.eventType, recipient: recipient.address },
             'OCPP notification dispatch failed for recipient',
@@ -294,6 +332,7 @@ export async function dispatchOcppNotification(
       }
     }
   } catch (err) {
+    if (retrying && pgConnectionErrorKind(err) != null) throw err;
     logger.error({ err, eventType: event.eventType }, 'OCPP notification dispatch failed');
   }
 }

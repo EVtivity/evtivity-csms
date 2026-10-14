@@ -3,8 +3,9 @@
  * Verify every SQL file in packages/database/src/migrations is recorded in
  * drizzle.__drizzle_migrations on the connected database. Self-heals any
  * silently-skipped migrations (drizzle-kit's `when`-comparison bug on
- * preserved-volume upgrades) by applying the SQL inside a transaction and
- * recording the hash. Exits non-zero only on a true failure so docker-
+ * preserved-volume upgrades) by applying the file as run-migrations.mjs does
+ * (one transaction, or statement by statement for a no-transaction file,
+ * under the same advisory lock) and recording the hash. Exits non-zero only on a true failure so docker-
  * compose's `service_completed_successfully` blocks dependent services
  * from starting against a stale schema.
  *
@@ -13,11 +14,11 @@
  *   node ../../scripts/verify-migrations-applied.mjs --dry-run # report drift only
  */
 
-import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postgres from 'postgres';
+import { applyMigrationFile, lockMigrations, migrationHash } from './lib/migration-files.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -68,7 +69,7 @@ const expected = sqlFiles.map((f) => {
   return {
     tag,
     body,
-    hash: createHash('sha256').update(body).digest('hex'),
+    hash: migrationHash(body),
     when: whenByTag.get(tag) ?? Date.now(),
   };
 });
@@ -78,6 +79,7 @@ const expected = sqlFiles.map((f) => {
 const rootVersion = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')).version;
 const sql = postgres(DATABASE_URL, {
   max: 1,
+  onnotice: () => {},
   connection: { application_name: `evtivity@${rootVersion}` },
 });
 
@@ -86,7 +88,7 @@ try {
   const applied = new Set(rows.map((r) => r.hash));
   // Preserve file order so trailing migrations apply in the right sequence
   // (later migrations may depend on earlier ones that drizzle also skipped).
-  const missing = expected.filter((e) => !applied.has(e.hash));
+  let missing = expected.filter((e) => !applied.has(e.hash));
 
   if (missing.length > 0) {
     if (DRY_RUN) {
@@ -97,26 +99,21 @@ try {
       console.log(`\n--dry-run: not applying. Re-run without --dry-run to repair.`);
       process.exit(0);
     }
+    // The runner's lock, then a fresh read: another migrator may have applied
+    // the files while this one waited.
+    await lockMigrations(sql);
+    const lockedRows = await sql`SELECT hash FROM drizzle.__drizzle_migrations`;
+    const lockedApplied = new Set(lockedRows.map((r) => r.hash));
+    missing = missing.filter((e) => !lockedApplied.has(e.hash));
     console.warn(
       `verify-migrations-applied: ${missing.length} migration(s) drizzle silently skipped, self-healing...`,
     );
     for (const m of missing) {
       console.warn(`  - applying ${m.tag} (sha256 ${m.hash.slice(0, 12)}...)`);
-      // Each migration runs in its own transaction so a mid-batch failure
-      // leaves the DB in a recoverable state with the just-applied rows
-      // committed up to (but not including) the failure.
-      await sql.begin(async (tx) => {
-        // Strip drizzle's "--> statement-breakpoint" markers; postgres-js
-        // sql.unsafe() executes the whole text as a single multi-statement
-        // batch, which is what drizzle-kit migrate does internally.
-        const body = m.body.replace(/-->\s*statement-breakpoint/g, '');
-        await tx.unsafe(body);
-        await tx`
-          INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-          VALUES (${m.hash}, ${m.when})
-          ON CONFLICT DO NOTHING
-        `;
-      });
+      // Each file commits on its own (one transaction, or each statement of
+      // a no-transaction file), so a mid-batch failure keeps the files
+      // applied before it.
+      await applyMigrationFile(sql, { contents: m.body, hash: m.hash, when: m.when });
     }
     console.warn(`verify-migrations-applied: self-healed ${missing.length} migration(s)`);
   }

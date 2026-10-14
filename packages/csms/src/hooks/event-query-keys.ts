@@ -50,8 +50,20 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
       }
       break;
 
+    // ISO 15118 charging needs and the EV schedules checked against them.
+    case 'station.evChargingNeeds':
+      if (stationId != null) {
+        keys.push(['stations', stationId, 'ev-charging-needs']);
+        keys.push(['stations', stationId, 'ev-charging-schedules']);
+      }
+      break;
+
     case 'session.started':
     case 'session.ended':
+      // The charging needs of an EVSE end with its transaction.
+      if (eventType === 'session.ended' && stationId != null) {
+        keys.push(['stations', stationId, 'ev-charging-needs']);
+      }
       keys.push(['dashboard', 'stats']);
       keys.push(['dashboard', 'session-history']);
       keys.push(['dashboard', 'energy-history']);
@@ -125,6 +137,12 @@ export function getQueryKeysForEvent(event: CsmsEvent): string[][] {
     case 'ocpp.message':
       if (stationId != null) {
         keys.push(['stations', stationId, 'ocpp-logs']);
+      }
+      break;
+
+    case 'station.chargingProfiles':
+      if (stationId != null) {
+        keys.push(['stations', stationId, 'charging-profiles']);
       }
       break;
 

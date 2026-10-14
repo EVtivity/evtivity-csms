@@ -5,19 +5,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   publish: vi.fn(),
+  addJob: vi.fn(),
   isRoamingEnabled: vi.fn(),
 }));
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: mocks.publish }) }));
+// Station screen repushes are station-messages jobs the API adds itself.
+vi.mock('@evtivity/lib/job-queues', () => ({
+  jobQueue: () => ({ add: mocks.addJob, addBulk: vi.fn() }),
+}));
 vi.mock('@evtivity/database', () => ({ isRoamingEnabled: mocks.isRoamingEnabled }));
 
 const { publishPricingChanged, stationMessageRepushScope } =
   await import('../lib/pricing-events.js');
 
 function repushes(): unknown[] {
-  return mocks.publish.mock.calls
-    .filter(([channel]) => channel === 'station_message_repush')
-    .map(([, payload]) => JSON.parse(payload as string) as unknown);
+  return mocks.addJob.mock.calls
+    .filter(([name]) => name === 'station-message-repush')
+    .map(([, data]) => data as unknown);
 }
 
 function ocpiPushes(): unknown[] {

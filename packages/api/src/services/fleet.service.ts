@@ -28,7 +28,7 @@ import { providerSwitchStore } from '../lib/provider-switch.js';
 import { AppError } from '@evtivity/lib';
 import {
   notifyAccountBillingChange,
-  publishFleetBillingFanout,
+  enqueueFleetBillingFanout,
 } from '@evtivity/services/fleet-billing-notice';
 import type { AuditActorInfo } from '../lib/audit-actor.js';
 import {
@@ -319,7 +319,7 @@ export async function setFleetAccountBilling(
   // One fan-out per change. `recipient` only when the recipient changed (a
   // switch-only change keeps the v0.1.45 payload shape).
   const recipientChanged = diff.after.accountInvoiceRecipient !== undefined;
-  await publishFleetBillingFanout(
+  await enqueueFleetBillingFanout(
     {
       fleetId,
       enabled: fleet.accountBillingEnabled,

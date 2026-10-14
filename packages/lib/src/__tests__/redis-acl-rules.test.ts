@@ -135,7 +135,7 @@ describe('docker/redis/acl-rules.conf', () => {
 
   it('finds the channels in the sources (the scan itself works)', () => {
     expect(channelsUsedBy('ocpp').has('ocpp_commands')).toBe(true);
-    expect(channelsUsedBy('worker').has('station_watch_available')).toBe(true);
+    expect(channelsUsedBy('worker').has('reservation_schedule')).toBe(true);
     expect(channelsUsedBy('api').has('css_commands')).toBe(true);
   });
 
@@ -210,11 +210,34 @@ describe('docker/redis/acl-rules.conf', () => {
     // OCPI pull lock and its own BullMQ queue (ocpi-cdrs), no other queue.
     expect(grantsKey(user('ocpi'), 'opl:partner-1:locations', 'rw')).toBe(true);
     expect(grantsKey(user('ocpi'), 'bull:ocpi-cdrs:wait', 'rw')).toBe(true);
-    // The api adds "Invoice All Members" jobs to the member-invoices queue, no other queue.
-    expect(grantsKey(user('api'), 'bull:member-invoices:wait', 'rw')).toBe(true);
-    expect(grantsKey(user('api'), 'bull:member-invoices:id', 'rw')).toBe(true);
-    expect(grantsKey(user('api'), 'bull:fleet-invoices:wait', 'r')).toBe(false);
-    expect(grantsKey(user('api'), 'bull:payment-webhooks:wait', 'r')).toBe(false);
+    // api and ocpp add jobs straight to the worker queues whose requests must
+    // survive a stopped worker, and to no other queue.
+    const producerQueues = {
+      api: [
+        'fleet-billing-fanout',
+        'maintenance-fanout',
+        'member-invoices',
+        'payment-webhooks',
+        'station-messages',
+        'station-watch',
+      ],
+      ocpp: ['maintenance-fanout', 'payment-webhooks', 'station-messages', 'station-watch'],
+    };
+    for (const [name, queues] of Object.entries(producerQueues)) {
+      for (const queue of queues) {
+        expect(grantsKey(user(name), `bull:${queue}:wait`, 'rw'), `${name} ${queue}`).toBe(true);
+        expect(grantsKey(user(name), `bull:${queue}:id`, 'rw'), `${name} ${queue}`).toBe(true);
+        // Debounced station message jobs use BullMQ deduplication keys.
+        expect(grantsKey(user(name), `bull:${queue}:de:x`, 'rw'), `${name} ${queue}`).toBe(true);
+      }
+    }
+    for (const queue of ['fleet-invoices', 'reservations', 'reports', 'ai-insights']) {
+      expect(grantsKey(user('api'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
+      expect(grantsKey(user('ocpp'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
+    }
+    for (const queue of ['fleet-billing-fanout', 'member-invoices']) {
+      expect(grantsKey(user('ocpp'), `bull:${queue}:wait`, 'r'), queue).toBe(false);
+    }
 
     for (const name of ['api', 'ocpp', 'ocpi', 'css']) {
       expect(grantsKey(user(name), 'bull:cron-jobs:wait', 'r'), name).toBe(false);

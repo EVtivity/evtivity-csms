@@ -250,6 +250,27 @@ describe('Station message template routes', () => {
       expect(requestStationMessageRepush).toHaveBeenCalledTimes(1);
     });
 
+    it('refuses a template with helpers, partials or prototype paths, without saving', async () => {
+      for (const body of [
+        '{{#with this}}{{constructor.constructor}}{{/with}}',
+        '{{lookup this "constructor"}}',
+        '{{> partial}}',
+        '{{__proto__}}',
+        '{{#each list}}x{{/each}}',
+      ]) {
+        clearStationMessageCache.mockClear();
+        const res = await app.inject({
+          method: 'PUT',
+          url: '/station-message-templates/available?language=en',
+          headers: { authorization: `Bearer ${token}` },
+          payload: { body },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().code).toBe('VALIDATION_ERROR');
+        expect(clearStationMessageCache).not.toHaveBeenCalled();
+      }
+    });
+
     it('does not re-render station screens for a one-shot template', async () => {
       setupDbResults([
         {
@@ -391,6 +412,23 @@ describe('Station message template routes', () => {
         payload: { state: 'available', body: 'hi' },
       });
       expect(res.statusCode).toBe(400);
+    });
+
+    it('renders variables unescaped and never runs helpers or reads prototype paths', async () => {
+      const render = async (body: string): Promise<string> => {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/station-message-templates/preview',
+          headers: { authorization: `Bearer ${token}` },
+          payload: { state: 'charging', language: 'en', body, sampleContext: { x: 'a&b<c>' } },
+        });
+        expect(res.statusCode).toBe(200);
+        return res.json().rendered as string;
+      };
+      expect(await render('{{x}}|{{#if x}}y{{else}}n{{/if}}')).toBe('a&b<c>|y');
+      expect(await render('{{#with this}}{{constructor.constructor}}{{/with}}')).toBe('');
+      expect(await render('{{lookup this "x"}}')).toBe('');
+      expect(await render('[{{toString}}]')).toBe('[]');
     });
 
     it('honors sampleContext overrides', async () => {

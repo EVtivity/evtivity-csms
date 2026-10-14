@@ -140,7 +140,11 @@ function toText(value: unknown): string {
   }
 }
 
-function renderProgram(program: hbs.AST.Program | null | undefined, context: unknown): string {
+function renderProgram(
+  program: hbs.AST.Program | null | undefined,
+  context: unknown,
+  noEscape: boolean,
+): string {
   if (program == null) return '';
   let out = '';
   for (const node of program.body) {
@@ -151,15 +155,16 @@ function renderProgram(program: hbs.AST.Program | null | undefined, context: unk
       case 'MustacheStatement': {
         const m = node as hbs.AST.MustacheStatement;
         const text = toText(lookup(m.path as hbs.AST.PathExpression, context));
-        // {{var}} escapes HTML, {{{var}}} does not.
-        out += m.escaped ? Handlebars.escapeExpression(text) : text;
+        // {{var}} escapes HTML, {{{var}}} does not. Plain-text targets
+        // (station displays) escape neither, as Handlebars noEscape does.
+        out += m.escaped && !noEscape ? Handlebars.escapeExpression(text) : text;
         break;
       }
       case 'BlockStatement': {
         const b = node as hbs.AST.BlockStatement;
         const condition = isTruthy(lookup(b.params[0] as hbs.AST.PathExpression, context));
         const show = b.path.original === 'unless' ? !condition : condition;
-        out += renderProgram(show ? b.program : b.inverse, context);
+        out += renderProgram(show ? b.program : b.inverse, context, noEscape);
         break;
       }
       default:
@@ -170,12 +175,21 @@ function renderProgram(program: hbs.AST.Program | null | undefined, context: unk
   return out;
 }
 
+export interface AllowedTemplateOptions {
+  /** Render {{var}} without HTML escaping, for plain-text targets (Handlebars `noEscape`). */
+  noEscape?: boolean;
+}
+
 /**
  * Validates an operator-editable template and returns its renderer. The
  * renderer walks the parsed template directly. Operator text is never
  * compiled to JavaScript.
  */
-export function compileAllowedTemplate(source: string): TemplateRenderer {
+export function compileAllowedTemplate(
+  source: string,
+  options: AllowedTemplateOptions = {},
+): TemplateRenderer {
   const program = parseAllowed(source);
-  return (variables) => renderProgram(program, variables);
+  const noEscape = options.noEscape === true;
+  return (variables) => renderProgram(program, variables, noEscape);
 }

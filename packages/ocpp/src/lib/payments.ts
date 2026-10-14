@@ -5,21 +5,20 @@ import { createLogger } from '@evtivity/lib';
 import {
   createPaymentRegistry,
   deferredSimulatedSink,
-  pubsubSimulatedSink,
   resolveActiveProvider,
 } from '@evtivity/payments';
 import type {
   PaymentContext,
   PaymentLogger,
   PaymentProvider,
-  PaymentWebhookPublisher,
+  SimulatedEventSink,
 } from '@evtivity/payments';
 import { config } from './config.js';
 
 /**
- * Simulated provider events (the dispute card) go to the worker over the
- * `payment_webhook_deliveries` channel. The pub/sub client exists only after
- * startup, so the sink is connected by setPaymentPubSub.
+ * Simulated provider events (the dispute card) are added to the worker's
+ * `payment-webhooks` queue. The job queues exist only after startup, so the
+ * sink is connected by setSimulatedEventSink.
  */
 const simulatedEvents = deferredSimulatedSink();
 
@@ -46,7 +45,7 @@ export function activePaymentProvider(logger: PaymentLogger): Promise<PaymentPro
   return resolveActiveProvider(paymentContext(logger));
 }
 
-/** Connects the simulated provider's events to pub/sub at startup; null at shutdown. */
-export function setPaymentPubSub(pubsub: PaymentWebhookPublisher | null): void {
-  simulatedEvents.bind(pubsub == null ? null : pubsubSimulatedSink(pubsub));
+/** Connects the simulated provider's events at startup (queueSimulatedSink); null at shutdown. */
+export function setSimulatedEventSink(sink: SimulatedEventSink | null): void {
+  simulatedEvents.bind(sink);
 }

@@ -1,90 +1,26 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import crypto from 'node:crypto';
-import { UnrecoverableError, Worker, type ConnectionOptions, type Queue } from 'bullmq';
-import { z } from 'zod';
+import { UnrecoverableError, Worker, type ConnectionOptions } from 'bullmq';
 import type { PubSubClient } from '@evtivity/lib';
 import { createLogger } from '@evtivity/lib';
 import {
   dispatchPaymentWebhookNotices,
   ingestPaymentWebhook,
-  PAYMENT_WEBHOOK_CHANNEL,
   WebhookNotConfiguredError,
   WebhookSignatureError,
 } from '@evtivity/payments';
-import type { PaymentWebhookDelivery, SimulatedEventSink } from '@evtivity/payments';
+import type { PaymentWebhookDelivery } from '@evtivity/payments';
 import { QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
 import { PAYMENT_TEMPLATES_DIRS, paymentContext } from './lib/payments.js';
 
 const log = createLogger('payment-webhook-worker');
 
-const deliverySchema = z.object({
-  provider: z.literal('simulated'),
-  rawBody: z.string().min(1),
-  headers: z.record(z.string(), z.string()),
-  delaySeconds: z.number().finite().nonnegative(),
-});
-
 /**
- * The provider plus the SHA-256 of the signed body. Every worker replica
- * receives each pub/sub message, so the deterministic id makes BullMQ keep
- * one job per delivery (P7). The pipeline also dedupes on the event id.
- */
-export function paymentWebhookJobId(delivery: PaymentWebhookDelivery): string {
-  const hash = crypto.createHash('sha256').update(delivery.rawBody).digest('hex');
-  return `${delivery.provider}-${hash}`;
-}
-
-async function enqueue(queue: Queue, delivery: PaymentWebhookDelivery): Promise<void> {
-  await queue.add('deliver', delivery, {
-    jobId: paymentWebhookJobId(delivery),
-    delay: Math.round(delivery.delaySeconds * 1000),
-  });
-}
-
-/**
- * Sink for the simulated provider inside the worker: the worker's own events
- * go straight into the queue, without a round trip over pub/sub.
- */
-export function queueSimulatedSink(queue: Queue): SimulatedEventSink {
-  return {
-    deliver: (delivery) => enqueue(queue, { provider: 'simulated', ...delivery }),
-  };
-}
-
-/**
- * Subscribes to PAYMENT_WEBHOOK_CHANNEL (simulated provider events published
- * by the API and OCPP processes) and enqueues each as a delayed job.
- */
-export async function startPaymentWebhookBridge(
-  pubsub: PubSubClient,
-  queue: Queue,
-): Promise<() => Promise<void>> {
-  const subscription = await pubsub.subscribe(PAYMENT_WEBHOOK_CHANNEL, (payload: string) => {
-    let delivery: PaymentWebhookDelivery;
-    try {
-      delivery = deliverySchema.parse(JSON.parse(payload));
-    } catch (err) {
-      log.warn({ err }, 'Malformed payment webhook delivery dropped');
-      return;
-    }
-    enqueue(queue, delivery).catch((err: unknown) => {
-      log.error({ err }, 'Failed to enqueue payment webhook delivery');
-    });
-  });
-
-  log.info('Payment webhook bridge started');
-
-  return async () => {
-    await subscription.unsubscribe();
-    log.info('Payment webhook bridge stopped');
-  };
-}
-
-/**
- * Ingests delayed provider events through the webhook pipeline. A bad
+ * Ingests delayed provider events through the webhook pipeline. Every process
+ * with the simulated provider adds the jobs itself (queueSimulatedSink in
+ * @evtivity/payments), so an event waits while no worker runs. A bad
  * signature or a provider this process does not have will not succeed on a
  * retry, so the job fails at once; other errors (database) are retried.
  * What the events changed is told to the driver and the operator UI

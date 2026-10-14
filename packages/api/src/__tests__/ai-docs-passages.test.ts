@@ -96,6 +96,17 @@ describe('docs passages generator', () => {
     expect(mdxToPage('/docs/x', '## Only a heading\n\ntext')).toBeNull();
   });
 
+  it('strips nested tag fragments completely', () => {
+    const page = mdxToPage(
+      '/docs/x',
+      '---\ntitle: X\n---\n\nSafe <scr<b>ipt>alert(1)</scr</b>ipt> text <<i>b>bold<</i>/b>.',
+    );
+    const text = page?.sections[0]?.text ?? '';
+    expect(text).not.toMatch(/<\/?[A-Za-z]/);
+    // A single pass left `<b>bold</b>` behind.
+    expect(text).toBe('Safe ipt>alert(1)ipt> text bold.');
+  });
+
   it('splits a long section at paragraphs, every part within the limit', () => {
     const paragraph = 'word '.repeat(150).trim();
     const parts = splitSectionText(Array.from({ length: 8 }, () => paragraph).join('\n\n'));

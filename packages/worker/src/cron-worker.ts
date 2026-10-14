@@ -14,6 +14,7 @@ import { tariffBoundaryCheckHandler } from './handlers/tariff-boundary-check.js'
 import { paymentReconciliationHandler } from './handlers/payment-reconciliation.js';
 import { guestSessionCleanupHandler } from './handlers/guest-session-cleanup.js';
 import { chargingProfileReconciliationHandler } from './handlers/charging-profile-reconciliation.js';
+import { chargingProfilePushSweepHandler } from './handlers/charging-profile-push-sweep.js';
 import { configDriftDetectionHandler } from './handlers/config-drift-detection.js';
 import { staleSessionCleanupHandler } from './handlers/stale-session-cleanup.js';
 import { dashboardSnapshotHandler } from './handlers/dashboard-snapshot.js';
@@ -52,6 +53,7 @@ const JOB_HANDLERS = new Map<string, JobHandlerFn>([
   ['payment-reconciliation', paymentReconciliationHandler],
   ['guest-session-cleanup', guestSessionCleanupHandler],
   ['charging-profile-reconciliation', chargingProfileReconciliationHandler],
+  ['charging-profile-push-sweep', chargingProfilePushSweepHandler],
   ['config-drift-detection', configDriftDetectionHandler],
   ['stale-session-cleanup', staleSessionCleanupHandler],
   ['dashboard-snapshot', dashboardSnapshotHandler],

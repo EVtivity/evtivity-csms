@@ -880,6 +880,8 @@
     "rebootFailed": "重新啟動失敗。",
     "rebootRejectedStatus": "充電站拒絕重新啟動 ({{status}})",
     "limitSource": "限制來源",
+    "profileSourceCsms": "CSMS",
+    "profileSourceStation": "充電站",
     "evChargingNeeds": "電動車充電需求",
     "noEvChargingNeeds": "沒有報告充電需求",
     "departureTime": "出發時間",
@@ -941,7 +943,8 @@
     "maxPowerUnknown": "最大功率未知",
     "maxPowerUnknownHint": "在設定最大功率之前，負載管理無法限制此連接器。請編輯 EVSE 進行設定。OCPP 2.1 充電站會根據其組態報告自動填寫。",
     "removeTag": "移除標籤 {{tag}}",
-    "messageCommandQueued": "充電站離線。命令已排入佇列，將在充電站重新連線時傳送。"
+    "messageCommandQueued": "充電站離線。命令已排入佇列，將在充電站重新連線時傳送。",
+    "chargingNeedsTab": "充電需求與監視器"
   },
   "eventAlertRules": {
     "title": "事件警示規則",
@@ -3276,7 +3279,8 @@
     "AI_PROPOSAL_STALE": "情況已改變，此操作不再適用",
     "AI_PROPOSAL_ALREADY_DECIDED": "此操作已處理",
     "AI_CONFIRMATION_REQUIRES_SESSION": "請登入控制台確認此操作，不能使用 API 金鑰",
-    "AI_MCP_RATE_LIMITED": "MCP 請求過多，請稍後再試"
+    "AI_MCP_RATE_LIMITED": "MCP 請求過多，請稍後再試",
+    "CHARGING_PROFILE_ID_RESERVED": "充電設定檔 ID 必須大於充電站的 MaxExternalConstraintsId。"
   },
   "logs": {
     "title": "日誌",
@@ -3634,14 +3638,14 @@
     "noCampaignRuns": "尚無活動執行",
     "error": "錯誤",
     "confirmStart": "啟動活動",
-    "confirmStartDescription": "這將向所有匹配的站點傳送固件更新。繼續？",
+    "confirmStartDescription": "這將立即向所有符合條件的線上充電站傳送固件更新。離線充電站在連線時收到。是否繼續?",
     "confirmCancel": "取消活動",
     "confirmCancelDescription": "中止操作可能損壞正在下載或安裝固件的充電站。已完成更新的充電站不會受到影響。是否繼續？",
     "cancelWarning": "此時中止操作可能損壞正在更新中的充電站。請僅在必要時繼續。",
     "confirmDelete": "刪除活動",
     "confirmDeleteDescription": "這將永久刪除此草稿活動。",
     "targetFilter": "目標過濾器",
-    "targetFilterHelp": "留空以針對所有線上站點",
+    "targetFilterHelp": "留空則以所有充電站為目標。離線充電站在連線時收到更新。",
     "allSites": "所有站點",
     "allVendors": "所有供應商",
     "allModels": "所有型號",
@@ -3649,7 +3653,7 @@
     "vendor": "供應商",
     "model": "型號",
     "matchingStations": "匹配的站點",
-    "noMatchingStations": "沒有線上站點匹配當前過濾器",
+    "noMatchingStations": "沒有充電站符合目前的篩選條件",
     "currentFirmware": "當前固件",
     "signingCertificate": "簽章憑證 (PEM)",
     "signature": "固件簽章 (base64)",
@@ -3661,7 +3665,32 @@
     "signatureTooLong": "簽章最多 800 個字元",
     "signatureStatus": "簽章",
     "signed": "已簽章",
-    "unsigned": "未簽章"
+    "unsigned": "未簽章",
+    "statuses": {
+      "draft": "草稿",
+      "active": "進行中",
+      "completed": "已完成",
+      "cancelled": "已取消"
+    },
+    "stationStatuses": {
+      "pending": "待處理",
+      "downloading": "下載中",
+      "downloaded": "已下載",
+      "installing": "安裝中",
+      "installed": "已安裝",
+      "failed": "失敗"
+    },
+    "retries": "下載重試次數",
+    "retriesHelp": "充電站重試失敗下載的次數。0 表示不重試。留空則由充電站決定。",
+    "retryInterval": "重試間隔(秒)",
+    "retryIntervalHelp": "下載重試之間的秒數。留空則由充電站決定。",
+    "installDateTime": "安裝時間",
+    "installDateTimeHelp": "充電站先下載固件，並在此時間安裝。未使用簽章更新的 1.6 充電站在下載後立即安裝。留空則在下載後立即安裝。",
+    "invalidRetries": "請輸入 0 到 {{max}} 之間的整數",
+    "invalidRetryInterval": "請輸入 1 到 {{max}} 之間的整數秒",
+    "installInPast": "請輸入未來的時間",
+    "stationDecides": "由充電站決定",
+    "afterDownload": "下載後"
   },
   "smartCharging": {
     "title": "智慧充電",
@@ -3895,7 +3924,15 @@
     "oversubscribed": "超額認購",
     "oversubscriptionWarning": "比率高於1.0允許安裝超過配電盤額定值的充電站容量。負荷管理將動態執行斷路器限制。",
     "priorityFor": "{{stationId}} 的優先順序",
-    "deleteLoad": "刪除負載 {{name}}"
+    "deleteLoad": "刪除負載 {{name}}",
+    "historyDraw": "用電: {{kw}} kW",
+    "historyAvailable": "可用: {{kw}} kW",
+    "historyLimit": "站點上限: {{kw}} kW",
+    "threePhaseVoltageHint": "三相配電盤使用相線對中性線的電壓：208Y/120 為 120 V，400Y/230 為 230 V，480Y/277 為 277 V。",
+    "minPower": "最小功率 (kW)",
+    "minPowerFor": "{{stationId}} 的最小功率",
+    "limitUnit": "限值單位",
+    "minPowerHint": "充電工作階段獲得的功率不會低於其充電站的最小功率。當最小功率總和超出容量時，優先順序最低的工作階段最先停止。僅支援安培的充電站以 A 為單位接收限值。"
   },
   "ai": {
     "title": "AI 助理",
@@ -4882,6 +4919,9 @@
     "detail": {
       "recordTitle": "詳細資訊",
       "session": "工作階段",
+      "reservation": "預約",
+      "driver": "駕駛員",
+      "token": "權杖",
       "partOf": "所屬"
     },
     "likelyCause": "可能原因",
@@ -5023,5 +5063,46 @@
     "siteInsights": "自動洞察",
     "siteInsightsHelp": "關閉後將停止此站點的自動洞察。",
     "allSitesOnly": "只有可存取所有站點的使用者才能變更此項。"
+  },
+  "stationChargingNeeds": {
+    "needsTitle": "電動車充電需求",
+    "noNeeds": "沒有電動車為進行中的工作階段回報 ISO 15118 充電需求。",
+    "evse": "EVSE",
+    "energyTransfer": "能量傳輸",
+    "controlMode": "控制模式",
+    "requestedEnergy": "請求能量",
+    "departureTime": "出發時間",
+    "csmsLimit": "CSMS 限值",
+    "noProfileSent": "未傳送設定檔",
+    "updated": "更新時間",
+    "schedulesTitle": "電動車充電排程",
+    "noSchedules": "未收到電動車充電排程。",
+    "timeBase": "時間基準",
+    "firstLimit": "第一個限值",
+    "periods": "時段",
+    "check": "檢查",
+    "received": "接收時間",
+    "notChecked": "未檢查",
+    "withinLimits": "在限值內",
+    "exceedsLimits": "超出限值",
+    "monitorsTitle": "變數監視器",
+    "noMonitors": "未設定變數監視器。",
+    "addMonitor": "新增監視器",
+    "stationOffline": "充電站必須上線才能設定監視器。",
+    "component": "元件",
+    "variable": "變數",
+    "monitorType": "監視器類型",
+    "value": "值",
+    "severity": "嚴重等級",
+    "monitorId": "監視器 ID",
+    "clearMonitor": "清除監視器",
+    "confirmClearMonitor": "要從充電站移除此監視器嗎？作用中的監視器會先在充電站上清除。",
+    "valueMustBePositive": "此監視器類型的值必須大於 0",
+    "status": {
+      "pending": "待處理",
+      "active": "作用中",
+      "error": "錯誤",
+      "cleared": "已清除"
+    }
   }
 }

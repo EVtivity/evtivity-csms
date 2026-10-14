@@ -1367,6 +1367,23 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
   s(
+    'PATCH',
+    '/sites/:id/stations/:stationId/load-min-power',
+    'loadManagement:write',
+    (f) => `${sit(f)}/stations/${f.station}/load-min-power`,
+    'STATION_NOT_FOUND',
+    {
+      body: () => ({ loadMinPowerKw: 4 }),
+      mixed: [
+        {
+          url: (a, f) => `/sites/${a.site}/stations/${f.station}/load-min-power`,
+          body: () => ({ loadMinPowerKw: 4 }),
+          code: 'STATION_NOT_FOUND',
+        },
+      ],
+    },
+  ),
+  s(
     'GET',
     '/sites/:id/load-management/history',
     'loadManagement:read',
@@ -2516,6 +2533,7 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
         name: 'Foreign profile',
         profilePurpose: 'TxDefaultProfile',
         profileKind: 'Absolute',
+        startSchedule: '2026-01-01T00:00:00.000Z',
         schedulePeriods: [{ startPeriod: 0, limit: 16 }],
         targetFilter: { siteId: f.site },
       }),
@@ -3185,6 +3203,16 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
   ),
   s(
     'GET',
+    '/stations/:id/ev-charging-schedules',
+    'stations:read',
+    (f) => `${st(f)}/ev-charging-schedules`,
+    'STATION_NOT_FOUND',
+    {
+      unsited: true,
+    },
+  ),
+  s(
+    'GET',
     '/stations/:id/monitoring-rules',
     'stations:read',
     (f) => `${st(f)}/monitoring-rules`,
@@ -3202,6 +3230,12 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     {
       unsited: true,
       body: () => ({ component: 'EVSE', variable: 'Power', type: 'UpperThreshold', value: 10 }),
+      control: {
+        status: 400,
+        code: 'NOT_SUPPORTED',
+        reason:
+          'variable monitoring needs an online OCPP 2.1 station; the fixture station is 1.6, checked after the site check',
+      },
     },
   ),
   s(

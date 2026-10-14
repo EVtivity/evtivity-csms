@@ -38,6 +38,7 @@ import { api, getApiErrorCode } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatDateTime } from '@/lib/timezone';
 import { useUserTimezone } from '@/lib/timezone';
+import { fromDatetimeLocalInTimezone, toDatetimeLocalInTimezone } from '@/lib/schedule-anchor';
 import { LoadingLogo } from '@/components/loading-logo';
 import { uiLocale } from '@/lib/formatting';
 import { useHasAllSiteAccess } from '@/lib/auth';
@@ -51,7 +52,9 @@ const PURPOSES_21 = [
   'LocalGeneration',
 ];
 
-const PURPOSES_16 = ['ChargePointMaxProfile', 'TxDefaultProfile'];
+// Templates store the 2.1 purpose names; the OCPP server sends
+// ChargingStationMaxProfile to a 1.6 station as ChargePointMaxProfile.
+const PURPOSES_16 = ['ChargingStationMaxProfile', 'TxDefaultProfile'];
 
 interface TemplateDetail {
   id: string;
@@ -198,7 +201,9 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
         `/v1/smart-charging/templates/${id ?? ''}/pushes?page=${String(pushHistoryPage)}&limit=${String(pushHistoryLimit)}`,
       ),
     enabled: id != null,
-    refetchInterval: 5000,
+    // Poll only while an operation on this page is still running.
+    refetchInterval: (query) =>
+      query.state.data?.data.some((p) => p.status === 'active') === true ? 5000 : false,
   });
 
   const updateMutation = useMutation({
@@ -267,16 +272,21 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
     if (!editName.trim()) errors.editName = t('validation.required');
+    // Absolute and Recurring profiles both need a start (OCPP 2.1 K01.FR.40).
+    if (!editStartSchedule) errors.editStartSchedule = t('validation.required');
     return errors;
   }
 
   const validationErrors = getValidationErrors();
 
+  // The form shows and reads dates in the user's timezone, like the create page.
   function formatDatetimeLocal(iso: string | null): string {
     if (iso == null) return '';
-    const d = new Date(iso);
-    const pad = (n: number): string => String(n).padStart(2, '0');
-    return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    return toDatetimeLocalInTimezone(new Date(iso), timezone);
+  }
+
+  function datetimeLocalToIso(value: string): string {
+    return fromDatetimeLocalInTimezone(value, timezone).toISOString();
   }
 
   function startEdit(): void {
@@ -418,14 +428,13 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 else body.description = null;
                 if (editKind === 'Recurring') body.recurrencyKind = editRecurrency;
                 else body.recurrencyKind = null;
-                if (editStartSchedule)
-                  body.startSchedule = new Date(editStartSchedule).toISOString();
+                if (editStartSchedule) body.startSchedule = datetimeLocalToIso(editStartSchedule);
                 else body.startSchedule = null;
                 if (editDuration) body.duration = parseInt(editDuration, 10);
                 else body.duration = null;
-                if (editValidFrom) body.validFrom = new Date(editValidFrom).toISOString();
+                if (editValidFrom) body.validFrom = datetimeLocalToIso(editValidFrom);
                 else body.validFrom = null;
-                if (editValidTo) body.validTo = new Date(editValidTo).toISOString();
+                if (editValidTo) body.validTo = datetimeLocalToIso(editValidTo);
                 else body.validTo = null;
                 const filter: Record<string, string> = {};
                 if (editFilterSiteId) filter.siteId = editFilterSiteId;
@@ -630,7 +639,13 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                     onChange={(e) => {
                       setEditStartSchedule(e.target.value);
                     }}
+                    className={
+                      hasSubmitted && validationErrors.editStartSchedule ? 'border-destructive' : ''
+                    }
                   />
+                  {hasSubmitted && validationErrors.editStartSchedule && (
+                    <p className="text-sm text-destructive">{validationErrors.editStartSchedule}</p>
+                  )}
                 </div>
                 <div className="grid gap-2">
                   <Label htmlFor="scd-edit-valid-from">{t('smartCharging.validFrom')}</Label>
@@ -673,7 +688,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 periods={editPeriods}
                 onChange={setEditPeriods}
                 rateUnit={editRateUnit}
-                startSchedule={editStartSchedule ? new Date(editStartSchedule).toISOString() : null}
+                startSchedule={editStartSchedule ? datetimeLocalToIso(editStartSchedule) : null}
                 timezone={timezone}
               />
 

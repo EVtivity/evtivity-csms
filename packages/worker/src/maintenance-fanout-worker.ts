@@ -1,13 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Worker, type Queue, type ConnectionOptions } from 'bullmq';
+import { Worker, type ConnectionOptions } from 'bullmq';
 import type { Redis } from 'ioredis';
-import type { PubSubClient } from '@evtivity/lib';
 import { createLogger, withLock } from '@evtivity/lib';
 import {
   runMaintenanceFanout,
-  MAINTENANCE_FANOUT_CHANNEL,
   type MaintenanceFanoutJob,
 } from '@evtivity/services/maintenance.service';
 import { QUEUE_NAMES } from './queues.js';
@@ -15,65 +13,10 @@ import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
 
 const log = createLogger('maintenance-fanout-worker');
 
-// Stable job id so duplicate publishes for the same logical fan-out dedup:
-// every worker replica receives each publish and adds the same id. For
-// add/remove the station set is part of the identity. Add, remove and reassert
-// publishes carry a per-request nonce because the queue keeps completed jobs
-// and BullMQ ignores an add whose id still exists: without it, the same
-// stations added again after a remove, or a station that flaps twice, would
-// collapse into the already-completed first job and never be commanded.
-// Segments join with '.' because BullMQ rejects custom job ids containing ':'
-// (it only tolerates exactly-3-segment ids for legacy repeatable-job compat,
-// which silently broke every add/remove enqueue when ':' was the separator).
-function fanoutJobId(job: MaintenanceFanoutJob): string {
-  let id = `mf.${job.eventId}.${job.phase}`;
-  if (job.stationDbIds != null && job.stationDbIds.length > 0) {
-    id += `.${[...job.stationDbIds].sort().join(',')}`;
-  }
-  if (job.nonce != null) {
-    id += `.${job.nonce}`;
-  }
-  return id;
-}
-
-/**
- * Subscribes to the maintenance_fanout pub/sub channel and enqueues a BullMQ job
- * that runs the per-station OCPP fan-out in the worker process, surviving API
- * restarts.
- */
-export async function startMaintenanceFanoutBridge(
-  pubsub: PubSubClient,
-  maintenanceFanoutQueue: Queue,
-): Promise<() => Promise<void>> {
-  const subscription = await pubsub.subscribe(MAINTENANCE_FANOUT_CHANNEL, (payload: string) => {
-    let data: MaintenanceFanoutJob;
-    try {
-      data = JSON.parse(payload) as MaintenanceFanoutJob;
-    } catch (err) {
-      log.warn({ err, payload: payload.slice(0, 200) }, 'Malformed maintenance_fanout payload');
-      return;
-    }
-
-    void maintenanceFanoutQueue
-      .add('maintenance-fanout', data, { jobId: fanoutJobId(data) })
-      .catch((err: unknown) => {
-        log.error(
-          { err, eventId: data.eventId, phase: data.phase },
-          'Failed to enqueue maintenance-fanout job',
-        );
-      });
-  });
-
-  log.info('Maintenance fan-out bridge started');
-
-  return async () => {
-    await subscription.unsubscribe();
-    log.info('Maintenance fan-out bridge stopped');
-  };
-}
-
 /**
  * Creates the BullMQ Worker that runs the detached maintenance station fan-out.
+ * The API, the worker cron and the OCPP server add the jobs themselves
+ * (enqueueMaintenanceFanout), so a fan-out waits while no worker runs.
  */
 export function createMaintenanceFanoutWorker(
   connection: ConnectionOptions,

@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router';
+import { INSIGHT_KINDS } from '@evtivity/lib/ai-insights';
+import type { InsightKind } from '@evtivity/lib/ai-insights';
 import type { AiInsightView } from '../insights/insight-api';
+import type { InsightRecordKind } from '../insights/InsightRecordLink';
 
 const { apiMock, perms, features } = vi.hoisted(() => ({
   apiMock: { get: vi.fn(), post: vi.fn() },
@@ -40,6 +43,7 @@ import { insightHeadline, insightRows } from '../insights/insight-display';
 import { AiInsights } from '@/pages/AiInsights';
 import { AiInsightDetail } from '@/pages/AiInsightDetail';
 import { InsightQualityCard } from '../insights/InsightQualityCard';
+import { RecordInsightsTab } from '../insights/RecordInsightsTab';
 
 function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
   return {
@@ -425,6 +429,7 @@ describe('insight display helpers', () => {
 
 describe('insights list and detail pages', () => {
   it('reads the filters from the URL, lists the insights in the standard table and opens one', async () => {
+    perms.add('stations:read');
     serve([insight()]);
     wrap(
       <Routes>
@@ -489,6 +494,8 @@ describe('insights list and detail pages', () => {
 
   it('the detail page has the standard header, the insight card, the records and the history', async () => {
     perms.add('audit:read');
+    perms.add('stations:read');
+    perms.add('sessions:read');
     serve([insight({ sessionId: 'se1' })]);
     wrap(
       <Routes>
@@ -506,6 +513,220 @@ describe('insights list and detail pages', () => {
     await waitFor(() => {
       expect(apiMock.get).toHaveBeenCalledWith('/v1/audit/ai_insight/ins1?page=1&limit=20');
     });
+  });
+});
+
+/** The records each insight kind names, as the API sends them. */
+const RECORD_FIXTURES: Record<
+  InsightKind,
+  { overrides: Partial<AiInsightView>; records: [InsightRecordKind, string, string, string][] }
+> = (() => {
+  const station: [InsightRecordKind, string, string, string] = [
+    'station',
+    'st1',
+    'CS-1616',
+    '/stations/st1',
+  ];
+  const site: [InsightRecordKind, string, string, string] = [
+    'site',
+    'site1',
+    'Convention Center',
+    '/sites/site1',
+  ];
+  const session: [InsightRecordKind, string, string, string] = [
+    'session',
+    'se1',
+    'se1',
+    '/sessions/se1',
+  ];
+  const driver: [InsightRecordKind, string, string, string] = [
+    'driver',
+    'drv1',
+    'Ada Lovelace',
+    '/drivers/drv1',
+  ];
+  const stationKind = { overrides: {}, records: [station, site] };
+  const sessionKind = { overrides: { sessionId: 'se1' }, records: [station, session, site] };
+  const reservationKind = {
+    overrides: {
+      reservationId: 'res1',
+      reservationNumber: 42,
+      driverId: 'drv1',
+      driverName: 'Ada Lovelace',
+    },
+    records: [
+      station,
+      ['reservation', 'res1', '#42', '/reservations/res1'] as [
+        InsightRecordKind,
+        string,
+        string,
+        string,
+      ],
+      driver,
+      site,
+    ],
+  };
+  const siteKind = {
+    overrides: { stationId: null, stationName: null },
+    records: [site],
+  };
+  return {
+    station_offline: stationKind,
+    station_faulted: stationKind,
+    station_alert: stationKind,
+    station_long_faulted: stationKind,
+    session_failed: sessionKind,
+    stuck_session: sessionKind,
+    authorization_refused: {
+      overrides: {
+        authorizeAttemptId: 7,
+        tokenId: 'tok1',
+        tokenLabel: 'RFID-0042',
+        driverId: 'drv1',
+        driverName: 'Ada Lovelace',
+      },
+      records: [station, ['token', 'tok1', 'RFID-0042', '/tokens/tok1'], driver, site],
+    },
+    reservation_rejected: reservationKind,
+    reservation_no_show: reservationKind,
+    reservation_cancel_failed: reservationKind,
+    reservation_fee_failed: reservationKind,
+    reservation_station_faulted: reservationKind,
+    site_incident: siteKind,
+    site_summary: siteKind,
+    tariff_anomaly: siteKind,
+    company_summary: {
+      overrides: { stationId: null, stationName: null, siteId: null, siteName: null },
+      records: [],
+    },
+  };
+})();
+
+const RECORD_PERMISSIONS = [
+  'stations:read',
+  'sessions:read',
+  'sites:read',
+  'reservations:read',
+  'drivers:read',
+];
+
+async function renderDetail(kind: InsightKind, overrides: Partial<AiInsightView> = {}) {
+  serve([insight({ kind, ...RECORD_FIXTURES[kind].overrides, ...overrides })]);
+  wrap(
+    <Routes>
+      <Route path="/ai/insights/:id" element={<AiInsightDetail />} />
+    </Routes>,
+    '/ai/insights/ins1',
+  );
+  await screen.findByTestId('ai-insight-title');
+}
+
+describe('insight record links (Details card)', () => {
+  it.each(INSIGHT_KINDS.map((kind) => [kind]))(
+    '%s: each record links to its page with its label when the user may open it',
+    async (kind) => {
+      for (const p of RECORD_PERMISSIONS) perms.add(p);
+      await renderDetail(kind);
+      const { records } = RECORD_FIXTURES[kind];
+      for (const [record, , label, href] of records) {
+        const el = screen.getByTestId(`ai-insight-record-${record}`);
+        expect(el.tagName).toBe('A');
+        expect(el.textContent).toBe(label);
+        expect(el.getAttribute('href')).toBe(href);
+        expect(el.className).toContain('text-link');
+      }
+      for (const record of ['station', 'session', 'site', 'reservation', 'driver', 'token']) {
+        if (!records.some(([r]) => r === record)) {
+          expect(screen.queryByTestId(`ai-insight-record-${record}`)).toBeNull();
+        }
+      }
+    },
+  );
+
+  it.each(INSIGHT_KINDS.map((kind) => [kind]))(
+    '%s: without the read permission each record shows its plain id, never a link',
+    async (kind) => {
+      await renderDetail(kind);
+      for (const [record, id] of RECORD_FIXTURES[kind].records) {
+        const el = screen.getByTestId(`ai-insight-record-${record}`);
+        expect(el.tagName).toBe('SPAN');
+        expect(el.textContent).toBe(id);
+      }
+    },
+  );
+
+  it.each(INSIGHT_KINDS.map((kind) => [kind]))(
+    '%s: a record that no longer exists (no label) shows its plain id',
+    async (kind) => {
+      for (const p of RECORD_PERMISSIONS) perms.add(p);
+      await renderDetail(kind, {
+        stationName: null,
+        siteName: null,
+        reservationNumber: null,
+        driverName: null,
+        tokenLabel: null,
+      });
+      for (const [record, id] of RECORD_FIXTURES[kind].records) {
+        const el = screen.getByTestId(`ai-insight-record-${record}`);
+        // A session has no separate label: it cannot be deleted while its insight exists.
+        expect(el.tagName).toBe(record === 'session' ? 'A' : 'SPAN');
+        expect(el.textContent).toBe(id);
+      }
+    },
+  );
+
+  it('each permission gates only its own records: drivers:read opens the token and the driver', async () => {
+    perms.add('drivers:read');
+    await renderDetail('authorization_refused');
+    expect(screen.getByTestId('ai-insight-record-token').tagName).toBe('A');
+    expect(screen.getByTestId('ai-insight-record-driver').tagName).toBe('A');
+    expect(screen.getByTestId('ai-insight-record-station').tagName).toBe('SPAN');
+    expect(screen.getByTestId('ai-insight-record-site').tagName).toBe('SPAN');
+  });
+});
+
+describe('insight record links (lists)', () => {
+  it('the insights list links station and site only with their read permission', async () => {
+    perms.add('stations:read');
+    serve([insight()]);
+    wrap(
+      <Routes>
+        <Route path="/ai/insights" element={<AiInsights />} />
+      </Routes>,
+      '/ai/insights',
+    );
+    const row = await screen.findByTestId('ai-insight-list-row');
+    expect(within(row).getByTestId('ai-insight-record-station').getAttribute('href')).toBe(
+      '/stations/st1',
+    );
+    const siteCell = within(row).getByTestId('ai-insight-record-site');
+    expect(siteCell.tagName).toBe('SPAN');
+    expect(siteCell.textContent).toBe('site1');
+  });
+
+  it('the site tab names each insight station, the station tab each session; a click opens the record, not the insight', async () => {
+    perms.add('stations:read');
+    perms.add('sessions:read');
+    serve([insight({ kind: 'session_failed', sessionId: 'se1' })]);
+    wrap(<RecordInsightsTab filter={{ siteId: 'site1' }} />);
+    const link = await screen.findByTestId('ai-insight-record-station');
+    expect(link.getAttribute('href')).toBe('/stations/st1');
+    expect(screen.queryByTestId('ai-insight-record-session')).toBeNull();
+    cleanup();
+    serve([insight({ kind: 'session_failed', sessionId: 'se1' })]);
+    wrap(<RecordInsightsTab filter={{ stationId: 'st1' }} />);
+    const session = await screen.findByTestId('ai-insight-record-session');
+    expect(session.getAttribute('href')).toBe('/sessions/se1');
+    expect(screen.queryByTestId('ai-insight-record-station')).toBeNull();
+  });
+
+  it('the reservation tab adds no record column: the tab is on the record itself', async () => {
+    perms.add('stations:read');
+    serve([insight({ kind: 'reservation_no_show', reservationId: 'res1' })]);
+    wrap(<RecordInsightsTab filter={{ reservationId: 'res1' }} />);
+    await screen.findByTestId('record-insight-row-ins1');
+    expect(screen.queryByTestId('ai-insight-record-station')).toBeNull();
+    expect(screen.queryByTestId('ai-insight-record-session')).toBeNull();
   });
 });
 

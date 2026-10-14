@@ -69,7 +69,7 @@ describe('publishStationStatusChanged', () => {
   // evaluated here, on every availability change the API makes.
   it('checks the station watches with the shared availability rule', async () => {
     await publishStationStatusChanged({ id: 'sta_1', siteId: 'sit_1' });
-    expect(h.alert).toHaveBeenCalledWith(h.client, expect.objectContaining({}), 'sta_1');
+    expect(h.alert).toHaveBeenCalledWith(h.client, 'sta_1');
   });
 
   it('logs and continues when the station watch check fails', async () => {

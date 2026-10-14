@@ -78,6 +78,7 @@ vi.mock('../job-logger.js', () => ({
 
 // Mock every cron handler so we can assert dispatch routing and force failures.
 const handlerMocks = {
+  chargingProfilePushSweepHandler: vi.fn().mockResolvedValue(undefined),
   reportSchedulerHandler: vi.fn().mockResolvedValue(undefined),
   tariffBoundaryCheckHandler: vi.fn().mockResolvedValue(undefined),
   paymentReconciliationHandler: vi.fn().mockResolvedValue(undefined),
@@ -205,6 +206,11 @@ vi.mock('../handlers/ai-stuck-sessions.js', () => ({
 vi.mock('../handlers/ai-tariff-anomalies.js', () => ({
   aiTariffAnomaliesHandler: (...a: unknown[]) => handlerMocks.aiTariffAnomaliesHandler(...a),
 }));
+vi.mock('../handlers/charging-profile-push-sweep.js', () => ({
+  chargingProfilePushSweepHandler: (...a: unknown[]) =>
+    handlerMocks.chargingProfilePushSweepHandler(...a),
+}));
+
 vi.mock('../handlers/ai-proposal-sweep.js', () => ({
   aiProposalSweepHandler: (...a: unknown[]) => handlerMocks.aiProposalSweepHandler(...a),
 }));
@@ -359,6 +365,7 @@ describe('cron-worker processor dispatch', () => {
       ['ai-stuck-sessions', 'aiStuckSessionsHandler'],
       ['ai-tariff-anomalies', 'aiTariffAnomaliesHandler'],
       ['ai-proposal-sweep', 'aiProposalSweepHandler'],
+      ['charging-profile-push-sweep', 'chargingProfilePushSweepHandler'],
       ['ai-proposal-digest', 'aiProposalDigestHandler'],
       ['ai-insight-scan', 'aiInsightScanHandler'],
       ['driver-ai-sweep', 'driverAiSweepHandler'],

@@ -876,7 +876,8 @@
     "AI_PROPOSAL_STALE": "This action no longer applies because the situation changed",
     "AI_PROPOSAL_ALREADY_DECIDED": "This action was already decided",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirm this action while signed in to the dashboard, not with an API key",
-    "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later"
+    "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later",
+    "CHARGING_PROFILE_ID_RESERVED": "The charging profile ID must be above the station's MaxExternalConstraintsId."
   },
   "validation": {
     "required": "This field is required",

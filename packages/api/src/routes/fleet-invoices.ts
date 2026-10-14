@@ -29,7 +29,11 @@ import { enqueueMemberInvoiceBatch } from '@evtivity/services/fleet-invoice-run'
 import { getInvoice } from '@evtivity/services/invoice.service';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { zodSchema } from '../lib/zod-schema.js';
-import { memberInvoiceQueue } from '../lib/member-invoice-queue.js';
+import { jobQueue } from '@evtivity/lib/job-queues';
+import {
+  ACCOUNT_INVOICE_JOB_OPTIONS,
+  MEMBER_INVOICE_QUEUE,
+} from '@evtivity/services/account-invoice-jobs';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
@@ -450,7 +454,7 @@ export function fleetInvoiceRoutes(app: FastifyInstance): void {
       const batchId = randomUUID();
       // Straight to the worker's queue (P8), so the request waits there while
       // no worker runs; one job per driver, job id per batch (P7).
-      await enqueueMemberInvoiceBatch(memberInvoiceQueue(), {
+      await enqueueMemberInvoiceBatch(jobQueue(MEMBER_INVOICE_QUEUE, ACCOUNT_INVOICE_JOB_OPTIONS), {
         fleetId: id,
         period,
         batchId,

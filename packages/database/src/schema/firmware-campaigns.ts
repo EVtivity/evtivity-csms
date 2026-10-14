@@ -6,6 +6,8 @@ import {
   pgEnum,
   text,
   serial,
+  integer,
+  uniqueIndex,
   varchar,
   timestamp,
   jsonb,
@@ -44,6 +46,13 @@ export const firmwareCampaigns = pgTable(
     // Both set or both null.
     signingCertificate: text('signing_certificate'),
     signature: text('signature'),
+    // UpdateFirmware download retries and the seconds between them; null
+    // leaves both to the station.
+    retries: integer('retries'),
+    retryInterval: integer('retry_interval'),
+    // Install time sent as firmware.installDateTime (2.1 and 1.6
+    // SignedUpdateFirmware); null installs as soon as the station can.
+    installDateTime: timestamp('install_date_time', { withTimezone: true }),
     status: firmwareCampaignStatusEnum('status').notNull().default('draft'),
     targetFilter: jsonb('target_filter'),
     createdById: text('created_by_id'),
@@ -65,6 +74,9 @@ export const firmwareCampaignStations = pgTable(
       .references(() => chargingStations.id, { onDelete: 'cascade' }),
     status: firmwareCampaignStationStatusEnum('status').notNull().default('pending'),
     errorInfo: text('error_info'),
+    // When UpdateFirmware was sent. Null for a station that was offline at
+    // the start: it gets the update when it connects (claimed once, P7).
+    dispatchedAt: timestamp('dispatched_at', { withTimezone: true }),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -75,5 +87,9 @@ export const firmwareCampaignStations = pgTable(
     // active campaign. The composite index turns the scan into a covered
     // range lookup.
     index('idx_firmware_campaign_stations_campaign_status').on(table.campaignId, table.status),
+    uniqueIndex('uq_firmware_campaign_stations_campaign_station').on(
+      table.campaignId,
+      table.stationId,
+    ),
   ],
 );

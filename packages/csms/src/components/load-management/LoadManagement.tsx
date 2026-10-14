@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { DecimalInput } from '@/components/ui/decimal-input';
 import { SaveButton } from '@/components/save-button';
 import { Pagination } from '@/components/ui/pagination';
 import {
@@ -89,6 +90,8 @@ interface StationStatus {
   allocatedLimitKw: number | null;
   maxPowerKw: number;
   loadPriority: number;
+  loadMinPowerKw: number | null;
+  rateUnit: 'A' | 'W';
   isOnline: boolean;
   hasActiveSession: boolean;
 }
@@ -140,12 +143,14 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
     enabled: showHistory,
   });
 
+  // Sync the form only when the saved values change: the query refetches every
+  // 5 seconds with a new config object, which reset unsaved edits.
+  const savedStrategy = data?.config?.strategy;
+  const savedIsEnabled = data?.config?.isEnabled;
   useEffect(() => {
-    if (data?.config != null) {
-      setStrategy(data.config.strategy);
-      setIsEnabled(data.config.isEnabled);
-    }
-  }, [data?.config]);
+    if (savedStrategy != null) setStrategy(savedStrategy);
+    if (savedIsEnabled != null) setIsEnabled(savedIsEnabled);
+  }, [savedStrategy, savedIsEnabled]);
 
   const saveMutation = useMutation({
     mutationFn: async (body: { strategy: string; isEnabled: boolean }) => {
@@ -163,6 +168,19 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
   const priorityMutation = useMutation({
     mutationFn: ({ stationId, loadPriority }: { stationId: string; loadPriority: number }) =>
       api.patch(`/v1/sites/${siteId}/stations/${stationId}/load-priority`, { loadPriority }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sites', siteId, 'load-management'] });
+    },
+  });
+
+  const minPowerMutation = useMutation({
+    mutationFn: ({
+      stationId,
+      loadMinPowerKw,
+    }: {
+      stationId: string;
+      loadMinPowerKw: number | null;
+    }) => api.patch(`/v1/sites/${siteId}/stations/${stationId}/load-min-power`, { loadMinPowerKw }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sites', siteId, 'load-management'] });
     },
@@ -254,6 +272,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
           stations={stations}
           strategy={strategy}
           priorityMutation={priorityMutation}
+          minPowerMutation={minPowerMutation}
         />
       )}
 
@@ -281,12 +300,28 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
                       <span className="text-muted-foreground">
                         {formatDateTime(entry.createdAt, timezone)}
                       </span>
-                      <Badge variant="outline">{entry.strategy}</Badge>
+                      <Badge variant="outline">
+                        {entry.strategy === 'priority_based'
+                          ? t('loadManagement.priorityBased')
+                          : t('loadManagement.equalShare')}
+                      </Badge>
                     </div>
-                    <div className="flex gap-4">
-                      <span>Draw: {formatNumber(entry.totalDrawKw, 1)} kW</span>
-                      <span>Available: {formatNumber(entry.availableKw, 1)} kW</span>
-                      <span>Limit: {formatNumber(entry.siteLimitKw, 1)} kW</span>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      <span>
+                        {t('loadManagement.historyDraw', {
+                          kw: formatNumber(entry.totalDrawKw, 1),
+                        })}
+                      </span>
+                      <span>
+                        {t('loadManagement.historyAvailable', {
+                          kw: formatNumber(entry.availableKw, 1),
+                        })}
+                      </span>
+                      <span>
+                        {t('loadManagement.historyLimit', {
+                          kw: formatNumber(entry.siteLimitKw, 1),
+                        })}
+                      </span>
                     </div>
                     <div className="text-xs text-muted-foreground">
                       {(entry.allocations as Array<{ stationId: string; allocatedKw: number }>)
@@ -322,10 +357,14 @@ function StationAllocationsTable({
   stations,
   strategy,
   priorityMutation,
+  minPowerMutation,
 }: {
   stations: StationStatus[];
   strategy: string;
   priorityMutation: { mutate: (data: { stationId: string; loadPriority: number }) => void };
+  minPowerMutation: {
+    mutate: (data: { stationId: string; loadMinPowerKw: number | null }) => void;
+  };
 }): React.JSX.Element {
   const { t } = useTranslation();
   const [page, setPage] = useState(1);
@@ -349,6 +388,8 @@ function StationAllocationsTable({
               <TableRow>
                 <TableHead>{t('loadManagement.station')}</TableHead>
                 <TableHead>{t('loadManagement.priority')}</TableHead>
+                <TableHead>{t('loadManagement.minPower')}</TableHead>
+                <TableHead>{t('loadManagement.limitUnit')}</TableHead>
                 <TableHead>{t('common.status')}</TableHead>
                 <TableHead>{t('loadManagement.session')}</TableHead>
                 <TableHead className="min-w-[200px]">{t('loadManagement.powerDraw')}</TableHead>
@@ -379,15 +420,19 @@ function StationAllocationsTable({
                     </Select>
                   </TableCell>
                   <TableCell>
+                    <MinPowerInput station={station} onSave={minPowerMutation.mutate} />
+                  </TableCell>
+                  <TableCell>{station.rateUnit}</TableCell>
+                  <TableCell>
                     <Badge variant={station.isOnline ? 'success' : 'outline'}>
-                      {station.isOnline ? 'Online' : 'Offline'}
+                      {station.isOnline ? t('status.online') : t('status.offline')}
                     </Badge>
                   </TableCell>
                   <TableCell>
                     {station.hasActiveSession ? (
-                      <Badge variant="success">Active</Badge>
+                      <Badge variant="success">{t('common.active')}</Badge>
                     ) : (
-                      <span className="text-muted-foreground">n/a</span>
+                      <span className="text-muted-foreground">{t('common.na')}</span>
                     )}
                   </TableCell>
                   <TableCell>
@@ -408,6 +453,7 @@ function StationAllocationsTable({
             </TableBody>
           </Table>
         </div>
+        <p className="mt-3 text-xs text-muted-foreground">{t('loadManagement.minPowerHint')}</p>
         {totalPages > 1 && (
           <div className="mt-4">
             <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
@@ -415,5 +461,40 @@ function StationAllocationsTable({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function MinPowerInput({
+  station,
+  onSave,
+}: {
+  station: StationStatus;
+  onSave: (data: { stationId: string; loadMinPowerKw: number | null }) => void;
+}): React.JSX.Element {
+  const { t } = useTranslation();
+  const saved = station.loadMinPowerKw != null ? String(station.loadMinPowerKw) : '';
+  const [value, setValue] = useState(saved);
+  useEffect(() => {
+    setValue(saved);
+  }, [saved]);
+
+  function commit(): void {
+    if (value === saved) return;
+    const kw = value.trim() === '' ? null : Number(value);
+    if (kw != null && (!Number.isFinite(kw) || kw < 0 || kw > 1000)) {
+      setValue(saved);
+      return;
+    }
+    onSave({ stationId: station.id, loadMinPowerKw: kw });
+  }
+
+  return (
+    <DecimalInput
+      aria-label={t('loadManagement.minPowerFor', { stationId: station.stationId })}
+      value={value}
+      onChange={setValue}
+      onBlur={commit}
+      className="w-24"
+    />
   );
 }

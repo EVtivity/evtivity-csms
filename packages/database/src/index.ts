@@ -14,6 +14,8 @@ export {
   PG_FOREIGN_KEY_VIOLATION,
 } from './lib/pg-errors.js';
 export type { PgConnectionErrorKind } from './lib/pg-errors.js';
+export { guardPgConnectionRejections } from './lib/pg-connection-rejections.js';
+export type { PgConnectionRejectionLogger } from './lib/pg-connection-rejections.js';
 export { isRoamingEnabled, clearRoamingCache } from './lib/roaming-setting.js';
 export {
   isPncEnabled,
@@ -225,12 +227,11 @@ export type {
   OcppInstanceHealthSnapshot,
 } from './lib/ocpp-server-health.js';
 export {
-  STATION_WATCH_CHANNEL,
+  STATION_WATCH_JOB_NAME,
   findDueStationWatch,
   alertStationWatchersIfAvailable,
   claimStationWatches,
 } from './lib/station-watch.js';
-export type { StationWatchPublisher } from './lib/station-watch.js';
 export type {
   StationAvailability,
   StationDisabledReason,
@@ -243,6 +244,24 @@ export type {
   StationLevelState,
 } from './lib/station-status.js';
 export type { AuditActor, AuditViaAi, WriteAuditArgs } from './lib/audit.js';
+export {
+  FIRMWARE_UPDATE_TERMINAL_STATUSES,
+  FIRMWARE_UPDATE_REFUSED_RESPONSES,
+  FIRMWARE_STATUS_TO_CAMPAIGN_STATION,
+  isTerminalFirmwareUpdateStatus,
+  applyFirmwareCampaignStationStatus,
+  completeFirmwareCampaignIfDone,
+  rejectFirmwareUpdate,
+  failCanceledFirmwareCampaignUpdates,
+} from './lib/firmware-updates.js';
+export type {
+  FirmwareCampaignStationStatus,
+  CampaignStationUpdate,
+} from './lib/firmware-updates.js';
+export {
+  dispatchPendingFirmwareCampaigns,
+  newFirmwareRequestId,
+} from './lib/firmware-campaign-dispatch.js';
 export { isFleetEnabled, clearFleetCache } from './lib/fleet-setting.js';
 export {
   guardVersion,
@@ -353,6 +372,8 @@ export {
   getSampledMeasurands,
   getAlignedMeasurands,
   getTxEndedMeasurands,
+  isIso15118Enabled,
+  getDefaultMaxPowerW,
 } from './lib/ocpp-settings.js';
 export {
   getRegistrationPolicy,

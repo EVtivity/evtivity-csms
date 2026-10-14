@@ -46,54 +46,77 @@ export async function chargingProfileReconciliationHandler(log: Logger): Promise
     .orderBy(sql`${chargingProfiles.reportedAt} DESC NULLS LAST`);
 
   // The station's site, so the operator SSE stream delivers the mismatch
-  // event to operators of that site only.
+  // event to operators of that site only, and its protocol.
   const stationSites = await db
-    .select({ id: chargingStations.id, siteId: chargingStations.siteId })
+    .select({
+      id: chargingStations.id,
+      siteId: chargingStations.siteId,
+      ocppProtocol: chargingStations.ocppProtocol,
+    })
     .from(chargingStations)
     .where(inArray(chargingStations.id, stationIds));
   const siteByStation = new Map(stationSites.map((s) => [s.id, s.siteId]));
+  const protocolByStation = new Map(stationSites.map((s) => [s.id, s.ocppProtocol]));
 
   const pubsub = getPubSub();
   let mismatchCount = 0;
 
   for (const row of stationsWithProfiles) {
-    const csmsMap = new Map<number | null, unknown>();
-    for (const p of csmsRows) {
-      if (p.stationId !== row.stationId) continue;
-      if (!csmsMap.has(p.evseId)) csmsMap.set(p.evseId, p.profileData);
-    }
+    // OCPP 1.6 has no GetChargingProfiles, so there is no station report to
+    // compare with.
+    if (protocolByStation.get(row.stationId) === 'ocpp1.6') continue;
 
-    const stationMap = new Map<number | null, unknown>();
+    // A csms_set row holds one profile, a station_reported row the array of
+    // one report. The profile id identifies a profile on the station, so a
+    // profile the CSMS set is in sync when the station reports that id (the
+    // station's own rendering of the fields need not match byte for byte).
+    const reportedIds = new Set<number>();
     for (const p of reportedRows) {
       if (p.stationId !== row.stationId) continue;
-      if (!stationMap.has(p.evseId)) stationMap.set(p.evseId, p.profileData);
-    }
-
-    for (const [evseId, csmsData] of csmsMap) {
-      const stationData = stationMap.get(evseId);
-      if (stationData == null || JSON.stringify(csmsData) !== JSON.stringify(stationData)) {
-        mismatchCount++;
-        try {
-          await pubsub.publish(
-            'csms_events',
-            JSON.stringify({
-              eventType: 'station.profileMismatch',
-              stationId: row.stationId,
-              sessionId: null,
-              siteId: siteByStation.get(row.stationId) ?? null,
-            }),
-          );
-        } catch (err) {
-          log.warn(
-            { err, stationId: row.stationId },
-            'Profile mismatch event publish failed, the dashboard is not notified',
-          );
-        }
+      for (const profile of profileList(p.profileData)) {
+        const id = profileId(profile);
+        if (id != null) reportedIds.add(id);
       }
+    }
+    const missing = csmsRows.some((p) => {
+      if (p.stationId !== row.stationId) return false;
+      const id = profileId(p.profileData);
+      return id != null && !reportedIds.has(id);
+    });
+    if (!missing) continue;
+
+    mismatchCount++;
+    try {
+      await pubsub.publish(
+        'csms_events',
+        JSON.stringify({
+          eventType: 'station.profileMismatch',
+          stationId: row.stationId,
+          sessionId: null,
+          siteId: siteByStation.get(row.stationId) ?? null,
+        }),
+      );
+    } catch (err) {
+      log.warn(
+        { err, stationId: row.stationId },
+        'Profile mismatch event publish failed, the dashboard is not notified',
+      );
     }
   }
 
   if (mismatchCount > 0) {
     log.info({ mismatchCount }, 'Charging profile mismatches detected');
   }
+}
+
+function profileList(data: unknown): unknown[] {
+  return Array.isArray(data) ? data : [data];
+}
+
+/** The OCPP profile id: `id` (2.1) or `chargingProfileId` (a profile stored in 1.6 form). */
+function profileId(profile: unknown): number | null {
+  if (profile == null || typeof profile !== 'object') return null;
+  const record = profile as Record<string, unknown>;
+  const raw = record['id'] ?? record['chargingProfileId'];
+  return typeof raw === 'number' && Number.isInteger(raw) ? raw : null;
 }

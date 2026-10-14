@@ -3,6 +3,7 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { state, pushBounded } from '../state.js';
+import { outboundUrl } from '../target-url.js';
 
 // OCPI response envelope helpers
 
@@ -341,10 +342,20 @@ function registerCpoRoutes(app: FastifyInstance): void {
 
     app.log.info({ command }, 'Received command from eMSP');
 
-    // Send async ACCEPTED result to the response_url
+    // Send async ACCEPTED result to the response_url, on the configured
+    // target only (outboundUrl).
+    let callbackUrl: string | null = null;
     if (responseUrl.length > 0) {
+      try {
+        callbackUrl = outboundUrl(responseUrl, process.env);
+      } catch (err) {
+        app.log.warn({ err, command }, 'Command response_url is not on the target, not called');
+      }
+    }
+    if (callbackUrl != null) {
+      const target = callbackUrl;
       setImmediate(() => {
-        void fetch(responseUrl, {
+        void fetch(target, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ result: 'ACCEPTED' }),

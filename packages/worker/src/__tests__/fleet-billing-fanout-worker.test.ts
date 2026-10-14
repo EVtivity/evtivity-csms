@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Job, Queue } from 'bullmq';
-import type { PubSubClient } from '@evtivity/lib';
+import type { Job } from 'bullmq';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() };
 vi.mock('@evtivity/lib', async (importOriginal) => ({
@@ -15,9 +14,6 @@ vi.mock('@evtivity/database', () => ({ client: 'client' }));
 
 const mockRun = vi.fn();
 vi.mock('@evtivity/services/fleet-billing-notice', () => ({
-  FLEET_BILLING_FANOUT_CHANNEL: 'fleet_billing_fanout',
-  fleetBillingFanoutJobId: (job: { fleetId: string; enabled: boolean; changedAt: string }) =>
-    `fbf.${job.fleetId}.${job.enabled ? 'on' : 'off'}.${String(Date.parse(job.changedAt))}`,
   runFleetBillingFanout: (...args: unknown[]) => mockRun(...args) as unknown,
 }));
 
@@ -35,70 +31,11 @@ vi.mock('../job-logger.js', () => ({
   logJobFailed: vi.fn().mockResolvedValue(undefined),
 }));
 
-const { startFleetBillingFanoutBridge, createFleetBillingFanoutWorker } =
-  await import('../fleet-billing-fanout-worker.js');
+const { createFleetBillingFanoutWorker } = await import('../fleet-billing-fanout-worker.js');
 
 const job = { fleetId: 'flt_A', enabled: true, changedAt: '2026-10-07T12:00:00.000Z' };
 beforeEach(() => {
   vi.clearAllMocks();
-});
-
-async function bridge(): Promise<{
-  deliver: (payload: string) => void;
-  add: ReturnType<typeof vi.fn>;
-}> {
-  let handler: ((payload: string) => void) | undefined;
-  const pubsub = {
-    subscribe: vi.fn((_channel: string, h: (payload: string) => void) => {
-      handler = h;
-      return Promise.resolve({ unsubscribe: () => Promise.resolve() });
-    }),
-  } as unknown as PubSubClient;
-  const add = vi.fn().mockResolvedValue(undefined);
-  await startFleetBillingFanoutBridge(pubsub, { add } as unknown as Queue);
-  return { deliver: (payload) => handler?.(payload), add };
-}
-
-describe('fleet billing fan-out bridge', () => {
-  it('enqueues one job per fleet and change with the deterministic job id', async () => {
-    const { deliver, add } = await bridge();
-    deliver(JSON.stringify(job));
-    expect(add).toHaveBeenCalledWith('fleet-billing-fanout', job, {
-      jobId: `fbf.flt_A.on.${String(Date.parse(job.changedAt))}`,
-    });
-  });
-
-  it('ignores a malformed or invalid payload', async () => {
-    const { deliver, add } = await bridge();
-    deliver('not json');
-    deliver(JSON.stringify({ fleetId: 'flt_A' }));
-    deliver(JSON.stringify({ ...job, recipient: 'driver' }));
-    deliver(JSON.stringify({ ...job, recipient: 'member', enabledChanged: 'yes' }));
-    expect(add).not.toHaveBeenCalled();
-    expect(mockLog.warn).toHaveBeenCalledTimes(4);
-  });
-
-  it('drops a payload with a kind: Invoice All Members no longer uses this channel', async () => {
-    const { deliver, add } = await bridge();
-    deliver(
-      JSON.stringify({
-        kind: 'member_invoices',
-        fleetId: 'flt_A',
-        period: '2026-09',
-        batchId: 'b1',
-        actor: { actor: 'operator', actorUserId: 'usr_1', actorApiKeyId: null },
-      }),
-    );
-    expect(add).not.toHaveBeenCalled();
-    expect(mockLog.warn).toHaveBeenCalledTimes(1);
-  });
-
-  it('enqueues a recipient change', async () => {
-    const { deliver, add } = await bridge();
-    const recipientJob = { ...job, recipient: 'member', enabledChanged: false };
-    deliver(JSON.stringify(recipientJob));
-    expect(add).toHaveBeenCalledWith('fleet-billing-fanout', recipientJob, expect.anything());
-  });
 });
 
 function makeLockRedis(setResults: Array<string | null> = []) {

@@ -108,6 +108,16 @@ vi.mock('../lib/site-access.js', () => ({
 }));
 
 vi.mock('@evtivity/services/load-management.service', () => ({
+  computeSiteAllocation: vi.fn(async (siteId: string, strategy: string) => {
+    const svc = await import('@evtivity/services/load-management.service');
+    const status = await svc.getSitePowerStatus(siteId);
+    const hierarchy = await svc.buildSiteHierarchy(siteId, status.stations);
+    const allocations =
+      hierarchy.length > 0 ? svc.computeHierarchicalAllocation(hierarchy, strategy as never) : [];
+    return { status, hierarchy, managed: [], reservedKw: new Map(), allocations };
+  }),
+  clearLoadManagementProfiles: vi.fn().mockResolvedValue(true),
+  parseAppliedAllocations: vi.fn(() => null),
   getSitePowerStatus: vi.fn().mockResolvedValue({
     totalDrawKw: 50,
     stations: [
@@ -120,6 +130,8 @@ vi.mock('@evtivity/services/load-management.service', () => ({
         loadPriority: 5,
         isOnline: true,
         hasActiveSession: true,
+        minPowerKw: 0,
+        rateUnit: 'W',
       },
       {
         id: 'sit_000000000002',
@@ -130,6 +142,8 @@ vi.mock('@evtivity/services/load-management.service', () => ({
         loadPriority: 3,
         isOnline: true,
         hasActiveSession: false,
+        minPowerKw: 0,
+        rateUnit: 'W',
       },
     ],
   }),
@@ -165,6 +179,8 @@ function station(id: string, draw: number, max: number) {
     loadPriority: 5,
     isOnline: true,
     hasActiveSession: draw > 0,
+    minPowerKw: 0,
+    rateUnit: 'W',
   };
 }
 
@@ -226,7 +242,7 @@ describe('Load management routes (hierarchy and site scope)', () => {
       stations: [station('sit_000000000001', 25, 22), station('sit_000000000002', 0, 11)],
       phaseConnections: 'L1',
     });
-    // Child panel with zero effective capacity: utilization 0, availableKw 0
+    // Child panel: effective 10 - 5 = 5, draw 2 (its unmanaged load included)
     const childPanel = node({
       id: 'pnl_2',
       name: 'Sub',
@@ -250,16 +266,17 @@ describe('Load management routes (hierarchy and site scope)', () => {
     expect(computeHierarchicalAllocation).toHaveBeenCalledWith([root], 'priority_based');
 
     const panel = body.hierarchy[0];
-    // effective = 100 - 10 - 10 = 80, available = 80 - 30 = 50, utilization = 30 / 80
-    expect(panel.availableKw).toBe(50);
-    expect(panel.utilization).toBeCloseTo(0.375);
+    // The draw already holds the panel's unmanaged load, so it is not taken off
+    // the capacity again: effective = 100 - 10 = 90, available = 90 - 30 = 60.
+    expect(panel.availableKw).toBe(60);
+    expect(panel.utilization).toBeCloseTo(30 / 90);
     expect(panel.totalConnectedKw).toBe(33);
     expect(panel.circuits).toHaveLength(1);
     expect(panel.circuits[0]).toMatchObject({
       id: 'cir_1',
       name: 'Circuit A',
-      // circuit available = 40 - 5 = 35, minus draw 25 = 10
-      availableKw: 10,
+      // the draw 25 holds the 5 kW unmanaged load: 40 - 25 = 15
+      availableKw: 15,
       phaseConnections: 'L1',
       unmanagedLoads: [],
     });
@@ -271,8 +288,8 @@ describe('Load management routes (hierarchy and site scope)', () => {
     expect(panel.childPanels).toHaveLength(1);
     expect(panel.childPanels[0]).toMatchObject({
       id: 'pnl_2',
-      availableKw: 0,
-      utilization: 0,
+      availableKw: 3,
+      utilization: 0.4,
       circuits: [],
       childPanels: [],
     });

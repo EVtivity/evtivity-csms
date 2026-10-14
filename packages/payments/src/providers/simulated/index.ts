@@ -63,8 +63,8 @@ export interface SimulatedWebhookDelivery {
 
 /**
  * Delivers simulated webhooks into the webhook pipeline. The production sink
- * (`simulated-delivery.ts`) publishes on `payment_webhook_deliveries`; the
- * worker re-delivers after a delayed BullMQ job into
+ * (`simulated-delivery.ts`) adds a delayed job to the worker's
+ * `payment-webhooks` queue, which runs it through
  * `ingestPaymentWebhook('simulated', ...)` (D-T2).
  */
 export interface SimulatedEventSink {

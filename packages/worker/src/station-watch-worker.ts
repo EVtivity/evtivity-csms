@@ -1,8 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Worker, type Queue, type ConnectionOptions } from 'bullmq';
-import type { PubSubClient } from '@evtivity/lib';
+import { Worker, type ConnectionOptions } from 'bullmq';
 import { createLogger } from '@evtivity/lib';
 import { QUEUE_NAMES } from './queues.js';
 import { handleStationWatchDispatch } from './handlers/station-watch-dispatch.js';
@@ -14,45 +13,13 @@ interface StationWatchJobData {
 }
 
 /**
- * Subscribes to the station_watch_available pub/sub channel (published by the
- * API, OCPP and worker paths that can free a station, through
- * alertStationWatchersIfAvailable) and enqueues a dispatch job. No
- * deterministic jobId: several paths may signal the same change, and the
- * dispatch claims watches via DELETE ... RETURNING under the shared
- * availability rule, so a duplicate job just no-ops. A static per-station jobId would instead drop a later legitimate fire
- * for the same station while an earlier completed job is still retained.
+ * Runs the station-watch dispatches. The API, OCPP and worker paths that can
+ * free a station add the jobs themselves (alertStationWatchersIfAvailable),
+ * so a signal waits while no worker runs. No deterministic jobId: several
+ * paths may signal the same change, and the dispatch claims watches via
+ * DELETE ... RETURNING under the shared availability rule, so a duplicate job
+ * just no-ops.
  */
-export async function startStationWatchBridge(
-  pubsub: PubSubClient,
-  queue: Queue,
-): Promise<() => Promise<void>> {
-  const subscription = await pubsub.subscribe('station_watch_available', (payload: string) => {
-    let data: { stationId?: unknown };
-    try {
-      data = JSON.parse(payload) as { stationId?: unknown };
-    } catch (err) {
-      log.warn(
-        { err, payload: payload.slice(0, 200) },
-        'Malformed station_watch_available payload',
-      );
-      return;
-    }
-    const stationId = data.stationId;
-    if (typeof stationId !== 'string' || stationId === '') return;
-
-    void queue.add('station-watch-dispatch', { stationId }).catch((err: unknown) => {
-      log.error({ err, stationId }, 'Failed to enqueue station-watch job');
-    });
-  });
-
-  log.info('Station-watch bridge started');
-
-  return async () => {
-    await subscription.unsubscribe();
-    log.info('Station-watch bridge stopped');
-  };
-}
-
 export function createStationWatchWorker(connection: ConnectionOptions): Worker {
   const worker = new Worker(
     QUEUE_NAMES.STATION_WATCH,

@@ -182,7 +182,7 @@ describe('applyReservationCancellation', () => {
       'csms_events',
       expect.stringContaining('reservation.changed'),
     );
-    expect(alertStationWatchersMock).toHaveBeenCalledWith({ tag: 'client' }, pubsub, 'sta_1');
+    expect(alertStationWatchersMock).toHaveBeenCalledWith({ tag: 'client' }, 'sta_1');
   });
 
   // A cancelled reservation can free the station with no connector change, so
@@ -192,11 +192,7 @@ describe('applyReservationCancellation', () => {
       { id: 'rsv_1', status_before: 'active', station_id: 'sta_1' },
     ]);
     await applyReservationCancellation(baseInput({ chargeFee: false, payments: undefined }));
-    expect(alertStationWatchersMock).toHaveBeenCalledWith(
-      { tag: 'client' },
-      expect.objectContaining({ publish: expect.any(Function) }),
-      'sta_1',
-    );
+    expect(alertStationWatchersMock).toHaveBeenCalledWith({ tag: 'client' }, 'sta_1');
   });
 
   it('still cancels when the station watch check fails', async () => {

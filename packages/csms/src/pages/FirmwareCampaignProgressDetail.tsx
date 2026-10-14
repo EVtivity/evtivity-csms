@@ -192,7 +192,9 @@ export function FirmwareCampaignProgressDetail(): React.JSX.Element {
                         <TableCell className="font-medium">{station.stationName}</TableCell>
                         <TableCell>
                           <Badge variant={STATION_STATUS_VARIANT[station.status] ?? 'outline'}>
-                            {station.status}
+                            {t(`firmwareCampaigns.stationStatuses.${station.status}`, {
+                              defaultValue: station.status,
+                            })}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs">{station.errorInfo ?? 'n/a'}</TableCell>

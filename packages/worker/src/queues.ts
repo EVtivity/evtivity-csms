@@ -5,6 +5,18 @@ import { Queue } from 'bullmq';
 import { createBullMQConnection, logBullMQErrors } from '@evtivity/lib';
 import { DRIVER_AI_QUEUE } from '@evtivity/lib/driver-ai';
 import {
+  FLEET_BILLING_FANOUT_JOB_OPTIONS,
+  FLEET_BILLING_FANOUT_QUEUE,
+  MAINTENANCE_FANOUT_JOB_OPTIONS,
+  MAINTENANCE_FANOUT_QUEUE,
+  PAYMENT_WEBHOOK_JOB_OPTIONS,
+  PAYMENT_WEBHOOK_QUEUE,
+  STATION_MESSAGE_JOB_OPTIONS,
+  STATION_MESSAGE_QUEUE,
+  STATION_WATCH_JOB_OPTIONS,
+  STATION_WATCH_QUEUE,
+} from '@evtivity/lib/worker-queues';
+import {
   ACCOUNT_INVOICE_JOB_OPTIONS,
   MEMBER_INVOICE_QUEUE,
 } from '@evtivity/services/account-invoice-jobs';
@@ -15,14 +27,14 @@ export const QUEUE_NAMES = {
   GUEST_SESSION_EVENTS: 'guest-session-events',
   RESERVATIONS: 'reservations',
   OCTT: 'octt',
-  MAINTENANCE_FANOUT: 'maintenance-fanout',
-  FLEET_BILLING_FANOUT: 'fleet-billing-fanout',
+  MAINTENANCE_FANOUT: MAINTENANCE_FANOUT_QUEUE,
+  FLEET_BILLING_FANOUT: FLEET_BILLING_FANOUT_QUEUE,
   FLEET_INVOICES: 'fleet-invoices',
   MEMBER_INVOICES: MEMBER_INVOICE_QUEUE,
-  STATION_WATCH: 'station-watch',
-  PAYMENT_WEBHOOKS: 'payment-webhooks',
+  STATION_WATCH: STATION_WATCH_QUEUE,
+  PAYMENT_WEBHOOKS: PAYMENT_WEBHOOK_QUEUE,
   REMOTE_START_TIMEOUTS: 'remote-start-timeouts',
-  STATION_MESSAGES: 'station-messages',
+  STATION_MESSAGES: STATION_MESSAGE_QUEUE,
   REPORTS: 'reports',
   AI_WORKERS: 'ai-workers',
   AI_INSIGHTS: 'ai-insights',
@@ -107,29 +119,19 @@ export function createQueues(redisUrl: string): WorkerQueues {
         removeOnFail: { count: 100 },
       },
     }),
-    // attempts: 1 — the fan-out increments reservations_cancelled_count /
-    // sessions_stopped_count via non-idempotent SQL increments, so a retry after
-    // a partial failure would double-count. A failed job is logged and left for
-    // the maintenance-scheduler cron or an operator re-save to re-trigger.
+    // The queues below that other processes add jobs to take their job
+    // options from @evtivity/lib/worker-queues (BullMQ applies the options of
+    // the Queue instance that adds a job), with the reason there.
+    // Maintenance station fan-outs (API, worker cron, OCPP re-assert).
     maintenanceFanoutQueue: new Queue(QUEUE_NAMES.MAINTENANCE_FANOUT, {
       connection: createBullMQConnection(redisUrl),
-      defaultJobOptions: {
-        removeOnComplete: 100,
-        removeOnFail: { count: 500 },
-        attempts: 1,
-      },
+      defaultJobOptions: MAINTENANCE_FANOUT_JOB_OPTIONS,
     }),
     // Fleet account billing switch: the member notices of one change (job id
-    // per fleet and change, P7). attempts: 1 — each member is fail-open, so the
-    // job fails only when the member list cannot be read, and a retry after a
-    // partial run would notify members twice.
+    // per fleet and change, P7), added by the API.
     fleetBillingFanoutQueue: new Queue(QUEUE_NAMES.FLEET_BILLING_FANOUT, {
       connection: createBullMQConnection(redisUrl),
-      defaultJobOptions: {
-        removeOnComplete: 100,
-        removeOnFail: { count: 500 },
-        attempts: 1,
-      },
+      defaultJobOptions: FLEET_BILLING_FANOUT_JOB_OPTIONS,
     }),
     // Scheduled fleet invoices: one job per fleet and month (job id
     // fleet-invoice.<fleetId>.<yyyy-mm>, P7). Retrying is safe: the period key
@@ -152,28 +154,16 @@ export function createQueues(redisUrl: string): WorkerQueues {
       connection: createBullMQConnection(redisUrl),
       defaultJobOptions: ACCOUNT_INVOICE_JOB_OPTIONS,
     }),
-    // attempts: 1 — the dispatch claims watches via DELETE ... RETURNING, so a
-    // retry after a partial failure would find the rows already gone (no resend)
-    // but could re-claim watches added in between. One attempt keeps it simple
-    // and one-shot.
+    // Station-watch dispatches (API, OCPP and worker paths that free a station).
     stationWatchQueue: new Queue(QUEUE_NAMES.STATION_WATCH, {
       connection: createBullMQConnection(redisUrl),
-      defaultJobOptions: {
-        removeOnComplete: 100,
-        removeOnFail: { count: 500 },
-        attempts: 1,
-      },
+      defaultJobOptions: STATION_WATCH_JOB_OPTIONS,
     }),
-    // Delayed simulated provider events into the webhook pipeline. Retrying is
-    // safe: the pipeline dedupes each event on its id (webhook_events, P7).
+    // Delayed simulated provider events into the webhook pipeline (every
+    // process with the simulated provider).
     paymentWebhookQueue: new Queue(QUEUE_NAMES.PAYMENT_WEBHOOKS, {
       connection: createBullMQConnection(redisUrl),
-      defaultJobOptions: {
-        removeOnComplete: 200,
-        removeOnFail: { count: 500 },
-        attempts: 5,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
+      defaultJobOptions: PAYMENT_WEBHOOK_JOB_OPTIONS,
     }),
     // Delayed close-out of accepted remote starts that never became a
     // transaction. Retrying is safe: the session update is status-guarded and
@@ -188,16 +178,10 @@ export function createQueues(redisUrl: string): WorkerQueues {
       },
     }),
     // Station screen renders: station events, session events, and debounced
-    // repushes after a config change. Retrying is safe: the content hash skips
-    // screens already sent.
+    // repushes after a config change (OCPP, API and worker cron).
     stationMessageQueue: new Queue(QUEUE_NAMES.STATION_MESSAGES, {
       connection: createBullMQConnection(redisUrl),
-      defaultJobOptions: {
-        removeOnComplete: 50,
-        removeOnFail: { count: 100 },
-        attempts: 2,
-        backoff: { type: 'exponential', delay: 5000 },
-      },
+      defaultJobOptions: STATION_MESSAGE_JOB_OPTIONS,
     }),
     // Report generation. attempts: 1 because generateReport records a failure on
     // the report itself; a job that stalls is left to the report sweep.

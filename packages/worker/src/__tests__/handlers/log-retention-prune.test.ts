@@ -95,6 +95,12 @@ const TABLE_DEFAULTS = [
     defaultDays: 90,
     cutoffColumn: 'timestamp',
   },
+  {
+    table: 'load_allocation_log',
+    settingKey: 'logs.loadAllocation.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'created_at',
+  },
 ];
 
 beforeEach(() => {

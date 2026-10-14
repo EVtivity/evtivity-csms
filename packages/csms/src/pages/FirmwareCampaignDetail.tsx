@@ -70,7 +70,9 @@ export function FirmwareCampaignDetail(): React.JSX.Element {
           <h1 className="text-2xl md:text-3xl font-bold">{campaign.name}</h1>
           <CopyableId id={campaign.id} />
         </div>
-        <Badge variant={STATUS_VARIANT[campaign.status] ?? 'outline'}>{campaign.status}</Badge>
+        <Badge variant={STATUS_VARIANT[campaign.status] ?? 'outline'}>
+          {t(`firmwareCampaigns.statuses.${campaign.status}`, { defaultValue: campaign.status })}
+        </Badge>
         <EntityNavButtons
           resource="firmware-campaigns"
           basePath="/firmware-campaigns"

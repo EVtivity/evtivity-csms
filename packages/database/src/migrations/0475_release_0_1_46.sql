@@ -57,6 +57,43 @@ END $$;
 -- invoice is member billed. No statement of this file uses the audit value.
 ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'billing_address_updated';
 --> statement-breakpoint
+-- Firmware updates a station never started (refused UpdateFirmware, command
+-- error, expired queued command) end as 'Rejected', so their campaign
+-- completes. No statement of this file uses the value.
+ALTER TYPE "firmware_update_status" ADD VALUE IF NOT EXISTS 'Rejected';
+--> statement-breakpoint
+-- Firmware campaign download retries, retry interval and install time. Null
+-- keeps v0.1.45 behavior (the station decides, installs when it can).
+ALTER TABLE "firmware_campaigns" ADD COLUMN IF NOT EXISTS "retries" integer;
+--> statement-breakpoint
+ALTER TABLE "firmware_campaigns" ADD COLUMN IF NOT EXISTS "retry_interval" integer;
+--> statement-breakpoint
+ALTER TABLE "firmware_campaigns" ADD COLUMN IF NOT EXISTS "install_date_time" timestamp with time zone;
+--> statement-breakpoint
+-- A campaign station offline at the start gets its update when it connects.
+-- Every station row of v0.1.45 was dispatched at the start, so the one-time
+-- backfill (while the column is new) marks them all dispatched.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'firmware_campaign_stations'
+      AND column_name = 'dispatched_at'
+  ) THEN
+    ALTER TABLE "firmware_campaign_stations" ADD COLUMN "dispatched_at" timestamp with time zone;
+    UPDATE "firmware_campaign_stations" SET "dispatched_at" = "updated_at";
+  END IF;
+END $$;
+--> statement-breakpoint
+-- One row per station and campaign, so the connect-time dispatch claims it
+-- once. A duplicate (a concurrent start before the start was guarded) keeps
+-- its oldest row.
+DELETE FROM "firmware_campaign_stations" a
+USING "firmware_campaign_stations" b
+WHERE a.campaign_id = b.campaign_id AND a.station_id = b.station_id AND a.id > b.id;
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_firmware_campaign_stations_campaign_station"
+  ON "firmware_campaign_stations" ("campaign_id", "station_id");
+--> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "fleet_member_invoice_run_failures" (
   "fleet_id" text NOT NULL,
   "driver_id" text NOT NULL,
@@ -141,6 +178,65 @@ CREATE UNIQUE INDEX IF NOT EXISTS "uq_invoices_member_period" ON "invoices" ("fl
   WHERE member_billed AND kind = 'invoice' AND status NOT IN ('void', 'credited');
 --> statement-breakpoint
 ANALYZE "invoices";
+--> statement-breakpoint
+-- Load management: the allocations last sent to the stations, shared by every
+-- worker process (the in-process cache skipped a send when two workers
+-- alternated, and never resent a lost one). Nullable, no default: no rewrite.
+ALTER TABLE "site_load_management" ADD COLUMN IF NOT EXISTS "applied_allocations" jsonb;
+--> statement-breakpoint
+ALTER TABLE "site_load_management" ADD COLUMN IF NOT EXISTS "applied_at" timestamp with time zone;
+--> statement-breakpoint
+-- A three-phase panel takes its phase to neutral voltage. 208 and 480 are line
+-- to line voltages (208Y/120, 480Y/277), so a three-phase panel saved with one
+-- overstated its capacity by a factor of 1.73: store the phase to neutral
+-- voltage and recompute the capacity. A rerun finds no such panel.
+UPDATE "panels"
+SET "voltage_v" = CASE "voltage_v" WHEN 208 THEN 120 ELSE 277 END,
+  "max_continuous_kw" = ("breaker_rating_amps" * (CASE "voltage_v" WHEN 208 THEN 120 ELSE 277 END) * 3 * 0.8 / 1000)::numeric,
+  "updated_at" = now()
+WHERE "phases" = 3 AND "voltage_v" IN (208, 480);
+--> statement-breakpoint
+-- A circuit's capacity counts the phases it uses: one phase V x A, two phases
+-- the line to line voltage (sqrt(3) x V) x A, three phases 3 x V x A. A
+-- circuit on one or two phases of a three-phase panel was counted on all
+-- three. Recompute every circuit of a three-phase panel; the guard makes a
+-- rerun change nothing.
+UPDATE "circuits" c
+SET "max_continuous_kw" = v.kw, "updated_at" = now()
+FROM (
+  SELECT c2.id,
+    round((c2.breaker_rating_amps * p.voltage_v
+      * CASE
+          WHEN c2.phase_connections IN ('L1', 'L2', 'L3') THEN 1
+          WHEN c2.phase_connections IN ('L1L2', 'L1L3', 'L2L3') THEN sqrt(3)
+          ELSE 3
+        END * 0.8 / 1000)::numeric, 6) AS kw
+  FROM "circuits" c2
+  JOIN "panels" p ON p.id = c2.panel_id
+  WHERE p.phases = 3
+) v
+WHERE c.id = v.id AND round(c.max_continuous_kw, 6) IS DISTINCT FROM v.kw;
+--> statement-breakpoint
+-- Retention of the load allocation log, pruned by the daily log-retention-prune
+-- cron. An operator value already set stays.
+INSERT INTO settings (key, value) VALUES ('logs.loadAllocation.retentionDays', '90'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+--> statement-breakpoint
+-- Cron that ends charging profile pushes an API restart cut off
+-- (handlers/charging-profile-push-sweep.ts), every 5 minutes.
+INSERT INTO cronjobs (name, schedule, status, next_run_at)
+SELECT 'charging-profile-push-sweep', '*/5 * * * *', 'pending', NOW()
+WHERE NOT EXISTS (SELECT 1 FROM cronjobs WHERE name = 'charging-profile-push-sweep');
+--> statement-breakpoint
+-- Load management minimum power per station (null: no minimum). Nullable
+-- without a default: no rewrite.
+ALTER TABLE "charging_stations" ADD COLUMN IF NOT EXISTS "load_min_power_kw" numeric;
+--> statement-breakpoint
+-- The ISO 15118 TxProfile the CSMS sent for the EV's charging needs, so the
+-- schedule the EV reports back is checked against it (K15.FR.11/12).
+ALTER TABLE "ev_charging_needs" ADD COLUMN IF NOT EXISTS "csms_charging_profile" jsonb;
+--> statement-breakpoint
+ALTER TABLE "ev_charging_schedules" ADD COLUMN IF NOT EXISTS "within_limits" boolean;
 --> statement-breakpoint
 -- Last: the hot table's ACCESS EXCLUSIVE lock is held to the commit. A constant
 -- default needs no rewrite. The check is NOT VALID (no scan) and enforced on

@@ -21,6 +21,7 @@ import {
   resendStoredHold,
 } from '@evtivity/services/reservation.service';
 import type { ProjectionDeps } from './projection-support/context.js';
+import type { ProjectionAttempt } from './projection-retry.js';
 import { ALL_TEMPLATES_DIRS } from './notification-dispatcher.js';
 
 /**
@@ -288,6 +289,21 @@ export interface StartedReservationInput {
   ocppReservationId: number | null;
   /** The idToken that started the session, if any. */
   idToken: string | null;
+  /**
+   * The Started projection's run, when it is retried on a lost connection: the
+   * hold's status write keeps its first result (`memo`) and its audit row,
+   * SSE and driver notice run once, so a rerun after the write committed
+   * still writes them.
+   */
+  attempt?: ProjectionAttempt;
+}
+
+function memoStep<T>(attempt: ProjectionAttempt | undefined, key: string, step: () => Promise<T>) {
+  return attempt != null ? attempt.memo(key, step) : step();
+}
+
+function onceStep<T>(attempt: ProjectionAttempt | undefined, key: string, step: () => Promise<T>) {
+  return attempt != null ? attempt.once(key, step) : step();
 }
 
 type StartedCandidateRow = {
@@ -436,40 +452,47 @@ async function linkReservation(
   row: StartedCandidateRow,
 ): Promise<void> {
   const { sql, logger, lookups, notify } = deps;
-  const { sessionId, stationUuid } = input;
+  const { sessionId, stationUuid, attempt } = input;
   await sql`
     UPDATE charging_sessions SET reservation_id = ${row.id}, updated_at = now()
     WHERE id = ${sessionId}
   `;
-  const moved = await sql<Array<{ id: string; fleet_reservation_id: string | null }>>`
-    UPDATE reservations SET status = 'in_use', updated_at = now()
-    WHERE id = ${row.id} AND status = 'active'
-    RETURNING id, fleet_reservation_id
-  `;
+  // A rerun whose first run lost the answer of this write (it may have
+  // committed) also takes an `in_use` hold this session is linked to as moved:
+  // the first run wrote no audit row for it. The link above is this session's,
+  // and only this write moves a hold to `in_use`.
+  const rerun = attempt != null && attempt.number > 1;
+  const moved = await memoStep(attempt, 'started:reservation-in-use', () =>
+    sql<Array<{ id: string; fleet_reservation_id: string | null }>>`
+      UPDATE reservations SET status = 'in_use', updated_at = now()
+      WHERE id = ${row.id} AND (status = 'active' OR (${rerun}::boolean AND status = 'in_use'))
+      RETURNING id, fleet_reservation_id
+    `.then((rows) => rows.map((r) => ({ id: r.id, fleet_reservation_id: r.fleet_reservation_id }))),
+  );
   if (moved.length > 0) {
     await refreshFleetReservationStatuses(
       moved.map((m) => m.fleet_reservation_id),
       logger,
     );
-    await writeReservationAudit(
-      {
-        reservationId: row.id,
-        action: 'used',
-        actor: 'system',
-        driverIdBefore: row.driver_id,
-        driverIdAfter: row.driver_id,
-        statusBefore: 'active',
-        statusAfter: 'in_use',
-        notes: `session ${sessionId}`,
-      },
-      undefined,
-      logger,
+    await onceStep(attempt, 'started:reservation-used-audit', () =>
+      writeReservationAudit(
+        {
+          reservationId: row.id,
+          action: 'used',
+          actor: 'system',
+          driverIdBefore: row.driver_id,
+          driverIdAfter: row.driver_id,
+          statusBefore: 'active',
+          statusAfter: 'in_use',
+          notes: `session ${sessionId}`,
+        },
+        undefined,
+        logger,
+      ),
     );
-    await notify.notifyChange(
-      'reservation.changed',
-      stationUuid,
-      await lookups.resolveSiteId(stationUuid),
-      sessionId,
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await onceStep(attempt, 'started:reservation-used-changed', () =>
+      notify.notifyChange('reservation.changed', stationUuid, siteId, sessionId),
     );
   }
 
@@ -512,48 +535,54 @@ async function markTakenByOther(
   row: StartedCandidateRow,
 ): Promise<void> {
   const { sql, logger, lookups, notify } = deps;
-  const { sessionId, stationUuid } = input;
-  const waived = await sql<Array<{ id: string }>>`
-    UPDATE reservations SET no_show_fee_state = 'waived', updated_at = now()
-    WHERE id = ${row.id} AND status = 'active' AND no_show_fee_state = 'none'
-    RETURNING id
-  `;
+  const { sessionId, stationUuid, attempt } = input;
+  // Memoized: a rerun after a later step lost its connection keeps the waiver
+  // and still writes the audit row and tells the holder, once each.
+  const waived = await memoStep(attempt, `started:reservation-taken:${row.id}`, () =>
+    sql<Array<{ id: string }>>`
+      UPDATE reservations SET no_show_fee_state = 'waived', updated_at = now()
+      WHERE id = ${row.id} AND status = 'active' AND no_show_fee_state = 'none'
+      RETURNING id
+    `.then((rows) => rows.map((r) => r.id)),
+  );
   if (waived.length === 0) return;
   logger.info(
     { sessionId, reservationUuid: row.id, stationId: input.stationOcppId },
     'Reserved EVSE taken by another driver; no-show fee waived',
   );
-  await writeReservationAudit(
-    {
-      reservationId: row.id,
-      action: 'taken_by_other',
-      actor: 'system',
-      driverIdBefore: row.driver_id,
-      driverIdAfter: row.driver_id,
-      statusBefore: 'active',
-      statusAfter: 'active',
-      notes: `session ${sessionId}`,
-    },
-    undefined,
-    logger,
+  await onceStep(attempt, `started:reservation-taken-audit:${row.id}`, () =>
+    writeReservationAudit(
+      {
+        reservationId: row.id,
+        action: 'taken_by_other',
+        actor: 'system',
+        driverIdBefore: row.driver_id,
+        driverIdAfter: row.driver_id,
+        statusBefore: 'active',
+        statusAfter: 'active',
+        notes: `session ${sessionId}`,
+      },
+      undefined,
+      logger,
+    ),
   );
-  await notify.notifyChange(
-    'reservation.changed',
-    stationUuid,
-    await lookups.resolveSiteId(stationUuid),
-    sessionId,
+  const siteId = await lookups.resolveSiteId(stationUuid);
+  await onceStep(attempt, `started:reservation-taken-changed:${row.id}`, () =>
+    notify.notifyChange('reservation.changed', stationUuid, siteId, sessionId),
   );
-  await notifyReservationDriver(
-    'reservation.TakenByOther',
-    {
-      reservationDbId: row.id,
-      reservationOcppId: row.reservation_id,
-      stationOcppId: input.stationOcppId,
-      driverId: row.driver_id,
-      expiresAt: toDateOrNull(row.expires_at),
-    },
-    {},
-    noticeOptions(deps),
+  await onceStep(attempt, `started:reservation-taken-notice:${row.id}`, () =>
+    notifyReservationDriver(
+      'reservation.TakenByOther',
+      {
+        reservationDbId: row.id,
+        reservationOcppId: row.reservation_id,
+        stationOcppId: input.stationOcppId,
+        driverId: row.driver_id,
+        expiresAt: toDateOrNull(row.expires_at),
+      },
+      {},
+      noticeOptions(deps),
+    ),
   );
 }
 

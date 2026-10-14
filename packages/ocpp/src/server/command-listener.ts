@@ -230,6 +230,25 @@ export class CommandListener {
           aggregateId: stationId,
           payload: { request: payload, response },
         });
+      } else if (action === 'ClearChargingProfile') {
+        // The projection removes the stored copies of the cleared profiles,
+        // for every caller (station route, template push, AI, OCPP command
+        // routes, a clear queued while the station was offline).
+        void this.eventBus.publish({
+          eventType: 'command.ClearChargingProfile',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, response },
+        });
+      } else if (action === 'GetChargingProfiles') {
+        // The projection drops stored station profiles the station no longer
+        // reports (NoProfiles, or an EVSE that sends no report this time).
+        void this.eventBus.publish({
+          eventType: 'command.GetChargingProfiles',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, response },
+        });
       } else if (action === 'SetDisplayMessage' || action === 'ClearDisplayMessage') {
         // A display message command queued for an offline station is sent on
         // reconnect with no API caller waiting: the projection records the reply.
@@ -296,10 +315,22 @@ export class CommandListener {
         errorDescription: errorMessage,
       });
 
+      const timedOut = err instanceof CommandTimeoutError;
+      // A firmware update the station answered with an error, or that could not
+      // be sent, never starts: the projection ends it so its campaign can
+      // complete. A timeout stays open, the station may still report it.
+      if ((action === 'UpdateFirmware' || action === 'SignedUpdateFirmware') && !timedOut) {
+        void this.eventBus.publish({
+          eventType: 'command.UpdateFirmware',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, error: errorMessage },
+        });
+      }
+
       if (commandId != null) {
         // timedOut tells the caller the station did not answer (504), as
         // opposed to a send error or CALLERROR (502).
-        const timedOut = err instanceof CommandTimeoutError;
         await this.pubsub.publish(
           RESULTS_CHANNEL,
           JSON.stringify(

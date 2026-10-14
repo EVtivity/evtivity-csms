@@ -30,6 +30,23 @@ function createSqlMock() {
   return sqlFn as unknown;
 }
 
+// Jobs the projections add to the worker queues themselves (station screens,
+// maintenance re-assert, station-watch alerts), kept as [job name, JSON data]
+// rows in add order.
+const queuedJobs = vi.hoisted(() => [] as Array<[string, string]>);
+vi.mock('@evtivity/lib/job-queues', () => ({
+  jobQueue: () => ({
+    add: (name: string, data: unknown) => {
+      queuedJobs.push([name, JSON.stringify(data)]);
+      return Promise.resolve();
+    },
+    addBulk: () => Promise.resolve(),
+  }),
+}));
+function jobsNamed(name: string): Array<[string, string]> {
+  return queuedJobs.filter((j) => j[0] === name);
+}
+
 vi.mock('postgres', () => {
   const factory = () => createSqlMock();
   factory.PostgresError = class extends Error {};
@@ -156,6 +173,7 @@ describe('TransactionEvent Started when the payment gate fails', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    queuedJobs.length = 0;
     sqlCalls.length = 0;
     mockRunPaymentGate.mockRejectedValue(gateError);
   });
@@ -195,11 +213,11 @@ describe('TransactionEvent Started when the payment gate fails', () => {
     ).resolves.toBe(true);
     // Buffer drained.
     expect(eventBus.publish).toHaveBeenCalledWith(updated);
-    // Station screen published.
-    expect(pubsub.publish).toHaveBeenCalledWith(
-      'station_message_transaction',
+    // Station screen queued.
+    expect(jobsNamed('station-message-transaction')).toContainEqual([
+      'station-message-transaction',
       expect.stringContaining('"eventType":"started"'),
-    );
+    ]);
     // Starting driver's station watch cleared.
     expect(sqlCalls.some((text) => text.includes('DELETE FROM station_watches'))).toBe(true);
     // The gate failure still surfaces.

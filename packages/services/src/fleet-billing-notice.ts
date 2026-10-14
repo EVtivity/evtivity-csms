@@ -11,7 +11,11 @@ import {
 } from '@evtivity/database';
 import { dispatchDriverNotification } from '@evtivity/lib';
 import type { ServiceLogger } from '@evtivity/lib';
-import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { jobQueue } from '@evtivity/lib/job-queues';
+import {
+  FLEET_BILLING_FANOUT_JOB_OPTIONS,
+  FLEET_BILLING_FANOUT_QUEUE,
+} from '@evtivity/lib/worker-queues';
 import { ALL_TEMPLATES_DIRS } from './template-dirs.js';
 
 /** The shared postgres client type (the API and worker pass `client`). */
@@ -140,8 +144,8 @@ export async function notifyAccountBillingChange(
   }
 }
 
-/** The pub/sub channel the API hands a fleet switch fan-out to the worker on. */
-export const FLEET_BILLING_FANOUT_CHANNEL = 'fleet_billing_fanout';
+/** The BullMQ job name of one fan-out. */
+export const FLEET_BILLING_FANOUT_JOB_NAME = 'fleet-billing-fanout';
 
 /** One fleet billing change, fanned out to its members by the worker. */
 export interface FleetBillingFanoutJob {
@@ -174,7 +178,7 @@ export function fanoutChange(job: FleetBillingFanoutJob): AccountBillingChange {
 
 /**
  * The BullMQ job id of a fleet billing fan-out: one job per fleet and change,
- * so a repeated publish of the same change enqueues nothing. Segments join
+ * so a repeated add of the same change adds nothing. Segments join
  * with '.' (BullMQ rejects ':' in custom job ids).
  */
 export function fleetBillingFanoutJobId(job: FleetBillingFanoutJob): string {
@@ -183,22 +187,27 @@ export function fleetBillingFanoutJobId(job: FleetBillingFanoutJob): string {
 }
 
 /**
- * Hands the member notices of a fleet switch to the worker (the
- * `fleet_billing_fanout` channel, then the `fleet-billing-fanout` queue), so
- * a fleet with many members never notifies inside the request. Fail-open
- * (P9): the switch is committed; a lost publish loses only the notices and
- * is logged at error.
+ * Hands the member notices of a fleet switch to the worker: adds the
+ * `fleet-billing-fanout` job itself, so the change waits in Redis while no
+ * worker runs, and a member list too long for a request is never notified
+ * inside it. Job id per fleet and change (P7): a repeated add adds nothing.
+ * Fail-open (P9): the switch is committed; a failed add (Redis down) loses
+ * only the notices and is logged at error.
  */
-export async function publishFleetBillingFanout(
+export async function enqueueFleetBillingFanout(
   job: FleetBillingFanoutJob,
   log: ServiceLogger,
 ): Promise<void> {
   try {
-    await getPubSub().publish(FLEET_BILLING_FANOUT_CHANNEL, JSON.stringify(job));
+    await jobQueue(FLEET_BILLING_FANOUT_QUEUE, FLEET_BILLING_FANOUT_JOB_OPTIONS).add(
+      FLEET_BILLING_FANOUT_JOB_NAME,
+      job,
+      { jobId: fleetBillingFanoutJobId(job) },
+    );
   } catch (err) {
     log.error(
       { err, fleetId: job.fleetId },
-      'Fleet billing fan-out publish failed; the members are not notified',
+      'Fleet billing fan-out job not queued; the members are not notified',
     );
   }
 }

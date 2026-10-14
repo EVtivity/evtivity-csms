@@ -306,6 +306,53 @@ describe('CommandListener', () => {
     );
   });
 
+  it('publishes command.ClearChargingProfile with the request and the answer', async () => {
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-ccp',
+        stationId: 'CS-001',
+        action: 'ClearChargingProfile',
+        payload: { chargingProfileId: 3 },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'command.ClearChargingProfile',
+        aggregateId: 'CS-001',
+        payload: { request: { chargingProfileId: 3 }, response: { status: 'Accepted' } },
+      }),
+    );
+  });
+
+  it('publishes command.GetChargingProfiles with the request and the answer', async () => {
+    await createAndStart();
+    dispatcher.sendCommand.mockResolvedValueOnce({ status: 'NoProfiles' });
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-gcp',
+        stationId: 'CS-001',
+        action: 'GetChargingProfiles',
+        payload: { requestId: 7, chargingProfile: {} },
+        version: 'ocpp2.1',
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'command.GetChargingProfiles',
+        aggregateId: 'CS-001',
+        payload: {
+          request: { requestId: 7, chargingProfile: {} },
+          response: { status: 'NoProfiles' },
+        },
+      }),
+    );
+  });
+
   it('publishes command.Queued event when station is not connected and commandId present', async () => {
     dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
       new Error('Station CS-001 is not connected'),
@@ -714,6 +761,48 @@ describe('CommandListener', () => {
 
     expect(eventBus.publish).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'command.UpdateFirmware', aggregateId: 'CS-001' }),
+    );
+  });
+
+  it('publishes command.UpdateFirmware with the error when the station answers with an error', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(new Error('NotSupported'));
+    await createAndStart();
+    const payload = { requestId: 9, firmware: { location: 'https://fw' } };
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-fw-err',
+        stationId: 'CS-001',
+        action: 'UpdateFirmware',
+        payload,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'command.UpdateFirmware',
+        payload: { request: payload, error: 'NotSupported' },
+      }),
+    );
+  });
+
+  it('does not end a firmware update whose command timed out', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new CommandTimeoutError('UpdateFirmware', 'm2'),
+    );
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-fw-to',
+        stationId: 'CS-001',
+        action: 'UpdateFirmware',
+        payload: { requestId: 10, firmware: { location: 'https://fw' } },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).not.toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'command.UpdateFirmware' }),
     );
   });
 

@@ -41,7 +41,8 @@ function migrationValues(): Map<string, unknown> {
 
 /** The literal defaultSettings in seed.ts gives a key, as a JSON value. */
 function seedTsValue(key: string): unknown {
-  const escaped = key.replace(/\./g, '\\.');
+  // Every regex metacharacter, backslash included.
+  const escaped = key.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
   const match = new RegExp(`'${escaped}': ([^,\\n]+),`).exec(seedSource);
   if (match?.[1] == null) return undefined;
   return JSON.parse(match[1].replace(/'/g, '"').replace(/_/g, ''));

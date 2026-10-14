@@ -15,6 +15,13 @@ import {
   getFirmwareSignatureErrors,
   type FirmwareSignatureValue,
 } from '@/components/FirmwareSignatureFields';
+import {
+  EMPTY_FIRMWARE_DELIVERY,
+  FirmwareDeliveryFields,
+  firmwareDeliveryPayload,
+  getFirmwareDeliveryErrors,
+  type FirmwareDeliveryValue,
+} from '@/components/FirmwareDeliveryFields';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
@@ -36,6 +43,9 @@ interface CreateCampaignBody {
   version?: string;
   signingCertificate?: string;
   signature?: string;
+  retries?: number | null;
+  retryInterval?: number | null;
+  installDateTime?: string | null;
   targetFilter?: TargetFilterValue;
 }
 
@@ -51,6 +61,7 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
     signingCertificate: '',
     signature: '',
   });
+  const [delivery, setDelivery] = useState<FirmwareDeliveryValue>(EMPTY_FIRMWARE_DELIVERY);
   const [filter, setFilter] = useState<TargetFilterValue>({});
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const hasAllSiteAccess = useHasAllSiteAccess();
@@ -80,9 +91,11 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
   }
 
   const signingErrors = getFirmwareSignatureErrors(signing, t);
+  const deliveryErrors = getFirmwareDeliveryErrors(delivery, t);
   const errors: Record<string, string> = {
     ...getValidationErrors(),
     ...signingErrors,
+    ...deliveryErrors,
     ...getApiErrorFieldDetails(createMutation.error),
   };
 
@@ -90,7 +103,12 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(errors).length > 0) return;
-    const body: CreateCampaignBody = { name, firmwareUrl, ...firmwareSignaturePayload(signing) };
+    const body: CreateCampaignBody = {
+      name,
+      firmwareUrl,
+      ...firmwareSignaturePayload(signing),
+      ...firmwareDeliveryPayload(delivery, false),
+    };
     if (version.trim() !== '') body.version = version;
     if (Object.keys(filter).length > 0) body.targetFilter = filter;
     createMutation.mutate(body);
@@ -154,6 +172,13 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
               </div>
             </div>
 
+            <FirmwareDeliveryFields
+              value={delivery}
+              onChange={setDelivery}
+              idPrefix="campaign"
+              errors={hasSubmitted ? deliveryErrors : {}}
+            />
+
             <FirmwareSignatureFields
               value={signing}
               onChange={setSigning}
@@ -167,6 +192,7 @@ export function FirmwareCampaignCreate(): React.JSX.Element {
               value={filter}
               onChange={setFilter}
               idPrefix="fw-create-filter"
+              helpText={t('firmwareCampaigns.targetFilterHelp')}
             />
             {hasSubmitted && errors.targetFilter && (
               <p className="text-sm text-destructive">{errors.targetFilter}</p>

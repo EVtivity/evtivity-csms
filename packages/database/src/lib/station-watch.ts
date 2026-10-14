@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
+import { jobQueue } from '@evtivity/lib/job-queues';
+import { STATION_WATCH_JOB_OPTIONS, STATION_WATCH_QUEUE } from '@evtivity/lib/worker-queues';
 import { availableEvseCountSql } from './driver-availability.js';
 
 // Station watch alerts ("notify me when free"). A station becomes free for a
@@ -12,11 +14,8 @@ import { availableEvseCountSql } from './driver-availability.js';
 // availability rule, and the worker claims the watches only while the rule still
 // holds. Claiming deletes the watches, so any number of signals sends one alert.
 
-export const STATION_WATCH_CHANNEL = 'station_watch_available';
-
-export interface StationWatchPublisher {
-  publish(channel: string, payload: string): Promise<void>;
-}
+/** The BullMQ job name of one dispatch on the worker's station-watch queue. */
+export const STATION_WATCH_JOB_NAME = 'station-watch-dispatch';
 
 // The OCPP station id when the station has an active watch and a free EVSE by
 // the shared driver availability rule, otherwise null. The watch EXISTS comes
@@ -37,16 +36,21 @@ export async function findDueStationWatch(
   return row?.station_id ?? null;
 }
 
-// Publishes the station-watch signal when an alert is due. Returns whether it
-// published. Throws on a database or publish error; callers are fail-open.
+// Queues the station-watch dispatch when an alert is due: the API, OCPP server
+// and worker add the job themselves, so the signal waits in Redis while no
+// worker runs. No job id: several paths may signal one change, and the claim
+// makes a duplicate job a no-op, while a fixed id would drop a later
+// legitimate signal for the station. Returns whether it queued. Throws on a
+// database or queue error; callers are fail-open.
 export async function alertStationWatchersIfAvailable(
   sql: postgres.Sql,
-  pubsub: StationWatchPublisher,
   stationUuid: string,
 ): Promise<boolean> {
   const stationId = await findDueStationWatch(sql, stationUuid);
   if (stationId == null) return false;
-  await pubsub.publish(STATION_WATCH_CHANNEL, JSON.stringify({ stationId }));
+  await jobQueue(STATION_WATCH_QUEUE, STATION_WATCH_JOB_OPTIONS).add(STATION_WATCH_JOB_NAME, {
+    stationId,
+  });
   return true;
 }
 

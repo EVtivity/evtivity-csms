@@ -53,6 +53,23 @@ class MockPostgresError extends Error {
   }
 }
 
+// Jobs the projections add to the worker queues themselves (station screens,
+// maintenance re-assert, station-watch alerts), kept as [job name, JSON data]
+// rows in add order.
+const queuedJobs = vi.hoisted(() => [] as Array<[string, string]>);
+vi.mock('@evtivity/lib/job-queues', () => ({
+  jobQueue: () => ({
+    add: (name: string, data: unknown) => {
+      queuedJobs.push([name, JSON.stringify(data)]);
+      return Promise.resolve();
+    },
+    addBulk: () => Promise.resolve(),
+  }),
+}));
+function jobsNamed(name: string): Array<[string, string]> {
+  return queuedJobs.filter((j) => j[0] === name);
+}
+
 vi.mock('postgres', () => {
   const factory = () => createSqlMock();
   factory.PostgresError = MockPostgresError;
@@ -82,7 +99,17 @@ vi.mock('../../../database/src/lib/pricing-settings.js', () => ({
   isSplitBillingEnabled: vi.fn().mockResolvedValue(false),
 }));
 
+// The firmware campaign helpers write their completion audit through the
+// audit module directly.
+vi.mock('../../../database/src/lib/audit.js', () => ({
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@evtivity/database', async () => ({
+  // The real firmware update and campaign progress writes, on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/firmware-updates.js',
+  )),
   // The session end request channel and reasons.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-end-request.js',
@@ -268,6 +295,7 @@ describe('Event projections', () => {
     sqlFailOn = null;
     sqlRoute = null;
     vi.clearAllMocks();
+    queuedJobs.length = 0;
     mockAuthorizeSessionHold.mockResolvedValue({
       outcome: 'authorized',
       paymentRecordId: 1,
@@ -380,7 +408,7 @@ describe('Event projections', () => {
         (c: unknown[]) => c[0],
       );
       expect(channels).toContain('ocpp_commands');
-      expect(channels).toContain('station_message_refresh');
+      expect(jobsNamed('station-message-refresh')).toHaveLength(1);
       // The sent command leaves the queue: the message log stops showing it as Queued.
       const events = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls
         .filter((c: unknown[]) => c[0] === 'csms_events')
@@ -422,11 +450,11 @@ describe('Event projections', () => {
         (c: unknown[]) => c[0],
       );
       expect(channels).not.toContain('ocpp_commands');
-      expect(channels).not.toContain('station_message_refresh');
-      expect(channels).not.toContain('maintenance_fanout');
+      expect(jobsNamed('station-message-refresh')).toHaveLength(0);
+      expect(jobsNamed('maintenance-fanout')).toHaveLength(0);
     });
 
-    it('publishes a maintenance re-assert when the station is ready under an active event', async () => {
+    it('queues a maintenance re-assert when the station is ready under an active event', async () => {
       await setup();
 
       setupSqlResults(
@@ -443,9 +471,7 @@ describe('Event projections', () => {
         }),
       );
 
-      const fanoutCall = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.find(
-        (c: unknown[]) => c[0] === 'maintenance_fanout',
-      );
+      const fanoutCall = jobsNamed('maintenance-fanout')[0];
       expect(fanoutCall).toBeDefined();
       const payload = JSON.parse(fanoutCall?.[1] as string) as Record<string, unknown>;
       expect(payload.eventId).toBe('mne_maint1');
@@ -454,7 +480,7 @@ describe('Event projections', () => {
       expect(typeof payload.nonce).toBe('string');
     });
 
-    it('does not publish a maintenance re-assert when no active event covers the station', async () => {
+    it('does not queue a maintenance re-assert when no active event covers the station', async () => {
       await setup();
 
       setupSqlResults(
@@ -471,9 +497,7 @@ describe('Event projections', () => {
         }),
       );
 
-      const fanoutCall = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.find(
-        (c: unknown[]) => c[0] === 'maintenance_fanout',
-      );
+      const fanoutCall = jobsNamed('maintenance-fanout')[0];
       expect(fanoutCall).toBeUndefined();
     });
 
@@ -671,9 +695,7 @@ describe('Event projections', () => {
     }
 
     function watchSignals(): unknown[][] {
-      return (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
-        (c: unknown[]) => c[0] === 'station_watch_available',
-      );
+      return jobsNamed('station-watch-dispatch');
     }
 
     beforeEach(() => {
@@ -703,10 +725,10 @@ describe('Event projections', () => {
 
       watchDue = true;
       await eventBus.emit('ocpp.StatusNotification', available());
-      expect(mockPubSub.publish).toHaveBeenCalledWith(
-        'station_watch_available',
+      expect(jobsNamed('station-watch-dispatch')).toContainEqual([
+        'station-watch-dispatch',
         JSON.stringify({ stationId: 'CS-001' }),
-      );
+      ]);
     });
 
     it('checks the watches when the station reports itself available (EVSE 0)', async () => {
@@ -781,7 +803,6 @@ describe('Event projections', () => {
         [], // SELECT evses (not found)
         [{ id: 'evs_000000000001' }], // INSERT evses RETURNING id
         [{ id: 'con_000000000001' }], // INSERT connectors RETURNING id
-        [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -806,7 +827,6 @@ describe('Event projections', () => {
         [{ id: 'evs_000000000001' }], // SELECT evses (found)
         [], // guarded UPDATE connectors (not found)
         [{ id: 'con_000000000001' }], // INSERT connectors RETURNING id
-        [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -830,7 +850,6 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationId
         [{ id: 'evs_000000000001' }], // SELECT evses
         [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors
-        [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -855,7 +874,6 @@ describe('Event projections', () => {
         [], // SELECT evses (not found)
         [{ id: 'evs_000000000001' }], // INSERT evses
         [{ id: 'con_000000000001' }], // INSERT connectors RETURNING id
-        [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -880,7 +898,6 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
-        [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // UPDATE charging_sessions SET idle_started_at
         [], // SELECT active session for notification dispatch (no session found)
@@ -907,7 +924,6 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -963,7 +979,6 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -1005,7 +1020,6 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -1064,7 +1078,6 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -1117,7 +1130,6 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'charging', applied: true }], // guarded UPDATE connectors (prevRows)
-        [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -1143,7 +1155,6 @@ describe('Event projections', () => {
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'suspended_ev', applied: true }], // guarded UPDATE connectors (prevRows)
-        [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
         [], // UPDATE charging_sessions (clear idle)
@@ -1166,18 +1177,17 @@ describe('Event projections', () => {
       expect(idleClearCalls.length).toBe(1);
     });
 
-    it('publishes station_message_refresh on connector status change for OCPP 2.1 stations', async () => {
+    it('queues the station screen refresh on connector status change for OCPP 2.1 stations', async () => {
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (prev)
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
-        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol for station_message_refresh
+        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol for the station screen refresh
       );
 
       await eventBus.emit(
@@ -1189,22 +1199,19 @@ describe('Event projections', () => {
         }),
       );
 
-      const refreshCalls = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
-        (c) => c[0] === 'station_message_refresh',
-      );
+      const refreshCalls = jobsNamed('station-message-refresh');
       expect(refreshCalls.length).toBe(1);
       expect(refreshCalls[0]?.[1]).toContain('CS-001');
       expect(refreshCalls[0]?.[1]).toContain('ocpp2.1');
     });
 
-    it('does NOT publish station_message_refresh when connector status unchanged', async () => {
+    it('does NOT queue the station screen refresh when connector status unchanged', async () => {
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (prev = same as new)
-        [], // INSERT port_status_log
         [{ site_id: null }], // resolveSiteId
       );
 
@@ -1217,24 +1224,21 @@ describe('Event projections', () => {
         }),
       );
 
-      const refreshCalls = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
-        (c) => c[0] === 'station_message_refresh',
-      );
+      const refreshCalls = jobsNamed('station-message-refresh');
       expect(refreshCalls.length).toBe(0);
     });
 
-    it('publishes station_message_refresh for OCPP 1.6 stations (Idle screen via DataTransfer)', async () => {
+    it('queues the station screen refresh for OCPP 1.6 stations (Idle screen via DataTransfer)', async () => {
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (prev)
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
-        [{ ocpp_protocol: 'ocpp1.6' }], // SELECT ocpp_protocol for station_message_refresh
+        [{ ocpp_protocol: 'ocpp1.6' }], // SELECT ocpp_protocol for the station screen refresh
       );
 
       await eventBus.emit(
@@ -1246,9 +1250,7 @@ describe('Event projections', () => {
         }),
       );
 
-      const refreshCalls = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
-        (c) => c[0] === 'station_message_refresh',
-      );
+      const refreshCalls = jobsNamed('station-message-refresh');
       expect(refreshCalls.length).toBe(1);
       expect(JSON.parse(refreshCalls[0]?.[1] as string)).toMatchObject({
         stationOcppId: 'CS-001',
@@ -1256,14 +1258,13 @@ describe('Event projections', () => {
       });
     });
 
-    it('publishes station_message_refresh for Faulted transitions on OCPP 2.1', async () => {
+    it('queues the station screen refresh for Faulted transitions on OCPP 2.1', async () => {
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationUuid
         [{ id: 'evse_000000000001' }], // SELECT evses (found)
         [{ previous_status: 'available', applied: true }], // guarded UPDATE connectors (prev)
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
@@ -1279,9 +1280,7 @@ describe('Event projections', () => {
         }),
       );
 
-      const refreshCalls = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
-        (c) => c[0] === 'station_message_refresh',
-      );
+      const refreshCalls = jobsNamed('station-message-refresh');
       expect(refreshCalls.length).toBe(1);
     });
 
@@ -1326,7 +1325,7 @@ describe('Event projections', () => {
       });
     }
 
-    it('publishes station_message_refresh on auto-create EVSE branch for OCPP 2.1', async () => {
+    it('queues the station screen refresh on auto-create EVSE branch for OCPP 2.1', async () => {
       await setup();
 
       setupSqlResults(
@@ -1334,12 +1333,11 @@ describe('Event projections', () => {
         [], // SELECT evses (not found)
         [{ id: 'evs_000000000001' }], // INSERT evses RETURNING id
         [{ id: 'con_000000000001' }], // INSERT connectors RETURNING id
-        [], // INSERT port_status_log
         [], // SELECT charging_stations FOR UPDATE (availability lock)
         [], // UPDATE charging_stations (connector fault reconciliation)
         [{ site_id: null }], // resolveSiteId
         [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (auto-discovery GetBaseReport branch)
-        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station_message_refresh branch)
+        [{ ocpp_protocol: 'ocpp2.1' }], // SELECT ocpp_protocol (station screen refresh branch)
       );
 
       await eventBus.emit(
@@ -1351,9 +1349,7 @@ describe('Event projections', () => {
         }),
       );
 
-      const refreshCalls = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
-        (c) => c[0] === 'station_message_refresh',
-      );
+      const refreshCalls = jobsNamed('station-message-refresh');
       expect(refreshCalls.length).toBe(1);
     });
   });
@@ -1400,7 +1396,10 @@ describe('Event projections', () => {
       );
 
       const joined = sqlCalls.map((c) => c.strings.join(''));
-      expect(joined.some((q) => q.includes('INSERT INTO port_status_log'))).toBe(false);
+      // The guarded write holds the log row; no separate log statement runs.
+      expect(joined.some((q) => q.trimStart().startsWith('INSERT INTO port_status_log'))).toBe(
+        false,
+      );
       expect(joined.some((q) => q.includes('SET idle_started_at'))).toBe(false);
       expect(mockPubSub.publish).not.toHaveBeenCalled();
     });
@@ -4405,9 +4404,7 @@ describe('Event projections', () => {
 
         expect(connectorWrites()).toEqual(['occupied']);
         // The station screen refresh follows the real transition, once.
-        const refreshes = (mockPubSub.publish as ReturnType<typeof vi.fn>).mock.calls.filter(
-          (c: unknown[]) => c[0] === 'station_message_refresh',
-        );
+        const refreshes = jobsNamed('station-message-refresh');
         expect(refreshes).toHaveLength(1);
       });
     });

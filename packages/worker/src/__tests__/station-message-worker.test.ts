@@ -2,9 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
-import type { Job, Queue } from 'bullmq';
+import type { Job } from 'bullmq';
 import type { Redis } from 'ioredis';
-import type { PubSubClient } from '@evtivity/lib';
 
 const mockLog = { info: vi.fn(), error: vi.fn(), warn: vi.fn() };
 const mockWithLock = vi.fn(
@@ -30,11 +29,7 @@ vi.mock('@evtivity/services/station-message.service', async (importOriginal) => 
   const actual =
     await importOriginal<typeof import('@evtivity/services/station-message.service')>();
   return {
-    parseStationRefreshPayload: actual.parseStationRefreshPayload,
-    parseStationTransactionPayload: actual.parseStationTransactionPayload,
-    STATION_MESSAGE_REFRESH_CHANNEL: 'station_message_refresh',
-    STATION_MESSAGE_REPUSH_CHANNEL: 'station_message_repush',
-    STATION_MESSAGE_TRANSACTION_CHANNEL: 'station_message_transaction',
+    STATION_MESSAGE_JOBS: actual.STATION_MESSAGE_JOBS,
     pushAllMessagesToAllStations: (...args: unknown[]) => mockPushAll(...args),
     runStationRefresh: (...args: unknown[]) => mockRunRefresh(...args),
     runStationTransaction: (...args: unknown[]) => mockRunTransaction(...args),
@@ -68,31 +63,6 @@ vi.mock('../job-logger.js', () => ({
 
 const lockRedis = {} as Redis;
 
-function makeBridgeDeps(): {
-  pubsub: PubSubClient;
-  queue: Queue;
-  add: ReturnType<typeof vi.fn>;
-  deliver: (channel: string, payload: string) => void;
-} {
-  const handlers = new Map<string, (payload: string) => void>();
-  const pubsub = {
-    subscribe: vi.fn((channel: string, h: (payload: string) => void) => {
-      handlers.set(channel, h);
-      return Promise.resolve({ unsubscribe: vi.fn().mockResolvedValue(undefined) });
-    }),
-  } as unknown as PubSubClient;
-  const add = vi.fn().mockResolvedValue(undefined);
-  const queue = { add } as unknown as Queue;
-  return {
-    pubsub,
-    queue,
-    add,
-    deliver: (channel, payload) => {
-      handlers.get(channel)?.(payload);
-    },
-  };
-}
-
 const REFRESH = {
   stationOcppId: 'CS-1',
   internalStationId: 'sta_1',
@@ -122,103 +92,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockPushAll.mockResolvedValue(undefined);
   mockLogJobStarted.mockResolvedValue(7);
-});
-
-describe('startStationMessageBridge', () => {
-  it('enqueues one debounced repush job per scope', async () => {
-    const { startStationMessageBridge, STATION_MESSAGE_REPUSH_DEBOUNCE_MS } = mod;
-    const deps = makeBridgeDeps();
-    await startStationMessageBridge(deps.pubsub, deps.queue);
-
-    deps.deliver('station_message_repush', JSON.stringify({}));
-    deps.deliver('station_message_repush', JSON.stringify({ siteId: 'sit_1' }));
-    deps.deliver('station_message_repush', JSON.stringify({ stationId: 'sta_1' }));
-    deps.deliver('station_message_repush', JSON.stringify({ pricingGroupId: 'pg_1' }));
-    deps.deliver('station_message_repush', JSON.stringify({ siteId: 42 }));
-
-    expect(deps.add).toHaveBeenNthCalledWith(
-      1,
-      'station-message-repush',
-      {},
-      {
-        delay: STATION_MESSAGE_REPUSH_DEBOUNCE_MS,
-        deduplication: {
-          id: 'smr.all',
-          ttl: STATION_MESSAGE_REPUSH_DEBOUNCE_MS,
-          extend: true,
-          replace: true,
-        },
-      },
-    );
-    const ids = deps.add.mock.calls.map(
-      (c) => (c[2] as { deduplication: { id: string } }).deduplication.id,
-    );
-    expect(ids).toEqual([
-      'smr.all',
-      'smr.site.sit_1',
-      'smr.station.sta_1',
-      'smr.group.pg_1',
-      'smr.all',
-    ]);
-  });
-
-  it('turns a station event into one debounced refresh job per station', async () => {
-    const { startStationMessageBridge, STATION_MESSAGE_EVENT_DEBOUNCE_MS } = mod;
-    const deps = makeBridgeDeps();
-    await startStationMessageBridge(deps.pubsub, deps.queue);
-
-    // Two replicas bridge the same message: both adds carry the same id.
-    deps.deliver('station_message_refresh', JSON.stringify(REFRESH));
-    deps.deliver('station_message_refresh', JSON.stringify(REFRESH));
-
-    expect(deps.add).toHaveBeenCalledTimes(2);
-    for (const call of deps.add.mock.calls) {
-      expect(call).toEqual([
-        'station-message-refresh',
-        REFRESH,
-        {
-          delay: STATION_MESSAGE_EVENT_DEBOUNCE_MS,
-          deduplication: {
-            id: 'smf.sta_1',
-            ttl: STATION_MESSAGE_EVENT_DEBOUNCE_MS,
-            extend: true,
-            replace: true,
-          },
-        },
-      ]);
-    }
-  });
-
-  it('turns a session event into one debounced transaction job per session', async () => {
-    const { startStationMessageBridge } = mod;
-    const deps = makeBridgeDeps();
-    await startStationMessageBridge(deps.pubsub, deps.queue);
-
-    deps.deliver('station_message_transaction', JSON.stringify(TRANSACTION));
-    deps.deliver(
-      'station_message_transaction',
-      JSON.stringify({ ...TRANSACTION, eventType: 'ended', chargingState: undefined }),
-    );
-
-    const ids = deps.add.mock.calls.map(
-      (c) => (c[2] as { deduplication: { id: string } }).deduplication.id,
-    );
-    expect(ids).toEqual(['smt.ses_1', 'smt.ses_1']);
-    expect(deps.add.mock.calls[1]?.[1]).toMatchObject({ eventType: 'ended' });
-  });
-
-  it('drops malformed payloads with a warning', async () => {
-    const { startStationMessageBridge } = mod;
-    const deps = makeBridgeDeps();
-    await startStationMessageBridge(deps.pubsub, deps.queue);
-
-    deps.deliver('station_message_repush', 'not json');
-    deps.deliver('station_message_refresh', JSON.stringify({ stationOcppId: 'CS-1' }));
-    deps.deliver('station_message_transaction', JSON.stringify({ sessionId: 'ses_1' }));
-
-    expect(deps.add).not.toHaveBeenCalled();
-    expect(mockLog.warn).toHaveBeenCalledTimes(3);
-  });
 });
 
 describe('createStationMessageWorker', () => {

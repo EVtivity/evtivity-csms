@@ -3,6 +3,7 @@
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { TemplateNotAllowedError } from '../template-safety.js';
 import {
   DEFAULT_MAINTENANCE_MESSAGE_TEMPLATE,
   renderMaintenanceMessage,
@@ -69,6 +70,22 @@ describe('renderMaintenanceMessage', () => {
       );
       expect(result).toBe('Closed: storm damage');
       expect(sqlCalls.map((c) => c.key)).toEqual(['company.name']);
+    });
+
+    it('renders without HTML escaping and refuses helpers in a custom message', async () => {
+      const ok = await renderMaintenanceMessage(
+        sql,
+        event({ customMessage: '{{reason}}', reason: 'a & <b>' }),
+        'North Lot',
+      );
+      expect(ok).toBe('a & <b>');
+      await expect(
+        renderMaintenanceMessage(
+          sql,
+          event({ customMessage: '{{lookup this "constructor"}}' }),
+          'North Lot',
+        ),
+      ).rejects.toThrow(TemplateNotAllowedError);
     });
 
     it('trims whitespace around the custom message before deciding to use it', async () => {

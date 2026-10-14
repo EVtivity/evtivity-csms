@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import Handlebars from 'handlebars';
+import { compileAllowedTemplate } from './template-safety.js';
 import type postgres from 'postgres';
 
 /**
@@ -63,7 +63,7 @@ export async function renderMaintenanceMessage(
       DEFAULT_MAINTENANCE_MESSAGE_TEMPLATE;
   }
   const companyName = (await fetchSetting(sql, 'company.name')) ?? 'EVtivity';
-  const compiled = Handlebars.compile(tpl, { noEscape: true });
+  const compiled = compileAllowedTemplate(tpl, { noEscape: true });
   const durationMinutes = Math.round(
     (event.plannedEndAt.getTime() - event.plannedStartAt.getTime()) / 60_000,
   );

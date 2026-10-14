@@ -928,6 +928,8 @@ export const TC_K_106_CSMS: TestCase = {
   },
 };
 
+const MAX_EXTERNAL_CONSTRAINTS_ID = 2147400000;
+
 /**
  * TC_K_109_CSMS: EMS Control - Set Charging Profile - MaxExternalConstraintsId
  * Use case: K01 (K01.FR.80)
@@ -948,6 +950,7 @@ export const TC_K_109_CSMS: TestCase = {
 
     let receivedGetBase = false;
     let receivedSetProfile = false;
+    let receivedProfileId: number | null = null;
     let reportSequence: StationSequence | null = null;
 
     ctx.client.setIncomingCallHandler(
@@ -966,7 +969,7 @@ export const TC_K_109_CSMS: TestCase = {
                 {
                   component: { name: 'SmartChargingCtrlr' },
                   variable: { name: 'MaxExternalConstraintsId' },
-                  variableAttribute: [{ value: '2147400000' }],
+                  variableAttribute: [{ value: String(MAX_EXTERNAL_CONSTRAINTS_ID) }],
                 },
               ],
             });
@@ -975,6 +978,8 @@ export const TC_K_109_CSMS: TestCase = {
         }
         if (action === 'SetChargingProfile') {
           receivedSetProfile = true;
+          const profile = payload['chargingProfile'] as { id?: number } | undefined;
+          receivedProfileId = profile?.id ?? null;
           return { status: 'Accepted' };
         }
         return defaultReply('ocpp2.1', action, payload);
@@ -991,9 +996,31 @@ export const TC_K_109_CSMS: TestCase = {
       // Without the API, wait for a GetBaseReport the CSMS sends on its own.
       await waitFor(() => reportSequence != null, 20_000);
     }
-    // The CSMS sends SetChargingProfile after it processed the NotifyReport.
     const reportError = await waitForStationSequence(reportSequence);
+    // Manual action: request the CSMS to send a TxDefaultProfile. Its id must
+    // be above the reported MaxExternalConstraintsId (K01.FR.80); the CSMS
+    // sends no profile on its own when it receives the value (K01.FR.22).
+    if (reportError == null && ctx.triggerCommand != null) {
+      await ctx.triggerCommand('v21', 'SetChargingProfile', {
+        stationId: ctx.stationId,
+        evseId: 1,
+        chargingProfile: {
+          id: MAX_EXTERNAL_CONSTRAINTS_ID + 1,
+          stackLevel: 0,
+          chargingProfilePurpose: 'TxDefaultProfile',
+          chargingProfileKind: 'Relative',
+          chargingSchedule: [
+            {
+              id: 1,
+              chargingRateUnit: 'A',
+              chargingSchedulePeriod: [{ startPeriod: 0, limit: 16.0 }],
+            },
+          ],
+        },
+      });
+    }
     if (reportError == null) await waitFor(() => receivedSetProfile, CSMS_STATE_TIMEOUT_MS);
+    const idAbove = receivedProfileId != null && receivedProfileId > MAX_EXTERNAL_CONSTRAINTS_ID;
 
     steps.push({
       step: 1,
@@ -1005,11 +1032,12 @@ export const TC_K_109_CSMS: TestCase = {
 
     steps.push({
       step: 2,
-      description: 'CSMS sends SetChargingProfileRequest after receiving MaxExternalConstraintsId',
-      status: receivedSetProfile ? 'passed' : 'failed',
-      expected: 'SetChargingProfileRequest received',
+      description:
+        'CSMS sends the requested TxDefaultProfile with an id above MaxExternalConstraintsId',
+      status: receivedSetProfile && idAbove ? 'passed' : 'failed',
+      expected: `SetChargingProfileRequest with chargingProfile.id > ${String(MAX_EXTERNAL_CONSTRAINTS_ID)}`,
       actual: receivedSetProfile
-        ? 'Received'
+        ? `chargingProfile.id ${String(receivedProfileId)}`
         : (reportError ??
           `Not received within ${String(CSMS_STATE_TIMEOUT_MS / 1000)} s after NotifyReport`),
     });

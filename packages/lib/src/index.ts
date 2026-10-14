@@ -53,6 +53,7 @@ export {
   assertTemplateAllowed,
   compileAllowedTemplate,
   TemplateNotAllowedError,
+  type AllowedTemplateOptions,
   type TemplateRenderer,
 } from './template-safety.js';
 
@@ -204,7 +205,16 @@ export {
   ocppNotificationEventsFor,
 } from './notification-events.js';
 export type { OcppNotificationVersion, OcppNotificationEventType } from './notification-events.js';
-export { LOAD_ALLOCATION_STRATEGIES } from './load-allocation.js';
+export {
+  LOAD_ALLOCATION_STRATEGIES,
+  PANEL_VOLTAGES,
+  LINE_TO_LINE_ONLY_VOLTAGES,
+  CONTINUOUS_LOAD_FACTOR,
+  isPanelVoltageAllowed,
+  circuitConductorPhases,
+  computeMaxContinuousKw,
+  conductorFactor,
+} from './load-allocation.js';
 export type { LoadAllocationStrategy } from './load-allocation.js';
 export { OCPI_PULL_MODULES } from './ocpi-modules.js';
 export type { OcpiPullModule } from './ocpi-modules.js';
@@ -216,6 +226,12 @@ export {
   validateFirmwareSignature,
 } from './firmware-signature.js';
 export type { FirmwareSignatureError } from './firmware-signature.js';
+export {
+  FIRMWARE_RETRIES_MAX,
+  FIRMWARE_RETRY_INTERVAL_MAX_SECONDS,
+  buildCampaignUpdateFirmware,
+} from './firmware-campaign.js';
+export type { FirmwareCampaignCommandSource } from './firmware-campaign.js';
 export { TOTP_VERSION_V1, totpV1, totpV1ForInterval, verifyTotpV1 } from './web-payment-totp.js';
 export type { TotpParameters } from './web-payment-totp.js';
 export {
@@ -570,3 +586,13 @@ export {
 } from './invoice-seller.js';
 export type { InvoiceSellerSettingKey } from './invoice-seller.js';
 export type { DecodedPdfLogo } from './pdf-logo.js';
+export {
+  CLEARABLE_PROFILE_PURPOSES,
+  UNCLEARABLE_PROFILE_PURPOSES,
+  chargingProfileClearCriteria,
+  chargingProfileClearFilter,
+} from './charging-profile-clear.js';
+export type {
+  ChargingProfileClearCriteria,
+  ChargingProfileClearFilter,
+} from './charging-profile-clear.js';

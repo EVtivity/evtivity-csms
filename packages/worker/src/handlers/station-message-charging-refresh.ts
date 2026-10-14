@@ -10,10 +10,9 @@ import {
   isStationMessageEnabled,
   getStationMessageRefreshSeconds,
 } from '@evtivity/database';
-import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { enqueueStationTransaction } from '@evtivity/services/station-message.service';
 import type { Logger } from 'pino';
 
-const STATION_MESSAGE_TRANSACTION_CHANNEL = 'station_message_transaction';
 const STATION_MESSAGE_SLOT_CHARGING = 9001;
 
 export async function stationMessageChargingRefreshHandler(log: Logger): Promise<void> {
@@ -62,45 +61,40 @@ export async function stationMessageChargingRefreshHandler(log: Logger): Promise
     lastPushByStation.set(row.stationId, row.pushedAt);
   }
 
-  const pubsub = getPubSub();
   const now = Date.now();
 
-  // Filter to sessions whose station is past the per-station refresh
-  // window, then publish in parallel. Serial publish on N active sessions
-  // adds N x Redis-RTT to every cron tick; parallelizing brings it back
-  // to a single RTT regardless of fleet size.
-  const sessionsToPush = activeSessions.filter((session) => {
+  // Sessions whose station is past the per-station refresh window, queued in
+  // parallel (one Redis round trip per tick, not one per session).
+  const sessionsToPush = activeSessions.flatMap((session) => {
     const lastPushedAt = lastPushByStation.get(session.stationUuid);
-    return lastPushedAt == null || now - lastPushedAt.getTime() >= refreshSeconds * 1000;
+    const due = lastPushedAt == null || now - lastPushedAt.getTime() >= refreshSeconds * 1000;
+    return due && session.ocppProtocol != null
+      ? [{ ...session, ocppProtocol: session.ocppProtocol }]
+      : [];
   });
 
   const results = await Promise.allSettled(
     sessionsToPush.map((session) =>
-      pubsub
-        .publish(
-          STATION_MESSAGE_TRANSACTION_CHANNEL,
-          JSON.stringify({
-            sessionId: session.sessionId,
-            internalStationId: session.stationUuid,
-            stationOcppId: session.stationOcppId,
-            ocppProtocol: session.ocppProtocol,
-            // No chargingState: the api keeps the state the station last reported,
-            // so a suspended session keeps its suspended screen.
-            eventType: 'updated',
-          }),
-        )
-        .catch((err: unknown) => {
-          log.warn(
-            { sessionId: session.sessionId, error: err },
-            'Failed to publish station_message_transaction refresh event',
-          );
-          throw err;
-        }),
+      enqueueStationTransaction({
+        sessionId: session.sessionId,
+        internalStationId: session.stationUuid,
+        stationOcppId: session.stationOcppId,
+        ocppProtocol: session.ocppProtocol,
+        // No chargingState: the render keeps the state the station last
+        // reported, so a suspended session keeps its suspended screen.
+        eventType: 'updated',
+      }).catch((err: unknown) => {
+        log.warn(
+          { sessionId: session.sessionId, error: err },
+          'Failed to queue the station message charging refresh',
+        );
+        throw err;
+      }),
     ),
   );
 
-  const published = results.filter((r) => r.status === 'fulfilled').length;
-  if (published > 0) {
-    log.info({ published }, 'Station message charging refresh published');
+  const queued = results.filter((r) => r.status === 'fulfilled').length;
+  if (queued > 0) {
+    log.info({ queued }, 'Station message charging refresh queued');
   }
 }

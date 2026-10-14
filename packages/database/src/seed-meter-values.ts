@@ -42,7 +42,7 @@ export async function insertDemoMeterValues(
     }));
     const result = await sql`
       INSERT INTO meter_values ${sql(batch)}
-      ON CONFLICT (session_id, evse_id, timestamp, measurand, phase, location) DO NOTHING
+      ON CONFLICT DO NOTHING
     `;
     inserted += result.count;
   }

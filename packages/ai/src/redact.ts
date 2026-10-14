@@ -102,7 +102,6 @@ export function isSecretShapedKey(key: string): boolean {
 
 /** Secret shapes inside strings, each masked whole. */
 const SECRET_VALUE_PATTERNS: readonly RegExp[] = [
-  /-----BEGIN [A-Z0-9 ]+-----[\s\S]*?-----END [A-Z0-9 ]+-----/g,
   /\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/g,
   /\bbearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
   /\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{8,}/g,
@@ -117,6 +116,63 @@ const SECRET_VALUE_PATTERNS: readonly RegExp[] = [
 /** Long hex after a key-like label (`secret: 9f86d0...`); the label is kept. */
 const LABELLED_HEX_PATTERN =
   /\b((?:key|secret|token|signature|hmac|password)["']?\s*[:=]\s*["']?)[0-9a-fA-F]{32,}/gi;
+
+const PEM_BEGIN = '-----BEGIN ';
+const PEM_END = '-----END ';
+const PEM_DASHES = '-----';
+
+/**
+ * End of a PEM label (`[A-Z0-9 ]+` then `-----`) starting at `from`: the index
+ * after the dashes, or -1. The label holds no `-`, so labels never overlap.
+ */
+function pemLabelEnd(text: string, from: number): number {
+  let i = from;
+  while (i < text.length) {
+    const c = text.charCodeAt(i);
+    // A-Z, 0-9, space
+    if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57) || c === 32) i++;
+    else break;
+  }
+  if (i === from || !text.startsWith(PEM_DASHES, i)) return -1;
+  return i + PEM_DASHES.length;
+}
+
+/**
+ * Replaces each PEM block (`-----BEGIN <label>-----` up to the first
+ * `-----END <label>-----`) with the redaction marker. A linear scan: the
+ * regex form rescans to the end of the text for every BEGIN without an END,
+ * quadratic on many repeated headers.
+ */
+function redactPemBlocks(text: string, onBlock: () => void): string {
+  let out = '';
+  let copied = 0;
+  let search = 0;
+  for (;;) {
+    const begin = text.indexOf(PEM_BEGIN, search);
+    if (begin === -1) break;
+    const headerEnd = pemLabelEnd(text, begin + PEM_BEGIN.length);
+    if (headerEnd === -1) {
+      search = begin + 1;
+      continue;
+    }
+    let blockEnd = -1;
+    let endSearch = headerEnd;
+    for (;;) {
+      const end = text.indexOf(PEM_END, endSearch);
+      if (end === -1) break;
+      blockEnd = pemLabelEnd(text, end + PEM_END.length);
+      if (blockEnd !== -1) break;
+      endSearch = end + 1;
+    }
+    // No complete END after this header means none after a later one either.
+    if (blockEnd === -1) break;
+    out += text.slice(copied, begin) + REDACTED;
+    onBlock();
+    copied = blockEnd;
+    search = blockEnd;
+  }
+  return copied === 0 ? text : out + text.slice(copied);
+}
 
 function luhnValid(digits: string): boolean {
   let sum = 0;
@@ -194,7 +250,9 @@ function maskCard(match: string, w: Walk): string {
 }
 
 function redactString(input: string, w: Walk, options: { contiguousCards: boolean }): string {
-  let out = input;
+  let out = redactPemBlocks(input, () => {
+    w.counts.values++;
+  });
   for (const pattern of SECRET_VALUE_PATTERNS) {
     out = out.replace(pattern, () => {
       w.counts.values++;

@@ -18,7 +18,11 @@ import { TimeSlotEditor, type SchedulePeriod } from '@/components/smart-charging
 import { api, getApiErrorCode, getApiErrorFieldDetails } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { useUserTimezone } from '@/lib/timezone';
-import { midnightInTimezone, toDatetimeLocalInTimezone } from '@/lib/schedule-anchor';
+import {
+  fromDatetimeLocalInTimezone,
+  midnightInTimezone,
+  toDatetimeLocalInTimezone,
+} from '@/lib/schedule-anchor';
 import { useHasAllSiteAccess } from '@/lib/auth';
 
 type OcppVersion = '2.1' | '1.6';
@@ -30,7 +34,9 @@ const PURPOSES_21 = [
   'LocalGeneration',
 ];
 
-const PURPOSES_16 = ['ChargePointMaxProfile', 'TxDefaultProfile'];
+// Templates store the 2.1 purpose names; the OCPP server sends
+// ChargingStationMaxProfile to a 1.6 station as ChargePointMaxProfile.
+const PURPOSES_16 = ['ChargingStationMaxProfile', 'TxDefaultProfile'];
 
 interface FilterOptions {
   sites: { id: string; name: string }[];
@@ -94,7 +100,8 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
     if (!hasAllSiteAccess && filterSiteId === '') {
       errors.filterSiteId = t('validation.selectRequired');
     }
-    if (profileKind === 'Recurring' && !startSchedule) {
+    // Absolute and Recurring profiles both need a start (OCPP 2.1 K01.FR.40).
+    if (!startSchedule) {
       errors.startSchedule = t('validation.required');
     }
     return errors;
@@ -129,10 +136,11 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
     };
     if (description.trim() !== '') body.description = description;
     if (profileKind === 'Recurring') body.recurrencyKind = recurrencyKind;
-    if (startSchedule) body.startSchedule = new Date(startSchedule).toISOString();
+    if (startSchedule)
+      body.startSchedule = fromDatetimeLocalInTimezone(startSchedule, timezone).toISOString();
     if (duration) body.duration = parseInt(duration, 10);
-    if (validFrom) body.validFrom = new Date(validFrom).toISOString();
-    if (validTo) body.validTo = new Date(validTo).toISOString();
+    if (validFrom) body.validFrom = fromDatetimeLocalInTimezone(validFrom, timezone).toISOString();
+    if (validTo) body.validTo = fromDatetimeLocalInTimezone(validTo, timezone).toISOString();
 
     const filter: Record<string, string> = {};
     if (filterSiteId) filter.siteId = filterSiteId;
@@ -400,7 +408,11 @@ export function SmartChargingTemplateCreate(): React.JSX.Element {
               periods={schedulePeriods}
               onChange={setSchedulePeriods}
               rateUnit={chargingRateUnit}
-              startSchedule={startSchedule ? new Date(startSchedule).toISOString() : null}
+              startSchedule={
+                startSchedule
+                  ? fromDatetimeLocalInTimezone(startSchedule, timezone).toISOString()
+                  : null
+              }
               timezone={timezone}
             />
 

@@ -6,6 +6,9 @@
  *   1. A SQL file on disk with no matching journal entry, or vice versa.
  *   2. Duplicate or non-sequential `idx` values.
  *   3. A `when` value that is not strictly greater than the previous entry.
+ *   4. A file whose form the runner cannot apply safely: CONCURRENTLY outside
+ *      a no-transaction file, or a no-transaction file statement that would
+ *      fail on a rerun (scripts/lib/migration-files.mjs).
  *
  * (3) is the one that bit us: drizzle-kit's migrator picks up a new migration
  * only when its `when` exceeds the latest already-applied row's `created_at`
@@ -24,6 +27,7 @@
 import { readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { migrationFileProblems } from './lib/migration-files.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..');
@@ -106,6 +110,12 @@ const journalTags = new Set(entries.map((e) => e.tag));
 for (const tag of tagToFile.keys()) {
   if (!journalTags.has(tag)) {
     errors.push(`SQL file ${tag}.sql has no matching journal entry`);
+  }
+}
+
+for (const f of sqlFiles) {
+  for (const problem of migrationFileProblems(readFileSync(join(MIGRATIONS_DIR, f), 'utf8'))) {
+    errors.push(`${f}: ${problem}`);
   }
 }
 

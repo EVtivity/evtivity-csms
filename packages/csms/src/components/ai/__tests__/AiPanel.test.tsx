@@ -407,8 +407,6 @@ describe('AiPanel', () => {
   });
 
   it('TC-AI-UI-04: dropped files upload, show previews and per-file errors, and send their ids', async () => {
-    URL.createObjectURL = vi.fn(() => 'blob:preview');
-    URL.revokeObjectURL = vi.fn();
     apiMock.post.mockImplementation((path: string) => {
       if (path === '/v1/assistant/conversations') return Promise.resolve({ id: 'conv1' });
       if (path === '/v1/assistant/attachments/upload-url') {
@@ -443,7 +441,7 @@ describe('AiPanel', () => {
     act(() => {
       fireEvent.drop(panel, { dataTransfer: { files: [good, bad], types: ['Files'] } });
     });
-    expect(await screen.findByAltText('screen.png')).toBeTruthy();
+    expect(await screen.findByRole('img', { name: 'screen.png' })).toBeTruthy();
     expect(screen.getByText('ai.attachmentErrors.typeNotAllowed')).toBeTruthy();
     const removeButtons = await screen.findAllByRole('button', { name: 'ai.removeAttachment' });
     expect(removeButtons).toHaveLength(2);
@@ -468,7 +466,6 @@ describe('AiPanel', () => {
   });
 
   it('a file the server refuses shows its error code', async () => {
-    URL.createObjectURL = vi.fn(() => 'blob:preview');
     apiMock.post.mockRejectedValue(new ApiError(400, { code: 'AI_ATTACHMENT_REJECTED' }));
     renderPanel();
     const file = new File(['x'], 'fake.png', { type: 'image/png' });
@@ -477,11 +474,10 @@ describe('AiPanel', () => {
   });
 
   it('TC-AI-UI-04: a pasted image is queued as an attachment', async () => {
-    URL.createObjectURL = vi.fn(() => 'blob:preview');
     renderPanel();
     const file = new File(['x'], 'paste.jpg', { type: 'image/jpeg' });
     fireEvent.paste(screen.getByLabelText('ai.inputLabel'), { clipboardData: { files: [file] } });
-    expect(await screen.findByAltText('paste.jpg')).toBeTruthy();
+    expect(await screen.findByRole('img', { name: 'paste.jpg' })).toBeTruthy();
   });
 
   it('opens a conversation from the history', async () => {

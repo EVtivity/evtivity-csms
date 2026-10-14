@@ -7,6 +7,7 @@ import { isVisibleInsightStatus } from '@evtivity/lib/ai-insights';
 import { useCanExplain, useOpenExplain } from '@/components/ai/ExplainButton';
 import { aiRequestErrorText } from '@/components/ai/ai-error-text';
 import { InsightCard } from '@/components/ai/insights/InsightCard';
+import { InsightRecordLink } from '@/components/ai/insights/InsightRecordLink';
 import { useInsight } from '@/components/ai/insights/insight-api';
 import type { AiInsightView } from '@/components/ai/insights/insight-api';
 import { insightHeadline } from '@/components/ai/insights/insight-display';
@@ -110,23 +111,52 @@ export function AiInsightDetail(): React.JSX.Element {
               <Row label={t('aiInsights.list.kind')}>{t(`aiInsights.kind.${insight.kind}`)}</Row>
               {insight.stationId != null && (
                 <Row label={t('aiInsights.list.station')}>
-                  <Link to={`/stations/${insight.stationId}`} className="text-link hover:underline">
-                    {insight.stationName ?? insight.stationId}
-                  </Link>
+                  <InsightRecordLink
+                    kind="station"
+                    id={insight.stationId}
+                    label={insight.stationName}
+                  />
                 </Row>
               )}
               {insight.sessionId != null && (
                 <Row label={t('aiInsights.detail.session')}>
-                  <Link to={`/sessions/${insight.sessionId}`} className="text-link hover:underline">
-                    {insight.sessionId}
-                  </Link>
+                  <InsightRecordLink
+                    kind="session"
+                    id={insight.sessionId}
+                    label={insight.sessionId}
+                  />
+                </Row>
+              )}
+              {insight.reservationId != null && (
+                <Row label={t('aiInsights.detail.reservation')}>
+                  <InsightRecordLink
+                    kind="reservation"
+                    id={insight.reservationId}
+                    label={
+                      insight.reservationNumber != null
+                        ? `#${String(insight.reservationNumber)}`
+                        : null
+                    }
+                  />
+                </Row>
+              )}
+              {insight.tokenId != null && (
+                <Row label={t('aiInsights.detail.token')}>
+                  <InsightRecordLink kind="token" id={insight.tokenId} label={insight.tokenLabel} />
+                </Row>
+              )}
+              {insight.driverId != null && (
+                <Row label={t('aiInsights.detail.driver')}>
+                  <InsightRecordLink
+                    kind="driver"
+                    id={insight.driverId}
+                    label={insight.driverName}
+                  />
                 </Row>
               )}
               {insight.siteId != null && (
                 <Row label={t('aiInsights.list.site')}>
-                  <Link to={`/sites/${insight.siteId}`} className="text-link hover:underline">
-                    {insight.siteName ?? insight.siteId}
-                  </Link>
+                  <InsightRecordLink kind="site" id={insight.siteId} label={insight.siteName} />
                 </Row>
               )}
               {insight.parentInsightId != null && (

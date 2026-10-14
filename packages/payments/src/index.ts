@@ -137,14 +137,11 @@ export {
 } from './providers/simulated/webhook-signing.js';
 export {
   deferredSimulatedSink,
-  PAYMENT_WEBHOOK_CHANNEL,
-  pubsubSimulatedSink,
+  PAYMENT_WEBHOOK_JOB_NAME,
+  paymentWebhookJobId,
+  queueSimulatedSink,
 } from './simulated-delivery.js';
-export type {
-  DeferredSimulatedSink,
-  PaymentWebhookDelivery,
-  PaymentWebhookPublisher,
-} from './simulated-delivery.js';
+export type { DeferredSimulatedSink, PaymentWebhookDelivery } from './simulated-delivery.js';
 export type { PaymentContext, PaymentLogger } from './context.js';
 export { activeProvider, pinnedProvider, resolveActiveProvider } from './pinning.js';
 export { describePaymentProviders } from './provider-catalog.js';

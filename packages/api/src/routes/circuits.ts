@@ -11,6 +11,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { circuitConductorPhases, computeMaxContinuousKw } from '@evtivity/lib';
 
 // --- Schemas ---
 
@@ -47,7 +48,11 @@ const createCircuitBody = z.object({
 const updateCircuitBody = z.object({
   name: z.string().min(1).max(255).optional(),
   breakerRatingAmps: z.number().int().min(1).max(10000).optional(),
-  phaseConnections: phaseConnectionsSchema,
+  phaseConnections: z
+    .enum(phaseConnectionValues)
+    .nullable()
+    .optional()
+    .describe('Phase connections; null puts the circuit back on every panel phase'),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
@@ -86,16 +91,6 @@ const stationCircuitItem = z
       .describe('Assigned circuit identifier, or null when unassigned'),
   })
   .passthrough();
-
-// --- Helpers ---
-
-function computeMaxContinuousKw(
-  breakerRatingAmps: number,
-  voltageV: number,
-  phases: number,
-): number {
-  return (breakerRatingAmps * voltageV * phases * 0.8) / 1000;
-}
 
 // --- Routes ---
 
@@ -144,7 +139,7 @@ export function circuitRoutes(app: FastifyInstance): void {
       const maxContinuousKw = computeMaxContinuousKw(
         body.breakerRatingAmps,
         panel.voltageV,
-        panel.phases,
+        circuitConductorPhases(body.phaseConnections, panel.phases),
       );
 
       const rows = await db
@@ -284,12 +279,15 @@ export function circuitRoutes(app: FastifyInstance): void {
         updateData['phaseConnections'] = body.phaseConnections;
       if (body.sortOrder != null) updateData['sortOrder'] = body.sortOrder;
 
-      // Recompute maxContinuousKw if breakerRatingAmps changed
-      if (body.breakerRatingAmps != null) {
+      // The capacity depends on the breaker and on the phases the circuit uses.
+      if (body.breakerRatingAmps != null || body.phaseConnections !== undefined) {
         const maxContinuousKw = computeMaxContinuousKw(
-          body.breakerRatingAmps,
+          body.breakerRatingAmps ?? existing.breakerRatingAmps,
           panel.voltageV,
-          panel.phases,
+          circuitConductorPhases(
+            body.phaseConnections !== undefined ? body.phaseConnections : existing.phaseConnections,
+            panel.phases,
+          ),
         );
         updateData['maxContinuousKw'] = String(maxContinuousKw);
       }

@@ -3,7 +3,6 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import type { CreatePaymentRegistryOptions, SimulatedWebhookDelivery } from '@evtivity/payments';
-import type { PubSubClient } from '@evtivity/lib';
 
 const registryOptions = vi.hoisted(() => ({ value: null as CreatePaymentRegistryOptions | null }));
 const mockResolveActiveProvider = vi.hoisted(() => vi.fn());
@@ -22,7 +21,7 @@ vi.stubEnv('API_PORT', '3001');
 vi.stubEnv('SETTINGS_ENCRYPTION_KEY', 'k');
 
 const { activePaymentProvider, paymentRegistry } = await import('../lib/payments.js');
-const { setPubSub } = await import('@evtivity/lib/pubsub-instance');
+const { setJobQueueResolver } = await import('@evtivity/lib/job-queues');
 
 const delivery: SimulatedWebhookDelivery = {
   rawBody: '{"events":[]}',
@@ -36,13 +35,23 @@ describe('API payment registry: simulated events', () => {
     expect(registryOptions.value?.simulated?.logger).toBeDefined();
   });
 
-  it('publishes on the payment webhook channel through the process pub/sub client', async () => {
-    const publish = vi.fn().mockResolvedValue(undefined);
-    setPubSub({ publish } as unknown as PubSubClient);
-    await registryOptions.value!.simulated!.events!.deliver(delivery);
-    expect(publish).toHaveBeenCalledWith(
-      'payment_webhook_deliveries',
-      JSON.stringify({ provider: 'simulated', ...delivery }),
+  it('adds the event to the worker payment-webhooks queue, so it waits while no worker runs', async () => {
+    const add = vi.fn().mockResolvedValue(undefined);
+    const names: string[] = [];
+    setJobQueueResolver((name) => {
+      names.push(name);
+      return { add, addBulk: vi.fn() };
+    });
+    try {
+      await registryOptions.value!.simulated!.events!.deliver(delivery);
+    } finally {
+      setJobQueueResolver(null);
+    }
+    expect(names).toEqual(['payment-webhooks']);
+    expect(add).toHaveBeenCalledWith(
+      'deliver',
+      { provider: 'simulated', ...delivery },
+      { jobId: expect.stringMatching(/^simulated-[0-9a-f]{64}$/), delay: 30_000 },
     );
   });
 });

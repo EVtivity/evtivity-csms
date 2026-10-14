@@ -44,4 +44,16 @@ describe('reservation Explain gate', () => {
     });
     expect(state.select).toHaveBeenCalledTimes(1);
   });
+
+  it('refuses a kind that is not a record kind (inherited property names), without reading', async () => {
+    state.select.mockClear();
+    const hasPermission = vi.fn(() => Promise.resolve(true));
+    for (const kind of ['__proto__', 'constructor', 'toString', 'hasOwnProperty']) {
+      expect(
+        await resolveExplainSubject(kind as 'station', 'x', { userId: 'usr_1', hasPermission }),
+      ).toEqual({ status: 'forbidden' });
+    }
+    expect(hasPermission).not.toHaveBeenCalled();
+    expect(state.select).not.toHaveBeenCalled();
+  });
 });

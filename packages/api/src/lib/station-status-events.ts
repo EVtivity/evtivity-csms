@@ -29,7 +29,7 @@ export async function publishStationStatusChanged(
     logger?.warn({ err, stationId: station.id }, 'station.status publish failed');
   }
   try {
-    await alertStationWatchersIfAvailable(client, pubsub, station.id);
+    await alertStationWatchersIfAvailable(client, station.id);
   } catch (err) {
     logger?.warn({ err, stationId: station.id }, 'Station-watch check failed');
   }

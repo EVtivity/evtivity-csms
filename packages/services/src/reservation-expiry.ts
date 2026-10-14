@@ -200,7 +200,7 @@ async function afterExpiry(
       );
     }
     try {
-      await alertStationWatchersIfAvailable(client, deps.pubsub, row.stationUuid);
+      await alertStationWatchersIfAvailable(client, row.stationUuid);
     } catch (err) {
       deps.logger.warn({ err, reservationId: row.id }, 'Station-watch check after expiry failed');
     }

@@ -21,11 +21,13 @@ import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 import type { InsightFilter } from './insight-api';
 import { useInsights } from './insight-api';
 import { insightHeadline, shownCategory } from './insight-display';
+import { InsightRecordLink } from './InsightRecordLink';
 
 /**
- * Every automatic insight about one record (a station, session or
- * reservation), newest first: the page's AI Insights tab. A row opens the
- * insight page.
+ * Every automatic insight about one record (a station, session, reservation
+ * or site), newest first: the page's AI Insights tab. A row opens the
+ * insight page. The site tab names each insight's station and the station
+ * tab each insight's session, linked to their pages (`InsightRecordLink`).
  */
 export function RecordInsightsTab({ filter }: { filter: InsightFilter }): React.JSX.Element {
   const { t } = useTranslation();
@@ -33,6 +35,8 @@ export function RecordInsightsTab({ filter }: { filter: InsightFilter }): React.
   const timezone = useUserTimezone();
   const { insights, isLoading, isError, refetch } = useInsights(filter);
   const rows = insights.filter((i) => isVisibleInsightStatus(i.status));
+  const showStation = filter.siteId != null;
+  const showSession = filter.stationId != null;
 
   return (
     <Card>
@@ -54,6 +58,8 @@ export function RecordInsightsTab({ filter }: { filter: InsightFilter }): React.
               <TableHeader>
                 <TableRow>
                   <TableHead>{t('aiInsights.list.insight')}</TableHead>
+                  {showStation && <TableHead>{t('aiInsights.list.station')}</TableHead>}
+                  {showSession && <TableHead>{t('aiInsights.detail.session')}</TableHead>}
                   <TableHead>{t('common.status')}</TableHead>
                   <TableHead>{t('aiInsights.categoryLabel')}</TableHead>
                   <TableHead>{t('common.created')}</TableHead>
@@ -74,6 +80,32 @@ export function RecordInsightsTab({ filter }: { filter: InsightFilter }): React.
                       <TableCell className="font-medium text-link">
                         {insightHeadline(t, insight)}
                       </TableCell>
+                      {showStation && (
+                        <TableCell className="whitespace-nowrap">
+                          {insight.stationId != null ? (
+                            <InsightRecordLink
+                              kind="station"
+                              id={insight.stationId}
+                              label={insight.stationName}
+                            />
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      )}
+                      {showSession && (
+                        <TableCell className="whitespace-nowrap">
+                          {insight.sessionId != null ? (
+                            <InsightRecordLink
+                              kind="session"
+                              id={insight.sessionId}
+                              label={insight.sessionId}
+                            />
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                      )}
                       <TableCell data-testid="row-click-target">
                         {isVisibleInsightStatus(insight.status) && (
                           <Badge variant={insightStatusVariant(insight.status)}>

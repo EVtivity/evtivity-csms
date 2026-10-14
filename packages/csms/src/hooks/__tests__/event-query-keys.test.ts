@@ -120,6 +120,17 @@ describe('getQueryKeysForEvent', () => {
     });
   });
 
+  it('station.evChargingNeeds refreshes the station charging needs and EV schedules', () => {
+    const keys = getQueryKeysForEvent(makeEvent('station.evChargingNeeds', { stationId: 'CS-1' }));
+    expect(hasKey(keys, ['stations', 'CS-1', 'ev-charging-needs'])).toBe(true);
+    expect(hasKey(keys, ['stations', 'CS-1', 'ev-charging-schedules'])).toBe(true);
+  });
+
+  it('session.ended refreshes the charging needs, which end with the transaction', () => {
+    const keys = getQueryKeysForEvent(makeEvent('session.ended', { stationId: 'CS-1' }));
+    expect(hasKey(keys, ['stations', 'CS-1', 'ev-charging-needs'])).toBe(true);
+  });
+
   describe.each(['session.started', 'session.ended'])('%s', (type) => {
     it('refreshes dashboard, list, station and site keys', () => {
       const keys = getQueryKeysForEvent(makeEvent(type, { stationId: 'CS-1', siteId: 'S-1' }));
@@ -192,6 +203,13 @@ describe('getQueryKeysForEvent', () => {
       getQueryKeysForEvent(makeEvent('displayMessage.updated', { stationId: 'sta-1' })),
     ).toEqual([['display-messages', 'sta-1']]);
     expect(getQueryKeysForEvent(makeEvent('displayMessage.updated'))).toEqual([]);
+  });
+
+  it('station.chargingProfiles refreshes the station charging profiles', () => {
+    expect(
+      getQueryKeysForEvent(makeEvent('station.chargingProfiles', { stationId: 'sta-1' })),
+    ).toEqual([['stations', 'sta-1', 'charging-profiles']]);
+    expect(getQueryKeysForEvent(makeEvent('station.chargingProfiles'))).toEqual([]);
   });
 
   it('station.securityEvent refreshes security logs and the station detail', () => {

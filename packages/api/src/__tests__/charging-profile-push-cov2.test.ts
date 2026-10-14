@@ -10,13 +10,29 @@ const { sendMock, setCalls, deleteCalls, state } = vi.hoisted(() => ({
   state: { failPushUpdate: 0, failStationUpdate: false },
 }));
 
+vi.mock('../lib/charging-profile-id.js', async () => {
+  const actual = await vi.importActual<typeof import('../lib/charging-profile-id.js')>(
+    '../lib/charging-profile-id.js',
+  );
+  return {
+    ...actual,
+    maxExternalConstraintsIds: vi.fn(async () => new Map<string, number>()),
+    maxExternalConstraintsIdByIdentity: vi.fn(async () => null),
+  };
+});
+
 vi.mock('@evtivity/services/ocpp-command', () => ({
   sendOcppCommandAndWait: sendMock,
 }));
 
 vi.mock('@evtivity/database', () => {
-  const pushes = { __name: 'pushes', id: 'id' };
-  const pushStations = { __name: 'pushStations', pushId: 'pushId', stationId: 'stationId' };
+  const pushes = { __name: 'pushes', id: 'id', status: 'pushStatus' };
+  const pushStations = {
+    __name: 'pushStations',
+    pushId: 'pushId',
+    stationId: 'stationId',
+    status: 'status',
+  };
   const profiles = { __name: 'profiles', stationId: 'stationId', evseId: 'evseId' };
   return {
     db: {
@@ -258,14 +274,14 @@ describe('processChargingProfileClear', () => {
     expect(pushSets()[0]).toMatchObject({ status: 'completed' });
   });
 
-  it('deletes mirrored profiles and refreshes on 2.1 when Accepted', async () => {
+  it('leaves the stored copy to the OCPP clear projection and refreshes on 2.1', async () => {
     sendMock.mockImplementation((_s: string, action: string) =>
       action === 'GetChargingProfiles'
         ? Promise.reject(new Error('gone'))
         : Promise.resolve({ response: { status: 'Accepted' } }),
     );
     await processChargingProfileClear('cpp_2', stations, target, '2.1');
-    expect(deleteCalls).toEqual(['profiles']);
+    expect(deleteCalls).toEqual([]);
     expect(sendMock.mock.calls.some((c) => c[1] === 'GetChargingProfiles')).toBe(true);
     expect(stationSets()[0]).toMatchObject({ status: 'accepted' });
     expect(stationSets()[0]).not.toHaveProperty('errorInfo');
@@ -274,7 +290,7 @@ describe('processChargingProfileClear', () => {
   it('does not refresh on 1.6 after Accepted', async () => {
     sendMock.mockResolvedValue({ response: { status: 'Accepted' } });
     await processChargingProfileClear('cpp_2', stations, target, '1.6');
-    expect(deleteCalls).toEqual(['profiles']);
+    expect(deleteCalls).toEqual([]);
     expect(sendMock.mock.calls.map((c) => c[1])).toEqual(['ClearChargingProfile']);
   });
 

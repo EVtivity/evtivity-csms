@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SaveButton } from '@/components/save-button';
 import { api } from '@/lib/api';
+import { circuitConductorPhases, computeMaxContinuousKw } from '@evtivity/lib/load-allocation';
 import { formatNumber } from '@/lib/formatting';
 
 interface CircuitStatus {
@@ -40,10 +41,6 @@ interface CircuitFormProps {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
-}
-
-function computeMaxContinuousKw(amps: number, voltage: number, phases: number): number {
-  return (amps * voltage * phases * 0.8) / 1000;
 }
 
 export function CircuitForm({
@@ -77,12 +74,17 @@ export function CircuitForm({
     }
   }, [open, circuit]);
 
-  const maxContinuousKw = computeMaxContinuousKw(breakerRatingAmps, panelVoltageV, panelPhases);
+  const maxContinuousKw = computeMaxContinuousKw(
+    breakerRatingAmps,
+    panelVoltageV,
+    circuitConductorPhases(phaseConnections, panelPhases),
+  );
 
   const mutation = useMutation({
     mutationFn: async () => {
       const body: Record<string, unknown> = { name, breakerRatingAmps };
-      if (phaseConnections != null) body.phaseConnections = phaseConnections;
+      // On edit, Auto (null) puts the circuit back on every panel phase.
+      if (phaseConnections != null || isEdit) body.phaseConnections = phaseConnections;
       if (isEdit) {
         return api.patch(`/v1/sites/${siteId}/panels/${panelId}/circuits/${circuit.id}`, body);
       }

@@ -30,6 +30,8 @@ interface Props {
   onChange: (next: TargetFilterValue) => void;
   /** Optional id prefix for input ids (avoids collisions when used twice on one page). */
   idPrefix?: string;
+  /** Help text under the heading; defaults to the configuration template text. */
+  helpText?: string;
 }
 
 export function TargetFilterFields({
@@ -38,6 +40,7 @@ export function TargetFilterFields({
   value,
   onChange,
   idPrefix = 'target-filter',
+  helpText,
 }: Props): React.JSX.Element {
   const { t } = useTranslation();
 
@@ -71,7 +74,9 @@ export function TargetFilterFields({
     <>
       <div className="space-y-2">
         <h3 className="text-sm font-medium">{t('configTemplates.targetFilter')}</h3>
-        <p className="text-xs text-muted-foreground">{t('configTemplates.targetFilterHelp')}</p>
+        <p className="text-xs text-muted-foreground">
+          {helpText ?? t('configTemplates.targetFilterHelp')}
+        </p>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="grid gap-2">

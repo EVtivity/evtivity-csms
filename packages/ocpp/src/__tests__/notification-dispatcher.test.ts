@@ -18,7 +18,8 @@ const mockClearStationMessageCache = vi.fn();
 const mockClearStationMessageSettingsCache = vi.fn();
 const mockGetWebhookAllowedPrivateHosts = vi.fn().mockResolvedValue([]);
 
-vi.mock('@evtivity/database', () => ({
+vi.mock('@evtivity/database', async () => ({
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   clearStationMessageSettingsCache: () => {
     mockClearStationMessageSettingsCache();
   },
@@ -752,5 +753,100 @@ describe('subscribeOcppEventSettingsInvalidation', () => {
     handler!(JSON.stringify({ kind: 'station_message' }));
     expect(mockClearStationMessageCache).toHaveBeenCalledTimes(1);
     expect(mockClearStationMessageSettingsCache).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('dispatchOcppNotification on a retried projection', () => {
+  const runOptions = { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 1 };
+
+  function connectionError(code: string): Error {
+    return Object.assign(new Error(code), { code });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    notificationDispatcherModule.clearOcppEventSettingsCache();
+    setupSqlResults([
+      {
+        event_type: 'ocpp.StatusNotification',
+        recipient: 'admin@test.com',
+        channel: 'email',
+        template_html: null,
+        language: 'en',
+      },
+    ]);
+    mockGetNotificationSettings.mockResolvedValue({
+      smtp: { host: 'smtp.test.com', port: 587, username: '', password: '', from: 'a@test.com' },
+      twilio: null,
+      emailWrapperTemplate: null,
+    });
+    mockResolveRecipients.mockReturnValue([
+      { address: 'admin@test.com', language: 'en' },
+      { address: 'ops@test.com', language: 'en' },
+    ]);
+    mockRenderTemplate.mockResolvedValue({ subject: 'S', body: 'B', html: '<p>B</p>' });
+    mockWrapEmailHtml.mockReturnValue('<div><p>B</p></div>');
+    mockSendEmail.mockResolvedValue(true);
+    mockRecordNotificationAttempt.mockResolvedValue(undefined);
+  });
+
+  it('reruns after a notifications row that never reached the server, sending no email twice', async () => {
+    const { dispatchOcppNotification } = notificationDispatcherModule;
+    const { runProjectionWithRetry } = await import('../server/projection-retry.js');
+    mockRecordNotificationAttempt.mockRejectedValueOnce(connectionError('CONNECT_TIMEOUT'));
+
+    const sql = createSqlMock();
+    await runProjectionWithRetry(
+      (attempt) =>
+        dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification'), attempt),
+      runOptions,
+    );
+
+    expect(mockSendEmail.mock.calls.map((c) => c[1])).toEqual(['admin@test.com', 'ops@test.com']);
+    // The failed row, then the rerun's row for the first recipient, then the second.
+    expect(mockRecordNotificationAttempt).toHaveBeenCalledTimes(3);
+  });
+
+  it('reruns after a template read lost its connection', async () => {
+    const { dispatchOcppNotification } = notificationDispatcherModule;
+    const { runProjectionWithRetry } = await import('../server/projection-retry.js');
+    mockRenderTemplate.mockRejectedValueOnce(connectionError('CONNECTION_CLOSED'));
+
+    const sql = createSqlMock();
+    await runProjectionWithRetry(
+      (attempt) =>
+        dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification'), attempt),
+      runOptions,
+    );
+
+    expect(mockSendEmail.mock.calls.map((c) => c[1])).toEqual(['admin@test.com', 'ops@test.com']);
+    expect(mockRecordNotificationAttempt).toHaveBeenCalledTimes(2);
+  });
+
+  it('goes on to the next recipient when a notifications row may have committed', async () => {
+    const { dispatchOcppNotification } = notificationDispatcherModule;
+    const { runProjectionWithRetry } = await import('../server/projection-retry.js');
+    mockRecordNotificationAttempt.mockRejectedValueOnce(connectionError('CONNECTION_CLOSED'));
+
+    const sql = createSqlMock();
+    await runProjectionWithRetry(
+      (attempt) =>
+        dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification'), attempt),
+      runOptions,
+    );
+
+    expect(mockSendEmail.mock.calls.map((c) => c[1])).toEqual(['admin@test.com', 'ops@test.com']);
+    expect(mockRecordNotificationAttempt).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs a lost connection without an attempt and never throws', async () => {
+    const { dispatchOcppNotification } = notificationDispatcherModule;
+    mockRenderTemplate.mockRejectedValue(connectionError('CONNECT_TIMEOUT'));
+
+    const sql = createSqlMock();
+    await expect(
+      dispatchOcppNotification(sql as never, makeEvent('ocpp.StatusNotification')),
+    ).resolves.toBeUndefined();
+    expect(mockSendEmail).not.toHaveBeenCalled();
   });
 });

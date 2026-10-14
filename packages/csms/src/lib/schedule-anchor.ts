@@ -109,3 +109,50 @@ export function toDatetimeLocalInTimezone(date: Date, timezone: string): string 
   const minute = parts['minute'] ?? '00';
   return `${year}-${month}-${day}T${hour}:${minute}`;
 }
+
+// The UTC offset (ms) of a timezone at an instant: its wall clock minus UTC.
+function tzOffsetMs(date: Date, timezone: string): number {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+      .formatToParts(date)
+      .map((p) => [p.type, p.value]),
+  );
+  const wall = Date.UTC(
+    parseInt(parts['year'] ?? '1970', 10),
+    parseInt(parts['month'] ?? '01', 10) - 1,
+    parseInt(parts['day'] ?? '01', 10),
+    parseInt(parts['hour'] ?? '00', 10) % 24,
+    parseInt(parts['minute'] ?? '00', 10),
+    parseInt(parts['second'] ?? '00', 10),
+  );
+  return wall - Math.floor(date.getTime() / 1000) * 1000;
+}
+
+// Read an <input type="datetime-local"> value (YYYY-MM-DDTHH:MM) as a wall
+// clock time in the given timezone, the inverse of toDatetimeLocalInTimezone.
+// `new Date(value)` would read it in the browser's timezone instead.
+export function fromDatetimeLocalInTimezone(value: string, timezone: string): Date {
+  const [datePart = '', timePart = '00:00'] = value.split('T');
+  const [y = '1970', mo = '01', d = '01'] = datePart.split('-');
+  const [h = '00', mi = '00'] = timePart.split(':');
+  const guess = Date.UTC(
+    parseInt(y, 10),
+    parseInt(mo, 10) - 1,
+    parseInt(d, 10),
+    parseInt(h, 10),
+    parseInt(mi, 10),
+  );
+  // Two passes settle the offset across a DST change.
+  let result = guess - tzOffsetMs(new Date(guess), timezone);
+  result = guess - tzOffsetMs(new Date(result), timezone);
+  return new Date(result);
+}

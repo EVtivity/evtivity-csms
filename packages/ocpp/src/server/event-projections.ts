@@ -19,7 +19,13 @@ import {
   getAlignedMeasurands,
   getTxEndedMeasurands,
   writeAudit,
-  firmwareCampaignAuditLog,
+  FIRMWARE_UPDATE_TERMINAL_STATUSES,
+  FIRMWARE_UPDATE_REFUSED_RESPONSES,
+  FIRMWARE_STATUS_TO_CAMPAIGN_STATION,
+  applyFirmwareCampaignStationStatus,
+  rejectFirmwareUpdate,
+  failCanceledFirmwareCampaignUpdates,
+  dispatchPendingFirmwareCampaigns,
   stationAuditLog,
   isAutoDisableOnCriticalEnabled,
   isSiteFreeVendEnabledByStation,
@@ -73,7 +79,14 @@ import {
   FREE_VEND_OCPP_16_KEYS,
   LIVENESS_WRITE_INTERVAL_SECONDS,
 } from '@evtivity/lib';
-import { OCPP_NOTIFICATION_EVENT_TYPES, publishOcppCommand } from '@evtivity/lib';
+import {
+  OCPP_NOTIFICATION_EVENT_TYPES,
+  chargingProfileClearCriteria,
+  chargingProfileClearFilter,
+  publishOcppCommand,
+} from '@evtivity/lib';
+import { enqueueMaintenanceFanout } from '@evtivity/services/maintenance.service';
+import { enqueueStationRefresh } from '@evtivity/services/station-message.service';
 import { dispatchOcppNotification } from './notification-dispatcher.js';
 import {
   projectReservationStatusUpdate,
@@ -358,7 +371,7 @@ export function registerProjections(
   // signals one alert. Fail-open: the state that triggered it is stored.
   async function checkStationWatches(stationUuid: string): Promise<void> {
     try {
-      await alertStationWatchersIfAvailable(sql, pubsub, stationUuid);
+      await alertStationWatchersIfAvailable(sql, stationUuid);
     } catch (err) {
       logger.warn({ err, stationUuid }, 'Station-watch check failed');
     }
@@ -544,27 +557,32 @@ export function registerProjections(
       logger.debug({ err, stationOcppId }, 'Offline command queue drain failed; continuing');
     }
 
+    // Firmware campaigns that started while the station was offline send it
+    // their update now (each campaign station claimed once).
+    try {
+      await dispatchPendingFirmwareCampaigns(sql, pubsub, { stationUuid, stationOcppId }, logger);
+    } catch (err) {
+      logger.warn({ err, stationOcppId }, 'Firmware campaign dispatch on connect failed');
+    }
+
     // Both versions: OCPP 1.6 stations get the Idle screen through the
     // vendor DataTransfer (station-message.service.ts).
     if (ocppProtocol != null) {
       try {
-        await pubsub.publish(
-          'station_message_refresh',
-          JSON.stringify({
-            stationOcppId,
-            internalStationId: stationUuid,
-            ocppProtocol,
-          }),
-        );
+        await enqueueStationRefresh({
+          stationOcppId,
+          internalStationId: stationUuid,
+          ocppProtocol,
+        });
       } catch (err) {
-        logger.debug({ err, stationOcppId }, 'Station-message refresh publish failed; continuing');
+        logger.debug({ err, stationOcppId }, 'Station-message refresh not queued; continuing');
       }
     }
 
     // Re-assert active maintenance. A station that was offline during the
     // maintenance fan-out (or rebooted and lost state) reconnects reporting
     // Available; without this it stays operative for the rest of the window.
-    // The worker bridge picks this up and re-sends ChangeAvailability
+    // The worker runs the queued job and re-sends ChangeAvailability
     // (Inoperative) plus the maintenance display message for this station.
     // Debounced per station: a flapping connection (or a fleet-wide reconnect
     // wave) would otherwise enqueue one fan-out job per reconnect.
@@ -586,20 +604,17 @@ export function registerProjections(
         const activeEvent = maintRows[0];
         if (activeEvent != null) {
           reassertDebounce.set(stationUuid);
-          await pubsub.publish(
-            'maintenance_fanout',
-            JSON.stringify({
-              eventId: activeEvent.id as string,
-              siteId: activeEvent.site_id as string,
-              phase: 'reassert',
-              stationDbIds: [stationUuid],
-              nonce: Date.now().toString(36),
-            }),
-          );
+          await enqueueMaintenanceFanout({
+            eventId: activeEvent.id as string,
+            siteId: activeEvent.site_id as string,
+            phase: 'reassert',
+            stationDbIds: [stationUuid],
+            nonce: Date.now().toString(36),
+          });
         }
       }
     } catch (err) {
-      logger.warn({ err, stationOcppId }, 'Maintenance re-assert publish failed; continuing');
+      logger.warn({ err, stationOcppId }, 'Maintenance re-assert not queued; continuing');
     }
   });
 
@@ -778,17 +793,14 @@ export function registerProjections(
       `;
       const msgProtocol = msgStationRow?.ocpp_protocol as string | null;
       if (msgProtocol != null) {
-        await pubsub.publish(
-          'station_message_refresh',
-          JSON.stringify({
-            stationOcppId: event.aggregateId,
-            internalStationId: stationUuid,
-            ocppProtocol: msgProtocol,
-          }),
-        );
+        await enqueueStationRefresh({
+          stationOcppId: event.aggregateId,
+          internalStationId: stationUuid,
+          ocppProtocol: msgProtocol,
+        });
       }
     } catch (err) {
-      logger.debug({ err }, 'Station-message refresh publish failed; continuing');
+      logger.debug({ err }, 'Station-message refresh not queued; continuing');
     }
 
     // Push OCPP configuration to station after boot
@@ -1180,19 +1192,16 @@ export function registerProjections(
         `;
             const protocol = stationRow?.ocpp_protocol as string | null | undefined;
             if (protocol != null) {
-              await pubsub.publish(
-                'station_message_refresh',
-                JSON.stringify({
-                  stationOcppId: event.aggregateId,
-                  internalStationId: stationUuid,
-                  ocppProtocol: protocol,
-                }),
-              );
+              await enqueueStationRefresh({
+                stationOcppId: event.aggregateId,
+                internalStationId: stationUuid,
+                ocppProtocol: protocol,
+              });
             }
           } catch (err) {
             logger.debug(
               { err, stationId: event.aggregateId },
-              'Station-message refresh publish failed; continuing',
+              'Station-message refresh not queued; continuing',
             );
           }
         });
@@ -1384,7 +1393,7 @@ export function registerProjections(
             ${signedMeterValue != null ? sql.json(asJson(signedMeterValue)) : null},
             ${source}
           WHERE EXISTS (SELECT 1 FROM charging_stations WHERE id = ${knownStationUuid})
-          ON CONFLICT (session_id, evse_id, timestamp, measurand, phase, location) DO NOTHING
+          ON CONFLICT DO NOTHING
         `;
               if (mvInserted.count !== 0) {
                 return { stationUuid: knownStationUuid, count: mvInserted.count };
@@ -1411,7 +1420,7 @@ export function registerProjections(
               ${signedMeterValue != null ? sql.json(asJson(signedMeterValue)) : null},
               ${source}
             )
-            ON CONFLICT (session_id, evse_id, timestamp, measurand, phase, location) DO NOTHING
+            ON CONFLICT DO NOTHING
           `;
               return { stationUuid: resolved, count: retried.count };
             },
@@ -1564,7 +1573,7 @@ export function registerProjections(
                 });
               // Energy flat for a full interval: mark idle if not already set
               if (flat) {
-                await attempt.once(
+                await attempt.memo(
                   `mv:${String(reading)}:energy-idle-open`,
                   () => sql`
                 UPDATE charging_sessions
@@ -1593,7 +1602,7 @@ export function registerProjections(
             } else {
               // Energy increased: accumulate idle time and clear idle_started_at,
               // unless the station reports this idle period (see below).
-              await attempt.once(
+              await attempt.memo(
                 `mv:${String(reading)}:energy-idle-close`,
                 () => sql`
               UPDATE charging_sessions
@@ -1641,7 +1650,7 @@ export function registerProjections(
         ) {
           if (powerValue === 0) {
             // No power flowing: mark idle start if not already set
-            await attempt.once(
+            await attempt.memo(
               `mv:${String(reading)}:power-idle-open`,
               () => sql`
             UPDATE charging_sessions
@@ -1673,7 +1682,7 @@ export function registerProjections(
             // the session's connector is suspended_ev (1.6 SuspendedEV status)
             // only the station's next state ends it, and a 2.1 session that
             // reports chargingState never takes the fallbacks (JB-1).
-            await attempt.once(
+            await attempt.memo(
               `mv:${String(reading)}:power-idle-close`,
               () => sql`
             UPDATE charging_sessions
@@ -1966,12 +1975,103 @@ export function registerProjections(
     { retryOnConnectionError: true },
   );
 
+  // Refreshes the campaign progress views: always on a station change, plus a
+  // separate event when the campaign itself completed. The station's site
+  // scopes the event on the operator SSE stream.
+  async function notifyFirmwareCampaignChange(
+    stationUuid: string,
+    campaignId: string,
+    campaignCompleted: boolean,
+  ): Promise<void> {
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('firmwareCampaign.stationUpdated', stationUuid, siteId, null, {
+      campaignId,
+    });
+    if (campaignCompleted) {
+      await notify.notifyChange('firmwareCampaign.completed', stationUuid, siteId, null, {
+        campaignId,
+      });
+    }
+  }
+
   safeSubscribe('ocpp.FirmwareStatusNotification', async (event: DomainEvent) => {
     const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
     if (stationUuid == null) return;
 
     const payload = event.payload;
     const status = payload.status as string;
+    const fwRequestId = (payload.requestId as number | undefined) ?? null;
+    const fwStatusInfo = payload.statusInfo != null ? sql.json(asJson(payload.statusInfo)) : null;
+    const terminalStatuses = [...FIRMWARE_UPDATE_TERMINAL_STATUSES];
+
+    // Persist to firmware_updates and capture its campaign_id atomically via
+    // RETURNING. Doing the campaign lookup as a separate SELECT after the
+    // UPDATE is racy for the OCPP 1.6 path -- the same WHERE clause that
+    // selects the in-flight non-terminal row excludes it once it flips to a
+    // terminal status like "Installed", so the lookup misses and the campaign
+    // update is silently skipped.
+    //
+    // Idle belongs to no update: a station sends it in answer to a
+    // TriggerMessage when no update runs (2.1 L01.FR.25, 1.6 TriggerMessage),
+    // without a requestId. It adds no history row and changes none.
+    let linkedCampaignId: string | null = null;
+    let staleReport = false;
+    if (status === 'Idle') {
+      // Nothing to persist.
+    } else if (fwRequestId != null) {
+      // 2.1 and 1.6 signed path: single upsert keyed by (station, requestId)
+      // so two concurrent status notifications cannot race a UPDATE-miss +
+      // dual INSERT into a unique-constraint crash. firmware_url is only set on
+      // insert (left alone on conflict) so an orphan placeholder does not
+      // overwrite the real URL recorded by the command.UpdateFirmware
+      // projection. A finished update is sticky (P5): a late or replayed
+      // report does not move it back, and changes nothing else either.
+      const upserted = await sql<Array<{ campaign_id: string | null }>>`
+        INSERT INTO firmware_updates (station_id, request_id, firmware_url, status, status_info, initiated_at, last_status_at)
+        VALUES (${stationUuid}, ${fwRequestId}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
+        ON CONFLICT (station_id, request_id) WHERE request_id IS NOT NULL DO UPDATE
+        SET status = EXCLUDED.status,
+            status_info = EXCLUDED.status_info,
+            last_status_at = now(),
+            updated_at = now()
+        WHERE firmware_updates.status IS NULL
+           OR firmware_updates.status::text <> ALL(${terminalStatuses}::text[])
+        RETURNING campaign_id
+      `;
+      if (upserted.length === 0) {
+        staleReport = true;
+      } else {
+        linkedCampaignId = upserted[0]?.campaign_id ?? null;
+      }
+    } else {
+      // 1.6 path: no requestId, update most recent non-terminal row for this station
+      const updated = await sql<Array<{ campaign_id: string | null }>>`
+        UPDATE firmware_updates
+        SET status = ${status}, status_info = ${fwStatusInfo}, last_status_at = now(), updated_at = now()
+        WHERE id = (
+          SELECT id FROM firmware_updates
+          WHERE station_id = ${stationUuid}
+            AND (status IS NULL OR status::text <> ALL(${terminalStatuses}::text[]))
+          ORDER BY created_at DESC LIMIT 1
+        )
+        RETURNING campaign_id
+      `;
+      if (updated.length === 0) {
+        await sql`
+          INSERT INTO firmware_updates (station_id, firmware_url, status, status_info, initiated_at, last_status_at)
+          VALUES (${stationUuid}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
+        `;
+      } else {
+        linkedCampaignId = updated[0]?.campaign_id ?? null;
+      }
+    }
+    if (staleReport) {
+      logger.info(
+        { stationId: event.aggregateId, status, requestId: fwRequestId },
+        'FirmwareStatusNotification for a finished update ignored',
+      );
+      return;
+    }
 
     // A firmware install takes the station out of service while it runs and
     // faults it when it fails, until the next install or an operator enable.
@@ -2001,139 +2101,24 @@ export function registerProjections(
       await checkStationWatches(stationUuid);
     }
 
-    // Persist to firmware_updates table
-    const fwRequestId = (payload.requestId as number | undefined) ?? null;
-    const fwStatusInfo = payload.statusInfo != null ? sql.json(asJson(payload.statusInfo)) : null;
-
-    // Update the firmware_updates row AND capture its campaign_id atomically
-    // via RETURNING. Doing the campaign lookup as a separate SELECT after the
-    // UPDATE is racy for the OCPP 1.6 path -- the same WHERE clause that
-    // selects the in-flight non-terminal row excludes it once it flips to a
-    // terminal status like "Installed", so the lookup misses and the campaign
-    // update is silently skipped.
-    let linkedCampaignId: string | null = null;
-    if (fwRequestId != null) {
-      // 2.1 path: single upsert keyed by (station, requestId) so two concurrent
-      // status notifications cannot race a UPDATE-miss + dual INSERT into a
-      // unique-constraint crash. firmware_url is only set on insert (left alone
-      // on conflict) so an orphan placeholder does not overwrite the real URL
-      // recorded by the command.UpdateFirmware projection.
-      const upserted = await sql<Array<{ campaign_id: string | null }>>`
-        INSERT INTO firmware_updates (station_id, request_id, firmware_url, status, status_info, initiated_at, last_status_at)
-        VALUES (${stationUuid}, ${fwRequestId}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
-        ON CONFLICT (station_id, request_id) WHERE request_id IS NOT NULL DO UPDATE
-        SET status = EXCLUDED.status,
-            status_info = EXCLUDED.status_info,
-            last_status_at = now(),
-            updated_at = now()
-        RETURNING campaign_id
-      `;
-      linkedCampaignId = upserted[0]?.campaign_id ?? null;
-    } else {
-      // 1.6 path: no requestId, update most recent non-terminal row for this station
-      const updated = await sql<Array<{ campaign_id: string | null }>>`
-        UPDATE firmware_updates
-        SET status = ${status}, status_info = ${fwStatusInfo}, last_status_at = now(), updated_at = now()
-        WHERE id = (
-          SELECT id FROM firmware_updates
-          WHERE station_id = ${stationUuid}
-            AND (status IS NULL OR status NOT IN ('Installed', 'InstallationFailed', 'InstallVerificationFailed', 'InvalidSignature', 'DownloadFailed'))
-          ORDER BY created_at DESC LIMIT 1
-        )
-        RETURNING campaign_id
-      `;
-      if (updated.length === 0) {
-        await sql`
-          INSERT INTO firmware_updates (station_id, firmware_url, status, status_info, initiated_at, last_status_at)
-          VALUES (${stationUuid}, 'unknown', ${status}, ${fwStatusInfo}, now(), now())
-        `;
-      } else {
-        linkedCampaignId = updated[0]?.campaign_id ?? null;
-      }
-    }
-
     // Update firmware campaign station status if the row we just updated was
     // linked to a campaign. Scoping by campaign_id (resolved via the RETURNING
     // above, not a separate lookup) prevents an unrelated active campaign from
     // being prematurely flipped to "completed" by status reports from this
-    // station.
-    const campaignStatusMap: Record<string, string> = {
-      Downloading: 'downloading',
-      Downloaded: 'downloaded',
-      Installing: 'installing',
-      Installed: 'installed',
-      DownloadFailed: 'failed',
-      InstallationFailed: 'failed',
-      InvalidSignature: 'failed',
-      InstallVerificationFailed: 'failed',
-    };
-    const campaignStatus = campaignStatusMap[status];
-    if (campaignStatus != null) {
-      if (linkedCampaignId != null) {
-        await sql`
-          UPDATE firmware_campaign_stations
-          SET status = ${campaignStatus}::firmware_campaign_station_status,
-              error_info = CASE WHEN ${campaignStatus} = 'failed' THEN ${status} ELSE error_info END,
-              updated_at = now()
-          WHERE station_id = ${stationUuid}
-            AND campaign_id = ${linkedCampaignId}
-            AND status NOT IN ('installed', 'failed')
-        `;
-
-        // Auto-complete the campaign only when every targeted station is
-        // terminal. Returning the row also tells us whether the status flip
-        // actually happened, so we can publish an SSE event.
-        const completed = await sql`
-          UPDATE firmware_campaigns
-          SET status = 'completed', updated_at = now()
-          WHERE id = ${linkedCampaignId}
-            AND status = 'active'
-            AND NOT EXISTS (
-              SELECT 1 FROM firmware_campaign_stations fcs
-              WHERE fcs.campaign_id = ${linkedCampaignId}
-                AND fcs.status NOT IN ('installed', 'failed')
-            )
-          RETURNING id
-        `;
-
-        // Notify the UI so the campaign detail header refreshes immediately.
-        // Always publish on a station-status change, plus a separate
-        // event when the campaign itself flipped to completed.
-        // The station's site scopes the event on the operator SSE stream.
-        const campaignStationSiteId = await lookups.resolveSiteId(stationUuid);
-        await notify.notifyChange(
-          'firmwareCampaign.stationUpdated',
-          stationUuid,
-          campaignStationSiteId,
-          null,
-          { campaignId: linkedCampaignId },
-        );
-        if (completed.count > 0) {
-          await notify.notifyChange(
-            'firmwareCampaign.completed',
-            stationUuid,
-            campaignStationSiteId,
-            null,
-            { campaignId: linkedCampaignId },
-          );
-          // Audit the auto-complete transition so operators can see when (and
-          // by what signal) the campaign closed. Manual cancel writes audit at
-          // the route layer; without this entry the completion is invisible to
-          // the audit trail.
-          await writeAudit(
-            { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
-            {
-              entityId: linkedCampaignId,
-              entityIdSnapshot: linkedCampaignId,
-              action: 'completed',
-              actor: 'ocpp',
-              actorLabel: 'FirmwareStatusNotification auto-complete',
-              before: { status: 'active' },
-              after: { status: 'completed' },
-            },
-          );
-        }
-      }
+    // station. The helper keeps installed and failed stations sticky and
+    // completes the campaign (with its audit entry) once every station is
+    // terminal.
+    const campaignStatus = FIRMWARE_STATUS_TO_CAMPAIGN_STATION[status];
+    if (campaignStatus != null && linkedCampaignId != null) {
+      const { campaignCompleted } = await applyFirmwareCampaignStationStatus(sql, {
+        campaignId: linkedCampaignId,
+        stationUuid,
+        status: campaignStatus,
+        errorInfo: status,
+        actor: 'ocpp',
+        actorLabel: 'FirmwareStatusNotification auto-complete',
+      });
+      await notifyFirmwareCampaignChange(stationUuid, linkedCampaignId, campaignCompleted);
     }
   });
 
@@ -2241,9 +2226,12 @@ export function registerProjections(
   // A session the CSMS ends because the station will not (superseded on its
   // EVSE, or unknown to the station): the normal end, then the settlement, in
   // one queued step. A session faulted or failed meanwhile is left alone (P5).
-  // Not retried: a rerun's status check would find the session completed and
-  // skip the settlement; the session end lease sweep asks again instead.
-  safeSubscribe(SESSION_ENDED_BY_CSMS, (e, attempt) => projector.endByCsms(e, attempt));
+  // Retried on a lost connection: the status check is `memo('csms-end:status')`,
+  // so a rerun after the end committed still settles, and the end and the
+  // settlement use their own `ended:` and `settle:` steps.
+  safeSubscribe(SESSION_ENDED_BY_CSMS, (e, attempt) => projector.endByCsms(e, attempt), {
+    retryOnConnectionError: true,
+  });
 
   // ---- OCPP Message Logging ----
 
@@ -2474,12 +2462,18 @@ export function registerProjections(
 
   // Every OCPP event the CSMS lists. Each sends only when an operator enabled it
   // (an ocpp_event_settings row); the dispatcher checks that in its cached settings.
+  // Retried on a lost connection: each recipient's send and notifications row
+  // are `once` steps, so a rerun sends nothing twice.
   for (const eventType of OCPP_NOTIFICATION_EVENT_TYPES) {
-    safeSubscribe(eventType, async (event: DomainEvent) => {
-      // A status taken from a NotifyEvent already notifies as ocpp.NotifyEvent.
-      if (event.payload.source === 'NotifyEvent') return;
-      await dispatchOcppNotification(sql, event);
-    });
+    safeSubscribe(
+      eventType,
+      async (event: DomainEvent, attempt: ProjectionAttempt) => {
+        // A status taken from a NotifyEvent already notifies as ocpp.NotifyEvent.
+        if (event.payload.source === 'NotifyEvent') return;
+        await dispatchOcppNotification(sql, event, attempt);
+      },
+      { retryOnConnectionError: true },
+    );
   }
 
   // ---- OCPP Operational Data Projections ----
@@ -2589,6 +2583,8 @@ export function registerProjections(
       INSERT INTO charging_profiles (station_id, source, evse_id, request_id, charging_limit_source, tbc, profile_data, reported_at)
       VALUES (${stationUuid}, 'station_reported', ${evseId}, ${requestId}, ${chargingLimitSource}, ${tbc}, ${sql.json(asJson(chargingProfile))}, now())
     `;
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
   });
 
   safeSubscribe('ocpp.NotifyReport', async (event: DomainEvent) => {
@@ -2793,8 +2789,12 @@ export function registerProjections(
     const response = event.payload.response as { status?: string } | undefined;
     if (response?.status !== 'Accepted') return;
 
+    // The request is the 2.1 payload (evseId, chargingProfile.id) unless it was
+    // sent in native 1.6 form through the 1.6 command route (connectorId,
+    // csChargingProfiles.chargingProfileId).
     const request = event.payload.request as Record<string, unknown>;
-    const evseId = (request.evseId as number | undefined) ?? null;
+    const evseId =
+      (request.evseId as number | undefined) ?? (request.connectorId as number | undefined) ?? null;
     const csProfile = (request.csChargingProfiles ?? request.chargingProfile ?? null) as Record<
       string,
       unknown
@@ -2803,14 +2803,16 @@ export function registerProjections(
     // OCPP profile.id is the per-station unique key. Re-pushing a profile with
     // the same id replaces the on-station profile, so mirror that semantics in
     // the DB by deleting any prior csms_set row with the same id first.
-    const profileIdValue = csProfile != null ? (csProfile['id'] as number | undefined) : undefined;
+    const rawProfileId = csProfile?.['id'] ?? csProfile?.['chargingProfileId'];
+    const profileIdValue =
+      typeof rawProfileId === 'number' && Number.isInteger(rawProfileId) ? rawProfileId : null;
     if (profileIdValue != null) {
       await sql`
         DELETE FROM charging_profiles
         WHERE station_id = ${stationUuid}
           AND source = 'csms_set'
-          AND profile_data ->> 'id' ~ '^-?[0-9]+$'
-          AND (profile_data->>'id')::int = ${profileIdValue}
+          AND COALESCE(profile_data ->> 'id', profile_data ->> 'chargingProfileId') ~ '^-?[0-9]+$'
+          AND COALESCE(profile_data ->> 'id', profile_data ->> 'chargingProfileId')::int = ${profileIdValue}
       `;
     }
 
@@ -2818,6 +2820,71 @@ export function registerProjections(
       INSERT INTO charging_profiles (station_id, source, evse_id, profile_data, sent_at)
       VALUES (${stationUuid}, 'csms_set', ${evseId}, ${sql.json(asJson(csProfile))}, now())
     `;
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
+  });
+
+  // The only writer that removes stored profiles after a clear: an Accepted
+  // ClearChargingProfile removed the matching profiles from the station, so
+  // their copies of this station go (Unknown: nothing matched, nothing goes).
+  safeSubscribe('command.ClearChargingProfile', async (event: DomainEvent) => {
+    const response = (event.payload.response ?? {}) as { status?: string };
+    if (response.status !== 'Accepted') return;
+    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+
+    const request = (event.payload.request ?? {}) as Record<string, unknown>;
+    const filter = chargingProfileClearFilter(chargingProfileClearCriteria(request));
+    await sql`
+      DELETE FROM charging_profiles
+      WHERE station_id = ${stationUuid}
+        AND jsonb_path_exists(profile_data, ${filter.path}::jsonpath, ${sql.json(asJson(filter.vars))})
+        AND (${filter.evseId}::int IS NULL OR evse_id = ${filter.evseId}::int)
+    `;
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
+  });
+
+  // A GetChargingProfiles answer tells which stored station_reported rows are
+  // stale. Only a request without profile criteria (all profiles, or all of one
+  // EVSE) says anything about the profiles it did not report:
+  // - NoProfiles: the station holds none in that scope, so all go.
+  // - Accepted: the ReportChargingProfiles messages of this request replace the
+  //   scope; rows of earlier requests go (an EVSE that no longer has profiles
+  //   sends no report, so the per-report delete never reached it). Rows of this
+  //   request that arrived first stay.
+  safeSubscribe('command.GetChargingProfiles', async (event: DomainEvent) => {
+    const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
+    if (stationUuid == null) return;
+
+    const request = (event.payload.request ?? {}) as Record<string, unknown>;
+    const response = (event.payload.response ?? {}) as { status?: string };
+    const criteria = (request.chargingProfile ?? {}) as Record<string, unknown>;
+    const hasCriteria = Object.values(criteria).some(
+      (value) => value != null && !(Array.isArray(value) && value.length === 0),
+    );
+    if (hasCriteria) return;
+    const evseId = typeof request.evseId === 'number' ? request.evseId : null;
+    const requestId = typeof request.requestId === 'number' ? request.requestId : null;
+
+    if (response.status === 'NoProfiles') {
+      await sql`
+        DELETE FROM charging_profiles
+        WHERE station_id = ${stationUuid} AND source = 'station_reported'
+          AND (${evseId}::int IS NULL OR evse_id = ${evseId}::int)
+      `;
+    } else if (response.status === 'Accepted' && requestId != null) {
+      await sql`
+        DELETE FROM charging_profiles
+        WHERE station_id = ${stationUuid} AND source = 'station_reported'
+          AND (${evseId}::int IS NULL OR evse_id = ${evseId}::int)
+          AND request_id IS DISTINCT FROM ${requestId}::int
+      `;
+    } else {
+      return;
+    }
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
   });
 
   safeSubscribe('command.GetVariables', async (event: DomainEvent) => {
@@ -2943,6 +3010,58 @@ export function registerProjections(
         VALUES (${stationUuid}, ${requestId}, ${firmwareUrl}, ${retrieveDateTime}, now())
       `;
     }
+
+    // The station's answer. A refused update (Rejected, InvalidCertificate,
+    // RevokedCertificate) or a command error never starts, so no status
+    // notification follows: the update ends as Rejected and its campaign
+    // station fails, so the campaign can complete. A timeout is left open,
+    // since the station may have accepted and will report with this requestId.
+    // AcceptedCanceled cancels the update the station was running (L01.FR.24).
+    if (requestId == null) return;
+    const response = event.payload.response as Record<string, unknown> | undefined;
+    const commandError = event.payload.error as string | undefined;
+    const responseStatus = typeof response?.status === 'string' ? response.status : null;
+    if (responseStatus === 'AcceptedCanceled') {
+      const canceled = await failCanceledFirmwareCampaignUpdates(sql, {
+        stationUuid,
+        requestId,
+        actor: 'ocpp',
+        actorLabel: 'UpdateFirmware AcceptedCanceled',
+      });
+      for (const { campaignId, campaignCompleted } of canceled) {
+        await notifyFirmwareCampaignChange(stationUuid, campaignId, campaignCompleted);
+      }
+      return;
+    }
+    const refused =
+      responseStatus != null &&
+      (FIRMWARE_UPDATE_REFUSED_RESPONSES as readonly string[]).includes(responseStatus);
+    if (!refused && commandError == null) return;
+    const statusInfo = response?.statusInfo as
+      | { reasonCode?: unknown; additionalInfo?: unknown }
+      | undefined;
+    const additionalInfo = refused
+      ? typeof statusInfo?.additionalInfo === 'string'
+        ? statusInfo.additionalInfo
+        : typeof statusInfo?.reasonCode === 'string'
+          ? statusInfo.reasonCode
+          : null
+      : (commandError ?? null);
+    const rejected = await rejectFirmwareUpdate(sql, {
+      stationUuid,
+      requestId,
+      reasonCode: responseStatus != null && refused ? responseStatus : 'CommandFailed',
+      additionalInfo,
+      actor: 'ocpp',
+      actorLabel: 'UpdateFirmware not started',
+    });
+    if (rejected != null) {
+      await notifyFirmwareCampaignChange(
+        stationUuid,
+        rejected.campaignId,
+        rejected.campaignCompleted,
+      );
+    }
   });
 
   safeSubscribe('command.GetLog', async (event: DomainEvent) => {
@@ -3008,7 +3127,11 @@ export function registerProjections(
     const siteId = await lookups.resolveSiteId(stationUuid);
     await notify.notifyChange('station.evChargingNeeds', stationUuid, siteId);
 
-    // Compute and send ISO 15118 charging profile
+    // The handler answered Accepted only with a transaction to address the
+    // TxProfile to (K15.FR.07); otherwise it answered NoChargingProfile and
+    // nothing is sent.
+    const transactionId = (payload.transactionId as string | null | undefined) ?? null;
+    if (transactionId == null) return;
     try {
       const { computeAndSendChargingProfile } =
         await import('../services/charging-profile-computer.js');
@@ -3016,11 +3139,15 @@ export function registerProjections(
         stationUuid,
         stationOcppId: event.aggregateId,
         evseId,
+        transactionId,
         chargingNeeds,
         maxScheduleTuples,
       });
     } catch (err) {
-      logger.error({ err }, 'ISO 15118 profile computation failed');
+      logger.error(
+        { err, stationId: event.aggregateId, evseId },
+        'ISO 15118 profile computation failed',
+      );
     }
   });
 
@@ -3032,11 +3159,38 @@ export function registerProjections(
     const evseId = (payload.evseId as number | undefined) ?? 0;
     const timeBase = (payload.timeBase as string | undefined) ?? null;
     const chargingSchedule = payload.chargingSchedule ?? {};
+    const withinLimits = (payload.withinLimits as boolean | undefined) ?? null;
 
     await sql`
-      INSERT INTO ev_charging_schedules (station_id, evse_id, time_base, charging_schedule)
-      VALUES (${stationUuid}, ${evseId}, ${timeBase}, ${sql.json(asJson(chargingSchedule))})
+      INSERT INTO ev_charging_schedules (station_id, evse_id, time_base, charging_schedule, within_limits)
+      VALUES (${stationUuid}, ${evseId}, ${timeBase}, ${sql.json(asJson(chargingSchedule))}, ${withinLimits})
     `;
+
+    // The handler answered Rejected: start a renegotiation (K15.FR.13).
+    if (withinLimits === false) {
+      try {
+        const { renegotiateChargingNeedsProfile } =
+          await import('../services/charging-profile-computer.js');
+        const sent = await renegotiateChargingNeedsProfile(sql, pubsub, {
+          stationUuid,
+          stationOcppId: event.aggregateId,
+          evseId,
+        });
+        if (!sent) {
+          logger.warn(
+            { stationId: event.aggregateId, evseId },
+            'EV schedule exceeds the CSMS schedule again, no further renegotiation',
+          );
+        }
+      } catch (err) {
+        logger.error(
+          { err, stationId: event.aggregateId, evseId },
+          'ISO 15118 renegotiation failed',
+        );
+      }
+    }
+    const siteId = await lookups.resolveSiteId(stationUuid);
+    await notify.notifyChange('station.evChargingNeeds', stationUuid, siteId);
   });
 
   // ---- Offline Command Queue ----

@@ -92,6 +92,14 @@ const LOG_TABLES: readonly LogTable[] = [
     // totals live on charging_sessions, so old samples are safe to drop.
     cutoffColumn: 'timestamp',
   },
+  {
+    table: 'load_allocation_log',
+    settingKey: 'logs.loadAllocation.retentionDays',
+    defaultDays: 90,
+    // One row per changed allocation of each load-managed site. `created_at`
+    // is indexed (idx_load_alloc_log_created).
+    cutoffColumn: 'created_at',
+  },
 ];
 
 export async function logRetentionPruneHandler(log: Logger): Promise<void> {

@@ -89,6 +89,13 @@ export const siteLoadManagement = pgTable('site_load_management', {
     .unique(),
   strategy: loadAllocationStrategyEnum('strategy').notNull().default('equal_share'),
   isEnabled: boolean('is_enabled').notNull().default(false),
+  // The allocations last sent to the stations (and the reservations kept for
+  // offline stations), shared by every worker process: the next cycle sends
+  // again only when they change, when they are older than the refresh
+  // interval, or when a send failed (appliedAt null). A config change nulls
+  // both so the next cycle sends.
+  appliedAllocations: jsonb('applied_allocations'),
+  appliedAt: timestamp('applied_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });

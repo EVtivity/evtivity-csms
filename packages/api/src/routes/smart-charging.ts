@@ -44,6 +44,7 @@ import {
   TEMPLATE_NOT_FOUND,
 } from '../lib/fleet-operation-scope.js';
 import { authorize } from '../middleware/rbac.js';
+import { templateStateError } from '../lib/charging-profile-template-rules.js';
 
 // OCPP 2.1 ChargingProfilePurposeEnumType minus the two purposes excluded from
 // templates: TxProfile (needs a transactionId per station) and
@@ -55,6 +56,100 @@ const TEMPLATE_PROFILE_PURPOSES = [
   'PriorityCharging',
   'LocalGeneration',
 ] as const;
+
+// A push or clear whose stations have not moved for this long lost its
+// process (an API restart): it no longer blocks a new operation.
+const STALE_TEMPLATE_OPERATION_MS = 10 * 60_000;
+
+/**
+ * Starts a push or clear of a template, one at a time per template: while an
+ * operation of the template is still running, a second request (a double
+ * click, a retry, a clear during a push) gets the running one back instead of
+ * racing it on the same stations. An operation that stopped moving is closed
+ * first: its pending stations fail as interrupted. The template row lock
+ * serializes concurrent requests.
+ */
+async function beginTemplateOperation(
+  templateId: string,
+  operation: 'set' | 'clear',
+  stations: Array<{ id: string }>,
+): Promise<{ pushId: string; alreadyRunning: boolean }> {
+  return db.transaction(async (tx) => {
+    await tx
+      .select({ id: chargingProfileTemplates.id })
+      .from(chargingProfileTemplates)
+      .where(eq(chargingProfileTemplates.id, templateId))
+      .for('update');
+
+    const running = await tx
+      .select({
+        id: chargingProfilePushes.id,
+        updatedAt: chargingProfilePushes.updatedAt,
+        lastStationUpdate: max(chargingProfilePushStations.updatedAt),
+      })
+      .from(chargingProfilePushes)
+      .leftJoin(
+        chargingProfilePushStations,
+        eq(chargingProfilePushStations.pushId, chargingProfilePushes.id),
+      )
+      .where(
+        and(
+          eq(chargingProfilePushes.templateId, templateId),
+          eq(chargingProfilePushes.status, 'active'),
+        ),
+      )
+      .groupBy(chargingProfilePushes.id, chargingProfilePushes.updatedAt);
+
+    const now = Date.now();
+    for (const op of running) {
+      const lastActivity = Math.max(
+        new Date(op.updatedAt).getTime(),
+        op.lastStationUpdate != null ? new Date(op.lastStationUpdate).getTime() : 0,
+      );
+      if (now - lastActivity < STALE_TEMPLATE_OPERATION_MS) {
+        return { pushId: op.id, alreadyRunning: true };
+      }
+      await tx
+        .update(chargingProfilePushStations)
+        .set({ status: 'failed', errorInfo: 'Interrupted', updatedAt: new Date() })
+        .where(
+          and(
+            eq(chargingProfilePushStations.pushId, op.id),
+            eq(chargingProfilePushStations.status, 'pending'),
+          ),
+        );
+      await tx
+        .update(chargingProfilePushes)
+        .set({ status: 'completed', updatedAt: new Date() })
+        .where(eq(chargingProfilePushes.id, op.id));
+    }
+
+    const [push] = await tx
+      .insert(chargingProfilePushes)
+      .values({ templateId, operation, status: 'active', stationCount: stations.length })
+      .returning({ id: chargingProfilePushes.id });
+    if (push == null) throw new Error('Charging profile push insert returned no row');
+    await tx
+      .insert(chargingProfilePushStations)
+      .values(
+        stations.map((s) => ({ pushId: push.id, stationId: s.id, status: 'pending' as const })),
+      );
+    return { pushId: push.id, alreadyRunning: false };
+  });
+}
+
+const templateOperationResponse = z
+  .object({
+    success: z.boolean().describe('True when the request was taken'),
+    pushId: z.string().describe('The operation ID, empty when no station matched the template'),
+    alreadyRunning: z
+      .boolean()
+      .optional()
+      .describe(
+        'True when an operation of this template was still running: pushId is that operation and nothing new started',
+      ),
+  })
+  .passthrough();
 
 const templateItem = z
   .object({
@@ -316,7 +411,7 @@ const createTemplateBody = z
 const updateTemplateBody = z
   .object({
     name: z.string().min(1).optional(),
-    description: z.string().optional(),
+    description: z.string().nullable().optional(),
     ocppVersion: z.enum(['2.1', '1.6']).optional(),
     profileId: z.number().int().optional(),
     profilePurpose: z.enum(TEMPLATE_PROFILE_PURPOSES).optional(),
@@ -524,12 +619,9 @@ export function smartChargingRoutes(app: FastifyInstance): void {
       // schema layer; the prior runtime guard against TxProfile and
       // ChargingStationExternalConstraints is unreachable.
 
-      // Validate recurrencyKind requirement
-      if (body.profileKind === 'Recurring' && !body.recurrencyKind) {
-        await reply.status(400).send({
-          error: 'recurrencyKind is required when profileKind is Recurring',
-          code: 'VALIDATION_ERROR',
-        });
+      const createError = templateStateError(body);
+      if (createError != null) {
+        await reply.status(400).send({ error: createError, code: 'VALIDATION_ERROR' });
         return;
       }
 
@@ -649,47 +741,22 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Validate recurrencyKind requirement on the resulting state
-      const effectiveKind = body.profileKind ?? existing.profileKind;
-      const effectiveRecurrency =
-        body.recurrencyKind !== undefined ? body.recurrencyKind : existing.recurrencyKind;
-      if (effectiveKind === 'Recurring' && !effectiveRecurrency) {
-        await reply.status(400).send({
-          error: 'recurrencyKind is required when profileKind is Recurring',
-          code: 'VALIDATION_ERROR',
-        });
-        return;
-      }
-
-      // Validate validFrom < validTo on the resulting state. The body-level
-      // refine in updateTemplateBody only fires when BOTH are present in the
-      // request; without this guard a PATCH that sends only `validFrom` (or
-      // only `validTo`) can produce a row where validFrom > validTo by
-      // combining the new value with the unchanged existing one.
-      const effectiveValidFromRaw =
-        body.validFrom !== undefined ? body.validFrom : existing.validFrom;
-      const effectiveValidToRaw = body.validTo !== undefined ? body.validTo : existing.validTo;
-      const effectiveValidFrom =
-        effectiveValidFromRaw == null
-          ? null
-          : effectiveValidFromRaw instanceof Date
-            ? effectiveValidFromRaw
-            : new Date(effectiveValidFromRaw);
-      const effectiveValidTo =
-        effectiveValidToRaw == null
-          ? null
-          : effectiveValidToRaw instanceof Date
-            ? effectiveValidToRaw
-            : new Date(effectiveValidToRaw);
-      if (
-        effectiveValidFrom != null &&
-        effectiveValidTo != null &&
-        effectiveValidFrom.getTime() >= effectiveValidTo.getTime()
-      ) {
-        await reply.status(400).send({
-          error: 'validFrom must be strictly before validTo',
-          code: 'VALIDATION_ERROR',
-        });
+      // Validate the template as it will be stored: the body merged over the
+      // existing row, so a partial PATCH cannot leave an invalid combination.
+      const patchError = templateStateError({
+        ocppVersion: body.ocppVersion ?? existing.ocppVersion,
+        profilePurpose: body.profilePurpose ?? existing.profilePurpose,
+        profileKind: body.profileKind ?? existing.profileKind,
+        recurrencyKind:
+          body.recurrencyKind !== undefined ? body.recurrencyKind : existing.recurrencyKind,
+        schedulePeriods: body.schedulePeriods ?? existing.schedulePeriods,
+        startSchedule:
+          body.startSchedule !== undefined ? body.startSchedule : existing.startSchedule,
+        validFrom: body.validFrom !== undefined ? body.validFrom : existing.validFrom,
+        validTo: body.validTo !== undefined ? body.validTo : existing.validTo,
+      });
+      if (patchError != null) {
+        await reply.status(400).send({ error: patchError, code: 'VALIDATION_ERROR' });
         return;
       }
 
@@ -1014,7 +1081,8 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
         response: {
-          200: itemResponse(z.object({ success: z.boolean(), pushId: z.string() }).passthrough()),
+          200: itemResponse(templateOperationResponse),
+          400: errorWith('Template is not valid', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
         },
       },
@@ -1031,13 +1099,15 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         template == null ||
         isRestrictedCompanyWideWrite(accessibleSiteIds, template.targetFilter)
       ) {
-        await reply.status(404).send(TEMPLATE_NOT_FOUND);
+        await reply.status(404).send({ error: 'Template not found', code: 'TEMPLATE_NOT_FOUND' });
         return;
       }
 
-      const schedulePeriods = template.schedulePeriods as unknown[];
-      if (schedulePeriods.length === 0) {
-        return { success: true, pushId: '' };
+      // A template stored before these rules were checked is not sent as is.
+      const stateError = templateStateError(template);
+      if (stateError != null) {
+        await reply.status(400).send({ error: stateError, code: 'VALIDATION_ERROR' });
+        return;
       }
 
       const ocppVersion = template.ocppVersion;
@@ -1047,26 +1117,10 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return { success: true, pushId: '' };
       }
 
-      // Create push record
-      const [push] = await db
-        .insert(chargingProfilePushes)
-        .values({
-          templateId: id,
-          status: 'active',
-          stationCount: targetStations.length,
-        })
-        .returning();
-
-      const pushId = push?.id ?? '';
-
-      // Insert push station rows
-      await db.insert(chargingProfilePushStations).values(
-        targetStations.map((s) => ({
-          pushId,
-          stationId: s.id,
-          status: 'pending' as const,
-        })),
-      );
+      const { pushId, alreadyRunning } = await beginTemplateOperation(id, 'set', targetStations);
+      if (alreadyRunning) {
+        return { success: true, pushId, alreadyRunning };
+      }
 
       // Process in background. processChargingProfilePush has its own
       // try/catch and best-effort completion update, but attach an explicit
@@ -1093,7 +1147,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         request.log,
       );
 
-      return { success: true, pushId };
+      return { success: true, pushId, alreadyRunning };
     },
   );
 
@@ -1111,7 +1165,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         security: [{ bearerAuth: [] }],
         params: zodSchema(templateParams),
         response: {
-          200: itemResponse(z.object({ success: z.boolean(), pushId: z.string() }).passthrough()),
+          200: itemResponse(templateOperationResponse),
           404: errorWith('Template not found', [ERROR_CODES.TEMPLATE_NOT_FOUND]),
         },
       },
@@ -1138,24 +1192,10 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         return { success: true, pushId: '' };
       }
 
-      const [push] = await db
-        .insert(chargingProfilePushes)
-        .values({
-          templateId: id,
-          operation: 'clear',
-          status: 'active',
-          stationCount: targetStations.length,
-        })
-        .returning();
-      const pushId = push?.id ?? '';
-
-      await db.insert(chargingProfilePushStations).values(
-        targetStations.map((s) => ({
-          pushId,
-          stationId: s.id,
-          status: 'pending' as const,
-        })),
-      );
+      const { pushId, alreadyRunning } = await beginTemplateOperation(id, 'clear', targetStations);
+      if (alreadyRunning) {
+        return { success: true, pushId, alreadyRunning };
+      }
 
       // Background dispatch with explicit .catch so an unexpected rejection
       // (downstream throw, OOM) surfaces in logs instead of becoming an
@@ -1192,7 +1232,7 @@ export function smartChargingRoutes(app: FastifyInstance): void {
         request.log,
       );
 
-      return { success: true, pushId };
+      return { success: true, pushId, alreadyRunning };
     },
   );
 

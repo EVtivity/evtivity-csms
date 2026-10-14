@@ -2,6 +2,11 @@ import { defineConfig } from 'vitest/config';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
+// Escapes every regex metacharacter, backslash included, for an exact match.
+function escapeRegExp(text: string): string {
+  return text.replace(/[\\^$.*+?()[\]{}|/-]/g, '\\$&');
+}
+
 // Exact-match regexes: a plain string key is a prefix match, so '@evtivity/database'
 // would also rewrite '@evtivity/database/src/lib/id.js' in projects that inherit it.
 const packageAliases = Object.entries({
@@ -13,7 +18,7 @@ const packageAliases = Object.entries({
   '@evtivity/octt': 'packages/octt/src/index.ts',
   '@evtivity/v2g-exi': 'packages/v2g-exi/src/index.ts',
 }).map(([pkg, file]) => ({
-  find: new RegExp(`^${pkg.replace('/', '\\/')}$`),
+  find: new RegExp(`^${escapeRegExp(pkg)}$`),
   replacement: path.resolve(import.meta.dirname, file),
 }));
 
@@ -23,7 +28,7 @@ const aiPackage = JSON.parse(
   readFileSync(path.resolve(import.meta.dirname, 'packages/ai/package.json'), 'utf8'),
 ) as { exports: Record<string, { import: string }> };
 const aiAliases = Object.entries(aiPackage.exports).map(([subpath, target]) => ({
-  find: new RegExp(`^@evtivity\\/ai\\/${subpath.slice(2).replace(/[/.]/g, '\\$&')}$`),
+  find: new RegExp(`^${escapeRegExp(`@evtivity/ai/${subpath.slice(2)}`)}$`),
   replacement: path.resolve(import.meta.dirname, 'packages/ai', target.import),
 }));
 const workspaceAliases = [...packageAliases, ...aiAliases];

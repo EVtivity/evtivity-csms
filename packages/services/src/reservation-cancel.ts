@@ -255,7 +255,7 @@ export async function applyReservationCancellation(
   // until the station reports one, so a watching driver is alerted here when the
   // station is now free by the shared rule. Fail-open: the cancel is stored.
   try {
-    await alertStationWatchersIfAvailable(client, pubsub, winningRow.station_id);
+    await alertStationWatchersIfAvailable(client, winningRow.station_id);
   } catch (err) {
     input.logger?.warn(
       { err, reservationId: input.reservationDbId },

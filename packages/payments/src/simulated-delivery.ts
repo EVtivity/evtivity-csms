@@ -1,35 +1,47 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import crypto from 'node:crypto';
+import { jobQueue } from '@evtivity/lib/job-queues';
+import { PAYMENT_WEBHOOK_JOB_OPTIONS, PAYMENT_WEBHOOK_QUEUE } from '@evtivity/lib/worker-queues';
 import type { SimulatedEventSink, SimulatedWebhookDelivery } from './providers/simulated/index.js';
 
 /**
- * Pub/sub channel of signed simulated provider events on their way to the
- * worker, which delays them in the `payment-webhooks` queue and ingests them
- * through `ingestPaymentWebhook` (D-T2). Not `csms_events`: that channel
- * streams to operator browsers and must not carry signed bodies.
+ * The BullMQ job name of one signed simulated provider event on the worker's
+ * payment-webhooks queue: the worker delays it and ingests it through
+ * `ingestPaymentWebhook` (D-T2). Every process with the simulated provider
+ * adds the jobs itself, so an event waits in Redis while no worker runs.
  */
-export const PAYMENT_WEBHOOK_CHANNEL = 'payment_webhook_deliveries';
+export const PAYMENT_WEBHOOK_JOB_NAME = 'deliver';
 
-/** A message on PAYMENT_WEBHOOK_CHANNEL. */
+/** One job of the payment webhook queue. */
 export interface PaymentWebhookDelivery extends SimulatedWebhookDelivery {
   provider: 'simulated';
 }
 
-export interface PaymentWebhookPublisher {
-  publish(channel: string, payload: string): Promise<void>;
+/**
+ * The provider plus the SHA-256 of the signed body, so the same delivery
+ * added twice makes one job (P7). The pipeline also dedupes on the event id.
+ */
+export function paymentWebhookJobId(delivery: PaymentWebhookDelivery): string {
+  const hash = crypto.createHash('sha256').update(delivery.rawBody).digest('hex');
+  return `${delivery.provider}-${hash}`;
 }
 
 /**
- * Sink for the simulated provider in the API and OCPP processes: publish on
- * PAYMENT_WEBHOOK_CHANNEL, the worker delays and ingests. A publish failure
+ * Sink for the simulated provider: adds each event to the worker's
+ * `payment-webhooks` queue, delayed by its `delaySeconds`. A failed add
  * rejects, and the provider logs it at warn (P9).
  */
-export function pubsubSimulatedSink(pubsub: PaymentWebhookPublisher): SimulatedEventSink {
+export function queueSimulatedSink(): SimulatedEventSink {
   return {
-    async deliver(delivery) {
-      const message: PaymentWebhookDelivery = { provider: 'simulated', ...delivery };
-      await pubsub.publish(PAYMENT_WEBHOOK_CHANNEL, JSON.stringify(message));
+    async deliver(event) {
+      const delivery: PaymentWebhookDelivery = { provider: 'simulated', ...event };
+      await jobQueue(PAYMENT_WEBHOOK_QUEUE, PAYMENT_WEBHOOK_JOB_OPTIONS).add(
+        PAYMENT_WEBHOOK_JOB_NAME,
+        delivery,
+        { jobId: paymentWebhookJobId(delivery), delay: Math.round(delivery.delaySeconds * 1000) },
+      );
     },
   };
 }

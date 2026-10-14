@@ -14,6 +14,7 @@ const mockWriteReservationAudit = vi.fn();
 const mockNotifyReservationDriver = vi.fn();
 vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/raw-timestamp.js')),
+  ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   writeReservationAudit: (...args: unknown[]) => mockWriteReservationAudit(...args) as unknown,
 }));
 vi.mock('@evtivity/services/reservation-cancel', () => ({ applyReservationCancellation: vi.fn() }));
@@ -31,6 +32,8 @@ vi.mock('../server/notification-dispatcher.js', () => ({
 
 const { linkStartedReservation, markReservationUsed } =
   await import('../server/reservation-projections.js');
+const { runProjectionWithRetry } = await import('../server/projection-retry.js');
+type ProjectionAttempt = import('../server/projection-retry.js').ProjectionAttempt;
 
 // The mocked database: the reservation rows the link query returns, and the
 // state the guarded updates move.
@@ -95,7 +98,10 @@ function route(text: string, values: unknown[]): unknown[] {
     return [];
   }
   if (text.includes("SET status = 'in_use'")) {
-    const h = holds.find((r) => r.id === values[0] && r.status === 'active');
+    // values[1]: a rerun also takes a hold already in_use (the only other status).
+    const h = holds.find(
+      (r) => r.id === values[0] && (r.status === 'active' || values[1] === true),
+    );
     if (h == null) return [];
     h.status = 'in_use';
     return [{ id: h.id }];
@@ -147,14 +153,33 @@ function hold(overrides: Partial<HoldRow> = {}): HoldRow {
   };
 }
 
-function start(ocppReservationId: number | null, idToken: string | null = null) {
+function start(
+  ocppReservationId: number | null,
+  idToken: string | null = null,
+  attempt?: ProjectionAttempt,
+) {
   return linkStartedReservation(deps, {
     sessionId: 'session-1',
     stationUuid: 'sta-1',
     stationOcppId: 'CS-1',
     ocppReservationId,
     idToken,
+    ...(attempt != null ? { attempt } : {}),
   });
+}
+
+/** A projection run without the retry bookkeeping. */
+function run(number: number): ProjectionAttempt {
+  return {
+    number,
+    isLast: false,
+    once: (_key, step) => step(),
+    memo: (_key, step) => step(),
+  };
+}
+
+function connectionError(code: string): Error {
+  return Object.assign(new Error(code), { code });
 }
 
 function auditActions(): string[] {
@@ -335,6 +360,73 @@ describe('TransactionProjector Started: reservation link', () => {
   it('finds nothing to link on a station without holds', async () => {
     expect(await start(null)).toBeNull();
     expect(sqlCalls).toHaveLength(1);
+  });
+});
+
+describe('TransactionProjector Started: reservation link on a projection retry', () => {
+  it('a rerun whose first in_use write committed without an answer still audits used', async () => {
+    // The first run's flip committed but its answer was lost: the hold is
+    // in_use and linked to this session, and no audit row was written.
+    holds = [hold({ status: 'in_use' })];
+    session.driver_id = 'drv-holder';
+    session.reservation_id = 'rsv_1';
+
+    expect(await start(null, null, run(2))).toBe('rsv_1');
+
+    expect(auditActions()).toEqual(['used']);
+    expect(notifyChange).toHaveBeenCalledWith(
+      'reservation.changed',
+      'sta-1',
+      'site-1',
+      'session-1',
+    );
+  });
+
+  it('a first run never takes a hold already in_use as moved', async () => {
+    holds = [hold({ status: 'in_use' })];
+    session.driver_id = 'drv-holder';
+    session.reservation_id = 'rsv_1';
+
+    expect(await start(null, null, run(1))).toBe('rsv_1');
+
+    expect(auditActions()).toEqual([]);
+    expect(notifyChange).not.toHaveBeenCalled();
+  });
+
+  it('a step after the in_use write that lost its connection is rerun: one used audit', async () => {
+    holds = [hold()];
+    session.driver_id = 'drv-holder';
+    mockWriteReservationAudit.mockRejectedValueOnce(connectionError('CONNECT_TIMEOUT'));
+
+    await runProjectionWithRetry(
+      async (attempt) => {
+        await start(null, null, attempt);
+      },
+      { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 1 },
+    );
+
+    expect(holds[0]?.status).toBe('in_use');
+    // The failed first audit, then the rerun's one; the flip ran once.
+    expect(auditActions()).toEqual(['used', 'used']);
+    expect(sqlCalls.filter((c) => c.text.includes("SET status = 'in_use'"))).toHaveLength(1);
+    expect(notifyChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('a taken hold whose audit lost its connection is audited and its holder told once', async () => {
+    holds = [hold()];
+    session.driver_id = 'drv-other';
+    mockWriteReservationAudit.mockRejectedValueOnce(connectionError('CONNECT_TIMEOUT'));
+
+    await runProjectionWithRetry(
+      async (attempt) => {
+        await start(42, null, attempt);
+      },
+      { maxAttempts: 3, baseDelayMs: 1, maxDelayMs: 1 },
+    );
+
+    expect(holds[0]?.no_show_fee_state).toBe('waived');
+    expect(auditActions()).toEqual(['taken_by_other', 'taken_by_other']);
+    expect(mockNotifyReservationDriver).toHaveBeenCalledTimes(1);
   });
 });
 

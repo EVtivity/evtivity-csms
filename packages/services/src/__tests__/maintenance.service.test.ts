@@ -76,6 +76,10 @@ const h = vi.hoisted(() => {
     renderMaintenanceMessage: vi.fn(async () => 'MAINT MSG'),
     publishCancelReservation: vi.fn(async (..._args: unknown[]) => {}),
     publish: vi.fn(async (_channel: string, _payload: string) => {}),
+    // Jobs added to the worker's queues (jobQueue(name).add(...)).
+    addJob: vi.fn(
+      async (_queue: string, _name: string, _data: unknown, _opts?: { jobId?: string }) => {},
+    ),
   };
 });
 
@@ -174,8 +178,13 @@ vi.mock('@evtivity/database', () => {
   };
 });
 
-vi.mock('@evtivity/lib', () => ({
+vi.mock('@evtivity/lib', async () => ({
   AppError: h.MockAppError,
+  assertTemplateAllowed: (
+    await vi.importActual<typeof import('../../../lib/src/template-safety.js')>(
+      '../../../lib/src/template-safety.js',
+    )
+  ).assertTemplateAllowed,
   dispatchDriverNotification: h.dispatchDriverNotification,
   renderMaintenanceMessage: h.renderMaintenanceMessage,
   createLogger: () => ({ warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() }),
@@ -183,6 +192,14 @@ vi.mock('@evtivity/lib', () => ({
 
 vi.mock('@evtivity/lib/pubsub-instance', () => ({
   getPubSub: () => ({ publish: h.publish }),
+}));
+
+vi.mock('@evtivity/lib/job-queues', () => ({
+  jobQueue: (queue: string) => ({
+    add: (name: string, data: unknown, opts?: { jobId?: string }) =>
+      h.addJob(queue, name, data, opts),
+    addBulk: vi.fn(),
+  }),
 }));
 
 vi.mock('../ocpp-command.js', () => ({
@@ -226,6 +243,8 @@ import {
   enterMaintenance,
   exitMaintenance,
   runMaintenanceFanout,
+  enqueueMaintenanceFanout,
+  maintenanceFanoutJobId,
   getActiveMaintenanceForStation,
   getActiveMaintenanceForSite,
   type MaintenanceEventRow,
@@ -309,6 +328,20 @@ function auditCallsByAction(action: string): AuditArgs[] {
 // createEvent
 // ===========================================================================
 describe('createEvent', () => {
+  it('refuses a custom message the station message renderer would reject', async () => {
+    await expect(
+      createEvent({
+        siteId: 'sit_1',
+        eventType: 'one_off',
+        plannedStartAt: new Date('2026-06-10T12:00:00Z'),
+        plannedEndAt: new Date('2026-06-10T13:00:00Z'),
+        activeSessionPolicy: 'ignore',
+        customMessage: 'Back soon {{> partial}}',
+        actor: OPERATOR_ACTOR,
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
+  });
+
   it('throws MAINTENANCE_INVALID_RANGE when end <= start', async () => {
     await expect(
       createEvent({
@@ -991,10 +1024,10 @@ describe('enterMaintenance', () => {
 });
 
 // ===========================================================================
-// Detached side effects (HTTP-route mode -> maintenance_fanout publish)
+// Detached side effects (HTTP-route mode -> maintenance-fanout job)
 // ===========================================================================
 describe('detached side effects', () => {
-  it('enterMaintenance publishes the fan-out instead of running it when detached', async () => {
+  it('enterMaintenance queues the fan-out instead of running it when detached', async () => {
     h.executeHandler.fn = (text) => (text.includes("status = 'active'") ? [{ id: 'mne_1' }] : []);
     setSelect('maintenanceEvents', [
       makeEventRow({ status: 'active', startedAt: new Date(), affectedStationIds: ['sta_1'] }),
@@ -1010,23 +1043,26 @@ describe('detached side effects', () => {
     expect(h.pushStationMessageSlot).not.toHaveBeenCalled();
     expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
     expect(auditCallsByAction('started')).toHaveLength(0);
-    // First SSE (sync state change) + fan-out publish.
+    // First SSE (sync state change) + the fan-out job on the worker's queue,
+    // which waits there while no worker runs.
     expect(h.publish).toHaveBeenCalledWith(
       'csms_events',
       JSON.stringify({ eventType: 'maintenance.changed', siteId: 'sit_1', eventId: 'mne_1' }),
     );
-    expect(h.publish).toHaveBeenCalledWith(
-      'maintenance_fanout',
-      JSON.stringify({
+    expect(h.addJob).toHaveBeenCalledWith(
+      'maintenance-fanout',
+      'maintenance-fanout',
+      {
         eventId: 'mne_1',
         siteId: 'sit_1',
         phase: 'enter',
         actor: { type: 'operator', userId: 'usr_1', label: null },
-      }),
+      },
+      { jobId: 'mf.mne_1.enter' },
     );
   });
 
-  it('cancelEvent publishes a release fan-out for an active event when detached', async () => {
+  it('cancelEvent queues a release fan-out for an active event when detached', async () => {
     h.executeHandler.fn = (text) =>
       text.includes('WITH old') ? [{ id: 'mne_1', status_before: 'active' }] : [];
     queueSelect('maintenanceEvents', [
@@ -1037,18 +1073,20 @@ describe('detached side effects', () => {
     await cancelEvent('mne_1', OPERATOR_ACTOR, undefined, { detachSideEffects: true });
 
     expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
-    expect(h.publish).toHaveBeenCalledWith(
-      'maintenance_fanout',
-      JSON.stringify({
+    expect(h.addJob).toHaveBeenCalledWith(
+      'maintenance-fanout',
+      'maintenance-fanout',
+      {
         eventId: 'mne_1',
         siteId: 'sit_1',
         phase: 'release',
         actor: { type: 'operator', userId: 'usr_1', label: null },
-      }),
+      },
+      { jobId: 'mf.mne_1.release' },
     );
   });
 
-  it('addStationsToMaintenance publishes an add fan-out for an active event when detached', async () => {
+  it('addStationsToMaintenance queues an add fan-out for an active event when detached', async () => {
     const before = makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] });
     const after = makeEventRow({ status: 'active', affectedStationIds: ['sta_1', 'sta_2'] });
     setSelect('maintenanceEvents', [before]);
@@ -1060,8 +1098,9 @@ describe('detached side effects', () => {
     });
 
     expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
-    const call = h.publish.mock.calls.find((c) => c[0] === 'maintenance_fanout');
-    expect(JSON.parse(call?.[1] as string)).toEqual({
+    const call = h.addJob.mock.calls.find((c) => c[0] === 'maintenance-fanout');
+    const data = call?.[2] as { nonce: string };
+    expect(data).toEqual({
       eventId: 'mne_1',
       siteId: 'sit_1',
       phase: 'add',
@@ -1069,9 +1108,10 @@ describe('detached side effects', () => {
       actor: { type: 'operator', userId: 'usr_1', label: null },
       nonce: expect.stringMatching(/^[0-9a-f-]{36}$/),
     });
+    expect(call?.[3]).toEqual({ jobId: `mf.mne_1.add.sta_2.${data.nonce}` });
   });
 
-  it('removeStationsFromMaintenance publishes a remove fan-out when detached', async () => {
+  it('removeStationsFromMaintenance queues a remove fan-out when detached', async () => {
     const before = makeEventRow({ status: 'active', affectedStationIds: ['sta_1', 'sta_2'] });
     const after = makeEventRow({ status: 'active', affectedStationIds: ['sta_1'] });
     setSelect('maintenanceEvents', [before]);
@@ -1082,8 +1122,8 @@ describe('detached side effects', () => {
     });
 
     expect(h.sendOcppCommandAndWait).not.toHaveBeenCalled();
-    const call = h.publish.mock.calls.find((c) => c[0] === 'maintenance_fanout');
-    expect(JSON.parse(call?.[1] as string)).toEqual({
+    const call = h.addJob.mock.calls.find((c) => c[0] === 'maintenance-fanout');
+    expect(call?.[2]).toEqual({
       eventId: 'mne_1',
       siteId: 'sit_1',
       phase: 'remove',
@@ -1093,13 +1133,13 @@ describe('detached side effects', () => {
     });
   });
 
-  it('logs at error when the fan-out publish fails but still returns', async () => {
+  it('logs at error when the fan-out job cannot be added but still returns', async () => {
     h.executeHandler.fn = (text) => (text.includes("status = 'active'") ? [{ id: 'mne_1' }] : []);
     setSelect('maintenanceEvents', [
       makeEventRow({ status: 'active', startedAt: new Date(), affectedStationIds: ['sta_1'] }),
     ]);
-    // First publish (sync SSE) succeeds, second publish (fan-out) rejects.
-    h.publish.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('redis down'));
+    // The SSE publish succeeds, the fan-out job add rejects (Redis down).
+    h.addJob.mockRejectedValueOnce(new Error('redis down'));
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never;
 
     await enterMaintenance('mne_1', SYSTEM_ACTOR, logger, { detachSideEffects: true });
@@ -1119,12 +1159,12 @@ describe('detached side effects', () => {
     await enterMaintenance('mne_1', SYSTEM_ACTOR);
 
     // Worker path awaits: by the time the call resolves the fan-out is done and
-    // no maintenance_fanout publish was made.
+    // no maintenance-fanout job was added.
     expect(h.pushStationMessageSlot).toHaveBeenCalled();
     expect(auditCallsByAction('started')).toHaveLength(1);
     expect(h.publish).toHaveBeenCalledTimes(2);
-    const fanoutPublishes = h.publish.mock.calls.filter((c) => c[0] === 'maintenance_fanout');
-    expect(fanoutPublishes).toHaveLength(0);
+    const fanoutJobs = h.addJob.mock.calls.filter((c) => c[0] === 'maintenance-fanout');
+    expect(fanoutJobs).toHaveLength(0);
   });
 });
 
@@ -1191,16 +1231,8 @@ describe('runMaintenanceFanout', () => {
 
     await runMaintenanceFanout({ eventId: 'mne_1', phase: 'release' });
 
-    expect(h.alertStationWatchers).toHaveBeenCalledWith(
-      { __client: true },
-      expect.objectContaining({ publish: expect.any(Function) }),
-      'sta_1',
-    );
-    expect(h.alertStationWatchers).toHaveBeenCalledWith(
-      { __client: true },
-      expect.objectContaining({ publish: expect.any(Function) }),
-      'sta_2',
-    );
+    expect(h.alertStationWatchers).toHaveBeenCalledWith({ __client: true }, 'sta_1');
+    expect(h.alertStationWatchers).toHaveBeenCalledWith({ __client: true }, 'sta_2');
   });
 
   it('add phase runs the add-station fan-out on the given station ids', async () => {
@@ -1560,6 +1592,13 @@ describe('updateEvent', () => {
 
     expect(result.affectedStationIds).toEqual(['sta_1', 'sta_2']);
     expect(auditCallsByAction('updated')).toHaveLength(1);
+  });
+
+  it('refuses a custom message the station message renderer would reject', async () => {
+    setSelect('maintenanceEvents', [makeEventRow({ status: 'scheduled' })]);
+    await expect(
+      updateEvent('mne_1', { customMessage: '{{lookup this "x"}}' }, OPERATOR_ACTOR),
+    ).rejects.toMatchObject({ statusCode: 400, code: 'VALIDATION_ERROR' });
   });
 
   it('throws MAINTENANCE_INVALID_RANGE when resulting end <= start', async () => {
@@ -2129,5 +2168,53 @@ describe('getActiveMaintenanceForSite', () => {
       sessionsStoppedCount: 0,
       createdByUserId: null,
     });
+  });
+});
+
+// ===========================================================================
+// maintenanceFanoutJobId (P7)
+// ===========================================================================
+describe('maintenanceFanoutJobId', () => {
+  it('is deterministic per event and phase', () => {
+    expect(maintenanceFanoutJobId({ eventId: 'mne_9', phase: 'enter' })).toBe('mf.mne_9.enter');
+  });
+
+  it('includes the sorted station set for add and remove, so a duplicate add dedups', () => {
+    expect(
+      maintenanceFanoutJobId({ eventId: 'mne_9', phase: 'add', stationDbIds: ['sta_2', 'sta_1'] }),
+    ).toBe('mf.mne_9.add.sta_1,sta_2');
+  });
+
+  it('appends the nonce, so a re-add of the same stations or a repeated reassert runs again', () => {
+    const a = { eventId: 'mne_9', phase: 'add' as const, stationDbIds: ['sta_1'], nonce: 'n1' };
+    expect(maintenanceFanoutJobId(a)).toBe('mf.mne_9.add.sta_1.n1');
+    expect(maintenanceFanoutJobId({ ...a, nonce: 'n2' })).toBe('mf.mne_9.add.sta_1.n2');
+    expect(
+      maintenanceFanoutJobId({
+        eventId: 'mne_9',
+        phase: 'reassert',
+        stationDbIds: ['sta_1'],
+        nonce: 'k2j4h',
+      }),
+    ).toBe('mf.mne_9.reassert.sta_1.k2j4h');
+  });
+});
+
+describe('enqueueMaintenanceFanout', () => {
+  it('adds the job to the maintenance-fanout queue under its deterministic id', async () => {
+    await enqueueMaintenanceFanout({ eventId: 'mne_9', siteId: 'sit_1', phase: 'enter' });
+    expect(h.addJob).toHaveBeenCalledWith(
+      'maintenance-fanout',
+      'maintenance-fanout',
+      { eventId: 'mne_9', siteId: 'sit_1', phase: 'enter' },
+      { jobId: 'mf.mne_9.enter' },
+    );
+  });
+
+  it('throws when the job cannot be added, so the caller logs it', async () => {
+    h.addJob.mockRejectedValueOnce(new Error('redis down'));
+    await expect(enqueueMaintenanceFanout({ eventId: 'mne_9', phase: 'enter' })).rejects.toThrow(
+      'redis down',
+    );
   });
 });

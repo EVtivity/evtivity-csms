@@ -89,16 +89,30 @@ function decodeEntities(text: string): string {
   });
 }
 
+/**
+ * The text without HTML or JSX tags. Repeated until nothing changes, so a
+ * nested fragment (`<scr<b>ipt>`) cannot leave a tag behind.
+ */
+function stripTags(text: string): string {
+  let out = text;
+  let previous: string;
+  do {
+    previous = out;
+    out = out.replace(/<\/?[A-Za-z][^>]*>/g, '');
+  } while (out !== previous);
+  return out;
+}
+
 /** Inline markdown of one prose line as plain text (links keep their label). */
 function plainInline(line: string): string {
-  return decodeEntities(
+  const withoutTags = stripTags(
     line
       .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
       .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-      .replace(/\{\/\*.*?\*\/\}/g, '')
-      .replace(/<\/?[A-Za-z][^>]*>/g, '')
-      .replace(/\*\*([^*]+)\*\*/g, '$1')
-      .replace(/__([^_]+)__/g, '$1'),
+      .replace(/\{\/\*.*?\*\/\}/g, ''),
+  );
+  return decodeEntities(
+    withoutTags.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/__([^_]+)__/g, '$1'),
   );
 }
 

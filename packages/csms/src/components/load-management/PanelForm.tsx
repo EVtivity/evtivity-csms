@@ -18,6 +18,11 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SaveButton } from '@/components/save-button';
 import { api } from '@/lib/api';
+import {
+  PANEL_VOLTAGES,
+  computeMaxContinuousKw,
+  isPanelVoltageAllowed,
+} from '@evtivity/lib/load-allocation';
 import { formatNumber } from '@/lib/formatting';
 
 interface PanelStatus {
@@ -55,10 +60,6 @@ function flattenPanels(panels: PanelStatus[]): PanelStatus[] {
     }
   }
   return result;
-}
-
-function computeMaxContinuousKw(amps: number, voltage: number, phases: number): number {
-  return (amps * voltage * phases * 0.8) / 1000;
 }
 
 export function PanelForm({
@@ -138,6 +139,9 @@ export function PanelForm({
 
   function getValidationErrors(): Record<string, string> {
     const errors: Record<string, string> = {};
+    if (!isPanelVoltageAllowed(voltageV, phases)) {
+      errors.voltageV = t('loadManagement.threePhaseVoltageHint');
+    }
     const margin = Number(safetyMarginKw);
     if (safetyMarginKw.trim() === '') errors.safetyMarginKw = t('validation.required');
     else if (!Number.isFinite(margin)) errors.safetyMarginKw = t('validation.invalidNumber');
@@ -232,12 +236,21 @@ export function PanelForm({
                   setVoltageV(Number(e.target.value));
                 }}
               >
-                <option value={120}>120V</option>
-                <option value={208}>208V</option>
-                <option value={240}>240V</option>
-                <option value={277}>277V</option>
-                <option value={480}>480V</option>
+                {PANEL_VOLTAGES.map((v) => (
+                  <option key={v} value={v}>
+                    {v}V
+                  </option>
+                ))}
               </Select>
+              {hasSubmitted && errors.voltageV != null ? (
+                <p className="text-sm text-destructive">{errors.voltageV}</p>
+              ) : (
+                phases === 3 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('loadManagement.threePhaseVoltageHint')}
+                  </p>
+                )
+              )}
             </div>
           </div>
 

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -20,6 +20,7 @@ import type {
   RootCauseCategory,
 } from '@evtivity/lib/ai-insights';
 import type { InsightFilter } from '@/components/ai/insights/insight-api';
+import { InsightRecordLink } from '@/components/ai/insights/InsightRecordLink';
 import {
   INSIGHTS_PAGE_SIZE,
   isSummaryInsight,
@@ -317,30 +318,22 @@ export function AiInsights(): React.JSX.Element {
                     )}
                     <TableCell className="whitespace-nowrap">
                       {insight.stationId != null ? (
-                        <Link
-                          to={`/stations/${insight.stationId}`}
-                          className="hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                          }}
-                        >
-                          {insight.stationName ?? insight.stationId}
-                        </Link>
+                        <InsightRecordLink
+                          kind="station"
+                          id={insight.stationId}
+                          label={insight.stationName}
+                        />
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}
                     </TableCell>
                     <TableCell>
                       {insight.siteId != null ? (
-                        <Link
-                          to={`/sites/${insight.siteId}`}
-                          className="hover:underline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                          }}
-                        >
-                          {insight.siteName ?? insight.siteId}
-                        </Link>
+                        <InsightRecordLink
+                          kind="site"
+                          id={insight.siteId}
+                          label={insight.siteName}
+                        />
                       ) : (
                         <span className="text-muted-foreground">-</span>
                       )}

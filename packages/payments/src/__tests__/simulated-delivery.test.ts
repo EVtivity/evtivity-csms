@@ -1,11 +1,15 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { describe, it, expect, vi } from 'vitest';
+import { createHash } from 'node:crypto';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { setJobQueueResolver } from '@evtivity/lib/job-queues';
+import { PAYMENT_WEBHOOK_QUEUE } from '@evtivity/lib/worker-queues';
 import {
   deferredSimulatedSink,
-  PAYMENT_WEBHOOK_CHANNEL,
-  pubsubSimulatedSink,
+  PAYMENT_WEBHOOK_JOB_NAME,
+  paymentWebhookJobId,
+  queueSimulatedSink,
 } from '../simulated-delivery.js';
 import { SimulatedPaymentProvider } from '../providers/simulated/index.js';
 import type { SimulatedWebhookDelivery } from '../providers/simulated/index.js';
@@ -32,28 +36,51 @@ function captureInput(paymentId: string): CaptureInput {
   };
 }
 
-describe('pubsubSimulatedSink', () => {
-  it('publishes the delivery with its provider on the payment webhook channel', async () => {
-    const publish = vi.fn().mockResolvedValue(undefined);
-    await pubsubSimulatedSink({ publish }).deliver(delivery);
-    expect(PAYMENT_WEBHOOK_CHANNEL).toBe('payment_webhook_deliveries');
-    expect(publish).toHaveBeenCalledWith(
-      'payment_webhook_deliveries',
-      JSON.stringify({ provider: 'simulated', ...delivery }),
-    );
+describe('queueSimulatedSink', () => {
+  const add = vi.fn();
+  const queueNames: string[] = [];
+
+  beforeEach(() => {
+    add.mockReset().mockResolvedValue(undefined);
+    queueNames.length = 0;
+    setJobQueueResolver((name) => {
+      queueNames.push(name);
+      return { add, addBulk: vi.fn() };
+    });
   });
 
-  it('passes a publish failure to the provider, which logs it and succeeds (P9)', async () => {
+  afterEach(() => {
+    setJobQueueResolver(null);
+  });
+
+  it('adds the delivery to the payment-webhooks queue, delayed, job id from the signed body', async () => {
+    await queueSimulatedSink().deliver(delivery);
+    expect(queueNames).toEqual([PAYMENT_WEBHOOK_QUEUE]);
+    const message = { provider: 'simulated' as const, ...delivery };
+    expect(add).toHaveBeenCalledWith(PAYMENT_WEBHOOK_JOB_NAME, message, {
+      jobId: paymentWebhookJobId(message),
+      delay: 30_000,
+    });
+  });
+
+  it('keys the job on the provider and the body hash, not the delay (P7)', () => {
+    const message = { provider: 'simulated' as const, ...delivery };
+    const expected = `simulated-${createHash('sha256').update(delivery.rawBody).digest('hex')}`;
+    expect(paymentWebhookJobId(message)).toBe(expected);
+    expect(paymentWebhookJobId({ ...message, delaySeconds: 3 })).toBe(expected);
+  });
+
+  it('passes an add failure to the provider, which logs it and succeeds (P9)', async () => {
     const warn = vi.fn();
-    const publish = vi.fn().mockRejectedValue(new Error('redis down'));
+    add.mockRejectedValue(new Error('redis down'));
     const provider = new SimulatedPaymentProvider({
       encryptionKey: KEY,
-      events: pubsubSimulatedSink({ publish }),
+      events: queueSimulatedSink(),
       logger: { warn },
     });
     const result = await provider.capture(captureInput('pi_sim_dispute_5000_abc'));
     expect(result.state).toBe('succeeded');
-    expect(publish).toHaveBeenCalledTimes(1);
+    expect(add).toHaveBeenCalledTimes(1);
     expect(warn).toHaveBeenCalledWith(
       expect.objectContaining({ eventIds: expect.any(Array) }),
       'Simulated payment event not delivered',
@@ -61,16 +88,13 @@ describe('pubsubSimulatedSink', () => {
   });
 
   it('carries the sync-mode dispute of the dispute card, signed for the pipeline', async () => {
-    const publish = vi.fn().mockResolvedValue(undefined);
     const provider = new SimulatedPaymentProvider({
       encryptionKey: KEY,
-      events: pubsubSimulatedSink({ publish }),
+      events: queueSimulatedSink(),
       disputeDelaySeconds: 30,
     });
     await provider.capture(captureInput('pi_sim_dispute_5000_abc'));
-    const message = JSON.parse(publish.mock.calls[0]![1] as string) as SimulatedWebhookDelivery & {
-      provider: string;
-    };
+    const message = add.mock.calls[0]![1] as SimulatedWebhookDelivery & { provider: string };
     expect(message.provider).toBe('simulated');
     expect(message.delaySeconds).toBe(30);
     expect(provider.verifyWebhook(message.rawBody, message.headers)[0]).toMatchObject({

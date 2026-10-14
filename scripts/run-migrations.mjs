@@ -25,13 +25,17 @@
 // make the decision independent of `when` ordering. Pending files still run
 // in journal order.
 //
+// A file whose first line is `-- evtivity:no-transaction` runs statement by
+// statement outside a transaction (CREATE INDEX CONCURRENTLY), and its hash is
+// recorded after the last statement succeeded (scripts/lib/migration-files.mjs).
+//
 // Usage: node run-migrations.mjs [migrationsFolder]
 //   migrationsFolder defaults to ./src/migrations relative to cwd.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import crypto from 'node:crypto';
 import postgres from 'postgres';
+import { applyMigrationFile, lockMigrations, migrationHash } from './lib/migration-files.mjs';
 
 const folder = path.resolve(process.argv[2] ?? './src/migrations');
 const journalPath = path.join(folder, 'meta', '_journal.json');
@@ -55,7 +59,9 @@ try {
   // replicas starting at once) never apply the same files concurrently. The
   // second waits, then finds nothing pending. max: 1 keeps every query on
   // this session, and closing the connection releases the lock.
-  await sql`SELECT pg_advisory_lock(hashtext('evtivity:migrations'))`;
+  // A no-transaction file's statements run on the same session, so the lock
+  // also covers them.
+  await lockMigrations(sql);
   await sql`CREATE SCHEMA IF NOT EXISTS "drizzle"`;
   await sql`
     CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
@@ -72,22 +78,9 @@ try {
   for (const entry of journal.entries) {
     const filePath = path.join(folder, `${entry.tag}.sql`);
     const fileContents = fs.readFileSync(filePath, 'utf8');
-    const hash = crypto.createHash('sha256').update(fileContents).digest('hex');
+    const hash = migrationHash(fileContents);
     if (appliedHashes.has(hash)) continue;
-    // Statements are separated by drizzle's explicit marker, never by ';'
-    // (DO $$ ... $$ bodies contain semicolons).
-    const statements = fileContents.split('--> statement-breakpoint');
-
-    await sql.begin(async (tx) => {
-      for (const statement of statements) {
-        if (statement.trim().length === 0) continue;
-        await tx.unsafe(statement);
-      }
-      await tx`
-        INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at")
-        VALUES (${hash}, ${entry.when})
-      `;
-    });
+    await applyMigrationFile(sql, { contents: fileContents, hash, when: entry.when });
     applied += 1;
     console.log(`applied ${entry.tag}`);
   }

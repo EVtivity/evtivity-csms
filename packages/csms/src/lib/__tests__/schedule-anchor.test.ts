@@ -7,7 +7,30 @@ import {
   wallClockHHMMToOffset,
   midnightInTimezone,
   toDatetimeLocalInTimezone,
+  fromDatetimeLocalInTimezone,
 } from '../schedule-anchor';
+
+describe('fromDatetimeLocalInTimezone', () => {
+  it('reads the value as wall clock time in the timezone, not the browser timezone', () => {
+    expect(fromDatetimeLocalInTimezone('2026-10-13T08:30', 'Asia/Tokyo').toISOString()).toBe(
+      '2026-10-12T23:30:00.000Z',
+    );
+    expect(fromDatetimeLocalInTimezone('2026-07-01T00:00', 'America/New_York').toISOString()).toBe(
+      '2026-07-01T04:00:00.000Z',
+    );
+    expect(fromDatetimeLocalInTimezone('2026-01-15T12:00', 'UTC').toISOString()).toBe(
+      '2026-01-15T12:00:00.000Z',
+    );
+  });
+
+  it('round-trips with toDatetimeLocalInTimezone', () => {
+    const date = new Date('2026-03-29T01:30:00.000Z');
+    const local = toDatetimeLocalInTimezone(date, 'Europe/Berlin');
+    expect(fromDatetimeLocalInTimezone(local, 'Europe/Berlin').toISOString()).toBe(
+      date.toISOString(),
+    );
+  });
+});
 
 describe('offsetToWallClockHHMM', () => {
   it('returns offset HH:MM when startSchedule is null', () => {

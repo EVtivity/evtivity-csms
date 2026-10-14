@@ -75,6 +75,7 @@ const tables = vi.hoisted(() => {
     'firmwareCampaigns',
     'chargingProfiles',
     'evChargingNeeds',
+    'evChargingSchedules',
     'variableMonitoringRules',
     'eventAlerts',
     'chargingProfileTemplates',
@@ -372,6 +373,7 @@ describe('Station routes - extra coverage', () => {
       ['push profile', 'POST', `/stations/${STATION}/charging-profiles/push`, { templateId: 't1' }],
       ['push config', 'POST', `/stations/${STATION}/configurations/push`, { templateId: 't1' }],
       ['ev charging needs', 'GET', `/stations/${STATION}/ev-charging-needs`],
+      ['ev charging schedules', 'GET', `/stations/${STATION}/ev-charging-schedules`],
       ['monitoring rules list', 'GET', `/stations/${STATION}/monitoring-rules`],
       [
         'monitoring rule create',
@@ -1199,6 +1201,7 @@ describe('Station routes - extra coverage', () => {
       ['events', 'events', 'stationEvents.stationId'],
       ['firmware history', 'firmware-history', 'firmwareUpdates.stationId'],
       ['monitoring rules', 'monitoring-rules', 'variableMonitoringRules.stationId'],
+      ['ev charging schedules', 'ev-charging-schedules', 'evChargingSchedules.stationId'],
     ];
 
     it.each(stationScoped)('GET %s returns 404 for a missing station', async (_n, path) => {
@@ -1360,6 +1363,7 @@ describe('Station routes - extra coverage', () => {
         requestedEnergyTransfer: 'DC',
         controlMode: null,
         maxScheduleTuples: null,
+        csmsChargingProfile: null,
         createdAt: NOW,
         updatedAt: NOW,
       };
@@ -1378,6 +1382,22 @@ describe('Station routes - extra coverage', () => {
       queue([]);
       const res = await inject('GET', `/stations/${STATION}/ev-charging-needs`);
       expect(res.statusCode).toBe(404);
+    });
+
+    it('GET ev-charging-schedules lists the EV schedules with the CSMS check', async () => {
+      const row = {
+        id: 4,
+        stationId: STATION,
+        evseId: 1,
+        timeBase: NOW,
+        chargingSchedule: { chargingRateUnit: 'W', chargingSchedulePeriod: [] },
+        withinLimits: false,
+        createdAt: NOW,
+      };
+      queue([{ id: STATION }], [row], [{ total: 1 }]);
+      const res = await inject('GET', `/stations/${STATION}/ev-charging-schedules`);
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ data: [row], total: 1 });
     });
 
     it('GET monitoring-rules lists rules', async () => {
@@ -1634,28 +1654,22 @@ describe('Station routes - extra coverage', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ status: 'Accepted' });
-      expect(ocppCalls('ClearChargingProfile')[0]).toEqual([
-        'CS-1',
-        'ClearChargingProfile',
-        {
-          chargingProfileId: 7,
-          chargingProfileCriteria: {
-            chargingProfilePurpose: 'TxDefaultProfile',
-            stackLevel: 1,
-            evseId: 2,
+      expect(ocppCalls('ClearChargingProfile')).toEqual([
+        [
+          'CS-1',
+          'ClearChargingProfile',
+          {
+            chargingProfileId: 7,
+            chargingProfileCriteria: {
+              chargingProfilePurpose: 'TxDefaultProfile',
+              stackLevel: 1,
+              evseId: 2,
+            },
           },
-        },
+        ],
       ]);
-      const deleteChain = chainsOf('delete')[0];
-      expect(argsOf(deleteChain, 'table')?.[0]).toBe(tables['chargingProfiles']);
-      const where = argsOf(deleteChain, 'where')?.[0] as { conds: unknown[] };
-      expect(where.conds).toHaveLength(5);
-      expect(where.conds[0]).toEqual({
-        op: 'eq',
-        col: 'chargingProfiles.stationId',
-        val: STATION,
-      });
-      expect(where.conds[4]).toEqual({ op: 'eq', col: 'chargingProfiles.evseId', val: 2 });
+      // The OCPP clear projection removes the stored copies, never the route.
+      expect(chainsOf('delete')).toHaveLength(0);
       expect(ocppCalls('GetChargingProfiles')).toEqual([
         [
           'CS-1',
@@ -1666,13 +1680,51 @@ describe('Station routes - extra coverage', () => {
       ]);
     });
 
+    it('clears all on a 2.1 station with one clear per clearable purpose (K10.FR.02)', async () => {
+      queue([{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }]);
+      mocks.sendOcpp.mockImplementation((_s: string, action: string, payload: unknown) => {
+        const purpose = (
+          payload as { chargingProfileCriteria?: { chargingProfilePurpose?: string } }
+        ).chargingProfileCriteria?.chargingProfilePurpose;
+        return Promise.resolve({
+          commandId: 'c',
+          response: {
+            status:
+              action === 'ClearChargingProfile' && purpose === 'TxDefaultProfile'
+                ? 'Accepted'
+                : 'Unknown',
+          },
+        });
+      });
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {});
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({ status: 'Accepted' });
+      expect(ocppCalls('ClearChargingProfile').map((c) => c[2])).toEqual([
+        { chargingProfileCriteria: { chargingProfilePurpose: 'ChargingStationMaxProfile' } },
+        { chargingProfileCriteria: { chargingProfilePurpose: 'TxDefaultProfile' } },
+        { chargingProfileCriteria: { chargingProfilePurpose: 'TxProfile' } },
+        { chargingProfileCriteria: { chargingProfilePurpose: 'PriorityCharging' } },
+      ]);
+      // The OCPP clear projection removes the stored copies, never the route.
+      expect(chainsOf('delete')).toHaveLength(0);
+    });
+
+    it('refuses a purpose the CSMS must not clear (K10.FR.06)', async () => {
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {
+        chargingProfilePurpose: 'ChargingStationExternalConstraints',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
+    });
+
     it('sends an empty payload to clear all and does not refresh a 1.6 station', async () => {
       queue([{ stationId: 'CS-16', isOnline: true, ocppProtocol: 'ocpp1.6' }], []);
       const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {});
       expect(res.statusCode).toBe(200);
+      expect(ocppCalls('ClearChargingProfile')).toHaveLength(1);
       expect(ocppCalls('ClearChargingProfile')[0]?.[2]).toEqual({});
-      const where = argsOf(chainsOf('delete')[0], 'where')?.[0] as { conds: unknown[] };
-      expect(where.conds).toHaveLength(1);
+      // The OCPP clear projection removes the stored copies, never the route.
+      expect(chainsOf('delete')).toHaveLength(0);
       expect(ocppCalls('GetChargingProfiles')).toHaveLength(0);
     });
 
@@ -1690,7 +1742,9 @@ describe('Station routes - extra coverage', () => {
     it('returns success when the station sent no payload', async () => {
       queue([{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }]);
       mocks.sendOcpp.mockResolvedValue({ commandId: 'c' });
-      const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {});
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {
+        stackLevel: 0,
+      });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toEqual({ success: true });
       expect(chainsOf('delete')).toHaveLength(0);
@@ -2160,11 +2214,66 @@ describe('Station routes - extra coverage', () => {
       expect(res.statusCode).toBe(400);
     });
 
-    it('inserts a pending rule and dispatches SetVariableMonitoring', async () => {
-      queue([{ id: STATION, stationId: 'CS-1' }], [ruleRow]);
+    const online21 = { id: STATION, stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' };
+    const accepted = (id: number) => ({
+      commandId: 'cmd-1',
+      response: {
+        setMonitoringResult: [
+          {
+            id,
+            status: 'Accepted',
+            type: 'UpperThreshold',
+            severity: 0,
+            component: { name: 'EVSE' },
+            variable: { name: 'Power' },
+          },
+        ],
+      },
+    });
+
+    it('refuses an OCPP 1.6 station before storing anything', async () => {
+      queue([{ ...online21, ocppProtocol: 'ocpp1.6' }]);
+      const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, body);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('NOT_SUPPORTED');
+      expect(chainsOf('insert')).toHaveLength(0);
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
+    });
+
+    it('refuses an offline station before storing anything', async () => {
+      queue([{ ...online21, isOnline: false }]);
+      const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, body);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('STATION_OFFLINE');
+      expect(chainsOf('insert')).toHaveLength(0);
+    });
+
+    it('rejects a Delta monitor with a value of 0 or less', async () => {
+      const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, {
+        ...body,
+        type: 'Delta',
+        value: 0,
+      });
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('accepts the OCPP 2.1 TargetDelta monitor type', async () => {
+      queue([online21], [ruleRow], [{ ...ruleRow, status: 'active', monitoringId: 9 }]);
+      mocks.sendOcpp.mockResolvedValue(accepted(9));
+      const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, {
+        ...body,
+        type: 'TargetDelta',
+      });
+      expect(res.statusCode).toBe(201);
+    });
+
+    it('stores the monitor id and sets the rule active when the station accepts', async () => {
+      const active = { ...ruleRow, status: 'active', monitoringId: 42 };
+      queue([online21], [ruleRow], [active]);
+      mocks.sendOcpp.mockResolvedValue(accepted(42));
       const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, body);
       expect(res.statusCode).toBe(201);
-      expect(res.json()).toEqual(ruleRow);
+      expect(res.json()).toEqual(active);
       expect(argsOf(chainsOf('insert')[0], 'values')?.[0]).toEqual({
         stationId: STATION,
         component: 'EVSE',
@@ -2174,32 +2283,62 @@ describe('Station routes - extra coverage', () => {
         severity: 0,
         status: 'pending',
       });
-      expect(publishedOn('ocpp_commands')).toEqual([
+      expect(mocks.sendOcpp).toHaveBeenCalledWith(
+        'CS-1',
+        'SetVariableMonitoring',
         {
-          commandId: expect.any(String),
-          stationId: 'CS-1',
-          action: 'SetVariableMonitoring',
-          payload: {
-            setMonitoringData: [
-              {
-                component: { name: 'EVSE' },
-                variable: { name: 'Power' },
-                type: 'UpperThreshold',
-                value: 7.5,
-                severity: 0,
-              },
-            ],
-          },
+          setMonitoringData: [
+            {
+              component: { name: 'EVSE' },
+              variable: { name: 'Power' },
+              type: 'UpperThreshold',
+              value: 7.5,
+              severity: 0,
+            },
+          ],
         },
-      ]);
+        '2.1',
+      );
+      expect(argsOf(chainsOf('update')[0], 'set')?.[0]).toMatchObject({
+        status: 'active',
+        monitoringId: 42,
+        errorInfo: null,
+      });
     });
 
-    it('returns 502 when the command cannot be published', async () => {
-      queue([{ id: STATION, stationId: 'CS-1' }], [ruleRow]);
-      mocks.publish.mockRejectedValue(new Error('redis down'));
+    it('sets the rule to error with the reason when the station refuses', async () => {
+      queue([online21], [ruleRow], [{ ...ruleRow, status: 'error' }]);
+      mocks.sendOcpp.mockResolvedValue({
+        commandId: 'cmd-1',
+        response: {
+          setMonitoringResult: [
+            {
+              status: 'UnknownVariable',
+              type: 'UpperThreshold',
+              severity: 0,
+              component: { name: 'EVSE' },
+              variable: { name: 'Power' },
+            },
+          ],
+        },
+      });
       const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, body);
       expect(res.statusCode).toBe(502);
       expect(res.json().code).toBe('STATION_REJECTED');
+      expect(argsOf(chainsOf('update')[0], 'set')?.[0]).toMatchObject({
+        status: 'error',
+        monitoringId: null,
+        errorInfo: 'UnknownVariable',
+      });
+    });
+
+    it('sets the rule to error and answers 504 when the station does not reply', async () => {
+      queue([online21], [ruleRow], [{ ...ruleRow, status: 'error' }]);
+      mocks.sendOcpp.mockResolvedValue({ commandId: 'c', error: 'timeout', timedOut: true });
+      const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, body);
+      expect(res.statusCode).toBe(504);
+      expect(res.json().code).toBe('STATION_TIMEOUT');
+      expect(argsOf(chainsOf('update')[0], 'set')?.[0]).toMatchObject({ status: 'error' });
     });
 
     it('returns 404 RULE_NOT_FOUND when deleting an unknown rule', async () => {
@@ -2210,18 +2349,24 @@ describe('Station routes - extra coverage', () => {
       expect(chainsOf('update')).toHaveLength(0);
     });
 
-    it('clears a station monitor and marks the rule cleared', async () => {
-      queue([{ ...ruleRow, monitoringId: 42 }], [{ stationId: 'CS-1' }], []);
+    it('clears an active monitor on the station, then marks the rule cleared', async () => {
+      queue(
+        [{ ...ruleRow, status: 'active', monitoringId: 42 }],
+        [{ stationId: 'CS-1', isOnline: true }],
+        [],
+      );
+      mocks.sendOcpp.mockResolvedValue({
+        commandId: 'c',
+        response: { clearMonitoringResult: [{ id: 42, status: 'Accepted' }] },
+      });
       const res = await inject('DELETE', `/stations/${STATION}/monitoring-rules/3`);
       expect(res.statusCode).toBe(204);
-      expect(publishedOn('ocpp_commands')).toEqual([
-        {
-          commandId: expect.any(String),
-          stationId: 'CS-1',
-          action: 'ClearVariableMonitoring',
-          payload: { id: [42] },
-        },
-      ]);
+      expect(mocks.sendOcpp).toHaveBeenCalledWith(
+        'CS-1',
+        'ClearVariableMonitoring',
+        { id: [42] },
+        '2.1',
+      );
       const update = chainsOf('update')[0];
       expect(argsOf(update, 'set')?.[0]).toMatchObject({ status: 'cleared' });
       expect(argsOf(update, 'where')?.[0]).toEqual({
@@ -2231,20 +2376,62 @@ describe('Station routes - extra coverage', () => {
       });
     });
 
-    it('marks the rule cleared even when the clear dispatch fails', async () => {
-      queue([{ ...ruleRow, monitoringId: 42 }], [{ stationId: 'CS-1' }], []);
-      mocks.publish.mockRejectedValue(new Error('redis down'));
+    it('treats NotFound from the station as cleared', async () => {
+      queue(
+        [{ ...ruleRow, status: 'active', monitoringId: 42 }],
+        [{ stationId: 'CS-1', isOnline: true }],
+        [],
+      );
+      mocks.sendOcpp.mockResolvedValue({
+        commandId: 'c',
+        response: { clearMonitoringResult: [{ id: 42, status: 'NotFound' }] },
+      });
       const res = await inject('DELETE', `/stations/${STATION}/monitoring-rules/3`);
       expect(res.statusCode).toBe(204);
-      expect(argsOf(chainsOf('update')[0], 'set')?.[0]).toMatchObject({ status: 'cleared' });
+      expect(chainsOf('update')).toHaveLength(1);
     });
 
-    it('does not dispatch for a rule the station never acknowledged', async () => {
-      queue([ruleRow], []);
+    it('keeps the rule active when the station refuses to clear the monitor', async () => {
+      queue(
+        [{ ...ruleRow, status: 'active', monitoringId: 42 }],
+        [{ stationId: 'CS-1', isOnline: true }],
+      );
+      mocks.sendOcpp.mockResolvedValue({
+        commandId: 'c',
+        response: { clearMonitoringResult: [{ id: 42, status: 'Rejected' }] },
+      });
+      const res = await inject('DELETE', `/stations/${STATION}/monitoring-rules/3`);
+      expect(res.statusCode).toBe(502);
+      expect(res.json().code).toBe('STATION_REJECTED');
+      expect(chainsOf('update')).toHaveLength(0);
+    });
+
+    it('keeps an active rule when the station is offline', async () => {
+      queue(
+        [{ ...ruleRow, status: 'active', monitoringId: 42 }],
+        [{ stationId: 'CS-1', isOnline: false }],
+      );
+      const res = await inject('DELETE', `/stations/${STATION}/monitoring-rules/3`);
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('STATION_OFFLINE');
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
+      expect(chainsOf('update')).toHaveLength(0);
+    });
+
+    it('clears a rule the station never confirmed without a command', async () => {
+      queue([{ ...ruleRow, status: 'error' }], []);
       const res = await inject('DELETE', `/stations/${STATION}/monitoring-rules/3`);
       expect(res.statusCode).toBe(204);
-      expect(mocks.publish).not.toHaveBeenCalled();
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
       expect(chainsOf('update')).toHaveLength(1);
+    });
+
+    it('does nothing for a rule that is already cleared', async () => {
+      queue([{ ...ruleRow, status: 'cleared', monitoringId: 42 }]);
+      const res = await inject('DELETE', `/stations/${STATION}/monitoring-rules/3`);
+      expect(res.statusCode).toBe(204);
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
+      expect(chainsOf('update')).toHaveLength(0);
     });
   });
 

@@ -218,6 +218,15 @@ export async function setStationReportedStatus(
         AND (cs.reported_status_at IS NULL OR ${reportedAt}::timestamptz IS NULL
           OR ${reportedAt}::timestamptz >= cs.reported_status_at)
       RETURNING cs.id
+    ),
+    -- The history row is written in the same statement as the status, so a
+    -- connection lost after the status committed never leaves it without its row.
+    log AS (
+      INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
+      SELECT prev.id, 0, 0, prev.reported_status::text, ${status}::text, now()
+      FROM prev
+      WHERE EXISTS (SELECT 1 FROM upd)
+        AND prev.reported_status IS DISTINCT FROM ${status}::charging_station_status
     )
     SELECT prev.reported_status AS previous_status, EXISTS (SELECT 1 FROM upd) AS applied
     FROM prev
@@ -225,13 +234,6 @@ export async function setStationReportedStatus(
   const row = rows[0];
   if (row?.applied !== true) {
     return { applied: false, availabilityChanged: false };
-  }
-  const previous = (row.previous_status as string | null | undefined) ?? null;
-  if (previous !== status) {
-    await sql`
-      INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
-      VALUES (${stationUuid}, 0, 0, ${previous}, ${status}, now())
-    `;
   }
   const change = await recomputeStationAvailability(sql, stationUuid);
   return { applied: true, ...change };
@@ -263,8 +265,12 @@ export type ConnectorStatusResult =
 // can create it together; the unique index on (EVSE, connector number) makes
 // the later one an update that passes the same timestamp guard. Returns false
 // when the row already held a newer report.
+// The status history row (no previous status) is written in the same
+// statement, so a connection lost after the connector committed never leaves
+// it without its row.
 async function insertReportedConnector(
   sql: postgres.Sql,
+  log: { stationUuid: string; evseId: number },
   evseUuid: string,
   connectorId: number,
   status: string,
@@ -273,13 +279,21 @@ async function insertReportedConnector(
   // StatusNotification has no connector type. 'Unknown' keeps the connector
   // visible in station lists, which skip NULL types; operators can edit it.
   const rows = await sql`
-    INSERT INTO connectors (id, evse_id, connector_id, status, status_reported_at, auto_created, connector_type)
-    VALUES (${createId('connector')}, ${evseUuid}, ${connectorId}, ${status}, ${reportedAt}::timestamptz, true, 'Unknown')
-    ON CONFLICT (evse_id, connector_id) DO UPDATE
-      SET status = EXCLUDED.status, status_reported_at = EXCLUDED.status_reported_at, updated_at = now()
-      WHERE connectors.status_reported_at IS NULL OR EXCLUDED.status_reported_at IS NULL
-        OR EXCLUDED.status_reported_at >= connectors.status_reported_at
-    RETURNING id
+    WITH ins AS (
+      INSERT INTO connectors (id, evse_id, connector_id, status, status_reported_at, auto_created, connector_type)
+      VALUES (${createId('connector')}, ${evseUuid}, ${connectorId}, ${status}, ${reportedAt}::timestamptz, true, 'Unknown')
+      ON CONFLICT (evse_id, connector_id) DO UPDATE
+        SET status = EXCLUDED.status, status_reported_at = EXCLUDED.status_reported_at, updated_at = now()
+        WHERE connectors.status_reported_at IS NULL OR EXCLUDED.status_reported_at IS NULL
+          OR EXCLUDED.status_reported_at >= connectors.status_reported_at
+      RETURNING id
+    ),
+    log AS (
+      INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
+      SELECT ${log.stationUuid}::text, ${log.evseId}::int, ${connectorId}::int, NULL, ${status}::text, now()
+      FROM ins
+    )
+    SELECT id FROM ins
   `;
   return rows.length > 0;
 }
@@ -312,7 +326,14 @@ export async function applyConnectorStatus(
       return { stationExists: false, applied: false, availabilityChanged: false };
     }
     const evseUuid = insertedEvse[0]?.id as string;
-    const written = await insertReportedConnector(sql, evseUuid, connectorId, status, reportedAt);
+    const written = await insertReportedConnector(
+      sql,
+      { stationUuid, evseId },
+      evseUuid,
+      connectorId,
+      status,
+      reportedAt,
+    );
     if (!written) {
       return {
         stationExists: true,
@@ -323,10 +344,6 @@ export async function applyConnectorStatus(
         availabilityChanged: false,
       };
     }
-    await sql`
-      INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
-      VALUES (${stationUuid}, ${evseId}, ${connectorId}, ${null}, ${status}, now())
-    `;
     const change = await recomputeStationAvailability(sql, stationUuid);
     return {
       stationExists: true,
@@ -356,6 +373,16 @@ export async function applyConnectorStatus(
         AND (c.status_reported_at IS NULL OR ${reportedAt}::timestamptz IS NULL
           OR ${reportedAt}::timestamptz >= c.status_reported_at)
       RETURNING c.id
+    ),
+    -- The history row is written in the same statement as the status, so a
+    -- connection lost after the status committed never leaves it without its
+    -- row. Stations resend unchanged statuses; logging those would clutter the
+    -- timeline and inflate transition counts.
+    log AS (
+      INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
+      SELECT ${stationUuid}::text, ${evseId}::int, ${connectorId}::int, prev.status::text, ${status}::text, now()
+      FROM prev
+      WHERE EXISTS (SELECT 1 FROM upd) AND prev.status::text IS DISTINCT FROM ${status}::text
     )
     SELECT prev.status AS previous_status, EXISTS (SELECT 1 FROM upd) AS applied FROM prev
   `;
@@ -364,7 +391,14 @@ export async function applyConnectorStatus(
   let previousStatus: string | undefined;
   let autoCreated = false;
   if (updatedRow == null) {
-    const written = await insertReportedConnector(sql, evseUuid, connectorId, status, reportedAt);
+    const written = await insertReportedConnector(
+      sql,
+      { stationUuid, evseId },
+      evseUuid,
+      connectorId,
+      status,
+      reportedAt,
+    );
     if (!written) {
       return {
         stationExists: true,
@@ -388,15 +422,6 @@ export async function applyConnectorStatus(
         availabilityChanged: false,
       };
     }
-  }
-
-  // Stations resend unchanged statuses; logging those would clutter the
-  // timeline and inflate transition counts.
-  if (previousStatus !== status) {
-    await sql`
-      INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
-      VALUES (${stationUuid}, ${evseId}, ${connectorId}, ${previousStatus ?? null}, ${status}, now())
-    `;
   }
 
   const change = await recomputeStationAvailability(sql, stationUuid);

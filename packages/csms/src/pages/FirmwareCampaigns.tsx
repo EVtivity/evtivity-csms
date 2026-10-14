@@ -119,7 +119,9 @@ export function FirmwareCampaigns({ embedded }: { embedded?: boolean } = {}): Re
                         <TableCell className="text-xs">{campaign.version ?? 'n/a'}</TableCell>
                         <TableCell>
                           <Badge variant={STATUS_VARIANT[campaign.status] ?? 'outline'}>
-                            {campaign.status}
+                            {t(`firmwareCampaigns.statuses.${campaign.status}`, {
+                              defaultValue: campaign.status,
+                            })}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs">

@@ -3,16 +3,16 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, isNotNull } from 'drizzle-orm';
 import { db, siteLoadManagement, chargingStations, loadAllocationLog } from '@evtivity/database';
 import { LOAD_ALLOCATION_STRATEGIES } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import {
-  getSitePowerStatus,
-  buildSiteHierarchy,
-  computeHierarchicalAllocation,
+  computeSiteAllocation,
+  clearLoadManagementProfiles,
+  parseAppliedAllocations,
   type HierarchyNode,
 } from '@evtivity/services/load-management.service';
 import { getUserSiteIds } from '../lib/site-access.js';
@@ -30,7 +30,18 @@ const patchPriorityBody = z.object({
     .int()
     .min(1)
     .max(10)
-    .describe('Load priority rank from 1 (highest) to 10 (lowest)'),
+    .describe('Load priority from 1 (lowest) to 10 (highest)'),
+});
+
+const patchMinPowerBody = z.object({
+  loadMinPowerKw: z
+    .number()
+    .min(0)
+    .max(1000)
+    .nullable()
+    .describe(
+      'Lowest power in kW a charging session at this station gets before load management stops it; null for no minimum',
+    ),
 });
 
 const historyQuery = z.object({
@@ -100,7 +111,14 @@ const loadStationItem = z
       .number()
       .nullable()
       .describe('Allocated power limit in kW (null when unmanaged)'),
-    loadPriority: z.number().describe('Load priority rank from 1 (highest) to 10 (lowest)'),
+    loadPriority: z.number().describe('Load priority from 1 (lowest) to 10 (highest)'),
+    loadMinPowerKw: z
+      .number()
+      .nullable()
+      .describe('Minimum power in kW of a charging session, or null for none'),
+    rateUnit: z
+      .enum(['A', 'W'])
+      .describe('Unit of the limit sent to the station: A when it supports only A, else W'),
     isOnline: z.boolean().describe('Whether the station is online'),
     hasActiveSession: z.boolean().describe('Whether a charging session is active'),
   })
@@ -137,7 +155,18 @@ const loadPriorityItem = z
   .object({
     id: z.string().describe('Station identifier'),
     stationId: z.string().describe('OCPP station ID'),
-    loadPriority: z.number().describe('Load priority rank from 1 (highest) to 10 (lowest)'),
+    loadPriority: z.number().describe('Load priority from 1 (lowest) to 10 (highest)'),
+  })
+  .passthrough();
+
+const loadMinPowerItem = z
+  .object({
+    id: z.string().describe('Station identifier'),
+    stationId: z.string().describe('OCPP station ID'),
+    loadMinPowerKw: z
+      .number()
+      .nullable()
+      .describe('Minimum power in kW of a charging session, or null for none'),
   })
   .passthrough();
 
@@ -154,12 +183,28 @@ const historyItem = z
   })
   .passthrough();
 
+function toConfigRecord(
+  row: typeof siteLoadManagement.$inferSelect | undefined,
+): Record<string, unknown> | undefined {
+  if (row == null) return undefined;
+  return {
+    id: row.id,
+    siteId: row.siteId,
+    strategy: row.strategy,
+    isEnabled: row.isEnabled,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 /**
  * Annotate hierarchy nodes with computed availableKw and utilization.
  */
 function annotateHierarchy(nodes: HierarchyNode[]): unknown[] {
   return nodes.map((node) => {
-    const effectiveCapacity = node.maxContinuousKw - node.safetyMarginKw - node.unmanagedLoadKw;
+    // currentDrawKw already holds the unmanaged loads of the node and of every
+    // node below it, so they are not subtracted from the capacity again.
+    const effectiveCapacity = node.maxContinuousKw - node.safetyMarginKw;
     const availableKw = Math.max(0, effectiveCapacity - node.currentDrawKw);
     const utilization =
       effectiveCapacity > 0 ? Math.min(1, node.currentDrawKw / effectiveCapacity) : 0;
@@ -197,14 +242,13 @@ function annotateHierarchy(nodes: HierarchyNode[]): unknown[] {
       phaseLoad: node.phaseLoad,
       perPhaseCapacityKw: node.perPhaseCapacityKw,
       circuits: circuitChildren.map((circuit) => {
-        const circuitAvailable = Math.max(0, circuit.maxContinuousKw - circuit.unmanagedLoadKw);
         return {
           id: circuit.id,
           name: circuit.name,
           breakerRatingAmps: circuit.breakerRatingAmps,
           maxContinuousKw: circuit.maxContinuousKw,
           currentDrawKw: circuit.currentDrawKw,
-          availableKw: Math.max(0, circuitAvailable - circuit.currentDrawKw),
+          availableKw: Math.max(0, circuit.maxContinuousKw - circuit.currentDrawKw),
           phaseConnections: circuit.phaseConnections,
           stations: circuit.stations.map((s) => ({
             id: s.id,
@@ -256,15 +300,22 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         .from(siteLoadManagement)
         .where(eq(siteLoadManagement.siteId, id));
 
-      const status = await getSitePowerStatus(id);
-      const hierarchy = await buildSiteHierarchy(id, status.stations);
       const strategy = config?.strategy ?? 'equal_share';
+      // The same computation as the control loop, with the power it keeps
+      // for offline stations, so the UI shows the limits the stations get.
+      const { status, hierarchy, reservedKw, allocations } = await computeSiteAllocation(
+        id,
+        strategy,
+        parseAppliedAllocations(config?.appliedAllocations),
+      );
 
       // Compute current allocations for the UI
       let allocationMap = new Map<string, number>();
       if (config != null && config.isEnabled && hierarchy.length > 0) {
-        const allocations = computeHierarchicalAllocation(hierarchy, strategy);
-        allocationMap = new Map(allocations.map((a) => [a.stationDbId, a.allocatedKw]));
+        allocationMap = new Map([
+          ...reservedKw,
+          ...allocations.map((a): [string, number] => [a.stationDbId, a.allocatedKw]),
+        ]);
       }
 
       return {
@@ -283,6 +334,8 @@ export function loadManagementRoutes(app: FastifyInstance): void {
           maxPowerKw: s.maxPowerKw,
           allocatedLimitKw: allocationMap.get(s.id) ?? null,
           loadPriority: s.loadPriority,
+          loadMinPowerKw: s.minPowerKw > 0 ? s.minPowerKw : null,
+          rateUnit: s.rateUnit,
           isOnline: s.isOnline,
           hasActiveSession: s.hasActiveSession,
         })),
@@ -327,16 +380,32 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         .where(eq(siteLoadManagement.siteId, id));
 
       if (existing != null) {
+        // A config change makes the next cycle send every limit again. Turned
+        // off, the limits are removed from the site's stations: the profile
+        // stays on a station until cleared and would cap it forever.
         const [updated] = await db
           .update(siteLoadManagement)
           .set({
             strategy: body.strategy,
             isEnabled: body.isEnabled,
+            appliedAllocations: null,
+            appliedAt: null,
             updatedAt: new Date(),
           })
           .where(eq(siteLoadManagement.siteId, id))
           .returning();
-        return updated;
+        if (existing.isEnabled && !body.isEnabled) {
+          const assigned = await db
+            .select({ stationId: chargingStations.stationId })
+            .from(chargingStations)
+            .where(and(eq(chargingStations.siteId, id), isNotNull(chargingStations.circuitId)));
+          const previous = parseAppliedAllocations(existing.appliedAllocations) ?? [];
+          await clearLoadManagementProfiles(
+            [...assigned.map((s) => s.stationId), ...previous.map((a) => a.stationId)],
+            request.log,
+          );
+        }
+        return toConfigRecord(updated);
       }
 
       const [created] = await db
@@ -348,7 +417,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         })
         .returning();
 
-      return reply.status(201).send(created);
+      return reply.status(201).send(toConfigRecord(created));
     },
   );
 
@@ -396,6 +465,57 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       }
 
       return { id: updated.id, stationId: updated.stationId, loadPriority: updated.loadPriority };
+    },
+  );
+
+  // PATCH /sites/:id/stations/:stationId/load-min-power
+  app.patch(
+    '/sites/:id/stations/:stationId/load-min-power',
+    {
+      onRequest: [authorize('loadManagement:write')],
+      schema: {
+        tags: ['Load Management'],
+        summary: 'Update the minimum power of a station under load management',
+        description:
+          'Load management never gives a charging session at this station less than this power. When the minimums do not fit, the lowest priority sessions stop (limit 0) first.',
+        operationId: 'updateStationLoadMinPower',
+        security: [{ bearerAuth: [] }],
+        body: zodSchema(patchMinPowerBody),
+        response: {
+          200: itemResponse(loadMinPowerItem),
+          404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id, stationId } = request.params as { id: string; stationId: string };
+      const body = request.body as z.infer<typeof patchMinPowerBody>;
+
+      const { userId } = request.user as { userId: string };
+      const siteIds = await getUserSiteIds(userId);
+      if (!siteInScope(siteIds, id)) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
+
+      // Bound to the URL site, like the load priority.
+      const [updated] = await db
+        .update(chargingStations)
+        .set({
+          loadMinPowerKw: body.loadMinPowerKw != null ? String(body.loadMinPowerKw) : null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(chargingStations.id, stationId), eq(chargingStations.siteId, id)))
+        .returning();
+
+      if (updated == null) {
+        return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
+
+      return {
+        id: updated.id,
+        stationId: updated.stationId,
+        loadMinPowerKw: updated.loadMinPowerKw != null ? Number(updated.loadMinPowerKw) : null,
+      };
     },
   );
 

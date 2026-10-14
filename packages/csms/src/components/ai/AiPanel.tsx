@@ -22,13 +22,7 @@ import {
 } from './ai-turn';
 import type { AiAttachmentChip, AiMessageView, StoredAiMessage } from './ai-turn';
 import { deleteAiAttachment, uploadAiAttachment } from './ai-attachments';
-import {
-  AttachmentPickerButton,
-  AttachmentPreviews,
-  addPendingFiles,
-  releasePreview,
-  useReleasePreviews,
-} from './AttachmentPicker';
+import { AttachmentPickerButton, AttachmentPreviews, addPendingFiles } from './AttachmentPicker';
 import type { PendingAttachment } from './AttachmentPicker';
 import { AI_CONVERSATIONS_KEY, ConversationList } from './ConversationList';
 import type { AiConversationItem } from './ConversationList';
@@ -91,7 +85,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  useReleasePreviews(attachments);
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -237,7 +230,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
       name: a.file.name,
       kind: a.kind,
     }));
-    sent.forEach(releasePreview);
     // Files that failed stay listed with their error until the user removes them.
     setAttachments((prev) => prev.filter((a) => !sent.includes(a)));
     setInput('');
@@ -324,7 +316,6 @@ export function AiPanel({ onClose }: AiPanelProps): React.JSX.Element {
   function removeAttachment(localId: string): void {
     const gone = attachments.find((a) => a.localId === localId);
     if (gone == null) return;
-    releasePreview(gone);
     setAttachments((prev) => prev.filter((a) => a.localId !== localId));
     if (gone.attachmentId != null) {
       // fail-open: an unused attachment is pruned with the retention job anyway.

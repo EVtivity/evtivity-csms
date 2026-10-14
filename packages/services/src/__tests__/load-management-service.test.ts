@@ -21,7 +21,8 @@ type TableName =
   | 'connectors'
   | 'evses'
   | 'loadAllocationLog'
-  | 'evChargingNeeds';
+  | 'evChargingNeeds'
+  | 'stationConfigurations';
 
 // vi.hoisted so the mutable state is constructed before the vi.mock factories run
 // and is referenceable from both the factory and the test bodies.
@@ -41,6 +42,7 @@ const dbState = vi.hoisted(() => {
     'evses',
     'loadAllocationLog',
     'evChargingNeeds',
+    'stationConfigurations',
   ]) {
     tables[name] = { __table: name };
   }
@@ -50,9 +52,16 @@ const dbState = vi.hoisted(() => {
   // insertCalls: TableName -> array of inserted value objects.
   const insertCalls: Array<{ table: string; values: unknown }> = [];
 
+  // updateCalls: every db.update(table).set(values) call.
+  const updateCalls: Array<{ table: string; values: Record<string, unknown> }> = [];
+  // Rows a db.update(...).returning() resolves to (an empty array: nothing claimed).
+  const updateReturning: { rows: unknown[] } = { rows: [{ id: 1 }] };
+
   function reset(): void {
     results.clear();
     insertCalls.length = 0;
+    updateCalls.length = 0;
+    updateReturning.rows = [{ id: 1 }];
   }
 
   // Build a thenable chainable that resolves to the routed result for `from`'s table.
@@ -88,9 +97,29 @@ const dbState = vi.hoisted(() => {
         return Promise.resolve();
       }),
     })),
+    update: vi.fn((table: { __table?: string }) => ({
+      set: vi.fn((values: Record<string, unknown>) => {
+        updateCalls.push({ table: table.__table ?? 'unknown', values });
+        const where = {
+          returning: () => Promise.resolve(updateReturning.rows),
+          then: (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
+            Promise.resolve(undefined).then(onFulfilled, onRejected),
+        };
+        return { where: () => where };
+      }),
+    })),
   };
 
-  return { tables, results, insertCalls, reset, db, makeSelectFactory };
+  return {
+    tables,
+    results,
+    insertCalls,
+    updateCalls,
+    updateReturning,
+    reset,
+    db,
+    makeSelectFactory,
+  };
 });
 
 vi.mock('@evtivity/database', () => ({
@@ -106,6 +135,7 @@ vi.mock('@evtivity/database', () => ({
   evses: dbState.tables['evses'],
   loadAllocationLog: dbState.tables['loadAllocationLog'],
   evChargingNeeds: dbState.tables['evChargingNeeds'],
+  stationConfigurations: dbState.tables['stationConfigurations'],
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -115,6 +145,7 @@ vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
   sql: Object.assign(vi.fn(), { raw: vi.fn(), join: vi.fn() }),
   desc: vi.fn(),
+  isNotNull: vi.fn(),
 }));
 
 // PubSub stub injected via setPubSub so applyAllocations/broadcastLoadUpdate publish
@@ -146,8 +177,19 @@ import {
   computeHierarchicalAllocation,
   getSitePowerStatus,
   buildSiteHierarchy,
-  applyAllocations,
+  logAllocations,
+  dispatchAllocations,
+  clearLoadManagementProfiles,
   runLoadManagementCycle,
+  stationMaxPowerKw,
+  offlineReservations,
+  summarizeSiteCapacity,
+  buildLoadManagementProfile,
+  LOAD_MANAGEMENT_PROFILE_ID,
+  LOAD_MANAGEMENT_REFRESH_MS,
+  chargingRateUnitFor,
+  limitInUnit,
+  loadManagementProfileId,
   type HierarchyNode,
   type StationPowerInfo,
   type AllocationResult,
@@ -169,6 +211,9 @@ function makeStation(
     hasActiveSession: true,
     departureTime: null,
     phasePowerKw: { L1: 0, L2: 0, L3: 0 },
+    minPowerKw: 0,
+    rateUnit: 'W',
+    profileId: 1_000_000_000,
     ...overrides,
   };
 }
@@ -264,12 +309,12 @@ describe('computeEqualShareAllocation', () => {
     expect(result[0]?.allocatedKw).toBe(60);
   });
 
-  it('returns empty when no available power', () => {
+  it('gives 0 when no power is available, so the station stops instead of keeping its old limit', () => {
     const stations = [makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 50 })];
 
     const result = computeEqualShareAllocation(stations, 0);
 
-    expect(result).toEqual([]);
+    expect(result.map((r) => r.allocatedKw)).toEqual([0]);
   });
 
   it('falls back to share as cap when maxPowerKw is zero', () => {
@@ -367,10 +412,10 @@ describe('computePriorityAllocation', () => {
     const s3 = result.find((r) => r.stationId === 'CS-003');
     // Priority 10: gets 30 (capped at max). Remaining: 70
     // Priority 5: gets 70 (under 100 cap). Remaining: 0
-    // Priority 1: no remaining power, not allocated
+    // Priority 1: no remaining power, limit 0 (it would keep an old, higher limit)
     expect(s1?.allocatedKw).toBe(30);
     expect(s2?.allocatedKw).toBe(70);
-    expect(s3).toBeUndefined();
+    expect(s3?.allocatedKw).toBe(0);
   });
 
   it('caps stations at maxPowerKw within priority group', () => {
@@ -512,7 +557,7 @@ describe('computePriorityAllocation', () => {
     const s2 = result.find((r) => r.stationId === 'CS-002');
     // Priority 10 takes all 100 (under cap). Priority 1 group sees remaining <= 0 and breaks.
     expect(s1?.allocatedKw).toBe(100);
-    expect(s2).toBeUndefined();
+    expect(s2?.allocatedKw).toBe(0);
   });
 
   it('falls back to share cap when maxPowerKw is zero within a group', () => {
@@ -731,6 +776,139 @@ describe('computeHierarchicalAllocation', () => {
     expect(result[0]?.allocatedKw).toBeCloseTo(25, 6);
   });
 
+  it('counts unmanaged loads on circuits against the panel', () => {
+    // Circuit A: 40 kW breaker with a 30 kW unmanaged load -> its station gets 10.
+    // Circuit B: 40 kW, its station gets 40. Panel 50 kW carries 30 + 10 + 40 = 80
+    // without the fix. The stations may only use 50 - 30 = 20 of it.
+    const circuitA = circuitNode({
+      id: 'cA',
+      maxContinuousKw: 40,
+      unmanagedLoadKw: 30,
+      stations: [makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 100 })],
+    });
+    const circuitB = circuitNode({
+      id: 'cB',
+      maxContinuousKw: 40,
+      stations: [makeStation({ id: 's2', stationId: 'CS-002', maxPowerKw: 100 })],
+    });
+    const panel = panelNode({ maxContinuousKw: 50, children: [circuitA, circuitB] });
+
+    const result = computeHierarchicalAllocation([panel], 'equal_share');
+
+    const total = result.reduce((sum, r) => sum + r.allocatedKw, 0);
+    expect(total).toBeCloseTo(20, 6);
+  });
+
+  it('counts the unmanaged loads of a sub-panel against its parent', () => {
+    const circuit = circuitNode({
+      id: 'cc',
+      maxContinuousKw: 100,
+      stations: [makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 100 })],
+    });
+    const subPanel = panelNode({
+      id: 'sub',
+      maxContinuousKw: 100,
+      unmanagedLoadKw: 30,
+      children: [circuit],
+    });
+    // Root 80 kW: 30 kW of it is the sub-panel's unmanaged load -> 50 for the station.
+    const root = panelNode({ id: 'root', maxContinuousKw: 80, children: [subPanel] });
+
+    const result = computeHierarchicalAllocation([root], 'equal_share');
+
+    expect(result[0]?.allocatedKw).toBeCloseTo(50, 6);
+  });
+
+  it('never allocates a negative limit when fixed loads exceed the panel', () => {
+    const circuit = circuitNode({
+      maxContinuousKw: 100,
+      stations: [makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 100 })],
+    });
+    const panel = panelNode({
+      maxContinuousKw: 50,
+      safetyMarginKw: 10,
+      unmanagedLoadKw: 60,
+      children: [circuit],
+    });
+
+    const result = computeHierarchicalAllocation([panel], 'equal_share');
+
+    expect(result[0]?.allocatedKw).toBe(0);
+  });
+
+  it('never allocates a negative limit on an overloaded phase', () => {
+    const circuit = circuitNode({
+      maxContinuousKw: 100,
+      phaseConnections: 'L1',
+      stations: [makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 100 })],
+    });
+    const panel = panelNode({
+      maxContinuousKw: 1000,
+      phases: 3,
+      perPhaseCapacityKw: 30,
+      unmanagedLoadKw: 120,
+      phaseLoad: { L1: 0, L2: 0, L3: 0 },
+      children: [circuit],
+    });
+
+    const result = computeHierarchicalAllocation([panel], 'equal_share');
+
+    expect(result[0]?.allocatedKw).toBe(0);
+  });
+
+  it('cuts a circuit on two overloaded phases once, not once per phase', () => {
+    // L1L2 circuit allocated 40 -> 20 per phase. Per-phase limit 10: one cut to 20
+    // brings both phases to 10. The stale per-phase total cut it again to 10.
+    const circuit = circuitNode({
+      maxContinuousKw: 40,
+      phaseConnections: 'L1L2',
+      stations: [makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 100 })],
+    });
+    const panel = panelNode({
+      maxContinuousKw: 1000,
+      phases: 3,
+      perPhaseCapacityKw: 10,
+      phaseLoad: { L1: 0, L2: 0, L3: 0 },
+      children: [circuit],
+    });
+
+    const result = computeHierarchicalAllocation([panel], 'equal_share');
+
+    expect(result[0]?.allocatedKw).toBeCloseTo(20, 6);
+  });
+
+  it('keeps the reservation of an offline station out of its circuit and panel', () => {
+    const circuit = circuitNode({
+      maxContinuousKw: 40,
+      stations: [
+        makeStation({ id: 's1', stationId: 'CS-001', maxPowerKw: 100 }),
+        makeStation({ id: 's2', stationId: 'CS-002', maxPowerKw: 100, isOnline: false }),
+      ],
+    });
+    const panel = panelNode({ maxContinuousKw: 30, children: [circuit] });
+
+    const result = computeHierarchicalAllocation([panel], 'equal_share', new Map([['s2', 15]]));
+
+    // Circuit: 40 - 15 = 25. Panel: 30 - 15 = 15 for the online station.
+    expect(result).toHaveLength(1);
+    expect(result[0]?.allocatedKw).toBeCloseTo(15, 6);
+  });
+
+  it('summarizes the site capacity and what is left for the stations', () => {
+    const circuit = circuitNode({ maxContinuousKw: 40, unmanagedLoadKw: 5 });
+    const panel = panelNode({
+      maxContinuousKw: 100,
+      safetyMarginKw: 10,
+      unmanagedLoadKw: 20,
+      children: [circuit],
+    });
+
+    expect(summarizeSiteCapacity([panel], new Map())).toEqual({
+      siteLimitKw: 90,
+      availableKw: 65,
+    });
+  });
+
   it('returns no allocations when a circuit has no active stations', () => {
     const circuit = circuitNode({
       maxContinuousKw: 100,
@@ -769,11 +947,11 @@ describe('getSitePowerStatus', () => {
         circuitId: 'cir_1',
       },
     ]);
-    // Two connectors summed for max power: 50 + 25 = 75
+    // Two EVSEs summed for max power: 50 + 25 = 75
     setResult('connectors', [
-      { stationId: 'sta_1', maxPowerKw: '50' },
-      { stationId: 'sta_1', maxPowerKw: '25' },
-      { stationId: 'sta_1', maxPowerKw: null },
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '50' },
+      { stationId: 'sta_1', evseDbId: 'evse_2', maxPowerKw: '25' },
+      { stationId: 'sta_1', evseDbId: 'evse_2', maxPowerKw: null },
     ]);
     setResult('chargingSessions', [{ stationId: 'sta_1' }]);
     // Most recent (desc order) overall reading wins: 7000 W -> 7 kW. Older row ignored.
@@ -847,6 +1025,28 @@ describe('getSitePowerStatus', () => {
     expect(s1?.currentDrawKw).toBe(5);
     expect(s1?.phasePowerKw).toEqual({ L1: 0, L2: 1, L3: 0 });
     expect(s1?.departureTime).toBeNull();
+  });
+});
+
+describe('getSitePowerStatus per-EVSE draw', () => {
+  it('sums the latest reading of each EVSE of a station', async () => {
+    setResult('chargingStations', [
+      { id: 'sta_1', stationId: 'CS-001', isOnline: true, loadPriority: 5, circuitId: null },
+    ]);
+    setResult('connectors', []);
+    setResult('chargingSessions', []);
+    // Two EVSEs charging: 7 kW + 11 kW. The older EVSE 1 reading is ignored.
+    setResult('meterValues', [
+      { stationId: 'sta_1', evseDbId: 'evse_1', value: '7000', unit: 'W', phase: null },
+      { stationId: 'sta_1', evseDbId: 'evse_2', value: '11000', unit: 'W', phase: null },
+      { stationId: 'sta_1', evseDbId: 'evse_1', value: '3000', unit: 'W', phase: null },
+      { stationId: 'sta_1', evseDbId: null, value: '1000', unit: 'W', phase: null },
+    ]);
+    setResult('evChargingNeeds', []);
+
+    const result = await getSitePowerStatus('site-evse');
+
+    expect(result.stations[0]?.currentDrawKw).toBe(18);
   });
 });
 
@@ -1173,61 +1373,97 @@ describe('buildSiteHierarchy', () => {
   });
 });
 
-describe('applyAllocations', () => {
-  it('writes the allocation log and dispatches a charging profile per station', async () => {
+describe('buildLoadManagementProfile', () => {
+  it('sends a ChargingStationMaxProfile on EVSE 0, never ChargingStationExternalConstraints', () => {
+    const now = new Date('2026-10-13T12:00:30.500Z');
+    const payload = buildLoadManagementProfile(22000, now) as {
+      evseId: number;
+      chargingProfile: Record<string, unknown> & {
+        chargingSchedule: Array<Record<string, unknown>>;
+      };
+    };
+
+    expect(payload.evseId).toBe(0);
+    const profile = payload.chargingProfile;
+    // OCPP 2.1 K01.FR.22: the CSMS SHALL NOT send ChargingStationExternalConstraints.
+    expect(profile['chargingProfilePurpose']).toBe('ChargingStationMaxProfile');
+    expect(profile['id']).toBe(LOAD_MANAGEMENT_PROFILE_ID);
+    expect(profile['stackLevel']).toBe(1);
+    expect(profile['chargingProfileKind']).toBe('Absolute');
+    // K01.FR.40: an Absolute profile carries a startSchedule, here a minute back.
+    expect(profile.chargingSchedule[0]?.['startSchedule']).toBe('2026-10-13T11:59:30.000Z');
+    expect(profile.chargingSchedule[0]?.['chargingRateUnit']).toBe('W');
+    expect(profile.chargingSchedule[0]?.['chargingSchedulePeriod']).toEqual([
+      { startPeriod: 0, limit: 22000 },
+    ]);
+  });
+});
+
+describe('logAllocations', () => {
+  it('writes the allocation log with the site capacity and what was left for the stations', async () => {
     const allocations: AllocationResult[] = [
       { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 22.5, currentDrawKw: 10 },
       { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 7.4, currentDrawKw: 3 },
     ];
-    const log = makeLogger();
 
-    await applyAllocations('site-1', allocations, { strategy: 'equal_share' }, 13, log);
+    await logAllocations('site-1', allocations, { strategy: 'equal_share' }, 13, {
+      siteLimitKw: 80,
+      availableKw: 60,
+    });
 
-    // One allocation log insert with computed totals.
     expect(dbState.insertCalls).toHaveLength(1);
     const inserted = dbState.insertCalls[0];
     expect(inserted?.table).toBe('loadAllocationLog');
     const values = inserted?.values as Record<string, unknown>;
     expect(values['siteId']).toBe('site-1');
     expect(values['strategy']).toBe('equal_share');
-    // totalAllocatedKw = 22.5 + 7.4 = 29.9
-    expect(values['siteLimitKw']).toBe('29.9');
-    expect(values['availableKw']).toBe('29.9');
+    expect(values['siteLimitKw']).toBe('80');
+    expect(values['availableKw']).toBe('60');
     expect(values['totalDrawKw']).toBe('13');
     expect(values['allocations']).toEqual([
       { stationId: 'CS-001', allocatedKw: 22.5, currentDrawKw: 10 },
       { stationId: 'CS-002', allocatedKw: 7.4, currentDrawKw: 3 },
     ]);
+  });
 
-    // One SetChargingProfile publish per station plus one csms_events broadcast.
+  it('falls back to the allocated total without a capacity', async () => {
+    await logAllocations('site-1', [], { strategy: 'equal_share' }, 4);
+
+    const values = dbState.insertCalls[0]?.values as Record<string, unknown>;
+    expect(values['siteLimitKw']).toBe('0');
+    expect(values['totalDrawKw']).toBe('4');
+    expect(values['allocations']).toEqual([]);
+  });
+});
+
+describe('dispatchAllocations', () => {
+  it('dispatches a charging profile per station and broadcasts the update', async () => {
+    const allocations: AllocationResult[] = [
+      { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 22.5, currentDrawKw: 10 },
+      { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 7.4, currentDrawKw: 3 },
+    ];
+    const log = makeLogger();
+
+    await expect(dispatchAllocations('site-1', allocations, log)).resolves.toBe(true);
+
     const ocppPublishes = pubsubState.publish.mock.calls.filter((c) => c[0] === 'ocpp_commands');
     expect(ocppPublishes).toHaveLength(2);
-
     const payloads = ocppPublishes.map((c) => JSON.parse(c[1]));
     const p1 = payloads.find((p) => p.stationId === 'CS-001');
     const p2 = payloads.find((p) => p.stationId === 'CS-002');
-
     expect(p1.action).toBe('SetChargingProfile');
-    expect(p1.payload.evseId).toBe(0);
-    expect(p1.payload.chargingProfile.chargingProfilePurpose).toBe(
-      'ChargingStationExternalConstraints',
-    );
-    expect(p1.payload.chargingProfile.chargingProfileKind).toBe('Absolute');
-    const period1 = p1.payload.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0];
-    expect(p1.payload.chargingProfile.chargingSchedule[0].chargingRateUnit).toBe('W');
-    expect(period1.startPeriod).toBe(0);
+    expect(p1.payload.chargingProfile.chargingProfilePurpose).toBe('ChargingStationMaxProfile');
     // 22.5 kW -> 22500 W
-    expect(period1.limit).toBe(22500);
-    // 7.4 kW * 1000 = 7400, rounded
+    expect(p1.payload.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0].limit).toBe(
+      22500,
+    );
     expect(p2.payload.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0].limit).toBe(
       7400,
     );
 
-    // Broadcast load update on csms_events.
     const broadcasts = pubsubState.publish.mock.calls.filter((c) => c[0] === 'csms_events');
     expect(broadcasts).toHaveLength(1);
-    const event = JSON.parse(broadcasts[0]?.[1] as string);
-    expect(event).toEqual({
+    expect(JSON.parse(broadcasts[0]?.[1] as string)).toEqual({
       eventType: 'load.updated',
       siteId: 'site-1',
       stationId: null,
@@ -1235,26 +1471,25 @@ describe('applyAllocations', () => {
     });
   });
 
-  it('logs and continues when a SetChargingProfile publish fails (fail-open)', async () => {
+  it('logs a failed publish, still broadcasts, and reports the failure', async () => {
     const log = makeLogger();
-    // Fail only the ocpp_commands publish; csms_events should still go through.
     pubsubState.publish.mockImplementation(async (channel: string) => {
       if (channel === 'ocpp_commands') {
         throw new Error('redis down');
       }
     });
 
-    const allocations: AllocationResult[] = [
-      { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 10, currentDrawKw: 0 },
-    ];
+    const result = await dispatchAllocations(
+      'site-1',
+      [{ stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 10, currentDrawKw: 0 }],
+      log,
+    );
 
-    await applyAllocations('site-1', allocations, { strategy: 'priority_based' }, 0, log);
-
+    expect(result).toBe(false);
     expect(log.error).toHaveBeenCalledWith(
       expect.objectContaining({ stationId: 'CS-001' }),
       'Failed to dispatch SetChargingProfile',
     );
-    // The broadcast still fired despite the dispatch failure.
     const broadcasts = pubsubState.publish.mock.calls.filter((c) => c[0] === 'csms_events');
     expect(broadcasts).toHaveLength(1);
   });
@@ -1267,26 +1502,28 @@ describe('applyAllocations', () => {
       }
     });
 
-    await expect(
-      applyAllocations('site-1', [], { strategy: 'equal_share' }, 0, log),
-    ).resolves.toBeUndefined();
-
-    // No error logged for the broadcast failure (it is swallowed silently).
+    await expect(dispatchAllocations('site-1', [], log)).resolves.toBe(true);
     expect(log.error).not.toHaveBeenCalled();
   });
+});
 
-  it('writes a zero-total log and no dispatches for empty allocations', async () => {
+describe('clearLoadManagementProfiles', () => {
+  it('clears the load management profile by its id, once per station', async () => {
     const log = makeLogger();
 
-    await applyAllocations('site-1', [], { strategy: 'equal_share' }, 4, log);
+    await expect(clearLoadManagementProfiles(['CS-001', 'CS-001', 'CS-002'], log)).resolves.toBe(
+      true,
+    );
 
-    expect(dbState.insertCalls).toHaveLength(1);
-    const values = dbState.insertCalls[0]?.values as Record<string, unknown>;
-    expect(values['siteLimitKw']).toBe('0');
-    expect(values['totalDrawKw']).toBe('4');
-    expect(values['allocations']).toEqual([]);
-    const ocppPublishes = pubsubState.publish.mock.calls.filter((c) => c[0] === 'ocpp_commands');
-    expect(ocppPublishes).toHaveLength(0);
+    const clears = pubsubState.publish.mock.calls
+      .filter((c) => c[0] === 'ocpp_commands')
+      .map((c) => JSON.parse(c[1]));
+    expect(clears).toHaveLength(2);
+    expect(clears[0]).toMatchObject({
+      stationId: 'CS-001',
+      action: 'ClearChargingProfile',
+      payload: { chargingProfileId: LOAD_MANAGEMENT_PROFILE_ID },
+    });
   });
 });
 
@@ -1305,55 +1542,9 @@ describe('runLoadManagementCycle', () => {
     };
   }
 
-  it('applies allocations for an enabled site and logs the cycle', async () => {
-    setResult('siteLoadManagement', [{ siteId: 'site-1', strategy: 'equal_share' }]);
-    // getSitePowerStatus
-    setResult('chargingStations', [
-      { id: 'sta_1', stationId: 'CS-001', isOnline: true, loadPriority: 5, circuitId: 'c1' },
-    ]);
-    setResult('connectors', [{ stationId: 'sta_1', maxPowerKw: '100' }]);
-    setResult('chargingSessions', [{ stationId: 'sta_1' }]);
-    setResult('meterValues', [{ stationId: 'sta_1', value: '4000', unit: 'W', phase: null }]);
-    setResult('evChargingNeeds', []);
-    // buildSiteHierarchy
-    setResult('panels', [panelRow({ id: 'p1', maxContinuousKw: '50' })]);
-    setResult('circuits', [
-      {
-        id: 'c1',
-        panelId: 'p1',
-        name: 'Circuit A',
-        breakerRatingAmps: 100,
-        maxContinuousKw: '40',
-        phaseConnections: null,
-      },
-    ]);
-    setResult('unmanagedLoads', []);
-
-    const log = makeLogger();
-
-    await runLoadManagementCycle(log, 'site-1');
-
-    // Allocation log written and a charging profile dispatched.
-    expect(dbState.insertCalls.some((c) => c.table === 'loadAllocationLog')).toBe(true);
-    const ocppPublishes = pubsubState.publish.mock.calls.filter((c) => c[0] === 'ocpp_commands');
-    expect(ocppPublishes).toHaveLength(1);
-    const payload = JSON.parse(ocppPublishes[0]?.[1] as string);
-    // Circuit available = 40, single station capped by maxPower 100 -> allocated 40 -> 40000 W
-    expect(
-      payload.payload.chargingProfile.chargingSchedule[0].chargingSchedulePeriod[0].limit,
-    ).toBe(40000);
-    expect(log.info).toHaveBeenCalledWith(
-      expect.objectContaining({ siteId: 'site-1', strategy: 'equal_share', stationCount: 1 }),
-      'Load management cycle applied',
-    );
-  });
-
-  it('skips re-applying when allocations are unchanged from the previous cycle', async () => {
-    setResult('siteLoadManagement', [{ siteId: 'site-stable', strategy: 'equal_share' }]);
-    setResult('chargingStations', [
-      { id: 'sta_1', stationId: 'CS-001', isOnline: true, loadPriority: 5, circuitId: 'c1' },
-    ]);
-    setResult('connectors', [{ stationId: 'sta_1', maxPowerKw: '100' }]);
+  function oneCircuitSite(stations: Array<Record<string, unknown>>): void {
+    setResult('chargingStations', stations);
+    setResult('connectors', [{ stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '100' }]);
     setResult('chargingSessions', [{ stationId: 'sta_1' }]);
     setResult('meterValues', []);
     setResult('evChargingNeeds', []);
@@ -1369,26 +1560,244 @@ describe('runLoadManagementCycle', () => {
       },
     ]);
     setResult('unmanagedLoads', []);
+  }
 
+  const station1 = {
+    id: 'sta_1',
+    stationId: 'CS-001',
+    isOnline: true,
+    loadPriority: 5,
+    circuitId: 'c1',
+  };
+  const applied40 = [{ stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 40 }];
+
+  interface PublishedCommand {
+    stationId: string;
+    action: string;
+    payload: {
+      chargingProfile: {
+        chargingSchedule: Array<{ chargingSchedulePeriod: Array<{ limit: number }> }>;
+      };
+    };
+  }
+
+  function ocppPublishes(): PublishedCommand[] {
+    return pubsubState.publish.mock.calls
+      .filter((c) => c[0] === 'ocpp_commands')
+      .map((c) => JSON.parse(c[1]) as PublishedCommand);
+  }
+
+  it('applies allocations for an enabled site, records them, and logs the cycle', async () => {
+    setResult('siteLoadManagement', [
+      { siteId: 'site-1', strategy: 'equal_share', appliedAllocations: null, appliedAt: null },
+    ]);
+    oneCircuitSite([station1]);
+    setResult('meterValues', [
+      { stationId: 'sta_1', evseDbId: null, value: '4000', unit: 'W', phase: null },
+    ]);
     const log = makeLogger();
 
-    // First cycle applies.
-    await runLoadManagementCycle(log, 'site-stable');
-    const firstInsertCount = dbState.insertCalls.length;
-    expect(firstInsertCount).toBeGreaterThan(0);
+    await runLoadManagementCycle(log, 'site-1');
 
-    pubsubState.publish.mockClear();
-    dbState.insertCalls.length = 0;
+    expect(dbState.insertCalls.some((c) => c.table === 'loadAllocationLog')).toBe(true);
+    // Circuit available = 40, single station capped by maxPower 100 -> allocated 40 -> 40000 W
+    const sent = ocppPublishes();
+    expect(sent).toHaveLength(1);
+    expect(
+      sent[0]?.payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod[0]?.limit,
+    ).toBe(40000);
+    // Recorded before sending, shared by every worker.
+    const claim = dbState.updateCalls.find((c) => c.table === 'siteLoadManagement');
+    expect(claim?.values['appliedAllocations']).toEqual(applied40);
+    expect(claim?.values['appliedAt']).toBeInstanceOf(Date);
+    expect(log.info).toHaveBeenCalledWith(
+      expect.objectContaining({ siteId: 'site-1', strategy: 'equal_share', stationCount: 1 }),
+      'Load management cycle applied',
+    );
+  });
 
-    // Second cycle with identical inputs -> allocation hash matches -> no apply.
-    await runLoadManagementCycle(log, 'site-stable');
+  it('skips a site whose stored allocations match and were sent within the refresh interval', async () => {
+    // Another worker process applied these: the decision reads the shared row,
+    // not a per-process cache.
+    setResult('siteLoadManagement', [
+      {
+        siteId: 'site-stable',
+        strategy: 'equal_share',
+        appliedAllocations: applied40,
+        appliedAt: new Date(Date.now() - 30_000),
+      },
+    ]);
+    oneCircuitSite([station1]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-stable');
 
     expect(dbState.insertCalls).toHaveLength(0);
+    expect(dbState.updateCalls).toHaveLength(0);
     expect(pubsubState.publish).not.toHaveBeenCalled();
   });
 
+  it('sends unchanged allocations again after the refresh interval, without a log row', async () => {
+    setResult('siteLoadManagement', [
+      {
+        siteId: 'site-stale',
+        strategy: 'equal_share',
+        appliedAllocations: applied40,
+        appliedAt: new Date(Date.now() - LOAD_MANAGEMENT_REFRESH_MS - 1000),
+      },
+    ]);
+    oneCircuitSite([station1]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-stale');
+
+    expect(ocppPublishes()).toHaveLength(1);
+    expect(dbState.insertCalls).toHaveLength(0);
+  });
+
+  it('sends again when the previous send failed (appliedAt null)', async () => {
+    setResult('siteLoadManagement', [
+      {
+        siteId: 'site-retry',
+        strategy: 'equal_share',
+        appliedAllocations: applied40,
+        appliedAt: null,
+      },
+    ]);
+    oneCircuitSite([station1]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-retry');
+
+    expect(ocppPublishes()).toHaveLength(1);
+  });
+
+  it('sends nothing when load management was turned off during the cycle', async () => {
+    setResult('siteLoadManagement', [
+      { siteId: 'site-off', strategy: 'equal_share', appliedAllocations: null, appliedAt: null },
+    ]);
+    oneCircuitSite([station1]);
+    dbState.updateReturning.rows = [];
+
+    await runLoadManagementCycle(makeLogger(), 'site-off');
+
+    expect(pubsubState.publish).not.toHaveBeenCalled();
+    expect(dbState.insertCalls).toHaveLength(0);
+  });
+
+  it('marks the send for retry when a publish fails', async () => {
+    setResult('siteLoadManagement', [
+      { siteId: 'site-fail', strategy: 'equal_share', appliedAllocations: null, appliedAt: null },
+    ]);
+    oneCircuitSite([station1]);
+    pubsubState.publish.mockImplementation(async (channel: string) => {
+      if (channel === 'ocpp_commands') throw new Error('redis down');
+    });
+
+    await runLoadManagementCycle(makeLogger(), 'site-fail');
+
+    const last = dbState.updateCalls[dbState.updateCalls.length - 1];
+    expect(last?.values['appliedAt']).toBeNull();
+    expect(last?.values['appliedAllocations']).toEqual(applied40);
+  });
+
+  it('clears the limit of a station that left its circuit', async () => {
+    setResult('siteLoadManagement', [
+      {
+        siteId: 'site-moved',
+        strategy: 'equal_share',
+        appliedAllocations: [
+          ...applied40,
+          { stationId: 'CS-OLD', stationDbId: 'sta_old', allocatedKw: 10 },
+        ],
+        appliedAt: new Date(),
+      },
+    ]);
+    oneCircuitSite([
+      station1,
+      { id: 'sta_old', stationId: 'CS-OLD', isOnline: true, loadPriority: 5, circuitId: null },
+    ]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-moved');
+
+    const clears = ocppPublishes().filter((c) => c.action === 'ClearChargingProfile');
+    expect(clears).toHaveLength(1);
+    expect(clears[0]).toMatchObject({
+      stationId: 'CS-OLD',
+      action: 'ClearChargingProfile',
+      payload: { chargingProfileId: LOAD_MANAGEMENT_PROFILE_ID },
+    });
+  });
+
+  it('keeps the last limit of an offline station with an active session out of the circuit', async () => {
+    setResult('siteLoadManagement', [
+      {
+        siteId: 'site-offline',
+        strategy: 'equal_share',
+        appliedAllocations: [
+          { stationId: 'CS-001', stationDbId: 'sta_1', allocatedKw: 20 },
+          { stationId: 'CS-002', stationDbId: 'sta_2', allocatedKw: 20 },
+        ],
+        appliedAt: new Date(),
+      },
+    ]);
+    oneCircuitSite([
+      station1,
+      { id: 'sta_2', stationId: 'CS-002', isOnline: false, loadPriority: 5, circuitId: 'c1' },
+    ]);
+    setResult('chargingSessions', [{ stationId: 'sta_1' }, { stationId: 'sta_2' }]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-offline');
+
+    // CS-002 is offline and still charging at 20 kW: CS-001 gets 40 - 20 = 20, not 40.
+    const sent = ocppPublishes();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.stationId).toBe('CS-001');
+    expect(
+      sent[0]?.payload.chargingProfile.chargingSchedule[0]?.chargingSchedulePeriod[0]?.limit,
+    ).toBe(20000);
+  });
+
+  it('sends the limit in A per phase to a station that supports only A', async () => {
+    setResult('siteLoadManagement', [
+      { siteId: 'site-amps', strategy: 'equal_share', appliedAllocations: null, appliedAt: null },
+    ]);
+    oneCircuitSite([station1]);
+    setResult('panels', [panelRow({ id: 'p1', maxContinuousKw: '500', phases: 3, voltageV: 230 })]);
+    setResult('stationConfigurations', [{ stationId: 'sta_1', value: 'A' }]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-amps');
+
+    const schedule = ocppPublishes()[0]?.payload.chargingProfile.chargingSchedule[0] as unknown as {
+      chargingRateUnit: string;
+      chargingSchedulePeriod: Array<{ limit: number }>;
+    };
+    // 40 kW on a three-phase 230 V circuit: 40000 / (230 x 3) = 57.97 A, rounded down.
+    expect(schedule.chargingRateUnit).toBe('A');
+    expect(schedule.chargingSchedulePeriod[0]?.limit).toBe(57.9);
+  });
+
+  it('sends its profile with an id above the station MaxExternalConstraintsId', async () => {
+    setResult('siteLoadManagement', [
+      { siteId: 'site-maxext', strategy: 'equal_share', appliedAllocations: null, appliedAt: null },
+    ]);
+    oneCircuitSite([station1]);
+    setResult('stationConfigurations', [
+      { stationId: 'sta_1', variable: 'MaxExternalConstraintsId', value: '2147400000' },
+    ]);
+
+    await runLoadManagementCycle(makeLogger(), 'site-maxext');
+
+    const sent = ocppPublishes()[0] as unknown as { payload: { chargingProfile: { id: number } } };
+    expect(sent.payload.chargingProfile.id).toBe(2147400001);
+  });
+
   it('produces empty allocations when the site has no panels configured', async () => {
-    setResult('siteLoadManagement', [{ siteId: 'site-nopanels', strategy: 'equal_share' }]);
+    setResult('siteLoadManagement', [
+      {
+        siteId: 'site-nopanels',
+        strategy: 'equal_share',
+        appliedAllocations: null,
+        appliedAt: null,
+      },
+    ]);
     setResult('chargingStations', [
       { id: 'sta_1', stationId: 'CS-001', isOnline: true, loadPriority: 5, circuitId: null },
     ]);
@@ -1396,27 +1805,20 @@ describe('runLoadManagementCycle', () => {
     setResult('chargingSessions', []);
     setResult('meterValues', []);
     setResult('evChargingNeeds', []);
-    // No panels -> hierarchy empty -> allocations []
     setResult('panels', []);
     setResult('circuits', []);
     setResult('unmanagedLoads', []);
 
-    const log = makeLogger();
+    await runLoadManagementCycle(makeLogger(), 'site-nopanels');
 
-    await runLoadManagementCycle(log, 'site-nopanels');
-
-    // applyAllocations is still called with [] (first cycle, hash changed from undefined).
     expect(dbState.insertCalls.some((c) => c.table === 'loadAllocationLog')).toBe(true);
-    const ocppPublishes = pubsubState.publish.mock.calls.filter((c) => c[0] === 'ocpp_commands');
-    expect(ocppPublishes).toHaveLength(0);
+    expect(ocppPublishes()).toHaveLength(0);
   });
 
   it('catches per-site errors and continues the loop', async () => {
-    setResult('siteLoadManagement', [{ siteId: 'site-broken', strategy: 'equal_share' }]);
-    // The first select (enabledSites) must succeed; force the next select inside
-    // getSitePowerStatus to throw so the per-site try/catch is exercised. The
-    // default select factory makes a chain rooted at the routed table, so the
-    // enabledSites query still resolves from the siteLoadManagement result.
+    setResult('siteLoadManagement', [
+      { siteId: 'site-broken', strategy: 'equal_share', appliedAllocations: null, appliedAt: null },
+    ]);
     const defaultSelect = dbState.makeSelectFactory();
     let selectCount = 0;
     dbState.db.select.mockImplementation(() => {
@@ -1426,7 +1828,6 @@ describe('runLoadManagementCycle', () => {
       }
       return defaultSelect();
     });
-
     const log = makeLogger();
 
     await expect(runLoadManagementCycle(log, 'site-broken')).resolves.toBeUndefined();
@@ -1435,27 +1836,180 @@ describe('runLoadManagementCycle', () => {
       expect.objectContaining({ siteId: 'site-broken' }),
       'Load management cycle failed',
     );
-
-    dbState.db.select.mockImplementation(() => dbState.makeSelectFactory()());
   });
 
   it('runs across all enabled sites when no target site is given', async () => {
     setResult('siteLoadManagement', [
-      { siteId: 'site-a', strategy: 'equal_share' },
-      { siteId: 'site-b', strategy: 'priority_based' },
+      { siteId: 'site-a', strategy: 'equal_share', appliedAllocations: null, appliedAt: null },
+      { siteId: 'site-b', strategy: 'priority_based', appliedAllocations: null, appliedAt: null },
     ]);
-    // Both sites resolve to no stations -> empty status, empty hierarchy.
     setResult('chargingStations', []);
     setResult('panels', []);
     setResult('circuits', []);
     setResult('unmanagedLoads', []);
 
-    const log = makeLogger();
+    await runLoadManagementCycle(makeLogger());
 
-    await runLoadManagementCycle(log);
-
-    // Two allocation-log inserts (one per site, both first-cycle with empty allocations).
     const logInserts = dbState.insertCalls.filter((c) => c.table === 'loadAllocationLog');
     expect(logInserts).toHaveLength(2);
+  });
+});
+
+describe('stationMaxPowerKw', () => {
+  it('takes the highest connector of each EVSE and sums the EVSEs', () => {
+    const result = stationMaxPowerKw([
+      // EVSE 1: CCS 50 kW and CHAdeMO 25 kW cannot charge together -> 50
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '50' },
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '25' },
+      // EVSE 2: 22 kW, one connector without a rating -> 22
+      { stationId: 'sta_1', evseDbId: 'evse_2', maxPowerKw: '22' },
+      { stationId: 'sta_1', evseDbId: 'evse_2', maxPowerKw: null },
+    ]);
+
+    expect(result.get('sta_1')).toBe(72);
+  });
+
+  it('reads a station with an EVSE of unknown power as unknown (0)', () => {
+    const result = stationMaxPowerKw([
+      { stationId: 'sta_1', evseDbId: 'evse_1', maxPowerKw: '50' },
+      { stationId: 'sta_1', evseDbId: 'evse_2', maxPowerKw: null },
+    ]);
+
+    expect(result.get('sta_1')).toBe(0);
+  });
+});
+
+describe('load management profile id (K01.FR.80)', () => {
+  it('stays above the station MaxExternalConstraintsId', () => {
+    expect(loadManagementProfileId(null)).toBe(LOAD_MANAGEMENT_PROFILE_ID);
+    expect(loadManagementProfileId('77')).toBe(LOAD_MANAGEMENT_PROFILE_ID);
+    expect(loadManagementProfileId('2147400000')).toBe(2147400001);
+    expect(loadManagementProfileId('not-a-number')).toBe(LOAD_MANAGEMENT_PROFILE_ID);
+  });
+
+  it('clears a station profile by its own id', async () => {
+    setResult('stationConfigurations', [{ stationId: 'CS-001', value: '2147400000' }]);
+
+    await clearLoadManagementProfiles(['CS-001'], makeLogger());
+
+    const clear = pubsubState.publish.mock.calls
+      .filter((c) => c[0] === 'ocpp_commands')
+      .map((c) => JSON.parse(c[1]) as { payload: { chargingProfileId: number } });
+    expect(clear[0]?.payload.chargingProfileId).toBe(2147400001);
+  });
+});
+
+describe('minimum charge rates', () => {
+  it('stops the lowest priority sessions when the minimums do not fit (equal share)', () => {
+    const result = computeEqualShareAllocation(
+      [
+        makeStation({ id: 's1', stationId: 'CS-001', loadPriority: 10, minPowerKw: 8 }),
+        makeStation({ id: 's2', stationId: 'CS-002', loadPriority: 5, minPowerKw: 8 }),
+        makeStation({ id: 's3', stationId: 'CS-003', loadPriority: 1, minPowerKw: 8 }),
+      ],
+      20,
+    );
+    const kw = Object.fromEntries(result.map((r) => [r.stationId, r.allocatedKw]));
+    // 3 x 8 > 20: CS-003 (lowest priority) stops, the others share 20.
+    expect(kw).toEqual({ 'CS-001': 10, 'CS-002': 10, 'CS-003': 0 });
+  });
+
+  it('gives every session its minimum before a higher priority takes the rest', () => {
+    const result = computePriorityAllocation(
+      [
+        makeStation({ id: 's1', stationId: 'CS-001', loadPriority: 10, minPowerKw: 6 }),
+        makeStation({ id: 's2', stationId: 'CS-002', loadPriority: 1, minPowerKw: 6 }),
+      ],
+      30,
+    );
+    const kw = Object.fromEntries(result.map((r) => [r.stationId, r.allocatedKw]));
+    expect(kw).toEqual({ 'CS-001': 24, 'CS-002': 6 });
+  });
+
+  it('cuts a panel above the minimums, then stops the lowest priority', () => {
+    const circuit = (id: string, station: StationPowerInfo): HierarchyNode => ({
+      type: 'circuit',
+      id,
+      name: id,
+      maxContinuousKw: 50,
+      safetyMarginKw: 0,
+      unmanagedLoadKw: 0,
+      currentDrawKw: 0,
+      stations: [station],
+      children: [],
+      phases: 1,
+      breakerRatingAmps: 100,
+      voltageV: 240,
+      oversubscriptionRatio: 1,
+      phaseConnections: null,
+      phaseLoad: null,
+      perPhaseCapacityKw: null,
+    });
+    const panel = (maxContinuousKw: number): HierarchyNode => ({
+      ...circuit('p', makeStation({ id: 'x', stationId: 'X' })),
+      type: 'panel',
+      id: 'p1',
+      maxContinuousKw,
+      stations: [],
+      children: [
+        circuit(
+          'cA',
+          makeStation({ id: 's1', stationId: 'CS-001', loadPriority: 10, minPowerKw: 6 }),
+        ),
+        circuit(
+          'cB',
+          makeStation({ id: 's2', stationId: 'CS-002', loadPriority: 1, minPowerKw: 6 }),
+        ),
+      ],
+    });
+
+    // 15 kW: both keep 6 kW and share the 3 kW above it.
+    const fits = computeHierarchicalAllocation([panel(15)], 'equal_share');
+    expect(fits.map((r) => r.allocatedKw)).toEqual([7.5, 7.5]);
+
+    // 10 kW: two minimums (12) do not fit, CS-002 stops and CS-001 gets all 10.
+    const tight = Object.fromEntries(
+      computeHierarchicalAllocation([panel(10)], 'equal_share').map((r) => [
+        r.stationId,
+        r.allocatedKw,
+      ]),
+    );
+    expect(tight['CS-001']).toBeCloseTo(10, 9);
+    expect(tight['CS-002']).toBe(0);
+  });
+});
+
+describe('charging rate unit', () => {
+  it('uses W unless the station supports only A', () => {
+    expect(chargingRateUnitFor([])).toBe('W');
+    expect(chargingRateUnitFor(['A,W'])).toBe('W');
+    expect(chargingRateUnitFor(['Current,Power'])).toBe('W');
+    expect(chargingRateUnitFor(['A'])).toBe('A');
+    expect(chargingRateUnitFor(['Current'])).toBe('A');
+  });
+
+  it('converts a W limit to the phase current of the circuit, rounded down', () => {
+    expect(limitInUnit(6900, { rateUnit: 'A', voltageV: 230, phases: 3 })).toBe(10);
+    expect(limitInUnit(6900, { rateUnit: 'A', voltageV: 230, phases: 1 })).toBe(30);
+    expect(limitInUnit(6900, { rateUnit: 'W', voltageV: 230, phases: 1 })).toBe(6900);
+  });
+});
+
+describe('offlineReservations', () => {
+  it('keeps the last limit, else the max power, of offline stations with a session', () => {
+    const reserved = offlineReservations(
+      [
+        makeStation({ id: 's1', stationId: 'CS-001', isOnline: false, maxPowerKw: 22 }),
+        makeStation({ id: 's2', stationId: 'CS-002', isOnline: false, maxPowerKw: 11 }),
+        makeStation({ id: 's3', stationId: 'CS-003', isOnline: false, hasActiveSession: false }),
+        makeStation({ id: 's4', stationId: 'CS-004', isOnline: true }),
+      ],
+      [{ stationId: 'CS-001', stationDbId: 's1', allocatedKw: 7 }],
+    );
+
+    expect([...reserved]).toEqual([
+      ['s1', 7],
+      ['s2', 11],
+    ]);
   });
 });

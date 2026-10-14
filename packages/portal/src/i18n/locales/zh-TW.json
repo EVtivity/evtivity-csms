@@ -876,7 +876,8 @@
     "AI_PROPOSAL_STALE": "情況已改變，此操作不再適用",
     "AI_PROPOSAL_ALREADY_DECIDED": "此操作已處理",
     "AI_CONFIRMATION_REQUIRES_SESSION": "請登入控制台確認此操作，不能使用 API 金鑰",
-    "AI_MCP_RATE_LIMITED": "MCP 請求過多，請稍後再試"
+    "AI_MCP_RATE_LIMITED": "MCP 請求過多，請稍後再試",
+    "CHARGING_PROFILE_ID_RESERVED": "充電設定檔 ID 必須大於充電站的 MaxExternalConstraintsId。"
   },
   "validation": {
     "required": "此欄位為必填項",

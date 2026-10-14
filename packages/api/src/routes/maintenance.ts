@@ -4,7 +4,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { and, desc, eq, inArray, gt, gte, isNull, lt, or, sql } from 'drizzle-orm';
-import Handlebars from 'handlebars';
 import {
   db,
   client,
@@ -16,7 +15,7 @@ import {
   drivers,
   sites,
 } from '@evtivity/database';
-import { AppError } from '@evtivity/lib';
+import { AppError, ValidationError, compileAllowedTemplate } from '@evtivity/lib';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { paginationQuery } from '../lib/pagination.js';
 import {
@@ -1167,13 +1166,23 @@ export function maintenancePreviewRoutes(app: FastifyInstance): void {
           200: itemResponse(
             z.object({ rendered: z.string().describe('Rendered message text') }).passthrough(),
           ),
+          400: errorWith('The template is not valid', [ERROR_CODES.VALIDATION_ERROR]),
         },
       },
     },
     async (request) => {
       const body = parseZodRequest(previewMessageBody, request.body);
       const tpl = body.template ?? (await getDefaultMessageTemplate());
-      const compiled = Handlebars.compile(tpl, { noEscape: true });
+      // Operator text is never compiled to JavaScript: the allowed-template
+      // renderer walks the parsed template (variables and if/unless only).
+      let compiled: ReturnType<typeof compileAllowedTemplate>;
+      try {
+        compiled = compileAllowedTemplate(tpl, { noEscape: true });
+      } catch (err: unknown) {
+        throw new ValidationError('The template is not valid', {
+          template: err instanceof Error ? err.message : String(err),
+        });
+      }
       const endTime = body.endTime ?? new Date(Date.now() + 60 * 60 * 1000);
       const durationMinutes =
         body.durationMinutes ?? Math.round((endTime.getTime() - Date.now()) / 60_000);

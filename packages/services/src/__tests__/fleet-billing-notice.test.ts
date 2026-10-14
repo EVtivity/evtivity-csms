@@ -4,14 +4,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { BillingMembership } from '@evtivity/database';
 
-const { isFleetEnabled, loadBillingMemberships, dispatchDriverNotification, publish } = vi.hoisted(
-  () => ({
-    isFleetEnabled: vi.fn(),
-    loadBillingMemberships: vi.fn(),
-    dispatchDriverNotification: vi.fn(),
-    publish: vi.fn(),
-  }),
-);
+const { isFleetEnabled, loadBillingMemberships, dispatchDriverNotification, add, jobQueue } =
+  vi.hoisted(() => {
+    const addFn = vi.fn();
+    return {
+      isFleetEnabled: vi.fn(),
+      loadBillingMemberships: vi.fn(),
+      dispatchDriverNotification: vi.fn(),
+      add: addFn,
+      jobQueue: vi.fn(() => ({ add: addFn, addBulk: vi.fn() })),
+    };
+  });
 
 vi.mock('@evtivity/database', async () => {
   const actual = await vi.importActual<typeof import('../../../database/src/lib/fleet-billing.js')>(
@@ -27,7 +30,7 @@ vi.mock('@evtivity/lib', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/lib')>()),
   dispatchDriverNotification,
 }));
-vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish }) }));
+vi.mock('@evtivity/lib/job-queues', () => ({ jobQueue }));
 vi.mock('../template-dirs.js', () => ({ ALL_TEMPLATES_DIRS: ['templates'] }));
 
 const {
@@ -35,10 +38,12 @@ const {
   membershipsAround,
   notifyAccountBillingChange,
   fleetBillingFanoutJobId,
-  publishFleetBillingFanout,
+  enqueueFleetBillingFanout,
   runFleetBillingFanout,
-  FLEET_BILLING_FANOUT_CHANNEL,
+  FLEET_BILLING_FANOUT_JOB_NAME,
 } = await import('../fleet-billing-notice.js');
+const { FLEET_BILLING_FANOUT_JOB_OPTIONS, FLEET_BILLING_FANOUT_QUEUE } =
+  await import('@evtivity/lib/worker-queues');
 
 const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 const sql = vi.fn() as never;
@@ -294,12 +299,18 @@ describe('fleet switch fan-out', () => {
     });
   });
 
-  it('publishes the job and logs a lost publish (fail-open)', async () => {
-    publish.mockResolvedValueOnce(undefined);
-    await publishFleetBillingFanout(job, log);
-    expect(publish).toHaveBeenCalledWith(FLEET_BILLING_FANOUT_CHANNEL, JSON.stringify(job));
-    publish.mockRejectedValueOnce(new Error('redis down'));
-    await expect(publishFleetBillingFanout(job, log)).resolves.toBeUndefined();
+  it('adds the job to the worker queue under its change id and logs a failed add (fail-open)', async () => {
+    add.mockResolvedValueOnce(undefined);
+    await enqueueFleetBillingFanout(job, log);
+    expect(jobQueue).toHaveBeenCalledWith(
+      FLEET_BILLING_FANOUT_QUEUE,
+      FLEET_BILLING_FANOUT_JOB_OPTIONS,
+    );
+    expect(add).toHaveBeenCalledWith(FLEET_BILLING_FANOUT_JOB_NAME, job, {
+      jobId: fleetBillingFanoutJobId(job),
+    });
+    add.mockRejectedValueOnce(new Error('redis down'));
+    await expect(enqueueFleetBillingFanout(job, log)).resolves.toBeUndefined();
     expect(log.error).toHaveBeenCalled();
   });
 

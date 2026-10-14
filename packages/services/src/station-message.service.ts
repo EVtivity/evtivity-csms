@@ -39,20 +39,40 @@ import {
   type StationMessageState,
   type StationMessageContext,
   formatCurrencyAmount,
-  tryParseJson,
   publishOcppCommand,
   resolveTaxBasis,
 } from '@evtivity/lib';
 import type { ServiceLogger } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
+import { jobQueue, type JobsOptions } from '@evtivity/lib/job-queues';
+import { STATION_MESSAGE_JOB_OPTIONS, STATION_MESSAGE_QUEUE } from '@evtivity/lib/worker-queues';
 import { sessionCurrencySql } from './company-currency.js';
 
-/** OCPP to worker: re-render the Idle, Faulted and Unavailable screens of a station. */
-export const STATION_MESSAGE_REFRESH_CHANNEL = 'station_message_refresh';
-/** OCPP and worker cron to worker: re-render the transaction screen of a session. */
-export const STATION_MESSAGE_TRANSACTION_CHANNEL = 'station_message_transaction';
-/** Worker bridge channel: re-render the station screens after a config change. */
-export const STATION_MESSAGE_REPUSH_CHANNEL = 'station_message_repush';
+/**
+ * The job names of the worker's station-messages queue. The OCPP server, the
+ * API and the worker cron add the jobs themselves, so a render waits in Redis
+ * while no worker runs.
+ */
+export const STATION_MESSAGE_JOBS = {
+  /** API and worker: re-render the station screens after a config change. */
+  REPUSH: 'station-message-repush',
+  /** OCPP: re-render the Idle, Faulted and Unavailable screens of a station. */
+  REFRESH: 'station-message-refresh',
+  /** OCPP and worker cron: re-render the transaction screen of a session. */
+  TRANSACTION: 'station-message-transaction',
+} as const;
+
+/**
+ * Repush requests within this window collapse into one job: saving a settings
+ * tab writes several keys at once.
+ */
+export const STATION_MESSAGE_REPUSH_DEBOUNCE_MS = 3000;
+
+/**
+ * Station events within this window collapse into one render. The job renders
+ * the state stored at run time, so the last event wins.
+ */
+export const STATION_MESSAGE_EVENT_DEBOUNCE_MS = 500;
 
 /** Scope of a repush. At most one field; none means every online station. */
 export interface StationMessageRepushJob {
@@ -844,51 +864,48 @@ export interface StationTransactionJob {
   chargingState?: string | null;
 }
 
-function stringField(value: Record<string, unknown>, key: string): string | null {
-  const field = value[key];
-  return typeof field === 'string' && field !== '' ? field : null;
+/** Deduplication id of a repush scope ('.' separated: BullMQ ids reject ':'). */
+export function stationMessageRepushDedupId(job: StationMessageRepushJob): string {
+  if (job.siteId != null) return `smr.site.${job.siteId}`;
+  if (job.stationId != null) return `smr.station.${job.stationId}`;
+  if (job.pricingGroupId != null) return `smr.group.${job.pricingGroupId}`;
+  return 'smr.all';
 }
 
-/** Validates a station_message_refresh payload. Null when malformed. */
-export function parseStationRefreshPayload(raw: string): StationRefreshJob | null {
-  const parsed = tryParseJson(raw);
-  if (typeof parsed !== 'object' || parsed == null) return null;
-  const value = parsed as Record<string, unknown>;
-  const stationOcppId = stringField(value, 'stationOcppId');
-  const internalStationId = stringField(value, 'internalStationId');
-  const ocppProtocol = stringField(value, 'ocppProtocol');
-  if (stationOcppId == null || internalStationId == null || ocppProtocol == null) return null;
-  return { stationOcppId, internalStationId, ocppProtocol };
+/** A delayed job that a later add with the same id replaces (debounce, P7). */
+function debounced(id: string, ms: number): JobsOptions {
+  return { delay: ms, deduplication: { id, ttl: ms, extend: true, replace: true } };
 }
 
-/** Validates a station_message_transaction payload. Null when malformed. */
-export function parseStationTransactionPayload(raw: string): StationTransactionJob | null {
-  const parsed = tryParseJson(raw);
-  if (typeof parsed !== 'object' || parsed == null) return null;
-  const value = parsed as Record<string, unknown>;
-  const sessionId = stringField(value, 'sessionId');
-  const internalStationId = stringField(value, 'internalStationId');
-  const stationOcppId = stringField(value, 'stationOcppId');
-  const ocppProtocol = stringField(value, 'ocppProtocol');
-  const eventType = value['eventType'];
-  if (
-    sessionId == null ||
-    internalStationId == null ||
-    stationOcppId == null ||
-    ocppProtocol == null ||
-    (eventType !== 'started' && eventType !== 'updated' && eventType !== 'ended')
-  ) {
-    return null;
-  }
-  const chargingState = value['chargingState'];
-  return {
-    sessionId,
-    internalStationId,
-    stationOcppId,
-    ocppProtocol,
-    eventType,
-    chargingState: typeof chargingState === 'string' ? chargingState : null,
-  };
+async function addStationMessageJob(name: string, data: object, opts: JobsOptions): Promise<void> {
+  await jobQueue(STATION_MESSAGE_QUEUE, STATION_MESSAGE_JOB_OPTIONS).add(name, data, opts);
+}
+
+/**
+ * Queues a re-render of a station's Idle, Faulted and Unavailable screens.
+ * Events of one station within the debounce window make one job. Throws when
+ * the job cannot be added; callers are fail-open.
+ */
+export async function enqueueStationRefresh(job: StationRefreshJob): Promise<void> {
+  await addStationMessageJob(
+    STATION_MESSAGE_JOBS.REFRESH,
+    job,
+    debounced(`smf.${job.internalStationId}`, STATION_MESSAGE_EVENT_DEBOUNCE_MS),
+  );
+}
+
+/**
+ * Queues a re-render of a session's transaction screen. One id per session: a
+ * later event replaces a pending one, and the job clears the slots when the
+ * session has ended by the time it runs. Throws when the job cannot be added;
+ * callers are fail-open.
+ */
+export async function enqueueStationTransaction(job: StationTransactionJob): Promise<void> {
+  await addStationMessageJob(
+    STATION_MESSAGE_JOBS.TRANSACTION,
+    job,
+    debounced(`smt.${job.sessionId}`, STATION_MESSAGE_EVENT_DEBOUNCE_MS),
+  );
 }
 
 /** Re-renders the Idle, Faulted and Unavailable screens of one station. */
@@ -994,20 +1011,29 @@ export async function pushAllMessagesToAllStations(
 }
 
 /**
- * Asks every process to drop its station message caches and the worker to
- * re-render the station screens (all online stations, or a scope). Called
- * after a change to a setting, a state template, a site display language, a
- * station's site, or pricing.
- * Fail-open: a lost publish leaves the screens to the next event or cron tick.
+ * Asks every process to drop its station message caches and queues the
+ * re-render of the station screens (all online stations, or a scope), one
+ * job per scope within the debounce window. Called after a change to a
+ * setting, a state template, a site display language, a station's site, or
+ * pricing. The job waits in Redis while no worker runs. Fail-open: a failed
+ * publish or add (Redis down) leaves the screens to the next event or cron
+ * tick.
  */
 export async function requestStationMessageRepush(
   log: ServiceLogger,
   job: StationMessageRepushJob = {},
 ): Promise<void> {
-  const pubsub = getPubSub();
   try {
-    await pubsub.publish('cache_invalidate', JSON.stringify({ kind: 'station_message' }));
-    await pubsub.publish(STATION_MESSAGE_REPUSH_CHANNEL, JSON.stringify(job));
+    await getPubSub().publish('cache_invalidate', JSON.stringify({ kind: 'station_message' }));
+  } catch (err: unknown) {
+    log.warn({ error: err, ...job }, 'Station message cache invalidation failed');
+  }
+  try {
+    await addStationMessageJob(
+      STATION_MESSAGE_JOBS.REPUSH,
+      job,
+      debounced(stationMessageRepushDedupId(job), STATION_MESSAGE_REPUSH_DEBOUNCE_MS),
+    );
   } catch (err: unknown) {
     log.warn({ error: err, ...job }, 'Station message repush request failed');
   }

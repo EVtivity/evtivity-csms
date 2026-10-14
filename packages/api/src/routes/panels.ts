@@ -11,6 +11,12 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
+import {
+  PANEL_VOLTAGES,
+  circuitConductorPhases,
+  computeMaxContinuousKw,
+  isPanelVoltageAllowed,
+} from '@evtivity/lib';
 
 // --- Schemas ---
 
@@ -30,8 +36,8 @@ const createPanelBody = z.object({
   voltageV: z
     .number()
     .int()
-    .refine((v) => [120, 208, 240, 277, 480].includes(v), {
-      message: 'Voltage must be one of: 120, 208, 240, 277, 480',
+    .refine((v) => (PANEL_VOLTAGES as readonly number[]).includes(v), {
+      message: `Voltage must be one of: ${PANEL_VOLTAGES.join(', ')}`,
     }),
   phases: z
     .number()
@@ -44,12 +50,12 @@ const createPanelBody = z.object({
 
 const updatePanelBody = z.object({
   name: z.string().min(1).max(255).optional(),
-  breakerRatingAmps: z.number().int().min(1).optional(),
+  breakerRatingAmps: z.number().int().min(1).max(10000).optional(),
   voltageV: z
     .number()
     .int()
-    .refine((v) => [120, 208, 240, 277, 480].includes(v), {
-      message: 'Voltage must be one of: 120, 208, 240, 277, 480',
+    .refine((v) => (PANEL_VOLTAGES as readonly number[]).includes(v), {
+      message: `Voltage must be one of: ${PANEL_VOLTAGES.join(', ')}`,
     })
     .optional(),
   phases: z
@@ -57,9 +63,9 @@ const updatePanelBody = z.object({
     .int()
     .refine((v) => [1, 3].includes(v), { message: 'Phases must be 1 or 3' })
     .optional(),
-  safetyMarginKw: z.number().min(0).optional(),
+  safetyMarginKw: z.number().min(0).max(10000).optional(),
   oversubscriptionRatio: z.number().min(1.0).max(3.0).optional(),
-  sortOrder: z.number().int().min(0).optional(),
+  sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
 const panelItem = z
@@ -158,13 +164,11 @@ const panelDetailItem = z
 
 // --- Helpers ---
 
-function computeMaxContinuousKw(
-  breakerRatingAmps: number,
-  voltageV: number,
-  phases: number,
-): number {
-  return (breakerRatingAmps * voltageV * phases * 0.8) / 1000;
-}
+const THREE_PHASE_VOLTAGE_ERROR = {
+  error:
+    'A three-phase panel takes its phase to neutral voltage (120 for 208Y/120, 277 for 480Y/277)',
+  code: 'VALIDATION_ERROR',
+} as const;
 
 // --- Routes ---
 
@@ -212,6 +216,11 @@ export function panelRoutes(app: FastifyInstance): void {
             .send({ error: 'Parent panel not found in this site', code: 'INVALID_PARENT_PANEL' });
           return;
         }
+      }
+
+      if (!isPanelVoltageAllowed(body.voltageV, body.phases)) {
+        await reply.status(400).send(THREE_PHASE_VOLTAGE_ERROR);
+        return;
       }
 
       const maxContinuousKw = computeMaxContinuousKw(
@@ -406,6 +415,7 @@ export function panelRoutes(app: FastifyInstance): void {
         body: zodSchema(updatePanelBody),
         response: {
           200: itemResponse(panelItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Panel not found', [ERROR_CODES.PANEL_NOT_FOUND]),
         },
       },
@@ -434,6 +444,11 @@ export function panelRoutes(app: FastifyInstance): void {
       const newBreaker = body.breakerRatingAmps ?? existing.breakerRatingAmps;
       const newVoltage = body.voltageV ?? existing.voltageV;
       const newPhases = body.phases ?? existing.phases;
+
+      if (!isPanelVoltageAllowed(newVoltage, newPhases)) {
+        await reply.status(400).send(THREE_PHASE_VOLTAGE_ERROR);
+        return;
+      }
 
       const voltageOrPhasesChanged =
         body.voltageV != null || body.phases != null || body.breakerRatingAmps != null;
@@ -469,7 +484,7 @@ export function panelRoutes(app: FastifyInstance): void {
           const circuitMaxKw = computeMaxContinuousKw(
             circuit.breakerRatingAmps,
             newVoltage,
-            newPhases,
+            circuitConductorPhases(circuit.phaseConnections, newPhases),
           );
           await db
             .update(circuits)

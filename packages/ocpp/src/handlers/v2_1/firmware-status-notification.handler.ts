@@ -6,7 +6,7 @@ import type { HandlerContext } from '../../server/middleware/pipeline.js';
 export async function handleFirmwareStatusNotification(
   ctx: HandlerContext,
 ): Promise<Record<string, unknown>> {
-  const request = ctx.payload as { status: string; requestId?: number };
+  const request = ctx.payload as { status: string; requestId?: number; statusInfo?: unknown };
 
   ctx.logger.info(
     { stationId: ctx.stationId, status: request.status, requestId: request.requestId },
@@ -22,6 +22,7 @@ export async function handleFirmwareStatusNotification(
       stationDbId: ctx.stationDbId,
       status: request.status,
       requestId: request.requestId,
+      ...(request.statusInfo != null ? { statusInfo: request.statusInfo } : {}),
     },
   });
 

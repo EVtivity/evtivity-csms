@@ -1,13 +1,21 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { randomInt } from 'node:crypto';
-import { publishOcppCommand } from '@evtivity/lib';
+import {
+  publishOcppCommand,
+  buildCampaignUpdateFirmware,
+  FIRMWARE_RETRIES_MAX,
+  FIRMWARE_RETRY_INTERVAL_MAX_SECONDS,
+} from '@evtivity/lib';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, count, isNotNull, asc, inArray } from 'drizzle-orm';
+import { eq, and, desc, count, isNotNull, asc, inArray, type SQL } from 'drizzle-orm';
 import {
   db,
+  client,
+  applyFirmwareCampaignStationStatus,
+  rejectFirmwareUpdate,
+  newFirmwareRequestId,
   firmwareCampaigns,
   firmwareCampaignStations,
   firmwareCampaignStatusEnum,
@@ -62,6 +70,22 @@ const campaignItem = z
       .string()
       .nullable()
       .describe('Base64 firmware signature sent with UpdateFirmware, null when unsigned'),
+    retries: z
+      .number()
+      .int()
+      .nullable()
+      .describe('Download retries sent with UpdateFirmware, null leaves it to the station'),
+    retryInterval: z
+      .number()
+      .int()
+      .nullable()
+      .describe('Seconds between download retries, null leaves it to the station'),
+    installDateTime: z
+      .string()
+      .nullable()
+      .describe(
+        'Install time sent as firmware.installDateTime, null installs when the station can',
+      ),
     status: z.enum(firmwareCampaignStatusEnum.enumValues).describe('Campaign status'),
     targetFilter: z.record(z.unknown()).nullable().describe('Filter selecting target stations'),
     createdById: z.string().nullable().describe('User ID that created the campaign'),
@@ -120,10 +144,32 @@ const filterOptionsResponse = z
 
 const campaignParams = z.object({ id: z.string().describe('Campaign ID') });
 
+const retriesField = z
+  .number()
+  .int()
+  .min(0)
+  .max(FIRMWARE_RETRIES_MAX)
+  .describe(`Download retries (0 to ${String(FIRMWARE_RETRIES_MAX)}, 0 means none)`);
+const retryIntervalField = z
+  .number()
+  .int()
+  .min(1)
+  .max(FIRMWARE_RETRY_INTERVAL_MAX_SECONDS)
+  .describe(
+    `Seconds between download retries (1 to ${String(FIRMWARE_RETRY_INTERVAL_MAX_SECONDS)})`,
+  );
+const installDateTimeField = z
+  .string()
+  .datetime({ offset: true })
+  .describe('Install time (ISO 8601); the station downloads first and installs at this time');
+
 const createCampaignBody = z.object({
   name: z.string().min(1).describe('Campaign name'),
   firmwareUrl: z.string().url().describe('Firmware download URL'),
   version: z.string().optional().describe('Firmware version'),
+  retries: retriesField.optional(),
+  retryInterval: retryIntervalField.optional(),
+  installDateTime: installDateTimeField.optional(),
   signingCertificate: firmwareSigningCertificateField.optional(),
   signature: firmwareSignatureField.optional(),
   targetFilter: z
@@ -142,6 +188,9 @@ const updateCampaignBody = z.object({
   name: z.string().min(1).optional(),
   firmwareUrl: z.string().url().optional(),
   version: z.string().optional(),
+  retries: retriesField.nullable().optional(),
+  retryInterval: retryIntervalField.nullable().optional(),
+  installDateTime: installDateTimeField.nullable().optional(),
   signingCertificate: firmwareSigningCertificateField
     .nullable()
     .optional()
@@ -167,6 +216,25 @@ const fwFilterOptionsQuery = z.object({
   vendorId: z.string().optional().describe('Filter stations by vendor'),
   model: z.string().optional().describe('Filter stations by model'),
 });
+
+type CampaignTargetFilter = z.infer<typeof createCampaignBody>['targetFilter'];
+
+/**
+ * The station conditions of a campaign target filter. The matching stations
+ * preview and the start use the same conditions, so the preview shows what a
+ * start targets (the start adds the online check).
+ */
+function targetFilterConditions(filter: CampaignTargetFilter | null): SQL[] {
+  const conditions: SQL[] = [];
+  if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
+  if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
+  if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
+  if (filter?.stationId) conditions.push(eq(chargingStations.id, filter.stationId));
+  if (filter?.firmwareVersion) {
+    conditions.push(eq(chargingStations.firmwareVersion, filter.firmwareVersion));
+  }
+  return conditions;
+}
 
 function emptyToNull(value: string | null | undefined): string | null {
   return value == null || value.trim() === '' ? null : value.trim();
@@ -328,6 +396,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           .from(firmwareCampaignStations)
           .innerJoin(chargingStations, eq(firmwareCampaignStations.stationId, chargingStations.id))
           .where(eq(firmwareCampaignStations.campaignId, id))
+          .orderBy(asc(chargingStations.stationId), asc(firmwareCampaignStations.id))
           .limit(limit)
           .offset(offset),
         db
@@ -408,6 +477,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           name: body.name,
           firmwareUrl: body.firmwareUrl,
           version: body.version ?? null,
+          retries: body.retries ?? null,
+          retryInterval: body.retryInterval ?? null,
+          installDateTime: body.installDateTime != null ? new Date(body.installDateTime) : null,
           signingCertificate: emptyToNull(body.signingCertificate),
           signature: emptyToNull(body.signature),
           targetFilter: body.targetFilter ?? null,
@@ -461,7 +533,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id } = request.params as z.infer<typeof campaignParams>;
-      const { signingCertificate, signature, ...fields } = request.body as z.infer<
+      const { signingCertificate, signature, installDateTime, ...fields } = request.body as z.infer<
         typeof updateCampaignBody
       >;
 
@@ -504,6 +576,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         .update(firmwareCampaigns)
         .set({
           ...fields,
+          ...(installDateTime !== undefined
+            ? { installDateTime: installDateTime != null ? new Date(installDateTime) : null }
+            : {}),
           signingCertificate: nextSigningCertificate,
           signature: nextSignature,
           updatedAt: new Date(),
@@ -624,14 +699,10 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const filter = campaign.targetFilter as Record<string, string> | null;
-      // Show all stations matching the filter (online + offline). The campaign
-      // start endpoint applies its own isOnline check separately.
-      const conditions: ReturnType<typeof eq>[] = [];
-      if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
-      if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
-      if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
-      if (filter?.stationId) conditions.push(eq(chargingStations.id, filter.stationId));
+      // Show all stations matching the filter (online + offline), as the start
+      // targets them: online ones get the update at once, offline ones when
+      // they connect.
+      const conditions = targetFilterConditions(campaign.targetFilter as CampaignTargetFilter);
       if (query.status === 'online') conditions.push(eq(chargingStations.isOnline, true));
       if (query.status === 'offline') conditions.push(eq(chargingStations.isOnline, false));
 
@@ -678,7 +749,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         tags: ['Fleet Operations'],
         summary: 'Start a firmware campaign - dispatch UpdateFirmware to targets',
         description:
-          'Resolves matching online stations via the campaign target filter, transitions the campaign to active, and dispatches UpdateFirmware to each station. Per-station progress is tracked in firmware_campaign_stations and firmware_updates and updated by the FirmwareStatusNotification projection. Returns 409 if the campaign is not in draft state or no stations match.',
+          'Resolves the stations matching the campaign target filter, transitions the campaign to active, and dispatches UpdateFirmware (with the campaign retries, retry interval and install time) to each online station. An offline station gets the update when it next connects. Per-station progress is tracked in firmware_campaign_stations and firmware_updates and updated by the FirmwareStatusNotification projection. Returns 409 if the campaign is not in draft state or no stations match.',
         operationId: 'startFirmwareCampaign',
         security: [{ bearerAuth: [] }],
         params: zodSchema(campaignParams),
@@ -706,13 +777,9 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Resolve target stations from filter
-      const filter = campaign.targetFilter as Record<string, string> | null;
-      const conditions = [eq(chargingStations.isOnline, true)];
-      if (filter?.siteId) conditions.push(eq(chargingStations.siteId, filter.siteId));
-      if (filter?.vendorId) conditions.push(eq(chargingStations.vendorId, filter.vendorId));
-      if (filter?.model) conditions.push(eq(chargingStations.model, filter.model));
-      if (filter?.stationId) conditions.push(eq(chargingStations.id, filter.stationId));
+      // Resolve target stations from filter. Online stations get the update
+      // now, offline ones when they connect (station.Ready projection).
+      const conditions = targetFilterConditions(campaign.targetFilter as CampaignTargetFilter);
 
       if (accessibleSiteIds != null && accessibleSiteIds.length === 0) {
         await reply.status(409).send({ error: 'No matching stations found', code: 'NO_TARGETS' });
@@ -722,9 +789,13 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         conditions.push(inArray(chargingStations.siteId, accessibleSiteIds));
 
       const targets = await db
-        .select({ id: chargingStations.id, stationId: chargingStations.stationId })
+        .select({
+          id: chargingStations.id,
+          stationId: chargingStations.stationId,
+          isOnline: chargingStations.isOnline,
+        })
         .from(chargingStations)
-        .where(and(...conditions));
+        .where(conditions.length > 0 ? and(...conditions) : undefined);
 
       if (targets.length === 0) {
         await reply.status(409).send({ error: 'No matching stations found', code: 'NO_TARGETS' });
@@ -732,12 +803,10 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       }
 
       // Atomic transition draft -> active. Two operators clicking Start at
-      // the same moment both pass the SELECT-then-check pre-guard at line
-      // ~600; without this CAS both would insert duplicate
-      // firmware_campaign_stations rows (the table has no (campaignId,
-      // stationId) unique index) and dispatch UpdateFirmware twice. CAS
-      // makes the second caller's UPDATE return zero rows; we surface that
-      // as the same 409 NOT_DRAFT the pre-check would have raised.
+      // the same moment both pass the SELECT-then-check pre-guard; without
+      // this CAS both would dispatch UpdateFirmware twice. CAS makes the
+      // second caller's UPDATE return zero rows; we surface that as the same
+      // 409 NOT_DRAFT the pre-check would have raised.
       const claimed = await db
         .update(firmwareCampaigns)
         .set({ status: 'active', updatedAt: new Date() })
@@ -752,12 +821,17 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
 
       // Insert campaign station rows AFTER the CAS so only the winning
       // operator's targets are recorded.
+      // dispatchedAt marks the stations sent now; an offline station's row
+      // waits for its connect-time dispatch, which claims it once.
+      const now = new Date();
       await db.insert(firmwareCampaignStations).values(
         targets.map((t) => ({
           campaignId: id,
           stationId: t.id,
+          dispatchedAt: t.isOnline ? now : null,
         })),
       );
+      const online = targets.filter((t) => t.isOnline);
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -767,7 +841,7 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           entityIdSnapshot: id,
           action: 'started',
           ...actor,
-          notes: `Started against ${String(targets.length)} station(s)`,
+          notes: `Started against ${String(targets.length)} station(s), ${String(online.length)} online`,
         },
         db,
         request.log,
@@ -795,22 +869,23 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
       const pubsub = getPubSub();
       const retrieveDateTime = new Date();
       const initiatedAt = new Date();
-      const dispatches = targets.map((target) => ({
+      const dispatches = online.map((target) => ({
         target,
-        requestId: randomInt(1, 2_147_483_647),
+        requestId: newFirmwareRequestId(),
       }));
 
       try {
-        await db.insert(firmwareUpdates).values(
-          dispatches.map(({ target, requestId }) => ({
-            stationId: target.id,
-            requestId,
-            firmwareUrl: campaign.firmwareUrl,
-            retrieveDateTime,
-            campaignId: id,
-            initiatedAt,
-          })),
-        );
+        if (dispatches.length > 0)
+          await db.insert(firmwareUpdates).values(
+            dispatches.map(({ target, requestId }) => ({
+              stationId: target.id,
+              requestId,
+              firmwareUrl: campaign.firmwareUrl,
+              retrieveDateTime,
+              campaignId: id,
+              initiatedAt,
+            })),
+          );
       } catch (err) {
         // If the batch pre-insert fails the projection will still create rows
         // when status notifications arrive, but without campaign_id -- which
@@ -827,33 +902,48 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           publishOcppCommand(pubsub, {
             stationId: target.stationId,
             action: 'UpdateFirmware',
-            payload: {
-              requestId,
-              firmware: {
-                location: campaign.firmwareUrl,
-                retrieveDateTime: retrieveDateTime.toISOString(),
-                // Secure firmware update (L01.FR.11). The OCPP server sends a
-                // signed update to a 1.6 station as SignedUpdateFirmware.
-                ...(campaign.signingCertificate != null && campaign.signature != null
-                  ? {
-                      signingCertificate: campaign.signingCertificate,
-                      signature: campaign.signature,
-                    }
-                  : {}),
-              },
-            },
+            // The OCPP server sends a signed update to a 1.6 station as
+            // SignedUpdateFirmware.
+            payload: buildCampaignUpdateFirmware(campaign, requestId, retrieveDateTime),
           }),
         ),
       );
-      publishResults.forEach((result, idx) => {
-        if (result.status === 'rejected') {
-          const dispatch = dispatches[idx];
+      // A command that was never published never reaches the station, so no
+      // status report follows: fail its station now (P4), so the campaign still
+      // completes when every other station finishes.
+      for (const [idx, result] of publishResults.entries()) {
+        if (result.status !== 'rejected') continue;
+        const dispatch = dispatches[idx];
+        if (dispatch == null) continue;
+        request.log.warn(
+          { err: result.reason, stationId: dispatch.target.id, campaignId: id },
+          'firmware-campaign: failed to publish ocpp_commands',
+        );
+        try {
+          const audit = { actor: 'system' as const, actorLabel: 'Firmware campaign dispatch' };
+          const rejected = await rejectFirmwareUpdate(client, {
+            stationUuid: dispatch.target.id,
+            requestId: dispatch.requestId,
+            reasonCode: 'CommandFailed',
+            additionalInfo: 'The command could not be published',
+            ...audit,
+          });
+          if (rejected == null) {
+            await applyFirmwareCampaignStationStatus(client, {
+              campaignId: id,
+              stationUuid: dispatch.target.id,
+              status: 'failed',
+              errorInfo: 'CommandFailed',
+              ...audit,
+            });
+          }
+        } catch (err) {
           request.log.warn(
-            { err: result.reason, stationId: dispatch?.target.id, campaignId: id },
-            'firmware-campaign: failed to publish ocpp_commands',
+            { err, stationId: dispatch.target.id, campaignId: id },
+            'firmware-campaign: failed to record the undelivered command',
           );
         }
-      });
+      }
 
       return { success: true };
     },

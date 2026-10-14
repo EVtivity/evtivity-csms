@@ -25,6 +25,7 @@ interface FirmwareUpdate {
   firmwareUrl: string;
   version: string | null;
   status: string | null;
+  statusInfo: { reasonCode?: string; additionalInfo?: string } | null;
   initiatedAt: string;
   lastStatusAt: string | null;
 }
@@ -45,6 +46,7 @@ const STATUS_VARIANT: Record<
   InstallationFailed: 'destructive',
   InvalidSignature: 'destructive',
   InstallVerificationFailed: 'destructive',
+  Rejected: 'destructive',
   Installing: 'warning',
 };
 
@@ -92,9 +94,19 @@ export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.El
                   {data.data.map((fw) => (
                     <TableRow key={fw.id}>
                       <TableCell>
-                        <Badge variant={STATUS_VARIANT[fw.status ?? ''] ?? 'outline'}>
-                          {fw.status ?? 'n/a'}
-                        </Badge>
+                        <div className="flex flex-col items-start gap-1">
+                          <Badge variant={STATUS_VARIANT[fw.status ?? ''] ?? 'outline'}>
+                            {fw.status ?? 'n/a'}
+                          </Badge>
+                          {fw.statusInfo?.reasonCode != null && (
+                            <span
+                              className="text-xs text-muted-foreground"
+                              title={fw.statusInfo.additionalInfo}
+                            >
+                              {fw.statusInfo.reasonCode}
+                            </span>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-xs max-w-xs truncate">{fw.firmwareUrl}</TableCell>
                       <TableCell className="text-xs">{fw.version ?? 'n/a'}</TableCell>

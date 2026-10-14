@@ -880,6 +880,8 @@
     "rebootFailed": "Reboot failed.",
     "rebootRejectedStatus": "Station rejected reboot ({{status}})",
     "limitSource": "Limit Source",
+    "profileSourceCsms": "CSMS",
+    "profileSourceStation": "Station",
     "evChargingNeeds": "EV Charging Needs",
     "noEvChargingNeeds": "No EV charging needs reported",
     "departureTime": "Departure Time",
@@ -941,7 +943,8 @@
     "maxPowerUnknown": "Max power unknown",
     "maxPowerUnknownHint": "Load management cannot cap this connector until its max power is set. Edit the EVSE to set it. OCPP 2.1 stations fill it in from their configuration report.",
     "removeTag": "Remove tag {{tag}}",
-    "messageCommandQueued": "Station offline. The command is queued and sent when the station reconnects."
+    "messageCommandQueued": "Station offline. The command is queued and sent when the station reconnects.",
+    "chargingNeedsTab": "Charging Needs and Monitors"
   },
   "eventAlertRules": {
     "title": "Event Alert Rules",
@@ -3276,7 +3279,8 @@
     "AI_PROPOSAL_STALE": "This action no longer applies because the situation changed",
     "AI_PROPOSAL_ALREADY_DECIDED": "This action was already decided",
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirm this action while signed in to the dashboard, not with an API key",
-    "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later"
+    "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later",
+    "CHARGING_PROFILE_ID_RESERVED": "The charging profile ID must be above the station's MaxExternalConstraintsId."
   },
   "logs": {
     "title": "Logs",
@@ -3634,14 +3638,14 @@
     "noCampaignRuns": "No campaign runs yet",
     "error": "Error",
     "confirmStart": "Start Campaign",
-    "confirmStartDescription": "This will dispatch firmware updates to all matching stations. Continue?",
+    "confirmStartDescription": "This will send the firmware update to all matching online stations now. Offline stations get it when they connect. Continue?",
     "confirmCancel": "Cancel Campaign",
     "confirmCancelDescription": "Aborting could brick stations currently downloading or installing firmware. Stations already fully installed will not be affected. Continue?",
     "cancelWarning": "Aborting now could brick stations that are mid-update. Only proceed if necessary.",
     "confirmDelete": "Delete Campaign",
     "confirmDeleteDescription": "This will permanently delete the draft campaign.",
     "targetFilter": "Target Filter",
-    "targetFilterHelp": "Leave empty to target all online stations",
+    "targetFilterHelp": "Leave empty to target all stations. Offline stations get the update when they connect.",
     "allSites": "All Sites",
     "allVendors": "All Vendors",
     "allModels": "All Models",
@@ -3649,10 +3653,10 @@
     "vendor": "Vendor",
     "model": "Model",
     "matchingStations": "Matching Stations",
-    "noMatchingStations": "No online stations match the current filter",
+    "noMatchingStations": "No stations match the current filter",
     "currentFirmware": "Current Firmware",
-    "signingCertificate": "Signing certificate (PEM)",
-    "signature": "Firmware signature (base64)",
+    "signingCertificate": "Signing Certificate (PEM)",
+    "signature": "Firmware Signature (base64)",
     "signingHint": "Secure firmware update: the station verifies the firmware with this signing certificate and signature. Leave both empty for an unsigned update.",
     "signingIncomplete": "Enter both the signing certificate and the signature",
     "invalidSigningCertificate": "Enter one PEM certificate (-----BEGIN CERTIFICATE-----)",
@@ -3661,7 +3665,32 @@
     "signatureTooLong": "The signature can have at most 800 characters",
     "signatureStatus": "Signature",
     "signed": "Signed",
-    "unsigned": "Unsigned"
+    "unsigned": "Unsigned",
+    "statuses": {
+      "draft": "Draft",
+      "active": "Active",
+      "completed": "Completed",
+      "cancelled": "Cancelled"
+    },
+    "stationStatuses": {
+      "pending": "Pending",
+      "downloading": "Downloading",
+      "downloaded": "Downloaded",
+      "installing": "Installing",
+      "installed": "Installed",
+      "failed": "Failed"
+    },
+    "retries": "Download Retries",
+    "retriesHelp": "How often the station retries a failed download. 0 means no retries. Leave empty to let the station decide.",
+    "retryInterval": "Retry Interval (Seconds)",
+    "retryIntervalHelp": "Seconds between download retries. Leave empty to let the station decide.",
+    "installDateTime": "Install Time",
+    "installDateTimeHelp": "The station downloads the firmware first and installs it at this time. A 1.6 station without a signed update installs right after the download. Leave empty to install right after the download.",
+    "invalidRetries": "Enter a whole number from 0 to {{max}}",
+    "invalidRetryInterval": "Enter a whole number of seconds from 1 to {{max}}",
+    "installInPast": "Enter a time in the future",
+    "stationDecides": "Station decides",
+    "afterDownload": "After the download"
   },
   "smartCharging": {
     "title": "Smart Charging",
@@ -3895,7 +3924,15 @@
     "oversubscribed": "Oversubscribed",
     "oversubscriptionWarning": "Ratio above 1.0 allows installing more station capacity than the panel rating. Load management enforces the breaker limit dynamically.",
     "priorityFor": "Priority for {{stationId}}",
-    "deleteLoad": "Delete load {{name}}"
+    "deleteLoad": "Delete load {{name}}",
+    "historyDraw": "Draw: {{kw}} kW",
+    "historyAvailable": "Available: {{kw}} kW",
+    "historyLimit": "Site Limit: {{kw}} kW",
+    "threePhaseVoltageHint": "A three-phase panel takes the phase to neutral voltage: 120 V for 208Y/120, 230 V for 400Y/230, 277 V for 480Y/277.",
+    "minPower": "Min Power (kW)",
+    "minPowerFor": "Minimum power for {{stationId}}",
+    "limitUnit": "Limit Unit",
+    "minPowerHint": "A charging session never gets less than its station minimum. When the minimums do not fit, the lowest priority sessions stop first. Stations that support only amps get their limit in A."
   },
   "ai": {
     "title": "AI Assistant",
@@ -4882,6 +4919,9 @@
     "detail": {
       "recordTitle": "Details",
       "session": "Session",
+      "reservation": "Reservation",
+      "driver": "Driver",
+      "token": "Token",
       "partOf": "Part of"
     },
     "likelyCause": "Likely cause",
@@ -5023,5 +5063,46 @@
     "siteInsights": "Automatic insights",
     "siteInsightsHelp": "Turn off to stop automatic insights for this site.",
     "allSitesOnly": "Only users with access to every site can change this."
+  },
+  "stationChargingNeeds": {
+    "needsTitle": "EV Charging Needs",
+    "noNeeds": "No EV has reported ISO 15118 charging needs for an active session.",
+    "evse": "EVSE",
+    "energyTransfer": "Energy Transfer",
+    "controlMode": "Control Mode",
+    "requestedEnergy": "Requested Energy",
+    "departureTime": "Departure Time",
+    "csmsLimit": "CSMS Limit",
+    "noProfileSent": "No Profile Sent",
+    "updated": "Updated",
+    "schedulesTitle": "EV Charging Schedules",
+    "noSchedules": "No EV charging schedules received.",
+    "timeBase": "Time Base",
+    "firstLimit": "First Limit",
+    "periods": "Periods",
+    "check": "Check",
+    "received": "Received",
+    "notChecked": "Not Checked",
+    "withinLimits": "Within Limits",
+    "exceedsLimits": "Exceeds Limits",
+    "monitorsTitle": "Variable Monitors",
+    "noMonitors": "No variable monitors set.",
+    "addMonitor": "Add Monitor",
+    "stationOffline": "The station must be online to set a monitor.",
+    "component": "Component",
+    "variable": "Variable",
+    "monitorType": "Monitor Type",
+    "value": "Value",
+    "severity": "Severity",
+    "monitorId": "Monitor ID",
+    "clearMonitor": "Clear Monitor",
+    "confirmClearMonitor": "Remove this monitor from the station? An active monitor is cleared on the station first.",
+    "valueMustBePositive": "The value must be greater than 0 for this monitor type",
+    "status": {
+      "pending": "Pending",
+      "active": "Active",
+      "error": "Error",
+      "cleared": "Cleared"
+    }
   }
 }

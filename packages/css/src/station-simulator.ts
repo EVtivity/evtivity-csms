@@ -243,6 +243,11 @@ export class StationSimulator {
 
   // Per-EVSE charging state
   private readonly evsePowerLimits = new Map<number, number | null>();
+  /**
+   * Station-wide limit in W from a ChargingStationMaxProfile (1.6
+   * ChargePointMaxProfile) on EVSE 0, the profile load management sends.
+   */
+  private stationPowerLimitW: number | null = null;
   private readonly evseIdle = new Map<number, boolean>();
   /** Plug and Charge EV per EVSE and its installed contract (in memory, like the EV). */
   private readonly pncEvs = new Map<number, { ev: TestEv; contract: InstalledContract | null }>();
@@ -2674,7 +2679,7 @@ export class StationSimulator {
       const gen = this.meterGens.get(evseId);
       if (gen != null) {
         const idle = this.evseIdle.get(evseId) ?? false;
-        const powerLimit = this.evsePowerLimits.get(evseId) ?? null;
+        const powerLimit = this.powerLimitFor(evseId);
         gen.tick(idle, powerLimit);
         const measurands = this.getSampledMeasurands();
         sampledValues = gen.generate(measurands, this.is16) as unknown as Array<
@@ -3886,7 +3891,7 @@ export class StationSimulator {
     // suspended. An idle tick here reported 0 W with chargingState Charging
     // (finding JB-1), and a charging tick would add energy between samples.
     if (this.getActiveTransactionSync(firstEvse.evseId) == null) {
-      gen.tick(true, this.evsePowerLimits.get(firstEvse.evseId) ?? null);
+      gen.tick(true, this.powerLimitFor(firstEvse.evseId));
     }
 
     const sampledValues = gen
@@ -4967,15 +4972,30 @@ export class StationSimulator {
           }
         }
 
-        // Extract power limit
-        const schedule = (
-          (profile?.['chargingSchedule'] ?? []) as Array<Record<string, unknown>>
-        )[0];
+        // Extract power limit. A 2.1 profile holds an array of schedules, a
+        // 1.6 profile (csChargingProfiles) a single schedule object.
+        const rawSchedule = profile?.['chargingSchedule'];
+        const schedule = (Array.isArray(rawSchedule) ? rawSchedule[0] : rawSchedule) as
+          | Record<string, unknown>
+          | undefined;
         const periods = (
           (schedule?.['chargingSchedulePeriod'] ?? []) as Array<Record<string, unknown>>
         )[0];
         const limit = periods?.['limit'] as number | undefined;
-        if (limit != null) {
+        const stationMax =
+          evseIdForProfile === 0 &&
+          (profilePurpose === 'ChargingStationMaxProfile' ||
+            profilePurpose === 'ChargePointMaxProfile');
+        if (limit != null && stationMax) {
+          // Limits the whole station: the EVSEs with a transaction share it.
+          this.stationPowerLimitW = this.limitToWatts(
+            limit,
+            schedule?.['chargingRateUnit'] as string | undefined,
+          );
+          console.log(
+            `[${this.config.stationId}] SetChargingProfile: station power limit set to ${String(this.stationPowerLimitW)} W`,
+          );
+        } else if (limit != null) {
           this.evsePowerLimits.set(evseIdForProfile, limit);
           console.log(
             `[${this.config.stationId}] SetChargingProfile: power limit set to ${String(limit)} W on EVSE ${String(evseIdForProfile)}`,
@@ -5011,6 +5031,7 @@ export class StationSimulator {
           for (const evse of this.config.evses) {
             this.evsePowerLimits.set(evse.evseId, null);
           }
+          this.stationPowerLimitW = null;
           this.chargingProfilesCache.clear();
           console.log(`[${this.config.stationId}] ClearChargingProfile: power limits cleared`);
           return { status: 'Accepted' };
@@ -5047,6 +5068,7 @@ export class StationSimulator {
           for (const evse of this.config.evses) {
             this.evsePowerLimits.set(evse.evseId, null);
           }
+          this.stationPowerLimitW = null;
           console.log(`[${this.config.stationId}] ClearChargingProfile: power limits cleared`);
           return { status: 'Accepted' };
         }
@@ -7165,7 +7187,7 @@ export class StationSimulator {
 
           const tx = await this.getActiveTransaction(targetEvseId);
           const isIdle = tx == null || (this.evseIdle.get(targetEvseId) ?? false);
-          gen.tick(isIdle, this.evsePowerLimits.get(targetEvseId) ?? null);
+          gen.tick(isIdle, this.powerLimitFor(targetEvseId));
 
           const measurands = tx != null ? this.getSampledMeasurands() : this.getAlignedMeasurands();
           const sampledValues = gen.generate(
@@ -7211,7 +7233,7 @@ export class StationSimulator {
               let txMeterValue: Array<Record<string, unknown>> | undefined;
               if (txGen != null) {
                 const txIdle = this.evseIdle.get(evse.evseId) ?? false;
-                txGen.tick(txIdle, this.evsePowerLimits.get(evse.evseId) ?? null);
+                txGen.tick(txIdle, this.powerLimitFor(evse.evseId));
                 const txMeasurands = this.getSampledMeasurands();
                 const txSampled = txGen.generate(
                   txMeasurands.length > 0
@@ -9025,7 +9047,7 @@ export class StationSimulator {
       }
 
       // Advance simulation state
-      gen.tick(idle, this.evsePowerLimits.get(evseId) ?? null);
+      gen.tick(idle, this.powerLimitFor(evseId));
 
       // N07: threshold and delta monitors on the EVSE Power
       if (!this.is16) {
@@ -9585,6 +9607,27 @@ export class StationSimulator {
   // Synchronous check using cached transaction ID for meter loop
   // We store per-EVSE txId in memory when startCharging/stopCharging is called
   private readonly activeTransactionIds = new Map<number, string>();
+
+  /**
+   * Power limit an EVSE charges at: its own profile limit and its even share
+   * of the station-wide limit among the EVSEs with a transaction.
+   */
+  private powerLimitFor(evseId: number): number | null {
+    const own = this.evsePowerLimits.get(evseId) ?? null;
+    if (this.stationPowerLimitW == null) return own;
+    const charging = this.config.evses.filter(
+      (e) => this.getActiveTransactionSync(e.evseId) != null,
+    ).length;
+    const share = this.stationPowerLimitW / Math.max(1, charging);
+    return own == null ? share : Math.min(own, share);
+  }
+
+  // A limit in A is per phase: W = A x voltage x phases of the first EVSE.
+  private limitToWatts(limit: number, unit: string | undefined): number {
+    if (unit !== 'A') return limit;
+    const evse = this.config.evses[0];
+    return evse == null ? limit : limit * evse.voltage * Math.max(1, evse.phases);
+  }
 
   private getActiveTransactionSync(evseId: number): string | null {
     return this.activeTransactionIds.get(evseId) ?? null;

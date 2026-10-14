@@ -5,10 +5,11 @@ import type { FastifyServerOptions } from 'fastify';
 import {
   RedisPubSubClient,
   createBullMQConnection,
+  createLogger,
   initSentry,
   logFormatOptions,
 } from '@evtivity/lib';
-import { getSentryConfig } from '@evtivity/database';
+import { getSentryConfig, guardPgConnectionRejections } from '@evtivity/database';
 import { buildOcpiApp } from './app.js';
 import { OcpiPushListener } from './services/push.service.js';
 import { OcpiPullListener } from './services/pull.service.js';
@@ -20,6 +21,9 @@ import { setPubSub } from './lib/pubsub.js';
 import { config } from './lib/config.js';
 
 async function start(): Promise<void> {
+  // A backend terminated while postgres.js fetches its array types must not end
+  // the process (pg-connection-rejections.ts).
+  guardPgConnectionRejections(createLogger('ocpi'));
   const sentryConfig = await getSentryConfig();
   initSentry('evtivity-ocpi', sentryConfig);
 

@@ -59,6 +59,46 @@ describe('SetChargingProfile (K01)', () => {
     expect(profiles(h).get(10)).toMatchObject({ _evseId: 1, _chargingLimitSource: 'CSO' });
   });
 
+  it('2.1: throttles charging EVSEs to a ChargingStationMaxProfile on EVSE 0', async () => {
+    const h = await makeHarness();
+    const limitFor = (evseId: number): number | null =>
+      (h.p['powerLimitFor'] as (id: number) => number | null).call(h.sim, evseId);
+    const res = await h.invoke('SetChargingProfile', {
+      evseId: 0,
+      chargingProfile: txDefaultProfile(1_000_000_000, 7000, {
+        chargingProfilePurpose: 'ChargingStationMaxProfile',
+        stackLevel: 1,
+      }),
+    });
+    expect(res).toEqual({ status: 'Accepted' });
+    expect(limitFor(1)).toBe(7000);
+
+    // Cleared by id: the EVSE charges at its own rate again.
+    await h.invoke('ClearChargingProfile', { chargingProfileId: 1_000_000_000 });
+    expect(limitFor(1)).toBeNull();
+  });
+
+  it('1.6: throttles to a ChargePointMaxProfile on connector 0, converting A to W', async () => {
+    const h = await makeHarness({ protocol: 'ocpp1.6' });
+    const limitFor = (evseId: number): number | null =>
+      (h.p['powerLimitFor'] as (id: number) => number | null).call(h.sim, evseId);
+    await h.invoke('SetChargingProfile', {
+      connectorId: 0,
+      csChargingProfiles: {
+        chargingProfileId: 7,
+        stackLevel: 1,
+        chargingProfilePurpose: 'ChargePointMaxProfile',
+        chargingProfileKind: 'Absolute',
+        chargingSchedule: {
+          chargingRateUnit: 'A',
+          chargingSchedulePeriod: [{ startPeriod: 0, limit: 10 }],
+        },
+      },
+    });
+    // 10 A per phase x 230 V x 3 phases.
+    expect(limitFor(1)).toBe(6900);
+  });
+
   it('2.1: stamps external constraints as EMS', async () => {
     const h = await makeHarness();
     await h.invoke('SetChargingProfile', {
@@ -165,6 +205,25 @@ describe('SetChargingProfile (K01)', () => {
     ).toEqual({ status: 'Accepted' });
     expect(powerLimit(h, 1)).toBe(16);
     expect(profiles(h).get(4)).toMatchObject({ _evseId: 1 });
+  });
+
+  it('1.6: applies the limit of a schema-shaped profile (one schedule object)', async () => {
+    const h = await makeHarness({ protocol: 'ocpp1.6' });
+    const res = await h.invoke('SetChargingProfile', {
+      connectorId: 1,
+      csChargingProfiles: {
+        chargingProfileId: 5,
+        stackLevel: 0,
+        chargingProfilePurpose: 'TxDefaultProfile',
+        chargingProfileKind: 'Absolute',
+        chargingSchedule: {
+          chargingRateUnit: 'W',
+          chargingSchedulePeriod: [{ startPeriod: 0, limit: 6000 }],
+        },
+      },
+    });
+    expect(res).toEqual({ status: 'Accepted' });
+    expect(powerLimit(h, 1)).toBe(6000);
   });
 });
 

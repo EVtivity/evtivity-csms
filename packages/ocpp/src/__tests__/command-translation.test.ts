@@ -5,6 +5,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { translateCommand, translateResponse } from '../server/command-translation.js';
+import { validateSetChargingProfile } from '../generated/v1_6/validators/SetChargingProfile.validator.js';
+import { validateClearChargingProfile } from '../generated/v1_6/validators/ClearChargingProfile.validator.js';
 
 describe('command-translation', () => {
   describe('translateCommand', () => {
@@ -206,13 +208,154 @@ describe('command-translation', () => {
     });
 
     describe('SetChargingProfile', () => {
-      it('maps evseId to connectorId for ocpp1.6', () => {
+      it('sends the load management station limit to a 1.6 station as ChargePointMaxProfile', () => {
+        // The payload buildLoadManagementProfile (services) publishes.
         const result = translateCommand('SetChargingProfile', 'ocpp1.6', {
-          evseId: 2,
-          chargingProfile: { id: 1 },
+          evseId: 0,
+          chargingProfile: {
+            id: 1_000_000_000,
+            stackLevel: 1,
+            chargingProfilePurpose: 'ChargingStationMaxProfile',
+            chargingProfileKind: 'Absolute',
+            chargingSchedule: [
+              {
+                id: 1,
+                startSchedule: '2026-10-13T11:59:30.000Z',
+                chargingRateUnit: 'W',
+                chargingSchedulePeriod: [{ startPeriod: 0, limit: 22000 }],
+              },
+            ],
+          },
         });
-        expect(result?.payload).toHaveProperty('connectorId', 2);
-        expect(result?.payload).not.toHaveProperty('evseId');
+        expect(result?.payload).toEqual({
+          connectorId: 0,
+          csChargingProfiles: {
+            chargingProfileId: 1_000_000_000,
+            stackLevel: 1,
+            chargingProfilePurpose: 'ChargePointMaxProfile',
+            chargingProfileKind: 'Absolute',
+            chargingSchedule: {
+              startSchedule: '2026-10-13T11:59:30.000Z',
+              chargingRateUnit: 'W',
+              chargingSchedulePeriod: [{ startPeriod: 0, limit: 22000 }],
+            },
+          },
+        });
+      });
+
+      const profile21 = {
+        evseId: 2,
+        chargingProfile: {
+          id: 101,
+          stackLevel: 1,
+          chargingProfilePurpose: 'ChargingStationMaxProfile',
+          chargingProfileKind: 'Recurring',
+          recurrencyKind: 'Daily',
+          validFrom: '2026-10-01T00:00:00.000Z',
+          validTo: '2026-12-31T00:00:00.000Z',
+          chargingSchedule: [
+            {
+              id: 1,
+              chargingRateUnit: 'W',
+              startSchedule: '2026-10-01T00:00:00.000Z',
+              duration: 86400,
+              minChargingRate: 1380.04,
+              chargingSchedulePeriod: [
+                { startPeriod: 0, limit: 11000.04, numberPhases: 3 },
+                { startPeriod: 3600, limit: 7400 },
+              ],
+            },
+          ],
+        },
+      };
+
+      it('builds a schema-valid 1.6 csChargingProfiles from the 2.1 profile', () => {
+        const result = translateCommand('SetChargingProfile', 'ocpp1.6', profile21);
+        expect(result?.payload).toEqual({
+          connectorId: 2,
+          csChargingProfiles: {
+            chargingProfileId: 101,
+            stackLevel: 1,
+            chargingProfilePurpose: 'ChargePointMaxProfile',
+            chargingProfileKind: 'Recurring',
+            recurrencyKind: 'Daily',
+            validFrom: '2026-10-01T00:00:00.000Z',
+            validTo: '2026-12-31T00:00:00.000Z',
+            chargingSchedule: {
+              duration: 86400,
+              startSchedule: '2026-10-01T00:00:00.000Z',
+              chargingRateUnit: 'W',
+              chargingSchedulePeriod: [
+                { startPeriod: 0, limit: 11000, numberPhases: 3 },
+                { startPeriod: 3600, limit: 7400 },
+              ],
+              minChargingRate: 1380,
+            },
+          },
+        });
+        expect(validateSetChargingProfile(result?.payload)).toBe(true);
+      });
+
+      it('refuses ChargingStationExternalConstraints, which a CSMS never sends', () => {
+        expect(() =>
+          translateCommand('SetChargingProfile', 'ocpp1.6', {
+            evseId: 0,
+            chargingProfile: {
+              id: 1,
+              stackLevel: 0,
+              chargingProfilePurpose: 'ChargingStationExternalConstraints',
+              chargingProfileKind: 'Absolute',
+              chargingSchedule: [
+                {
+                  id: 1,
+                  chargingRateUnit: 'W',
+                  chargingSchedulePeriod: [{ startPeriod: 0, limit: 7333.333 }],
+                },
+              ],
+            },
+          }),
+        ).toThrow('not supported on ocpp1.6');
+      });
+
+      it('makes a TxProfile transaction id numeric', () => {
+        const result = translateCommand('SetChargingProfile', 'ocpp1.6', {
+          evseId: 1,
+          chargingProfile: {
+            ...profile21.chargingProfile,
+            chargingProfilePurpose: 'TxProfile',
+            transactionId: '42',
+          },
+        });
+        expect(validateSetChargingProfile(result?.payload)).toBe(true);
+        expect(
+          (result?.payload as { csChargingProfiles: Record<string, unknown> }).csChargingProfiles[
+            'transactionId'
+          ],
+        ).toBe(42);
+      });
+
+      it('refuses what a 1.6 station cannot take', () => {
+        const withPurpose = (purpose: string) => ({
+          evseId: 0,
+          chargingProfile: { ...profile21.chargingProfile, chargingProfilePurpose: purpose },
+        });
+        expect(() =>
+          translateCommand('SetChargingProfile', 'ocpp1.6', withPurpose('PriorityCharging')),
+        ).toThrow('not supported on ocpp1.6');
+        expect(() =>
+          translateCommand('SetChargingProfile', 'ocpp1.6', withPurpose('LocalGeneration')),
+        ).toThrow('not supported on ocpp1.6');
+        expect(() =>
+          translateCommand('SetChargingProfile', 'ocpp1.6', {
+            evseId: 1,
+            chargingProfile: { ...profile21.chargingProfile, transactionId: 'tx-abc' },
+          }),
+        ).toThrow('Invalid transactionId');
+      });
+
+      it('sends the 2.1 payload unchanged to ocpp2.1', () => {
+        const result = translateCommand('SetChargingProfile', 'ocpp2.1', profile21);
+        expect(result?.payload).toEqual(profile21);
       });
     });
 
@@ -223,6 +366,22 @@ describe('command-translation', () => {
         });
         expect(result?.payload).toHaveProperty('connectorId', 3);
         expect(result?.payload).not.toHaveProperty('evseId');
+      });
+
+      it('maps the 2.1 purpose to its 1.6 name', () => {
+        const result = translateCommand('ClearChargingProfile', 'ocpp1.6', {
+          chargingProfileCriteria: {
+            chargingProfilePurpose: 'ChargingStationMaxProfile',
+            stackLevel: 0,
+            evseId: 0,
+          },
+        });
+        expect(result?.payload).toEqual({
+          chargingProfilePurpose: 'ChargePointMaxProfile',
+          stackLevel: 0,
+          connectorId: 0,
+        });
+        expect(validateClearChargingProfile(result?.payload)).toBe(true);
       });
     });
 
@@ -659,7 +818,7 @@ describe('command-translation', () => {
         const result = translateCommand('ClearChargingProfile', 'ocpp1.6', {
           chargingProfileCriteria: { chargingProfilePurpose: 'ChargingStationMaxProfile' },
         });
-        expect(result?.payload).toEqual({ chargingProfilePurpose: 'ChargingStationMaxProfile' });
+        expect(result?.payload).toEqual({ chargingProfilePurpose: 'ChargePointMaxProfile' });
         expect(result?.payload).not.toHaveProperty('id');
         expect(result?.payload).not.toHaveProperty('connectorId');
       });
@@ -709,6 +868,44 @@ describe('command-translation', () => {
       const response = { status: 'OK' };
       const result = translateResponse('Reset', 'ocpp99.9', response);
       expect(result).toEqual({ status: 'OK' });
+    });
+
+    it('returns a 1.6 composite schedule in the 2.1 shape', () => {
+      const result = translateResponse(
+        'GetCompositeSchedule',
+        'ocpp1.6',
+        {
+          status: 'Accepted',
+          connectorId: 1,
+          scheduleStart: '2026-10-13T08:00:00.000Z',
+          chargingSchedule: {
+            duration: 3600,
+            chargingRateUnit: 'A',
+            chargingSchedulePeriod: [{ startPeriod: 0, limit: 16, numberPhases: 3 }],
+          },
+        },
+        { evseId: 1, duration: 3600 },
+      );
+      expect(result).toEqual({
+        status: 'Accepted',
+        schedule: {
+          evseId: 1,
+          duration: 3600,
+          scheduleStart: '2026-10-13T08:00:00.000Z',
+          chargingRateUnit: 'A',
+          chargingSchedulePeriod: [{ startPeriod: 0, limit: 16, numberPhases: 3 }],
+        },
+      });
+    });
+
+    it('returns a rejected 1.6 composite schedule without a schedule', () => {
+      const result = translateResponse(
+        'GetCompositeSchedule',
+        'ocpp1.6',
+        { status: 'Rejected' },
+        { evseId: 0, duration: 60 },
+      );
+      expect(result).toEqual({ status: 'Rejected' });
     });
   });
 

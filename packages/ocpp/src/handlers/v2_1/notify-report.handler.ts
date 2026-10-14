@@ -4,26 +4,6 @@
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import { maskStationCredentials } from '@evtivity/lib/secret-config';
 
-interface ReportDataEntry {
-  component?: { name?: string };
-  variable?: { name?: string };
-  variableAttribute?: { value?: string }[];
-}
-
-function findVariableValue(
-  reportData: unknown[],
-  componentName: string,
-  variableName: string,
-): string | null {
-  for (const entry of reportData) {
-    const item = entry as ReportDataEntry;
-    if (item.component?.name === componentName && item.variable?.name === variableName) {
-      return item.variableAttribute?.[0]?.value ?? null;
-    }
-  }
-  return null;
-}
-
 export async function handleNotifyReport(ctx: HandlerContext): Promise<Record<string, unknown>> {
   const request = ctx.payload as {
     requestId: number;
@@ -59,47 +39,10 @@ export async function handleNotifyReport(ctx: HandlerContext): Promise<Record<st
     },
   });
 
-  // OCPP 2.1 K01.FR.80: when station reports MaxExternalConstraintsId, send SetChargingProfile
-  // using that ID so the station knows which profile ID to expect for external constraints.
-  if (request.reportData != null && request.reportData.length > 0) {
-    const maxIdStr = findVariableValue(
-      request.reportData,
-      'SmartChargingCtrlr',
-      'MaxExternalConstraintsId',
-    );
-    if (maxIdStr != null) {
-      const profileId = parseInt(maxIdStr, 10);
-      if (!isNaN(profileId)) {
-        ctx.logger.info(
-          { stationId: ctx.stationId, profileId },
-          'MaxExternalConstraintsId received, sending SetChargingProfile',
-        );
-        try {
-          await ctx.dispatcher.sendCommand(ctx.stationId, 'SetChargingProfile', {
-            evseId: 0,
-            chargingProfile: {
-              id: profileId,
-              stackLevel: 0,
-              chargingProfilePurpose: 'ChargingStationExternalConstraints',
-              chargingProfileKind: 'Absolute',
-              chargingSchedule: [
-                {
-                  id: 1,
-                  chargingRateUnit: 'W',
-                  chargingSchedulePeriod: [{ startPeriod: 0, limit: 0.0 }],
-                },
-              ],
-            },
-          });
-        } catch (err) {
-          ctx.logger.warn(
-            { err, stationId: ctx.stationId },
-            'Failed to send SetChargingProfile for MaxExternalConstraintsId',
-          );
-        }
-      }
-    }
-  }
+  // A reported SmartChargingCtrlr.MaxExternalConstraintsId is only recorded
+  // (the NotifyReport projection stores it in station_configurations). The
+  // CSMS never sends a ChargingStationExternalConstraints profile (K01.FR.22);
+  // K01.FR.80 asks only that its own profile ids stay above that value.
 
   return {};
 }

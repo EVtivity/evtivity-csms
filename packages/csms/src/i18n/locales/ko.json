@@ -880,6 +880,8 @@
     "rebootFailed": "재부팅 실패.",
     "rebootRejectedStatus": "충전소가 재부팅을 거부함 ({{status}})",
     "limitSource": "제한 출처",
+    "profileSourceCsms": "CSMS",
+    "profileSourceStation": "충전소",
     "evChargingNeeds": "EV 충전 요구사항",
     "noEvChargingNeeds": "보고된 EV 충전 요구사항이 없습니다",
     "departureTime": "출발 시간",
@@ -941,7 +943,8 @@
     "maxPowerUnknown": "최대 출력 알 수 없음",
     "maxPowerUnknownHint": "최대 출력이 설정될 때까지 부하 관리가 이 커넥터를 제한할 수 없습니다. EVSE를 편집하여 설정하세요. OCPP 2.1 충전소는 구성 보고서에서 자동으로 채웁니다.",
     "removeTag": "{{tag}} 태그 제거",
-    "messageCommandQueued": "충전소가 오프라인입니다. 명령이 대기열에 추가되었으며 충전소가 다시 연결되면 전송됩니다."
+    "messageCommandQueued": "충전소가 오프라인입니다. 명령이 대기열에 추가되었으며 충전소가 다시 연결되면 전송됩니다.",
+    "chargingNeedsTab": "충전 요구 및 모니터"
   },
   "eventAlertRules": {
     "title": "이벤트 알림 규칙",
@@ -3276,7 +3279,8 @@
     "AI_PROPOSAL_STALE": "상황이 바뀌어 이 작업은 더 이상 유효하지 않습니다",
     "AI_PROPOSAL_ALREADY_DECIDED": "이 작업은 이미 처리되었습니다",
     "AI_CONFIRMATION_REQUIRES_SESSION": "API 키가 아닌 대시보드에 로그인한 상태에서 이 작업을 확인하세요",
-    "AI_MCP_RATE_LIMITED": "MCP 요청이 너무 많습니다. 나중에 다시 시도하세요"
+    "AI_MCP_RATE_LIMITED": "MCP 요청이 너무 많습니다. 나중에 다시 시도하세요",
+    "CHARGING_PROFILE_ID_RESERVED": "충전 프로필 ID는 충전소의 MaxExternalConstraintsId보다 커야 합니다."
   },
   "logs": {
     "title": "로그",
@@ -3634,14 +3638,14 @@
     "noCampaignRuns": "아직 캠페인 실행 없음",
     "error": "오류",
     "confirmStart": "캠페인 시작",
-    "confirmStartDescription": "모든 일치하는 충전소에 펌웨어 업데이트를 배포합니다. 계속하시겠습니까?",
+    "confirmStartDescription": "일치하는 모든 온라인 충전소에 지금 펌웨어 업데이트를 보냅니다. 오프라인 충전소는 연결될 때 받습니다. 계속하시겠습니까?",
     "confirmCancel": "캠페인 취소",
     "confirmCancelDescription": "중단하면 현재 펌웨어를 다운로드 또는 설치 중인 충전소가 손상될 수 있습니다. 이미 완전히 업데이트된 충전소는 영향을 받지 않습니다. 계속하시겠습니까?",
     "cancelWarning": "지금 중단하면 업데이트 중인 충전소가 손상될 수 있습니다. 필요한 경우에만 계속하세요.",
     "confirmDelete": "캠페인 삭제",
     "confirmDeleteDescription": "초안 캠페인이 영구적으로 삭제됩니다.",
     "targetFilter": "대상 필터",
-    "targetFilterHelp": "전체 온라인 충전소를 대상으로 하려면 비워두세요",
+    "targetFilterHelp": "비워 두면 모든 충전소가 대상입니다. 오프라인 충전소는 연결될 때 업데이트를 받습니다.",
     "allSites": "전체 사이트",
     "allVendors": "전체 제조사",
     "allModels": "전체 모델",
@@ -3649,7 +3653,7 @@
     "vendor": "제조사",
     "model": "모델",
     "matchingStations": "일치하는 충전소",
-    "noMatchingStations": "현재 필터와 일치하는 온라인 충전소가 없습니다",
+    "noMatchingStations": "현재 필터와 일치하는 충전소가 없습니다",
     "currentFirmware": "현재 펌웨어",
     "signingCertificate": "서명 인증서 (PEM)",
     "signature": "펌웨어 서명 (base64)",
@@ -3661,7 +3665,32 @@
     "signatureTooLong": "서명은 최대 800자까지 입력할 수 있습니다",
     "signatureStatus": "서명",
     "signed": "서명됨",
-    "unsigned": "서명 안 됨"
+    "unsigned": "서명 안 됨",
+    "statuses": {
+      "draft": "초안",
+      "active": "활성",
+      "completed": "완료",
+      "cancelled": "취소됨"
+    },
+    "stationStatuses": {
+      "pending": "대기 중",
+      "downloading": "다운로드 중",
+      "downloaded": "다운로드됨",
+      "installing": "설치 중",
+      "installed": "설치됨",
+      "failed": "실패"
+    },
+    "retries": "다운로드 재시도 횟수",
+    "retriesHelp": "충전소가 실패한 다운로드를 다시 시도하는 횟수입니다. 0은 재시도하지 않음을 의미합니다. 비워 두면 충전소가 결정합니다.",
+    "retryInterval": "재시도 간격(초)",
+    "retryIntervalHelp": "다운로드 재시도 사이의 초입니다. 비워 두면 충전소가 결정합니다.",
+    "installDateTime": "설치 시간",
+    "installDateTimeHelp": "충전소는 먼저 펌웨어를 다운로드하고 이 시간에 설치합니다. 서명된 업데이트가 아닌 1.6 충전소는 다운로드 직후 설치합니다. 비워 두면 다운로드 직후 설치합니다.",
+    "invalidRetries": "0에서 {{max}} 사이의 정수를 입력하세요",
+    "invalidRetryInterval": "1에서 {{max}} 사이의 초를 정수로 입력하세요",
+    "installInPast": "미래의 시간을 입력하세요",
+    "stationDecides": "충전소가 결정",
+    "afterDownload": "다운로드 후"
   },
   "smartCharging": {
     "title": "스마트 충전",
@@ -3895,7 +3924,15 @@
     "oversubscribed": "초과 구독됨",
     "oversubscriptionWarning": "비율이 1.0 이상이면 배전반 정격보다 더 많은 충전소 용량을 설치할 수 있습니다. 부하 관리가 차단기 제한을 동적으로 적용합니다.",
     "priorityFor": "{{stationId}} 우선순위",
-    "deleteLoad": "{{name}} 부하 삭제"
+    "deleteLoad": "{{name}} 부하 삭제",
+    "historyDraw": "사용량: {{kw}} kW",
+    "historyAvailable": "사용 가능: {{kw}} kW",
+    "historyLimit": "사이트 한도: {{kw}} kW",
+    "threePhaseVoltageHint": "3상 배전반은 상-중성선 전압을 사용합니다: 208Y/120은 120 V, 400Y/230은 230 V, 480Y/277은 277 V.",
+    "minPower": "최소 전력 (kW)",
+    "minPowerFor": "{{stationId}}의 최소 전력",
+    "limitUnit": "한도 단위",
+    "minPowerHint": "충전 세션은 충전소 최소 전력보다 적게 받지 않습니다. 최소값의 합이 용량을 넘으면 우선순위가 가장 낮은 세션부터 중지됩니다. 암페어만 지원하는 충전소는 한도를 A로 받습니다."
   },
   "ai": {
     "title": "AI 어시스턴트",
@@ -4882,6 +4919,9 @@
     "detail": {
       "recordTitle": "세부 정보",
       "session": "세션",
+      "reservation": "예약",
+      "driver": "운전자",
+      "token": "토큰",
       "partOf": "상위 항목"
     },
     "likelyCause": "추정 원인",
@@ -5023,5 +5063,46 @@
     "siteInsights": "자동 인사이트",
     "siteInsightsHelp": "이 사이트의 자동 인사이트를 중지하려면 끄십시오.",
     "allSitesOnly": "모든 사이트에 접근할 수 있는 사용자만 변경할 수 있습니다."
+  },
+  "stationChargingNeeds": {
+    "needsTitle": "EV 충전 요구",
+    "noNeeds": "활성 세션에 대해 ISO 15118 충전 요구를 보고한 EV가 없습니다.",
+    "evse": "EVSE",
+    "energyTransfer": "에너지 전송",
+    "controlMode": "제어 모드",
+    "requestedEnergy": "요청 에너지",
+    "departureTime": "출발 시간",
+    "csmsLimit": "CSMS 한도",
+    "noProfileSent": "전송된 프로필 없음",
+    "updated": "업데이트됨",
+    "schedulesTitle": "EV 충전 일정",
+    "noSchedules": "수신된 EV 충전 일정이 없습니다.",
+    "timeBase": "기준 시간",
+    "firstLimit": "첫 번째 한도",
+    "periods": "기간",
+    "check": "검사",
+    "received": "수신됨",
+    "notChecked": "검사 안 됨",
+    "withinLimits": "한도 이내",
+    "exceedsLimits": "한도 초과",
+    "monitorsTitle": "변수 모니터",
+    "noMonitors": "설정된 변수 모니터가 없습니다.",
+    "addMonitor": "모니터 추가",
+    "stationOffline": "모니터를 설정하려면 충전소가 온라인이어야 합니다.",
+    "component": "컴포넌트",
+    "variable": "변수",
+    "monitorType": "모니터 유형",
+    "value": "값",
+    "severity": "심각도",
+    "monitorId": "모니터 ID",
+    "clearMonitor": "모니터 삭제",
+    "confirmClearMonitor": "이 모니터를 충전소에서 삭제하시겠습니까? 활성 모니터는 먼저 충전소에서 삭제됩니다.",
+    "valueMustBePositive": "이 모니터 유형의 값은 0보다 커야 합니다",
+    "status": {
+      "pending": "대기 중",
+      "active": "활성",
+      "error": "오류",
+      "cleared": "삭제됨"
+    }
   }
 }

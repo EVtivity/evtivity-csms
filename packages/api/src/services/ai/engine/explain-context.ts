@@ -230,13 +230,24 @@ async function loadInsight(id: string): Promise<ExplainSubject | null> {
   };
 }
 
-const LOADERS: Readonly<Record<AiContextKind, (id: string) => Promise<ExplainSubject | null>>> = {
-  station: loadStation,
-  session: loadSession,
-  authorization: loadAuthorization,
-  reservation: loadReservation,
-  insight: loadInsight,
-};
+// An explicit switch, not a property lookup: a kind read from a request or a
+// stored conversation can only select one of these loaders.
+async function loadSubject(kind: string, id: string): Promise<ExplainSubject | null | undefined> {
+  switch (kind) {
+    case 'station':
+      return loadStation(id);
+    case 'session':
+      return loadSession(id);
+    case 'authorization':
+      return loadAuthorization(id);
+    case 'reservation':
+      return loadReservation(id);
+    case 'insight':
+      return loadInsight(id);
+    default:
+      return undefined;
+  }
+}
 
 /**
  * Checks the caller may read the record, with the rules of its detail route.
@@ -248,8 +259,10 @@ export async function resolveExplainSubject(
   id: string,
   access: ExplainAccess,
 ): Promise<ExplainResolution> {
+  if (!Object.hasOwn(EXPLAIN_READ_PERMISSION, kind)) return { status: 'forbidden' };
   if (!(await access.hasPermission(EXPLAIN_READ_PERMISSION[kind]))) return { status: 'forbidden' };
-  const subject = await LOADERS[kind](id);
+  const subject = await loadSubject(kind, id);
+  if (subject === undefined) return { status: 'forbidden' };
   if (subject === null) return { status: 'missing' };
   if (!siteInScope(await getUserSiteIds(access.userId), subject.siteId)) {
     return { status: 'forbidden' };

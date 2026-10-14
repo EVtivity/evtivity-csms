@@ -16,6 +16,7 @@ import {
   resolvePriceDisplay,
   resolveTaxBasis,
 } from '@evtivity/lib';
+import { enqueueStationTransaction } from '@evtivity/services/station-message.service';
 import {
   dispatchDriverNotification,
   dispatchSystemNotification,
@@ -245,7 +246,7 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
     }
   }
 
-  // Asks the api to re-render the station screen of an OCPP 2.x transaction.
+  // Queues the re-render of the station screen of an OCPP 2.x transaction.
   async function publishStationMessageTransaction(
     screen: { stationUuid: string; stationId: string; protocol: string | null },
     sessionId: string,
@@ -254,22 +255,16 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
   ): Promise<void> {
     if (screen.protocol == null || !screen.protocol.startsWith('ocpp2')) return;
     try {
-      await pubsub.publish(
-        'station_message_transaction',
-        JSON.stringify({
-          sessionId,
-          internalStationId: screen.stationUuid,
-          stationOcppId: screen.stationId,
-          ocppProtocol: screen.protocol,
-          eventType: kind,
-          chargingState,
-        }),
-      );
+      await enqueueStationTransaction({
+        sessionId,
+        internalStationId: screen.stationUuid,
+        stationOcppId: screen.stationId,
+        ocppProtocol: screen.protocol,
+        eventType: kind,
+        chargingState,
+      });
     } catch (err) {
-      logger.debug(
-        { err, sessionId, kind },
-        'Station-message transaction publish failed; continuing',
-      );
+      logger.debug({ err, sessionId, kind }, 'Station-message transaction not queued; continuing');
     }
   }
 

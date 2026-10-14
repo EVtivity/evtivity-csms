@@ -1,14 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { Worker, type Queue, type ConnectionOptions } from 'bullmq';
+import { Worker, type ConnectionOptions } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { client } from '@evtivity/database';
-import type { PubSubClient } from '@evtivity/lib';
 import { createLogger, withLock } from '@evtivity/lib';
 import {
-  FLEET_BILLING_FANOUT_CHANNEL,
-  fleetBillingFanoutJobId,
   runFleetBillingFanout,
   type FleetBillingFanoutJob,
 } from '@evtivity/services/fleet-billing-notice';
@@ -17,59 +14,6 @@ import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
 
 const log = createLogger('fleet-billing-fanout-worker');
 
-function isFanoutJob(value: unknown): value is FleetBillingFanoutJob {
-  if (value == null || typeof value !== 'object') return false;
-  const job = value as Partial<FleetBillingFanoutJob>;
-  // Read from the wire: the recipient may hold any value.
-  const recipient: unknown = job.recipient;
-  return (
-    typeof job.fleetId === 'string' &&
-    typeof job.enabled === 'boolean' &&
-    typeof job.changedAt === 'string' &&
-    !Number.isNaN(Date.parse(job.changedAt)) &&
-    (recipient === undefined || recipient === 'fleet' || recipient === 'member') &&
-    (job.enabledChanged === undefined || typeof job.enabledChanged === 'boolean')
-  );
-}
-
-/**
- * Subscribes to the fleet_billing_fanout channel: each payload is a fleet
- * billing change, one `fleet-billing-fanout` job per fleet and change, job id
- * deterministic per change (fleetBillingFanoutJobId, P7), so a repeated
- * publish enqueues nothing. "Invoice All Members" does not use this channel:
- * the API adds its jobs to the `member-invoices` queue itself.
- */
-export async function startFleetBillingFanoutBridge(
-  pubsub: PubSubClient,
-  queue: Queue,
-): Promise<() => Promise<void>> {
-  const subscription = await pubsub.subscribe(FLEET_BILLING_FANOUT_CHANNEL, (payload: string) => {
-    let data: unknown;
-    try {
-      data = JSON.parse(payload);
-    } catch (err) {
-      log.warn({ err, payload: payload.slice(0, 200) }, 'Malformed fleet_billing_fanout payload');
-      return;
-    }
-    if (!isFanoutJob(data)) {
-      log.warn({ payload: payload.slice(0, 200) }, 'Invalid fleet_billing_fanout payload');
-      return;
-    }
-    void queue
-      .add('fleet-billing-fanout', data, { jobId: fleetBillingFanoutJobId(data) })
-      .catch((err: unknown) => {
-        log.error({ err, fleetId: data.fleetId }, 'Failed to enqueue fleet-billing-fanout job');
-      });
-  });
-
-  log.info('Fleet billing fan-out bridge started');
-
-  return async () => {
-    await subscription.unsubscribe();
-    log.info('Fleet billing fan-out bridge stopped');
-  };
-}
-
 /** Redis key of the per-fleet fan-out lock (ACL prefix `wkl:`). */
 export function fleetBillingFanoutLockKey(fleetId: string): string {
   return `wkl:fleet-billing:${fleetId}`;
@@ -77,7 +21,9 @@ export function fleetBillingFanoutLockKey(fleetId: string): string {
 
 /**
  * Runs a fleet switch fan-out: fleet.AccountBillingChanged to each member
- * whose billing the change moved. Each member is fail-open (logged), so the
+ * whose billing the change moved. The API adds the jobs itself
+ * (enqueueFleetBillingFanout), so a change waits while no worker runs. Each
+ * member is fail-open (logged), so the
  * job fails only when the member list cannot be read.
  *
  * `concurrency` is per worker instance. A per-fleet Redis lock serializes the

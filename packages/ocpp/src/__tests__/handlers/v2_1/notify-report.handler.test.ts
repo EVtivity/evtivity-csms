@@ -106,7 +106,7 @@ describe('v2_1 NotifyReport handler', () => {
     expect(sendCommandMock).not.toHaveBeenCalled();
   });
 
-  it('sends SetChargingProfile with the reported MaxExternalConstraintsId', async () => {
+  it('records MaxExternalConstraintsId and sends no charging profile (K01.FR.22, K01.FR.80)', async () => {
     const { handleNotifyReport } = notifyReportHandlerModule;
     const { ctx, sendCommandMock } = makeCtx({
       requestId: 1,
@@ -122,17 +122,9 @@ describe('v2_1 NotifyReport handler', () => {
     });
     await handleNotifyReport(ctx);
 
-    expect(sendCommandMock).toHaveBeenCalledWith(
-      'CS-001',
-      'SetChargingProfile',
-      expect.objectContaining({
-        evseId: 0,
-        chargingProfile: expect.objectContaining({
-          id: 77,
-          chargingProfilePurpose: 'ChargingStationExternalConstraints',
-        }) as unknown,
-      }),
-    );
+    // A CSMS never sends ChargingStationExternalConstraints, and a profile id
+    // at or below MaxExternalConstraintsId would be rejected (K01.FR.81).
+    expect(sendCommandMock).not.toHaveBeenCalled();
   });
 
   it('does not send a command when MaxExternalConstraintsId is not a number', async () => {
@@ -170,27 +162,6 @@ describe('v2_1 NotifyReport handler', () => {
     await handleNotifyReport(ctx);
 
     expect(sendCommandMock).not.toHaveBeenCalled();
-  });
-
-  it('swallows a dispatcher.sendCommand failure and still returns empty', async () => {
-    const { handleNotifyReport } = notifyReportHandlerModule;
-    const { ctx, sendCommandMock } = makeCtx({
-      requestId: 1,
-      generatedAt: '2026-06-04T00:00:00Z',
-      seqNo: 0,
-      reportData: [
-        {
-          component: { name: 'SmartChargingCtrlr' },
-          variable: { name: 'MaxExternalConstraintsId' },
-          variableAttribute: [{ value: '12' }],
-        },
-      ],
-    });
-    sendCommandMock.mockRejectedValue(new Error('station offline'));
-    const response = await handleNotifyReport(ctx);
-
-    expect(response).toEqual({});
-    expect(sendCommandMock).toHaveBeenCalledTimes(1);
   });
 
   it('treats an empty reportData array as no constraints to apply', async () => {

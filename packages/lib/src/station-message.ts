@@ -4,7 +4,6 @@
 // Intl.DurationFormat (formatStationElapsed) ships in Node 24 but not in the ES2022 lib.
 /// <reference lib="es2025.intl" />
 
-import Handlebars from 'handlebars';
 import {
   formatFlatPrice,
   formatTariffSummary,
@@ -12,6 +11,7 @@ import {
   formatUnitPriceWithLabel,
 } from './currency.js';
 import { formatNumber, resolveLocale } from './number.js';
+import { compileAllowedTemplate, type TemplateRenderer } from './template-safety.js';
 import {
   formatTaxRatePercent,
   tariffPriceView,
@@ -233,7 +233,7 @@ export function formatStationQuantity(value: number, language: StationMessageLan
 
 interface CachedTemplate {
   cacheKey: string;
-  template: Handlebars.TemplateDelegate;
+  template: TemplateRenderer;
   expiresAt: number;
 }
 
@@ -285,7 +285,7 @@ export async function renderStationMessage(
 
   const key = `${state}:${lang}`;
   const cached = templateCache.get(key);
-  let template: Handlebars.TemplateDelegate | null = null;
+  let template: TemplateRenderer | null = null;
 
   if (cached != null && cached.expiresAt > Date.now()) {
     template = cached.template;
@@ -319,7 +319,7 @@ export async function renderStationMessage(
       cached.expiresAt = Date.now() + CACHE_TTL_MS;
       template = cached.template;
     } else {
-      template = Handlebars.compile(row.body, { noEscape: true });
+      template = compileAllowedTemplate(row.body, { noEscape: true });
       templateCache.set(key, {
         cacheKey,
         template,

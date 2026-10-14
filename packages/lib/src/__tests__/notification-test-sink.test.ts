@@ -73,6 +73,19 @@ describe('resolveNotificationTestSinkUrl', () => {
     }
   });
 
+  it('trims trailing slashes in linear time, a long run of inner slashes included', () => {
+    const env = { NODE_ENV: 'test', NOTIFICATIONS_ALLOW_TEST_SINK: 'true' };
+    expect(
+      resolveNotificationTestSinkUrl({ ...env, NOTIFICATIONS_TEST_SINK_URL: `${SINK}///` }),
+    ).toBe(SINK);
+    const inner = `${SINK}/${'/'.repeat(100_000)}x`;
+    const started = performance.now();
+    expect(resolveNotificationTestSinkUrl({ ...env, NOTIFICATIONS_TEST_SINK_URL: inner })).toBe(
+      inner,
+    );
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
   it('refuses the allow flag unless NODE_ENV is development or test, unset included', () => {
     for (const nodeEnv of [undefined, '', 'staging', 'Development', 'prod']) {
       expect(() =>

@@ -62,6 +62,9 @@
     "./firmware-signature": {
       "import": "./src/firmware-signature.ts"
     },
+    "./firmware-campaign": {
+      "import": "./src/firmware-campaign.ts"
+    },
     "./languages": {
       "import": "./src/languages.ts"
     },
@@ -73,6 +76,12 @@
     },
     "./pubsub-instance": {
       "import": "./src/pubsub-instance.ts"
+    },
+    "./job-queues": {
+      "import": "./src/job-queues.ts"
+    },
+    "./worker-queues": {
+      "import": "./src/worker-queues.ts"
     },
     "./safe-json": {
       "import": "./src/safe-json.ts"
@@ -115,6 +124,7 @@
   "dependencies": {
     "@sentry/node": "^10.42.0",
     "@xmldom/xmldom": "^0.9.12",
+    "bullmq": "^6.3.14",
     "handlebars": "^4.7.10",
     "html-to-text": "^10.0.1",
     "ioredis": "^5.9.3",

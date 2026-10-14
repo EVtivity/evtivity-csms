@@ -876,7 +876,8 @@
     "AI_PROPOSAL_STALE": "情况已变化，此操作不再适用",
     "AI_PROPOSAL_ALREADY_DECIDED": "此操作已处理",
     "AI_CONFIRMATION_REQUIRES_SESSION": "请登录控制台确认此操作，不能使用 API 密钥",
-    "AI_MCP_RATE_LIMITED": "MCP 请求过多，请稍后再试"
+    "AI_MCP_RATE_LIMITED": "MCP 请求过多，请稍后再试",
+    "CHARGING_PROFILE_ID_RESERVED": "充电配置文件 ID 必须大于充电站的 MaxExternalConstraintsId。"
   },
   "validation": {
     "required": "此字段为必填项",

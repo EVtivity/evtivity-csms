@@ -81,7 +81,7 @@ vi.mock('@evtivity/services/fleet-invoice-run', () => ({
   enqueueMemberInvoiceBatch: vi.fn(),
 }));
 const memberQueue = { addBulk: vi.fn() };
-vi.mock('../lib/member-invoice-queue.js', () => ({ memberInvoiceQueue: () => memberQueue }));
+vi.mock('@evtivity/lib/job-queues', () => ({ jobQueue: () => memberQueue }));
 vi.mock('@evtivity/services/fleet-invoice-notice', () => ({
   sendAccountInvoiceEmail: vi.fn(),
 }));
