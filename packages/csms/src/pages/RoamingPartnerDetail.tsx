@@ -254,7 +254,7 @@ export function RoamingPartnerDetail(): React.JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle>{t('roaming.partners.syncHistory')}</CardTitle>
+          <CardTitle>{t('roaming.partners.syncs')}</CardTitle>
         </CardHeader>
         <CardContent>
           {syncLog == null || syncLog.length === 0 ? (

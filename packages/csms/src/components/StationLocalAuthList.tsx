@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Plus, Trash2, Search, AlertTriangle } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { PushButton } from '@/components/push-button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -178,18 +179,14 @@ export function StationLocalAuthList({
       <CardHeader className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <CardTitle>{t('stations.localAuthList')}</CardTitle>
         <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
+          <PushButton
+            label={pushMutation.isPending ? t('stations.pushing') : t('stations.pushToStation')}
             disabled={!isOnline || pushMutation.isPending}
             onClick={() => {
               setPushConfirmOpen(true);
             }}
-          >
-            {pushMutation.isPending ? t('stations.pushing') : t('stations.pushToStation')}
-          </Button>
+          />
           <Button
-            size="sm"
             onClick={() => {
               setSelectedTokenIds(new Set());
               setTokenSearch('');

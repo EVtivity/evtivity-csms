@@ -6,10 +6,16 @@ import { createLogger } from '@evtivity/lib';
 import {
   clearPaymentSettingsCache,
   createPaymentRegistry,
+  PAYMENT_SYSTEM_ACTOR,
   queueSimulatedSink,
   resolveActiveProvider,
 } from '@evtivity/payments';
-import type { PaymentContext, PaymentLogger, PaymentProvider } from '@evtivity/payments';
+import type {
+  PaymentActor,
+  PaymentContext,
+  PaymentLogger,
+  PaymentProvider,
+} from '@evtivity/payments';
 import { config } from './config.js';
 
 /**
@@ -27,8 +33,13 @@ export const paymentRegistry = createPaymentRegistry({
   },
 });
 
-export function paymentContext(logger: PaymentLogger): PaymentContext {
-  return { registry: paymentRegistry, logger };
+/**
+ * The payment context of one call. `actor` is who the audit rows of the
+ * payment writes name: `getAuditActor(request)` in a route, or `system` with
+ * the reason for a call no request made.
+ */
+export function paymentContext(logger: PaymentLogger, actor: PaymentActor): PaymentContext {
+  return { registry: paymentRegistry, logger, actor };
 }
 
 /**
@@ -57,5 +68,6 @@ export function isPaymentSettingKey(key: string): boolean {
  * or the selected provider is not usable here (resolveActiveProvider).
  */
 export function activePaymentProvider(logger: PaymentLogger): Promise<PaymentProvider | null> {
-  return resolveActiveProvider(paymentContext(logger));
+  // A read: resolving the provider writes nothing.
+  return resolveActiveProvider(paymentContext(logger, PAYMENT_SYSTEM_ACTOR));
 }

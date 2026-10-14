@@ -109,6 +109,12 @@ vi.mock('../middleware/rbac.js', () => ({
     },
 }));
 
+const siteAuditMock = vi.fn().mockResolvedValue(undefined);
+vi.mock('../lib/load-management-audit.js', () => ({
+  writeSiteLoadManagementAudit: (...args: unknown[]) => siteAuditMock(...args) as Promise<void>,
+  writeStationLoadAudit: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { unmanagedLoadRoutes } from '../routes/unmanaged-loads.js';
 import { circuitRoutes } from '../routes/circuits.js';
@@ -159,6 +165,7 @@ describe('Load management site scope', () => {
     rec.where.length = 0;
     deleteMock.mockClear();
     updateMock.mockClear();
+    siteAuditMock.mockClear();
     getUserSiteIdsMock.mockReset().mockResolvedValue(['sit_a']);
   });
 
@@ -193,6 +200,11 @@ describe('Load management site scope', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ id: 7, name: 'renamed', estimatedDrawKw: 5 });
       expect(updateMock).toHaveBeenCalledTimes(1);
+      expect(siteAuditMock).toHaveBeenCalledWith(expect.anything(), 'sit_a', {
+        before: { unmanagedLoadId: 7, name: 'HVAC' },
+        after: { unmanagedLoadId: 7, name: 'renamed' },
+        notes: 'unmanaged load updated: renamed',
+      });
     });
   });
 
@@ -207,6 +219,7 @@ describe('Load management site scope', () => {
       expect(res.statusCode).toBe(404);
       expect(res.json()).toEqual(LOAD_NOT_FOUND);
       expect(deleteMock).not.toHaveBeenCalled();
+      expect(siteAuditMock).not.toHaveBeenCalled();
     });
 
     it('deletes a load on a panel of the URL site', async () => {
@@ -218,6 +231,11 @@ describe('Load management site scope', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(deleteMock).toHaveBeenCalledTimes(1);
+      expect(siteAuditMock).toHaveBeenCalledWith(expect.anything(), 'sit_a', {
+        before: { unmanagedLoad: expect.objectContaining({ id: 7, name: 'HVAC' }) },
+        after: null,
+        notes: 'unmanaged load deleted: HVAC',
+      });
     });
   });
 
@@ -237,7 +255,7 @@ describe('Load management site scope', () => {
     });
 
     it('deletes a circuit of the URL site', async () => {
-      setupDbResults([{ id: 'cir_a' }]);
+      setupDbResults([{ id: 'cir_a', panelId: 'pnl_a', name: 'Bay 1' }]);
       const res = await app.inject({
         method: 'DELETE',
         url: '/sites/sit_a/panels/pnl_a/circuits/cir_a',
@@ -245,6 +263,11 @@ describe('Load management site scope', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(deleteMock).toHaveBeenCalledTimes(1);
+      expect(siteAuditMock).toHaveBeenCalledWith(expect.anything(), 'sit_a', {
+        before: { circuit: { id: 'cir_a', panelId: 'pnl_a', name: 'Bay 1' } },
+        after: null,
+        notes: 'circuit deleted: Bay 1',
+      });
     });
 
     it('404s for a site outside the user scope before any query', async () => {

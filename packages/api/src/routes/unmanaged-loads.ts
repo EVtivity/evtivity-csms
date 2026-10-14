@@ -11,6 +11,8 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { changedFields } from '../lib/audit-diff.js';
+import { writeSiteLoadManagementAudit } from '../lib/load-management-audit.js';
 
 // --- Schemas ---
 
@@ -185,6 +187,12 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
         return;
       }
 
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: null,
+        after: { unmanagedLoad: created },
+        notes: `unmanaged load created: ${created.name}`,
+      });
+
       return reply.status(201).send(formatLoad(created));
     },
   );
@@ -352,6 +360,13 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const change = changedFields(existing, updated);
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: { unmanagedLoadId: loadId, ...change.before },
+        after: { unmanagedLoadId: loadId, ...change.after },
+        notes: `unmanaged load updated: ${updated.name}`,
+      });
+
       return formatLoad(updated);
     },
   );
@@ -389,6 +404,8 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
           id: unmanagedLoads.id,
           panelId: unmanagedLoads.panelId,
           circuitId: unmanagedLoads.circuitId,
+          name: unmanagedLoads.name,
+          estimatedDrawKw: unmanagedLoads.estimatedDrawKw,
         })
         .from(unmanagedLoads)
         .where(eq(unmanagedLoads.id, loadId));
@@ -399,6 +416,12 @@ export function unmanagedLoadRoutes(app: FastifyInstance): void {
       }
 
       await db.delete(unmanagedLoads).where(eq(unmanagedLoads.id, loadId));
+
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: { unmanagedLoad: existing },
+        after: null,
+        notes: `unmanaged load deleted: ${existing.name}`,
+      });
 
       return { success: true as const };
     },

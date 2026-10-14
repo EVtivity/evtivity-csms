@@ -238,6 +238,210 @@ ALTER TABLE "ev_charging_needs" ADD COLUMN IF NOT EXISTS "csms_charging_profile"
 --> statement-breakpoint
 ALTER TABLE "ev_charging_schedules" ADD COLUMN IF NOT EXISTS "within_limits" boolean;
 --> statement-breakpoint
+-- Complete audit coverage: the actions of the operator, driver and system
+-- writes that had no audit row. No statement of this file uses the values.
+ALTER TYPE "site_audit_action" ADD VALUE IF NOT EXISTS 'load_management_changed';
+--> statement-breakpoint
+ALTER TYPE "site_audit_action" ADD VALUE IF NOT EXISTS 'location_published_changed';
+--> statement-breakpoint
+ALTER TYPE "site_audit_action" ADD VALUE IF NOT EXISTS 'electricity_rates_changed';
+--> statement-breakpoint
+ALTER TYPE "site_audit_action" ADD VALUE IF NOT EXISTS 'payout_status_changed';
+--> statement-breakpoint
+ALTER TYPE "station_audit_action" ADD VALUE IF NOT EXISTS 'display_message_set';
+--> statement-breakpoint
+ALTER TYPE "station_audit_action" ADD VALUE IF NOT EXISTS 'display_message_cleared';
+--> statement-breakpoint
+ALTER TYPE "station_audit_action" ADD VALUE IF NOT EXISTS 'nevi_data_changed';
+--> statement-breakpoint
+ALTER TYPE "station_audit_action" ADD VALUE IF NOT EXISTS 'evse_changed';
+--> statement-breakpoint
+ALTER TYPE "station_audit_action" ADD VALUE IF NOT EXISTS 'monitoring_changed';
+--> statement-breakpoint
+ALTER TYPE "station_audit_action" ADD VALUE IF NOT EXISTS 'alert_acknowledged';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'payment_method_added';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'payment_method_removed';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'payment_method_default_changed';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'pnc_contract_issued';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'pnc_contract_revoked';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'login_succeeded';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'login_failed';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'mfa_enabled';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'mfa_disabled';
+--> statement-breakpoint
+ALTER TYPE "driver_audit_action" ADD VALUE IF NOT EXISTS 'roaming_session_started';
+--> statement-breakpoint
+ALTER TYPE "user_audit_action" ADD VALUE IF NOT EXISTS 'invite_resent';
+--> statement-breakpoint
+ALTER TYPE "session_audit_action" ADD VALUE IF NOT EXISTS 'cdr_credited';
+--> statement-breakpoint
+ALTER TYPE "session_audit_action" ADD VALUE IF NOT EXISTS 'faulted';
+--> statement-breakpoint
+ALTER TYPE "session_audit_action" ADD VALUE IF NOT EXISTS 'stopped_by_csms';
+--> statement-breakpoint
+ALTER TYPE "session_audit_action" ADD VALUE IF NOT EXISTS 'vehicle_changed';
+--> statement-breakpoint
+ALTER TYPE "tariff_audit_action" ADD VALUE IF NOT EXISTS 'tariff_mapping_changed';
+--> statement-breakpoint
+ALTER TYPE "pricing_group_audit_action" ADD VALUE IF NOT EXISTS 'tariff_mapping_changed';
+--> statement-breakpoint
+ALTER TYPE "certificate_audit_action" ADD VALUE IF NOT EXISTS 'expired';
+--> statement-breakpoint
+ALTER TYPE "support_case_audit_action" ADD VALUE IF NOT EXISTS 'attachment_deleted';
+--> statement-breakpoint
+ALTER TYPE "ai_conversation_audit_action" ADD VALUE IF NOT EXISTS 'attachment_deleted';
+--> statement-breakpoint
+-- New audited entity: every transition of a payment record (session, reservation fee, ad hoc and guest
+-- payments), keyed by the payment record id.
+DO $$ BEGIN
+  CREATE TYPE "payment_audit_action" AS ENUM ('created', 'pre_authorized', 'captured', 'partially_refunded', 'refunded', 'failed', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "payment_audit_log" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "payment_id" text,
+  "payment_id_snapshot" text NOT NULL,
+  "action" "payment_audit_action" NOT NULL,
+  "actor" "audit_actor" NOT NULL,
+  "actor_user_id" text,
+  "actor_driver_id" text,
+  "actor_api_key_id" text,
+  "actor_label" varchar(100),
+  "before" jsonb,
+  "after" jsonb,
+  "notes" text,
+  "via_ai" jsonb,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_payment_audit_entity_id" ON "payment_audit_log" ("payment_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_payment_audit_created_at" ON "payment_audit_log" ("created_at");
+--> statement-breakpoint
+-- New audited entity: notification templates and event settings, keyed by the event type.
+DO $$ BEGIN
+  CREATE TYPE "notification_template_audit_action" AS ENUM ('updated', 'deleted', 'event_settings_changed');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "notification_template_audit_log" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "notification_template_id" text,
+  "notification_template_id_snapshot" text NOT NULL,
+  "action" "notification_template_audit_action" NOT NULL,
+  "actor" "audit_actor" NOT NULL,
+  "actor_user_id" text,
+  "actor_driver_id" text,
+  "actor_api_key_id" text,
+  "actor_label" varchar(100),
+  "before" jsonb,
+  "after" jsonb,
+  "notes" text,
+  "via_ai" jsonb,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_notification_template_audit_entity_id" ON "notification_template_audit_log" ("notification_template_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_notification_template_audit_created_at" ON "notification_template_audit_log" ("created_at");
+--> statement-breakpoint
+-- New audited entity: station message templates, keyed by the state.
+DO $$ BEGIN
+  CREATE TYPE "station_message_template_audit_action" AS ENUM ('updated', 'reset');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "station_message_template_audit_log" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "station_message_template_id" text,
+  "station_message_template_id_snapshot" text NOT NULL,
+  "action" "station_message_template_audit_action" NOT NULL,
+  "actor" "audit_actor" NOT NULL,
+  "actor_user_id" text,
+  "actor_driver_id" text,
+  "actor_api_key_id" text,
+  "actor_label" varchar(100),
+  "before" jsonb,
+  "after" jsonb,
+  "notes" text,
+  "via_ai" jsonb,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_station_message_template_audit_entity_id" ON "station_message_template_audit_log" ("station_message_template_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_station_message_template_audit_created_at" ON "station_message_template_audit_log" ("created_at");
+--> statement-breakpoint
+-- New audited entity: station event alert rules.
+DO $$ BEGIN
+  CREATE TYPE "event_alert_rule_audit_action" AS ENUM ('created', 'updated', 'deleted');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "event_alert_rule_audit_log" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "event_alert_rule_id" text,
+  "event_alert_rule_id_snapshot" text NOT NULL,
+  "action" "event_alert_rule_audit_action" NOT NULL,
+  "actor" "audit_actor" NOT NULL,
+  "actor_user_id" text,
+  "actor_driver_id" text,
+  "actor_api_key_id" text,
+  "actor_label" varchar(100),
+  "before" jsonb,
+  "after" jsonb,
+  "notes" text,
+  "via_ai" jsonb,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_event_alert_rule_audit_entity_id" ON "event_alert_rule_audit_log" ("event_alert_rule_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_event_alert_rule_audit_created_at" ON "event_alert_rule_audit_log" ("created_at");
+--> statement-breakpoint
+-- New audited entity: report schedules and deleted reports.
+DO $$ BEGIN
+  CREATE TYPE "report_schedule_audit_action" AS ENUM ('created', 'updated', 'deleted', 'report_deleted');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+--> statement-breakpoint
+CREATE TABLE IF NOT EXISTS "report_schedule_audit_log" (
+  "id" serial PRIMARY KEY NOT NULL,
+  "report_schedule_id" text,
+  "report_schedule_id_snapshot" text NOT NULL,
+  "action" "report_schedule_audit_action" NOT NULL,
+  "actor" "audit_actor" NOT NULL,
+  "actor_user_id" text,
+  "actor_driver_id" text,
+  "actor_api_key_id" text,
+  "actor_label" varchar(100),
+  "before" jsonb,
+  "after" jsonb,
+  "notes" text,
+  "via_ai" jsonb,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_report_schedule_audit_entity_id" ON "report_schedule_audit_log" ("report_schedule_id");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_report_schedule_audit_created_at" ON "report_schedule_audit_log" ("created_at");
+--> statement-breakpoint
+-- Retention of the login audit rows (user and driver login_succeeded and
+-- login_failed), pruned by the daily log-retention-prune cron. 0 keeps them.
+-- An operator value already set stays.
+INSERT INTO settings (key, value) VALUES ('logs.loginAudit.retentionDays', '90'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+--> statement-breakpoint
 -- Last: the hot table's ACCESS EXCLUSIVE lock is held to the commit. A constant
 -- default needs no rewrite. The check is NOT VALID (no scan) and enforced on
 -- new writes; VALIDATE CONSTRAINT is a v0.1.47 contract step.

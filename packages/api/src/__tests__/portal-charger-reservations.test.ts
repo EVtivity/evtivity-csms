@@ -49,8 +49,9 @@ function makeChain() {
   return chain;
 }
 
-const { mockRecordSessionEndRequest } = vi.hoisted(() => ({
+const { mockRecordSessionEndRequest, mockWriteCsmsSessionAudit } = vi.hoisted(() => ({
   mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
+  mockWriteCsmsSessionAudit: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', async () => ({
@@ -62,6 +63,7 @@ vi.mock('@evtivity/database', async () => ({
   STARTABLE_CONNECTOR_STATUSES: ['available', 'occupied', 'preparing', 'ev_connected', 'finishing'],
   SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
   recordSessionEndRequest: mockRecordSessionEndRequest,
+  writeCsmsSessionAudit: mockWriteCsmsSessionAudit,
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
       '../../../database/src/lib/station-status.js',

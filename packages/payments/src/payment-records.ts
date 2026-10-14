@@ -8,17 +8,20 @@ import {
   db,
   driverTokens,
   getCompanyCurrency,
+  paymentAuditLog,
   paymentRecords,
   SESSION_END_FAILED_REASON,
   tokenAuditLog,
   writeAudit,
 } from '@evtivity/database';
 import type {
+  paymentAuditActionEnum,
   PaymentChargeType,
   PendingPaymentOperation,
   ProviderRefundEntry,
 } from '@evtivity/database';
-import type { PaymentLogger } from './context.js';
+import { auditActorOf } from './context.js';
+import type { PaymentAuditContext } from './context.js';
 import { topUpCharges } from './top-ups.js';
 import type { TopUpCharge } from './top-ups.js';
 import type { PaymentProviderId, PaymentStatus, ProviderState } from './types.js';
@@ -49,9 +52,13 @@ import type { PaymentProviderId, PaymentStatus, ProviderState } from './types.js
  *
  * Each update returns whether it applied; a false means the record had
  * already moved on (or does not exist), and the caller logs it.
+ *
+ * Every status change (and every insert) writes one `payment_audit_log` row
+ * with the caller's actor (`auditPayment`), only when the write changed a row.
  */
 
 export type PaymentRecord = typeof paymentRecords.$inferSelect;
+type PaymentAuditAction = (typeof paymentAuditActionEnum.enumValues)[number];
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type Executor = typeof db | Tx;
 
@@ -99,7 +106,10 @@ export interface HoldRecordInput {
 }
 
 /** A placed hold. Null when the session already has a record (unique per session). */
-export async function recordHold(input: HoldRecordInput): Promise<number | null> {
+export async function recordHold(
+  input: HoldRecordInput,
+  audit: PaymentAuditContext,
+): Promise<number | null> {
   const [row] = await db
     .insert(paymentRecords)
     .values({
@@ -119,7 +129,19 @@ export async function recordHold(input: HoldRecordInput): Promise<number | null>
     })
     .onConflictDoNothing({ target: paymentRecords.sessionId })
     .returning({ id: paymentRecords.id });
-  return row?.id ?? null;
+  if (row == null) return null;
+  await auditPayment(audit, row.id, 'pre_authorized', {
+    before: null,
+    after: {
+      status: 'pre_authorized',
+      sessionId: input.sessionId,
+      provider: input.provider,
+      paymentSource: input.source,
+      preAuthAmountCents: input.preAuthAmountCents,
+      currency: input.currency,
+    },
+  });
+  return row.id;
 }
 
 export interface FailedHoldInput {
@@ -136,7 +158,10 @@ export interface FailedHoldInput {
 }
 
 /** A declined hold. Null when the session already has a record. */
-export async function recordFailedHold(input: FailedHoldInput): Promise<number | null> {
+export async function recordFailedHold(
+  input: FailedHoldInput,
+  audit: PaymentAuditContext,
+): Promise<number | null> {
   const [row] = await db
     .insert(paymentRecords)
     .values({
@@ -152,7 +177,20 @@ export async function recordFailedHold(input: FailedHoldInput): Promise<number |
     })
     .onConflictDoNothing({ target: paymentRecords.sessionId })
     .returning({ id: paymentRecords.id });
-  return row?.id ?? null;
+  if (row == null) return null;
+  await auditPayment(audit, row.id, 'failed', {
+    before: null,
+    after: {
+      status: 'failed',
+      sessionId: input.sessionId,
+      provider: input.provider,
+      paymentSource: input.source,
+      preAuthAmountCents: input.preAuthAmountCents,
+      currency: input.currency,
+      failureReason: input.reason.slice(0, 500),
+    },
+  });
+  return row.id;
 }
 
 export async function findSessionRecord(sessionId: string): Promise<PaymentRecord | null> {
@@ -183,6 +221,47 @@ export async function findSessionHold(sessionId: string): Promise<PaymentRecord 
 
 function updated(rows: Array<{ id: number }>): boolean {
   return rows.length > 0;
+}
+
+interface PaymentChange {
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown>;
+  notes?: string | null;
+}
+
+/**
+ * The audit row of one record transition (`payment_audit_log`, entity id the
+ * record id), with the actor of the calling context (`system` `payments`
+ * without one). Written on its own connection, never a caller's transaction,
+ * so a failed audit insert cannot abort the payment write; writeAudit is
+ * fail-open (P9) and logs the failure.
+ */
+async function auditPayment(
+  audit: PaymentAuditContext,
+  recordId: number,
+  action: PaymentAuditAction,
+  change: PaymentChange,
+): Promise<void> {
+  const { actor, logger } = auditActorOf(audit);
+  await writeAudit(
+    { table: paymentAuditLog, idColumn: 'payment_id' },
+    {
+      entityId: String(recordId),
+      entityIdSnapshot: String(recordId),
+      action,
+      ...actor,
+      before: change.before,
+      after: change.after,
+      notes: change.notes ?? null,
+    },
+    db,
+    logger,
+  );
+}
+
+/** The audit action of a refunded record's status. */
+function refundAction(status: PaymentStatus): PaymentAuditAction {
+  return status === 'refunded' ? 'refunded' : 'partially_refunded';
 }
 
 /**
@@ -219,10 +298,11 @@ export async function markCaptured(
     /** The authorized amount of an adjusted hold. */
     authorizedCents?: number | null;
   },
+  audit: PaymentAuditContext,
 ): Promise<boolean> {
   const topUp = input.topUp ?? null;
   const authorizedCents = input.authorizedCents ?? null;
-  return updated(
+  const moved = updated(
     await db
       .update(paymentRecords)
       .set({
@@ -237,6 +317,20 @@ export async function markCaptured(
       .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FROM_HOLD)))
       .returning({ id: paymentRecords.id }),
   );
+  if (moved) {
+    await auditPayment(audit, id, 'captured', {
+      before: { status: 'pre_authorized' },
+      after: {
+        status: 'captured',
+        capturedAmountCents: input.capturedCents,
+        ...(input.failureReason != null ? { failureReason: input.failureReason } : {}),
+        ...(topUp != null ? { topUpCents: topUp.amountCents } : {}),
+        ...(authorizedCents != null ? { preAuthAmountCents: authorizedCents } : {}),
+        ...(input.pendingRef != null ? { pendingOperation: 'capture' } : {}),
+      },
+    });
+  }
+  return moved;
 }
 
 /** No pending operation: a record leaving the hold ends a pending adjustment. */
@@ -265,10 +359,12 @@ function pendingFields(
  */
 export async function markCancelled(
   id: number,
-  pendingRef: string | null = null,
-  failureReason: string | null = null,
+  input: { pendingRef?: string | null; failureReason?: string | null },
+  audit: PaymentAuditContext,
 ): Promise<boolean> {
-  return updated(
+  const pendingRef = input.pendingRef ?? null;
+  const failureReason = input.failureReason ?? null;
+  const moved = updated(
     await db
       .update(paymentRecords)
       .set({
@@ -281,11 +377,27 @@ export async function markCancelled(
       .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FROM_HOLD)))
       .returning({ id: paymentRecords.id }),
   );
+  if (moved) {
+    await auditPayment(audit, id, 'cancelled', {
+      before: { status: 'pre_authorized' },
+      after: {
+        status: 'cancelled',
+        capturedAmountCents: 0,
+        ...(failureReason != null ? { failureReason: failureReason.slice(0, 500) } : {}),
+        ...(pendingRef != null ? { pendingOperation: 'cancel' } : {}),
+      },
+    });
+  }
+  return moved;
 }
 
 /** pre_authorized -> failed (a capture that failed, or a hold given up on). */
-export async function markHoldFailed(id: number, reason: string): Promise<boolean> {
-  return updated(
+export async function markHoldFailed(
+  id: number,
+  reason: string,
+  audit: PaymentAuditContext,
+): Promise<boolean> {
+  const moved = updated(
     await db
       .update(paymentRecords)
       .set({
@@ -297,6 +409,13 @@ export async function markHoldFailed(id: number, reason: string): Promise<boolea
       .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FROM_HOLD)))
       .returning({ id: paymentRecords.id }),
   );
+  if (moved) {
+    await auditPayment(audit, id, 'failed', {
+      before: { status: 'pre_authorized' },
+      after: { status: 'failed', failureReason: reason.slice(0, 500) },
+    });
+  }
+  return moved;
 }
 
 /**
@@ -422,7 +541,10 @@ export async function markRefunded(
     topUps?: TopUpCharge[];
     /** Refunds the provider made now, appended to `provider_refunds` (synchronous providers). */
     ledger?: ProviderRefundEntry[];
+    /** The record as the caller read (or locked) it: the audit row's `before`. */
+    previous: Pick<PaymentRecord, 'status' | 'refundedAmountCents'>;
   },
+  audit: PaymentAuditContext,
   executor: Executor = db,
 ): Promise<PaymentRecord | null> {
   const [row] = await executor
@@ -452,7 +574,16 @@ export async function markRefunded(
       ),
     )
     .returning();
-  return row ?? null;
+  if (row == null) return null;
+  await auditPayment(audit, id, refundAction(row.status), {
+    before: {
+      status: input.previous.status,
+      refundedAmountCents: input.previous.refundedAmountCents,
+    },
+    after: { status: row.status, refundedAmountCents: row.refundedAmountCents },
+    notes: input.actionReason ?? null,
+  });
+  return row;
 }
 
 /**
@@ -491,6 +622,7 @@ export async function failPendingCapture(
   id: number,
   ref: string,
   reason: string,
+  audit: PaymentAuditContext,
 ): Promise<PaymentRecord | null> {
   const [row] = await db
     .update(paymentRecords)
@@ -511,7 +643,12 @@ export async function failPendingCapture(
       ),
     )
     .returning();
-  return row ?? null;
+  if (row == null) return null;
+  await auditPayment(audit, id, 'failed', {
+    before: { status: 'captured', capturedAmountCents: row.capturedAmountCents },
+    after: { status: 'failed', failureReason: row.failureReason },
+  });
+  return row;
 }
 
 /**
@@ -520,7 +657,11 @@ export async function failPendingCapture(
  * its dashboard). A pending cancel of ours is cleared instead when the record
  * is already cancelled, because the authorisation is gone either way.
  */
-export async function markAuthorisationEnded(id: number, reason: string): Promise<boolean> {
+export async function markAuthorisationEnded(
+  id: number,
+  reason: string,
+  audit: PaymentAuditContext,
+): Promise<boolean> {
   const moved = await db
     .update(paymentRecords)
     .set({
@@ -532,7 +673,14 @@ export async function markAuthorisationEnded(id: number, reason: string): Promis
     })
     .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FROM_HOLD)))
     .returning({ id: paymentRecords.id });
-  if (moved.length > 0) return true;
+  if (moved.length > 0) {
+    await auditPayment(audit, id, 'cancelled', {
+      before: { status: 'pre_authorized' },
+      after: { status: 'cancelled', capturedAmountCents: 0 },
+      notes: reason.slice(0, 500),
+    });
+    return true;
+  }
   return updated(
     await db
       .update(paymentRecords)
@@ -604,8 +752,11 @@ export async function settleRefund(
     amountCents: number;
     outcome: 'succeeded' | 'failed';
   },
+  audit: PaymentAuditContext,
 ): Promise<RefundSettlement> {
-  return db.transaction(async (tx): Promise<RefundSettlement> => {
+  // The raised totals, audited after the commit.
+  const raised: { change: PaymentChange | null } = { change: null };
+  const result = await db.transaction(async (tx): Promise<RefundSettlement> => {
     const locked = await lockRecord(tx, id);
     if (locked == null) return { status: 'not_found' };
     const existing = locked.providerRefunds.find((r) => r.refundId === input.refundId);
@@ -670,8 +821,22 @@ export async function settleRefund(
       )
       .returning();
     if (row == null) return { status: 'not_refundable', recordStatus: locked.status };
+    raised.change = {
+      before: { status: locked.status, refundedAmountCents: locked.refundedAmountCents },
+      after: {
+        status: row.status,
+        refundedAmountCents: row.refundedAmountCents,
+        // The operator who requested the refund; the provider confirms it.
+        lastActorUserId: row.lastActorUserId,
+      },
+      notes: `Refund ${entry.refundId} confirmed by the provider`,
+    };
     return { status: 'applied', record: row, entry };
   });
+  if (raised.change != null && result.status === 'applied') {
+    await auditPayment(audit, id, refundAction(result.record.status), raised.change);
+  }
+  return result;
 }
 
 /**
@@ -763,7 +928,10 @@ export async function markShortfallRecovered(
     actorUserId: string | null;
     actionReason: string;
     topUp: { paymentId: string; amountCents: number };
+    /** The captured total before the retry: the audit row's `before`. */
+    previousCapturedCents: number | null;
   },
+  audit: PaymentAuditContext,
 ): Promise<PaymentRecord | null> {
   const [row] = await db
     .update(paymentRecords)
@@ -777,7 +945,17 @@ export async function markShortfallRecovered(
     })
     .where(and(eq(paymentRecords.id, id), eq(paymentRecords.status, 'captured')))
     .returning();
-  return row ?? null;
+  if (row == null) return null;
+  await auditPayment(audit, id, 'captured', {
+    before: { status: 'captured', capturedAmountCents: input.previousCapturedCents },
+    after: {
+      status: 'captured',
+      capturedAmountCents: input.capturedCents,
+      topUpCents: input.topUp.amountCents,
+    },
+    notes: input.actionReason,
+  });
+  return row;
 }
 
 /** A shortfall retry that failed again: the reason the next retry reads. */
@@ -834,7 +1012,10 @@ export function reservationFeeRequest(metadata: unknown): ReservationFeeRequest 
  * A reservation fee before it is charged. Unique per reservation and fee
  * type, so a retry or a concurrent call gets null and charges nothing (P7).
  */
-export async function recordPendingCharge(input: PendingChargeInput): Promise<number | null> {
+export async function recordPendingCharge(
+  input: PendingChargeInput,
+  audit: PaymentAuditContext,
+): Promise<number | null> {
   const [row] = await db
     .insert(paymentRecords)
     .values({
@@ -854,7 +1035,19 @@ export async function recordPendingCharge(input: PendingChargeInput): Promise<nu
       where: sql`${paymentRecords.reservationId} IS NOT NULL`,
     })
     .returning({ id: paymentRecords.id });
-  return row?.id ?? null;
+  if (row == null) return null;
+  await auditPayment(audit, row.id, 'created', {
+    before: null,
+    after: {
+      status: 'pending',
+      chargeType: input.chargeType,
+      reservationId: input.reservationId,
+      provider: input.provider,
+      amountCents: input.feeRequest.grossCents,
+      currency: input.currency,
+    },
+  });
+  return row.id;
 }
 
 export async function findReservationCharge(
@@ -877,8 +1070,9 @@ export async function findReservationCharge(
 export async function markChargeCaptured(
   id: number,
   input: { provider: PaymentProviderId; paymentId: string; amountCents: number },
+  audit: PaymentAuditContext,
 ): Promise<boolean> {
-  return updated(
+  const moved = updated(
     await db
       .update(paymentRecords)
       .set({
@@ -890,17 +1084,35 @@ export async function markChargeCaptured(
       .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FROM_PENDING)))
       .returning({ id: paymentRecords.id }),
   );
+  if (moved) {
+    await auditPayment(audit, id, 'captured', {
+      before: { status: 'pending' },
+      after: { status: 'captured', capturedAmountCents: input.amountCents },
+    });
+  }
+  return moved;
 }
 
 /** pending -> failed (an immediate charge was declined). */
-export async function markChargeFailed(id: number, reason: string): Promise<boolean> {
-  return updated(
+export async function markChargeFailed(
+  id: number,
+  reason: string,
+  audit: PaymentAuditContext,
+): Promise<boolean> {
+  const moved = updated(
     await db
       .update(paymentRecords)
       .set({ status: 'failed', failureReason: reason.slice(0, 500), updatedAt: new Date() })
       .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FROM_PENDING)))
       .returning({ id: paymentRecords.id }),
   );
+  if (moved) {
+    await auditPayment(audit, id, 'failed', {
+      before: { status: 'pending' },
+      after: { status: 'failed', failureReason: reason.slice(0, 500) },
+    });
+  }
+  return moved;
 }
 
 /**
@@ -1094,8 +1306,13 @@ export async function staleRebillCharges(limit: number): Promise<PaymentRecord[]
  * `rebill_<sessionId>` key and parameters), unless it is older than
  * REBILL_RESUME_MAX_HOURS (refused). Any other record is refused.
  */
-export async function claimRebillRecord(input: RebillRecordInput): Promise<RebillRecordClaim> {
-  return db.transaction(async (tx): Promise<RebillRecordClaim> => {
+export async function claimRebillRecord(
+  input: RebillRecordInput,
+  audit: PaymentAuditContext,
+): Promise<RebillRecordClaim> {
+  // The record the claim wrote or took over, audited after the commit.
+  const written: { change: PaymentChange | null } = { change: null };
+  const claim = await db.transaction(async (tx): Promise<RebillRecordClaim> => {
     const held = await tx
       .select({ id: chargingSessions.id })
       .from(chargingSessions)
@@ -1132,9 +1349,13 @@ export async function claimRebillRecord(input: RebillRecordInput): Promise<Rebil
         })
         .onConflictDoNothing({ target: paymentRecords.sessionId })
         .returning({ id: paymentRecords.id });
-      return row != null
-        ? { state: 'claimed', id: row.id, request, resumed: false }
-        : { state: 'refused', status: 'pending' };
+      if (row == null) return { state: 'refused', status: 'pending' };
+      written.change = {
+        before: null,
+        after: rebillAuditAfter(input.sessionId, request),
+        notes: 'Session re-bill charge',
+      };
+      return { state: 'claimed', id: row.id, request, resumed: false };
     }
     if (isRebillRecord(record)) {
       const stored = rebillChargeRequest(record);
@@ -1199,10 +1420,32 @@ export async function claimRebillRecord(input: RebillRecordInput): Promise<Rebil
       })
       .where(and(eq(paymentRecords.id, record.id), inArray(paymentRecords.status, FROM_GIVEN_UP)))
       .returning({ id: paymentRecords.id });
-    return row != null
-      ? { state: 'claimed', id: row.id, request, resumed: false }
-      : { state: 'refused', status: record.status };
+    if (row == null) return { state: 'refused', status: record.status };
+    written.change = {
+      before: { status: record.status, provider: record.provider },
+      after: rebillAuditAfter(input.sessionId, request),
+      notes: 'Session re-bill took over the given-up hold',
+    };
+    return { state: 'claimed', id: row.id, request, resumed: false };
   });
+  if (written.change != null && claim.state === 'claimed') {
+    await auditPayment(audit, claim.id, 'created', written.change);
+  }
+  return claim;
+}
+
+/** The `after` of a re-bill claim's audit row. */
+function rebillAuditAfter(
+  sessionId: string,
+  request: RebillChargeRequest,
+): Record<string, unknown> {
+  return {
+    status: 'pending',
+    sessionId,
+    provider: request.provider,
+    amountCents: request.grossCents,
+    currency: request.currency,
+  };
 }
 
 /** The record of a provider's payment (`payment_records_provider_payment_id_key`). */
@@ -1244,8 +1487,14 @@ export async function findByChargePaymentId(
 }
 
 /** Webhook: an open payment failed. Terminal records are left as they are (F8). */
-export async function markOpenPaymentFailed(id: number, reason: string): Promise<boolean> {
-  return updated(
+export async function markOpenPaymentFailed(
+  id: number,
+  reason: string,
+  /** The status the caller read: the audit row's `before`. */
+  previousStatus: PaymentStatus,
+  audit: PaymentAuditContext,
+): Promise<boolean> {
+  const moved = updated(
     await db
       .update(paymentRecords)
       .set({
@@ -1257,6 +1506,13 @@ export async function markOpenPaymentFailed(id: number, reason: string): Promise
       .where(and(eq(paymentRecords.id, id), inArray(paymentRecords.status, FAILABLE)))
       .returning({ id: paymentRecords.id }),
   );
+  if (moved) {
+    await auditPayment(audit, id, 'failed', {
+      before: { status: previousStatus },
+      after: { status: 'failed', failureReason: reason.slice(0, 500) },
+    });
+  }
+  return moved;
 }
 
 /** Records of the last `lookbackHours` with a provider payment, after `afterId`, for reconciliation. */
@@ -1289,7 +1545,10 @@ export interface GuestHoldRecordInput {
 }
 
 /** A guest checkout hold, linked to its charging session. Null when the session already has a record. */
-export async function recordGuestHold(input: GuestHoldRecordInput): Promise<number | null> {
+export async function recordGuestHold(
+  input: GuestHoldRecordInput,
+  audit: PaymentAuditContext,
+): Promise<number | null> {
   const [row] = await db
     .insert(paymentRecords)
     .values({
@@ -1304,7 +1563,19 @@ export async function recordGuestHold(input: GuestHoldRecordInput): Promise<numb
     })
     .onConflictDoNothing({ target: paymentRecords.sessionId })
     .returning({ id: paymentRecords.id });
-  return row?.id ?? null;
+  if (row == null) return null;
+  await auditPayment(audit, row.id, 'pre_authorized', {
+    before: null,
+    after: {
+      status: 'pre_authorized',
+      sessionId: input.sessionId,
+      provider: input.provider,
+      paymentSource: 'guest',
+      preAuthAmountCents: input.preAuthAmountCents,
+      currency: input.currency,
+    },
+  });
+  return row.id;
 }
 
 /**
@@ -1312,12 +1583,15 @@ export async function recordGuestHold(input: GuestHoldRecordInput): Promise<numb
  * payment settled (OCPP 2.1 NotifySettlement): `ocpp_terminal`, captured, no
  * provider call. False when the session already has a record (a replay).
  */
-export async function recordTerminalSettlement(input: {
-  sessionId: string;
-  driverId: string | null;
-  currency: string;
-  capturedCents: number;
-}): Promise<boolean> {
+export async function recordTerminalSettlement(
+  input: {
+    sessionId: string;
+    driverId: string | null;
+    currency: string;
+    capturedCents: number;
+  },
+  audit: PaymentAuditContext,
+): Promise<boolean> {
   const rows = await db
     .insert(paymentRecords)
     .values({
@@ -1330,7 +1604,19 @@ export async function recordTerminalSettlement(input: {
     })
     .onConflictDoNothing({ target: paymentRecords.sessionId })
     .returning({ id: paymentRecords.id });
-  return rows.length > 0;
+  const [row] = rows;
+  if (row == null) return false;
+  await auditPayment(audit, row.id, 'captured', {
+    before: null,
+    after: {
+      status: 'captured',
+      sessionId: input.sessionId,
+      paymentSource: 'ocpp_terminal',
+      capturedAmountCents: input.capturedCents,
+      currency: input.currency,
+    },
+  });
+  return true;
 }
 
 export interface PrepaidSettlementOptions {
@@ -1370,9 +1656,10 @@ export interface PrepaidSettlement {
  */
 export async function settlePrepaidSession(
   sessionId: string,
-  logger?: PaymentLogger,
+  audit: PaymentAuditContext,
   options: PrepaidSettlementOptions = {},
 ): Promise<PrepaidSettlement | null> {
+  const logger = audit.logger;
   const [row] = await db
     .select({
       tokenId: driverTokens.id,
@@ -1392,7 +1679,7 @@ export async function settlePrepaidSession(
 
   const companyCurrency = await getCompanyCurrency();
   if (row.currency !== companyCurrency) {
-    logger?.warn(
+    logger.warn(
       { sessionId, sessionCurrency: row.currency, companyCurrency },
       'Prepaid session billed in another currency than the company currency; balance not debited',
     );
@@ -1458,6 +1745,7 @@ export async function settlePrepaidSession(
     if (updated?.balanceCents == null) return null;
     return {
       kind: 'debited' as const,
+      recordId: inserted[0]?.id ?? null,
       before: updated.balanceCents + costCents,
       after: updated.balanceCents,
     };
@@ -1472,6 +1760,20 @@ export async function settlePrepaidSession(
     };
   }
 
+  if (result.recordId != null) {
+    await auditPayment(audit, result.recordId, 'captured', {
+      before: null,
+      after: {
+        status: 'captured',
+        sessionId,
+        paymentSource: 'prepaid',
+        capturedAmountCents: costCents,
+        currency: row.currency,
+        tokenId: row.tokenId,
+      },
+      notes: options.rebill === true ? 'Session re-bill prepaid debit' : null,
+    });
+  }
   await writeAudit(
     { table: tokenAuditLog, idColumn: 'token_id' },
     {
@@ -1485,13 +1787,7 @@ export async function settlePrepaidSession(
       notes: `Prepaid debit of ${String(costCents)} for session ${sessionId}`,
     },
     db,
-    logger != null
-      ? {
-          warn: (obj: unknown, msg?: string) => {
-            logger.warn(typeof obj === 'object' && obj != null ? obj : { detail: obj }, msg);
-          },
-        }
-      : undefined,
+    auditActorOf(audit).logger,
   );
 
   return { tokenId: row.tokenId, debitedCents: costCents, balanceCents: result.after };

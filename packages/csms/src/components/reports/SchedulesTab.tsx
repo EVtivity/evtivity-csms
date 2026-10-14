@@ -104,6 +104,7 @@ export function SchedulesTab(): React.JSX.Element {
     mutationFn: (body: Record<string, unknown>) => api.post('/v1/report-schedules', body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['report-schedules'] });
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'report_schedule'] });
       closeDialog();
     },
   });
@@ -113,6 +114,7 @@ export function SchedulesTab(): React.JSX.Element {
       api.patch(`/v1/report-schedules/${String(id)}`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['report-schedules'] });
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'report_schedule'] });
       closeDialog();
     },
   });
@@ -121,6 +123,7 @@ export function SchedulesTab(): React.JSX.Element {
     mutationFn: (id: number) => api.delete(`/v1/report-schedules/${String(id)}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['report-schedules'] });
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'report_schedule'] });
     },
   });
 
@@ -129,6 +132,7 @@ export function SchedulesTab(): React.JSX.Element {
       api.patch(`/v1/report-schedules/${String(id)}`, { isEnabled }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['report-schedules'] });
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'report_schedule'] });
     },
   });
 

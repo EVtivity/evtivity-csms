@@ -1,7 +1,11 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { writeReservationAudit, EV_CONNECT_TIMEOUT_REASON } from '@evtivity/database';
+import {
+  writeCsmsSessionAudit,
+  writeReservationAudit,
+  EV_CONNECT_TIMEOUT_REASON,
+} from '@evtivity/database';
 import type { RemoteStartTimeoutTarget, UnstartedSession } from '@evtivity/database';
 import type { PubSubClient } from '@evtivity/lib';
 import {
@@ -31,14 +35,20 @@ export async function handleRemoteStartTimeout(
 ): Promise<void> {
   try {
     if (target.kind === 'guest') {
-      const result = await failUnstartedGuestSession(target.guestSessionId, paymentContext(log));
+      const result = await failUnstartedGuestSession(
+        target.guestSessionId,
+        paymentContext(log, 'remote-start-timeout'),
+      );
       log.info(
         { guestSessionId: target.guestSessionId, ...result },
         'Remote start timeout checked (guest)',
       );
       return;
     }
-    const result = await closeUnstartedRemoteStart(target.sessionId, paymentContext(log));
+    const result = await closeUnstartedRemoteStart(
+      target.sessionId,
+      paymentContext(log, 'remote-start-timeout'),
+    );
     log.info(
       {
         sessionId: target.sessionId,
@@ -62,12 +72,29 @@ export async function handleRemoteStartTimeout(
   }
 }
 
-/** Operator UI refresh and the reservation timeline, as the projection's failure paths. Fail-open (P9). */
+/**
+ * The session audit row, the operator UI refresh and the reservation timeline,
+ * as the projection's failure paths. Only the job whose update failed the
+ * session gets here (outcome `failed`, P7). Fail-open (P9).
+ */
 async function announceFailedSession(
   session: UnstartedSession,
   log: Logger,
   pubsub: PubSubClient | null,
 ): Promise<void> {
+  await writeCsmsSessionAudit(
+    {
+      sessionId: session.id,
+      action: 'faulted',
+      actor: 'system',
+      actorLabel: 'remote-start-timeout',
+      before: { status: 'active' },
+      after: { status: 'failed', stoppedReason: EV_CONNECT_TIMEOUT_REASON, finalCostCents: 0 },
+      notes: 'The station reported no transaction for the remote start',
+    },
+    undefined,
+    log,
+  );
   if (session.reservationId != null) {
     try {
       await writeReservationAudit(

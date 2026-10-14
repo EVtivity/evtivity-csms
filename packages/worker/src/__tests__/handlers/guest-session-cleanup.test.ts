@@ -33,7 +33,7 @@ describe('guestSessionCleanupHandler', () => {
     const log = makeLog();
     await guestSessionCleanupHandler(log);
 
-    expect(mockPaymentContext).toHaveBeenCalledWith(log);
+    expect(mockPaymentContext).toHaveBeenCalledWith(log, 'guest-session-cleanup');
     expect(mockExpireGuestSessions).toHaveBeenCalledWith(ctx);
   });
 

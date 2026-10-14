@@ -53,6 +53,11 @@ function makeChain() {
   return chain;
 }
 
+const { mockAuditStationChange } = vi.hoisted(() => ({
+  mockAuditStationChange: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('../lib/station-audit.js', () => ({ auditStationChange: mockAuditStationChange }));
+
 vi.mock('@evtivity/database', () => {
   const dbMock: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),
@@ -404,9 +409,18 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
     it('routes protocol fields to charging_stations, credentials to the security service and the rest to css_stations', async () => {
       // existing lookup, paired charging_stations lookup, charging_stations update,
       // css_stations update returning
+      mockAuditStationChange.mockClear();
       setupDbResults(
-        [{ id: 'css_1' }],
-        [{ id: 'cs_1' }],
+        [{ id: 'css_1', targetUrl: 'ws://localhost:3003', enabled: true }],
+        [
+          {
+            id: 'cs_1',
+            ocppProtocol: 'ocpp1.6',
+            model: 'M1',
+            serialNumber: null,
+            firmwareVersion: '1.0',
+          },
+        ],
         [],
         [{ ...STATION_ROW, password: 'pw-1234567890abcd', enabled: false }],
       );
@@ -456,6 +470,34 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
         enabled: false,
       });
       expect(cssSet).not.toHaveProperty('ocppProtocol');
+      // Changed fields only, certificates as changed flags, never the password.
+      expect(mockAuditStationChange).toHaveBeenCalledTimes(1);
+      const [, auditedId, action, change] = mockAuditStationChange.mock.calls[0] as unknown as [
+        unknown,
+        string,
+        string,
+        { before: Record<string, unknown>; after: Record<string, unknown> },
+      ];
+      expect(auditedId).toBe('cs_1');
+      expect(action).toBe('updated');
+      expect(change.before).toEqual({
+        ocppProtocol: 'ocpp1.6',
+        model: 'M1',
+        firmwareVersion: '1.0',
+        simulatorTargetUrl: 'ws://localhost:3003',
+        simulatorEnabled: true,
+      });
+      expect(change.after).toEqual({
+        ocppProtocol: 'ocpp2.1',
+        model: 'M2',
+        firmwareVersion: '2.0',
+        simulatorTargetUrl: 'wss://csms.example.com/ocpp',
+        simulatorEnabled: false,
+        clientCertChanged: true,
+        clientKeyChanged: true,
+        caCertChanged: true,
+      });
+      expect(JSON.stringify(change)).not.toContain('pw-1234567890abcd');
     });
 
     it('updates only css_stations when no charging_stations field changes', async () => {
@@ -507,7 +549,8 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
 
   describe('DELETE, enable and disable', () => {
     it('deletes an existing station with 204', async () => {
-      setupDbResults([{ id: 'css_1' }], []);
+      mockAuditStationChange.mockClear();
+      setupDbResults([{ id: 'css_1' }], [], [{ id: 'cs_1' }]);
       const res = await app.inject({
         method: 'DELETE',
         url: '/css/stations/SIM-1',
@@ -516,13 +559,20 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
       expect(res.statusCode).toBe(204);
       expect(res.body).toBe('');
       expect(db.delete).toHaveBeenCalledWith(expect.objectContaining({ __t: 'cssStations' }));
+      expect(mockAuditStationChange).toHaveBeenCalledWith(
+        expect.anything(),
+        'cs_1',
+        'simulator_toggled',
+        { after: { simulator: 'deleted' }, notes: 'Simulator removed from the station' },
+      );
     });
 
     it.each([
       ['enable', true],
       ['disable', false],
     ] as const)('%s sets enabled=%s', async (action, enabled) => {
-      setupDbResults([{ id: 'css_1' }], [{ ...STATION_ROW, enabled }]);
+      mockAuditStationChange.mockClear();
+      setupDbResults([{ id: 'css_1' }], [{ ...STATION_ROW, enabled }], [{ id: 'cs_1' }]);
       const res = await app.inject({
         method: 'POST',
         url: `/css/stations/SIM-1/${action}`,
@@ -531,6 +581,24 @@ describe('CSS routes (site scope, lifecycle and simulator replies)', () => {
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ stationId: 'SIM-1', enabled });
       expect(setCalls()[0]).toMatchObject({ enabled });
+      expect(mockAuditStationChange).toHaveBeenCalledWith(
+        expect.anything(),
+        'cs_1',
+        'simulator_toggled',
+        expect.objectContaining({ after: { simulatorEnabled: enabled } }),
+      );
+    });
+
+    it('audits nothing for a simulator without a charging station row', async () => {
+      mockAuditStationChange.mockClear();
+      setupDbResults([{ id: 'css_1' }], [{ ...STATION_ROW, enabled: true }], []);
+      const res = await app.inject({
+        method: 'POST',
+        url: '/css/stations/SIM-1/enable',
+        headers: headers(),
+      });
+      expect(res.statusCode).toBe(200);
+      expect(mockAuditStationChange).not.toHaveBeenCalled();
     });
 
     it.each(['enable', 'disable'])('%s returns 404 for an unknown station', async (action) => {

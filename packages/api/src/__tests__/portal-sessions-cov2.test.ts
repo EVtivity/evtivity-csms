@@ -52,6 +52,12 @@ function makeChain() {
 vi.mock('../lib/session-limit.js', () => ({ sessionLimitReached: vi.fn(async () => null) }));
 
 vi.mock('@evtivity/database', () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   getCompanyCurrency: vi.fn(() => Promise.resolve('EUR')),
   db: {
@@ -97,7 +103,7 @@ vi.mock('drizzle-orm', () => {
 
 import { registerAuth } from '../plugins/auth.js';
 import { portalSessionRoutes } from '../routes/portal/sessions.js';
-import { db } from '@evtivity/database';
+import { db, writeAudit } from '@evtivity/database';
 
 const DRIVER_ID = 'drv_000000000001';
 const OTHER_DRIVER = 'drv_000000000002';
@@ -282,6 +288,32 @@ describe('Portal sessions routes: vehicle and meter history', () => {
         vehicleId: VEHICLE_ID,
         updatedAt: expect.any(Date),
       });
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'session_id' }),
+        expect.objectContaining({
+          entityId: SESSION_ID,
+          action: 'vehicle_changed',
+          actor: 'driver',
+          actorDriverId: DRIVER_ID,
+          before: { vehicleId: null },
+          after: { vehicleId: VEHICLE_ID },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('writes no audit row when the vehicle stays the same', async () => {
+      setupDbResults(
+        [{ driverId: DRIVER_ID, vehicleId: VEHICLE_ID }],
+        [{ driverId: DRIVER_ID }],
+        [],
+      );
+      const res = await call('PATCH', `/portal/sessions/${SESSION_ID}/vehicle`, {
+        vehicleId: VEHICLE_ID,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(vi.mocked(writeAudit)).not.toHaveBeenCalled();
     });
 
     it('unlinks the vehicle without looking one up', async () => {

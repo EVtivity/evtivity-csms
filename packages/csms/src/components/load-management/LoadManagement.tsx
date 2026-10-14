@@ -276,10 +276,10 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
         />
       )}
 
-      {/* Allocation History Card */}
+      {/* Allocations Card */}
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle>{t('loadManagement.allocationHistory')}</CardTitle>
+          <CardTitle>{t('loadManagement.allocations')}</CardTitle>
           <Button
             variant="outline"
             size="sm"
@@ -333,7 +333,7 @@ export function LoadManagement({ siteId }: LoadManagementProps): React.JSX.Eleme
               </div>
             ) : (
               <p className="text-center text-sm text-muted-foreground">
-                {t('loadManagement.noHistory')}
+                {t('loadManagement.noAllocations')}
               </p>
             )}
           </CardContent>

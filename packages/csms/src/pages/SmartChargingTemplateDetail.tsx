@@ -180,8 +180,8 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
   const [duplicateOpen, setDuplicateOpen] = useState(false);
   const [pushOpen, setPushOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
-  const [pushHistoryPage, setPushHistoryPage] = useState(1);
-  const pushHistoryLimit = 10;
+  const [pushesPage, setPushesPage] = useState(1);
+  const pushesLimit = 10;
 
   const { data: template, isLoading } = useQuery({
     queryKey: ['smart-charging-templates', id],
@@ -194,11 +194,11 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
     queryFn: () => api.get<FilterOptions>('/v1/smart-charging/filter-options'),
   });
 
-  const { data: pushHistory } = useQuery({
-    queryKey: ['smart-charging-templates', id, 'pushes', pushHistoryPage],
+  const { data: pushes } = useQuery({
+    queryKey: ['smart-charging-templates', id, 'pushes', pushesPage],
     queryFn: () =>
       api.get<{ data: PushRecord[]; total: number }>(
-        `/v1/smart-charging/templates/${id ?? ''}/pushes?page=${String(pushHistoryPage)}&limit=${String(pushHistoryLimit)}`,
+        `/v1/smart-charging/templates/${id ?? ''}/pushes?page=${String(pushesPage)}&limit=${String(pushesLimit)}`,
       ),
     enabled: id != null,
     // Poll only while an operation on this page is still running.
@@ -948,10 +948,10 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle>{t('smartCharging.pushHistory')}</CardTitle>
+          <CardTitle>{t('smartCharging.pushes')}</CardTitle>
         </CardHeader>
         <CardContent>
-          {(pushHistory?.total ?? 0) === 0 ? (
+          {(pushes?.total ?? 0) === 0 ? (
             <p className="text-center text-sm text-muted-foreground">
               {t('smartCharging.noPushes')}
             </p>
@@ -971,7 +971,7 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {pushHistory?.data.map((push) => (
+                    {pushes?.data.map((push) => (
                       <TableRow
                         key={push.id}
                         className="cursor-pointer"
@@ -1017,9 +1017,9 @@ export function SmartChargingTemplateDetail(): React.JSX.Element {
                 </Table>
               </div>
               <Pagination
-                page={pushHistoryPage}
-                totalPages={Math.ceil((pushHistory?.total ?? 0) / pushHistoryLimit)}
-                onPageChange={setPushHistoryPage}
+                page={pushesPage}
+                totalPages={Math.ceil((pushes?.total ?? 0) / pushesLimit)}
+                onPageChange={setPushesPage}
               />
             </>
           )}

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { db, settings } from '@evtivity/database';
-import { inArray } from 'drizzle-orm';
+import { inArray, sql, type SQL } from 'drizzle-orm';
 import type { Logger } from '@evtivity/lib';
 import { pruneOldRows } from '../lib/prune-old-rows.js';
 
@@ -27,7 +27,15 @@ interface LogTable {
   // `created_at`; worker_job_logs uses `completed_at` so in-flight jobs
   // are never deleted.
   cutoffColumn: string;
+  // Rows the retention applies to, when not the whole table.
+  filter?: SQL;
 }
+
+// The login rows of the user and driver audit logs keep their own, shorter
+// retention (`logs.loginAudit.retentionDays`); the other rows of those tables
+// follow `audit.retentionDays` (audit-retention-prune). Compared as text so the
+// filter never fails on an enum value.
+const LOGIN_AUDIT_FILTER = sql`action::text IN ('login_succeeded', 'login_failed')`;
 
 const LOG_TABLES: readonly LogTable[] = [
   {
@@ -100,6 +108,20 @@ const LOG_TABLES: readonly LogTable[] = [
     // is indexed (idx_load_alloc_log_created).
     cutoffColumn: 'created_at',
   },
+  {
+    table: 'user_audit_log',
+    settingKey: 'logs.loginAudit.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'created_at',
+    filter: LOGIN_AUDIT_FILTER,
+  },
+  {
+    table: 'driver_audit_log',
+    settingKey: 'logs.loginAudit.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'created_at',
+    filter: LOGIN_AUDIT_FILTER,
+  },
 ];
 
 export async function logRetentionPruneHandler(log: Logger): Promise<void> {
@@ -128,6 +150,7 @@ export async function logRetentionPruneHandler(log: Logger): Promise<void> {
       table: t.table,
       cutoffColumn: t.cutoffColumn,
       retentionDays: days,
+      ...(t.filter != null ? { filter: t.filter } : {}),
       log,
     });
     grandTotal += tableDeleted;

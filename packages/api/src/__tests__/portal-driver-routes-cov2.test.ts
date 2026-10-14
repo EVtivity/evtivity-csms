@@ -31,6 +31,12 @@ function makeChain(kind: string): Chain {
 const { getMfaConfigMock } = vi.hoisted(() => ({ getMfaConfigMock: vi.fn() }));
 
 vi.mock('@evtivity/database', () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   db: {
     select: vi.fn(() => makeChain('select')),
     insert: vi.fn(() => makeChain('insert')),
@@ -94,6 +100,7 @@ import {
   verifyTotpCode,
   verifyMfaChallenge,
 } from '@evtivity/lib';
+import { writeAudit } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { portalDriverRoutes } from '../routes/portal/driver.js';
 import { revokeAllDriverRefreshTokens } from '../services/refresh-token.service.js';
@@ -127,6 +134,7 @@ describe('Portal driver routes, uncovered paths', () => {
   beforeEach(() => {
     setupDbResults();
     updates.length = 0;
+    vi.mocked(writeAudit).mockClear();
     getMfaConfigMock.mockResolvedValue(allMethods);
     vi.mocked(argon2.verify).mockResolvedValue(true);
   });
@@ -147,7 +155,7 @@ describe('Portal driver routes, uncovered paths', () => {
         isActive: true,
         createdAt: new Date().toISOString(),
       };
-      setupDbResults([updated]);
+      setupDbResults([{ ...updated, lastName: 'Doe' }], [updated]);
       const res = await app.inject({
         method: 'PATCH',
         url: '/portal/driver/profile',
@@ -376,6 +384,17 @@ describe('Portal driver routes, uncovered paths', () => {
       expect(updates[0]?.['set']).toHaveBeenCalledWith(
         expect.objectContaining({ mfaEnabled: true, mfaMethod: 'totp' }),
       );
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'driver_id' }),
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'mfa_enabled',
+          actor: 'driver',
+          after: { mfaMethod: 'totp' },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('verifies an email challenge for this driver and enables MFA', async () => {
@@ -437,7 +456,7 @@ describe('Portal driver routes, uncovered paths', () => {
     });
 
     it('clears MFA and notifies the driver', async () => {
-      setupDbResults([{ passwordHash: '$argon2id$old' }]);
+      setupDbResults([{ passwordHash: '$argon2id$old', mfaMethod: 'email' }]);
       const res = await app.inject({
         method: 'DELETE',
         url: '/portal/driver/mfa',
@@ -445,6 +464,17 @@ describe('Portal driver routes, uncovered paths', () => {
         payload: { password: 'Correct1Password' },
       });
       expect(res.statusCode).toBe(200);
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'driver_id' }),
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'mfa_disabled',
+          actor: 'driver',
+          before: { mfaMethod: 'email' },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
       expect(res.json()).toEqual({ success: true });
       expect(argon2.verify).toHaveBeenCalledWith('$argon2id$old', 'Correct1Password');
       expect(updates[0]?.['set']).toHaveBeenCalledWith(

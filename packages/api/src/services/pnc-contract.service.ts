@@ -12,7 +12,16 @@
 import crypto from 'node:crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { AppError } from '@evtivity/lib';
-import { db, drivers, driverTokens, pncContracts, settings } from '@evtivity/database';
+import {
+  db,
+  driverAuditLog,
+  drivers,
+  driverTokens,
+  pncContracts,
+  settings,
+  writeAudit,
+} from '@evtivity/database';
+import type { AuditActorInfo } from '../lib/audit-actor.js';
 import * as tokenService from './token.service.js';
 import type { TokenActor } from './token.service.js';
 
@@ -28,6 +37,41 @@ export interface PncContract {
   status: 'active' | 'revoked';
   createdAt: Date;
   revokedAt: Date | null;
+}
+
+/** Who the driver audit row of a contract change names, and where a failed insert is logged. */
+export interface ContractAudit {
+  actor: AuditActorInfo;
+  logger?: { warn: (obj: unknown, msg?: string) => void };
+}
+
+/** Driver audit row of a contract change. Fail-open: writeAudit logs and continues. */
+async function writeContractAudit(
+  driverId: string,
+  action: 'pnc_contract_issued' | 'pnc_contract_revoked',
+  before: PncContract | null,
+  after: PncContract,
+  audit: ContractAudit,
+): Promise<void> {
+  const view = (c: PncContract): Record<string, unknown> => ({
+    contractId: c.id,
+    emaid: c.emaid,
+    pcid: c.pcid,
+    status: c.status,
+  });
+  await writeAudit(
+    { table: driverAuditLog, idColumn: 'driver_id' },
+    {
+      entityId: driverId,
+      entityIdSnapshot: driverId,
+      action,
+      ...audit.actor,
+      before: before == null ? null : view(before),
+      after: view(after),
+    },
+    db,
+    audit.logger,
+  );
 }
 
 /** PCID as the local provider compares it: upper case letters and digits. */
@@ -107,6 +151,7 @@ export async function createContract(
   driverId: string,
   pcid: string,
   actor: TokenActor,
+  audit: ContractAudit,
 ): Promise<PncContract> {
   const normalized = normalizePcid(pcid);
   if (normalized === '' || normalized.length > 64) {
@@ -155,6 +200,7 @@ export async function createContract(
   }
   if (token == null) throw new Error('Could not allocate a unique eMAID');
 
+  let created: PncContract;
   try {
     const [row] = await db
       .insert(pncContracts)
@@ -162,12 +208,14 @@ export async function createContract(
       .returning({ id: pncContracts.id });
     const contract = row == null ? null : await getContract(row.id);
     if (contract == null) throw new Error('Contract insert returned no row');
-    return contract;
+    created = contract;
   } catch (err) {
     // Without its contract the eMAID token would be an orphan.
     await tokenService.deleteToken(token.id, actor);
     throw err;
   }
+  await writeContractAudit(driverId, 'pnc_contract_issued', null, created, audit);
+  return created;
 }
 
 /** Revokes a driver's contract (terminal) and deactivates its eMAID token. Idempotent. */
@@ -175,6 +223,7 @@ export async function revokeContract(
   driverId: string,
   id: number,
   actor: TokenActor,
+  audit: ContractAudit,
 ): Promise<PncContract> {
   const existing = await getContract(id);
   if (existing == null || existing.driverId !== driverId) {
@@ -190,5 +239,9 @@ export async function revokeContract(
   }
   const contract = await getContract(id);
   if (contract == null) throw new AppError('Contract not found', 404, 'PNC_CONTRACT_NOT_FOUND');
+  // Only the request that revoked it is audited: a repeat changes nothing.
+  if (revoked != null) {
+    await writeContractAudit(driverId, 'pnc_contract_revoked', existing, contract, audit);
+  }
   return contract;
 }

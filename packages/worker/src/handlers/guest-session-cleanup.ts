@@ -10,7 +10,7 @@ import { paymentContext } from '../lib/payments.js';
  * cancelled (best effort) and the guest session marked expired.
  */
 export async function guestSessionCleanupHandler(log: Logger): Promise<void> {
-  const count = await expireGuestSessions(paymentContext(log));
+  const count = await expireGuestSessions(paymentContext(log, 'guest-session-cleanup'));
   if (count > 0) {
     log.info({ count }, 'Expired guest sessions cleaned up');
   }

@@ -7,6 +7,7 @@ import { zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, errorWith } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import {
   confirmChatAttachment,
@@ -190,7 +191,7 @@ export function assistantAttachmentRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const { id } = request.params as z.infer<typeof attachmentIdParams>;
-      await deleteChatAttachment(userId, id, request.log);
+      await deleteChatAttachment(userId, id, request.log, getAuditActor(request));
       await reply.status(204).send();
     },
   );

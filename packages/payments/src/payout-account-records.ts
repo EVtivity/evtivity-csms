@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { and, eq, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
-import { db, sitePaymentConfigs } from '@evtivity/database';
+import { db, siteAuditLog, sitePaymentConfigs, writeAudit } from '@evtivity/database';
+import { auditActorOf } from './context.js';
+import type { PaymentAuditContext } from './context.js';
 import type { PayoutAccountState, PayoutAccountStatus } from './types.js';
 
 /**
@@ -109,11 +111,14 @@ export async function setPayoutAccountId(
  * Stores a status read on every site config with that account. `checkedAt`
  * is when the read started: a read older than the stored one is dropped, so
  * a slow refresh never overwrites a newer webhook or cron read (P5).
- * Returns the number of site configs updated.
+ * Returns the number of site configs updated. Each site whose status changed
+ * gets a `payout_status_changed` site audit row with the caller's actor
+ * (written after the commit, fail-open).
  */
 export async function writePayoutAccountStatus(
   status: PayoutAccountStatus,
   checkedAt: Date,
+  audit: PaymentAuditContext,
 ): Promise<number> {
   const details: PayoutAccountDetails = {
     capabilities: status.capabilities,
@@ -121,24 +126,59 @@ export async function writePayoutAccountStatus(
     requirementsDue: status.requirementsDue,
     disabledReason: status.disabledReason,
   };
-  const rows = await db
-    .update(sitePaymentConfigs)
-    .set({
-      payoutAccountStatus: status.state,
-      payoutAccountDetails: details,
-      payoutAccountCheckedAt: checkedAt,
-    })
-    .where(
-      and(
-        eq(sitePaymentConfigs.payoutAccountId, status.accountId),
-        or(
-          isNull(sitePaymentConfigs.payoutAccountCheckedAt),
-          lte(sitePaymentConfigs.payoutAccountCheckedAt, checkedAt),
-        ),
-      ),
-    )
-    .returning({ id: sitePaymentConfigs.id });
-  return rows.length;
+  const fresh = and(
+    eq(sitePaymentConfigs.payoutAccountId, status.accountId),
+    or(
+      isNull(sitePaymentConfigs.payoutAccountCheckedAt),
+      lte(sitePaymentConfigs.payoutAccountCheckedAt, checkedAt),
+    ),
+  );
+  const { updated, changed } = await db.transaction(async (tx) => {
+    // The stored statuses under the row locks: the audit's `before`.
+    const previous = await tx
+      .select({ id: sitePaymentConfigs.id, status: sitePaymentConfigs.payoutAccountStatus })
+      .from(sitePaymentConfigs)
+      .where(fresh)
+      .for('update');
+    const rows = await tx
+      .update(sitePaymentConfigs)
+      .set({
+        payoutAccountStatus: status.state,
+        payoutAccountDetails: details,
+        payoutAccountCheckedAt: checkedAt,
+      })
+      .where(fresh)
+      .returning({ id: sitePaymentConfigs.id, siteId: sitePaymentConfigs.siteId });
+    const before = new Map(previous.map((p) => [p.id, p.status]));
+    return {
+      updated: rows.length,
+      changed: rows.flatMap((r) => {
+        const old = before.get(r.id) ?? null;
+        return old === status.state ? [] : [{ siteId: r.siteId, old }];
+      }),
+    };
+  });
+  const { actor, logger } = auditActorOf(audit);
+  for (const site of changed) {
+    await writeAudit(
+      { table: siteAuditLog, idColumn: 'site_id' },
+      {
+        entityId: site.siteId,
+        entityIdSnapshot: site.siteId,
+        action: 'payout_status_changed',
+        ...actor,
+        before: { payoutAccountStatus: site.old },
+        after: {
+          payoutAccountStatus: status.state,
+          payoutAccountId: status.accountId,
+          disabledReason: status.disabledReason,
+        },
+      },
+      db,
+      logger,
+    );
+  }
+  return updated;
 }
 
 /** Number of site configs that use the account. */

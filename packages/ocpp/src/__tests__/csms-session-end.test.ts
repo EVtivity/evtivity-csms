@@ -4,9 +4,16 @@
 import { describe, it, expect, vi } from 'vitest';
 import type postgres from 'postgres';
 import type { EventBus, Logger, PubSubClient } from '@evtivity/lib';
-const { mockCancelOpenSessionHold, mockNotifySessionEndFailed } = vi.hoisted(() => ({
-  mockCancelOpenSessionHold: vi.fn(),
-  mockNotifySessionEndFailed: vi.fn(),
+const { mockCancelOpenSessionHold, mockNotifySessionEndFailed, mockSessionAudit } = vi.hoisted(
+  () => ({
+    mockCancelOpenSessionHold: vi.fn(),
+    mockNotifySessionEndFailed: vi.fn(),
+    mockSessionAudit: vi.fn(),
+  }),
+);
+vi.mock('@evtivity/database', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/database')>()),
+  writeCsmsSessionAudit: mockSessionAudit,
 }));
 vi.mock('@evtivity/payments', () => ({ cancelOpenSessionHold: mockCancelOpenSessionHold }));
 vi.mock('../server/session-end-alert.js', () => ({
@@ -236,13 +243,37 @@ describe('giving up on a session end', () => {
     expect(mockNotifySessionEndFailed).toHaveBeenCalledWith(sql, 'ses_1', log);
   });
 
+  it('audits the fault once as a system session-end-sweep row', async () => {
+    mockCancelOpenSessionHold.mockReset().mockResolvedValue({ status: 'cancelled' });
+    mockNotifySessionEndFailed.mockReset().mockResolvedValue(undefined);
+    mockSessionAudit.mockReset().mockResolvedValue(undefined);
+    const { sql } = giveUpSql([{ id: 'ses_1' }]);
+    const log = makeLogger();
+    expect(await giveUpSessionEnd(sql, 'ses_1', log as unknown as Logger)).toBe(true);
+    expect(mockSessionAudit).toHaveBeenCalledWith(
+      {
+        sessionId: 'ses_1',
+        action: 'faulted',
+        actor: 'system',
+        actorLabel: 'session-end-sweep',
+        before: { status: 'active' },
+        after: { status: 'faulted', stoppedReason: 'EndRequestFailed', finalCostCents: 0 },
+        notes: 'Session end failed 5 times',
+      },
+      undefined,
+      log,
+    );
+  });
+
   it('leaves a session that ended meanwhile alone and sends no alert (P5, P7)', async () => {
     mockCancelOpenSessionHold.mockReset();
     mockNotifySessionEndFailed.mockReset();
+    mockSessionAudit.mockReset();
     const { sql } = giveUpSql([]);
     expect(await giveUpSessionEnd(sql, 'ses_1', makeLogger() as unknown as Logger)).toBe(false);
     expect(mockCancelOpenSessionHold).not.toHaveBeenCalled();
     expect(mockNotifySessionEndFailed).not.toHaveBeenCalled();
+    expect(mockSessionAudit).not.toHaveBeenCalled();
   });
 
   it('logs a warning when the hold cancel fails (fail-open)', async () => {

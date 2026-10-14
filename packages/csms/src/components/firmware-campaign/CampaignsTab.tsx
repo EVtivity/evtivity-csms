@@ -41,7 +41,7 @@ interface Props {
   campaignId: string;
 }
 
-export function FirmwareCampaignHistoryTab({ campaignId }: Props): React.JSX.Element {
+export function FirmwareCampaignsTab({ campaignId }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
   const navigate = useNavigate();

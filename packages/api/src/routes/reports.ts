@@ -11,7 +11,17 @@ import {
   reportStatusEnum,
   reportFrequencyEnum,
   chargingStations,
+  reportScheduleAuditLog,
+  writeAudit,
 } from '@evtivity/database';
+import { getAuditActor } from '../lib/audit-actor.js';
+
+const SCHEDULE_AUDIT = { table: reportScheduleAuditLog, idColumn: 'report_schedule_id' } as const;
+
+function sameAuditValue(a: unknown, b: unknown): boolean {
+  if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
+  return JSON.stringify(a) === JSON.stringify(b);
+}
 
 // The worker generates the report; the API only announces it.
 async function announceReport(reportId: string): Promise<void> {
@@ -474,12 +484,36 @@ export function reportRoutes(app: FastifyInstance): void {
       const removed = await db
         .delete(reports)
         .where(and(eq(reports.id, id), siteScopeVisibleTo(reports.siteScope, userScope)))
-        .returning({ id: reports.id });
+        .returning({
+          id: reports.id,
+          name: reports.name,
+          reportType: reports.reportType,
+          format: reports.format,
+          status: reports.status,
+          createdAt: reports.createdAt,
+        });
 
-      if (removed.length === 0) {
+      const [deleted] = removed;
+      if (deleted == null) {
         await reply.status(404).send({ error: 'Report not found', code: 'REPORT_NOT_FOUND' });
         return;
       }
+
+      // A report row keeps no link to the schedule that produced it, so the
+      // row is filed under the report id (`report:<id>`) with no schedule.
+      await writeAudit(
+        SCHEDULE_AUDIT,
+        {
+          entityId: null,
+          entityIdSnapshot: `report:${deleted.id}`,
+          action: 'report_deleted',
+          ...getAuditActor(request),
+          before: deleted,
+          notes: deleted.id,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },
@@ -577,6 +611,21 @@ export function reportRoutes(app: FastifyInstance): void {
         })
         .returning();
 
+      if (row != null) {
+        await writeAudit(
+          SCHEDULE_AUDIT,
+          {
+            entityId: String(row.id),
+            entityIdSnapshot: String(row.id),
+            action: 'created',
+            ...getAuditActor(request),
+            after: row,
+          },
+          db,
+          request.log,
+        );
+      }
+
       return row;
     },
   );
@@ -615,15 +664,7 @@ export function reportRoutes(app: FastifyInstance): void {
         siteScopeVisibleTo(reportSchedules.siteScope, userScope),
       );
 
-      const [existing] = await db
-        .select({
-          id: reportSchedules.id,
-          reportType: reportSchedules.reportType,
-          filters: reportSchedules.filters,
-          siteScope: reportSchedules.siteScope,
-        })
-        .from(reportSchedules)
-        .where(visible);
+      const [existing] = await db.select().from(reportSchedules).where(visible);
 
       if (existing == null) {
         await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
@@ -677,6 +718,27 @@ export function reportRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
         return;
       }
+
+      const beforeRow = existing as Record<string, unknown>;
+      const afterRow = updated as Record<string, unknown>;
+      const changed = Object.keys(updates).filter(
+        (key) => key !== 'updatedAt' && !sameAuditValue(beforeRow[key], afterRow[key]),
+      );
+      if (changed.length > 0) {
+        await writeAudit(
+          SCHEDULE_AUDIT,
+          {
+            entityId: String(updated.id),
+            entityIdSnapshot: String(updated.id),
+            action: 'updated',
+            ...getAuditActor(request),
+            before: Object.fromEntries(changed.map((key) => [key, beforeRow[key] ?? null])),
+            after: Object.fromEntries(changed.map((key) => [key, afterRow[key] ?? null])),
+          },
+          db,
+          request.log,
+        );
+      }
       return updated;
     },
   );
@@ -709,12 +771,26 @@ export function reportRoutes(app: FastifyInstance): void {
         .where(
           and(eq(reportSchedules.id, id), siteScopeVisibleTo(reportSchedules.siteScope, userScope)),
         )
-        .returning({ id: reportSchedules.id });
+        .returning();
 
-      if (removed.length === 0) {
+      const [deleted] = removed;
+      if (deleted == null) {
         await reply.status(404).send({ error: 'Schedule not found', code: 'SCHEDULE_NOT_FOUND' });
         return;
       }
+
+      await writeAudit(
+        SCHEDULE_AUDIT,
+        {
+          entityId: null,
+          entityIdSnapshot: String(deleted.id),
+          action: 'deleted',
+          ...getAuditActor(request),
+          before: deleted,
+        },
+        db,
+        request.log,
+      );
 
       return { success: true };
     },

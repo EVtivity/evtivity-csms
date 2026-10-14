@@ -137,6 +137,11 @@ function setupDbResults(...results: unknown[][]) {
   state.dbCallIndex = 0;
 }
 
+const { mockAuditStationChange } = vi.hoisted(() => ({
+  mockAuditStationChange: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('../lib/station-audit.js', () => ({ auditStationChange: mockAuditStationChange }));
+
 vi.mock('@evtivity/database', () => ({
   db: dbMock,
   cssStations: cssStationsRef,
@@ -247,8 +252,8 @@ describe('POST /v1/css/stations auto-creates charging_stations row', () => {
       [],
       // 2) lookup chargingStations -> none
       [],
-      // 3) chargingStations insert (no returning) -> empty
-      [],
+      // 3) chargingStations insert returning the new id
+      [{ id: 'sta_new0000001' }],
       // 4) cssStations insert returning -> created station
       [
         {
@@ -323,6 +328,23 @@ describe('POST /v1/css/stations auto-creates charging_stations row', () => {
     expect(cssValues['serialNumber']).toBeUndefined();
     expect(cssValues['firmwareVersion']).toBeUndefined();
     expect(cssValues['vendorName']).toBeUndefined();
+
+    // station.created on the new charging station, without the password
+    expect(mockAuditStationChange).toHaveBeenCalledWith(
+      expect.anything(),
+      'sta_new0000001',
+      'created',
+      expect.objectContaining({
+        before: null,
+        after: expect.objectContaining({
+          stationId: STATION_ID,
+          isSimulator: true,
+          ocppProtocol: 'ocpp2.1',
+        }),
+      }),
+    );
+    const change = (mockAuditStationChange.mock.calls[0] as unknown[])[3];
+    expect(JSON.stringify(change)).not.toContain('test-password-123456');
   });
 
   it('flips isSimulator true on existing non-simulator charging_stations row', async () => {
@@ -391,6 +413,15 @@ describe('POST /v1/css/stations auto-creates charging_stations row', () => {
     expect(password).toMatch(/^[A-Za-z0-9]{20}$/);
     const cssInsert = insertCalls.find((c) => c.table === cssStationsRef);
     expect((cssInsert?.values as Record<string, unknown>)['password']).toBe(password);
+    expect(mockAuditStationChange).toHaveBeenCalledWith(
+      expect.anything(),
+      existingCsId,
+      'updated',
+      expect.objectContaining({
+        before: { isSimulator: false },
+        notes: 'Simulator paired to the station',
+      }),
+    );
   });
 
   it('sets no password on an existing profile 0 station when none is given', async () => {

@@ -62,6 +62,10 @@ describe('activePaymentProvider', () => {
     const provider = { id: 'stripe' };
     mockResolveActiveProvider.mockResolvedValueOnce(provider);
     await expect(activePaymentProvider(logger)).resolves.toBe(provider);
-    expect(mockResolveActiveProvider).toHaveBeenCalledWith({ registry: paymentRegistry, logger });
+    expect(mockResolveActiveProvider).toHaveBeenCalledWith({
+      registry: paymentRegistry,
+      logger,
+      actor: { actor: 'system', actorLabel: 'payments' },
+    });
   });
 });

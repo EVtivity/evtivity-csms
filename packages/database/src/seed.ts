@@ -672,6 +672,7 @@ async function seed(): Promise<void> {
     'logs.portStatus.retentionDays': 30,
     'logs.workerJob.retentionDays': 30,
     'logs.loadAllocation.retentionDays': 90,
+    'logs.loginAudit.retentionDays': 90,
     'reservation.enabled': true,
     'reservation.bufferMinutes': 0,
     'reservation.cancellationWindowMinutes': 0,

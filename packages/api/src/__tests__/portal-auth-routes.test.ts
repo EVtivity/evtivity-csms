@@ -51,6 +51,12 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   db: {
     select: vi.fn(() => makeChain()),
@@ -157,10 +163,18 @@ vi.mock('../services/driver-portal-access.service.js', () => ({
 
 import { eq, isNotNull } from 'drizzle-orm';
 import { AppError, dispatchSystemNotification } from '@evtivity/lib';
-import { db, resolveAccountBilling } from '@evtivity/database';
+import { db, resolveAccountBilling, writeAudit, driverAuditLog } from '@evtivity/database';
 import { registerAuth } from '../plugins/auth.js';
 import { portalAuthRoutes } from '../routes/portal/auth.js';
 import * as argon2Module from 'argon2';
+
+/** The audit rows written through the mocked writeAudit: [table, args]. */
+function auditCalls(): { table: unknown; args: Record<string, unknown> }[] {
+  return vi.mocked(writeAudit).mock.calls.map(([config, args]) => ({
+    table: (config as { table: unknown }).table,
+    args: args as unknown as Record<string, unknown>,
+  }));
+}
 
 const VALID_DRIVER_ID = 'drv_000000000001';
 const VALID_USER_ID = 'usr_000000000001';
@@ -231,6 +245,7 @@ describe('Portal auth routes - handler logic', () => {
 
   beforeEach(() => {
     setupDbResults();
+    vi.mocked(writeAudit).mockClear();
   });
 
   describe('POST /v1/portal/auth/register', () => {
@@ -322,6 +337,17 @@ describe('Portal auth routes - handler logic', () => {
       expect(body.token).toBeUndefined();
       expect(body.driver.id).toBe(DRIVER_ID);
       expect(body.driver.firstName).toBe('John');
+      expect(auditCalls()).toEqual([
+        {
+          table: driverAuditLog,
+          args: expect.objectContaining({
+            entityId: DRIVER_ID,
+            action: 'created',
+            actor: 'driver',
+            actorDriverId: DRIVER_ID,
+          }),
+        },
+      ]);
 
       const cookies = parseCookies(response);
       expect(cookies.has('portal_token')).toBe(true);
@@ -373,6 +399,33 @@ describe('Portal auth routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(401);
       expect(response.json().code).toBe('INVALID_CREDENTIALS');
+      // An unknown email has no driver to key on: no audit row.
+      expect(auditCalls()).toEqual([]);
+    });
+
+    it('records a refused login on an inactive driver', async () => {
+      // The active-account lookup finds nothing; the email names an inactive driver.
+      setupDbResults([], [{ id: DRIVER_ID, isActive: false }]);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/auth/login',
+        headers: { 'user-agent': 'portal-test' },
+        payload: { email: 'john@example.com', password: 'TestPassword1' },
+      });
+      expect(response.statusCode).toBe(401);
+      expect(auditCalls()).toEqual([
+        {
+          table: driverAuditLog,
+          args: expect.objectContaining({
+            entityId: DRIVER_ID,
+            action: 'login_failed',
+            actor: 'system',
+            actorLabel: 'login',
+            notes: 'inactive',
+            after: { method: 'password', ip: '127.0.0.1', userAgent: 'portal-test' },
+          }),
+        },
+      ]);
     });
 
     it('returns 401 when driver has no password hash', async () => {
@@ -432,6 +485,15 @@ describe('Portal auth routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(401);
       expect(response.json().code).toBe('INVALID_CREDENTIALS');
+      const [row] = auditCalls();
+      expect(row?.args).toMatchObject({
+        entityId: DRIVER_ID,
+        action: 'login_failed',
+        actor: 'system',
+        notes: 'bad_password',
+      });
+      // Never the password.
+      expect(JSON.stringify(row?.args)).not.toContain('WrongPassword1');
     });
 
     it('returns driver and sets auth cookies on successful login', async () => {
@@ -471,6 +533,18 @@ describe('Portal auth routes - handler logic', () => {
       expect(body.driver.id).toBe(DRIVER_ID);
       expect(body.driver.email).toBe('john@example.com');
       expect(body.driver.firstName).toBe('John');
+      expect(auditCalls()).toEqual([
+        {
+          table: driverAuditLog,
+          args: expect.objectContaining({
+            entityId: DRIVER_ID,
+            action: 'login_succeeded',
+            actor: 'driver',
+            actorDriverId: DRIVER_ID,
+            after: expect.objectContaining({ method: 'password' }),
+          }),
+        },
+      ]);
 
       const cookies = parseCookies(response);
       expect(cookies.has('portal_token')).toBe(true);
@@ -825,6 +899,17 @@ describe('Portal auth routes - handler logic', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json().success).toBe(true);
+      expect(auditCalls()).toEqual([
+        {
+          table: driverAuditLog,
+          args: expect.objectContaining({
+            entityId: DRIVER_ID,
+            action: 'email_verified',
+            actor: 'driver',
+            after: expect.objectContaining({ method: 'verification_token' }),
+          }),
+        },
+      ]);
     });
   });
 

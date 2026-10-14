@@ -49,16 +49,29 @@ function makeChain() {
   return chain;
 }
 
-const { mockRecordSessionEndRequest, mockAvailableEvseCountSql, mockSqlRaw } = vi.hoisted(() => ({
+const {
+  mockRecordSessionEndRequest,
+  mockAvailableEvseCountSql,
+  mockSqlRaw,
+  mockWriteCsmsSessionAudit,
+} = vi.hoisted(() => ({
+  mockWriteCsmsSessionAudit: vi.fn(),
   mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
   mockAvailableEvseCountSql: vi.fn((alias: string) => `AVAILABLE_EVSE_COUNT(${alias})`),
   mockSqlRaw: vi.fn((text: string) => ({ raw: text })),
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
   recordSessionEndRequest: mockRecordSessionEndRequest,
+  writeCsmsSessionAudit: mockWriteCsmsSessionAudit,
   availableEvseCountSql: mockAvailableEvseCountSql,
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
@@ -290,6 +303,7 @@ describe('Portal charger routes - handler logic', () => {
 
   beforeEach(() => {
     setupDbResults();
+    vi.mocked(databaseModule.writeAudit).mockClear();
     mockActivePaymentProvider.mockResolvedValue(null);
     vi.mocked(resolveStationTariff).mockResolvedValue(null);
     vi.mocked(isStationChargingFree).mockResolvedValue(true);
@@ -922,6 +936,23 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.json().chargingSessionId).toBe(VALID_SESSION_ID);
       expect(isStationChargingFree).not.toHaveBeenCalled();
       expect(mockAuthorizeSessionHold).not.toHaveBeenCalled();
+      // The driver's start is on the station history, without the idToken.
+      expect(vi.mocked(databaseModule.writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'station_id' }),
+        expect.objectContaining({
+          entityId: VALID_STATION_ID,
+          action: 'command_dispatched',
+          actor: 'driver',
+          after: {
+            action: 'RequestStartTransaction',
+            sessionId: VALID_SESSION_ID,
+            evseId: 1,
+            outcome: 'Accepted',
+          },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     describe('OCPP 1.6 transaction id', () => {
@@ -1579,7 +1610,14 @@ describe('Portal charger routes - handler logic', () => {
     });
 
     it('stops an active session', async () => {
-      setupDbResults([{ id: VALID_SESSION_ID, transactionId: 'tx-123', stationOcppId: 'CS-001' }]);
+      setupDbResults([
+        {
+          id: VALID_SESSION_ID,
+          transactionId: 'tx-123',
+          stationDbId: VALID_STATION_ID,
+          stationOcppId: 'CS-001',
+        },
+      ]);
       const response = await app.inject({
         method: 'POST',
         url: `/portal/chargers/sessions/${VALID_SESSION_ID}/stop`,
@@ -1588,6 +1626,20 @@ describe('Portal charger routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().status).toBe('stopping');
       expect(response.json().chargingSessionId).toBe(VALID_SESSION_ID);
+      expect(vi.mocked(databaseModule.writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'station_id' }),
+        expect.objectContaining({
+          entityId: VALID_STATION_ID,
+          action: 'command_dispatched',
+          actor: 'driver',
+          after: expect.objectContaining({
+            action: 'RequestStopTransaction',
+            sessionId: VALID_SESSION_ID,
+          }),
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('lets the OCPP server translate the stop for an OCPP 1.6 station', async () => {

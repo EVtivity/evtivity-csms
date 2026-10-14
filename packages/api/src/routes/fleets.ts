@@ -8,6 +8,7 @@ import {
   db,
   writeAudit,
   fleetAuditLog,
+  driverAuditLog,
   pricingAssignmentAuditLog,
   drivers,
   chargingStations,
@@ -1039,6 +1040,19 @@ export function fleetRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+      await writeAudit(
+        { table: driverAuditLog, idColumn: 'driver_id' },
+        {
+          entityId: body.driverId,
+          entityIdSnapshot: body.driverId,
+          action: 'fleet_assignment_changed',
+          ...actor,
+          before: null,
+          after: { fleetId: id },
+        },
+        db,
+        request.log,
+      );
       await fleetService.notifyMemberJoined(id, body.driverId, request.log);
       await reply.status(201).send(record);
     },
@@ -1125,6 +1139,19 @@ export function fleetRoutes(app: FastifyInstance): void {
           action: 'member_removed',
           ...actor,
           before: { driverId },
+        },
+        db,
+        request.log,
+      );
+      await writeAudit(
+        { table: driverAuditLog, idColumn: 'driver_id' },
+        {
+          entityId: driverId,
+          entityIdSnapshot: driverId,
+          action: 'fleet_assignment_changed',
+          ...actor,
+          before: { fleetId: id },
+          after: null,
         },
         db,
         request.log,

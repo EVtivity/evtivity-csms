@@ -29,7 +29,7 @@ describe('payoutAccountSyncHandler', () => {
 
     await payoutAccountSyncHandler(log);
 
-    expect(mockPaymentContext).toHaveBeenCalledWith(log);
+    expect(mockPaymentContext).toHaveBeenCalledWith(log, 'payout-account-sync');
     expect(mockRefreshAll).toHaveBeenCalledWith(ctx);
     expect(log.info).toHaveBeenCalledWith(
       { total: 3, refreshed: 2, failed: 1 },

@@ -133,6 +133,9 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
       onSuccess: (saved) => {
         setBaseline(saved);
         void queryClient.invalidateQueries({ queryKey: templateQueryKey });
+        void queryClient.invalidateQueries({
+          queryKey: ['audit', 'notification_template'],
+        });
       },
       onError: (err: unknown) => {
         const msg = err instanceof Error ? err.message : t('notifications.templateSaveFailed');
@@ -147,6 +150,9 @@ export const TemplateEditPanel = forwardRef<TemplateEditPanelHandle, TemplateEdi
         ),
       onSuccess: async () => {
         await queryClient.refetchQueries({ queryKey: templateQueryKey });
+        void queryClient.invalidateQueries({
+          queryKey: ['audit', 'notification_template'],
+        });
         setLoadedKey('');
         onStatusChange?.({ success: t('notifications.templateReset'), error: '' });
       },

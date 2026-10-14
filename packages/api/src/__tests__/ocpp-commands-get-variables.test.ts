@@ -106,6 +106,7 @@ vi.mock('@evtivity/database', () => {
       value: 'sc.value',
     },
     stationAuditLog: {},
+    localAuthListAuditLog: {},
     writeAudit: vi.fn().mockResolvedValue(undefined),
   };
 });

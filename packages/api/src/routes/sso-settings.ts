@@ -3,8 +3,14 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { like } from 'drizzle-orm';
-import { db, settings, clearSsoSettingsCache } from '@evtivity/database';
+import { inArray, like } from 'drizzle-orm';
+import {
+  db,
+  settings,
+  clearSsoSettingsCache,
+  writeAudit,
+  settingAuditLog,
+} from '@evtivity/database';
 import { encryptString } from '@evtivity/lib';
 import { decryptForRead } from '../lib/settings-crypto.js';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -13,6 +19,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import { config as apiConfig } from '../lib/config.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 
 // SSO decides who signs in as which operator: company-wide, so a
 // site-restricted user gets this 404 before any read or write
@@ -113,20 +120,20 @@ export function ssoSettingsRoutes(app: FastifyInstance): void {
             set: { value, updatedAt: new Date() },
           });
 
-      const updates = [
-        upsert('sso.enabled', body.enabled),
-        upsert('sso.provider', body.provider),
-        upsert('sso.entryPoint', body.entryPoint),
-        upsert('sso.issuer', body.issuer),
-        upsert('sso.autoProvision', body.autoProvision),
-        upsert('sso.defaultRoleId', body.defaultRoleId),
-        upsert('sso.attributeMapping', JSON.stringify(body.attributeMapping)),
+      const written: Array<{ key: string; value: unknown }> = [
+        { key: 'sso.enabled', value: body.enabled },
+        { key: 'sso.provider', value: body.provider },
+        { key: 'sso.entryPoint', value: body.entryPoint },
+        { key: 'sso.issuer', value: body.issuer },
+        { key: 'sso.autoProvision', value: body.autoProvision },
+        { key: 'sso.defaultRoleId', value: body.defaultRoleId },
+        { key: 'sso.attributeMapping', value: JSON.stringify(body.attributeMapping) },
       ];
 
       if (body.cert !== undefined && body.cert !== '') {
         try {
           const encrypted = encryptString(body.cert, getEncryptionKey());
-          updates.push(upsert('sso.certEnc', encrypted));
+          written.push({ key: 'sso.certEnc', value: encrypted });
         } catch (err) {
           request.log.error(
             { err, key: 'sso.certEnc' },
@@ -140,8 +147,49 @@ export function ssoSettingsRoutes(app: FastifyInstance): void {
         }
       }
 
-      await Promise.all(updates);
+      const beforeRows = await db
+        .select()
+        .from(settings)
+        .where(
+          inArray(
+            settings.key,
+            written.map((w) => w.key),
+          ),
+        );
+      const beforeMap = new Map<string, unknown>(beforeRows.map((row) => [row.key, row.value]));
+
+      await Promise.all(written.map((w) => upsert(w.key, w.value)));
       clearSsoSettingsCache();
+
+      // One setting.updated row per changed key. The certificate is stored as
+      // ciphertext with a fresh IV on every write, so a sent certificate always
+      // counts as a change and its row records only that it is configured.
+      const actor = getAuditActor(request);
+      await Promise.allSettled(
+        written
+          .filter(
+            ({ key, value }) =>
+              key.endsWith('Enc') || JSON.stringify(beforeMap.get(key)) !== JSON.stringify(value),
+          )
+          .map(({ key, value }) => {
+            const secret = key.endsWith('Enc');
+            return writeAudit(
+              { table: settingAuditLog, idColumn: 'setting_key' },
+              {
+                entityId: key,
+                entityIdSnapshot: key,
+                action: 'updated',
+                ...actor,
+                before: secret
+                  ? { key, configured: beforeMap.has(key) }
+                  : { key, value: beforeMap.get(key) ?? null },
+                after: secret ? { key, configured: true } : { key, value },
+              },
+              db,
+              request.log,
+            );
+          }),
+      );
       return { success: true };
     },
   );

@@ -198,6 +198,7 @@ vi.mock('../lib/site-access.js', () => ({
 import { registerAuth } from '../plugins/auth.js';
 import { userRoutes } from '../routes/users.js';
 import * as argon2Module from 'argon2';
+import { writeAudit } from '@evtivity/database';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -226,6 +227,7 @@ describe('User routes', () => {
 
   beforeEach(() => {
     setupDbResults();
+    vi.mocked(writeAudit).mockClear();
   });
 
   // --- Auth requirements ---
@@ -332,6 +334,58 @@ describe('User routes', () => {
     expect(body).toHaveProperty('user');
     expect(body.user.email).toBe('admin@example.com');
     expect(body).toHaveProperty('role');
+    expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+      expect.objectContaining({ idColumn: 'user_id' }),
+      expect.objectContaining({
+        entityId: VALID_USER_ID,
+        action: 'login_succeeded',
+        actor: 'operator',
+        actorUserId: VALID_USER_ID,
+        after: expect.objectContaining({ method: 'password', ip: '127.0.0.1' }),
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('POST /v1/auth/login records a failed login on the account for a wrong password', async () => {
+    vi.mocked(argon2Module.default.verify).mockResolvedValueOnce(false);
+    setupDbResults([
+      {
+        id: VALID_USER_ID,
+        email: 'admin@example.com',
+        passwordHash: '$argon2id$hashed',
+        firstName: 'Admin',
+        lastName: 'User',
+        roleId: VALID_ROLE_ID,
+        isActive: true,
+        mustResetPassword: false,
+        language: 'en',
+        timezone: 'America/New_York',
+        mfaEnabled: false,
+        mfaMethod: null,
+        totpSecretEnc: null,
+      },
+    ]);
+    const response = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      payload: { email: 'admin@example.com', password: 'WrongPassword1' },
+    });
+    expect(response.statusCode).toBe(401);
+    expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+      expect.objectContaining({ idColumn: 'user_id' }),
+      expect.objectContaining({
+        entityId: VALID_USER_ID,
+        action: 'login_failed',
+        actor: 'system',
+        actorLabel: 'login',
+        notes: 'bad_password',
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+    expect(JSON.stringify(vi.mocked(writeAudit).mock.calls)).not.toContain('WrongPassword1');
   });
 
   it('POST /v1/auth/login returns 401 when user not found', async () => {
@@ -344,6 +398,8 @@ describe('User routes', () => {
     expect(response.statusCode).toBe(401);
     const body = JSON.parse(response.body);
     expect(body.code).toBe('INVALID_CREDENTIALS');
+    // No account to key on: access_logs holds the attempt.
+    expect(vi.mocked(writeAudit)).not.toHaveBeenCalled();
   });
 
   it('GET /v1/users/me returns current user profile', async () => {
@@ -770,6 +826,17 @@ describe('User routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.success).toBe(true);
+    expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+      expect.objectContaining({ idColumn: 'user_id' }),
+      expect.objectContaining({
+        entityId: VALID_USER_ID,
+        action: 'password_reset',
+        actor: 'operator',
+        after: expect.objectContaining({ method: 'reset_token' }),
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('POST /v1/auth/reset-password returns 400 for invalid token', async () => {

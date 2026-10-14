@@ -5,6 +5,8 @@ import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vites
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 
+const mockWriteAudit = vi.hoisted(() => vi.fn((..._args: unknown[]) => Promise.resolve()));
+
 let dbResults: unknown[][] = [];
 let dbCallIndex = 0;
 function setupDbResults(...results: unknown[][]) {
@@ -67,6 +69,8 @@ vi.mock('@evtivity/database', () => ({
   },
   reports: {},
   reportSchedules: {},
+  reportScheduleAuditLog: { _name: 'reportScheduleAuditLog' },
+  writeAudit: mockWriteAudit,
   reportStatusEnum: {
     enumValues: ['pending', 'generating', 'completed', 'failed'] as const,
   },
@@ -176,6 +180,7 @@ describe('Report routes', () => {
 
   beforeEach(() => {
     setupDbResults();
+    mockWriteAudit.mockClear();
   });
 
   it('GET /v1/reports returns 401 without auth', async () => {
@@ -385,7 +390,7 @@ describe('Report routes', () => {
   });
 
   it('DELETE /v1/reports/:id deletes report when found', async () => {
-    setupDbResults([{ id: VALID_REPORT_ID }]);
+    setupDbResults([{ id: VALID_REPORT_ID, name: 'Revenue', reportType: 'revenue' }]);
     const response = await app.inject({
       method: 'DELETE',
       url: `/reports/${VALID_REPORT_ID}`,
@@ -394,6 +399,30 @@ describe('Report routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.success).toBe(true);
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    expect(mockWriteAudit.mock.calls[0]?.[0]).toEqual({
+      table: { _name: 'reportScheduleAuditLog' },
+      idColumn: 'report_schedule_id',
+    });
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: null,
+      entityIdSnapshot: `report:${VALID_REPORT_ID}`,
+      action: 'report_deleted',
+      actor: 'operator',
+      actorUserId: VALID_USER_ID,
+      before: { id: VALID_REPORT_ID, name: 'Revenue' },
+      notes: VALID_REPORT_ID,
+    });
+  });
+
+  it('DELETE /v1/reports/:id writes no audit row when not found', async () => {
+    setupDbResults([]);
+    await app.inject({
+      method: 'DELETE',
+      url: `/reports/${VALID_REPORT_ID}`,
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 });
 
@@ -412,6 +441,7 @@ describe('Report schedule routes', () => {
 
   beforeEach(() => {
     setupDbResults();
+    mockWriteAudit.mockClear();
   });
 
   it('GET /v1/report-schedules returns schedule list', async () => {
@@ -476,6 +506,53 @@ describe('Report schedule routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.name).toBe('Weekly Revenue');
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: 's1',
+      entityIdSnapshot: 's1',
+      action: 'created',
+      after: { id: 's1', name: 'Weekly Revenue' },
+    });
+  });
+
+  it('PATCH /v1/report-schedules/:id audits the changed fields only', async () => {
+    const existing = {
+      id: '7',
+      name: 'Weekly Revenue',
+      reportType: 'revenue',
+      format: 'csv',
+      frequency: 'weekly',
+      dayOfWeek: null,
+      dayOfMonth: null,
+      filters: null,
+      recipientEmails: [],
+      isEnabled: true,
+      siteScope: null,
+      nextRunAt: null,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      updatedAt: '2024-01-01T00:00:00.000Z',
+    };
+    setupDbResults(
+      [existing],
+      [{ ...existing, name: 'Renamed', updatedAt: '2024-01-02T00:00:00.000Z' }],
+    );
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/report-schedules/7`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { name: 'Renamed', isEnabled: true },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: '7',
+      action: 'updated',
+      before: { name: 'Weekly Revenue' },
+      after: { name: 'Renamed' },
+    });
+    const call = mockWriteAudit.mock.calls[0]?.[1] as {
+      before: Record<string, unknown>;
+    };
+    expect(Object.keys(call.before)).toEqual(['name']);
   });
 
   it('POST /v1/report-schedules refuses a NEVI schedule without quarter and year', async () => {
@@ -527,7 +604,7 @@ describe('Report schedule routes', () => {
   });
 
   it('DELETE /v1/report-schedules/:id deletes schedule when found', async () => {
-    setupDbResults([{ id: VALID_REPORT_ID }]);
+    setupDbResults([{ id: 1, name: 'Weekly Revenue' }]);
     const response = await app.inject({
       method: 'DELETE',
       url: `/report-schedules/1`,
@@ -536,6 +613,12 @@ describe('Report schedule routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.success).toBe(true);
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: null,
+      entityIdSnapshot: '1',
+      action: 'deleted',
+      before: { id: 1, name: 'Weekly Revenue' },
+    });
   });
 
   it('POST /v1/report-schedules/:id/run-now returns 404 when not found', async () => {

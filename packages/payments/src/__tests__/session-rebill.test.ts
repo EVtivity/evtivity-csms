@@ -109,21 +109,24 @@ describe('chargeSessionRebill', () => {
       amountCents: 1190,
       recorded: true,
     });
-    expect(m.claimRebillRecord).toHaveBeenCalledWith({
-      sessionId: input.sessionId,
-      driverId: 'drv_1',
-      sitePaymentConfigId: 3,
-      request: {
-        provider: 'stripe',
-        customerId: 'cus_1',
-        methodId: 'pm_1',
-        grossCents: 1190,
-        currency: 'EUR',
-        feeTaxRate: 0.19,
-        platformFeePercent: 10,
-        payoutAccountId: 'acct_site',
+    expect(m.claimRebillRecord).toHaveBeenCalledWith(
+      {
+        sessionId: input.sessionId,
+        driverId: 'drv_1',
+        sitePaymentConfigId: 3,
+        request: {
+          provider: 'stripe',
+          customerId: 'cus_1',
+          methodId: 'pm_1',
+          grossCents: 1190,
+          currency: 'EUR',
+          feeTaxRate: 0.19,
+          platformFeePercent: 10,
+          payoutAccountId: 'acct_site',
+        },
       },
-    });
+      ctx,
+    );
     expect(provider.chargeSavedMethod).toHaveBeenCalledWith({
       customerId: 'cus_1',
       methodId: 'pm_1',
@@ -136,11 +139,15 @@ describe('chargeSessionRebill', () => {
       metadata: { sessionId: input.sessionId, type: 'session_rebill' },
       idempotencyKey: `rebill_${input.sessionId}`,
     });
-    expect(m.markChargeCaptured).toHaveBeenCalledWith(9, {
-      provider: 'stripe',
-      paymentId: 'pi_rebill',
-      amountCents: 1190,
-    });
+    expect(m.markChargeCaptured).toHaveBeenCalledWith(
+      9,
+      {
+        provider: 'stripe',
+        paymentId: 'pi_rebill',
+        amountCents: 1190,
+      },
+      ctx,
+    );
   });
 
   it('reports no payment method without writing anything', async () => {
@@ -203,7 +210,7 @@ describe('chargeSessionRebill', () => {
       code: 'payout_not_ready',
       amountCents: 1190,
     });
-    expect(m.markChargeFailed).toHaveBeenCalledWith(9, 'Payout account not ready');
+    expect(m.markChargeFailed).toHaveBeenCalledWith(9, 'Payout account not ready', ctx);
     expect(provider.chargeSavedMethod).not.toHaveBeenCalled();
   });
 
@@ -220,7 +227,7 @@ describe('chargeSessionRebill', () => {
       code: 'authentication_required',
       amountCents: 1190,
     });
-    expect(m.markChargeFailed).toHaveBeenCalledWith(9, 'Your card requires authentication.');
+    expect(m.markChargeFailed).toHaveBeenCalledWith(9, 'Your card requires authentication.', ctx);
   });
 
   it('leaves the record pending and throws when the outcome is unknown', async () => {
@@ -274,11 +281,15 @@ describe('chargeSessionRebill', () => {
         idempotencyKey: `rebill_${input.sessionId}`,
       }),
     );
-    expect(m.markChargeCaptured).toHaveBeenCalledWith(9, {
-      provider: 'stripe',
-      paymentId: 'pi_rebill',
-      amountCents: 1000,
-    });
+    expect(m.markChargeCaptured).toHaveBeenCalledWith(
+      9,
+      {
+        provider: 'stripe',
+        paymentId: 'pi_rebill',
+        amountCents: 1000,
+      },
+      ctx,
+    );
   });
 
   it('charges nothing for a charge older than the key retention or a lost session claim', async () => {
@@ -372,11 +383,15 @@ describe('chargeSessionRebill per provider', () => {
       recurringProcessingModel: 'UnscheduledCardOnFile',
       paymentMethod: { storedPaymentMethodId: 'STORED_1' },
     });
-    expect(m.markChargeCaptured).toHaveBeenCalledWith(9, {
-      provider: 'adyen',
-      paymentId: 'PSP_REBILL',
-      amountCents: 1190,
-    });
+    expect(m.markChargeCaptured).toHaveBeenCalledWith(
+      9,
+      {
+        provider: 'adyen',
+        paymentId: 'PSP_REBILL',
+        amountCents: 1190,
+      },
+      ctx,
+    );
 
     server.next({
       body: { resultCode: 'IdentifyShopper', action: { type: 'threeDS2' } },

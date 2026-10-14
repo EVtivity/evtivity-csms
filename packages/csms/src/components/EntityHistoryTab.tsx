@@ -71,6 +71,8 @@ interface Props {
   entityType: string;
   /** When null, lists every audit row of `entityType` (uses /v1/audit?entityType=X). When set, lists rows for that specific entity (uses /v1/audit/:entityType/:entityId). */
   entityId: string | null;
+  /** Further entity types merged into the same list. Only with entityId null (uses /v1/audit?entityTypes=X,Y). The query key stays under `['audit', entityType]`, so a write to a related type invalidates `['audit', entityType]`. */
+  relatedEntityTypes?: string[];
   pageSize?: number;
   /** Entity-specific columns inserted between Actor and Notes. */
   extraColumns?: AuditExtraColumn[];
@@ -101,6 +103,7 @@ function formatTimestamp(iso: string, timezone: string): string {
 export function EntityHistoryTab({
   entityType,
   entityId,
+  relatedEntityTypes = [],
   pageSize = 20,
   extraColumns = [],
   title,
@@ -114,12 +117,16 @@ export function EntityHistoryTab({
   // to suppress when the surrounding container already labels the section.
   const resolvedTitle = title ?? t('audit.history');
   const [page, setPage] = useState(1);
+  const typeFilter =
+    relatedEntityTypes.length > 0
+      ? `entityTypes=${[entityType, ...relatedEntityTypes].map(encodeURIComponent).join(',')}`
+      : `entityType=${encodeURIComponent(entityType)}`;
   const auditUrl =
     entityId == null
-      ? `/v1/audit?entityType=${encodeURIComponent(entityType)}&page=${String(page)}&limit=${String(pageSize)}`
+      ? `/v1/audit?${typeFilter}&page=${String(page)}&limit=${String(pageSize)}`
       : `/v1/audit/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}?page=${String(page)}&limit=${String(pageSize)}`;
   const { data, isLoading, error } = useQuery<AuditPage>({
-    queryKey: ['audit', entityType, entityId ?? '__all__', page, pageSize],
+    queryKey: ['audit', entityType, entityId ?? '__all__', page, pageSize, relatedEntityTypes],
     queryFn: () => api.get<AuditPage>(auditUrl),
     // Refetch every time the History tab mounts so operators see new entries
     // without manually reloading the page.

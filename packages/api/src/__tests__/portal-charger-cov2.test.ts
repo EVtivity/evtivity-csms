@@ -49,11 +49,18 @@ function makeChain() {
   return chain;
 }
 
-const { mockRecordSessionEndRequest } = vi.hoisted(() => ({
+const { mockRecordSessionEndRequest, mockWriteCsmsSessionAudit } = vi.hoisted(() => ({
   mockRecordSessionEndRequest: vi.fn().mockResolvedValue(true),
+  mockWriteCsmsSessionAudit: vi.fn(),
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   // The shared driver availability rule builds SQL; drizzle is mocked here, so the fragments are stubs.
   availableEvseCountSql: vi.fn(() => 'available_evse_count'),
@@ -62,6 +69,7 @@ vi.mock('@evtivity/database', async () => ({
   STARTABLE_CONNECTOR_STATUSES: ['available', 'occupied', 'preparing', 'ev_connected', 'finishing'],
   SESSION_END_REQUEST_CHANNEL: 'session_end_requests',
   recordSessionEndRequest: mockRecordSessionEndRequest,
+  writeCsmsSessionAudit: mockWriteCsmsSessionAudit,
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
       '../../../database/src/lib/station-status.js',
@@ -978,6 +986,17 @@ describe('Portal charger routes - remaining branches', () => {
         code: 'STATION_TIMEOUT',
       });
       expect(updateSets()).toEqual([expect.objectContaining({ status: 'faulted' })]);
+      expect(mockWriteCsmsSessionAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: SESSION_ID,
+          action: 'faulted',
+          actor: 'system',
+          actorLabel: 'portal-start-timeout',
+          after: { status: 'faulted' },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
       expect(mockDispatchDriverNotification).toHaveBeenCalledWith(
         expect.anything(),
         'session.Faulted',
@@ -1065,6 +1084,16 @@ describe('Portal charger routes - remaining branches', () => {
           'RequestStartTransaction',
         ]);
         expect(updateSets()).toEqual([expect.objectContaining({ status: 'faulted' })]);
+        expect(mockWriteCsmsSessionAudit).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sessionId: SESSION_ID,
+            action: 'faulted',
+            actorLabel: 'portal-start-rejected',
+            notes: 'Station rejected RequestStartTransaction: Rejected',
+          }),
+          expect.anything(),
+          expect.anything(),
+        );
         expect(mockCancelOpenSessionHold).toHaveBeenCalledWith(
           SESSION_ID,
           'Station rejected the start: Rejected',

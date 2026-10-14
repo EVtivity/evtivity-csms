@@ -18,6 +18,13 @@ import {
   payoutOnboardingUrl,
   resolvePayoutInvite,
 } from '../../services/payout-onboarding.service.js';
+import type { PaymentActor } from '@evtivity/payments';
+
+/**
+ * The site host opens the onboarding page with an invite token, not an account:
+ * the status writes it causes name `system`, label `payout-onboarding`.
+ */
+const PAYOUT_ONBOARDING_ACTOR: PaymentActor = { actor: 'system', actorLabel: 'payout-onboarding' };
 
 // Public pages of the site host's payout onboarding (plan P3.5 O4). The
 // site host has no EVtivity login: the 7-day EVtivity link is the
@@ -103,7 +110,7 @@ export function portalPayoutOnboardingRoutes(app: FastifyInstance): void {
         outcome = await createSitePayoutOnboardingLink(
           siteId,
           { refreshUrl: payoutOnboardingUrl(token), returnUrl: payoutOnboardingReturnUrl(token) },
-          paymentContext(request.log),
+          paymentContext(request.log, PAYOUT_ONBOARDING_ACTOR),
         );
       } catch (err) {
         if (!(err instanceof PaymentProviderNotConfiguredError)) throw err;
@@ -151,7 +158,10 @@ export function portalPayoutOnboardingRoutes(app: FastifyInstance): void {
       const { siteId } = await resolvePayoutInvite(token);
       let status;
       try {
-        status = await refreshSitePayoutAccount(siteId, paymentContext(request.log));
+        status = await refreshSitePayoutAccount(
+          siteId,
+          paymentContext(request.log, PAYOUT_ONBOARDING_ACTOR),
+        );
       } catch (err) {
         if (!(err instanceof PaymentProviderNotConfiguredError)) throw err;
         await sendNotAvailable(reply);

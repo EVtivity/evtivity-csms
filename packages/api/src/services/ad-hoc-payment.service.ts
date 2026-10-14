@@ -11,12 +11,15 @@ import {
   guestSessions,
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
+  stationAuditLog,
+  writeAudit,
 } from '@evtivity/database';
 import type { FastifyBaseLogger } from 'fastify';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 import { siteInScope } from '../lib/site-scope.js';
+import type { AuditActorInfo } from '../lib/audit-actor.js';
 
 /** How long an authorized payment waits for the station to start the transaction. */
 const PAYMENT_TTL_MS = 15 * 60 * 1000;
@@ -60,6 +63,7 @@ function isUniqueViolation(err: unknown): boolean {
 export async function startAdHocPayment(
   input: AdHocPaymentStart,
   userId: string,
+  actor: AuditActorInfo,
   logger: FastifyBaseLogger,
 ): Promise<AdHocPaymentResult> {
   const [station] = await db
@@ -161,6 +165,29 @@ export async function startAdHocPayment(
   });
 
   const cmdStatus = cmdResult.response?.['status'] as string | undefined;
+  // The start sent for the payment, as the operator command routes audit it.
+  // No card data: the PSP reference and the limits only.
+  await writeAudit(
+    { table: stationAuditLog, idColumn: 'station_id' },
+    {
+      entityId: station.id,
+      entityIdSnapshot: station.id,
+      action: 'command_dispatched',
+      ...actor,
+      notes: `RequestStartTransaction for ad hoc payment (${cmdResult.error != null ? 'Timeout' : (cmdStatus ?? 'Unknown')})`,
+      after: {
+        action: 'RequestStartTransaction',
+        evseId: input.evseId,
+        pspRef: input.pspRef,
+        maxCostCents: input.maxCostCents ?? null,
+        maxEnergyWh: input.maxEnergyWh ?? null,
+        maxTimeSeconds: input.maxTimeSeconds ?? null,
+        outcome: cmdResult.error != null ? 'Timeout' : (cmdStatus ?? 'Unknown'),
+      },
+    },
+    db,
+    logger,
+  );
   if (cmdResult.error != null || cmdStatus !== 'Accepted') {
     // The station did not start: drop the payment so the terminal can retry or
     // void the authorization.

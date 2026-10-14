@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { RotateCcw } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
@@ -181,6 +182,12 @@ const STATE_LABEL_KEY: Record<StationMessageState, string> = {
   account_credit_limit: 'messages.stateAccountCreditLimit',
 };
 
+/** Translated name of a station message state, or the raw code for an unknown one. */
+export function stationMessageStateLabel(t: TFunction, state: string): string {
+  const key = (STATE_LABEL_KEY as Record<string, string | undefined>)[state];
+  return key != null ? t(key as never) : state;
+}
+
 interface StationMessageSettingsProps {
   settings: Record<string, unknown> | undefined;
 }
@@ -307,6 +314,8 @@ export function StationMessageSettings({
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['station-message-templates'] });
+      // Template changes are listed in the Settings History tab.
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'setting'] });
       toast({ title: t('messages.saved'), variant: 'success' });
     },
     onError: () => {
@@ -322,6 +331,8 @@ export function StationMessageSettings({
       ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['station-message-templates'] });
+      // Template changes are listed in the Settings History tab.
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'setting'] });
       toast({ title: t('messages.resetSuccess'), variant: 'success' });
     },
     onError: () => {

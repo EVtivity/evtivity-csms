@@ -9,6 +9,7 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { authorize } from '../middleware/rbac.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { startAdHocPayment } from '../services/ad-hoc-payment.service.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 
 const adHocPaymentBody = z.object({
   stationId: z.string().min(1).max(255).describe('OCPP identity of the charging station'),
@@ -103,7 +104,7 @@ export function adHocPaymentRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof adHocPaymentBody>;
-      const result = await startAdHocPayment(body, userId, request.log);
+      const result = await startAdHocPayment(body, userId, getAuditActor(request), request.log);
       if (!result.ok) {
         await reply.status(result.status).send({ error: result.error, code: result.code });
         return;

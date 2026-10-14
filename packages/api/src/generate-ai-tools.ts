@@ -95,7 +95,7 @@ interface OpenApiOperation {
 const TAG_DESCRIPTIONS: Record<string, string> = {
   Sites: 'Charging sites: list, details, create, update, delete, layout, electricity rates.',
   Stations:
-    'Charging stations: list, details, EVSEs and connectors, status, events, OCPP logs, metrics, charging profiles, monitoring.',
+    'Charging stations: list, details, EVSEs and connectors, status, events, OCPP logs, metrics, the charging profiles of one station (list, push a profile or a charging profile template to it, clear, refresh) and its variable monitors (add, clear).',
   Sessions: 'Charging sessions: list, details, meter values, transaction events.',
   Dashboard: 'Dashboard statistics: counts, energy, revenue, uptime, utilization, peak usage.',
   Drivers: 'Drivers: list, details, create, update, tokens, vehicles, sessions.',
@@ -107,13 +107,16 @@ const TAG_DESCRIPTIONS: Record<string, string> = {
   Reports: 'Reports and report schedules.',
   'Support Cases': 'Support cases: list, details, messages.',
   Notifications: 'Notification templates, event settings and history.',
-  'OCPP 2.1 Commands': 'Send OCPP 2.1 commands to a station (reset, start, stop, availability).',
-  'OCPP 1.6 Commands': 'Send OCPP 1.6 commands to a station (reset, start, stop, availability).',
+  'OCPP 2.1 Commands':
+    'Send raw OCPP 2.1 commands to a station (reset, start, stop, availability). For charging profiles and monitors prefer the Stations and Smart Charging tools.',
+  'OCPP 1.6 Commands':
+    'Send raw OCPP 1.6 commands to a station (reset, start, stop, availability). For charging profiles prefer the Stations and Smart Charging tools.',
   OCPP: 'OCPP message schemas.',
   'Load Management': 'Site power management: limits, priorities, panels, circuits.',
-  'Smart Charging': 'Charging profile templates.',
+  'Smart Charging':
+    'Charging profile templates: create, update, push to their matching stations, push results.',
   Fleets: 'Fleets: members, stations, reservations.',
-  'Fleet Operations': 'Config templates and their pushes.',
+  'Fleet Operations': 'Configuration variable templates (not charging profiles) and their pushes.',
   Invoices: 'Invoices (read only).',
   OCPI: 'OCPI roaming: partners, locations, sessions, CDRs, tariffs (read only).',
   Transactions: 'Transaction event history.',

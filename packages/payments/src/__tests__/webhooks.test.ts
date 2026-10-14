@@ -221,6 +221,38 @@ describe('ingestPaymentWebhook', () => {
       'Duplicate webhook event, skipping',
     );
   });
+
+  it('applies the events as the provider webhook actor, whatever the caller actor', async () => {
+    verifyWebhook.mockReturnValue([
+      {
+        type: 'payment.failed',
+        eventId: 'evt_1',
+        paymentId: 'pi_1',
+        occurredAt: at,
+        reason: 'declined',
+        providerType: 'payment_intent.payment_failed',
+      },
+    ]);
+    h.insertResults.push([{ eventId: 'evt_1' }]);
+    await ingestPaymentWebhook(
+      'stripe',
+      'raw',
+      {},
+      {
+        ...ctx,
+        actor: { actor: 'operator', actorUserId: 'u1' },
+      },
+    );
+    expect(h.markOpenPaymentFailed).toHaveBeenCalledWith(
+      5,
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({
+        logger,
+        actor: { actor: 'system', actorLabel: 'payment-webhook:stripe' },
+      }),
+    );
+  });
 });
 
 describe('applyPaymentEvent', () => {
@@ -237,7 +269,12 @@ describe('applyPaymentEvent', () => {
     it('marks an open payment failed with a labelled reason', async () => {
       await applyPaymentEvent('stripe', failed('card_declined'), ctx);
       expect(h.findByPaymentId).toHaveBeenCalledWith('stripe', 'pi_1');
-      expect(h.markOpenPaymentFailed).toHaveBeenCalledWith(5, 'Stripe webhook: card_declined');
+      expect(h.markOpenPaymentFailed).toHaveBeenCalledWith(
+        5,
+        'Stripe webhook: card_declined',
+        expect.any(String),
+        ctx,
+      );
       expect(logger.info).toHaveBeenCalledWith(
         { paymentId: 'pi_1', reason: 'card_declined' },
         'Payment marked as failed via webhook',
@@ -246,7 +283,12 @@ describe('applyPaymentEvent', () => {
 
     it('cuts the provider reason to 480 characters', async () => {
       await applyPaymentEvent('adyen', failed('r'.repeat(600)), ctx);
-      expect(h.markOpenPaymentFailed).toHaveBeenCalledWith(5, `Adyen webhook: ${'r'.repeat(480)}`);
+      expect(h.markOpenPaymentFailed).toHaveBeenCalledWith(
+        5,
+        `Adyen webhook: ${'r'.repeat(480)}`,
+        expect.any(String),
+        ctx,
+      );
     });
 
     it('falls back to the provider event type, then the normalized type', async () => {
@@ -254,15 +296,27 @@ describe('applyPaymentEvent', () => {
       expect(h.markOpenPaymentFailed).toHaveBeenLastCalledWith(
         5,
         'Stripe webhook: payment_intent.payment_failed',
+        expect.any(String),
+        ctx,
       );
       await applyPaymentEvent('custom', failed(null), ctx);
-      expect(h.markOpenPaymentFailed).toHaveBeenLastCalledWith(5, 'custom webhook: payment.failed');
+      expect(h.markOpenPaymentFailed).toHaveBeenLastCalledWith(
+        5,
+        'custom webhook: payment.failed',
+        expect.any(String),
+        ctx,
+      );
     });
 
     it('leaves a terminal record alone and logs it', async () => {
       h.markOpenPaymentFailed.mockResolvedValue(false);
       await applyPaymentEvent('simulated', failed('x'), ctx);
-      expect(h.markOpenPaymentFailed).toHaveBeenCalledWith(5, 'Simulated webhook: x');
+      expect(h.markOpenPaymentFailed).toHaveBeenCalledWith(
+        5,
+        'Simulated webhook: x',
+        expect.any(String),
+        ctx,
+      );
       expect(logger.info).toHaveBeenCalledWith(
         { paymentId: 'pi_1', status: 'captured' },
         'Payment failure webhook ignored: record is in a terminal state',
@@ -279,7 +333,11 @@ describe('applyPaymentEvent', () => {
   describe('payment.refunded', () => {
     it('applies a partial cumulative refund against the event capture', async () => {
       await applyPaymentEvent('stripe', refunded(), ctx);
-      expect(h.markRefunded).toHaveBeenCalledWith(5, { refundedTotalCents: 1000, full: false });
+      expect(h.markRefunded).toHaveBeenCalledWith(
+        5,
+        { refundedTotalCents: 1000, full: false, previous: expect.anything() },
+        ctx,
+      );
       expect(logger.info).toHaveBeenCalledWith(
         { paymentId: 'pi_1', status: 'partially_refunded', refundedAmount: 1000 },
         'Payment refund status updated via webhook',
@@ -292,7 +350,11 @@ describe('applyPaymentEvent', () => {
         refunded({ cumulativeRefundedCents: 2000, capturedCents: 2000 }),
         ctx,
       );
-      expect(h.markRefunded).toHaveBeenCalledWith(5, { refundedTotalCents: 2000, full: true });
+      expect(h.markRefunded).toHaveBeenCalledWith(
+        5,
+        { refundedTotalCents: 2000, full: true, previous: expect.anything() },
+        ctx,
+      );
     });
 
     it('falls back to the record capture, then zero', async () => {
@@ -301,7 +363,11 @@ describe('applyPaymentEvent', () => {
         refunded({ cumulativeRefundedCents: 3000, capturedCents: null }),
         ctx,
       );
-      expect(h.markRefunded).toHaveBeenLastCalledWith(5, { refundedTotalCents: 3000, full: true });
+      expect(h.markRefunded).toHaveBeenLastCalledWith(
+        5,
+        { refundedTotalCents: 3000, full: true, previous: expect.anything() },
+        ctx,
+      );
 
       h.findByPaymentId.mockResolvedValue({
         id: 6,
@@ -314,7 +380,11 @@ describe('applyPaymentEvent', () => {
         refunded({ cumulativeRefundedCents: 100, capturedCents: null }),
         ctx,
       );
-      expect(h.markRefunded).toHaveBeenLastCalledWith(6, { refundedTotalCents: 100, full: true });
+      expect(h.markRefunded).toHaveBeenLastCalledWith(
+        6,
+        { refundedTotalCents: 100, full: true, previous: expect.anything() },
+        ctx,
+      );
     });
 
     it.each([[0], [-1]])('skips a refund event with a cumulative total of %i', async (total) => {
@@ -363,12 +433,16 @@ describe('applyPaymentEvent', () => {
         }),
         ctx,
       );
-      expect(h.settleRefund).toHaveBeenCalledWith(5, {
-        refundId: 'OP1',
-        paymentId: 'pi_1',
-        amountCents: 500,
-        outcome: 'succeeded',
-      });
+      expect(h.settleRefund).toHaveBeenCalledWith(
+        5,
+        {
+          refundId: 'OP1',
+          paymentId: 'pi_1',
+          amountCents: 500,
+          outcome: 'succeeded',
+        },
+        ctx,
+      );
       expect(h.markRefunded).not.toHaveBeenCalled();
       expect(notice).toEqual({ kind: 'refund_succeeded', record, amountCents: 500 });
     });
@@ -415,7 +489,9 @@ describe('applyPaymentEvent', () => {
           refundedTotalCents: 600,
           full: false,
           topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }],
+          previous: expect.anything(),
         },
+        ctx,
         { tag: 'tx' },
       );
     });
@@ -432,7 +508,9 @@ describe('applyPaymentEvent', () => {
           refundedTotalCents: 2000,
           full: false,
           topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 0 }],
+          previous: expect.anything(),
         },
+        ctx,
         { tag: 'tx' },
       );
     });
@@ -452,7 +530,9 @@ describe('applyPaymentEvent', () => {
           refundedTotalCents: 2600,
           full: true,
           topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }],
+          previous: expect.anything(),
         },
+        ctx,
         { tag: 'tx' },
       );
     });
@@ -495,7 +575,9 @@ describe('applyPaymentEvent', () => {
           refundedTotalCents: 600,
           full: false,
           topUps: [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }],
+          previous: expect.anything(),
         },
+        ctx,
         { tag: 'tx' },
       );
     });
@@ -771,7 +853,11 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
       h.findByChargePaymentId.mockResolvedValue(hold);
       h.markCaptured.mockResolvedValue(true);
       const notice = await applyPaymentEvent('adyen', event, ctx);
-      expect(h.markCaptured).toHaveBeenCalledWith(9, { capturedCents: 4000, failureReason: null });
+      expect(h.markCaptured).toHaveBeenCalledWith(
+        9,
+        { capturedCents: 4000, failureReason: null },
+        ctx,
+      );
       expect(notice).toMatchObject({ kind: 'capture_confirmed' });
     });
 
@@ -807,6 +893,7 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
         9,
         'MOD1',
         'Adyen capture failed: Insufficient balance',
+        ctx,
       );
       expect(notice).toEqual({
         kind: 'capture_failed',
@@ -823,6 +910,7 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
       expect(h.markHoldFailed).toHaveBeenCalledWith(
         9,
         'Adyen capture failed: Insufficient balance',
+        ctx,
       );
       expect(notice).toMatchObject({ kind: 'capture_failed', record: { status: 'failed' } });
     });
@@ -838,7 +926,7 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
 
     it('uses a reason without a provider reason', async () => {
       await applyPaymentEvent('adyen', { ...event, reason: null }, ctx);
-      expect(h.failPendingCapture).toHaveBeenCalledWith(9, 'MOD1', 'Adyen capture failed');
+      expect(h.failPendingCapture).toHaveBeenCalledWith(9, 'MOD1', 'Adyen capture failed', ctx);
     });
   });
 
@@ -860,14 +948,18 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
       h.markAuthorisationEnded.mockResolvedValue(true);
       await applyPaymentEvent('adyen', { ...cancelled, expired: true }, ctx);
       expect(h.confirmOperation).not.toHaveBeenCalled();
-      expect(h.markAuthorisationEnded).toHaveBeenCalledWith(9, 'Adyen authorisation expired');
+      expect(h.markAuthorisationEnded).toHaveBeenCalledWith(9, 'Adyen authorisation expired', ctx);
     });
 
     it('ends an open hold cancelled outside EVtivity', async () => {
       h.findByChargePaymentId.mockResolvedValue(hold);
       h.markAuthorisationEnded.mockResolvedValue(true);
       await applyPaymentEvent('adyen', cancelled, ctx);
-      expect(h.markAuthorisationEnded).toHaveBeenCalledWith(9, 'Adyen cancelled the authorisation');
+      expect(h.markAuthorisationEnded).toHaveBeenCalledWith(
+        9,
+        'Adyen cancelled the authorisation',
+        ctx,
+      );
     });
 
     it('ignores the cancellation of a top-up payment of the record', async () => {
@@ -919,12 +1011,16 @@ describe('applyPaymentEvent: async provider confirmations (P10a)', () => {
         entry: { refundId: 'MOD1', paymentId: 'PSP1', amountCents: 700, state: 'failed' },
       });
       const notice = await applyPaymentEvent('adyen', failed, ctx);
-      expect(h.settleRefund).toHaveBeenCalledWith(9, {
-        refundId: 'MOD1',
-        paymentId: 'PSP1',
-        amountCents: 700,
-        outcome: 'failed',
-      });
+      expect(h.settleRefund).toHaveBeenCalledWith(
+        9,
+        {
+          refundId: 'MOD1',
+          paymentId: 'PSP1',
+          amountCents: 700,
+          outcome: 'failed',
+        },
+        ctx,
+      );
       expect(notice).toEqual({
         kind: 'refund_failed',
         record,

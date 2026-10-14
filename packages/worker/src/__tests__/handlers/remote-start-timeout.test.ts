@@ -4,7 +4,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Logger } from 'pino';
 
-const { mockClose, mockFailGuest, mockAudit, NotConfigured } = vi.hoisted(() => {
+const { mockClose, mockFailGuest, mockAudit, mockSessionAudit, NotConfigured } = vi.hoisted(() => {
   class NotConfigured extends Error {
     readonly providerId: string;
     constructor(providerId: string) {
@@ -16,6 +16,7 @@ const { mockClose, mockFailGuest, mockAudit, NotConfigured } = vi.hoisted(() => 
     mockClose: vi.fn(),
     mockFailGuest: vi.fn(),
     mockAudit: vi.fn(),
+    mockSessionAudit: vi.fn(),
     NotConfigured,
   };
 });
@@ -28,6 +29,7 @@ vi.mock('@evtivity/payments', () => ({
 
 vi.mock('@evtivity/database', () => ({
   writeReservationAudit: mockAudit,
+  writeCsmsSessionAudit: mockSessionAudit,
   EV_CONNECT_TIMEOUT_REASON: 'EVConnectTimeout',
 }));
 
@@ -85,6 +87,27 @@ describe('handleRemoteStartTimeout', () => {
     expect(mockAudit).not.toHaveBeenCalled();
   });
 
+  it('audits the failed session as a system remote-start-timeout row', async () => {
+    mockClose.mockResolvedValueOnce({ outcome: 'failed', session, hold: { status: 'none' } });
+    const log = makeLog();
+
+    await handleRemoteStartTimeout({ kind: 'session', sessionId: 'ses_1' }, log, pubsub);
+
+    expect(mockSessionAudit).toHaveBeenCalledWith(
+      {
+        sessionId: 'ses_1',
+        action: 'faulted',
+        actor: 'system',
+        actorLabel: 'remote-start-timeout',
+        before: { status: 'active' },
+        after: { status: 'failed', stoppedReason: 'EVConnectTimeout', finalCostCents: 0 },
+        notes: 'The station reported no transaction for the remote start',
+      },
+      undefined,
+      log,
+    );
+  });
+
   it('writes the reservation timeline entry of a reserved session', async () => {
     mockClose.mockResolvedValueOnce({
       outcome: 'failed',
@@ -122,6 +145,7 @@ describe('handleRemoteStartTimeout', () => {
     await handleRemoteStartTimeout({ kind: 'session', sessionId: 'ses_1' }, makeLog(), pubsub);
 
     expect(publish).not.toHaveBeenCalled();
+    expect(mockSessionAudit).not.toHaveBeenCalled();
   });
 
   it('keeps going when the UI refresh publish fails (fail-open)', async () => {

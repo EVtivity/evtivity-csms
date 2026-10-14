@@ -229,7 +229,9 @@ describe('refundPaymentRecord', () => {
         actorUserId: 'u1',
         actionReason: 'Full',
         ledger: [ledgerEntry('re_1', 'pi_1', 3000)],
+        previous: expect.anything(),
       },
+      ctx,
       h.tx,
     );
     expect(outcome).toMatchObject({ status: 'refunded', refundedNowCents: 3000, full: true });
@@ -251,7 +253,9 @@ describe('refundPaymentRecord', () => {
         actorUserId: null,
         actionReason: null,
         ledger: [ledgerEntry('re_1', 'pi_1', 500)],
+        previous: expect.anything(),
       },
+      ctx,
       h.tx,
     );
     expect(outcome).toMatchObject({ status: 'refunded', refundedNowCents: 500, full: false });
@@ -417,7 +421,9 @@ describe('refundPaymentRecord with top-ups', () => {
           ledgerEntry('re_1', 'pi_t1', 600),
           ledgerEntry('re_1', 'pi_t2', 400),
         ],
+        previous: expect.anything(),
       },
+      ctx,
       h.tx,
     );
     expect(outcome).toMatchObject({
@@ -448,6 +454,7 @@ describe('refundPaymentRecord with top-ups', () => {
           { paymentId: 'pi_t2', amountCents: 400, refundedCents: 0 },
         ],
       }),
+      ctx,
       h.tx,
     );
   });
@@ -469,6 +476,7 @@ describe('refundPaymentRecord with top-ups', () => {
           { paymentId: 'pi_t2', amountCents: 400, refundedCents: 0 },
         ],
       }),
+      ctx,
       h.tx,
     );
   });
@@ -493,6 +501,7 @@ describe('refundPaymentRecord with top-ups', () => {
           { paymentId: 'pi_t2', amountCents: 400, refundedCents: 200 },
         ],
       }),
+      ctx,
       h.tx,
     );
   });
@@ -562,6 +571,7 @@ describe('refundPaymentRecord with top-ups', () => {
           { paymentId: 'pi_t2', amountCents: 400, refundedCents: 0 },
         ],
       }),
+      ctx,
       h.tx,
     );
     expect(logger.error).toHaveBeenCalledWith(
@@ -690,7 +700,9 @@ describe('refundPaymentRecord of a reservation fee', () => {
         actorUserId: 'u1',
         actionReason: 'Full',
         ledger: [ledgerEntry('re_fee', 'pi_fee', 595)],
+        previous: expect.anything(),
       },
+      ctx,
       h.tx,
     );
     expect(outcome).toMatchObject({ status: 'refunded', refundedNowCents: 595, full: true });
@@ -729,6 +741,7 @@ describe('refundPaymentRecord of a reservation fee', () => {
     expect(h.markRefunded).toHaveBeenCalledWith(
       7,
       expect.objectContaining({ refundedTotalCents: 300, full: false }),
+      ctx,
       h.tx,
     );
     expect(outcome).toMatchObject({ status: 'refunded', full: false });
@@ -837,6 +850,7 @@ describe('refundPaymentRecord of a reservation fee', () => {
           expect.objectContaining({ paymentId: 'pi_sim_approve_595_abc', state: 'succeeded' }),
         ],
       }),
+      ctx,
       h.tx,
     );
     expect(outcome).toMatchObject({ status: 'refunded', refundStatus: 'succeeded' });

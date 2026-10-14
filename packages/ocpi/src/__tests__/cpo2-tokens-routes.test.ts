@@ -41,8 +41,11 @@ function makeInsertChain(): Record<string, unknown> {
   return chain;
 }
 
+const { mockWriteAudit } = vi.hoisted(() => ({ mockWriteAudit: vi.fn() }));
+
 vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
+  writeAudit: mockWriteAudit,
   db: {
     select: vi.fn(() => makeSelectChain()),
     update: vi.fn(() => makeUpdateChain()),
@@ -100,6 +103,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  mockWriteAudit.mockReset().mockResolvedValue(undefined);
   selectResults = [];
   updateSets.length = 0;
   insertValues.length = 0;
@@ -213,10 +217,21 @@ describe('PUT /cpo/tokens/:country_code/:party_id/:token_uid', () => {
       },
     ]);
     expect(updateSets).toHaveLength(0);
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toEqual({
+      entityId: PARTNER.partnerId,
+      entityIdSnapshot: PARTNER.partnerId,
+      action: 'token_received',
+      actor: 'system',
+      actorLabel: 'ocpi-tokens',
+      before: null,
+      after: { uid: 'TOK001', type: 'RFID', valid: true, whitelist: 'ALLOWED' },
+      notes: 'PUT token TOK001 (new)',
+    });
   });
 
   it('updates the existing token row instead of inserting', async () => {
-    selectResults = [[{ id: 42 }]];
+    selectResults = [[{ id: 42, tokenType: 'RFID', isValid: true, whitelist: 'ALLOWED' }]];
     const body = { ...TOKEN, valid: false, type: 'APP_USER', whitelist: 'NEVER' };
     const res = await app.inject({ method: 'PUT', url: TOKEN_URL, payload: body });
     expect(res.statusCode).toBe(200);
@@ -229,6 +244,12 @@ describe('PUT /cpo/tokens/:country_code/:party_id/:token_uid', () => {
       tokenData: body,
     });
     expect(updateSets[0]?.['updatedAt']).toBeInstanceOf(Date);
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      action: 'token_received',
+      before: { type: 'RFID', valid: true, whitelist: 'ALLOWED' },
+      after: { uid: 'TOK001', type: 'APP_USER', valid: false, whitelist: 'NEVER' },
+      notes: 'PUT token TOK001',
+    });
   });
 });
 
@@ -257,6 +278,7 @@ describe('PATCH /cpo/tokens/:country_code/:party_id/:token_uid', () => {
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ status_code: 2004 });
     expect(updateSets).toHaveLength(0);
+    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('rejects a non-object body with 400', async () => {
@@ -287,6 +309,12 @@ describe('PATCH /cpo/tokens/:country_code/:party_id/:token_uid', () => {
       isValid: false,
       whitelist: 'NEVER',
       tokenType: 'APP_USER',
+    });
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      action: 'token_received',
+      actor: 'system',
+      after: { uid: 'TOK001', type: 'APP_USER', valid: false, whitelist: 'NEVER' },
+      notes: 'PATCH token TOK001',
     });
   });
 

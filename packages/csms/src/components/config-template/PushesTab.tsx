@@ -39,14 +39,14 @@ interface Props {
   templateId: string;
 }
 
-export function ConfigTemplatePushHistoryTab({ templateId }: Props): React.JSX.Element {
+export function ConfigTemplatePushesTab({ templateId }: Props): React.JSX.Element {
   const { t } = useTranslation();
   const timezone = useUserTimezone();
   const navigate = useNavigate();
   const [page, setPage] = useState(1);
   const limit = 10;
 
-  const { data: pushHistory } = useQuery({
+  const { data: pushes } = useQuery({
     queryKey: ['config-templates', templateId, 'pushes', page],
     queryFn: () =>
       api.get<{ data: PushRecord[]; total: number }>(
@@ -55,13 +55,13 @@ export function ConfigTemplatePushHistoryTab({ templateId }: Props): React.JSX.E
     refetchInterval: 5000,
   });
 
-  const total = pushHistory?.total ?? 0;
+  const total = pushes?.total ?? 0;
   const totalPages = Math.ceil(total / limit);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('configTemplates.pushHistory')}</CardTitle>
+        <CardTitle>{t('configTemplates.pushes')}</CardTitle>
       </CardHeader>
       <CardContent>
         {total === 0 ? (
@@ -83,7 +83,7 @@ export function ConfigTemplatePushHistoryTab({ templateId }: Props): React.JSX.E
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {pushHistory?.data.map((push) => (
+                  {pushes?.data.map((push) => (
                     <TableRow
                       key={push.id}
                       className="cursor-pointer"

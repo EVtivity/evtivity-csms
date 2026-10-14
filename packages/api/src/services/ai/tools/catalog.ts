@@ -2300,7 +2300,10 @@ export const AI_TOOL_CATEGORIES: readonly AiCatalogCategory[] = [
     description: 'Drivers: list, details, create, update, tokens, vehicles, sessions.',
   },
   { tag: 'Event Alert Rules', description: 'Event alert rules.' },
-  { tag: 'Fleet Operations', description: 'Config templates and their pushes.' },
+  {
+    tag: 'Fleet Operations',
+    description: 'Configuration variable templates (not charging profiles) and their pushes.',
+  },
   { tag: 'Fleets', description: 'Fleets: members, stations, reservations.' },
   { tag: 'Invoices', description: 'Invoices (read only).' },
   {
@@ -2318,11 +2321,13 @@ export const AI_TOOL_CATEGORIES: readonly AiCatalogCategory[] = [
   { tag: 'OCPP', description: 'OCPP message schemas.' },
   {
     tag: 'OCPP 1.6 Commands',
-    description: 'Send OCPP 1.6 commands to a station (reset, start, stop, availability).',
+    description:
+      'Send raw OCPP 1.6 commands to a station (reset, start, stop, availability). For charging profiles prefer the Stations and Smart Charging tools.',
   },
   {
     tag: 'OCPP 2.1 Commands',
-    description: 'Send OCPP 2.1 commands to a station (reset, start, stop, availability).',
+    description:
+      'Send raw OCPP 2.1 commands to a station (reset, start, stop, availability). For charging profiles and monitors prefer the Stations and Smart Charging tools.',
   },
   { tag: 'Payments', description: 'Payment records and site payment configuration (read only).' },
   { tag: 'Pricing', description: 'Pricing groups, tariffs and holidays (read only).' },
@@ -2337,11 +2342,15 @@ export const AI_TOOL_CATEGORIES: readonly AiCatalogCategory[] = [
     description:
       'Charging sites: list, details, create, update, delete, layout, electricity rates.',
   },
-  { tag: 'Smart Charging', description: 'Charging profile templates.' },
+  {
+    tag: 'Smart Charging',
+    description:
+      'Charging profile templates: create, update, push to their matching stations, push results.',
+  },
   {
     tag: 'Stations',
     description:
-      'Charging stations: list, details, EVSEs and connectors, status, events, OCPP logs, metrics, charging profiles, monitoring.',
+      'Charging stations: list, details, EVSEs and connectors, status, events, OCPP logs, metrics, the charging profiles of one station (list, push a profile or a charging profile template to it, clear, refresh) and its variable monitors (add, clear).',
   },
   { tag: 'Support Cases', description: 'Support cases: list, details, messages.' },
   { tag: 'Tokens', description: 'Driver RFID tokens and authorize attempts.' },
@@ -3257,7 +3266,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           minItems: 1,
           description: 'Charging schedule periods (ordered by ascending startPeriod)',
         },
-        startSchedule: { type: ['string', 'null'], description: 'Schedule start time (ISO 8601)' },
+        startSchedule: {
+          type: ['string', 'null'],
+          description:
+            'Schedule start time (ISO 8601). Required: Absolute and Recurring profiles carry a start (OCPP 2.1 K01.FR.40)',
+        },
         duration: { type: ['integer', 'null'], description: 'Schedule duration in seconds' },
         validFrom: { type: ['string', 'null'], description: 'Profile validity start (ISO 8601)' },
         validTo: { type: ['string', 'null'], description: 'Profile validity end (ISO 8601)' },
@@ -3356,7 +3369,8 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         startSchedule: {
           type: 'string',
           format: 'date-time',
-          description: 'Schedule start time (ISO 8601)',
+          description:
+            'Schedule start time (ISO 8601). Required: Absolute and Recurring profiles carry a start (OCPP 2.1 K01.FR.40)',
         },
         duration: { type: 'integer', description: 'Schedule duration in seconds' },
         validFrom: {
@@ -26508,8 +26522,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string' },
-        stationId: { type: 'string' },
+        id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
+        stationId: {
+          type: 'string',
+          pattern: '^sta_[a-z0-9]{12}$',
+          description: 'Station ID (not the OCPP station identifier)',
+        },
         loadMinPowerKw: {
           type: ['number', 'null'],
           minimum: 0,
@@ -26525,8 +26543,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     validation: {
       type: 'object',
       properties: {
-        id: { type: 'string' },
-        stationId: { type: 'string' },
+        id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
+        stationId: {
+          type: 'string',
+          pattern: '^sta_[a-z0-9]{12}$',
+          description: 'Station ID (not the OCPP station identifier)',
+        },
         loadMinPowerKw: {
           type: 'number',
           minimum: 0,
@@ -26554,8 +26576,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string' },
-        stationId: { type: 'string' },
+        id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
+        stationId: {
+          type: 'string',
+          pattern: '^sta_[a-z0-9]{12}$',
+          description: 'Station ID (not the OCPP station identifier)',
+        },
         loadPriority: {
           type: 'integer',
           minimum: 1,
@@ -26570,8 +26596,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     validation: {
       type: 'object',
       properties: {
-        id: { type: 'string' },
-        stationId: { type: 'string' },
+        id: { type: 'string', pattern: '^sit_[a-z0-9]{12}$', description: 'Site ID' },
+        stationId: {
+          type: 'string',
+          pattern: '^sta_[a-z0-9]{12}$',
+          description: 'Station ID (not the OCPP station identifier)',
+        },
         loadPriority: {
           type: 'integer',
           minimum: 1,

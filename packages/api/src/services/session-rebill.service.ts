@@ -358,7 +358,7 @@ async function takePayment(
     // The prepaid debit is the session's only record; another one (the hold
     // the give-up cancelled) leaves the balance alone.
     if (record != null) return manual('prepaid_record_exists', record.id);
-    const settled = await settlePrepaidSession(session.id, ctx.log, {
+    const settled = await settlePrepaidSession(session.id, paymentContext(ctx.log, ctx.actor), {
       costCents: grossCents,
       rebill: true,
     });
@@ -392,7 +392,7 @@ async function takePayment(
         currency: session.currency,
         taxRate: Number(session.tariffTaxRate ?? 0),
       },
-      paymentContext(ctx.log),
+      paymentContext(ctx.log, ctx.actor),
     );
     switch (charge.status) {
       case 'charged':

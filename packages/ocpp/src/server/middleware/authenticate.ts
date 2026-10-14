@@ -3,6 +3,7 @@
 
 import type { IncomingMessage } from 'node:http';
 import type postgres from 'postgres';
+import { stationAuditLog, writeAudit } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 import { logConnectionEvent } from './connection-log.js';
 import { hasSimulatorMarker, reconcileSimulatorIdentity } from './simulator-identity.js';
@@ -658,16 +659,43 @@ async function promotePendingSecurityProfile(
 ): Promise<void> {
   // Fail open: the station authenticated with the new profile; a failed write
   // only delays the promotion to its next connection.
+  let promoted: boolean;
   try {
-    await sql`
+    const rows = await sql`
       UPDATE charging_stations
       SET security_profile = ${toProfile}, pending_security_profile = NULL, updated_at = now(),
         basic_auth_password_hash = CASE WHEN ${toProfile} = 3 THEN NULL ELSE basic_auth_password_hash END
       WHERE id = ${stationDbId} AND pending_security_profile = ${toProfile}
+      RETURNING id
     `;
+    promoted = rows.length > 0;
   } catch (err) {
     logger.warn({ err, stationDbId, toProfile }, 'Failed to promote pending security profile');
     return;
+  }
+  // The station audit row, only from the connection whose compare-and-set
+  // promoted it (a concurrent connection on another pod finds nothing).
+  // Fail-open (writeAudit).
+  if (promoted) {
+    await writeAudit(
+      { table: stationAuditLog, idColumn: 'station_id' },
+      {
+        entityId: stationDbId,
+        entityIdSnapshot: stationDbId,
+        action: 'updated',
+        actor: 'ocpp',
+        actorLabel: 'security_profile_upgraded',
+        before: { securityProfile: fromProfile, pendingSecurityProfile: toProfile },
+        after: {
+          securityProfile: toProfile,
+          pendingSecurityProfile: null,
+          ...(toProfile === 3 ? { basicAuthPasswordCleared: true } : {}),
+        },
+        notes: 'The station connected with the pending security profile',
+      },
+      undefined,
+      logger,
+    );
   }
   logger.info({ stationDbId, fromProfile, toProfile }, 'Security profile upgrade completed');
   await logConnectionEvent(

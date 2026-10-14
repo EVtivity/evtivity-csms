@@ -355,7 +355,7 @@ export function StationDetail(): React.JSX.Element {
             <TabsTrigger value="events">{t('stations.events')}</TabsTrigger>
           )}
           <TabsTrigger value="configurations">{t('stations.configurations')}</TabsTrigger>
-          <TabsTrigger value="firmware-history">{t('stations.firmwareHistory')}</TabsTrigger>
+          <TabsTrigger value="firmware-history">{t('stations.firmwareUpdates')}</TabsTrigger>
           <TabsTrigger value="charging-profiles">{t('stations.chargingProfiles')}</TabsTrigger>
           {station.ocppProtocol !== 'ocpp1.6' && (
             <TabsTrigger value="charging-needs">{t('stations.chargingNeedsTab')}</TabsTrigger>

@@ -17,6 +17,7 @@ import { getUserSiteIds, checkStationSiteAccess } from '../lib/site-access.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { authorize } from '../middleware/rbac.js';
 import { ocppCommandQueued, ocppCommandQueuedBody } from '../lib/ocpp-command-queued.js';
+import { auditStationChange } from '../lib/station-audit.js';
 
 const displayMessageItem = z
   .object({
@@ -286,7 +287,28 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         message: messageInfo,
       });
 
+      // The message row exists from here on, whatever the station answers.
+      const auditSet = (outcome: string): Promise<void> =>
+        auditStationChange(request, stationId, 'display_message_set', {
+          after: {
+            messageId: message.id,
+            ocppMessageId,
+            priority: body.priority,
+            format: body.format,
+            content: body.content,
+            language: body.language ?? null,
+            state: body.state ?? null,
+            startDateTime: body.startDateTime ?? null,
+            endDateTime: body.endDateTime ?? null,
+            evseId: body.evseId ?? null,
+            transactionId: body.transactionId ?? null,
+            outcome,
+          },
+          notes: `SetDisplayMessage (${outcome})`,
+        });
+
       if (result.queued === true) {
+        await auditSet('queued (station offline)');
         await reply
           .status(202)
           .send(ocppCommandQueuedBody(station.stationId, 'SetDisplayMessage', result.error));
@@ -295,6 +317,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
 
       if (result.error != null) {
         const isTimeout = result.timedOut === true;
+        await auditSet(isTimeout ? 'timeout' : `error: ${result.error}`);
         await reply.status(isTimeout ? 504 : 502).send({
           error: result.error,
           code: isTimeout ? 'MESSAGE_TIMEOUT' : 'MESSAGE_SEND_FAILED',
@@ -312,6 +335,7 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         .set({ status: newStatus, ocppResponse: result.response ?? null, updatedAt: new Date() })
         .where(eq(displayMessages.id, message.id))
         .returning();
+      await auditSet(responseStatus ?? 'unknown');
 
       return updated;
     },
@@ -382,7 +406,18 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         id: message.ocppMessageId,
       });
 
+      const clearAudit = {
+        before: {
+          messageId: message.id,
+          ocppMessageId: message.ocppMessageId,
+          status: message.status,
+        },
+      };
       if (result.queued === true) {
+        await auditStationChange(request, stationId, 'display_message_cleared', {
+          ...clearAudit,
+          notes: 'ClearDisplayMessage (queued (station offline))',
+        });
         await reply
           .status(202)
           .send(ocppCommandQueuedBody(message.stationOcppId, 'ClearDisplayMessage', result.error));
@@ -411,6 +446,11 @@ export function displayMessageRoutes(app: FastifyInstance): void {
         .update(displayMessages)
         .set({ status: 'cleared', ocppResponse: result.response ?? null, updatedAt: new Date() })
         .where(eq(displayMessages.id, id));
+      await auditStationChange(request, stationId, 'display_message_cleared', {
+        ...clearAudit,
+        after: { messageId: message.id, status: 'cleared' },
+        notes: 'ClearDisplayMessage (Accepted)',
+      });
 
       return { status: 'cleared' };
     },

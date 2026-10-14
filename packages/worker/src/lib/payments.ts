@@ -35,8 +35,12 @@ export function setSimulatedEventSink(sink: SimulatedEventSink | null): void {
   simulatedEvents.bind(sink);
 }
 
-export function paymentContext(logger: PaymentLogger): PaymentContext {
-  return { registry: paymentRegistry, logger };
+/**
+ * The payment context of one worker job: its audit rows name `system` with
+ * the job (`payment-capture-retry`, `guest-session-cleanup`, ...).
+ */
+export function paymentContext(logger: PaymentLogger, jobLabel: string): PaymentContext {
+  return { registry: paymentRegistry, logger, actor: { actor: 'system', actorLabel: jobLabel } };
 }
 
 /** The notification templates of payment messages the worker sends. */
@@ -44,5 +48,8 @@ export const PAYMENT_TEMPLATES_DIRS = ALL_TEMPLATES_DIRS;
 
 /** Guest session events also send the guest receipt, from the notification templates. */
 export function guestEventDeps(logger: PaymentLogger): GuestEventDeps {
-  return { ...paymentContext(logger), templatesDirs: PAYMENT_TEMPLATES_DIRS };
+  return {
+    ...paymentContext(logger, 'guest-session-worker'),
+    templatesDirs: PAYMENT_TEMPLATES_DIRS,
+  };
 }

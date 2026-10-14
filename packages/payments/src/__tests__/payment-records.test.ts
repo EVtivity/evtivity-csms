@@ -113,6 +113,7 @@ vi.mock('@evtivity/database', () => ({
     prepaidBalanceCents: 't.prepaid_balance_cents',
   },
   tokenAuditLog: { name: 'token_audit_log' },
+  paymentAuditLog: { name: 'payment_audit_log' },
   writeAudit: h.writeAudit,
   getCompanyCurrency: h.getCompanyCurrency,
   paymentRecords: {
@@ -212,6 +213,13 @@ function guard(id: number, statuses: string[]): unknown {
 
 const LONG = 'x'.repeat(600);
 
+const PREV = { status: 'captured' as const, refundedAmountCents: 0 };
+
+const AUDIT = {
+  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  actor: { actor: 'operator' as const, actorUserId: 'u1' },
+};
+
 beforeEach(() => {
   h.calls.length = 0;
   h.results.length = 0;
@@ -233,7 +241,7 @@ describe('inserts', () => {
 
   it('recordHold inserts a pre_authorized record unique per session', async () => {
     h.results.push([{ id: 7 }]);
-    expect(await recordHold(hold)).toBe(7);
+    expect(await recordHold(hold, AUDIT)).toBe(7);
     const call = last();
     expect(call.kind).toBe('insert');
     expect(call.values).toEqual({
@@ -255,23 +263,26 @@ describe('inserts', () => {
 
   it('recordHold returns null on conflict', async () => {
     h.results.push([]);
-    expect(await recordHold(hold)).toBeNull();
+    expect(await recordHold(hold, AUDIT)).toBeNull();
   });
 
   it('recordFailedHold stores a failed record with the reason cut to 500 characters', async () => {
     h.results.push([{ id: 8 }]);
-    const id = await recordFailedHold({
-      sessionId: 's1',
-      driverId: null,
-      sitePaymentConfigId: null,
-      provider: 'stripe',
-      customerId: null,
-      methodId: null,
-      source: 'guest',
-      currency: 'USD',
-      preAuthAmountCents: null,
-      reason: LONG,
-    });
+    const id = await recordFailedHold(
+      {
+        sessionId: 's1',
+        driverId: null,
+        sitePaymentConfigId: null,
+        provider: 'stripe',
+        customerId: null,
+        methodId: null,
+        source: 'guest',
+        currency: 'USD',
+        preAuthAmountCents: null,
+        reason: LONG,
+      },
+      AUDIT,
+    );
     expect(id).toBe(8);
     const call = last();
     expect(call.values?.['status']).toBe('failed');
@@ -287,32 +298,38 @@ describe('inserts', () => {
   it('recordFailedHold returns null on conflict', async () => {
     h.results.push([]);
     expect(
-      await recordFailedHold({
-        sessionId: 's1',
-        driverId: null,
-        sitePaymentConfigId: null,
-        provider: 'stripe',
-        customerId: null,
-        methodId: null,
-        source: 'guest',
-        currency: 'USD',
-        preAuthAmountCents: null,
-        reason: 'declined',
-      }),
+      await recordFailedHold(
+        {
+          sessionId: 's1',
+          driverId: null,
+          sitePaymentConfigId: null,
+          provider: 'stripe',
+          customerId: null,
+          methodId: null,
+          source: 'guest',
+          currency: 'USD',
+          preAuthAmountCents: null,
+          reason: 'declined',
+        },
+        AUDIT,
+      ),
     ).toBeNull();
   });
 
   it('recordGuestHold inserts a guest hold without a driver', async () => {
     h.results.push([{ id: 9 }]);
     expect(
-      await recordGuestHold({
-        sessionId: 's2',
-        sitePaymentConfigId: 1,
-        provider: 'stripe',
-        paymentId: 'pi_g',
-        currency: 'USD',
-        preAuthAmountCents: 2000,
-      }),
+      await recordGuestHold(
+        {
+          sessionId: 's2',
+          sitePaymentConfigId: 1,
+          provider: 'stripe',
+          paymentId: 'pi_g',
+          currency: 'USD',
+          preAuthAmountCents: 2000,
+        },
+        AUDIT,
+      ),
     ).toBe(9);
     const call = last();
     expect(call.values).toEqual({
@@ -330,14 +347,17 @@ describe('inserts', () => {
 
     h.results.push([]);
     expect(
-      await recordGuestHold({
-        sessionId: 's2',
-        sitePaymentConfigId: null,
-        provider: 'stripe',
-        paymentId: 'pi_g',
-        currency: 'USD',
-        preAuthAmountCents: null,
-      }),
+      await recordGuestHold(
+        {
+          sessionId: 's2',
+          sitePaymentConfigId: null,
+          provider: 'stripe',
+          paymentId: 'pi_g',
+          currency: 'USD',
+          preAuthAmountCents: null,
+        },
+        AUDIT,
+      ),
     ).toBeNull();
   });
 
@@ -355,7 +375,7 @@ describe('inserts', () => {
       feeRequest: { grossCents: 595, platformFeePercent: 10, payoutAccountId: null },
     };
     h.results.push([{ id: 11 }]);
-    expect(await recordPendingCharge(input)).toBe(11);
+    expect(await recordPendingCharge(input, AUDIT)).toBe(11);
     const call = last();
     expect(call.values).toEqual({
       chargeType: 'reservation_no_show',
@@ -378,7 +398,7 @@ describe('inserts', () => {
     });
 
     h.results.push([]);
-    expect(await recordPendingCharge(input)).toBeNull();
+    expect(await recordPendingCharge(input, AUDIT)).toBeNull();
   });
 });
 
@@ -517,7 +537,7 @@ describe('reads', () => {
 describe('status updates are guarded by their from-states', () => {
   it('markCaptured moves only pre_authorized and writes no metadata without a top-up', async () => {
     h.results.push([{ id: 1 }]);
-    expect(await markCaptured(1, { capturedCents: 1200, failureReason: null })).toBe(true);
+    expect(await markCaptured(1, { capturedCents: 1200, failureReason: null }, AUDIT)).toBe(true);
     const call = last();
     expect(call.set).toMatchObject({
       status: 'captured',
@@ -529,20 +549,24 @@ describe('status updates are guarded by their from-states', () => {
     expect(call.where).toEqual(guard(1, ['pre_authorized']));
 
     h.results.push([]);
-    expect(await markCaptured(1, { capturedCents: 1200, failureReason: null, topUp: null })).toBe(
-      false,
-    );
+    expect(
+      await markCaptured(1, { capturedCents: 1200, failureReason: null, topUp: null }, AUDIT),
+    ).toBe(false);
     expect(last().set).not.toHaveProperty('metadata');
   });
 
   it('markCaptured appends the top-up to metadata.topUps unless it is listed', async () => {
     h.results.push([{ id: 1 }]);
     expect(
-      await markCaptured(1, {
-        capturedCents: 5000,
-        failureReason: null,
-        topUp: { paymentId: 'pi_top', amountCents: 3000 },
-      }),
+      await markCaptured(
+        1,
+        {
+          capturedCents: 5000,
+          failureReason: null,
+          topUp: { paymentId: 'pi_top', amountCents: 3000 },
+        },
+        AUDIT,
+      ),
     ).toBe(true);
     const metadata = last().set?.['metadata'] as { text: string; values: unknown[] };
     expect(metadata.text).toContain("'{topUps}'");
@@ -555,24 +579,24 @@ describe('status updates are guarded by their from-states', () => {
 
   it('markCancelled moves only pre_authorized', async () => {
     h.results.push([{ id: 2 }]);
-    expect(await markCancelled(2)).toBe(true);
+    expect(await markCancelled(2, {}, AUDIT)).toBe(true);
     expect(last().set).toMatchObject({ status: 'cancelled', capturedAmountCents: 0 });
     expect(last().where).toEqual(guard(2, ['pre_authorized']));
-    expect(await markCancelled(2)).toBe(false);
+    expect(await markCancelled(2, {}, AUDIT)).toBe(false);
   });
 
   it('markHoldFailed moves only pre_authorized and cuts the reason', async () => {
     h.results.push([{ id: 3 }]);
-    expect(await markHoldFailed(3, LONG)).toBe(true);
+    expect(await markHoldFailed(3, LONG, AUDIT)).toBe(true);
     expect(last().set).toMatchObject({ status: 'failed', failureReason: 'x'.repeat(500) });
     expect(last().where).toEqual(guard(3, ['pre_authorized']));
-    expect(await markHoldFailed(3, 'r')).toBe(false);
+    expect(await markHoldFailed(3, 'r', AUDIT)).toBe(false);
   });
 
   it('markChargeCaptured moves only pending', async () => {
     h.results.push([{ id: 4 }]);
     const charge = { provider: 'stripe', paymentId: 'pi_4', amountCents: 900 };
-    expect(await markChargeCaptured(4, charge)).toBe(true);
+    expect(await markChargeCaptured(4, charge, AUDIT)).toBe(true);
     expect(last().set).toMatchObject({
       status: 'captured',
       provider: 'stripe',
@@ -580,28 +604,30 @@ describe('status updates are guarded by their from-states', () => {
       capturedAmountCents: 900,
     });
     expect(last().where).toEqual(guard(4, ['pending']));
-    expect(await markChargeCaptured(4, charge)).toBe(false);
+    expect(await markChargeCaptured(4, charge, AUDIT)).toBe(false);
   });
 
   it('markChargeFailed moves only pending and cuts the reason', async () => {
     h.results.push([{ id: 5 }]);
-    expect(await markChargeFailed(5, LONG)).toBe(true);
+    expect(await markChargeFailed(5, LONG, AUDIT)).toBe(true);
     expect(last().set).toMatchObject({ status: 'failed', failureReason: 'x'.repeat(500) });
     expect(last().where).toEqual(guard(5, ['pending']));
-    expect(await markChargeFailed(5, 'r')).toBe(false);
+    expect(await markChargeFailed(5, 'r', AUDIT)).toBe(false);
   });
 
   it('markOpenPaymentFailed moves only pending or pre_authorized', async () => {
     h.results.push([{ id: 6 }]);
-    expect(await markOpenPaymentFailed(6, LONG)).toBe(true);
+    expect(await markOpenPaymentFailed(6, LONG, 'pending', AUDIT)).toBe(true);
     expect(last().set).toMatchObject({ status: 'failed', failureReason: 'x'.repeat(500) });
     expect(last().where).toEqual(guard(6, ['pending', 'pre_authorized']));
-    expect(await markOpenPaymentFailed(6, 'r')).toBe(false);
+    expect(await markOpenPaymentFailed(6, 'r', 'pending', AUDIT)).toBe(false);
   });
 
   it('markRefunded moves only refundable records and never lowers the refunded total', async () => {
     h.results.push([{ id: 7, status: 'refunded' }]);
-    expect(await markRefunded(7, { refundedTotalCents: 1000, full: true })).toEqual({
+    expect(
+      await markRefunded(7, { refundedTotalCents: 1000, full: true, previous: PREV }, AUDIT),
+    ).toEqual({
       id: 7,
       status: 'refunded',
     });
@@ -618,7 +644,9 @@ describe('status updates are guarded by their from-states', () => {
         { op: 'lte', col: 'pr.refunded_amount_cents', value: 1000 },
       ],
     });
-    expect(await markRefunded(7, { refundedTotalCents: 500, full: false })).toBeNull();
+    expect(
+      await markRefunded(7, { refundedTotalCents: 500, full: false, previous: PREV }, AUDIT),
+    ).toBeNull();
     expect(last().set?.['status']).toBe('partially_refunded');
   });
 
@@ -627,7 +655,14 @@ describe('status updates are guarded by their from-states', () => {
     h.results.push([{ id: 8 }]);
     await markRefunded(
       8,
-      { refundedTotalCents: 300, full: false, actorUserId: 'u1', actionReason: 'Goodwill' },
+      {
+        refundedTotalCents: 300,
+        full: false,
+        actorUserId: 'u1',
+        actionReason: 'Goodwill',
+        previous: PREV,
+      },
+      AUDIT,
       tx as never,
     );
     expect(last().set).toMatchObject({ lastActorUserId: 'u1', lastActionReason: 'Goodwill' });
@@ -636,26 +671,31 @@ describe('status updates are guarded by their from-states', () => {
   it('markRefunded replaces metadata.topUps', async () => {
     h.results.push([{ id: 8 }]);
     const topUps = [{ paymentId: 'pi_top', amountCents: 600, refundedCents: 600 }];
-    await markRefunded(8, { refundedTotalCents: 2600, full: true, topUps });
+    await markRefunded(8, { refundedTotalCents: 2600, full: true, topUps, previous: PREV }, AUDIT);
     const metadata = last().set?.['metadata'] as { text: string; values: unknown[] };
     expect(metadata.text).toContain("'{topUps}'");
     expect(metadata.text).not.toContain('topUpIntentId');
     expect(metadata.values).toEqual(['pr.metadata', JSON.stringify(topUps)]);
 
     h.results.push([{ id: 8 }]);
-    await markRefunded(8, { refundedTotalCents: 2600, full: true });
+    await markRefunded(8, { refundedTotalCents: 2600, full: true, previous: PREV }, AUDIT);
     expect(last().set).not.toHaveProperty('metadata');
   });
 
   it('markShortfallRecovered updates only a captured record and clears the reason', async () => {
     h.results.push([{ id: 9 }]);
     expect(
-      await markShortfallRecovered(9, {
-        capturedCents: 6000,
-        actorUserId: 'u1',
-        actionReason: 'Shortfall retried',
-        topUp: { paymentId: 'pi_retry', amountCents: 1000 },
-      }),
+      await markShortfallRecovered(
+        9,
+        {
+          capturedCents: 6000,
+          actorUserId: 'u1',
+          actionReason: 'Shortfall retried',
+          topUp: { paymentId: 'pi_retry', amountCents: 1000 },
+          previousCapturedCents: 5000,
+        },
+        AUDIT,
+      ),
     ).toEqual({ id: 9 });
     const metadata = last().set?.['metadata'] as { text: string; values: unknown[] };
     expect(metadata.text).toContain("'{topUps}'");
@@ -676,12 +716,17 @@ describe('status updates are guarded by their from-states', () => {
       ],
     });
     expect(
-      await markShortfallRecovered(9, {
-        capturedCents: 6000,
-        actorUserId: null,
-        actionReason: 'r',
-        topUp: { paymentId: 'pi_retry', amountCents: 1000 },
-      }),
+      await markShortfallRecovered(
+        9,
+        {
+          capturedCents: 6000,
+          actorUserId: null,
+          actionReason: 'r',
+          topUp: { paymentId: 'pi_retry', amountCents: 1000 },
+          previousCapturedCents: 5000,
+        },
+        AUDIT,
+      ),
     ).toBeNull();
     expect(last().set).not.toHaveProperty('lastActorUserId');
   });
@@ -707,7 +752,7 @@ describe('recordTerminalSettlement', () => {
 
   it('inserts a captured terminal record unique per session', async () => {
     h.results.push([{ id: 1 }]);
-    expect(await recordTerminalSettlement(input)).toBe(true);
+    expect(await recordTerminalSettlement(input, AUDIT)).toBe(true);
     const call = last();
     expect(call.values).toEqual({
       sessionId: 's1',
@@ -722,7 +767,7 @@ describe('recordTerminalSettlement', () => {
 
   it('returns false on a replay', async () => {
     h.results.push([]);
-    expect(await recordTerminalSettlement({ ...input, driverId: null })).toBe(false);
+    expect(await recordTerminalSettlement({ ...input, driverId: null }, AUDIT)).toBe(false);
   });
 });
 
@@ -746,20 +791,20 @@ describe('settlePrepaidSession', () => {
     'returns null without a prepaid token balance (%j)',
     async (rows) => {
       h.results.push(rows);
-      expect(await settlePrepaidSession('s1', logger)).toBeNull();
+      expect(await settlePrepaidSession('s1', { logger })).toBeNull();
       expect(h.transaction).not.toHaveBeenCalled();
     },
   );
 
   it.each([[null], [0], [-5]])('returns null for a cost of %s', async (finalCostCents) => {
     h.results.push([{ ...ROW, finalCostCents }]);
-    expect(await settlePrepaidSession('s1')).toBeNull();
+    expect(await settlePrepaidSession('s1', AUDIT)).toBeNull();
     expect(h.getCompanyCurrency).not.toHaveBeenCalled();
   });
 
   it('returns null with a warn for a currency other than the company currency', async () => {
     h.results.push([{ ...ROW, currency: 'USD' }]);
-    expect(await settlePrepaidSession('s1', logger)).toBeNull();
+    expect(await settlePrepaidSession('s1', { logger })).toBeNull();
     expect(logger.warn).toHaveBeenCalledWith(
       { sessionId: 's1', sessionCurrency: 'USD', companyCurrency: 'EUR' },
       'Prepaid session billed in another currency than the company currency; balance not debited',
@@ -769,12 +814,12 @@ describe('settlePrepaidSession', () => {
 
   it('returns null for another currency without a logger', async () => {
     h.results.push([{ ...ROW, currency: 'USD' }]);
-    expect(await settlePrepaidSession('s1')).toBeNull();
+    expect(await settlePrepaidSession('s1', AUDIT)).toBeNull();
   });
 
   it('records the prepaid payment, debits the balance and audits it', async () => {
     h.results.push([ROW], [{ id: 9 }], [{ balanceCents: 3800 }]);
-    expect(await settlePrepaidSession('s1', logger)).toEqual({
+    expect(await settlePrepaidSession('s1', { logger })).toEqual({
       tokenId: 't1',
       debitedCents: 1200,
       balanceCents: 3800,
@@ -803,8 +848,29 @@ describe('settlePrepaidSession', () => {
     expect(update?.where).toEqual({ op: 'eq', col: 't.id', value: 't1' });
     expect(h.transaction).toHaveBeenCalledOnce();
 
-    expect(h.writeAudit).toHaveBeenCalledOnce();
-    const [target, entry, executor, adapter] = h.writeAudit.mock.calls[0] as [
+    expect(h.writeAudit).toHaveBeenCalledTimes(2);
+    expect(h.writeAudit.mock.calls[0]?.[0]).toEqual({
+      table: { name: 'payment_audit_log' },
+      idColumn: 'payment_id',
+    });
+    expect(h.writeAudit.mock.calls[0]?.[1]).toEqual({
+      entityId: '9',
+      entityIdSnapshot: '9',
+      action: 'captured',
+      actor: 'system',
+      actorLabel: 'payments',
+      before: null,
+      after: {
+        status: 'captured',
+        sessionId: 's1',
+        paymentSource: 'prepaid',
+        capturedAmountCents: 1200,
+        currency: 'EUR',
+        tokenId: 't1',
+      },
+      notes: null,
+    });
+    const [target, entry, executor, adapter] = h.writeAudit.mock.calls[1] as [
       unknown,
       unknown,
       unknown,
@@ -831,20 +897,24 @@ describe('settlePrepaidSession', () => {
     expect(logger.warn).toHaveBeenLastCalledWith({ detail: null }, 'null obj');
   });
 
-  it('uses the token driver and passes no audit logger without one', async () => {
+  it('uses the token driver and audits with the caller actor', async () => {
     h.results.push([{ ...ROW, driverId: null }], [{ id: 9 }], [{ balanceCents: -200 }]);
-    expect(await settlePrepaidSession('s1')).toEqual({
+    expect(await settlePrepaidSession('s1', AUDIT)).toEqual({
       tokenId: 't1',
       debitedCents: 1200,
       balanceCents: -200,
     });
     expect(h.calls[1]?.values?.['driverId']).toBe('d_token');
-    expect(h.writeAudit.mock.calls[0]?.[3]).toBeUndefined();
+    expect(h.writeAudit.mock.calls[0]?.[1]).toMatchObject({
+      action: 'captured',
+      actor: 'operator',
+      actorUserId: 'u1',
+    });
   });
 
   it('returns null without a debit when the conflicting record cannot be read', async () => {
     h.results.push([ROW], []);
-    expect(await settlePrepaidSession('s1', logger)).toBeNull();
+    expect(await settlePrepaidSession('s1', { logger })).toBeNull();
     expect(h.calls.filter((c) => c.kind === 'update')).toHaveLength(0);
     expect(h.writeAudit).not.toHaveBeenCalled();
   });
@@ -857,7 +927,7 @@ describe('settlePrepaidSession', () => {
       [{ capturedCents: 1200, source: 'prepaid', status: 'captured' }],
       [{ balanceCents: 3800 }],
     );
-    expect(await settlePrepaidSession('s1', logger)).toEqual({
+    expect(await settlePrepaidSession('s1', { logger })).toEqual({
       tokenId: 't1',
       debitedCents: 1200,
       balanceCents: 3800,
@@ -869,7 +939,7 @@ describe('settlePrepaidSession', () => {
 
   it('returns null when the session was settled another way', async () => {
     h.results.push([ROW], [], [{ capturedCents: 1200, source: 'card', status: 'captured' }]);
-    expect(await settlePrepaidSession('s1', logger)).toBeNull();
+    expect(await settlePrepaidSession('s1', { logger })).toBeNull();
     expect(h.writeAudit).not.toHaveBeenCalled();
   });
 
@@ -877,7 +947,7 @@ describe('settlePrepaidSession', () => {
     'returns null for a recorded debit that was %s',
     async (status) => {
       h.results.push([ROW], [], [{ capturedCents: 1200, source: 'prepaid', status }]);
-      expect(await settlePrepaidSession('s1', logger)).toBeNull();
+      expect(await settlePrepaidSession('s1', { logger })).toBeNull();
     },
   );
 
@@ -885,7 +955,7 @@ describe('settlePrepaidSession', () => {
     'returns null when the balance update returns nothing (%j)',
     async (updated) => {
       h.results.push([ROW], [{ id: 9 }], updated);
-      expect(await settlePrepaidSession('s1', logger)).toBeNull();
+      expect(await settlePrepaidSession('s1', { logger })).toBeNull();
       expect(h.writeAudit).not.toHaveBeenCalled();
     },
   );
@@ -907,10 +977,10 @@ describe('authorisation adjustment (P10 Part D)', () => {
 
   it('recordHold stores the provider state of the hold', async () => {
     h.results.push([{ id: 7 }]);
-    await recordHold({ ...hold, providerState: { adjustAuthorisationData: 'BLOB' } });
+    await recordHold({ ...hold, providerState: { adjustAuthorisationData: 'BLOB' } }, AUDIT);
     expect(last().values).toMatchObject({ providerState: { adjustAuthorisationData: 'BLOB' } });
     h.results.push([{ id: 8 }]);
-    await recordHold({ ...hold, providerState: null });
+    await recordHold({ ...hold, providerState: null }, AUDIT);
     expect(last().values).not.toHaveProperty('providerState');
   });
 
@@ -1006,24 +1076,28 @@ describe('authorisation adjustment (P10 Part D)', () => {
 
   it('markCaptured stores the adjusted hold as the authorized amount', async () => {
     h.results.push([{ id: 6 }], [{ id: 6 }]);
-    await markCaptured(6, { capturedCents: 7000, failureReason: null, authorizedCents: 7000 });
+    await markCaptured(
+      6,
+      { capturedCents: 7000, failureReason: null, authorizedCents: 7000 },
+      AUDIT,
+    );
     expect(last().set).toMatchObject({ preAuthAmountCents: 7000 });
-    await markCaptured(6, { capturedCents: 7000, failureReason: null });
+    await markCaptured(6, { capturedCents: 7000, failureReason: null }, AUDIT);
     expect(last().set).not.toHaveProperty('preAuthAmountCents');
   });
 
   it('every move out of the hold ends a pending adjustment', async () => {
     const cleared = { pendingOperation: null, pendingOperationRef: null, pendingOperationAt: null };
     h.results.push([{ id: 5 }], [{ id: 5 }], [{ id: 5 }], [{ id: 5 }], [{ id: 5 }]);
-    await markCaptured(5, { capturedCents: 7000, failureReason: null });
+    await markCaptured(5, { capturedCents: 7000, failureReason: null }, AUDIT);
     expect(last().set).toMatchObject(cleared);
-    await markCancelled(5);
+    await markCancelled(5, {}, AUDIT);
     expect(last().set).toMatchObject(cleared);
-    await markHoldFailed(5, 'capture refused');
+    await markHoldFailed(5, 'capture refused', AUDIT);
     expect(last().set).toMatchObject(cleared);
-    await markOpenPaymentFailed(5, 'refused');
+    await markOpenPaymentFailed(5, 'refused', 'pre_authorized', AUDIT);
     expect(last().set).toMatchObject(cleared);
-    await markAuthorisationEnded(5, 'expired');
+    await markAuthorisationEnded(5, 'expired', AUDIT);
     expect(last().set).toMatchObject(cleared);
   });
 });
@@ -1057,7 +1131,7 @@ describe('async operations (P10a)', () => {
 
   it('markCaptured with a pending reference records the pending capture', async () => {
     h.results.push([{ id: 1 }]);
-    await markCaptured(1, { capturedCents: 1200, failureReason: null, pendingRef: 'CAP1' });
+    await markCaptured(1, { capturedCents: 1200, failureReason: null, pendingRef: 'CAP1' }, AUDIT);
     expect(last().set).toMatchObject({
       status: 'captured',
       pendingOperation: 'capture',
@@ -1069,14 +1143,14 @@ describe('async operations (P10a)', () => {
 
   it('markCancelled with a pending reference records the pending cancel', async () => {
     h.results.push([{ id: 2 }]);
-    await markCancelled(2, 'CXL1');
+    await markCancelled(2, { pendingRef: 'CXL1' }, AUDIT);
     expect(last().set).toMatchObject({
       status: 'cancelled',
       pendingOperation: 'cancel',
       pendingOperationRef: 'CXL1',
     });
     h.results.push([{ id: 2 }]);
-    await markCancelled(2);
+    await markCancelled(2, {}, AUDIT);
     expect(last().set).toMatchObject({
       pendingOperation: null,
       pendingOperationRef: null,
@@ -1102,7 +1176,7 @@ describe('async operations (P10a)', () => {
 
   it('failPendingCapture moves only the captured, unrefunded record of that capture', async () => {
     h.results.push([{ id: 4, status: 'failed' }]);
-    expect(await failPendingCapture(4, 'CAP1', LONG)).toEqual({ id: 4, status: 'failed' });
+    expect(await failPendingCapture(4, 'CAP1', LONG, AUDIT)).toEqual({ id: 4, status: 'failed' });
     const call = last();
     expect(call.set).toMatchObject({
       status: 'failed',
@@ -1119,12 +1193,12 @@ describe('async operations (P10a)', () => {
       { op: 'eq', col: 'pr.refunded_amount_cents', value: 0 },
     ]);
     expect((where.args[3] as { text: string }).text).toContain("IS NULL OR ? = 'capture'");
-    expect(await failPendingCapture(4, 'CAP1', 'x')).toBeNull();
+    expect(await failPendingCapture(4, 'CAP1', 'x', AUDIT)).toBeNull();
   });
 
   it('markAuthorisationEnded cancels an open hold with the reason', async () => {
     h.results.push([{ id: 5 }]);
-    expect(await markAuthorisationEnded(5, 'Adyen authorisation expired')).toBe(true);
+    expect(await markAuthorisationEnded(5, 'Adyen authorisation expired', AUDIT)).toBe(true);
     expect(last().set).toMatchObject({
       status: 'cancelled',
       capturedAmountCents: 0,
@@ -1135,7 +1209,7 @@ describe('async operations (P10a)', () => {
 
   it('markAuthorisationEnded clears a pending cancel of a record already cancelled', async () => {
     h.results.push([], [{ id: 5 }]);
-    expect(await markAuthorisationEnded(5, 'expired')).toBe(true);
+    expect(await markAuthorisationEnded(5, 'expired', AUDIT)).toBe(true);
     expect(last().set).toMatchObject({ pendingOperation: null, pendingOperationAt: null });
     expect(last().where).toEqual({
       op: 'and',
@@ -1145,7 +1219,7 @@ describe('async operations (P10a)', () => {
       ],
     });
     h.results.push([], []);
-    expect(await markAuthorisationEnded(5, 'expired')).toBe(false);
+    expect(await markAuthorisationEnded(5, 'expired', AUDIT)).toBe(false);
   });
 
   it('addPendingRefunds appends pending entries, skipping a listed refund id', async () => {
@@ -1176,12 +1250,16 @@ describe('async operations (P10a)', () => {
 
   it('settleRefund raises the total and the status once for a confirmed pending refund', async () => {
     h.results.push([locked()], [{ id: 9, status: 'partially_refunded' }]);
-    const result = await settleRefund(9, {
-      refundId: 'RF1',
-      paymentId: 'PSP1',
-      amountCents: 999,
-      outcome: 'succeeded',
-    });
+    const result = await settleRefund(
+      9,
+      {
+        refundId: 'RF1',
+        paymentId: 'PSP1',
+        amountCents: 999,
+        outcome: 'succeeded',
+      },
+      AUDIT,
+    );
     expect(result).toMatchObject({
       status: 'applied',
       record: { id: 9 },
@@ -1217,12 +1295,16 @@ describe('async operations (P10a)', () => {
       ],
       [{ id: 9, status: 'refunded' }],
     );
-    await settleRefund(9, {
-      refundId: 'RF2',
-      paymentId: 'TOP1',
-      amountCents: 500,
-      outcome: 'succeeded',
-    });
+    await settleRefund(
+      9,
+      {
+        refundId: 'RF2',
+        paymentId: 'TOP1',
+        amountCents: 500,
+        outcome: 'succeeded',
+      },
+      AUDIT,
+    );
     const set = last().set as Record<string, unknown>;
     expect(set['status']).toBe('refunded');
     expect(set['refundedAmountCents']).toBe(1500);
@@ -1235,12 +1317,16 @@ describe('async operations (P10a)', () => {
   it('settleRefund of one of two pending refunds settles only its entry', async () => {
     const both = [entry('RF1', 'pending', 'PSP1', 60), entry('RF2', 'pending', 'PSP1', 1940)];
     h.results.push([locked({ providerRefunds: both })], [{ id: 9 }]);
-    await settleRefund(9, {
-      refundId: 'RF2',
-      paymentId: 'PSP1',
-      amountCents: 1940,
-      outcome: 'succeeded',
-    });
+    await settleRefund(
+      9,
+      {
+        refundId: 'RF2',
+        paymentId: 'PSP1',
+        amountCents: 1940,
+        outcome: 'succeeded',
+      },
+      AUDIT,
+    );
     expect(last().set).toMatchObject({ status: 'partially_refunded', refundedAmountCents: 1940 });
     expect(last().set?.['providerRefunds']).toEqual([
       expect.objectContaining({ refundId: 'RF1', state: 'pending' }),
@@ -1257,12 +1343,16 @@ describe('async operations (P10a)', () => {
       ],
       [{ id: 9 }],
     );
-    await settleRefund(9, {
-      refundId: 'RF1',
-      paymentId: 'PSP1',
-      amountCents: 60,
-      outcome: 'succeeded',
-    });
+    await settleRefund(
+      9,
+      {
+        refundId: 'RF1',
+        paymentId: 'PSP1',
+        amountCents: 60,
+        outcome: 'succeeded',
+      },
+      AUDIT,
+    );
     expect(last().set).toMatchObject({ status: 'refunded', refundedAmountCents: 2000 });
     expect(last().set?.['providerRefunds']).toEqual([
       expect.objectContaining({ refundId: 'RF1', state: 'succeeded' }),
@@ -1273,24 +1363,32 @@ describe('async operations (P10a)', () => {
   it('settleRefund applies a duplicate once', async () => {
     h.results.push([locked({ providerRefunds: [entry('RF1', 'succeeded')] })]);
     expect(
-      await settleRefund(9, {
-        refundId: 'RF1',
-        paymentId: 'PSP1',
-        amountCents: 500,
-        outcome: 'succeeded',
-      }),
+      await settleRefund(
+        9,
+        {
+          refundId: 'RF1',
+          paymentId: 'PSP1',
+          amountCents: 500,
+          outcome: 'succeeded',
+        },
+        AUDIT,
+      ),
     ).toEqual({ status: 'already_settled' });
     expect(h.calls.filter((c) => c.kind === 'update')).toHaveLength(0);
   });
 
   it('settleRefund marks a failed refund in the ledger without touching the totals', async () => {
     h.results.push([locked()], [{ id: 9, status: 'captured' }]);
-    const result = await settleRefund(9, {
-      refundId: 'RF1',
-      paymentId: 'PSP1',
-      amountCents: 500,
-      outcome: 'failed',
-    });
+    const result = await settleRefund(
+      9,
+      {
+        refundId: 'RF1',
+        paymentId: 'PSP1',
+        amountCents: 500,
+        outcome: 'failed',
+      },
+      AUDIT,
+    );
     expect(result).toMatchObject({ status: 'applied', entry: { state: 'failed' } });
     expect(last().set).not.toHaveProperty('refundedAmountCents');
     expect(last().set).not.toHaveProperty('status');
@@ -1298,12 +1396,16 @@ describe('async operations (P10a)', () => {
 
   it('settleRefund appends a refund made outside EVtivity', async () => {
     h.results.push([locked({ providerRefunds: [] })], [{ id: 9 }]);
-    await settleRefund(9, {
-      refundId: 'CA1',
-      paymentId: 'PSP1',
-      amountCents: 700,
-      outcome: 'succeeded',
-    });
+    await settleRefund(
+      9,
+      {
+        refundId: 'CA1',
+        paymentId: 'PSP1',
+        amountCents: 700,
+        outcome: 'succeeded',
+      },
+      AUDIT,
+    );
     expect(last().set).toMatchObject({ refundedAmountCents: 700 });
     expect(last().set?.['providerRefunds']).toEqual([
       expect.objectContaining({ refundId: 'CA1', amountCents: 700, state: 'succeeded' }),
@@ -1313,30 +1415,42 @@ describe('async operations (P10a)', () => {
   it('settleRefund keeps the totals of a record that cannot take the refund', async () => {
     h.results.push([locked({ status: 'failed' })], [{ id: 9 }]);
     expect(
-      await settleRefund(9, {
-        refundId: 'RF1',
-        paymentId: 'PSP1',
-        amountCents: 500,
-        outcome: 'succeeded',
-      }),
+      await settleRefund(
+        9,
+        {
+          refundId: 'RF1',
+          paymentId: 'PSP1',
+          amountCents: 500,
+          outcome: 'succeeded',
+        },
+        AUDIT,
+      ),
     ).toEqual({ status: 'not_refundable', recordStatus: 'failed' });
     expect(last().set).not.toHaveProperty('refundedAmountCents');
 
     h.results.push([locked({ refundedAmountCents: 1800 })], [{ id: 9 }]);
     expect(
-      await settleRefund(9, {
-        refundId: 'RF1',
-        paymentId: 'PSP1',
-        amountCents: 500,
-        outcome: 'succeeded',
-      }),
+      await settleRefund(
+        9,
+        {
+          refundId: 'RF1',
+          paymentId: 'PSP1',
+          amountCents: 500,
+          outcome: 'succeeded',
+        },
+        AUDIT,
+      ),
     ).toMatchObject({ status: 'not_refundable' });
   });
 
   it('settleRefund returns not_found for an unknown record', async () => {
     h.results.push([]);
     expect(
-      await settleRefund(1, { refundId: 'x', paymentId: 'y', amountCents: 1, outcome: 'failed' }),
+      await settleRefund(
+        1,
+        { refundId: 'x', paymentId: 'y', amountCents: 1, outcome: 'failed' },
+        AUDIT,
+      ),
     ).toEqual({ status: 'not_found' });
   });
 
@@ -1372,7 +1486,7 @@ describe('settlePrepaidSession for a re-bill', () => {
       [{ id: 9 }],
       [{ balanceCents: 4100 }],
     );
-    expect(await settlePrepaidSession('s1', undefined, { costCents: 900, rebill: true })).toEqual({
+    expect(await settlePrepaidSession('s1', AUDIT, { costCents: 900, rebill: true })).toEqual({
       tokenId: 't1',
       debitedCents: 900,
       balanceCents: 4100,
@@ -1416,7 +1530,7 @@ describe('claimRebillRecord', () => {
 
   it('inserts a pending record with the request when the session has none', async () => {
     h.results.push(held, [], [{ id: 11 }]);
-    expect(await claimRebillRecord(input)).toEqual({
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({
       state: 'claimed',
       id: 11,
       request,
@@ -1452,18 +1566,18 @@ describe('claimRebillRecord', () => {
 
   it('writes nothing when the session is no longer faulted with its claim held (P11)', async () => {
     h.results.push([]);
-    expect(await claimRebillRecord(input)).toEqual({ state: 'session_not_claimed' });
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({ state: 'session_not_claimed' });
     expect(h.calls).toHaveLength(1);
   });
 
   it('refuses when a concurrent insert won', async () => {
     h.results.push(held, [], []);
-    expect(await claimRebillRecord(input)).toEqual({ state: 'refused', status: 'pending' });
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({ state: 'refused', status: 'pending' });
   });
 
   it('takes over a cancelled hold that took no money, keeping its ids', async () => {
     h.results.push(held, [cancelledHold], [{ id: 7 }]);
-    expect(await claimRebillRecord(input)).toEqual({
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({
       state: 'claimed',
       id: 7,
       request,
@@ -1491,7 +1605,10 @@ describe('claimRebillRecord', () => {
     [{ ...cancelledHold, status: 'failed', refundedAmountCents: 1 }],
   ])('refuses a record that holds another payment (%j)', async (record) => {
     h.results.push(held, [record]);
-    expect(await claimRebillRecord(input)).toEqual({ state: 'refused', status: record.status });
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({
+      state: 'refused',
+      status: record.status,
+    });
     expect(h.calls.filter((c) => c.kind === 'update')).toHaveLength(0);
   });
 
@@ -1503,23 +1620,27 @@ describe('claimRebillRecord', () => {
       metadata: { rebill: { requestedAt: hoursAgo(1), request: stored } },
     };
     h.results.push(held, [{ ...marked, status: 'pending' }]);
-    expect(await claimRebillRecord(input)).toEqual({
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({
       state: 'claimed',
       id: 7,
       request: stored,
       resumed: true,
     });
     h.results.push(held, [{ ...marked, status: 'captured', capturedAmountCents: 900 }]);
-    expect(await claimRebillRecord(input)).toEqual({ state: 'charged', id: 7, amountCents: 900 });
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({
+      state: 'charged',
+      id: 7,
+      amountCents: 900,
+    });
     h.results.push(held, [{ ...marked, status: 'failed', failureReason: 'declined' }]);
-    expect(await claimRebillRecord(input)).toEqual({
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({
       state: 'failed',
       id: 7,
       reason: 'declined',
       amountCents: 900,
     });
     h.results.push(held, [{ ...marked, status: 'refunded' }]);
-    expect(await claimRebillRecord(input)).toEqual({ state: 'refused', status: 'refunded' });
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({ state: 'refused', status: 'refunded' });
     expect(h.calls.filter((c) => c.kind === 'update')).toHaveLength(0);
   });
 
@@ -1532,7 +1653,7 @@ describe('claimRebillRecord', () => {
         metadata: { rebill: { requestedAt: hoursAgo(REBILL_RESUME_MAX_HOURS), request } },
       },
     ]);
-    expect(await claimRebillRecord(input)).toEqual({ state: 'refused', status: 'pending' });
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({ state: 'refused', status: 'pending' });
   });
 
   it('stores the request on a pending re-bill record that has none', async () => {
@@ -1541,7 +1662,7 @@ describe('claimRebillRecord', () => {
       [{ ...cancelledHold, status: 'pending', metadata: { rebill: { requestedAt: hoursAgo(1) } } }],
       [],
     );
-    expect(await claimRebillRecord(input)).toEqual({
+    expect(await claimRebillRecord(input, AUDIT)).toEqual({
       state: 'claimed',
       id: 7,
       request,
@@ -1629,5 +1750,420 @@ describe('reservationFeeRequest', () => {
     expect(reservationFeeRequest(null)).toBeNull();
     expect(reservationFeeRequest({ rebill: {} })).toBeNull();
     expect(reservationFeeRequest({ feeRequest: { grossCents: '3' } })).toBeNull();
+  });
+});
+
+describe('payment audit rows', () => {
+  const TABLE = { table: { name: 'payment_audit_log' }, idColumn: 'payment_id' };
+  const OPERATOR = { actor: 'operator', actorUserId: 'u1' };
+
+  beforeEach(() => {
+    h.writeAudit.mockClear();
+  });
+
+  function auditRow(n = 0): Record<string, unknown> {
+    const call = h.writeAudit.mock.calls[n] as [unknown, Record<string, unknown>] | undefined;
+    if (call == null) throw new Error(`no audit call ${String(n)}`);
+    expect(call[0]).toEqual(TABLE);
+    return call[1];
+  }
+
+  const hold = {
+    sessionId: 's1',
+    driverId: 'd1',
+    sitePaymentConfigId: 3,
+    provider: 'stripe' as const,
+    paymentId: 'pi_1',
+    customerId: 'cus_1',
+    methodId: 'pm_1',
+    source: 'web_portal' as const,
+    currency: 'EUR',
+    preAuthAmountCents: 5000,
+  };
+
+  it('recordHold audits pre_authorized on the new record, with the caller actor', async () => {
+    h.results.push([{ id: 7 }]);
+    await recordHold(hold, AUDIT);
+    expect(auditRow()).toMatchObject({
+      entityId: '7',
+      entityIdSnapshot: '7',
+      action: 'pre_authorized',
+      ...OPERATOR,
+      before: null,
+      after: { status: 'pre_authorized', sessionId: 's1', preAuthAmountCents: 5000 },
+    });
+    expect(JSON.stringify(auditRow())).not.toContain('cus_1');
+  });
+
+  it('a context without an actor audits as the payments system actor', async () => {
+    h.results.push([{ id: 7 }]);
+    await recordHold(hold, { logger: AUDIT.logger });
+    expect(auditRow()).toMatchObject({ actor: 'system', actorLabel: 'payments' });
+  });
+
+  it('an insert that conflicted writes no audit row', async () => {
+    h.results.push([], [], []);
+    await recordHold(hold, AUDIT);
+    await recordGuestHold(
+      {
+        sessionId: 's1',
+        sitePaymentConfigId: null,
+        provider: 'stripe',
+        paymentId: 'pi_1',
+        currency: 'EUR',
+        preAuthAmountCents: 5000,
+      },
+      AUDIT,
+    );
+    await recordTerminalSettlement(
+      { sessionId: 's1', driverId: null, currency: 'EUR', capturedCents: 100 },
+      AUDIT,
+    );
+    expect(h.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('recordFailedHold audits failed with the reason', async () => {
+    h.results.push([{ id: 8 }]);
+    await recordFailedHold(
+      {
+        sessionId: 's1',
+        driverId: 'd1',
+        sitePaymentConfigId: null,
+        provider: 'stripe',
+        customerId: 'cus_1',
+        methodId: 'pm_1',
+        source: 'web_portal',
+        currency: 'EUR',
+        preAuthAmountCents: null,
+        reason: 'declined',
+      },
+      AUDIT,
+    );
+    expect(auditRow()).toMatchObject({
+      entityId: '8',
+      action: 'failed',
+      before: null,
+      after: { status: 'failed', failureReason: 'declined' },
+    });
+  });
+
+  it('recordGuestHold audits pre_authorized as a guest payment', async () => {
+    h.results.push([{ id: 9 }]);
+    await recordGuestHold(
+      {
+        sessionId: 's1',
+        sitePaymentConfigId: null,
+        provider: 'stripe',
+        paymentId: 'pi_1',
+        currency: 'EUR',
+        preAuthAmountCents: 5000,
+      },
+      AUDIT,
+    );
+    expect(auditRow()).toMatchObject({
+      entityId: '9',
+      action: 'pre_authorized',
+      after: { status: 'pre_authorized', paymentSource: 'guest' },
+    });
+  });
+
+  it('recordTerminalSettlement audits captured', async () => {
+    h.results.push([{ id: 10 }]);
+    await recordTerminalSettlement(
+      { sessionId: 's1', driverId: null, currency: 'EUR', capturedCents: 1234 },
+      AUDIT,
+    );
+    expect(auditRow()).toMatchObject({
+      entityId: '10',
+      action: 'captured',
+      after: { status: 'captured', paymentSource: 'ocpp_terminal', capturedAmountCents: 1234 },
+    });
+  });
+
+  it('recordPendingCharge audits created with the fee amount', async () => {
+    h.results.push([{ id: 11 }]);
+    await recordPendingCharge(
+      {
+        chargeType: 'reservation_cancellation',
+        reservationId: 'r1',
+        driverId: 'd1',
+        sitePaymentConfigId: null,
+        provider: 'stripe',
+        customerId: 'cus_1',
+        methodId: 'pm_1',
+        currency: 'EUR',
+        taxRate: 0.19,
+        feeRequest: { grossCents: 357, platformFeePercent: 0, payoutAccountId: null },
+      },
+      AUDIT,
+    );
+    expect(auditRow()).toMatchObject({
+      entityId: '11',
+      action: 'created',
+      before: null,
+      after: { status: 'pending', reservationId: 'r1', amountCents: 357 },
+    });
+  });
+
+  it('markCaptured audits captured from pre_authorized', async () => {
+    h.results.push([{ id: 1 }]);
+    await markCaptured(1, { capturedCents: 1200, failureReason: null, pendingRef: 'CAP1' }, AUDIT);
+    expect(auditRow()).toMatchObject({
+      entityId: '1',
+      action: 'captured',
+      ...OPERATOR,
+      before: { status: 'pre_authorized' },
+      after: { status: 'captured', capturedAmountCents: 1200, pendingOperation: 'capture' },
+    });
+  });
+
+  it('guarded updates that changed no row write no audit row', async () => {
+    await markCaptured(1, { capturedCents: 1, failureReason: null }, AUDIT);
+    await markCancelled(1, {}, AUDIT);
+    await markHoldFailed(1, 'x', AUDIT);
+    await markChargeCaptured(1, { provider: 'stripe', paymentId: 'pi', amountCents: 1 }, AUDIT);
+    await markChargeFailed(1, 'x', AUDIT);
+    await markOpenPaymentFailed(1, 'x', 'pending', AUDIT);
+    await failPendingCapture(1, 'CAP1', 'x', AUDIT);
+    await markRefunded(1, { refundedTotalCents: 1, full: true, previous: PREV }, AUDIT);
+    await markShortfallRecovered(
+      1,
+      {
+        capturedCents: 1,
+        actorUserId: null,
+        actionReason: 'r',
+        topUp: { paymentId: 'pi', amountCents: 1 },
+        previousCapturedCents: 0,
+      },
+      AUDIT,
+    );
+    expect(h.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('markCancelled audits cancelled with the uncollected reason', async () => {
+    h.results.push([{ id: 2 }]);
+    await markCancelled(2, { pendingRef: null, failureReason: 'below minimum' }, AUDIT);
+    expect(auditRow()).toMatchObject({
+      entityId: '2',
+      action: 'cancelled',
+      before: { status: 'pre_authorized' },
+      after: { status: 'cancelled', capturedAmountCents: 0, failureReason: 'below minimum' },
+    });
+  });
+
+  it('markHoldFailed audits failed from pre_authorized', async () => {
+    h.results.push([{ id: 3 }]);
+    await markHoldFailed(3, 'declined', AUDIT);
+    expect(auditRow()).toMatchObject({
+      action: 'failed',
+      before: { status: 'pre_authorized' },
+      after: { status: 'failed', failureReason: 'declined' },
+    });
+  });
+
+  it('markOpenPaymentFailed audits failed from the status the caller read', async () => {
+    h.results.push([{ id: 6 }]);
+    await markOpenPaymentFailed(6, 'webhook', 'pending', AUDIT);
+    expect(auditRow()).toMatchObject({
+      entityId: '6',
+      action: 'failed',
+      before: { status: 'pending' },
+      after: { status: 'failed', failureReason: 'webhook' },
+    });
+  });
+
+  it('markRefunded audits refunded or partially_refunded with the reason in notes', async () => {
+    h.results.push([{ id: 7, status: 'refunded', refundedAmountCents: 1000 }]);
+    await markRefunded(
+      7,
+      { refundedTotalCents: 1000, full: true, actionReason: 'Goodwill', previous: PREV },
+      AUDIT,
+    );
+    expect(auditRow()).toMatchObject({
+      entityId: '7',
+      action: 'refunded',
+      before: { status: 'captured', refundedAmountCents: 0 },
+      after: { status: 'refunded', refundedAmountCents: 1000 },
+      notes: 'Goodwill',
+    });
+
+    h.results.push([{ id: 7, status: 'partially_refunded', refundedAmountCents: 300 }]);
+    await markRefunded(7, { refundedTotalCents: 300, full: false, previous: PREV }, AUDIT);
+    expect(auditRow(1)).toMatchObject({ action: 'partially_refunded', notes: null });
+  });
+
+  it('failPendingCapture audits failed from captured', async () => {
+    h.results.push([{ id: 4, status: 'failed', capturedAmountCents: 1200, failureReason: 'cap' }]);
+    await failPendingCapture(4, 'CAP1', 'cap', AUDIT);
+    expect(auditRow()).toMatchObject({
+      entityId: '4',
+      action: 'failed',
+      before: { status: 'captured', capturedAmountCents: 1200 },
+      after: { status: 'failed', failureReason: 'cap' },
+    });
+  });
+
+  it('markAuthorisationEnded audits only the move out of the hold', async () => {
+    h.results.push([{ id: 5 }]);
+    await markAuthorisationEnded(5, 'Adyen authorisation expired', AUDIT);
+    expect(auditRow()).toMatchObject({
+      action: 'cancelled',
+      before: { status: 'pre_authorized' },
+      notes: 'Adyen authorisation expired',
+    });
+
+    h.writeAudit.mockClear();
+    h.results.push([], [{ id: 5 }]);
+    expect(await markAuthorisationEnded(5, 'x', AUDIT)).toBe(true);
+    expect(h.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('markChargeCaptured and markChargeFailed audit from pending', async () => {
+    h.results.push([{ id: 12 }], [{ id: 13 }]);
+    await markChargeCaptured(12, { provider: 'stripe', paymentId: 'pi', amountCents: 357 }, AUDIT);
+    await markChargeFailed(13, 'declined', AUDIT);
+    expect(auditRow(0)).toMatchObject({
+      entityId: '12',
+      action: 'captured',
+      before: { status: 'pending' },
+      after: { status: 'captured', capturedAmountCents: 357 },
+    });
+    expect(auditRow(1)).toMatchObject({
+      entityId: '13',
+      action: 'failed',
+      before: { status: 'pending' },
+      after: { status: 'failed', failureReason: 'declined' },
+    });
+  });
+
+  it('markShortfallRecovered audits captured with the old and new captured totals', async () => {
+    h.results.push([{ id: 9 }]);
+    await markShortfallRecovered(
+      9,
+      {
+        capturedCents: 6000,
+        actorUserId: 'u1',
+        actionReason: 'Shortfall retried',
+        topUp: { paymentId: 'pi_retry', amountCents: 1000 },
+        previousCapturedCents: 5000,
+      },
+      AUDIT,
+    );
+    expect(auditRow()).toMatchObject({
+      entityId: '9',
+      action: 'captured',
+      before: { status: 'captured', capturedAmountCents: 5000 },
+      after: { status: 'captured', capturedAmountCents: 6000, topUpCents: 1000 },
+      notes: 'Shortfall retried',
+    });
+  });
+
+  const lockedRow = {
+    id: 9,
+    status: 'captured',
+    providerPaymentId: 'PSP1',
+    capturedAmountCents: 2000,
+    refundedAmountCents: 0,
+    metadata: null,
+    providerRefunds: [
+      {
+        refundId: 'RF1',
+        paymentId: 'PSP1',
+        amountCents: 500,
+        state: 'pending',
+        requestedAt: '2026-10-01T00:00:00.000Z',
+      },
+    ],
+  };
+
+  it('settleRefund audits a raise after the transaction', async () => {
+    h.results.push(
+      [lockedRow],
+      [{ id: 9, status: 'partially_refunded', refundedAmountCents: 500 }],
+    );
+    await settleRefund(
+      9,
+      { refundId: 'RF1', paymentId: 'PSP1', amountCents: 500, outcome: 'succeeded' },
+      AUDIT,
+    );
+    expect(auditRow()).toMatchObject({
+      entityId: '9',
+      action: 'partially_refunded',
+      before: { status: 'captured', refundedAmountCents: 0 },
+      after: { status: 'partially_refunded', refundedAmountCents: 500 },
+      notes: 'Refund RF1 confirmed by the provider',
+    });
+  });
+
+  it('settleRefund of a failed refund writes no audit row', async () => {
+    h.results.push([lockedRow], [{ id: 9, status: 'captured', refundedAmountCents: 0 }]);
+    await settleRefund(
+      9,
+      { refundId: 'RF1', paymentId: 'PSP1', amountCents: 500, outcome: 'failed' },
+      AUDIT,
+    );
+    expect(h.writeAudit).not.toHaveBeenCalled();
+  });
+
+  describe('claimRebillRecord', () => {
+    const request = {
+      provider: 'stripe' as const,
+      customerId: 'cus_1',
+      methodId: 'pm_1',
+      grossCents: 1190,
+      currency: 'EUR',
+      feeTaxRate: 0.19,
+      platformFeePercent: 10,
+      payoutAccountId: 'acct_1',
+    };
+    const input = { sessionId: 's1', driverId: 'd1', sitePaymentConfigId: 3, request };
+    const held = [{ id: 's1' }];
+    const cancelledHold = {
+      id: 7,
+      status: 'cancelled',
+      provider: 'stripe',
+      providerPaymentId: 'pi_hold',
+      capturedAmountCents: 0,
+      refundedAmountCents: 0,
+      pendingOperation: null,
+      providerRefunds: [],
+      failureReason: null,
+      metadata: null,
+    };
+
+    it('audits a new re-bill record as created', async () => {
+      h.results.push(held, [], [{ id: 11 }]);
+      await claimRebillRecord(input, AUDIT);
+      expect(auditRow()).toMatchObject({
+        entityId: '11',
+        action: 'created',
+        before: null,
+        after: { status: 'pending', sessionId: 's1', amountCents: 1190 },
+        notes: 'Session re-bill charge',
+      });
+    });
+
+    it('audits the take-over of a given-up hold as created with its old status', async () => {
+      h.results.push(held, [cancelledHold], [{ id: 7 }]);
+      await claimRebillRecord(input, AUDIT);
+      expect(auditRow()).toMatchObject({
+        entityId: '7',
+        action: 'created',
+        before: { status: 'cancelled', provider: 'stripe' },
+        after: { status: 'pending' },
+      });
+    });
+
+    it('writes no audit row for a resumed claim', async () => {
+      const marked = {
+        ...cancelledHold,
+        status: 'pending',
+        providerPaymentId: null,
+        metadata: { rebill: { requestedAt: new Date().toISOString(), request } },
+      };
+      h.results.push(held, [marked]);
+      expect(await claimRebillRecord(input, AUDIT)).toMatchObject({ resumed: true });
+      expect(h.writeAudit).not.toHaveBeenCalled();
+    });
   });
 });

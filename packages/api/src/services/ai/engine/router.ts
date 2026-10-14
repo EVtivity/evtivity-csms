@@ -63,6 +63,7 @@ const ROUTER_SYSTEM = [
   'You route an operator request to tool categories of an EV charging management API. Pick the categories needed to answer it or carry it out, at most four, or none for a greeting or a question that needs no data.',
   'The request can be in English, German, Spanish, Korean, Simplified Chinese or Traditional Chinese. Classify it by its meaning: the category names and descriptions are in English whatever the language of the request.',
   'A command to a station (reset, restart, unlock, start or stop charging, change availability, charging profile) needs both OCPP command categories.',
+  'A change to a site or station named by its name or OCPP id (load management, profiles, monitors) also needs Sites or Stations, to look up its id.',
   'Decide quickly, without long deliberation. Answer only with a JSON object {"categories": [...]}.',
 ].join(' ');
 

@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, count } from 'drizzle-orm';
-import { db, eventAlertRules } from '@evtivity/database';
+import { db, eventAlertRules, eventAlertRuleAuditLog, writeAudit } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import {
   successResponse,
@@ -17,6 +17,9 @@ import { requireAllSiteAccess } from '../lib/site-access.js';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import { authorize } from '../middleware/rbac.js';
+import { getAuditActor } from '../lib/audit-actor.js';
+
+const RULE_AUDIT = { table: eventAlertRuleAuditLog, idColumn: 'event_alert_rule_id' } as const;
 
 // Company-wide configuration: a site-restricted user gets this 404 before any
 // read or write (requireAllSiteAccess, features/site-access-control.md).
@@ -122,6 +125,18 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
           code: 'DUPLICATE_ALERT_RULE',
         });
       }
+      await writeAudit(
+        RULE_AUDIT,
+        {
+          entityId: String(rule.id),
+          entityIdSnapshot: String(rule.id),
+          action: 'created',
+          ...getAuditActor(request),
+          after: rule,
+        },
+        db,
+        request.log,
+      );
       return reply.status(201).send(rule);
     },
   });
@@ -145,6 +160,7 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof ruleIdParams>;
       const body = request.body as z.infer<typeof updateRuleBody>;
 
+      const [before] = await db.select().from(eventAlertRules).where(eq(eventAlertRules.id, id));
       const [updated] = await db
         .update(eventAlertRules)
         .set({ ...body, updatedAt: new Date() })
@@ -153,6 +169,24 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
 
       if (updated == null) {
         return reply.status(404).send({ error: 'Rule not found', code: 'RULE_NOT_FOUND' });
+      }
+      const changedKeys = (Object.keys(body) as (keyof typeof body)[]).filter(
+        (key) => before?.[key] !== updated[key],
+      );
+      if (changedKeys.length > 0) {
+        await writeAudit(
+          RULE_AUDIT,
+          {
+            entityId: String(id),
+            entityIdSnapshot: String(id),
+            action: 'updated',
+            ...getAuditActor(request),
+            before: Object.fromEntries(changedKeys.map((key) => [key, before?.[key] ?? null])),
+            after: Object.fromEntries(changedKeys.map((key) => [key, updated[key]])),
+          },
+          db,
+          request.log,
+        );
       }
       return updated;
     },
@@ -178,11 +212,23 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
       const [deleted] = await db
         .delete(eventAlertRules)
         .where(eq(eventAlertRules.id, id))
-        .returning({ id: eventAlertRules.id });
+        .returning();
 
       if (deleted == null) {
         return reply.status(404).send({ error: 'Rule not found', code: 'RULE_NOT_FOUND' });
       }
+      await writeAudit(
+        RULE_AUDIT,
+        {
+          entityId: null,
+          entityIdSnapshot: String(id),
+          action: 'deleted',
+          ...getAuditActor(request),
+          before: deleted,
+        },
+        db,
+        request.log,
+      );
       return { success: true as const };
     },
   });

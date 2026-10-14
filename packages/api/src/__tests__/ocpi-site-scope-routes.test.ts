@@ -74,6 +74,10 @@ vi.mock('@evtivity/database', () => ({
   ocpiPartnerEndpoints: {},
   ocpiSyncLog: {},
   createCreditCdr: createCreditCdrMock,
+  siteAuditLog: { name: 'site_audit_log' },
+  ocpiPartnerAuditLog: { name: 'ocpi_partner_audit_log' },
+  sessionAuditLog: { name: 'session_audit_log' },
+  writeAudit: vi.fn(),
   PG_UNIQUE_VIOLATION: '23505',
   pgErrorCode: (err: { code?: string }) => err.code,
   pgConstraintName: (err: { constraint_name?: string }) => err.constraint_name,
@@ -120,7 +124,7 @@ import { ocpiLocationRoutes } from '../routes/ocpi-locations.js';
 import { ocpiCdrRoutes } from '../routes/ocpi-cdrs.js';
 import { ocpiSessionRoutes } from '../routes/ocpi-sessions.js';
 import { ocpiPartnerRoutes } from '../routes/ocpi-partners.js';
-import { db } from '@evtivity/database';
+import { db, ocpiLocationAudience, writeAudit } from '@evtivity/database';
 
 const SITE_A = 'sit_00000000000a';
 const SITE_B = 'sit_00000000000b';
@@ -298,6 +302,59 @@ describe('OCPI routes, site scope', () => {
         payload: { isPublished: true, ocpiLocationId: SITE_A },
       });
       expect(res.statusCode).toBe(200);
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        { table: { name: 'site_audit_log' }, idColumn: 'site_id' },
+        expect.objectContaining({
+          entityId: SITE_A,
+          action: 'location_published_changed',
+          actor: 'operator',
+          before: { ocpiLocationId: null },
+          after: { ocpiLocationId: SITE_A },
+        }),
+        db,
+        expect.anything(),
+      );
+    });
+
+    it('audits each partner that gains or loses the location', async () => {
+      getUserSiteIdsMock.mockResolvedValue(null);
+      vi.mocked(ocpiLocationAudience)
+        .mockResolvedValueOnce({ ocpiLocationId: SITE_A, partnerIds: ['opr_000000000001'] })
+        .mockResolvedValueOnce({ ocpiLocationId: SITE_A, partnerIds: ['opr_000000000002'] });
+      dbResults = [[{ id: SITE_A }], [{ id: 'opr_000000000002' }], [publishRow]];
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/ocpi/locations/${SITE_A}`,
+        headers,
+        payload: { isPublished: true, partnerIds: ['opr_000000000002'] },
+      });
+      expect(res.statusCode).toBe(200);
+      const audit = vi.mocked(writeAudit);
+      expect(audit).toHaveBeenCalledWith(
+        { table: { name: 'site_audit_log' }, idColumn: 'site_id' },
+        expect.objectContaining({
+          before: { partnerIds: ['opr_000000000001'] },
+          after: { partnerIds: ['opr_000000000002'] },
+        }),
+        db,
+        expect.anything(),
+      );
+      for (const [partnerId, published] of [
+        ['opr_000000000002', true],
+        ['opr_000000000001', false],
+      ] as const) {
+        expect(audit).toHaveBeenCalledWith(
+          { table: { name: 'ocpi_partner_audit_log' }, idColumn: 'ocpi_partner_id' },
+          expect.objectContaining({
+            entityId: partnerId,
+            action: 'location_published_changed',
+            before: { siteId: SITE_A, published: !published },
+            after: { siteId: SITE_A, published },
+          }),
+          db,
+          expect.anything(),
+        );
+      }
     });
 
     it('ignores publishToAll from a site-restricted user and keeps the stored value', async () => {
@@ -361,7 +418,13 @@ describe('OCPI routes, site scope', () => {
 
     it('credits a CDR of the user sites', async () => {
       dbResults = [[{ id: 'cdr_1' }]];
-      createCreditCdrMock.mockResolvedValue({ status: 'created', cdrId: 'credit-1' });
+      createCreditCdrMock.mockResolvedValue({
+        status: 'created',
+        cdrId: 'credit-1',
+        cdrData: { total_cost: { excl_vat: -12.5 } },
+        chargingSessionId: 'ses_000000000001',
+        partnerId: 'opr_000000000001',
+      });
       const res = await app.inject({
         method: 'POST',
         url: '/ocpi/cdrs/credit',
@@ -370,6 +433,36 @@ describe('OCPI routes, site scope', () => {
       });
       expect(res.statusCode).toBe(201);
       expect(createCreditCdrMock).toHaveBeenCalledWith('cdr-a', 'refund');
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        { table: { name: 'session_audit_log' }, idColumn: 'session_id' },
+        expect.objectContaining({
+          entityId: 'ses_000000000001',
+          action: 'cdr_credited',
+          before: null,
+          after: {
+            originalCdrId: 'cdr-a',
+            creditCdrId: 'credit-1',
+            partnerId: 'opr_000000000001',
+            totalCost: { excl_vat: -12.5 },
+          },
+          notes: 'refund',
+        }),
+        db,
+        expect.anything(),
+      );
+    });
+
+    it('does not audit a credit that already existed (a retry)', async () => {
+      dbResults = [[{ id: 'cdr_1' }]];
+      createCreditCdrMock.mockResolvedValue({ status: 'existing', cdrId: 'credit-1', cdrData: {} });
+      const res = await app.inject({
+        method: 'POST',
+        url: '/ocpi/cdrs/credit',
+        headers,
+        payload: { originalCdrId: 'cdr-a', reason: 'refund' },
+      });
+      expect(res.statusCode).toBe(201);
+      expect(vi.mocked(writeAudit)).not.toHaveBeenCalled();
     });
   });
 

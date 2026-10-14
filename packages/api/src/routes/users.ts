@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { JwtPayload } from '../plugins/auth.js';
 import crypto from 'node:crypto';
 import { resolve, dirname } from 'node:path';
@@ -21,6 +21,7 @@ import {
   userPermissions,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { changedFields } from '../lib/audit-diff.js';
 import {
   getNotificationSettings,
   sendEmail,
@@ -83,6 +84,7 @@ import { permissionCatalog, AI_EFFORTS, AI_PROVIDER_IDS, isAiEffort } from '@evt
 import { validatePasswordComplexity } from '../lib/password-validation.js';
 import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
 import { config as apiConfig } from '../lib/config.js';
+import { recordAuthAudit } from '../lib/auth-audit.js';
 import {
   isMfaChallengeExhausted,
   recordMfaChallengeAttempt,
@@ -352,6 +354,99 @@ const roleItem = z
   })
   .passthrough();
 
+type AiConfigKind = 'chatbot' | 'support';
+
+/** A personal AI configuration as its audit row shows it: no key, only whether one is set. */
+interface AiConfigState {
+  fields: Record<string, unknown>;
+  apiKeyEnc: string;
+}
+
+/** The user's personal chatbot or support AI configuration, null when not configured. */
+async function readAiConfigState(
+  userId: string,
+  kind: AiConfigKind,
+): Promise<AiConfigState | null> {
+  const [row] = await db.select().from(chatbotAiConfigs).where(eq(chatbotAiConfigs.userId, userId));
+  if (row == null) return null;
+  if (kind === 'chatbot') {
+    if (row.apiKeyEnc === '' || row.provider === '') return null;
+    return {
+      fields: {
+        provider: row.provider,
+        model: row.model ?? null,
+        effort: row.effort ?? null,
+        systemPrompt: row.systemPrompt ?? null,
+      },
+      apiKeyEnc: row.apiKeyEnc,
+    };
+  }
+  if (row.supportAiApiKeyEnc == null || row.supportAiApiKeyEnc === '') return null;
+  return {
+    fields: {
+      provider: row.supportAiProvider ?? null,
+      model: row.supportAiModel ?? null,
+      effort: row.supportAiEffort ?? null,
+      systemPrompt: row.supportAiSystemPrompt ?? null,
+      tone: row.supportAiTone ?? null,
+    },
+    apiKeyEnc: row.supportAiApiKeyEnc,
+  };
+}
+
+/** Whether `apiKey` differs from the stored key. */
+function aiKeyReplaced(stored: string, apiKey: string, encKey: string): boolean {
+  try {
+    return decryptString(stored, encKey) !== apiKey;
+  } catch {
+    // fail-open: a stored key this process cannot decrypt counts as replaced.
+    return true;
+  }
+}
+
+/**
+ * `user.updated` audit row of a personal AI configuration change: the changed
+ * fields only, and the API key as `set`, `replaced` or `unset`, never its
+ * value. Nothing changed, no row. Fail-open (writeAudit).
+ */
+async function writeAiConfigAudit(
+  request: FastifyRequest,
+  userId: string,
+  kind: AiConfigKind,
+  before: AiConfigState | null,
+  after: { fields: Record<string, unknown>; keyReplaced: boolean } | null,
+): Promise<void> {
+  const diff = changedFields(
+    { configured: before != null, ...(before?.fields ?? {}) },
+    { configured: after != null, ...(after?.fields ?? {}) },
+  );
+  if (before == null && after != null) {
+    diff.before['apiKey'] = 'unset';
+    diff.after['apiKey'] = 'set';
+  } else if (before != null && after == null) {
+    diff.before = { ...diff.before, ...before.fields, apiKey: 'set' };
+    diff.after['apiKey'] = 'unset';
+  } else if (after?.keyReplaced === true) {
+    diff.before['apiKey'] = 'set';
+    diff.after['apiKey'] = 'replaced';
+  }
+  if (Object.keys(diff.after).length === 0) return;
+  await writeAudit(
+    { table: userAuditLog, idColumn: 'user_id' },
+    {
+      entityId: userId,
+      entityIdSnapshot: userId,
+      action: 'updated',
+      ...getAuditActor(request),
+      before: diff.before,
+      after: diff.after,
+      notes: kind === 'chatbot' ? 'personal AI configuration' : 'personal support AI configuration',
+    },
+    db,
+    request.log,
+  );
+}
+
 export function userRoutes(app: FastifyInstance): void {
   app.post(
     '/auth/login',
@@ -397,11 +492,25 @@ export function userRoutes(app: FastifyInstance): void {
 
       const valid = await argon2.verify(user.passwordHash, password);
       if (!valid) {
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'bad_password',
+        });
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
 
       if (!user.isActive) {
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'inactive',
+        });
         await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
         return;
       }
@@ -425,6 +534,12 @@ export function userRoutes(app: FastifyInstance): void {
       setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
 
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+      await recordAuthAudit(request, {
+        kind: 'user',
+        accountId: user.id,
+        action: 'login_succeeded',
+        method: 'password',
+      });
 
       return {
         token,
@@ -772,6 +887,13 @@ export function userRoutes(app: FastifyInstance): void {
       // force-change-password / admin reset-password paths.
       await revokeAllUserSessions(tokenRow.userId);
 
+      await recordAuthAudit(request, {
+        kind: 'user',
+        accountId: tokenRow.userId,
+        action: 'password_reset',
+        method: 'reset_token',
+      });
+
       const [updatedUser] = await db
         .select({
           id: users.id,
@@ -852,12 +974,26 @@ export function userRoutes(app: FastifyInstance): void {
       }
 
       if (!user.isActive) {
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'inactive',
+        });
         await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
         return;
       }
 
       const valid = await argon2.verify(user.passwordHash, currentPassword);
       if (!valid) {
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'password',
+          reason: 'bad_password',
+        });
         await reply.status(401).send({ error: 'Invalid credentials', code: 'INVALID_CREDENTIALS' });
         return;
       }
@@ -886,7 +1022,10 @@ export function userRoutes(app: FastifyInstance): void {
           entityId: user.id,
           entityIdSnapshot: user.id,
           action: 'password_reset',
-          ...getAuditActor(request),
+          // The request is not authenticated: the user proved the account
+          // with the current password, so the user is the actor.
+          actor: 'operator',
+          actorUserId: user.id,
           notes: 'User changed own password (forced reset)',
         },
         db,
@@ -911,6 +1050,12 @@ export function userRoutes(app: FastifyInstance): void {
       setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
 
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+      await recordAuthAudit(request, {
+        kind: 'user',
+        accountId: user.id,
+        action: 'login_succeeded',
+        method: 'password',
+      });
 
       return {
         token,
@@ -1948,6 +2093,19 @@ export function userRoutes(app: FastifyInstance): void {
         ALL_TEMPLATES_DIRS,
       );
 
+      await writeAudit(
+        { table: userAuditLog, idColumn: 'user_id' },
+        {
+          entityId: user.id,
+          entityIdSnapshot: user.id,
+          action: 'invite_resent',
+          ...getAuditActor(request),
+          after: { email: user.email },
+        },
+        db,
+        request.log,
+      );
+
       return { success: true };
     },
   );
@@ -2046,6 +2204,13 @@ export function userRoutes(app: FastifyInstance): void {
         return;
       }
       if (!user.isActive) {
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'mfa',
+          reason: 'inactive',
+        });
         await reply.status(403).send({ error: 'Account disabled', code: 'ACCOUNT_DISABLED' });
         return;
       }
@@ -2075,6 +2240,13 @@ export function userRoutes(app: FastifyInstance): void {
         if (challengeId != null) {
           recordMfaChallengeAttempt(challengeId);
         }
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: user.id,
+          action: 'login_failed',
+          method: 'mfa',
+          reason: 'mfa_code_invalid',
+        });
         await reply
           .status(400)
           .send({ error: 'Invalid verification code', code: 'MFA_CODE_INVALID' });
@@ -2095,6 +2267,12 @@ export function userRoutes(app: FastifyInstance): void {
       const refreshResult = await createRefreshToken({ userId: user.id });
       setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
+      await recordAuthAudit(request, {
+        kind: 'user',
+        accountId: user.id,
+        action: 'login_succeeded',
+        method: 'mfa',
+      });
 
       return {
         token,
@@ -2652,6 +2830,13 @@ export function userRoutes(app: FastifyInstance): void {
         ...(body.smsEnabled !== undefined ? { smsEnabled: body.smsEnabled } : {}),
         ...(body.aiDigestEmail !== undefined ? { aiDigestEmail: body.aiDigestEmail } : {}),
       };
+      const [previous] = await db
+        .select({
+          smsEnabled: userNotificationPreferences.smsEnabled,
+          aiDigestEmail: userNotificationPreferences.aiDigestEmail,
+        })
+        .from(userNotificationPreferences)
+        .where(eq(userNotificationPreferences.userId, userId));
       const [prefs] = await db
         .insert(userNotificationPreferences)
         .values({ userId, ...changes })
@@ -2660,10 +2845,34 @@ export function userRoutes(app: FastifyInstance): void {
           set: { ...changes, updatedAt: new Date() },
         })
         .returning();
-      return {
+      const result = {
         smsEnabled: prefs?.smsEnabled ?? true,
         aiDigestEmail: prefs?.aiDigestEmail ?? false,
       };
+      const diff = changedFields(
+        {
+          smsEnabled: previous?.smsEnabled ?? true,
+          aiDigestEmail: previous?.aiDigestEmail ?? false,
+        },
+        result,
+      );
+      if (Object.keys(diff.after).length > 0) {
+        await writeAudit(
+          { table: userAuditLog, idColumn: 'user_id' },
+          {
+            entityId: userId,
+            entityIdSnapshot: userId,
+            action: 'updated',
+            ...getAuditActor(request),
+            before: diff.before,
+            after: diff.after,
+            notes: 'notification preferences',
+          },
+          db,
+          request.log,
+        );
+      }
+      return result;
     },
   );
 
@@ -2759,6 +2968,7 @@ export function userRoutes(app: FastifyInstance): void {
         throw new Error('SETTINGS_ENCRYPTION_KEY is required to store AI API keys');
       }
       const apiKeyEnc = encryptString(apiKey, encKey);
+      const previous = await readAiConfigState(userId, 'chatbot');
 
       await db
         .insert(chatbotAiConfigs)
@@ -2783,6 +2993,15 @@ export function userRoutes(app: FastifyInstance): void {
           },
         });
 
+      await writeAiConfigAudit(request, userId, 'chatbot', previous, {
+        fields: {
+          provider,
+          model: model ?? null,
+          effort: effort ?? null,
+          systemPrompt: personalSystemPrompt('chatbot', systemPrompt),
+        },
+        keyReplaced: previous != null && aiKeyReplaced(previous.apiKeyEnc, apiKey, encKey),
+      });
       return { success: true };
     },
   );
@@ -2814,6 +3033,7 @@ export function userRoutes(app: FastifyInstance): void {
       if (row == null) {
         return { success: true };
       }
+      const previous = await readAiConfigState(userId, 'chatbot');
 
       if (row.supportAiApiKeyEnc == null || row.supportAiApiKeyEnc === '') {
         await db.delete(chatbotAiConfigs).where(eq(chatbotAiConfigs.userId, userId));
@@ -2835,6 +3055,7 @@ export function userRoutes(app: FastifyInstance): void {
           .where(eq(chatbotAiConfigs.userId, userId));
       }
 
+      await writeAiConfigAudit(request, userId, 'chatbot', previous, null);
       return { success: true };
     },
   );
@@ -2977,6 +3198,7 @@ export function userRoutes(app: FastifyInstance): void {
       };
 
       // Check if a row exists for this user
+      const previous = await readAiConfigState(userId, 'support');
       const [existing] = await db
         .select({ id: chatbotAiConfigs.id })
         .from(chatbotAiConfigs)
@@ -2998,6 +3220,16 @@ export function userRoutes(app: FastifyInstance): void {
         });
       }
 
+      await writeAiConfigAudit(request, userId, 'support', previous, {
+        fields: {
+          provider,
+          model: model ?? null,
+          effort: effort ?? null,
+          systemPrompt: personalSystemPrompt('support', systemPrompt),
+          tone: tone ?? null,
+        },
+        keyReplaced: previous != null && aiKeyReplaced(previous.apiKeyEnc, apiKey, encKey),
+      });
       return { success: true };
     },
   );
@@ -3029,6 +3261,7 @@ export function userRoutes(app: FastifyInstance): void {
       if (row == null) {
         return { success: true };
       }
+      const previous = await readAiConfigState(userId, 'support');
 
       // If general AI config is also empty, delete the whole row
       if (row.apiKeyEnc === '') {
@@ -3049,6 +3282,7 @@ export function userRoutes(app: FastifyInstance): void {
           .where(eq(chatbotAiConfigs.userId, userId));
       }
 
+      await writeAiConfigAudit(request, userId, 'support', previous, null);
       return { success: true };
     },
   );

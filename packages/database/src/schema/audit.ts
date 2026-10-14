@@ -38,6 +38,11 @@ export const siteAuditActionEnum = pgEnum('site_audit_action', [
   'free_vend_toggled',
   'carbon_region_changed',
   'pricing_assignment_changed',
+  // Complete audit coverage (v0.1.46, 0475).
+  'load_management_changed',
+  'location_published_changed',
+  'electricity_rates_changed',
+  'payout_status_changed',
 ]);
 
 export const siteAuditLog = pgTable(
@@ -78,6 +83,13 @@ export const stationAuditActionEnum = pgEnum('station_audit_action', [
   'configuration_pushed',
   'local_auth_pushed',
   'reset_triggered',
+  // Complete audit coverage (v0.1.46, 0475).
+  'display_message_set',
+  'display_message_cleared',
+  'nevi_data_changed',
+  'evse_changed',
+  'monitoring_changed',
+  'alert_acknowledged',
 ]);
 
 export const stationAuditLog = pgTable(
@@ -118,6 +130,17 @@ export const driverAuditActionEnum = pgEnum('driver_audit_action', [
   'portal_invited',
   'portal_activated',
   'billing_address_updated',
+  // Complete audit coverage (v0.1.46, 0475).
+  'payment_method_added',
+  'payment_method_removed',
+  'payment_method_default_changed',
+  'pnc_contract_issued',
+  'pnc_contract_revoked',
+  'login_succeeded',
+  'login_failed',
+  'mfa_enabled',
+  'mfa_disabled',
+  'roaming_session_started',
 ]);
 
 export const driverAuditLog = pgTable(
@@ -195,6 +218,8 @@ export const userAuditActionEnum = pgEnum('user_audit_action', [
   'site_access_changed',
   'login_succeeded',
   'login_failed',
+  // Complete audit coverage (v0.1.46, 0475).
+  'invite_resent',
 ]);
 
 export const userAuditLog = pgTable(
@@ -273,6 +298,8 @@ export const supportCaseAuditActionEnum = pgEnum('support_case_audit_action', [
   'resolved_by_ai',
   'escalated_from_ai',
   'ai_failed',
+  // Complete audit coverage (v0.1.46, 0475).
+  'attachment_deleted',
 ]);
 
 export const supportCaseAuditLog = pgTable(
@@ -346,6 +373,8 @@ export const certificateAuditActionEnum = pgEnum('certificate_audit_action', [
   'ca_certificate_deleted',
   'root_certificates_refreshed',
   'pnc_settings_updated',
+  // Complete audit coverage (v0.1.46, 0475).
+  'expired',
 ]);
 
 export const certificateAuditLog = pgTable(
@@ -718,11 +747,15 @@ export const pricingGroupAuditActionEnum = pgEnum('pricing_group_audit_action', 
   'created',
   'updated',
   'deleted',
+  // Complete audit coverage (v0.1.46, 0475).
+  'tariff_mapping_changed',
 ]);
 export const tariffAuditActionEnum = pgEnum('tariff_audit_action', [
   'created',
   'updated',
   'deleted',
+  // Complete audit coverage (v0.1.46, 0475).
+  'tariff_mapping_changed',
 ]);
 export const holidayAuditActionEnum = pgEnum('holiday_audit_action', [
   'created',
@@ -878,6 +911,11 @@ export const maintenanceEventAuditLog = pgTable(
 export const sessionAuditActionEnum = pgEnum('session_audit_action', [
   'rebilled',
   'manual_billing',
+  // Complete audit coverage (v0.1.46, 0475).
+  'cdr_credited',
+  'faulted',
+  'stopped_by_csms',
+  'vehicle_changed',
 ]);
 
 export const sessionAuditLog = pgTable(
@@ -954,6 +992,8 @@ export const aiConversationAuditActionEnum = pgEnum('ai_conversation_audit_actio
   'action_confirmed',
   'action_rejected',
   'attachment_added',
+  // Complete audit coverage (v0.1.46, 0475).
+  'attachment_deleted',
 ]);
 
 export const aiConversationAuditLog = pgTable(
@@ -1055,6 +1095,171 @@ export const aiInsightAuditLog = pgTable(
   ],
 );
 
+// Payment audit (v0.1.46, 0475): every transition of a payment record
+// (session, reservation fee, ad hoc and guest payments), whoever made it: an
+// operator, a driver, the worker, a provider webhook. Keyed by the payment
+// record id. Written by @evtivity/payments payment-records.ts.
+export const paymentAuditActionEnum = pgEnum('payment_audit_action', [
+  'created',
+  'pre_authorized',
+  'captured',
+  'partially_refunded',
+  'refunded',
+  'failed',
+  'cancelled',
+]);
+
+export const paymentAuditLog = pgTable(
+  'payment_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    paymentId: text('payment_id'),
+    paymentIdSnapshot: text('payment_id_snapshot').notNull(),
+    action: paymentAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_payment_audit_entity_id').on(table.paymentId),
+    index('idx_payment_audit_created_at').on(table.createdAt),
+  ],
+);
+
+// Notification configuration audit (v0.1.46, 0475): notification templates
+// (every channel and language) and the OCPP and driver event settings, keyed
+// by the event type, so one history covers an event.
+export const notificationTemplateAuditActionEnum = pgEnum('notification_template_audit_action', [
+  'updated',
+  'deleted',
+  'event_settings_changed',
+]);
+
+export const notificationTemplateAuditLog = pgTable(
+  'notification_template_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    notificationTemplateId: text('notification_template_id'),
+    notificationTemplateIdSnapshot: text('notification_template_id_snapshot').notNull(),
+    action: notificationTemplateAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_notification_template_audit_entity_id').on(table.notificationTemplateId),
+    index('idx_notification_template_audit_created_at').on(table.createdAt),
+  ],
+);
+
+// Station message template audit (v0.1.46, 0475), keyed by the state.
+export const stationMessageTemplateAuditActionEnum = pgEnum(
+  'station_message_template_audit_action',
+  ['updated', 'reset'],
+);
+
+export const stationMessageTemplateAuditLog = pgTable(
+  'station_message_template_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    stationMessageTemplateId: text('station_message_template_id'),
+    stationMessageTemplateIdSnapshot: text('station_message_template_id_snapshot').notNull(),
+    action: stationMessageTemplateAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_station_message_template_audit_entity_id').on(table.stationMessageTemplateId),
+    index('idx_station_message_template_audit_created_at').on(table.createdAt),
+  ],
+);
+
+// Station event alert rule audit (v0.1.46, 0475).
+export const eventAlertRuleAuditActionEnum = pgEnum('event_alert_rule_audit_action', [
+  'created',
+  'updated',
+  'deleted',
+]);
+
+export const eventAlertRuleAuditLog = pgTable(
+  'event_alert_rule_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    eventAlertRuleId: text('event_alert_rule_id'),
+    eventAlertRuleIdSnapshot: text('event_alert_rule_id_snapshot').notNull(),
+    action: eventAlertRuleAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_event_alert_rule_audit_entity_id').on(table.eventAlertRuleId),
+    index('idx_event_alert_rule_audit_created_at').on(table.createdAt),
+  ],
+);
+
+// Report schedule audit (v0.1.46, 0475): schedule changes, and a deleted
+// report as 'report_deleted' (the report id in notes).
+export const reportScheduleAuditActionEnum = pgEnum('report_schedule_audit_action', [
+  'created',
+  'updated',
+  'deleted',
+  'report_deleted',
+]);
+
+export const reportScheduleAuditLog = pgTable(
+  'report_schedule_audit_log',
+  {
+    id: serial('id').primaryKey(),
+    reportScheduleId: text('report_schedule_id'),
+    reportScheduleIdSnapshot: text('report_schedule_id_snapshot').notNull(),
+    action: reportScheduleAuditActionEnum('action').notNull(),
+    actor: auditActorEnum('actor').notNull(),
+    actorUserId: text('actor_user_id'),
+    actorDriverId: text('actor_driver_id'),
+    actorApiKeyId: text('actor_api_key_id'),
+    actorLabel: varchar('actor_label', { length: 100 }),
+    before: jsonb('before'),
+    after: jsonb('after'),
+    notes: text('notes'),
+    viaAi: jsonb('via_ai'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_report_schedule_audit_entity_id').on(table.reportScheduleId),
+    index('idx_report_schedule_audit_created_at').on(table.createdAt),
+  ],
+);
+
 // Map of every audit table keyed by the entityType used in API filters.
 // Used by the global GET /v1/audit endpoint (UNION over all tables) and by
 // the worker retention prune job (DELETE FROM each).
@@ -1088,6 +1293,11 @@ export const AUDIT_TABLES = {
   ai_conversation: aiConversationAuditLog,
   ai_proposal: aiProposalAuditLog,
   ai_insight: aiInsightAuditLog,
+  payment: paymentAuditLog,
+  notification_template: notificationTemplateAuditLog,
+  station_message_template: stationMessageTemplateAuditLog,
+  event_alert_rule: eventAlertRuleAuditLog,
+  report_schedule: reportScheduleAuditLog,
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_TABLES;

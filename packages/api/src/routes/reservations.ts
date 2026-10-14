@@ -43,6 +43,7 @@ import {
 import type { ReservationRow } from '@evtivity/services/reservation.service';
 import { notifyReservationDriver } from '@evtivity/services/reservation-notify';
 import { authorize } from '../middleware/rbac.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 
 const reservationListItem = z
   .object({
@@ -1195,7 +1196,7 @@ export function reservationRoutes(app: FastifyInstance): void {
         reason: 'operator_manual',
         note: operatorReason,
         chargeFee: chargeCancellationFee,
-        payments: paymentContext(request.log),
+        payments: paymentContext(request.log, getAuditActor(request)),
         logger: request.log,
         stationOcppId: reservation.stationOcppId,
         reservationOcppId: reservation.reservationId,

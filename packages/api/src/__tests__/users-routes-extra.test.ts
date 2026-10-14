@@ -2089,6 +2089,20 @@ describe('User routes (extended coverage)', () => {
       );
       const raw = /token=([0-9a-f]{64})$/.exec(vars['setPasswordUrl'] ?? '')?.[1] ?? '';
       expect(inserted['tokenHash']).toBe(hashUserToken(raw));
+      expect(auditCall()).toMatchObject({
+        entityId: OTHER,
+        action: 'invite_resent',
+        actor: 'operator',
+        after: { email: 'op@example.com' },
+      });
+      // The token never reaches the audit row.
+      expect(JSON.stringify(auditCall())).not.toContain(raw);
+    });
+
+    it('writes no audit row when the user is disabled', async () => {
+      setupDbResults([{ id: OTHER, email: 'op@example.com', isActive: false, language: 'en' }]);
+      await app.inject({ method: 'POST', url: `/users/${OTHER}/resend-invite`, headers: auth });
+      expect(writeAudit).not.toHaveBeenCalled();
     });
   });
 
@@ -2153,6 +2167,13 @@ describe('User routes (extended coverage)', () => {
       });
       expect(res.statusCode).toBe(403);
       expect(res.json().code).toBe('ACCOUNT_DISABLED');
+      expect(auditCall()).toMatchObject({
+        entityId: OTHER,
+        action: 'login_failed',
+        actor: 'system',
+        notes: 'inactive',
+        after: { method: 'mfa' },
+      });
     });
 
     it('returns 400 TOTP_NOT_CONFIGURED when no TOTP secret is stored', async () => {
@@ -2180,6 +2201,11 @@ describe('User routes (extended coverage)', () => {
       expect(res.json().code).toBe('MFA_CODE_INVALID');
       expect(verifyTotpCode).not.toHaveBeenCalled();
       expect(createRefreshToken).not.toHaveBeenCalled();
+      expect(auditCall()).toMatchObject({
+        entityId: OTHER,
+        action: 'login_failed',
+        notes: 'mfa_code_invalid',
+      });
     });
 
     it('completes login with a valid TOTP code', async () => {
@@ -2207,6 +2233,13 @@ describe('User routes (extended coverage)', () => {
         lastLoginAt: expect.any(Date),
       });
       expect(clearMfaChallengeAttempts).not.toHaveBeenCalled();
+      expect(auditCall()).toMatchObject({
+        entityId: OTHER,
+        action: 'login_succeeded',
+        actor: 'operator',
+        actorUserId: OTHER,
+        after: { method: 'mfa' },
+      });
     });
 
     it('records a failed attempt for a wrong email code', async () => {
@@ -2632,7 +2665,10 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('PUT upserts the preference for the caller', async () => {
-      setupDbResults([{ userId: ME, smsEnabled: false, aiDigestEmail: false }]);
+      setupDbResults(
+        [{ smsEnabled: true, aiDigestEmail: false }],
+        [{ userId: ME, smsEnabled: false, aiDigestEmail: false }],
+      );
       const res = await app.inject({
         method: 'PUT',
         url: '/users/me/notification-preferences',
@@ -2647,10 +2683,20 @@ describe('User routes (extended coverage)', () => {
         target: ['userNotificationPreferences.userId'],
         set: { smsEnabled: false, updatedAt: expect.any(Date) },
       });
+      expect(auditCall()).toMatchObject({
+        entityId: ME,
+        action: 'updated',
+        before: { smsEnabled: true },
+        after: { smsEnabled: false },
+        notes: 'notification preferences',
+      });
     });
 
     it('PUT changes only the AI digest opt-in when it is the only field sent', async () => {
-      setupDbResults([{ userId: ME, smsEnabled: true, aiDigestEmail: true }]);
+      setupDbResults(
+        [{ smsEnabled: true, aiDigestEmail: true }],
+        [{ userId: ME, smsEnabled: true, aiDigestEmail: true }],
+      );
       const res = await app.inject({
         method: 'PUT',
         url: '/users/me/notification-preferences',
@@ -2665,6 +2711,8 @@ describe('User routes (extended coverage)', () => {
         target: ['userNotificationPreferences.userId'],
         set: { aiDigestEmail: true, updatedAt: expect.any(Date) },
       });
+      // Nothing changed: no audit row.
+      expect(writeAudit).not.toHaveBeenCalled();
     });
 
     it('PUT rejects an empty body', async () => {
@@ -2864,9 +2912,82 @@ describe('User routes (extended coverage)', () => {
       expect(opsFor('update', 'chatbotAiConfigs')).toHaveLength(0);
     });
 
+    it('PUT audits a new configuration with the key as set, never its value', async () => {
+      setupDbResults([]);
+      await app.inject({
+        method: 'PUT',
+        url: '/users/me/chatbot-ai-config',
+        headers: auth,
+        payload: { provider: 'openai', apiKey: 'sk-secret', model: 'm1' },
+      });
+      expect(auditCall()).toMatchObject({
+        entityId: ME,
+        action: 'updated',
+        before: { configured: false, apiKey: 'unset' },
+        after: { configured: true, provider: 'openai', model: 'm1', apiKey: 'set' },
+        notes: 'personal AI configuration',
+      });
+      expect(JSON.stringify(auditCall())).not.toContain('sk-secret');
+    });
+
+    it('PUT audits a replaced key and the changed fields only', async () => {
+      setupDbResults([
+        {
+          provider: 'openai',
+          apiKeyEnc: 'old-cipher',
+          model: 'm1',
+          effort: null,
+          systemPrompt: null,
+        },
+      ]);
+      vi.mocked(decryptString).mockReturnValueOnce('sk-old');
+      await app.inject({
+        method: 'PUT',
+        url: '/users/me/chatbot-ai-config',
+        headers: auth,
+        payload: { provider: 'openai', apiKey: 'sk-new', model: 'm2' },
+      });
+      expect(auditCall()).toMatchObject({
+        before: { model: 'm1', apiKey: 'set' },
+        after: { model: 'm2', apiKey: 'replaced' },
+      });
+      expect(auditCall()['after']).not.toHaveProperty('provider');
+    });
+
+    it('PUT with the same key and fields writes no audit row', async () => {
+      setupDbResults([
+        { provider: 'openai', apiKeyEnc: 'cipher', model: null, effort: null, systemPrompt: null },
+      ]);
+      vi.mocked(decryptString).mockReturnValueOnce('k');
+      await app.inject({
+        method: 'PUT',
+        url: '/users/me/chatbot-ai-config',
+        headers: auth,
+        payload: { provider: 'openai', apiKey: 'k' },
+      });
+      expect(writeAudit).not.toHaveBeenCalled();
+    });
+
     it('DELETE drops the row when no support AI config shares it', async () => {
-      setupDbResults([{ supportAiApiKeyEnc: '' }]);
+      setupDbResults(
+        [{ supportAiApiKeyEnc: '' }],
+        [
+          {
+            provider: 'openai',
+            apiKeyEnc: 'cipher',
+            model: null,
+            effort: null,
+            systemPrompt: null,
+          },
+        ],
+      );
       await app.inject({ method: 'DELETE', url: '/users/me/chatbot-ai-config', headers: auth });
+      expect(auditCall()).toMatchObject({
+        entityId: ME,
+        action: 'updated',
+        before: { configured: true, provider: 'openai', apiKey: 'set' },
+        after: { configured: false, apiKey: 'unset' },
+      });
       expect(argOf(opsFor('delete', 'chatbotAiConfigs')[0], 'where')).toEqual([
         'eq',
         'chatbotAiConfigs.userId',
@@ -2971,7 +3092,10 @@ describe('User routes (extended coverage)', () => {
     });
 
     it('PUT updates only support columns on an existing row', async () => {
-      setupDbResults([{ id: 1 }]);
+      setupDbResults(
+        [{ provider: 'openai', apiKeyEnc: 'c', supportAiApiKeyEnc: null }],
+        [{ id: 1 }],
+      );
       const res = await app.inject({
         method: 'PUT',
         url: '/users/me/support-ai-config',
@@ -2991,6 +3115,13 @@ describe('User routes (extended coverage)', () => {
         updatedAt: expect.any(Date),
       });
       expect(argOf(op, 'where')).toEqual(['eq', 'chatbotAiConfigs.userId', ME]);
+      expect(auditCall()).toMatchObject({
+        entityId: ME,
+        action: 'updated',
+        before: { configured: false, apiKey: 'unset' },
+        after: { configured: true, provider: 'openai', tone: 'friendly', apiKey: 'set' },
+        notes: 'personal support AI configuration',
+      });
     });
 
     it('PUT inserts a row with an empty chatbot key when none exists', async () => {

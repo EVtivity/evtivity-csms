@@ -142,7 +142,13 @@ export {
   queueSimulatedSink,
 } from './simulated-delivery.js';
 export type { DeferredSimulatedSink, PaymentWebhookDelivery } from './simulated-delivery.js';
-export type { PaymentContext, PaymentLogger } from './context.js';
+export { PAYMENT_SYSTEM_ACTOR, withPaymentActor } from './context.js';
+export type {
+  PaymentActor,
+  PaymentAuditContext,
+  PaymentContext,
+  PaymentLogger,
+} from './context.js';
 export { activeProvider, pinnedProvider, resolveActiveProvider } from './pinning.js';
 export { describePaymentProviders } from './provider-catalog.js';
 export type { ProviderCatalogCapabilities, ProviderCatalogEntry } from './provider-catalog.js';
@@ -199,7 +205,7 @@ export { chargeSessionRebill, REBILL_PAYOUT_NOT_READY_CODE } from './session-reb
 export type { SessionRebillChargeInput, SessionRebillChargeOutcome } from './session-rebill.js';
 export { refundPaymentRecord } from './refunds.js';
 export type { ChargeRefund, RefundOutcome, RefundRequest, RefundTarget } from './refunds.js';
-export { applyPaymentEvent, ingestPaymentWebhook } from './webhooks.js';
+export { applyPaymentEvent, ingestPaymentWebhook, paymentWebhookActor } from './webhooks.js';
 export type { PaymentWebhookNotice, WebhookResult } from './webhooks.js';
 export { dispatchPaymentWebhookNotices } from './webhook-notices.js';
 export { dispatchFeeRefundNotification, FEE_REFUNDED_EVENT } from './fee-refund-notice.js';

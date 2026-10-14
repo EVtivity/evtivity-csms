@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { eq, and } from 'drizzle-orm';
 import type { InferInsertModel } from 'drizzle-orm';
-import { db, ocpiPartners } from '@evtivity/database';
+import { db, ocpiPartners, ocpiPartnerAuditLog, writeAudit } from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../middleware/ocpi-auth.js';
 import type { OcpiVersion } from '../types/ocpi.js';
@@ -118,7 +118,7 @@ function registerHubClientInfoRoutes(app: FastifyInstance, version: OcpiVersion)
 
       // Update partner status if we know them
       const [partner] = await db
-        .select({ id: ocpiPartners.id })
+        .select({ id: ocpiPartners.id, status: ocpiPartners.status })
         .from(ocpiPartners)
         .where(and(eq(ocpiPartners.countryCode, country_code), eq(ocpiPartners.partyId, party_id)))
         .limit(1);
@@ -136,6 +136,24 @@ function registerHubClientInfoRoutes(app: FastifyInstance, version: OcpiVersion)
           .update(ocpiPartners)
           .set({ status: newStatus, updatedAt: new Date() })
           .where(eq(ocpiPartners.id, partner.id));
+        // The hub's status report is a system write: audit a change only.
+        if (partner.status !== newStatus) {
+          await writeAudit(
+            { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+            {
+              entityId: partner.id,
+              entityIdSnapshot: partner.id,
+              action: 'updated',
+              actor: 'system',
+              actorLabel: 'ocpi-hubclientinfo',
+              before: { status: partner.status },
+              after: { status: newStatus, hubStatus: body.status },
+              notes: 'Status reported by the hub (PUT hubclientinfo)',
+            },
+            db,
+            request.log,
+          );
+        }
       }
 
       return ocpiSuccess(null);

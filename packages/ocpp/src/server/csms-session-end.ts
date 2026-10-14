@@ -9,6 +9,7 @@ import {
   SESSION_END_FAILED_REASON,
   SESSION_END_REQUEST_CHANNEL,
   faultUnbilledSession,
+  writeCsmsSessionAudit,
 } from '@evtivity/database';
 import { cancelOpenSessionHold } from '@evtivity/payments';
 import { paymentContext } from '../lib/payments.js';
@@ -209,8 +210,25 @@ export async function giveUpSessionEnd(
       { sessionId, attempts: SESSION_END_MAX_ATTEMPTS },
       'Session end failed repeatedly; session faulted unbilled and its hold cancelled',
     );
+    await writeCsmsSessionAudit(
+      {
+        sessionId,
+        action: 'faulted',
+        actor: 'system',
+        actorLabel: 'session-end-sweep',
+        before: { status: 'active' },
+        after: { status: 'faulted', stoppedReason: SESSION_END_FAILED_REASON, finalCostCents: 0 },
+        notes: `Session end failed ${String(SESSION_END_MAX_ATTEMPTS)} times`,
+      },
+      undefined,
+      logger,
+    );
     try {
-      await cancelOpenSessionHold(sessionId, 'Session end failed', paymentContext(logger));
+      await cancelOpenSessionHold(
+        sessionId,
+        'Session end failed',
+        paymentContext(logger, { actor: 'system', actorLabel: 'session-end-failed' }),
+      );
     } catch (err: unknown) {
       logger.warn({ err, sessionId }, 'Failed to cancel the hold of a session whose end failed');
     }

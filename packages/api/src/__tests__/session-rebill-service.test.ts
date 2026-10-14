@@ -61,7 +61,7 @@ vi.mock('@evtivity/lib', async () => {
 vi.mock('@evtivity/lib/pubsub-instance', () => ({ getPubSub: () => ({ publish: m.publish }) }));
 vi.mock('@evtivity/services/template-dirs', () => ({ ALL_TEMPLATES_DIRS: ['templates'] }));
 vi.mock('../lib/payments.js', () => ({
-  paymentContext: (logger: unknown) => ({ registry: {}, logger }),
+  paymentContext: (logger: unknown, actor: unknown) => ({ registry: {}, logger, actor }),
 }));
 
 import { AppError } from '@evtivity/lib';
@@ -376,10 +376,11 @@ describe('rebillSession', () => {
       result: 'prepaid',
       paymentRecordId: 12,
     });
-    expect(m.settlePrepaidSession).toHaveBeenCalledWith('ses_1', log, {
-      costCents: 1190,
-      rebill: true,
-    });
+    expect(m.settlePrepaidSession).toHaveBeenCalledWith(
+      'ses_1',
+      expect.objectContaining({ logger: log, actor: ctx.actor }),
+      { costCents: 1190, rebill: true },
+    );
     expect(m.chargeSessionRebill).not.toHaveBeenCalled();
     expect(m.dispatchPrepaidLowCreditNotice).toHaveBeenCalledWith(
       { tokenId: 't1', debitedCents: 1190, balanceCents: 10 },

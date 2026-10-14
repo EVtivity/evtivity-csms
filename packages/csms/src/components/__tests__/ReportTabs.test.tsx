@@ -27,7 +27,7 @@ vi.mock('@/components/ui/toast', () => ({ useToast: () => ({ toast: vi.fn() }) }
 
 import { GenerateTab } from '../reports/GenerateTab';
 import { SchedulesTab } from '../reports/SchedulesTab';
-import { HistoryTab } from '../reports/HistoryTab';
+import { GeneratedReportsTab } from '../reports/GeneratedReportsTab';
 
 const ALL = ['csv', 'pdf', 'xlsx'];
 const REPORT_TYPES = [
@@ -120,9 +120,9 @@ describe('SchedulesTab', () => {
   });
 });
 
-describe('HistoryTab', () => {
+describe('GeneratedReportsTab', () => {
   it('filters by every report type, including the ones the Generate tab does not offer', async () => {
-    renderTab(<HistoryTab />);
+    renderTab(<GeneratedReportsTab />);
     await waitFor(() => {
       expect(
         screen.getAllByLabelText('common.filterByReportType')[0]?.querySelectorAll('option'),

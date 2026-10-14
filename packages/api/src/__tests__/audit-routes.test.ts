@@ -147,6 +147,29 @@ describe('audit routes site scope', () => {
       expect(executedSql()[2]).toContain('insight_id');
     });
 
+    it.each([
+      ['session', 'ses_1', 'session_id'],
+      ['reservation', 'rsv_1', 'reservation_id'],
+    ])("merges a %s's history with its payments' history", async (type, id, column) => {
+      mocks.execute
+        .mockResolvedValueOnce([
+          { id: 1, action: 'updated', actor: 'operator', created_at: '2026-10-10 10:00:00+00' },
+        ])
+        .mockResolvedValueOnce([{ total: 1 }])
+        .mockResolvedValueOnce([
+          { id: 4, action: 'captured', actor: 'system', created_at: '2026-10-10 12:00:00+00' },
+        ])
+        .mockResolvedValueOnce([{ total: 1 }]);
+      const res = await get(`/audit/${type}/${id}`);
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.total).toBe(2);
+      expect(body.data.map((r: { entityType: string }) => r.entityType)).toEqual(['payment', type]);
+      expect(executedSql()[2]).toContain('payment_audit_log');
+      expect(executedSql()[2]).toContain('payment_records');
+      expect(executedSql()[2]).toContain(column);
+    });
+
     it('breaks a time tie in the merge on id, newest row first', async () => {
       const at = '2026-10-10 10:00:00+00';
       mocks.execute
@@ -241,6 +264,22 @@ describe('audit routes site scope', () => {
       expect(dataSql).toContain('"station_audit_log"');
       expect(dataSql).toContain('"session_audit_log"');
       expect(dataSql).toContain('SELECT m.site_id FROM maintenance_events m');
+    });
+
+    it('merges the tables named in entityTypes into one list', async () => {
+      const res = await get('/audit?entityTypes=setting,station');
+      expect(res.statusCode).toBe(200);
+      const [dataSql] = executedSql();
+      expect(dataSql).toContain('"setting_audit_log"');
+      expect(dataSql).toContain('"station_audit_log"');
+      expect(dataSql).not.toContain('"driver_audit_log"');
+      expect(dataSql).toContain('UNION ALL');
+    });
+
+    it('refuses an unknown type in entityTypes', async () => {
+      const res = await get('/audit?entityTypes=setting,bogus');
+      expect(res.statusCode).toBe(400);
+      expect(mocks.execute).not.toHaveBeenCalled();
     });
 
     it('returns an empty page for a company-wide entity type filter', async () => {

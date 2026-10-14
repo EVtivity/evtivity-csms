@@ -3,7 +3,7 @@
 
 import { and, eq } from 'drizzle-orm';
 import { db, webhookEvents } from '@evtivity/database';
-import type { PaymentContext } from './context.js';
+import type { PaymentActor, PaymentContext } from './context.js';
 import { PaymentProviderNotConfiguredError, WebhookNotConfiguredError } from './errors.js';
 import { attachGuestAuthorisation, GUEST_REFERENCE_PREFIX } from './guest-payments.js';
 import { cancelKey } from './idempotency-keys.js';
@@ -86,8 +86,10 @@ export async function ingestPaymentWebhook(
   providerId: PaymentProviderId,
   rawBody: string,
   headers: Record<string, string | undefined>,
-  ctx: PaymentContext,
+  callerCtx: PaymentContext,
 ): Promise<WebhookResult> {
+  // The provider's event changes the records, whichever process delivers it.
+  const ctx: PaymentContext = { ...callerCtx, actor: paymentWebhookActor(providerId) };
   let provider;
   try {
     provider = await ctx.registry.getPaymentProvider(providerId);
@@ -135,6 +137,11 @@ export async function ingestPaymentWebhook(
   return { ack: provider.webhookAck(), applied, duplicates, notices };
 }
 
+/** The audit actor of a provider's webhook event: `system`, label `payment-webhook:<provider>`. */
+export function paymentWebhookActor(providerId: PaymentProviderId): PaymentActor {
+  return { actor: 'system', actorLabel: `payment-webhook:${providerId}` };
+}
+
 /**
  * A cumulative refund reported for one charge of a record with top-ups (the
  * hold or a top-up payment). The record is locked, that charge's refunded
@@ -172,7 +179,13 @@ async function applyChargeRefund(
     );
     const row = await markRefunded(
       locked.id,
-      { refundedTotalCents: total, full: total >= (locked.capturedAmountCents ?? 0), topUps },
+      {
+        refundedTotalCents: total,
+        full: total >= (locked.capturedAmountCents ?? 0),
+        topUps,
+        previous: locked,
+      },
+      ctx,
       tx,
     );
     if (row != null) {
@@ -216,7 +229,7 @@ export async function applyPaymentEvent(
           : `${label(providerId)} webhook: ${event.providerType ?? event.type}`;
       // Terminal states are sticky (P5): a failure never overwrites a
       // captured, refunded, cancelled or failed record.
-      if (await markOpenPaymentFailed(record.id, reason)) {
+      if (await markOpenPaymentFailed(record.id, reason, record.status, ctx)) {
         ctx.logger.info(
           { paymentId: event.paymentId, reason: event.reason },
           'Payment marked as failed via webhook',
@@ -264,7 +277,11 @@ export async function applyPaymentEvent(
       const full = refunded >= captured;
       // Only a captured or partially refunded record takes a refund, and a
       // delayed event never lowers the stored total (P5).
-      const row = await markRefunded(record.id, { refundedTotalCents: refunded, full });
+      const row = await markRefunded(
+        record.id,
+        { refundedTotalCents: refunded, full, previous: record },
+        ctx,
+      );
       if (row != null) {
         ctx.logger.info(
           { paymentId: event.paymentId, status: row.status, refundedAmount: refunded },
@@ -313,7 +330,11 @@ export async function applyPaymentEvent(
         // The confirmation came before the capture was recorded (or the
         // capture was made in the provider's dashboard): it is final.
         if (
-          await markCaptured(record.id, { capturedCents: event.amountCents, failureReason: null })
+          await markCaptured(
+            record.id,
+            { capturedCents: event.amountCents, failureReason: null },
+            ctx,
+          )
         ) {
           ctx.logger.info(
             { paymentRecordId: record.id, amountCents: event.amountCents },
@@ -334,7 +355,7 @@ export async function applyPaymentEvent(
       const reason = `${label(providerId)} capture failed${event.reason != null ? `: ${event.reason.slice(0, 450)}` : ''}`;
       const ref = event.operationRef;
       if (ref != null) {
-        const failed = await failPendingCapture(record.id, ref, reason);
+        const failed = await failPendingCapture(record.id, ref, reason, ctx);
         if (failed != null) {
           ctx.logger.warn(
             { paymentRecordId: record.id, operationRef: ref, reason: event.reason },
@@ -345,7 +366,7 @@ export async function applyPaymentEvent(
       }
       if (record.status === 'pre_authorized' && record.providerPaymentId === event.paymentId) {
         // The failure came before the capture was recorded.
-        if (await markHoldFailed(record.id, reason)) {
+        if (await markHoldFailed(record.id, reason, ctx)) {
           const failed = await findRecord(record.id);
           if (failed != null)
             return { kind: 'capture_failed', record: failed, reason: event.reason };
@@ -387,7 +408,7 @@ export async function applyPaymentEvent(
           event.expired === true
             ? `${label(providerId)} authorisation expired`
             : `${label(providerId)} cancelled the authorisation`;
-        if (await markAuthorisationEnded(record.id, reason)) {
+        if (await markAuthorisationEnded(record.id, reason, ctx)) {
           ctx.logger.info(
             { paymentRecordId: record.id, expired: event.expired === true },
             'Authorisation ended by the provider',
@@ -461,7 +482,7 @@ async function settleRefundEvent(
   reason: string | null,
   ctx: PaymentContext,
 ): Promise<PaymentWebhookNotice | null> {
-  const result = await settleRefund(recordId, { ...refund, outcome });
+  const result = await settleRefund(recordId, { ...refund, outcome }, ctx);
   switch (result.status) {
     case 'applied':
       if (outcome === 'failed') {

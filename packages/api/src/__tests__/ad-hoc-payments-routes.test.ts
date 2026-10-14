@@ -47,6 +47,7 @@ vi.mock('../middleware/rbac.js', () => ({
   invalidatePermissionCache: vi.fn(),
 }));
 
+const writeAudit = vi.fn();
 vi.mock('@evtivity/database', async () => ({
   // The real SQLSTATE readers, so the mocked errors map as in production.
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
@@ -59,6 +60,8 @@ vi.mock('@evtivity/database', async () => ({
   chargingStations: {},
   evses: {},
   guestSessions: {},
+  stationAuditLog: { name: 'station_audit_log' },
+  writeAudit: (...args: unknown[]) => writeAudit(...args) as unknown,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -178,6 +181,52 @@ describe('POST /v1/ad-hoc-payments', () => {
         },
       }),
     );
+  });
+
+  it('audits the start on the station as a dispatched command, without card data', async () => {
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], []);
+    await post({ ...BODY, cardBin: '123456' });
+    expect(writeAudit).toHaveBeenCalledOnce();
+    const [config, args] = writeAudit.mock.calls[0] as [
+      { idColumn: string },
+      Record<string, unknown>,
+    ];
+    expect(config.idColumn).toBe('station_id');
+    expect(args).toMatchObject({
+      entityId: 'sta_000000000001',
+      action: 'command_dispatched',
+      actor: 'operator',
+      actorUserId: 'usr_000000000001',
+      after: {
+        action: 'RequestStartTransaction',
+        evseId: 1,
+        pspRef: 'PSP-4444',
+        maxCostCents: 5000,
+        outcome: 'Accepted',
+      },
+    });
+    expect(JSON.stringify(args)).not.toContain('1234');
+    expect(JSON.stringify(args)).not.toContain('123456');
+  });
+
+  it('audits a rejected start with its outcome and writes nothing for a replay', async () => {
+    sendOcppCommandAndWait.mockResolvedValue({
+      commandId: 'cmd-1',
+      response: { status: 'Rejected' },
+    });
+    setupDbResults([STATION], [{ id: 'evs_000000000001' }], [], [], [], []);
+    const response = await post();
+    expect(response.statusCode).toBe(502);
+    expect(writeAudit.mock.calls[0]?.[1]).toMatchObject({ after: { outcome: 'Rejected' } });
+
+    writeAudit.mockClear();
+    setupDbResults(
+      [STATION],
+      [{ id: 'evs_000000000001' }],
+      [{ stationOcppId: 'CS-001', evseId: 1 }],
+    );
+    expect((await post()).json()).toMatchObject({ replayed: true });
+    expect(writeAudit).not.toHaveBeenCalled();
   });
 
   it('sends card BIN as additionalInfo and omits additionalInfo without card details', async () => {

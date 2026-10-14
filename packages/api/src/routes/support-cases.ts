@@ -1516,7 +1516,13 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         await deleteObject(s3, attachment.s3Bucket, attachment.s3Key);
       }
 
-      await deleteSupportCaseAttachment(attachmentId);
+      await deleteSupportCaseAttachment({
+        caseId: id,
+        messageId,
+        attachmentId,
+        actor: getAuditActor(request),
+        log: request.log,
+      });
 
       await reply.status(204).send();
     },
@@ -1627,7 +1633,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
           sessionId: body.sessionId,
           ...(body.amountCents != null ? { amountCents: body.amountCents } : {}),
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       switch (outcome.status) {
         // not_found answers only a fee target.

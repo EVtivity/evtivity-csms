@@ -9,7 +9,7 @@ import { EntityNavButtons } from '@/components/entity-nav-buttons';
 import { CopyableId } from '@/components/copyable-id';
 import { ConfigTemplateDetailsTab } from '@/components/config-template/DetailsTab';
 import type { TemplateDetail } from '@/components/config-template/DetailsTab';
-import { ConfigTemplatePushHistoryTab } from '@/components/config-template/PushHistoryTab';
+import { ConfigTemplatePushesTab } from '@/components/config-template/PushesTab';
 import { ConfigTemplateMatchingStationsTab } from '@/components/config-template/MatchingStationsTab';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
@@ -69,7 +69,7 @@ export function ConfigTemplateDetail(): React.JSX.Element {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="details">{t('common.details')}</TabsTrigger>
-          <TabsTrigger value="pushes">{t('configTemplates.pushHistory')}</TabsTrigger>
+          <TabsTrigger value="pushes">{t('configTemplates.pushes')}</TabsTrigger>
           <TabsTrigger value="matching" className="gap-2">
             {t('firmwareCampaigns.matchingStations')}
             <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground/15 px-1.5 text-xs font-semibold">
@@ -82,7 +82,7 @@ export function ConfigTemplateDetail(): React.JSX.Element {
           <ConfigTemplateDetailsTab template={template} />
         </TabsContent>
         <TabsContent value="pushes" className="space-y-6">
-          <ConfigTemplatePushHistoryTab templateId={templateId} />
+          <ConfigTemplatePushesTab templateId={templateId} />
         </TabsContent>
         <TabsContent value="matching" className="space-y-6">
           <ConfigTemplateMatchingStationsTab templateId={templateId} />

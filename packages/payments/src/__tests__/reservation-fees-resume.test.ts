@@ -134,11 +134,15 @@ describe('TC-RES-15: resumeStaleReservationFees', () => {
         idempotencyKey: 'no-show-fee-rsv_9',
       }),
     );
-    expect(m.markChargeCaptured).toHaveBeenCalledWith(41, {
-      provider: 'stripe',
-      paymentId: 'pi_resumed',
-      amountCents: 300,
-    });
+    expect(m.markChargeCaptured).toHaveBeenCalledWith(
+      41,
+      {
+        provider: 'stripe',
+        paymentId: 'pi_resumed',
+        amountCents: 300,
+      },
+      ctx,
+    );
     expect(m.writeReservationAudit).toHaveBeenCalledWith(
       expect.objectContaining({ reservationId: 'rsv_9', action: 'fee_charged' }),
       undefined,
@@ -175,6 +179,7 @@ describe('TC-RES-15: resumeStaleReservationFees', () => {
     expect(m.markChargeCaptured).toHaveBeenCalledWith(
       41,
       expect.objectContaining({ amountCents: 450 }),
+      ctx,
     );
   });
 
@@ -188,6 +193,7 @@ describe('TC-RES-15: resumeStaleReservationFees', () => {
     expect(m.markChargeFailed).toHaveBeenCalledWith(
       41,
       'No provider answer within 23 hours; check the provider for a payment with the key no-show-fee-rsv_9',
+      ctx,
     );
     expect(m.writeReservationAudit).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'fee_failed', reason: 'provider_error' }),
@@ -224,7 +230,7 @@ describe('TC-RES-15: resumeStaleReservationFees', () => {
     expect(provider.chargeSavedMethod).toHaveBeenCalledWith(
       expect.objectContaining({ grossCents: 500, idempotencyKey: 'cancellation-fee-rsv_9' }),
     );
-    expect(m.markChargeFailed).toHaveBeenCalledWith(41, 'card declined');
+    expect(m.markChargeFailed).toHaveBeenCalledWith(41, 'card declined', ctx);
   });
 
   it('keeps going after one record fails', async () => {

@@ -13,6 +13,7 @@ import {
   authorizeSessionHold,
   classifySessionPayment,
   dispatchFleetCreditLimitNotices,
+  withPaymentActor,
 } from '@evtivity/payments';
 import type { HoldOutcome } from '@evtivity/payments';
 import { isTariffFree } from '@evtivity/lib';
@@ -383,7 +384,7 @@ export async function runPaymentGate(
         siteId,
         trigger: 'projection_gate',
       },
-      payments,
+      withPaymentActor(payments, { actor: 'ocpp', actorLabel: 'payment-gate' }),
     );
     decision = decideAfterHold(hold, decision.driverId);
   }

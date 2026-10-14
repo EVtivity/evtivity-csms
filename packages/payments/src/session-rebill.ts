@@ -171,12 +171,15 @@ export async function chargeSessionRebill(
   if (resolved.kind !== 'request') return { status: resolved.kind };
   const { provider } = resolved;
 
-  const claim = await claimRebillRecord({
-    sessionId: input.sessionId,
-    driverId: input.driverId,
-    sitePaymentConfigId: terms.sitePaymentConfigId,
-    request: resolved.request,
-  });
+  const claim = await claimRebillRecord(
+    {
+      sessionId: input.sessionId,
+      driverId: input.driverId,
+      sitePaymentConfigId: terms.sitePaymentConfigId,
+      request: resolved.request,
+    },
+    ctx,
+  );
   if (claim.state === 'session_not_claimed') return { status: 'session_not_claimed' };
   if (claim.state === 'refused') return { status: 'record_refused', recordStatus: claim.status };
   if (claim.state === 'charged') {
@@ -202,7 +205,7 @@ export async function chargeSessionRebill(
 
   // A resumed charge passed this check when it was first sent.
   if (!claim.resumed && terms.payoutBlocked) {
-    await markChargeFailed(recordId, PAYOUT_NOT_READY_FAILURE);
+    await markChargeFailed(recordId, PAYOUT_NOT_READY_FAILURE, ctx);
     ctx.logger.warn(
       { paymentRecordId: recordId, sessionId: input.sessionId, siteId: input.siteId },
       'Session re-bill not charged: the payout account of the site is not ready',
@@ -238,7 +241,7 @@ export async function chargeSessionRebill(
       err instanceof PaymentMethodOwnershipError
     ) {
       const reason = errorMessage(err, 'Payment declined');
-      await markChargeFailed(recordId, reason);
+      await markChargeFailed(recordId, reason, ctx);
       return {
         status: 'failed',
         paymentRecordId: recordId,
@@ -250,11 +253,15 @@ export async function chargeSessionRebill(
     throw err;
   }
 
-  const recorded = await markChargeCaptured(recordId, {
-    provider: provider.id,
-    paymentId,
-    amountCents: request.grossCents,
-  });
+  const recorded = await markChargeCaptured(
+    recordId,
+    {
+      provider: provider.id,
+      paymentId,
+      amountCents: request.grossCents,
+    },
+    ctx,
+  );
   if (!recorded) {
     ctx.logger.error(
       { paymentRecordId: recordId, paymentId, sessionId: input.sessionId },

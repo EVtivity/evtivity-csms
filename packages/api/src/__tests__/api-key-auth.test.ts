@@ -49,6 +49,12 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -82,6 +88,8 @@ vi.mock('drizzle-orm', () => ({
   eq: vi.fn((_col: unknown, val: unknown) => ({ type: 'eq', val })),
   and: vi.fn((...args: unknown[]) => ({ type: 'and', args })),
   isNull: vi.fn((col: unknown) => ({ type: 'isNull', col })),
+  or: vi.fn((...args: unknown[]) => ({ type: 'or', args })),
+  lt: vi.fn((_col: unknown, val: unknown) => ({ type: 'lt', val })),
 }));
 
 vi.mock('../middleware/rbac.js', () => ({
@@ -153,6 +161,54 @@ describe('API key authentication in authenticate decorator', () => {
     const body: Record<string, unknown> = res.json();
     expect(body['userId']).toBe('usr_abc123');
     expect(body['roleId']).toBe('role_admin');
+  });
+
+  it('writes one hourly api_key used row when it moves lastUsedAt', async () => {
+    setupDbResults(
+      [{ id: 3, userId: 'usr_abc123', expiresAt: null, lastUsedAt: null }],
+      [{ id: 'usr_abc123', roleId: 'role_admin', isActive: true }],
+      [],
+      // The guarded lastUsedAt update moved the row.
+      [{ id: 3 }],
+    );
+    const res = await app.inject({
+      method: 'GET',
+      url: '/protected?x=1',
+      headers: { authorization: `Bearer ${RAW_TOKEN}`, 'user-agent': 'poller/1.0' },
+    });
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => {
+      expect(vi.mocked(databaseModule.writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'api_key_id' }),
+        expect.objectContaining({
+          entityId: '3',
+          action: 'used',
+          actor: 'api_key',
+          actorUserId: 'usr_abc123',
+          actorApiKeyId: '3',
+          after: { ip: '127.0.0.1', userAgent: 'poller/1.0', path: '/protected' },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('writes no used row when a concurrent request already moved lastUsedAt', async () => {
+    setupDbResults(
+      [{ id: 3, userId: 'usr_abc123', expiresAt: null, lastUsedAt: null }],
+      [{ id: 'usr_abc123', roleId: 'role_admin', isActive: true }],
+      [],
+      [],
+    );
+    const res = await app.inject({
+      method: 'GET',
+      url: '/protected',
+      headers: { authorization: `Bearer ${RAW_TOKEN}` },
+    });
+    expect(res.statusCode).toBe(200);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(vi.mocked(databaseModule.writeAudit)).not.toHaveBeenCalled();
   });
 
   it('authenticates with a non-expiring API key (expiresAt null)', async () => {

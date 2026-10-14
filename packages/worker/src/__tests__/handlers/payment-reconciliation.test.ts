@@ -44,7 +44,7 @@ describe('paymentReconciliationHandler', () => {
 
     await paymentReconciliationHandler(log);
 
-    expect(mockPaymentContext).toHaveBeenCalledWith(log);
+    expect(mockPaymentContext).toHaveBeenCalledWith(log, 'payment-reconciliation');
     expect(mockRunPaymentReconciliation).toHaveBeenCalledWith(ctx);
     expect(log.info).toHaveBeenCalledWith(
       { checked: 12, matched: 12 },

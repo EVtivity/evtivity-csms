@@ -83,6 +83,7 @@ const h = vi.hoisted(() => {
     tx,
     transaction: vi.fn((fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
     execute: vi.fn(),
+    writeAudit: vi.fn(),
     getCompanyCurrency: vi.fn(),
     getCompanyCountry: vi.fn(),
     db: {
@@ -108,8 +109,11 @@ vi.mock('@evtivity/database', () => ({
     provider: 'm.provider',
     providerCustomerId: 'm.provider_customer_id',
     providerPaymentMethodId: 'm.provider_payment_method_id',
+    isDefault: 'm.is_default',
     createdAt: 'm.created_at',
   },
+  driverAuditLog: { name: 'driver_audit_log' },
+  writeAudit: h.writeAudit,
   driverPaymentCustomers: {
     driverId: 'c.driver_id',
     provider: 'c.provider',
@@ -190,6 +194,7 @@ const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 const ctx: PaymentContext = {
   registry: { getActivePaymentProvider, getPaymentProvider } as unknown as PaymentProviderRegistry,
   logger,
+  actor: { actor: 'operator', actorUserId: 'u1' },
 };
 
 const DRIVER = {
@@ -236,6 +241,7 @@ function callsOf(kind: Kind): Call[] {
 beforeEach(() => {
   h.calls.length = 0;
   for (const queue of Object.values(h.results)) queue.length = 0;
+  h.writeAudit.mockClear();
   stripe = fakeProvider('stripe');
   simulated = fakeProvider('simulated');
   getActivePaymentProvider.mockResolvedValue(stripe);
@@ -501,6 +507,15 @@ describe('saveDriverMethod', () => {
       ctx,
     );
     expect(outcome).toEqual({ status: 'saved', method: saved });
+    expect(h.writeAudit).toHaveBeenCalledOnce();
+    expect(h.writeAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: 'd1',
+      action: 'payment_method_added',
+      actor: 'operator',
+      actorUserId: 'u1',
+      before: null,
+      after: { provider: 'simulated', isDefault: true },
+    });
     expect(simulated.verifyMethod).toHaveBeenCalledWith({
       methodId: 'pm_sim_9',
       customerId: 'cus_sim_9',
@@ -581,6 +596,8 @@ describe('saveDriverMethod', () => {
     h.results.select.push([DRIVER], CUSTOMER, [{ id: 7 }], [stored]);
     h.results.insert.push([]);
     expect(await saveDriverMethod(input, ctx)).toEqual({ status: 'saved', method: stored });
+    // A replayed save inserts nothing: no second audit row.
+    expect(h.writeAudit).not.toHaveBeenCalled();
     expect(stripe.verifyMethod).toHaveBeenCalledOnce();
     expect(callsOf('select')[3]?.where).toEqual({
       op: 'and',
@@ -940,6 +957,7 @@ describe('removeDriverMethod', () => {
 
   it('removes an unused method when blocking, and does not check without blocking', async () => {
     h.results.select.push([method()]);
+    h.results.delete.push([{ id: 1 }], [{ id: 1 }]);
     h.execute.mockResolvedValue([]);
     expect(await removeDriverMethod({ ...input, blockWhenInUse: true }, ctx)).toEqual({
       status: 'removed',
@@ -965,6 +983,7 @@ describe('removeDriverMethod', () => {
         providerPaymentMethodId: 'pm_sim_1',
       }),
     ]);
+    h.results.delete.push([{ id: 1 }]);
     expect(await removeDriverMethod(input, ctx)).toEqual({ status: 'removed' });
     expect(simulated.detachMethod).toHaveBeenCalledWith({
       customerId: 'cus_sim_1',
@@ -975,6 +994,7 @@ describe('removeDriverMethod', () => {
 
   it('logs a detach failure and still deletes the row', async () => {
     h.results.select.push([method()]);
+    h.results.delete.push([{ id: 1 }]);
     const err = new Error('already detached');
     stripe.detachMethod.mockRejectedValue(err);
     expect(await removeDriverMethod(input, ctx)).toEqual({ status: 'removed' });
@@ -987,6 +1007,7 @@ describe('removeDriverMethod', () => {
 
   it('promotes the oldest remaining method when the default is removed', async () => {
     h.results.select.push([method({ isDefault: true })], [{ id: 9 }]);
+    h.results.delete.push([{ id: 1 }]);
     expect(await removeDriverMethod(input, ctx)).toEqual({ status: 'removed' });
     const next = callsOf('select')[1];
     expect(next?.orderBy).toEqual([{ op: 'asc', col: 'm.created_at' }]);
@@ -1000,28 +1021,77 @@ describe('removeDriverMethod', () => {
 
   it('promotes nothing when the default was the last method', async () => {
     h.results.select.push([method({ isDefault: true })], []);
+    h.results.delete.push([{ id: 1 }]);
     expect(await removeDriverMethod(input, ctx)).toEqual({ status: 'removed' });
     expect(callsOf('update')).toHaveLength(0);
+  });
+
+  it('audits the removal on the driver with the promoted default', async () => {
+    h.results.select.push([method({ isDefault: true })], [{ id: 9 }]);
+    h.results.delete.push([{ id: 1 }]);
+    await removeDriverMethod(input, ctx);
+    expect(h.writeAudit).toHaveBeenCalledOnce();
+    const [config, args] = h.writeAudit.mock.calls[0] as [
+      { idColumn: string },
+      Record<string, unknown>,
+    ];
+    expect(config.idColumn).toBe('driver_id');
+    expect(args).toMatchObject({
+      entityId: 'd1',
+      action: 'payment_method_removed',
+      actor: 'operator',
+      actorUserId: 'u1',
+      before: { paymentMethodId: 1, provider: 'stripe', isDefault: true },
+      after: { defaultPaymentMethodId: 9 },
+    });
+    expect(JSON.stringify(args)).not.toContain('pm_1');
+  });
+
+  it('writes no audit row when a concurrent removal deleted the method first', async () => {
+    h.results.select.push([method()]);
+    expect(await removeDriverMethod(input, ctx)).toEqual({ status: 'removed' });
+    expect(h.writeAudit).not.toHaveBeenCalled();
   });
 });
 
 describe('setDefaultDriverMethod', () => {
   it('returns null for a method that is not the driver own', async () => {
-    expect(await setDefaultDriverMethod('d1', 3)).toBeNull();
+    expect(await setDefaultDriverMethod('d1', 3, ctx)).toBeNull();
     expect(callsOf('update')).toHaveLength(0);
   });
 
   it('flips the default in one update over all the driver methods', async () => {
     const row = method({ id: 3, isDefault: true });
-    h.results.select.push([{ id: 3 }], [row]);
-    expect(await setDefaultDriverMethod('d1', 3)).toBe(row);
+    h.results.select.push([{ id: 3, isDefault: false }], [{ id: 1 }], [row]);
+    expect(await setDefaultDriverMethod('d1', 3, ctx)).toBe(row);
     const [update] = callsOf('update');
     expect(update?.where).toEqual({ op: 'eq', col: 'm.driver_id', value: 'd1' });
     expect(update?.set?.['isDefault']).toEqual({ op: 'sql', text: '(? = ?)', values: ['m.id', 3] });
   });
 
   it('returns null when the row is gone after the update', async () => {
-    h.results.select.push([{ id: 3 }], []);
-    expect(await setDefaultDriverMethod('d1', 3)).toBeNull();
+    h.results.select.push([{ id: 3, isDefault: false }], [{ id: 1 }], []);
+    expect(await setDefaultDriverMethod('d1', 3, ctx)).toBeNull();
+    expect(h.writeAudit).not.toHaveBeenCalled();
+  });
+
+  it('audits the new default with the previous one', async () => {
+    const row = method({ id: 3, isDefault: true });
+    h.results.select.push([{ id: 3, isDefault: false }], [{ id: 1 }], [row]);
+    await setDefaultDriverMethod('d1', 3, ctx);
+    expect(h.writeAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: 'd1',
+      action: 'payment_method_default_changed',
+      actor: 'operator',
+      before: { defaultPaymentMethodId: 1 },
+      after: { defaultPaymentMethodId: 3, isDefault: true },
+    });
+  });
+
+  it('writes no audit row when the method already was the default', async () => {
+    const row = method({ id: 3, isDefault: true });
+    h.results.select.push([{ id: 3, isDefault: true }], [{ id: 3 }], [row]);
+    expect(await setDefaultDriverMethod('d1', 3, ctx)).toBe(row);
+    expect(h.writeAudit).not.toHaveBeenCalled();
   });
 });

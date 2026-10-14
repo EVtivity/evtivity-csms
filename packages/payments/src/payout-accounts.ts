@@ -50,11 +50,12 @@ async function readStatus(
 async function refreshAccount(
   provider: PaymentProvider,
   accountId: string,
+  ctx: PaymentContext,
 ): Promise<{ status: PayoutAccountStatus; updated: number }> {
   // The time the read started, so a read that overtakes this one wins.
   const checkedAt = new Date();
   const status = await readStatus(provider, accountId);
-  const updated = await writePayoutAccountStatus(status, checkedAt);
+  const updated = await writePayoutAccountStatus(status, checkedAt, ctx);
   clearPaymentSettingsCache();
   return { status, updated };
 }
@@ -109,7 +110,7 @@ export async function createSitePayoutAccount(
   clearPaymentSettingsCache();
 
   try {
-    await refreshAccount(provider, accountId);
+    await refreshAccount(provider, accountId, ctx);
   } catch (err) {
     ctx.logger.warn({ err, siteId, accountId }, 'Payout account status read failed after create');
   }
@@ -160,7 +161,7 @@ export async function setSitePayoutAccountId(
   if (id != null) {
     try {
       const provider = await payoutProvider(ctx);
-      if (provider != null) await refreshAccount(provider, id);
+      if (provider != null) await refreshAccount(provider, id, ctx);
     } catch (err) {
       ctx.logger.warn({ err, siteId, accountId: id }, 'Payout account status read failed');
     }
@@ -180,7 +181,7 @@ export async function refreshSitePayoutAccount(
   if (row?.accountId == null) return null;
   const provider = await payoutProvider(ctx);
   if (provider == null) return null;
-  return (await refreshAccount(provider, row.accountId)).status;
+  return (await refreshAccount(provider, row.accountId, ctx)).status;
 }
 
 /**
@@ -195,7 +196,7 @@ export async function refreshPayoutAccountById(
   if ((await countSitesWithPayoutAccount(accountId)) === 0) return 0;
   const provider = await payoutProvider(ctx);
   if (provider == null) return 0;
-  return (await refreshAccount(provider, accountId)).updated;
+  return (await refreshAccount(provider, accountId, ctx)).updated;
 }
 
 /**
@@ -213,7 +214,7 @@ export async function refreshAllPayoutAccounts(
   let failed = 0;
   for (const accountId of ids) {
     try {
-      await refreshAccount(provider, accountId);
+      await refreshAccount(provider, accountId, ctx);
       refreshed++;
     } catch (err) {
       failed++;
@@ -242,7 +243,7 @@ export async function sitePayoutReadiness(
   try {
     const provider = await payoutProvider(ctx);
     if (provider == null) return 'not_ready';
-    const { status } = await refreshAccount(provider, site.payoutAccountId);
+    const { status } = await refreshAccount(provider, site.payoutAccountId, ctx);
     return status.state === 'active' ? 'ready' : 'not_ready';
   } catch (err) {
     ctx.logger.warn(

@@ -18,6 +18,13 @@ vi.mock('react-i18next', () => ({
 }));
 
 const access = vi.hoisted(() => ({ canWrite: true }));
+// Mocked so the test can prove the editor renders no History list of its own.
+vi.mock('@/components/EntityHistoryTab', () => ({
+  EntityHistoryTab: ({ entityType, entityId }: { entityType: string; entityId: string | null }) => (
+    <div data-testid="entity-history">{`${entityType}:${entityId ?? '*'}`}</div>
+  ),
+}));
+
 vi.mock('@/lib/auth', () => ({ useHasCompanyWidePermission: () => access.canWrite }));
 
 vi.mock('@/components/TemplateEditPanel', () => ({
@@ -86,6 +93,8 @@ describe('EventSettingsLayout event switch', () => {
       expect(eventSwitch.onChange).toHaveBeenCalledWith('driver.Welcome', false);
     });
     expect(await screen.findByText('notifications.eventTurnedOff')).toBeTruthy();
+    // Template changes are listed in the Notifications History tab, not under the editor.
+    expect(screen.queryByTestId('entity-history')).toBeNull();
   });
 
   it('shows a stored disabled event type as off', () => {

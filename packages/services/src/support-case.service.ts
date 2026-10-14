@@ -659,9 +659,42 @@ export async function recordSupportCaseAttachmentAdded(input: {
   );
 }
 
-/** Deletes an attachment row (the S3 object is removed by the caller). */
-export async function deleteSupportCaseAttachment(attachmentId: number): Promise<void> {
-  await db.delete(supportCaseAttachments).where(eq(supportCaseAttachments.id, attachmentId));
+/**
+ * Deletes an attachment row (the S3 object is removed by the caller) and
+ * audits it (`attachment_deleted`) when a row was deleted.
+ */
+export async function deleteSupportCaseAttachment(input: {
+  caseId: string;
+  messageId: number;
+  attachmentId: number;
+  actor: SupportCaseActor;
+  log?: WarnLogger;
+}): Promise<void> {
+  const [deleted] = await db
+    .delete(supportCaseAttachments)
+    .where(eq(supportCaseAttachments.id, input.attachmentId))
+    .returning({
+      fileName: supportCaseAttachments.fileName,
+      fileSize: supportCaseAttachments.fileSize,
+      contentType: supportCaseAttachments.contentType,
+    });
+  if (deleted == null) return;
+  await audit(
+    input.caseId,
+    'attachment_deleted',
+    input.actor,
+    {
+      before: {
+        messageId: input.messageId,
+        attachmentId: input.attachmentId,
+        fileName: deleted.fileName,
+        fileSize: deleted.fileSize,
+        contentType: deleted.contentType,
+      },
+    },
+    db,
+    input.log,
+  );
 }
 
 // ---------------------------------------------------------------------------

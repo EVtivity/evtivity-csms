@@ -5,14 +5,16 @@ import { createHash } from 'node:crypto';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import {
   db,
+  driverAuditLog,
   driverPaymentCustomers,
   driverPaymentMethods,
   drivers,
   getCompanyCountry,
   getCompanyCurrency,
+  writeAudit,
 } from '@evtivity/database';
-import type { PaymentContext } from './context.js';
-import { errorMessage } from './context.js';
+import type { PaymentAuditContext, PaymentContext } from './context.js';
+import { auditActorOf, errorMessage } from './context.js';
 import {
   PaymentDeclinedError,
   PaymentMethodOwnershipError,
@@ -39,9 +41,46 @@ import type {
  * and the mobile app alike. A method is verified server side with the
  * provider it belongs to (never client asserted), and a method is removed
  * from the provider it was saved with (its `provider` column).
+ *
+ * Each added, removed or newly default method writes a `driver_audit_log`
+ * row on the driver with the caller's actor (operator, API key or driver).
  */
 
 export type DriverPaymentMethod = typeof driverPaymentMethods.$inferSelect;
+
+/** The audited fields of a method: never the provider's customer or method ids. */
+function methodAuditView(method: DriverPaymentMethod): Record<string, unknown> {
+  return {
+    paymentMethodId: method.id,
+    provider: method.provider,
+    cardBrand: method.cardBrand,
+    cardLast4: method.cardLast4,
+    isDefault: method.isDefault,
+  };
+}
+
+/** The driver audit row of a method change (fail-open, P9). */
+async function auditMethod(
+  audit: PaymentAuditContext,
+  driverId: string,
+  action: 'payment_method_added' | 'payment_method_removed' | 'payment_method_default_changed',
+  change: { before: Record<string, unknown> | null; after: Record<string, unknown> | null },
+): Promise<void> {
+  const { actor, logger } = auditActorOf(audit);
+  await writeAudit(
+    { table: driverAuditLog, idColumn: 'driver_id' },
+    {
+      entityId: driverId,
+      entityIdSnapshot: driverId,
+      action,
+      ...actor,
+      before: change.before,
+      after: change.after,
+    },
+    db,
+    logger,
+  );
+}
 
 interface DriverRow {
   id: string;
@@ -218,6 +257,7 @@ async function insertMethod(
   providerId: PaymentProviderId,
   customerId: string,
   details: SavedMethodDetails,
+  audit: PaymentAuditContext,
 ): Promise<DriverPaymentMethod> {
   const existing = await db
     .select({ id: driverPaymentMethods.id })
@@ -242,7 +282,13 @@ async function insertMethod(
       ],
     })
     .returning();
-  if (method != null) return method;
+  if (method != null) {
+    await auditMethod(audit, driverId, 'payment_method_added', {
+      before: null,
+      after: methodAuditView(method),
+    });
+    return method;
+  }
   // Saved before (a double submit or a retry): the stored row.
   const [saved] = await db
     .select()
@@ -321,7 +367,7 @@ export async function saveDriverMethod(
   }
   if (stored == null) await storeCustomer(driver.id, provider.id, customerId);
 
-  const method = await insertMethod(driver.id, provider.id, customerId, details);
+  const method = await insertMethod(driver.id, provider.id, customerId, details, ctx);
   return { status: 'saved', method };
 }
 
@@ -386,6 +432,7 @@ async function setupTarget(
 async function runSetupStep(
   target: SetupTarget,
   step: () => Promise<MethodSetupStep>,
+  ctx: PaymentContext,
 ): Promise<SetupStepOutcome> {
   let result: MethodSetupStep;
   try {
@@ -407,6 +454,7 @@ async function runSetupStep(
     target.provider.id,
     target.customerId,
     result.method,
+    ctx,
   );
   return { status: 'saved', method };
 }
@@ -443,13 +491,16 @@ export async function submitDriverMethodSetup(
 ): Promise<SetupStepOutcome> {
   const target = await setupTarget(input.driverId, input.providerId, input.adoptCustomer, ctx);
   if ('status' in target) return target;
-  return runSetupStep(target, () =>
-    target.provider.submitMethodSetup({
-      customerId: target.customerId,
-      payload: input.payload,
-      ...(input.browser != null ? { browser: input.browser } : {}),
-      idempotencyKey: `method_setup_${digest(`${input.driverId}:${input.attemptId}`)}`,
-    }),
+  return runSetupStep(
+    target,
+    () =>
+      target.provider.submitMethodSetup({
+        customerId: target.customerId,
+        payload: input.payload,
+        ...(input.browser != null ? { browser: input.browser } : {}),
+        idempotencyKey: `method_setup_${digest(`${input.driverId}:${input.attemptId}`)}`,
+      }),
+    ctx,
   );
 }
 
@@ -466,14 +517,17 @@ export async function continueDriverMethodSetup(
 ): Promise<SetupStepOutcome> {
   const target = await setupTarget(input.driverId, input.providerId, false, ctx);
   if ('status' in target) return target;
-  return runSetupStep(target, () =>
-    target.provider.continueMethodSetup({
-      customerId: target.customerId,
-      details: input.details,
-      idempotencyKey: `method_setup_details_${digest(
-        `${input.driverId}:${input.attemptId}:${JSON.stringify(input.details ?? null)}`,
-      )}`,
-    }),
+  return runSetupStep(
+    target,
+    () =>
+      target.provider.continueMethodSetup({
+        customerId: target.customerId,
+        details: input.details,
+        idempotencyKey: `method_setup_details_${digest(
+          `${input.driverId}:${input.attemptId}:${JSON.stringify(input.details ?? null)}`,
+        )}`,
+      }),
+    ctx,
   );
 }
 
@@ -577,9 +631,13 @@ export async function removeDriverMethod(
 
   // Delete and promotion in one transaction, so two concurrent removals
   // never leave the driver without a default.
-  await db.transaction(async (tx) => {
-    await tx.delete(driverPaymentMethods).where(eq(driverPaymentMethods.id, method.id));
-    if (!method.isDefault) return;
+  const outcome = await db.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(driverPaymentMethods)
+      .where(eq(driverPaymentMethods.id, method.id))
+      .returning({ id: driverPaymentMethods.id });
+    if (deleted.length === 0) return { deleted: false, promotedId: null };
+    if (!method.isDefault) return { deleted: true, promotedId: null };
     const [next] = await tx
       .select({ id: driverPaymentMethods.id })
       .from(driverPaymentMethods)
@@ -587,13 +645,20 @@ export async function removeDriverMethod(
       .orderBy(asc(driverPaymentMethods.createdAt))
       .limit(1)
       .for('update');
-    if (next != null) {
-      await tx
-        .update(driverPaymentMethods)
-        .set({ isDefault: true, updatedAt: new Date() })
-        .where(eq(driverPaymentMethods.id, next.id));
-    }
+    if (next == null) return { deleted: true, promotedId: null };
+    await tx
+      .update(driverPaymentMethods)
+      .set({ isDefault: true, updatedAt: new Date() })
+      .where(eq(driverPaymentMethods.id, next.id));
+    return { deleted: true, promotedId: next.id };
   });
+  // A concurrent removal of the same method deleted it: that call audits it.
+  if (outcome.deleted) {
+    await auditMethod(ctx, input.driverId, 'payment_method_removed', {
+      before: methodAuditView(method),
+      after: outcome.promotedId != null ? { defaultPaymentMethodId: outcome.promotedId } : null,
+    });
+  }
   return { status: 'removed' };
 }
 
@@ -604,14 +669,22 @@ export async function removeDriverMethod(
 export async function setDefaultDriverMethod(
   driverId: string,
   methodRowId: number,
+  audit: PaymentAuditContext,
 ): Promise<DriverPaymentMethod | null> {
   const [method] = await db
-    .select({ id: driverPaymentMethods.id })
+    .select({ id: driverPaymentMethods.id, isDefault: driverPaymentMethods.isDefault })
     .from(driverPaymentMethods)
     .where(
       and(eq(driverPaymentMethods.id, methodRowId), eq(driverPaymentMethods.driverId, driverId)),
     );
   if (method == null) return null;
+  const [previous] = await db
+    .select({ id: driverPaymentMethods.id })
+    .from(driverPaymentMethods)
+    .where(
+      and(eq(driverPaymentMethods.driverId, driverId), eq(driverPaymentMethods.isDefault, true)),
+    )
+    .limit(1);
   await db
     .update(driverPaymentMethods)
     .set({ isDefault: sql`(${driverPaymentMethods.id} = ${methodRowId})`, updatedAt: new Date() })
@@ -620,5 +693,12 @@ export async function setDefaultDriverMethod(
     .select()
     .from(driverPaymentMethods)
     .where(eq(driverPaymentMethods.id, methodRowId));
+  // Only a change of the default is audited (the method was not the default).
+  if (updated != null && !method.isDefault) {
+    await auditMethod(audit, driverId, 'payment_method_default_changed', {
+      before: { defaultPaymentMethodId: previous?.id ?? null },
+      after: { defaultPaymentMethodId: updated.id, ...methodAuditView(updated) },
+    });
+  }
   return updated ?? null;
 }

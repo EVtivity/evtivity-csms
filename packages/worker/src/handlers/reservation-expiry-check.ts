@@ -34,7 +34,7 @@ type ExpiringRow = {
 export async function reservationExpiryCheckHandler(log: Logger): Promise<void> {
   const deps: ReservationExpiryDeps = {
     pubsub: getPubSub(),
-    payments: paymentContext(log),
+    payments: paymentContext(log, 'reservation-expiry-check'),
     logger: log,
   };
 

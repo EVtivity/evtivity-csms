@@ -3,12 +3,13 @@
 
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import jwt from '@fastify/jwt';
-import { db } from '@evtivity/database';
+import { db, writeAudit, apiKeyAuditLog } from '@evtivity/database';
 import { refreshTokens, users, userPermissions, OCTT_API_KEY_NAME } from '@evtivity/database';
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, or, lt } from 'drizzle-orm';
 import { config } from '../lib/config.js';
 import { isApiKeyRateLimited } from '../lib/rate-limiters.js';
 import { hashToken } from '../lib/token-hash.js';
+import { authRequestOrigin } from '../lib/auth-audit.js';
 import { isDriverActive } from '../lib/driver-active.js';
 import { isUserActive } from '../lib/user-active.js';
 import { isAiToolRequest } from '../services/ai/tools/execute.js';
@@ -254,10 +255,39 @@ export async function registerAuth(app: FastifyInstance): Promise<void> {
                 (row.lastUsedAt == null ||
                   Date.now() - row.lastUsedAt.getTime() > LAST_USED_THROTTLE_MS);
               if (lastUsedStale) {
+                // Guarded on the same staleness so concurrent requests record
+                // one use: only the request that moved lastUsedAt writes the
+                // hourly `used` audit row.
                 db.update(refreshTokens)
                   .set({ lastUsedAt: new Date() })
-                  .where(eq(refreshTokens.id, row.id))
-                  .then(() => {})
+                  .where(
+                    and(
+                      eq(refreshTokens.id, row.id),
+                      or(
+                        isNull(refreshTokens.lastUsedAt),
+                        lt(refreshTokens.lastUsedAt, new Date(Date.now() - LAST_USED_THROTTLE_MS)),
+                      ),
+                    ),
+                  )
+                  .returning({ id: refreshTokens.id })
+                  .then(async (moved) => {
+                    if (moved.length === 0) return;
+                    await writeAudit(
+                      { table: apiKeyAuditLog, idColumn: 'api_key_id' },
+                      {
+                        entityId: String(row.id),
+                        entityIdSnapshot: String(row.id),
+                        action: 'used',
+                        actor: 'api_key',
+                        actorUserId: user.id,
+                        actorApiKeyId: String(row.id),
+                        after: { ...authRequestOrigin(request), path: request.url.split('?')[0] },
+                        notes: 'First use in the hour',
+                      },
+                      db,
+                      app.log,
+                    );
+                  })
                   .catch((err: unknown) => {
                     app.log.warn({ err }, 'Failed to update API key lastUsedAt');
                   });

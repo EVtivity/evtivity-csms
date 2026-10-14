@@ -29,6 +29,8 @@ vi.mock('@evtivity/database', () => ({
 
 vi.mock('drizzle-orm', () => ({
   inArray: vi.fn(),
+  // The handler builds its login row filter at import: keep the SQL text.
+  sql: (strings: TemplateStringsArray) => ({ sqlText: strings.join('?') }),
 }));
 
 vi.mock('../../lib/prune-old-rows.js', () => ({
@@ -101,6 +103,18 @@ const TABLE_DEFAULTS = [
     defaultDays: 90,
     cutoffColumn: 'created_at',
   },
+  {
+    table: 'user_audit_log',
+    settingKey: 'logs.loginAudit.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'created_at',
+  },
+  {
+    table: 'driver_audit_log',
+    settingKey: 'logs.loginAudit.retentionDays',
+    defaultDays: 90,
+    cutoffColumn: 'created_at',
+  },
 ];
 
 beforeEach(() => {
@@ -125,11 +139,40 @@ describe('logRetentionPruneHandler', () => {
     });
   });
 
-  it('targets the seven log tables in declaration order', async () => {
+  it('targets every log table in declaration order', async () => {
     const { logRetentionPruneHandler } = logRetentionPruneModule;
     await logRetentionPruneHandler(makeLog());
     const targeted = mockPruneOldRows.mock.calls.map((c) => (c[0] as { table: string }).table);
     expect(targeted).toEqual(TABLE_DEFAULTS.map((t) => t.table));
+  });
+
+  it('prunes only the login rows of the user and driver audit logs', async () => {
+    settingRows = [{ key: 'logs.loginAudit.retentionDays', value: 14 }];
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
+    await logRetentionPruneHandler(makeLog());
+    const loginCalls = mockPruneOldRows.mock.calls
+      .map((c) => c[0] as { table: string; retentionDays: number; filter?: { sqlText: string } })
+      .filter((c) => c.table === 'user_audit_log' || c.table === 'driver_audit_log');
+    expect(loginCalls.map((c) => c.table)).toEqual(['user_audit_log', 'driver_audit_log']);
+    for (const call of loginCalls) {
+      expect(call.retentionDays).toBe(14);
+      expect(call.filter?.sqlText).toBe("action::text IN ('login_succeeded', 'login_failed')");
+    }
+    // No other table gets a filter.
+    const filtered = mockPruneOldRows.mock.calls.filter(
+      (c) => (c[0] as { filter?: unknown }).filter != null,
+    );
+    expect(filtered).toHaveLength(2);
+  });
+
+  it('keeps login rows forever when the login retention is 0', async () => {
+    settingRows = [{ key: 'logs.loginAudit.retentionDays', value: 0 }];
+    const { logRetentionPruneHandler } = logRetentionPruneModule;
+    await logRetentionPruneHandler(makeLog());
+    const targeted = mockPruneOldRows.mock.calls.map((c) => (c[0] as { table: string }).table);
+    expect(targeted).not.toContain('user_audit_log');
+    expect(targeted).not.toContain('driver_audit_log');
+    expect(targeted).toHaveLength(TABLE_DEFAULTS.length - 2);
   });
 
   it('uses the operator-configured numeric override over the default', async () => {

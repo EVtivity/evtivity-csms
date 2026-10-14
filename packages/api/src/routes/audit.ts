@@ -34,8 +34,22 @@ const auditEntityTypes = Object.keys(AUDIT_TABLES) as AuditEntityType[];
 
 const auditEntityTypeEnum = z.enum(auditEntityTypes as unknown as [string, ...string[]]);
 
+// Comma-separated list of audit entity types (keys are [a-z_], safe in a pattern).
+const entityTypeAlternatives = `(?:${auditEntityTypes.join('|')})`;
+const entityTypeListPattern = new RegExp(
+  `^${entityTypeAlternatives}(?:,${entityTypeAlternatives})*$`,
+);
+
 const auditQuerystring = paginationQuery.extend({
   entityType: auditEntityTypeEnum.optional().describe('Filter by entity type'),
+  entityTypes: z
+    .string()
+    // A pattern, not a refine: Ajv validates the request and drops refines.
+    .regex(entityTypeListPattern, 'Unknown entity type')
+    .optional()
+    .describe(
+      'Comma-separated entity types, listed as one merged list (with entityType, their union)',
+    ),
   entityId: z.string().optional().describe('Filter by entity id (or snapshot id)'),
   action: z.string().optional().describe('Filter by action verb'),
   actor: z
@@ -260,6 +274,14 @@ function entitySiteSql(entityType: AuditEntityType, idCol: string): SQL | null {
       return sql`(SELECT p.site_id FROM ai_proposals p WHERE p.id = ${id})`;
     case 'ai_insight':
       return sql`(SELECT i.site_id FROM ai_insights i WHERE i.id = ${id})`;
+    case 'payment':
+      // The site of the session, else of the reserved station, else of the
+      // site payment config (ad hoc payments).
+      return sql`(SELECT COALESCE(
+        (SELECT cs.site_id FROM charging_sessions s JOIN charging_stations cs ON cs.id = s.station_id WHERE s.id = p.session_id),
+        (SELECT cs.site_id FROM reservations r JOIN charging_stations cs ON cs.id = r.station_id WHERE r.id = p.reservation_id),
+        (SELECT c.site_id FROM site_payment_configs c WHERE c.id = p.site_payment_config_id)
+      ) FROM payment_records p WHERE p.id::text = ${id})`;
     default:
       return null;
   }
@@ -350,6 +372,8 @@ export function auditRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Audit'],
         summary: 'List audit entries for one entity',
+        description:
+          'Newest first. One list per entity: an AI insight also lists the rows of its suggested action, a session and a reservation the rows of their payments.',
         operationId: 'listEntityAudit',
         security: [{ bearerAuth: [] }],
         params: zodSchema(
@@ -396,6 +420,14 @@ export function auditRoutes(app: FastifyInstance): void {
         sources.push({
           type: 'ai_proposal',
           match: sql`ai_proposal_id IN (SELECT id FROM ai_proposals WHERE insight_id = ${entityId})`,
+        });
+      }
+      // A session's and a reservation's History also list their payments.
+      if (entityType === 'session' || entityType === 'reservation') {
+        const column = sql.identifier(entityType === 'session' ? 'session_id' : 'reservation_id');
+        sources.push({
+          type: 'payment',
+          match: sql`payment_id IN (SELECT id::text FROM payment_records WHERE ${column} = ${entityId})`,
         });
       }
 
@@ -466,8 +498,12 @@ export function auditRoutes(app: FastifyInstance): void {
       const siteIds = await getUserSiteIds(userId);
       // A site-restricted user gets only the tables whose entities belong to
       // a site, each filtered to the user's sites.
+      const requested = [
+        ...(q.entityType != null ? [q.entityType] : []),
+        ...(q.entityTypes != null ? q.entityTypes.split(',') : []),
+      ] as AuditEntityType[];
       const types: AuditEntityType[] = (
-        q.entityType != null ? [q.entityType as AuditEntityType] : auditEntityTypes
+        requested.length > 0 ? [...new Set(requested)] : auditEntityTypes
       ).filter((t) => auditSiteCondition(t, idColumnFor(t), siteIds) !== null);
       if (types.length === 0) return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
 

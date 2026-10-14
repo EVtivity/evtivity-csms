@@ -425,7 +425,10 @@ describe('authorizeSessionHold', () => {
     expect(getPaymentProvider).toHaveBeenCalledWith('simulated');
     expect(simulated.authorizeHold).toHaveBeenCalledOnce();
     expect(stripe.authorizeHold).not.toHaveBeenCalled();
-    expect(h.recordHold).toHaveBeenCalledWith(expect.objectContaining({ provider: 'simulated' }));
+    expect(h.recordHold).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'simulated' }),
+      ctx,
+    );
     expect(h.selects[0]?.fields).toEqual({
       id: 'm.id',
       provider: 'm.provider',
@@ -487,19 +490,22 @@ describe('authorizeSessionHold', () => {
       payoutAccountId: 'acct_1',
       idempotencyKey: 'preauth_s1',
     });
-    expect(h.recordHold).toHaveBeenCalledWith({
-      sessionId: 's1',
-      driverId: 'd1',
-      sitePaymentConfigId: 3,
-      provider: 'simulated',
-      paymentId: 'pi_new',
-      customerId: 'cus_sim_1',
-      methodId: 'pm_sim_1',
-      source: 'web_portal',
-      currency: 'EUR',
-      preAuthAmountCents: 9000,
-      providerState: null,
-    });
+    expect(h.recordHold).toHaveBeenCalledWith(
+      {
+        sessionId: 's1',
+        driverId: 'd1',
+        sitePaymentConfigId: 3,
+        provider: 'simulated',
+        paymentId: 'pi_new',
+        customerId: 'cus_sim_1',
+        methodId: 'pm_sim_1',
+        source: 'web_portal',
+        currency: 'EUR',
+        preAuthAmountCents: 9000,
+        providerState: null,
+      },
+      ctx,
+    );
   });
 
   it('stores the provider state of the hold for a later adjustment', async () => {
@@ -519,6 +525,7 @@ describe('authorizeSessionHold', () => {
     );
     expect(h.recordHold).toHaveBeenCalledWith(
       expect.objectContaining({ providerState: { adjustAuthorisationData: 'BLOB' } }),
+      ctx,
     );
   });
 
@@ -547,6 +554,7 @@ describe('authorizeSessionHold', () => {
         sitePaymentConfigId: 3,
         reason: 'Payout account not ready',
       }),
+      ctx,
     );
   });
 
@@ -603,18 +611,21 @@ describe('authorizeSessionHold', () => {
       paymentRecordId: 78,
       failure: 'declined',
     });
-    expect(h.recordFailedHold).toHaveBeenCalledWith({
-      sessionId: 's1',
-      driverId: 'd1',
-      sitePaymentConfigId: null,
-      provider: 'stripe',
-      customerId: 'cus_1',
-      methodId: 'pm_1',
-      source: 'web_portal',
-      currency: 'EUR',
-      preAuthAmountCents: null,
-      reason: 'card_declined',
-    });
+    expect(h.recordFailedHold).toHaveBeenCalledWith(
+      {
+        sessionId: 's1',
+        driverId: 'd1',
+        sitePaymentConfigId: null,
+        provider: 'stripe',
+        customerId: 'cus_1',
+        methodId: 'pm_1',
+        source: 'web_portal',
+        currency: 'EUR',
+        preAuthAmountCents: null,
+        reason: 'card_declined',
+      },
+      ctx,
+    );
     expect(logger.warn).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: 's1', trigger: 'projection_gate' }),
       'Session pre-authorization declined',
@@ -639,6 +650,7 @@ describe('authorizeSessionHold', () => {
     expect(outcome).toMatchObject({ reason: 'Unknown pre-auth error' });
     expect(h.recordFailedHold).toHaveBeenCalledWith(
       expect.objectContaining({ preAuthAmountCents: 2500 }),
+      ctx,
     );
   });
 
@@ -767,11 +779,15 @@ describe('captureSessionHold', () => {
       platformFeePercent: 5,
       idempotencyKey: 'capture_pi_1',
     });
-    expect(h.markCaptured).toHaveBeenCalledWith(42, {
-      capturedCents: 7000,
-      failureReason: null,
-      pendingRef: null,
-    });
+    expect(h.markCaptured).toHaveBeenCalledWith(
+      42,
+      {
+        capturedCents: 7000,
+        failureReason: null,
+        pendingRef: null,
+      },
+      ctx,
+    );
   });
 
   it('captures an explicit amount without a session and warns when the record moved on', async () => {
@@ -811,7 +827,7 @@ describe('captureSessionHold', () => {
       idempotencyKey: 'cancel_pi_1',
     });
     expect(stripe.capture).not.toHaveBeenCalled();
-    expect(h.markCancelled).toHaveBeenCalledWith(42, null);
+    expect(h.markCancelled).toHaveBeenCalledWith(42, { pendingRef: null }, ctx);
   });
 
   it('cancels an explicit 0 and warns when the record moved on', async () => {
@@ -843,7 +859,7 @@ describe('cancelSessionHold', () => {
       merchantReference: 'sess_s1',
       idempotencyKey: 'cancel_pi_1',
     });
-    expect(h.markCancelled).toHaveBeenCalledWith(42, null);
+    expect(h.markCancelled).toHaveBeenCalledWith(42, { pendingRef: null }, ctx);
     expect(logger.warn).not.toHaveBeenCalled();
   });
 
@@ -887,7 +903,7 @@ describe('cancelOpenSessionHold', () => {
       idempotencyKey: 'cancel_pi_1',
     });
     expect(simulated.capture).not.toHaveBeenCalled();
-    expect(h.markCancelled).toHaveBeenCalledWith(42, null);
+    expect(h.markCancelled).toHaveBeenCalledWith(42, { pendingRef: null }, ctx);
   });
 
   it('throws a provider error to the caller', async () => {
@@ -1017,12 +1033,17 @@ describe('retryShortfallForRecord', () => {
       costBreakdown: { energy: 7000 },
     });
     expect(h.getPlatformFeePercent).toHaveBeenCalledWith('site1');
-    expect(h.markShortfallRecovered).toHaveBeenCalledWith(42, {
-      capturedCents: 7000,
-      actorUserId: 'u1',
-      actionReason: 'Operator retry top-up; recovered 2000c via pi_top',
-      topUp: { paymentId: 'pi_top', amountCents: 2000 },
-    });
+    expect(h.markShortfallRecovered).toHaveBeenCalledWith(
+      42,
+      {
+        capturedCents: 7000,
+        actorUserId: 'u1',
+        actionReason: 'Operator retry top-up; recovered 2000c via pi_top',
+        topUp: { paymentId: 'pi_top', amountCents: 2000 },
+        previousCapturedCents: 5000,
+      },
+      ctx,
+    );
   });
 
   it('omits the method without stored ids and falls back to the record', async () => {
@@ -1107,12 +1128,17 @@ describe('retryShortfalls', () => {
       }),
     );
     expect(h.markShortfallRecovered).toHaveBeenCalledOnce();
-    expect(h.markShortfallRecovered).toHaveBeenCalledWith(1, {
-      capturedCents: 7000,
-      actorUserId: null,
-      actionReason: 'Cron retry top-up; recovered 2000c via pi_top1',
-      topUp: { paymentId: 'pi_top1', amountCents: 2000 },
-    });
+    expect(h.markShortfallRecovered).toHaveBeenCalledWith(
+      1,
+      {
+        capturedCents: 7000,
+        actorUserId: null,
+        actionReason: 'Cron retry top-up; recovered 2000c via pi_top1',
+        topUp: { paymentId: 'pi_top1', amountCents: 2000 },
+        previousCapturedCents: 5000,
+      },
+      ctx,
+    );
     expect(logger.info).toHaveBeenCalledWith(
       { paymentRecordId: 1, shortfall: 2000, topUpIntentId: 'pi_top1' },
       'Recovered capture shortfall via cron retry',
@@ -1247,7 +1273,7 @@ describe('settleSessionPayment', () => {
       debitedCents: 4000,
       balanceCents: 1000,
     });
-    expect(h.settlePrepaidSession).toHaveBeenCalledWith('s1', logger);
+    expect(h.settlePrepaidSession).toHaveBeenCalledWith('s1', ctx);
     expect(h.findSessionHold).not.toHaveBeenCalled();
     expect(h.selects[0]?.leftJoin).toEqual([
       { id: 't.id', prepaidBalanceCents: 't.prepaid_balance_cents' },
@@ -1399,7 +1425,11 @@ describe('settleSessionPayment', () => {
       driverId: 'd1',
       reason: 'Payment provider stripe is not configured',
     });
-    expect(h.markHoldFailed).toHaveBeenCalledWith(42, 'Payment provider stripe is not configured');
+    expect(h.markHoldFailed).toHaveBeenCalledWith(
+      42,
+      'Payment provider stripe is not configured',
+      ctx,
+    );
     expect(logger.error).toHaveBeenCalledWith(
       { err, sessionId: 's1', paymentRecordId: 42 },
       'Auto capture/cancel failed',
@@ -1416,7 +1446,7 @@ describe('settleSessionPayment', () => {
       status: 'failed',
       reason: 'Unknown capture error',
     });
-    expect(h.markHoldFailed).toHaveBeenCalledWith(42, 'Unknown capture error');
+    expect(h.markHoldFailed).toHaveBeenCalledWith(42, 'Unknown capture error', ctx);
     expect(logger.error).toHaveBeenCalledWith(
       { err: dbErr, paymentRecordId: 42 },
       'Failed to record capture failure',
@@ -1436,7 +1466,11 @@ describe('settleSessionPayment', () => {
       merchantReference: 'sess_s1',
       idempotencyKey: 'cancel_pi_1',
     });
-    expect(h.markCancelled).toHaveBeenCalledWith(42, null, null);
+    expect(h.markCancelled).toHaveBeenCalledWith(
+      42,
+      { pendingRef: null, failureReason: null },
+      ctx,
+    );
     expect(stripe.capture).not.toHaveBeenCalled();
   });
 
@@ -1470,8 +1504,12 @@ describe('settleSessionPayment', () => {
     });
     expect(h.markCancelled).toHaveBeenCalledWith(
       42,
-      null,
-      'Capture below the provider minimum charge (50c EUR); 22c not collectable, hold released',
+      {
+        pendingRef: null,
+        failureReason:
+          'Capture below the provider minimum charge (50c EUR); 22c not collectable, hold released',
+      },
+      ctx,
     );
     expect(h.markHoldFailed).not.toHaveBeenCalled();
   });
@@ -1504,12 +1542,16 @@ describe('settleSessionPayment', () => {
       idempotencyKey: 'capture_pi_1',
     });
     expect(stripe.chargeShortfall).not.toHaveBeenCalled();
-    expect(h.markCaptured).toHaveBeenCalledWith(42, {
-      capturedCents: 4000,
-      failureReason: null,
-      topUp: null,
-      pendingRef: null,
-    });
+    expect(h.markCaptured).toHaveBeenCalledWith(
+      42,
+      {
+        capturedCents: 4000,
+        failureReason: null,
+        topUp: null,
+        pendingRef: null,
+      },
+      ctx,
+    );
   });
 
   it('captures the whole final cost when the hold amount is unknown', async () => {
@@ -1540,12 +1582,16 @@ describe('settleSessionPayment', () => {
       description: 'Top-up for session s1',
       idempotencyKey: 'topup_pi_1',
     });
-    expect(h.markCaptured).toHaveBeenCalledWith(42, {
-      capturedCents: 7000,
-      failureReason: null,
-      topUp: { paymentId: 'pi_top', amountCents: 2000 },
-      pendingRef: null,
-    });
+    expect(h.markCaptured).toHaveBeenCalledWith(
+      42,
+      {
+        capturedCents: 7000,
+        failureReason: null,
+        topUp: { paymentId: 'pi_top', amountCents: 2000 },
+        pendingRef: null,
+      },
+      ctx,
+    );
   });
 
   it('omits the method of a top-up without stored ids', async () => {
@@ -1568,12 +1614,16 @@ describe('settleSessionPayment', () => {
       shortfallCents: 2000,
       recorded: true,
     });
-    expect(h.markCaptured).toHaveBeenCalledWith(42, {
-      capturedCents: 5000,
-      failureReason: `Top-up declined: ${'z'.repeat(350)}; shortfall 2000c`,
-      topUp: null,
-      pendingRef: null,
-    });
+    expect(h.markCaptured).toHaveBeenCalledWith(
+      42,
+      {
+        capturedCents: 5000,
+        failureReason: `Top-up declined: ${'z'.repeat(350)}; shortfall 2000c`,
+        topUp: null,
+        pendingRef: null,
+      },
+      ctx,
+    );
     expect(logger.warn).toHaveBeenCalledWith(
       { err, paymentRecordId: 42, deltaCents: 2000 },
       'Top-up failed; the hold was captured but the rest is uncollected',
@@ -1597,6 +1647,7 @@ describe('settleSessionPayment', () => {
           'Top-up below the provider minimum charge (2500c EUR); shortfall 2000c not collectable',
         topUp: null,
       }),
+      ctx,
     );
   });
 
@@ -1607,6 +1658,7 @@ describe('settleSessionPayment', () => {
     expect(h.markCaptured).toHaveBeenCalledWith(
       42,
       expect.objectContaining({ failureReason: 'Top-up failed; shortfall 2000c' }),
+      ctx,
     );
   });
 
@@ -1667,36 +1719,48 @@ describe('async providers record pending captures and cancels (P10a)', () => {
       capturedCents: 4000,
       recorded: true,
     });
-    expect(h.markCaptured).toHaveBeenCalledWith(42, {
-      capturedCents: 4000,
-      failureReason: null,
-      topUp: null,
-      pendingRef: 'CAP1',
-    });
+    expect(h.markCaptured).toHaveBeenCalledWith(
+      42,
+      {
+        capturedCents: 4000,
+        failureReason: null,
+        topUp: null,
+        pendingRef: 'CAP1',
+      },
+      ctx,
+    );
   });
 
   it('settlement records an optimistic cancel with its pending reference', async () => {
     h.results.push([{ ...SESSION, finalCostCents: 0 }]);
     expect(await settleSessionPayment('s1', ctx)).toMatchObject({ status: 'cancelled' });
-    expect(h.markCancelled).toHaveBeenCalledWith(42, 'CXL1', null);
+    expect(h.markCancelled).toHaveBeenCalledWith(
+      42,
+      { pendingRef: 'CXL1', failureReason: null },
+      ctx,
+    );
   });
 
   it('an operator capture and cancel record their pending references', async () => {
     h.results.push([CHARGE]);
     await captureSessionHold({ sessionId: 's1', amountCents: 3000 }, ctx);
-    expect(h.markCaptured).toHaveBeenCalledWith(42, {
-      capturedCents: 3000,
-      failureReason: null,
-      pendingRef: 'CAP1',
-    });
+    expect(h.markCaptured).toHaveBeenCalledWith(
+      42,
+      {
+        capturedCents: 3000,
+        failureReason: null,
+        pendingRef: 'CAP1',
+      },
+      ctx,
+    );
     h.results.push([CHARGE]);
     await captureSessionHold({ sessionId: 's1', amountCents: 0 }, ctx);
-    expect(h.markCancelled).toHaveBeenCalledWith(42, 'CXL1');
+    expect(h.markCancelled).toHaveBeenCalledWith(42, { pendingRef: 'CXL1' }, ctx);
   });
 
   it('cancelSessionHold records the pending cancel', async () => {
     await cancelSessionHold(record(), 'given up', ctx);
-    expect(h.markCancelled).toHaveBeenCalledWith(42, 'CXL1');
+    expect(h.markCancelled).toHaveBeenCalledWith(42, { pendingRef: 'CXL1' }, ctx);
   });
 });
 
@@ -1840,13 +1904,17 @@ describe('authorisation adjustment of a hold below the final cost (P10 Part D)',
       expect.objectContaining({ amountCents: 7000, idempotencyKey: 'capture_pi_1' }),
     );
     expect(stripe.chargeShortfall).not.toHaveBeenCalled();
-    expect(h.markCaptured).toHaveBeenCalledWith(42, {
-      capturedCents: 7000,
-      failureReason: null,
-      topUp: null,
-      pendingRef: null,
-      authorizedCents: 7000,
-    });
+    expect(h.markCaptured).toHaveBeenCalledWith(
+      42,
+      {
+        capturedCents: 7000,
+        failureReason: null,
+        topUp: null,
+        pendingRef: null,
+        authorizedCents: 7000,
+      },
+      ctx,
+    );
   });
 
   it('leaves the hold open with its pending adjustment on an async answer', async () => {
@@ -1961,6 +2029,7 @@ describe('authorisation adjustment of a hold below the final cost (P10 Part D)',
       expect(h.markCaptured).toHaveBeenCalledWith(
         42,
         expect.objectContaining({ capturedCents: 7000, authorizedCents: 7000 }),
+        ctx,
       );
     });
 
@@ -1973,12 +2042,16 @@ describe('authorisation adjustment of a hold below the final cost (P10 Part D)',
       expect(stripe.chargeShortfall).toHaveBeenCalledWith(
         expect.objectContaining({ idempotencyKey: 'topup_pi_1' }),
       );
-      expect(h.markCaptured).toHaveBeenCalledWith(42, {
-        capturedCents: 7000,
-        failureReason: null,
-        topUp: { paymentId: 'pi_top', amountCents: 2000 },
-        pendingRef: null,
-      });
+      expect(h.markCaptured).toHaveBeenCalledWith(
+        42,
+        {
+          capturedCents: 7000,
+          failureReason: null,
+          topUp: { paymentId: 'pi_top', amountCents: 2000 },
+          pendingRef: null,
+        },
+        ctx,
+      );
     });
 
     it('never captures less than the original hold covers', async () => {
@@ -1999,7 +2072,7 @@ describe('authorisation adjustment of a hold below the final cost (P10 Part D)',
         driverId: 'd1',
         reason: 'capture refused',
       });
-      expect(h.markHoldFailed).toHaveBeenCalledWith(42, 'capture refused');
+      expect(h.markHoldFailed).toHaveBeenCalledWith(42, 'capture refused', ctx);
     });
 
     it('settles nothing without a session, a driver or a payment', async () => {

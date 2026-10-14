@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, count, and, or, ilike, like } from 'drizzle-orm';
 import { readFile } from 'node:fs/promises';
@@ -14,6 +14,8 @@ import {
   driverEventSettings,
   ocppEventSettings,
   settings,
+  notificationTemplateAuditLog,
+  writeAudit,
 } from '@evtivity/database';
 import {
   assertTemplateAllowed,
@@ -74,6 +76,52 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { requireAllSiteAccess } from '../lib/site-access.js';
 import { config as apiConfig } from '../lib/config.js';
 import { authorize } from '../middleware/rbac.js';
+import { getAuditActor } from '../lib/audit-actor.js';
+
+type AuditFields = Record<string, unknown>;
+
+/**
+ * notification_template audit row (id the event type). With a before and an
+ * after state it records only the fields that differ, and writes nothing when
+ * none does. Fail-open: writeAudit logs and continues.
+ */
+async function auditNotificationTemplate(
+  request: FastifyRequest,
+  change: {
+    eventType: string;
+    action: 'updated' | 'deleted' | 'event_settings_changed';
+    /** Identifies the row within the event type (channel, language); always recorded. */
+    key: AuditFields;
+    before: AuditFields | null;
+    after: AuditFields | null;
+    notes?: string;
+  },
+): Promise<void> {
+  let before = change.before;
+  let after = change.after;
+  if (before != null && after != null) {
+    const changed = Object.keys(after).filter(
+      (field) => JSON.stringify(before?.[field] ?? null) !== JSON.stringify(after?.[field] ?? null),
+    );
+    if (changed.length === 0) return;
+    before = Object.fromEntries(changed.map((field) => [field, change.before?.[field] ?? null]));
+    after = Object.fromEntries(changed.map((field) => [field, change.after?.[field] ?? null]));
+  }
+  await writeAudit(
+    { table: notificationTemplateAuditLog, idColumn: 'notification_template_id' },
+    {
+      entityId: change.eventType,
+      entityIdSnapshot: change.eventType,
+      action: change.action,
+      ...getAuditActor(request),
+      before: before == null ? null : { ...change.key, ...before },
+      after: after == null ? null : { ...change.key, ...after },
+      notes: change.notes ?? null,
+    },
+    db,
+    request.log,
+  );
+}
 
 // Company-wide configuration: a site-restricted user gets this 404 before any
 // read or write (requireAllSiteAccess, features/site-access-control.md).
@@ -943,6 +991,19 @@ export function notificationRoutes(app: FastifyInstance): void {
       if (body.templateHtml !== undefined) updates['templateHtml'] = body.templateHtml;
       if (body.language !== undefined) updates['language'] = body.language;
 
+      const [existing] = await db
+        .select({
+          recipient: ocppEventSettings.recipient,
+          templateHtml: ocppEventSettings.templateHtml,
+          language: ocppEventSettings.language,
+        })
+        .from(ocppEventSettings)
+        .where(
+          and(
+            eq(ocppEventSettings.eventType, body.eventType),
+            eq(ocppEventSettings.channel, channel),
+          ),
+        );
       const [saved] = await db
         .insert(ocppEventSettings)
         .values({
@@ -957,6 +1018,19 @@ export function notificationRoutes(app: FastifyInstance): void {
           set: updates,
         })
         .returning();
+      if (saved != null) {
+        await auditNotificationTemplate(request, {
+          eventType: body.eventType,
+          action: 'event_settings_changed',
+          key: { setting: 'ocpp', channel },
+          before: existing ?? null,
+          after: {
+            recipient: saved.recipient,
+            templateHtml: saved.templateHtml,
+            language: saved.language,
+          },
+        });
+      }
       await invalidateOcppEventSettingsCache(request.log);
       return saved;
     },
@@ -995,10 +1069,23 @@ export function notificationRoutes(app: FastifyInstance): void {
           ),
         )
         .returning();
-      if (deleted.length === 0) {
+      const [removed] = deleted;
+      if (removed == null) {
         await reply.status(404).send({ error: 'Setting not found', code: 'SETTING_NOT_FOUND' });
         return;
       }
+      await auditNotificationTemplate(request, {
+        eventType,
+        action: 'event_settings_changed',
+        key: { setting: 'ocpp', channel: removed.channel },
+        before: {
+          recipient: removed.recipient,
+          templateHtml: removed.templateHtml,
+          language: removed.language,
+        },
+        after: null,
+        notes: 'Setting removed',
+      });
       await invalidateOcppEventSettingsCache(request.log);
       return { success: true };
     },
@@ -1286,6 +1373,10 @@ export function notificationRoutes(app: FastifyInstance): void {
         });
         return;
       }
+      const [existing] = await db
+        .select({ isEnabled: driverEventSettings.isEnabled })
+        .from(driverEventSettings)
+        .where(eq(driverEventSettings.eventType, body.eventType));
       const [saved] = await db
         .insert(driverEventSettings)
         .values({
@@ -1300,6 +1391,15 @@ export function notificationRoutes(app: FastifyInstance): void {
           },
         })
         .returning();
+      if (saved != null) {
+        await auditNotificationTemplate(request, {
+          eventType: body.eventType,
+          action: 'event_settings_changed',
+          key: { setting: 'driver' },
+          before: { isEnabled: existing?.isEnabled ?? null },
+          after: { isEnabled: saved.isEnabled },
+        });
+      }
       return saved;
     },
   );
@@ -1431,6 +1531,18 @@ export function notificationRoutes(app: FastifyInstance): void {
           .send({ error: 'Template is invalid', code: 'VALIDATION_ERROR', details });
         return;
       }
+      const templateMatch = and(
+        eq(notificationTemplates.eventType, body.eventType),
+        eq(notificationTemplates.channel, body.channel),
+        eq(notificationTemplates.language, body.language),
+      );
+      const [existing] = await db
+        .select({
+          subject: notificationTemplates.subject,
+          bodyHtml: notificationTemplates.bodyHtml,
+        })
+        .from(notificationTemplates)
+        .where(templateMatch);
       const [saved] = await db
         .insert(notificationTemplates)
         .values({
@@ -1453,6 +1565,16 @@ export function notificationRoutes(app: FastifyInstance): void {
           },
         })
         .returning();
+      if (saved != null) {
+        await auditNotificationTemplate(request, {
+          eventType: body.eventType,
+          action: 'updated',
+          key: { channel: body.channel, language: body.language },
+          // No stored row: the default file template applied before.
+          before: existing ?? { subject: null, bodyHtml: null },
+          after: { subject: saved.subject, bodyHtml: saved.bodyHtml },
+        });
+      }
       return saved;
     },
   );
@@ -1478,7 +1600,7 @@ export function notificationRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_TEMPLATE_NOT_FOUND))) return;
       const { eventType, channel, language } = request.query as z.infer<typeof templateCrudQuery>;
-      await db
+      const removed = await db
         .delete(notificationTemplates)
         .where(
           and(
@@ -1486,8 +1608,22 @@ export function notificationRoutes(app: FastifyInstance): void {
             eq(notificationTemplates.channel, channel),
             eq(notificationTemplates.language, language),
           ),
-        );
+        )
+        .returning({
+          subject: notificationTemplates.subject,
+          bodyHtml: notificationTemplates.bodyHtml,
+        });
 
+      const [deleted] = removed;
+      if (deleted != null) {
+        await auditNotificationTemplate(request, {
+          eventType,
+          action: 'deleted',
+          key: { channel, language },
+          before: deleted,
+          after: null,
+        });
+      }
       return { success: true };
     },
   );

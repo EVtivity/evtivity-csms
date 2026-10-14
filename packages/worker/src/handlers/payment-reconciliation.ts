@@ -6,7 +6,7 @@ import { runPaymentReconciliation } from '@evtivity/payments';
 import { paymentContext } from '../lib/payments.js';
 
 export async function paymentReconciliationHandler(log: Logger): Promise<void> {
-  const result = await runPaymentReconciliation(paymentContext(log));
+  const result = await runPaymentReconciliation(paymentContext(log, 'payment-reconciliation'));
   if (result.discrepancies.length > 0) {
     log.warn(
       { discrepancies: result.discrepancies.length, checked: result.checked },

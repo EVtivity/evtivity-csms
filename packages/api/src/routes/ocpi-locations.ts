@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { and, eq, inArray, ne } from 'drizzle-orm';
 import {
@@ -14,7 +14,11 @@ import {
   pgConstraintName,
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
+  ocpiPartnerAuditLog,
+  siteAuditLog,
+  writeAudit,
 } from '@evtivity/database';
+import type { OcpiLocationAudience } from '@evtivity/database';
 import { ID_PREFIXES } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -22,6 +26,7 @@ import { lostLocationAudience, publishOcpiLocationPush } from '../lib/ocpi-locat
 import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds, userCanAccessSite } from '../lib/site-access.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 import {
   successResponse,
   itemResponse,
@@ -30,6 +35,80 @@ import {
 } from '../lib/response-schemas.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+
+type PublishState = {
+  isPublished: boolean;
+  publishToAll: boolean | null;
+  ocpiLocationId: string | null;
+};
+
+/**
+ * Audit of a publish change: a site `location_published_changed` row with the
+ * changed publish fields and the partners that see the location (OCPI
+ * audience) before and after, and an `ocpi_partner` row for each partner that
+ * gained or lost the location. Nothing changed, no row. Fail-open (writeAudit).
+ */
+async function writeLocationPublishAudit(
+  request: FastifyRequest,
+  siteId: string,
+  change: {
+    before: PublishState;
+    after: PublishState;
+    audienceBefore: OcpiLocationAudience | null;
+    audienceAfter: OcpiLocationAudience | null;
+  },
+): Promise<void> {
+  const seenBefore = new Set(change.audienceBefore?.partnerIds ?? []);
+  const seenAfter = new Set(change.audienceAfter?.partnerIds ?? []);
+  const before: Record<string, unknown> = {};
+  const after: Record<string, unknown> = {};
+  for (const key of ['isPublished', 'publishToAll', 'ocpiLocationId'] as const) {
+    if (change.before[key] !== change.after[key]) {
+      before[key] = change.before[key];
+      after[key] = change.after[key];
+    }
+  }
+  const gained = [...seenAfter].filter((id) => !seenBefore.has(id)).sort();
+  const lost = [...seenBefore].filter((id) => !seenAfter.has(id)).sort();
+  if (gained.length > 0 || lost.length > 0) {
+    before['partnerIds'] = [...seenBefore].sort();
+    after['partnerIds'] = [...seenAfter].sort();
+  }
+  if (Object.keys(after).length === 0) return;
+
+  const actor = getAuditActor(request);
+  await writeAudit(
+    { table: siteAuditLog, idColumn: 'site_id' },
+    {
+      entityId: siteId,
+      entityIdSnapshot: siteId,
+      action: 'location_published_changed',
+      ...actor,
+      before,
+      after,
+    },
+    db,
+    request.log,
+  );
+  for (const [partnerId, published] of [
+    ...gained.map((id) => [id, true] as const),
+    ...lost.map((id) => [id, false] as const),
+  ]) {
+    await writeAudit(
+      { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+      {
+        entityId: partnerId,
+        entityIdSnapshot: partnerId,
+        action: 'location_published_changed',
+        ...actor,
+        before: { siteId, published: !published },
+        after: { siteId, published },
+      },
+      db,
+      request.log,
+    );
+  }
+}
 const locationPublishListItem = z
   .object({
     id: z.string().describe('Site identifier'),
@@ -421,6 +500,20 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
         lostLocationAudience(audienceBefore, audienceAfter),
         request.log,
       );
+      await writeLocationPublishAudit(request, siteId, {
+        before: {
+          isPublished: existing?.isPublished ?? false,
+          publishToAll: existing?.publishToAll ?? null,
+          ocpiLocationId: existing?.ocpiLocationId ?? null,
+        },
+        after: {
+          isPublished: body.isPublished,
+          publishToAll: publishToAll ?? existing?.publishToAll ?? null,
+          ocpiLocationId: body.ocpiLocationId ?? existing?.ocpiLocationId ?? null,
+        },
+        audienceBefore,
+        audienceAfter,
+      });
 
       return { success: true };
     },

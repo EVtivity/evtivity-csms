@@ -17,6 +17,7 @@ import {
   chargingStations,
   stationConfigurations,
   stationAuditLog,
+  localAuthListAuditLog,
   writeAudit,
 } from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -173,6 +174,7 @@ async function recordCommandAudit(
   action: string,
   payload: Record<string, unknown>,
   outcome: string,
+  response?: unknown,
 ): Promise<void> {
   // Skip when we never resolved the station's internal id -- this happens
   // on chunked dispatch continuations (subsequent chunks skip site access)
@@ -184,7 +186,8 @@ async function recordCommandAudit(
       {
         entityId: stationInternalId,
         entityIdSnapshot: stationInternalId,
-        action: 'command_dispatched',
+        // A Reset has its own action so a station's resets are easy to find.
+        action: action === 'Reset' ? 'reset_triggered' : 'command_dispatched',
         ...actor,
         notes: `${action} (${outcome})`,
         after: { action, payload: truncatedAuditPayload(payload), outcome },
@@ -192,6 +195,25 @@ async function recordCommandAudit(
       db,
       app.log,
     );
+    // A successful GetLocalListVersion reads the station's local list
+    // version: recorded on the station's local auth list history too.
+    if (action === 'GetLocalListVersion' && outcome === 'accepted') {
+      const body = (response ?? {}) as Record<string, unknown>;
+      // 2.1 answers versionNumber, 1.6 listVersion.
+      const listVersion = body['versionNumber'] ?? body['listVersion'] ?? null;
+      await writeAudit(
+        { table: localAuthListAuditLog, idColumn: 'station_id' },
+        {
+          entityId: stationInternalId,
+          entityIdSnapshot: stationInternalId,
+          action: 'pulled',
+          ...actor,
+          after: { listVersion },
+        },
+        db,
+        app.log,
+      );
+    }
   } catch (err: unknown) {
     // Audit failures must not break the command response. Log at warn so
     // it surfaces in ops monitoring without affecting the operator.
@@ -349,7 +371,15 @@ async function dispatchCommandRaw(
       };
     }
 
-    void recordCommandAudit(app, actor, stationInternalId, action, payload, 'accepted');
+    void recordCommandAudit(
+      app,
+      actor,
+      stationInternalId,
+      action,
+      payload,
+      'accepted',
+      result.response,
+    );
     return {
       code: 200,
       body: { status: 'accepted', stationId, action, response: result.response },

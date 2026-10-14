@@ -4,10 +4,12 @@
 import { createLogger } from '@evtivity/lib';
 import {
   createPaymentRegistry,
+  PAYMENT_SYSTEM_ACTOR,
   deferredSimulatedSink,
   resolveActiveProvider,
 } from '@evtivity/payments';
 import type {
+  PaymentActor,
   PaymentContext,
   PaymentLogger,
   PaymentProvider,
@@ -33,8 +35,13 @@ export const paymentRegistry = createPaymentRegistry({
   simulated: { events: simulatedEvents, logger: createLogger('payments') },
 });
 
-export function paymentContext(logger: PaymentLogger): PaymentContext {
-  return { registry: paymentRegistry, logger };
+/**
+ * The payment context of one caller. `actor` is who the audit rows of the
+ * payment writes name: `ocpp` with the message or step for a station's
+ * message, `system` with the reason for a CSMS decision.
+ */
+export function paymentContext(logger: PaymentLogger, actor: PaymentActor): PaymentContext {
+  return { registry: paymentRegistry, logger, actor };
 }
 
 /**
@@ -42,7 +49,8 @@ export function paymentContext(logger: PaymentLogger): PaymentContext {
  * or the selected provider is not usable here (resolveActiveProvider).
  */
 export function activePaymentProvider(logger: PaymentLogger): Promise<PaymentProvider | null> {
-  return resolveActiveProvider(paymentContext(logger));
+  // A read: resolving the provider writes nothing.
+  return resolveActiveProvider(paymentContext(logger, PAYMENT_SYSTEM_ACTOR));
 }
 
 /** Connects the simulated provider's events at startup (queueSimulatedSink); null at shutdown. */

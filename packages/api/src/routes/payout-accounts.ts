@@ -298,7 +298,7 @@ export function payoutAccountRoutes(app: FastifyInstance): void {
         outcome = await createSitePayoutAccount(
           id,
           { displayName: site.name, contactEmail, country },
-          paymentContext(request.log),
+          paymentContext(request.log, getAuditActor(request)),
         );
       } catch (err) {
         await sendPayoutProviderError(request, reply, err);
@@ -363,7 +363,10 @@ export function payoutAccountRoutes(app: FastifyInstance): void {
       if ((await findAccessibleSite(request, reply, id)) == null) return;
       let status;
       try {
-        status = await refreshSitePayoutAccount(id, paymentContext(request.log));
+        status = await refreshSitePayoutAccount(
+          id,
+          paymentContext(request.log, getAuditActor(request)),
+        );
       } catch (err) {
         await sendPayoutProviderError(request, reply, err);
         return;

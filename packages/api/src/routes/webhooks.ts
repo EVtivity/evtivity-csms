@@ -6,6 +6,7 @@ import { z } from 'zod';
 import {
   dispatchPaymentWebhookNotices,
   ingestPaymentWebhook,
+  paymentWebhookActor,
   WebhookNotConfiguredError,
   WebhookSignatureError,
 } from '@evtivity/payments';
@@ -103,7 +104,7 @@ function registerPaymentWebhookRoute(app: FastifyInstance, doc: WebhookRouteDoc)
           doc.providerId,
           request.body as string,
           headerMap(request.headers),
-          paymentContext(request.log),
+          paymentContext(request.log, paymentWebhookActor(doc.providerId)),
         );
       } catch (err) {
         if (err instanceof WebhookNotConfiguredError) {

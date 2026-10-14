@@ -719,7 +719,7 @@ export function SiteMaintenanceTab({ siteId, timezone }: Props): React.JSX.Eleme
 
       <Card>
         <CardHeader>
-          <CardTitle>{t('maintenance.history')}</CardTitle>
+          <CardTitle>{t('maintenance.windows')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">

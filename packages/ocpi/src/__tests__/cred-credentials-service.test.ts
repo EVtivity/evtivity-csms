@@ -4,7 +4,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as argon2 from 'argon2';
 import { decryptString, encryptString } from '@evtivity/lib';
-import { ocpiCredentialsTokens, ocpiPartnerEndpoints, ocpiPartners } from '@evtivity/database';
+import {
+  ocpiCredentialsTokens,
+  ocpiPartnerAuditLog,
+  ocpiPartnerEndpoints,
+  ocpiPartners,
+} from '@evtivity/database';
 
 // Every db call is recorded; each awaited chain resolves to the next queued result.
 interface DbOp {
@@ -43,7 +48,8 @@ function makeChain(entry: DbOp): Record<string, unknown> {
   return chain;
 }
 
-const { clientGet, clientPost, clientOptions } = vi.hoisted(() => ({
+const { clientGet, clientPost, clientOptions, mockWriteAudit } = vi.hoisted(() => ({
+  mockWriteAudit: vi.fn(),
   clientGet: vi.fn(),
   clientPost: vi.fn(),
   clientOptions: [] as unknown[],
@@ -51,6 +57,7 @@ const { clientGet, clientPost, clientOptions } = vi.hoisted(() => ({
 
 vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
+  writeAudit: mockWriteAudit,
   db: {
     select: vi.fn(() => makeChain({ op: 'select', table: null })),
     insert: vi.fn((table: unknown) => makeChain({ op: 'insert', table })),
@@ -116,6 +123,7 @@ const BOTH = [
 ];
 
 beforeEach(() => {
+  mockWriteAudit.mockReset().mockResolvedValue(undefined);
   dbResults = [];
   ops = [];
   clientOptions.length = 0;
@@ -271,6 +279,28 @@ describe('handleRegistration', () => {
     );
     expect(deactivations).toHaveLength(2);
     for (const d of deactivations) expect(d.set).toEqual({ isActive: false });
+
+    // One system audit row on the new partner, with no token in it.
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    const [config, args] = mockWriteAudit.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(config).toEqual({ table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' });
+    expect(args).toMatchObject({
+      entityId: 'opr_000000000042',
+      action: 'registered',
+      actor: 'system',
+      actorLabel: 'ocpi-credentials',
+      before: null,
+      after: {
+        name: 'Partner NL',
+        status: 'connected',
+        version: '2.3.0',
+        versionUrl: VERSIONS_URL,
+        endpointCount: 2,
+      },
+    });
+    const stored = JSON.stringify(args);
+    expect(stored).not.toContain(PARTNER_CREDENTIALS.token);
+    expect(stored).not.toContain(result.token);
   });
 
   it('updates a pre-created partner and honors its private-network flag', async () => {
@@ -292,6 +322,12 @@ describe('handleRegistration', () => {
     // No endpoints offered: old ones deleted, nothing inserted.
     expect(opsOn(ocpiPartnerEndpoints, 'delete')).toHaveLength(1);
     expect(opsOn(ocpiPartnerEndpoints, 'insert')).toHaveLength(0);
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: 'opr_000000000007',
+      action: 'registered',
+      before: expect.any(Object) as unknown,
+      after: { status: 'connected', version: '2.2.1', endpointCount: 0 },
+    });
   });
 
   it('fails when the partner insert returns no row', async () => {
@@ -344,8 +380,21 @@ describe('handleCredentialUpdate', () => {
 
   it('refreshes the partner, endpoints and both tokens', async () => {
     partnerOffers(BOTH);
-    dbResults = [[{ allowPrivateNetwork: true }]];
+    dbResults = [
+      [{ allowPrivateNetwork: true, name: 'Old NL', version: '2.1.1', versionUrl: 'https://old' }],
+    ];
     const result = await svc.handleCredentialUpdate(PARTNER_CREDENTIALS, 'opr_000000000001');
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: 'opr_000000000001',
+      action: 'updated',
+      actor: 'system',
+      actorLabel: 'ocpi-credentials',
+      before: { name: 'Old NL', version: '2.1.1', versionUrl: 'https://old' },
+      after: { name: 'Partner NL', version: '2.2.1', versionUrl: VERSIONS_URL, endpointCount: 2 },
+    });
+    expect(JSON.stringify(mockWriteAudit.mock.calls[0]?.[1])).not.toContain(
+      PARTNER_CREDENTIALS.token,
+    );
 
     // Default preferred version is 2.2.1.
     expect(clientGet).toHaveBeenLastCalledWith('https://partner.example.com/ocpi/2.2.1');
@@ -389,6 +438,12 @@ describe('handleUnregister', () => {
       op: 'update',
       table: ocpiCredentialsTokens,
       set: { isActive: false },
+    });
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: 'opr_000000000001',
+      action: 'disconnected',
+      actor: 'system',
+      after: { status: 'disconnected' },
     });
   });
 });
@@ -485,6 +540,15 @@ describe('initiateRegistration', () => {
       versionUrl: VERSIONS_URL,
       partnerRegistrationTokenEnc: null,
     });
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+      entityId: 'opr_000000000001',
+      action: 'updated',
+      actor: 'system',
+      after: { status: 'connected', version: '2.3.0', versionUrl: VERSIONS_URL, endpointCount: 2 },
+    });
+    const stored = JSON.stringify(mockWriteAudit.mock.calls[0]?.[1]);
+    expect(stored).not.toContain('token-B-from-partner');
+    expect(stored).not.toContain('token-C-registration');
   });
 
   it('skips the endpoint insert when rediscovery returns none', async () => {

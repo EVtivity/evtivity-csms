@@ -13,7 +13,7 @@ import { paymentContext } from '../lib/payments.js';
  * retry; a record still declined keeps the new reason for the next run.
  */
 export async function paymentCaptureRetryHandler(log: Logger): Promise<void> {
-  const result = await retryShortfalls(paymentContext(log));
+  const result = await retryShortfalls(paymentContext(log, 'payment-capture-retry'));
   if (result.total === 0) {
     log.debug('No payment records with capture shortfall to retry');
     return;

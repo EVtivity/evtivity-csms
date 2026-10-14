@@ -266,7 +266,9 @@ export async function refundPaymentRecord(
             requestedAt: settledAt,
             settledAt,
           })),
+          previous: locked,
         },
+        ctx,
         tx,
       );
     }

@@ -250,10 +250,12 @@ export function pncLocalRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof driverParams>;
       const { pcid } = request.body as z.infer<typeof createContractBody>;
       const { userId } = request.user as JwtPayload;
-      const contract = await contractService.createContract(id, pcid, {
-        type: 'operator',
-        userId,
-      });
+      const contract = await contractService.createContract(
+        id,
+        pcid,
+        { type: 'operator', userId },
+        { actor: getAuditActor(request), logger: request.log },
+      );
       await reply.status(201).send(contract);
     },
   );
@@ -279,7 +281,12 @@ export function pncLocalRoutes(app: FastifyInstance): void {
     async (request) => {
       const { id, contractId } = request.params as z.infer<typeof contractParams>;
       const { userId } = request.user as JwtPayload;
-      return contractService.revokeContract(id, contractId, { type: 'operator', userId });
+      return contractService.revokeContract(
+        id,
+        contractId,
+        { type: 'operator', userId },
+        { actor: getAuditActor(request), logger: request.log },
+      );
     },
   );
 }

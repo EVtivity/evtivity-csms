@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
+import { certificateAuditLog, writeAudit } from '@evtivity/database';
 import { createLogger, publishOcppCommand } from '@evtivity/lib';
 import type { PubSubClient } from '@evtivity/lib';
 
@@ -19,7 +20,7 @@ export async function handleCsrSigned(
   pubsub: PubSubClient,
 ): Promise<void> {
   // Update the most recent pending/submitted CSR request to signed
-  await sql`
+  const signed = await sql<Array<{ id: number }>>`
     UPDATE pki_csr_requests
     SET status = 'signed',
         signed_certificate_chain = ${payload.certificateChain},
@@ -34,7 +35,10 @@ export async function handleCsrSigned(
       ORDER BY created_at DESC
       LIMIT 1
     )
+    RETURNING id
   `;
+  const csr = signed[0];
+  if (csr != null) await auditCsrSigned(sql, csr.id, stationUuid, payload);
 
   // Dispatch CertificateSigned command to the station
   await publishOcppCommand(pubsub, {
@@ -49,6 +53,47 @@ export async function handleCsrSigned(
   logger.info(
     { stationId, certificateType: payload.certificateType },
     'CertificateSigned command dispatched',
+  );
+}
+
+/**
+ * The `certificate.csr_signed` row of a CSR the PKI provider signed (the id
+ * is the CSR request's, as the operator sign route writes). Actor `system`,
+ * label `pki:<pnc.provider>`. No certificate chain. Fail-open (writeAudit).
+ */
+async function auditCsrSigned(
+  sql: postgres.Sql,
+  csrId: number,
+  stationUuid: string,
+  payload: { certificateType: string; providerReference: string },
+): Promise<void> {
+  let provider = 'unknown';
+  try {
+    const [row] = await sql<Array<{ value: unknown }>>`
+      SELECT value FROM settings WHERE key = 'pnc.provider'
+    `;
+    provider = typeof row?.value === 'string' && row.value !== '' ? row.value : 'manual';
+  } catch (err) {
+    // fail-open: the label is informational, the audit row still goes out.
+    logger.warn({ err }, 'Failed to read pnc.provider for the CSR audit label');
+  }
+  await writeAudit(
+    { table: certificateAuditLog, idColumn: 'certificate_id' },
+    {
+      entityId: String(csrId),
+      entityIdSnapshot: String(csrId),
+      action: 'csr_signed',
+      actor: 'system',
+      actorLabel: `pki:${provider}`,
+      after: {
+        status: 'signed',
+        stationId: stationUuid,
+        certificateType: payload.certificateType,
+        providerReference: payload.providerReference,
+      },
+    },
+    undefined,
+    logger,
   );
 }
 

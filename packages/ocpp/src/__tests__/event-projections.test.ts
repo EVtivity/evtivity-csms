@@ -106,6 +106,8 @@ vi.mock('../../../database/src/lib/audit.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
+  writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
@@ -4039,12 +4041,15 @@ describe('Event projections', () => {
         }),
       );
 
-      expect(mockRecordTerminalSettlement).toHaveBeenCalledWith({
-        sessionId: 'session-1',
-        driverId: 'driver-1',
-        currency: 'EUR',
-        capturedCents: 1550,
-      });
+      expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
+        {
+          sessionId: 'session-1',
+          driverId: 'driver-1',
+          currency: 'EUR',
+          capturedCents: 1550,
+        },
+        expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'NotifySettlement' } }),
+      );
 
       expect(mockDispatchDriver).toHaveBeenCalledWith(
         expect.anything(),
@@ -4083,6 +4088,7 @@ describe('Event projections', () => {
 
       expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId: 'session-1', driverId: null, capturedCents: 1000 }),
+        expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'NotifySettlement' } }),
       );
       expect(mockDispatchDriver).not.toHaveBeenCalled();
     });

@@ -37,7 +37,13 @@ export function createPaymentWebhookWorker(
       const startTime = Date.now();
       const { provider, rawBody, headers } = job.data;
       try {
-        const result = await ingestPaymentWebhook(provider, rawBody, headers, paymentContext(log));
+        const result = await ingestPaymentWebhook(
+          provider,
+          rawBody,
+          headers,
+          // ingestPaymentWebhook names the provider's webhook as the actor.
+          paymentContext(log, 'payment-webhooks'),
+        );
         if (result.notices.length > 0) {
           await dispatchPaymentWebhookNotices(result.notices, {
             templatesDirs: PAYMENT_TEMPLATES_DIRS,

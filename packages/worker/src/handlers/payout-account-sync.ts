@@ -13,7 +13,7 @@ import { paymentContext } from '../lib/payments.js';
  * One account's failure is logged and the others continue (P9).
  */
 export async function payoutAccountSyncHandler(log: Logger): Promise<void> {
-  const result = await refreshAllPayoutAccounts(paymentContext(log));
+  const result = await refreshAllPayoutAccounts(paymentContext(log, 'payout-account-sync'));
   if (result.total === 0) {
     log.debug('No payout accounts to sync');
     return;

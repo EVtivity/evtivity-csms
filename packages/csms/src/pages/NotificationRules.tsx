@@ -3,18 +3,20 @@
 
 import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
-import { useHasAllSiteAccess } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { OcppEvents } from '@/pages/OcppEvents';
 import { DriverEvents } from '@/pages/DriverEvents';
 import { SystemEvents } from '@/pages/SystemEvents';
 import { NotificationHistory } from '@/pages/NotificationHistory';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 
 export function NotificationRules(): React.JSX.Element {
   const { t } = useTranslation();
   const [tab, setTab] = useTab('driver-events');
   // The notification log is company-wide: the API answers 404 to a site-restricted user.
   const hasAllSiteAccess = useHasAllSiteAccess();
+  const canReadAudit = useHasPermission('audit:read');
 
   return (
     <div className="space-y-6">
@@ -29,8 +31,9 @@ export function NotificationRules(): React.JSX.Element {
           <TabsTrigger value="system-events">{t('notifications.systemEventsTab')}</TabsTrigger>
           <TabsTrigger value="ocpp-events">{t('notifications.ocppEventsTab')}</TabsTrigger>
           {hasAllSiteAccess && (
-            <TabsTrigger value="history">{t('notifications.historyTab')}</TabsTrigger>
+            <TabsTrigger value="sent">{t('notifications.sentNotificationsTab')}</TabsTrigger>
           )}
+          {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="ocpp-events">
@@ -46,8 +49,34 @@ export function NotificationRules(): React.JSX.Element {
         </TabsContent>
 
         {hasAllSiteAccess && (
-          <TabsContent value="history">
+          <TabsContent value="sent">
             <NotificationHistory />
+          </TabsContent>
+        )}
+
+        {canReadAudit && (
+          <TabsContent value="history">
+            {/* Notification template changes, every event type. */}
+            <EntityHistoryTab
+              entityType="notification_template"
+              entityId={null}
+              extraColumns={[
+                {
+                  header: t('notifications.eventType'),
+                  className: 'text-sm font-medium',
+                  render: (row) => {
+                    const key = (row.after ?? row.before) as {
+                      channel?: string;
+                      language?: string;
+                    } | null;
+                    const detail = [key?.channel, key?.language].filter((v) => v != null);
+                    return detail.length > 0
+                      ? `${row.entityIdSnapshot} (${detail.join(', ')})`
+                      : row.entityIdSnapshot;
+                  },
+                },
+              ]}
+            />
           </TabsContent>
         )}
       </Tabs>

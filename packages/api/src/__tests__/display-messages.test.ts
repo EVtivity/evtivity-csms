@@ -55,7 +55,14 @@ function makeChain() {
   return chain;
 }
 
+const { mockWriteAudit, stationAuditLogTable } = vi.hoisted(() => ({
+  mockWriteAudit: vi.fn((..._args: unknown[]) => Promise.resolve()),
+  stationAuditLogTable: { name: 'station_audit_log' },
+}));
+
 vi.mock('@evtivity/database', () => ({
+  writeAudit: mockWriteAudit,
+  stationAuditLog: stationAuditLogTable,
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -383,6 +390,18 @@ describe('Display message routes', () => {
 
       const response = await responsePromise;
       expect(response.statusCode).toBe(200);
+      expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+      expect(mockWriteAudit.mock.calls[0]?.[0]).toEqual({
+        table: stationAuditLogTable,
+        idColumn: 'station_id',
+      });
+      expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+        entityId: VALID_STATION_ID,
+        action: 'display_message_set',
+        actor: 'operator',
+        after: { ocppMessageId: 6, content: 'Hello World', outcome: 'Accepted' },
+        notes: 'SetDisplayMessage (Accepted)',
+      });
     });
 
     it('returns 200 with rejected response (non-Accepted maps to rejected status)', async () => {
@@ -684,6 +703,10 @@ describe('Display message routes', () => {
         action: 'SetDisplayMessage',
       });
       expect(db.update).not.toHaveBeenCalled();
+      expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+        action: 'display_message_set',
+        after: { outcome: 'queued (station offline)' },
+      });
     });
 
     it('sends optional fields in OCPP payload (language, state, startDateTime, endDateTime, transactionId, evseId, messageExtra)', async () => {
@@ -1050,6 +1073,13 @@ describe('Display message routes', () => {
       expect(response.statusCode).toBe(200);
       const body = JSON.parse(response.body);
       expect(body.status).toBe('cleared');
+      expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+        entityId: VALID_STATION_ID,
+        action: 'display_message_cleared',
+        before: { ocppMessageId: 1, status: 'accepted' },
+        after: { status: 'cleared' },
+        notes: 'ClearDisplayMessage (Accepted)',
+      });
     });
 
     it('returns 400 when station rejects clear (non-Accepted response)', async () => {
@@ -1233,6 +1263,10 @@ describe('Display message routes', () => {
         message: 'Station offline, command queued',
       });
       expect(db.update).not.toHaveBeenCalled();
+      expect(mockWriteAudit.mock.calls[0]?.[1]).toMatchObject({
+        action: 'display_message_cleared',
+        notes: 'ClearDisplayMessage (queued (station offline))',
+      });
     });
   });
 

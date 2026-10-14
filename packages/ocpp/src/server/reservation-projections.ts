@@ -4,6 +4,7 @@
 import type { DomainEvent } from '@evtivity/lib';
 import { toDate, toDateOrNull, writeReservationAudit } from '@evtivity/database';
 import type { RawTimestamp } from '@evtivity/database';
+import { withPaymentActor } from '@evtivity/payments';
 import { refreshFleetReservationStatuses } from '@evtivity/services/fleet-reservation-status';
 import { applyReservationCancellation } from '@evtivity/services/reservation-cancel';
 import type { ReservationCancelReason } from '@evtivity/services/reservation-cancel';
@@ -37,7 +38,10 @@ import { ALL_TEMPLATES_DIRS } from './notification-dispatcher.js';
 function expiryDeps(deps: ProjectionDeps): ReservationExpiryDeps {
   return {
     pubsub: deps.pubsub,
-    payments: deps.payments,
+    payments: withPaymentActor(deps.payments, {
+      actor: 'ocpp',
+      actorLabel: 'reservation-projection',
+    }),
     logger: deps.logger,
     templatesDirs: ALL_TEMPLATES_DIRS,
   };

@@ -124,6 +124,11 @@ vi.mock('@evtivity/payments', async (importOriginal) => ({
     mockRecordTerminalSettlement(...args) as unknown,
 }));
 const mockPaymentContext = { registry: {}, logger: {} };
+// Each payment step names itself on the payment audit rows.
+const SETTLE_PAYMENT_CONTEXT = {
+  ...mockPaymentContext,
+  actor: { actor: 'ocpp', actorLabel: 'session-settlement' },
+};
 // The settlement options of a first run that can still be retried.
 const SETTLE_OPTIONS = { rethrowConnectionErrors: true, resumeAdjustment: false };
 vi.mock('../lib/payments.js', () => ({
@@ -172,6 +177,8 @@ vi.mock('../../../database/src/lib/audit.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
+  writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
@@ -2844,12 +2851,15 @@ describe('Event projections - coverage round 2', () => {
         transactionId: 'tx-1',
         settlementAmount: 12.5,
       });
-      expect(mockRecordTerminalSettlement).toHaveBeenCalledWith({
-        sessionId: 'ses_1',
-        driverId: 'drv_1',
-        currency: 'USD',
-        capturedCents: 1250, // 12.50 -> cents
-      });
+      expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
+        {
+          sessionId: 'ses_1',
+          driverId: 'drv_1',
+          currency: 'USD',
+          capturedCents: 1250, // 12.50 -> cents
+        },
+        expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'NotifySettlement' } }),
+      );
       expect(mockDispatchDriver).toHaveBeenCalledWith(
         expect.anything(),
         'session.PaymentReceived',
@@ -2892,6 +2902,7 @@ describe('Event projections - coverage round 2', () => {
       await emit('ocpp.NotifySettlement', 'CS-1', { transactionId: 'tx-2', settlementAmount: 3 });
       expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId: 'ses_2', driverId: null, capturedCents: 300 }),
+        expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'NotifySettlement' } }),
       );
       expect(mockDispatchDriver).not.toHaveBeenCalled();
     });
@@ -2956,7 +2967,7 @@ describe('Event projections - coverage round 2', () => {
       await emitEndedSecondOnly([sessionRow()]);
       expect(mockSettleSessionPayment).toHaveBeenCalledWith(
         'ses_1',
-        mockPaymentContext,
+        SETTLE_PAYMENT_CONTEXT,
         SETTLE_OPTIONS,
       );
       // Nothing to settle (the default outcome): no notification.

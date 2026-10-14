@@ -72,6 +72,12 @@ const {
 }));
 
 vi.mock('@evtivity/database', () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -212,6 +218,18 @@ describe('SSO auth routes', () => {
       expect(res.headers['location']).toBe('/');
       expect(mockSetAuthCookies).toHaveBeenCalled();
       expect(mockCreateRefreshToken).toHaveBeenCalledWith({ userId: 'usr_001' });
+      const { writeAudit } = await import('@evtivity/database');
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'user_id' }),
+        expect.objectContaining({
+          entityId: 'usr_001',
+          action: 'login_succeeded',
+          actor: 'operator',
+          after: expect.objectContaining({ method: 'sso' }),
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it.each([

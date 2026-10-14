@@ -39,7 +39,7 @@ describe('paymentCaptureRetryHandler', () => {
 
     await paymentCaptureRetryHandler(log);
 
-    expect(mockPaymentContext).toHaveBeenCalledWith(log);
+    expect(mockPaymentContext).toHaveBeenCalledWith(log, 'payment-capture-retry');
     expect(mockRetryShortfalls).toHaveBeenCalledWith(ctx);
   });
 

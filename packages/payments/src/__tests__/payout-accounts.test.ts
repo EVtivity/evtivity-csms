@@ -112,6 +112,7 @@ describe('createSitePayoutAccount', () => {
     expect(m.writePayoutAccountStatus).toHaveBeenCalledWith(
       status('onboarding', 'acct_new'),
       expect.any(Date),
+      ctx,
     );
     // Stored (P4) before the status read.
     const storeOrder = m.storeCreatedPayoutAccount.mock.invocationCallOrder[0] ?? 0;
@@ -184,6 +185,7 @@ describe('setSitePayoutAccountId', () => {
     expect(m.writePayoutAccountStatus).toHaveBeenCalledWith(
       status('active', 'acct_2'),
       expect.any(Date),
+      ctx,
     );
   });
 
@@ -214,7 +216,11 @@ describe('refreshSitePayoutAccount', () => {
     m.findSitePayoutAccount.mockResolvedValueOnce(row({ accountId: 'acct_1' }));
     provider.getPayoutAccountStatus.mockResolvedValueOnce(status('pending'));
     expect(await refreshSitePayoutAccount('sit_1', ctx)).toEqual(status('pending'));
-    expect(m.writePayoutAccountStatus).toHaveBeenCalledWith(status('pending'), expect.any(Date));
+    expect(m.writePayoutAccountStatus).toHaveBeenCalledWith(
+      status('pending'),
+      expect.any(Date),
+      ctx,
+    );
   });
 
   it('is null without an account', async () => {

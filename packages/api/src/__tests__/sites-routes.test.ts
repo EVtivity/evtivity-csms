@@ -1028,10 +1028,12 @@ describe('Site routes - handler logic', () => {
   // --- PUT /v1/sites/:id/layout ---
 
   describe('PUT /v1/sites/:id/layout', () => {
-    it('saves layout positions and returns ok', async () => {
+    it('saves layout positions, returns ok and audits the old and new positions', async () => {
+      vi.mocked(databaseModule.writeAudit).mockClear();
       setupDbResults(
         [{ id: VALID_SITE_ID }], // site exists
         [{ id: VALID_STATION_ID }], // the station belongs to the site
+        [{ stationId: VALID_STATION_ID, positionX: '10', positionY: '20' }], // previous position
         [], // upsert result (for each position)
       );
 
@@ -1046,6 +1048,19 @@ describe('Site routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().ok).toBe(true);
+      const auditArgs = vi.mocked(databaseModule.writeAudit).mock.calls[0]?.[1];
+      expect(auditArgs).toMatchObject({
+        entityId: VALID_SITE_ID,
+        action: 'updated',
+        actor: 'operator',
+        before: {
+          layoutPositions: [{ stationId: VALID_STATION_ID, positionX: 10, positionY: 20 }],
+        },
+        after: {
+          layoutPositions: [{ stationId: VALID_STATION_ID, positionX: 50, positionY: 100 }],
+        },
+        notes: 'station layout updated',
+      });
     });
 
     it('returns 404 for a station of another site and writes nothing', async () => {
@@ -1066,6 +1081,7 @@ describe('Site routes - handler logic', () => {
       expect(response.statusCode).toBe(404);
       expect(response.json().code).toBe('STATION_NOT_FOUND');
       expect(vi.mocked(databaseModule.db.insert)).not.toHaveBeenCalled();
+      expect(vi.mocked(databaseModule.writeAudit)).not.toHaveBeenCalled();
     });
 
     it('returns 404 when site not found', async () => {

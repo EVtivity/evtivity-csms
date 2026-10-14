@@ -56,7 +56,13 @@ function makeChain(): Record<string, unknown> {
   return chain;
 }
 
+const { mockWriteAudit } = vi.hoisted(() => ({
+  mockWriteAudit: vi.fn(() => Promise.resolve()),
+}));
+
 vi.mock('@evtivity/database', () => ({
+  writeAudit: mockWriteAudit,
+  stationAuditLog: { name: 'station_audit_log' },
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),

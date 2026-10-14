@@ -28,6 +28,7 @@ import {
   addDriverMessage,
   createSupportCase,
   recordDriverAiFeedback,
+  recordSupportCaseAttachmentAdded,
   requestDriverAiAnalysis,
 } from '@evtivity/services/support-case.service';
 import type { SupportCaseAiConsent } from '@evtivity/services/support-case.service';
@@ -45,6 +46,7 @@ import {
 } from '@evtivity/lib/driver-ai';
 import type { DriverAiStateReason } from '@evtivity/lib/driver-ai';
 import { readDriverAiAvailability } from '../../lib/driver-ai-availability.js';
+import { getAuditActor } from '../../lib/audit-actor.js';
 import { allowDriverAiCase } from '../../services/ai/engine/limits.js';
 
 const portalSupportCaseItem = z
@@ -885,7 +887,21 @@ export function portalSupportCaseRoutes(app: FastifyInstance): void {
       // The service accepts only a quarantine key issued for this case and
       // message, so a driver cannot register another driver's object and then
       // download it through this case.
-      const { attachment } = await confirmSupportAttachment(id, messageId, body.s3Key, request.log);
+      const { attachment, created } = await confirmSupportAttachment(
+        id,
+        messageId,
+        body.s3Key,
+        request.log,
+      );
+      if (created) {
+        await recordSupportCaseAttachmentAdded({
+          caseId: id,
+          messageId,
+          attachment,
+          actor: getAuditActor(request),
+          log: request.log,
+        });
+      }
       return attachment;
     },
   );

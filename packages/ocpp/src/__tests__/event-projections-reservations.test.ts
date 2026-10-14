@@ -273,7 +273,7 @@ describe('ocpp.ReservationStatusUpdate', () => {
     expect(mockExpireStationReportedReservation).toHaveBeenCalledWith(
       {
         pubsub,
-        payments,
+        payments: { ...payments, actor: { actor: 'ocpp', actorLabel: 'reservation-projection' } },
         logger,
         templatesDirs: ['/ocpp/templates', '/api/templates'],
       },
@@ -349,7 +349,10 @@ describe('station outage during a hold', () => {
       expect.anything(),
     );
     expect(mockCancelHoldsForStationOutage).toHaveBeenCalledWith(
-      expect.objectContaining({ pubsub, payments }),
+      expect.objectContaining({
+        pubsub,
+        payments: { ...payments, actor: { actor: 'ocpp', actorLabel: 'reservation-projection' } },
+      }),
       {
         stationUuid: 'sta-1',
         stationOcppId: 'CS-1',

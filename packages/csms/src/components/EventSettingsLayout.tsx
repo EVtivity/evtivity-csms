@@ -145,6 +145,7 @@ export function EventSettingsLayout({
     setSwitchSaving(true);
     try {
       await eventSwitch.onChange(et, enabled);
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'notification_template'] });
       setStatusMessage({
         success: enabled ? t('notifications.eventTurnedOn') : t('notifications.eventTurnedOff'),
         error: '',
@@ -411,6 +412,9 @@ export function EventSettingsLayout({
                               `${toggleEndpoint}?eventType=${encodeURIComponent(selectedEvent)}&channel=${encodeURIComponent(channel)}`,
                             );
                             await queryClient.refetchQueries({ queryKey: toggleQueryKey });
+                            void queryClient.invalidateQueries({
+                              queryKey: ['audit', 'notification_template'],
+                            });
                             setStatusMessage({
                               success: t('notifications.templateDeactivated'),
                               error: '',

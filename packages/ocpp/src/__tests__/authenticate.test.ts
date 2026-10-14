@@ -13,6 +13,12 @@ vi.mock('argon2', async (importActual) => {
   };
 });
 
+const { mockWriteAudit } = vi.hoisted(() => ({ mockWriteAudit: vi.fn() }));
+vi.mock('@evtivity/database', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/database')>()),
+  writeAudit: mockWriteAudit,
+}));
+
 import { hash, verify } from 'argon2';
 import { STATION_PASSWORD_HASH_OPTIONS } from '@evtivity/lib';
 import {
@@ -762,8 +768,9 @@ describe('authenticateConnection with a pending security profile upgrade', () =>
   const basic = (user: string): string =>
     'Basic ' + Buffer.from(`${user}:${PASSWORD}`).toString('base64');
 
-  // Records each query's SQL text and values, answering the station lookup.
-  function recordingSql(station: Record<string, unknown>) {
+  // Records each query's SQL text and values, answering the station lookup
+  // and, with `promoted`, the promotion's compare-and-set.
+  function recordingSql(station: Record<string, unknown>, promoted = true) {
     const queries: { text: string; values: unknown[] }[] = [];
     const fn = vi.fn();
     const proxy = new Proxy(fn, {
@@ -771,6 +778,9 @@ describe('authenticateConnection with a pending security profile upgrade', () =>
         const [strings, ...values] = args as [TemplateStringsArray, ...unknown[]];
         const text = strings.join('?');
         queries.push({ text, values });
+        if (text.includes('pending_security_profile = NULL')) {
+          return Promise.resolve(promoted ? [{ id: station['id'] }] : []) as unknown;
+        }
         return Promise.resolve(text.includes('FROM charging_stations') ? [station] : []) as unknown;
       },
       get(target, prop) {
@@ -809,6 +819,42 @@ describe('authenticateConnection with a pending security profile upgrade', () =>
     // The password hash is cleared only for an upgrade to Mutual TLS (profile 3).
     expect(update?.text).toContain('basic_auth_password_hash = CASE WHEN');
     expect(queries.some((q) => q.values.includes('security_profile_upgraded'))).toBe(true);
+    expect(mockWriteAudit).toHaveBeenCalledWith(
+      { table: expect.anything() as unknown, idColumn: 'station_id' },
+      {
+        entityId: 'sta_up',
+        entityIdSnapshot: 'sta_up',
+        action: 'updated',
+        actor: 'ocpp',
+        actorLabel: 'security_profile_upgraded',
+        before: { securityProfile: 0, pendingSecurityProfile: 1 },
+        after: { securityProfile: 1, pendingSecurityProfile: null },
+        notes: 'The station connected with the pending security profile',
+      },
+      undefined,
+      expect.anything(),
+    );
+  });
+
+  it('writes no station audit row when another connection promoted it first', async () => {
+    mockWriteAudit.mockClear();
+    const { sql } = recordingSql(
+      {
+        id: 'sta_up',
+        security_profile: 0,
+        pending_security_profile: 1,
+        basic_auth_password_hash: passwordHash,
+        onboarding_status: 'accepted',
+      },
+      false,
+    );
+    const result = await authenticateConnection(
+      createMockRequest('/CS-UP', basic('CS-UP')),
+      createMockLogger(),
+      sql,
+    );
+    expect(result.authenticated).toBe(true);
+    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('still accepts the current profile while the upgrade is pending, without logging failures', async () => {

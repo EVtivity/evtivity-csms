@@ -30,7 +30,9 @@ const {
   mockPublish,
   mockClient,
   mockCancelOpenSessionHold,
+  mockSessionAudit,
 } = vi.hoisted(() => ({
+  mockSessionAudit: vi.fn().mockResolvedValue(undefined),
   mockGetStaleSessionTimeoutHours: vi.fn(),
   mockWriteReservationAudit: vi.fn().mockResolvedValue(undefined),
   mockCloseSegmentsAt: vi.fn().mockResolvedValue(undefined),
@@ -65,6 +67,7 @@ vi.mock('@evtivity/database', async () => ({
   writeReservationAudit: mockWriteReservationAudit,
   closeSegmentsAt: mockCloseSegmentsAt,
   faultUnbilledSession: mockFaultUnbilledSession,
+  writeCsmsSessionAudit: mockSessionAudit,
   sessionIdleMinutesAt: (
     await vi.importActual<typeof import('../../../../database/src/lib/session-pricing.js')>(
       '../../../../database/src/lib/session-pricing.js',
@@ -163,6 +166,39 @@ describe('staleSessionCleanupHandler', () => {
       reason: 'StaleSession',
       endedAt: new Date('2026-06-01T01:00:00.000Z'),
     });
+  });
+
+  it('audits a fault it made as a system stale-session-cleanup row, noting the stop', async () => {
+    const { staleSessionCleanupHandler } = mod;
+    setStaleSessions([baseSession({ stationIsOnline: true })]);
+    const log = makeLog();
+
+    await staleSessionCleanupHandler(log);
+
+    expect(mockSessionAudit).toHaveBeenCalledWith(
+      {
+        sessionId: 'ses_1',
+        action: 'faulted',
+        actor: 'system',
+        actorLabel: 'stale-session-cleanup',
+        before: { status: 'active' },
+        after: { status: 'faulted', stoppedReason: 'StaleSession', finalCostCents: 0 },
+        notes:
+          'No update since 2026-06-01T01:00:00.000Z (timeout 4 h); RequestStopTransaction sent for transaction tx-001',
+      },
+      undefined,
+      log,
+    );
+  });
+
+  it('audits no fault for a session that ended meanwhile', async () => {
+    const { staleSessionCleanupHandler } = mod;
+    setStaleSessions([baseSession()]);
+    mockFaultUnbilledSession.mockResolvedValueOnce(false);
+
+    await staleSessionCleanupHandler(makeLog());
+
+    expect(mockSessionAudit).not.toHaveBeenCalled();
   });
 
   it('leaves the hold of a session that ended meanwhile to its settlement (P5)', async () => {

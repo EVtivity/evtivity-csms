@@ -52,6 +52,12 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   ACCOUNT_INVOICE_RECIPIENTS: ['fleet', 'member'],
   db: {
     select: vi.fn(() => makeChain()),
@@ -154,7 +160,12 @@ import {
   verifyMfaChallenge,
   verifyTotpCode,
 } from '@evtivity/lib';
-import { db, getRecaptchaConfig, isPortalRegistrationEnabled } from '@evtivity/database';
+import {
+  db,
+  getRecaptchaConfig,
+  isPortalRegistrationEnabled,
+  writeAudit,
+} from '@evtivity/database';
 import {
   createRefreshToken,
   validateAndRotateRefreshToken,
@@ -722,6 +733,17 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.json().code).toBe('ACCOUNT_DISABLED');
       expect(verifyMfaChallenge).not.toHaveBeenCalled();
       expect(cookieMap(res).has('portal_token')).toBe(false);
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'driver_id' }),
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'login_failed',
+          actor: 'system',
+          notes: 'inactive',
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('completes login with a valid email challenge code', async () => {
@@ -738,6 +760,17 @@ describe('Portal auth routes - extra coverage', () => {
         driverId: DRIVER_ID,
       });
       expect(cookieMap(res).get('portal_refresh')).toMatch(/^new-refresh-token\./);
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'driver_id' }),
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'login_succeeded',
+          actor: 'driver',
+          after: expect.objectContaining({ method: 'mfa' }),
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('rejects an email code sent without a challengeId', async () => {
@@ -750,6 +783,16 @@ describe('Portal auth routes - extra coverage', () => {
       expect(res.statusCode).toBe(400);
       expect(res.json().code).toBe('MFA_CODE_INVALID');
       expect(verifyMfaChallenge).not.toHaveBeenCalled();
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'driver_id' }),
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'login_failed',
+          notes: 'mfa_code_invalid',
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('locks a challenge after 5 wrong codes and stops checking it', async () => {
@@ -1073,6 +1116,17 @@ describe('Portal auth routes - extra coverage', () => {
       expect(driverSet?.['passwordHash']).toBe('$argon2id$hashed_password');
       expect(tokenSet?.['revokedAt']).toBeInstanceOf(Date);
       expect(revokeAllDriverRefreshTokens).toHaveBeenCalledWith(DRIVER_ID);
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'driver_id' }),
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'password_reset',
+          actor: 'driver',
+          actorDriverId: DRIVER_ID,
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
   });
 

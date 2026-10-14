@@ -51,9 +51,11 @@ vi.mock('@evtivity/ocpp', () => ({
     Reset: { validateRequest: vi.fn().mockReturnValue(true) },
     DataTransfer: { validateRequest: vi.fn().mockReturnValue(true) },
     GetVariables: { validateRequest: vi.fn().mockReturnValue(true) },
+    GetLocalListVersion: { validateRequest: vi.fn().mockReturnValue(true) },
   },
   ActionRegistry16: {
     Reset: { validateRequest: vi.fn().mockReturnValue(true) },
+    GetLocalListVersion: { validateRequest: vi.fn().mockReturnValue(true) },
   },
 }));
 
@@ -78,6 +80,7 @@ vi.mock('@evtivity/database', () => {
     chargingStations: { id: 'id', siteId: 'siteId', stationId: 'stationId' },
     stationConfigurations: {},
     stationAuditLog: { name: 'stationAuditLog' },
+    localAuthListAuditLog: { name: 'localAuthListAuditLog' },
     writeAudit,
   };
 });
@@ -196,13 +199,86 @@ describe('OCPP command dispatch - uncovered paths', () => {
         { table: { name: 'stationAuditLog' }, idColumn: 'station_id' },
         expect.objectContaining({
           entityId: 'sta_internal',
-          action: 'command_dispatched',
+          action: 'reset_triggered',
           notes: 'Reset (queued (station offline))',
         }),
         expect.anything(),
         expect.anything(),
       );
     });
+  });
+
+  it('audits an accepted GetLocalListVersion on the local auth list (2.1 versionNumber)', async () => {
+    results.push([station21]);
+    replies.push({ response: { versionNumber: 7 } });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/ocpp/commands/v21/GetLocalListVersion',
+      headers,
+      payload: { stationId: 'CS-1' },
+    });
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => {
+      expect(writeAudit).toHaveBeenCalledWith(
+        { table: { name: 'localAuthListAuditLog' }, idColumn: 'station_id' },
+        expect.objectContaining({
+          entityId: 'sta_internal',
+          action: 'pulled',
+          actor: 'operator',
+          after: { listVersion: 7 },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+    expect(writeAudit).toHaveBeenCalledWith(
+      { table: { name: 'stationAuditLog' }, idColumn: 'station_id' },
+      expect.objectContaining({ action: 'command_dispatched' }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('audits an accepted GetLocalListVersion on the local auth list (1.6 listVersion)', async () => {
+    results.push([{ ...station21, ocppProtocol: 'ocpp1.6' }]);
+    replies.push({ response: { listVersion: 3 } });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/ocpp/commands/v16/GetLocalListVersion',
+      headers,
+      payload: { stationId: 'CS-1' },
+    });
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => {
+      expect(writeAudit).toHaveBeenCalledWith(
+        { table: { name: 'localAuthListAuditLog' }, idColumn: 'station_id' },
+        expect.objectContaining({ action: 'pulled', after: { listVersion: 3 } }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+  });
+
+  it('does not audit a pull for a failed GetLocalListVersion', async () => {
+    writeAudit.mockClear();
+    results.push([station21]);
+    replies.push({ error: 'boom' });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/ocpp/commands/v21/GetLocalListVersion',
+      headers,
+      payload: { stationId: 'CS-1' },
+    });
+    expect(res.statusCode).toBe(502);
+    await vi.waitFor(() => {
+      expect(writeAudit).toHaveBeenCalledTimes(1);
+    });
+    expect(writeAudit).not.toHaveBeenCalledWith(
+      { table: { name: 'localAuthListAuditLog' }, idColumn: 'station_id' },
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('uses a default message when a queued reply has no text', async () => {

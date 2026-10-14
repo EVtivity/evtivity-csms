@@ -39,6 +39,7 @@ import {
   originMismatchError,
   shopperBrowserContext,
 } from '../../lib/shopper-browser.js';
+import { getAuditActor } from '../../lib/audit-actor.js';
 
 const paymentMethodItem = z
   .object({
@@ -158,7 +159,10 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
     async (request) => {
       const { driverId } = request.user as DriverJwtPayload;
       // Rows saved without card details are filled in from the provider once.
-      const rows = await listDriverMethods(driverId, paymentContext(request.log));
+      const rows = await listDriverMethods(
+        driverId,
+        paymentContext(request.log, getAuditActor(request)),
+      );
       return rows.map(toPublicPaymentMethod);
     },
   );
@@ -189,7 +193,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       const { stripeVersion } = request.query as z.infer<typeof ephemeralKeyQuery>;
       const result = await startDriverMethodSetup(
         { driverId, channel: 'native', nativeSdkVersion: stripeVersion },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       if (result.status === 'driver_not_found') {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
@@ -237,7 +241,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const result = await startDriverMethodSetup(
         { driverId, channel: 'web' },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       if (result.status === 'driver_not_found') {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
@@ -302,7 +306,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
           methodId: body.stripePaymentMethodId,
           adoptCustomer: false,
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       switch (result.status) {
         case 'saved':
@@ -386,7 +390,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
           ...(browser != null ? { browser } : {}),
           adoptCustomer: false,
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       await sendSetupStepOutcome(reply, outcome, toPublicPaymentMethod);
     },
@@ -417,7 +421,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
           attemptId: body.attemptId,
           details: body.details,
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       await sendSetupStepOutcome(reply, outcome, toPublicPaymentMethod);
     },
@@ -447,7 +451,7 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
       const { pmId } = request.params as z.infer<typeof paymentMethodParams>;
       const result = await removeDriverMethod(
         { driverId, methodRowId: pmId, blockWhenInUse: true },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       if (result.status === 'not_found') {
         await reply.status(404).send({
@@ -486,7 +490,11 @@ export function portalPaymentRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { driverId } = request.user as DriverJwtPayload;
       const { pmId } = request.params as z.infer<typeof paymentMethodParams>;
-      const updated = await setDefaultDriverMethod(driverId, pmId);
+      const updated = await setDefaultDriverMethod(
+        driverId,
+        pmId,
+        paymentContext(request.log, getAuditActor(request)),
+      );
       if (updated == null) {
         await reply.status(404).send({
           error: 'Payment method not found',

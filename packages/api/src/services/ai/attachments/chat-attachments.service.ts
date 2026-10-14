@@ -4,7 +4,8 @@
 import crypto from 'node:crypto';
 import { and, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyBaseLogger } from 'fastify';
-import { db, aiAttachments } from '@evtivity/database';
+import { db, aiAttachments, aiConversationAuditLog, writeAudit } from '@evtivity/database';
+import type { AuditActorInfo } from '../../../lib/audit-actor.js';
 import type { AiAttachmentKind } from '@evtivity/database';
 import { AppError } from '@evtivity/lib';
 import {
@@ -236,17 +237,39 @@ export async function getChatAttachmentDownloadUrl(
 /**
  * Delete an attachment: the S3 objects first, then the row (P4). When S3 is
  * unavailable the row is only marked deleted and the retention cron finishes.
+ * An attachment a conversation used is audited on that conversation
+ * (`attachment_deleted`); an upload no message used has no conversation and
+ * no audit row.
  */
 export async function deleteChatAttachment(
   userId: string,
   attachmentId: string,
   log: FastifyBaseLogger,
+  actor: AuditActorInfo,
 ): Promise<void> {
   const row = await loadOwned(userId, attachmentId);
   await db
     .update(aiAttachments)
     .set({ deletedAt: sql`now()` })
     .where(eq(aiAttachments.id, row.id));
+  if (row.conversationId != null) {
+    await writeAudit(
+      { table: aiConversationAuditLog, idColumn: 'ai_conversation_id' },
+      {
+        entityId: row.conversationId,
+        entityIdSnapshot: row.conversationId,
+        action: 'attachment_deleted',
+        ...actor,
+        before: {
+          attachmentId: row.id,
+          fileName: row.fileName,
+          contentType: row.contentType,
+        },
+      },
+      db,
+      log,
+    );
+  }
   try {
     const s3 = await requireS3();
     await deleteObject(s3, row.s3Bucket, row.quarantineKey);

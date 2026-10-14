@@ -53,6 +53,11 @@ function makeChain() {
   return chain;
 }
 
+const { mockAuditStationChange } = vi.hoisted(() => ({
+  mockAuditStationChange: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('../lib/station-audit.js', () => ({ auditStationChange: mockAuditStationChange }));
+
 vi.mock('@evtivity/database', () => {
   const dbMock: Record<string, unknown> = {
     select: vi.fn(() => makeChain()),

@@ -20,6 +20,7 @@ const {
 
 vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
+  writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   extendFleetSessionCeiling: mockExtendFleetSessionCeiling,
   fleetCreditNoticesClaimed: mockFleetCreditNoticesClaimed,
   readFleetCreditLimit: mockReadFleetCreditLimit,

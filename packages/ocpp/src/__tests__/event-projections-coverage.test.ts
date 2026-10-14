@@ -132,6 +132,15 @@ vi.mock('@evtivity/payments', async (importOriginal) => ({
     mockRecordTerminalSettlement(...args) as unknown,
 }));
 const mockPaymentContext = { registry: {}, logger: {} };
+// Each payment step names itself on the payment audit rows.
+const GATE_PAYMENT_CONTEXT = {
+  ...mockPaymentContext,
+  actor: { actor: 'ocpp', actorLabel: 'payment-gate' },
+};
+const SETTLE_PAYMENT_CONTEXT = {
+  ...mockPaymentContext,
+  actor: { actor: 'ocpp', actorLabel: 'session-settlement' },
+};
 // The settlement options of a first run that can still be retried.
 const SETTLE_OPTIONS = { rethrowConnectionErrors: true, resumeAdjustment: false };
 vi.mock('../lib/payments.js', () => ({
@@ -184,6 +193,8 @@ vi.mock('../../../database/src/lib/audit.js', () => ({
 }));
 
 vi.mock('@evtivity/database', async () => ({
+  // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
+  writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
@@ -2656,7 +2667,7 @@ describe('Event projections - coverage expansion', () => {
           siteId: 'site-pay',
           trigger: 'projection_gate',
         },
-        mockPaymentContext,
+        GATE_PAYMENT_CONTEXT,
       );
       // Authorized: the session keeps charging.
       expect(stopCommands()).toHaveLength(0);
@@ -3039,7 +3050,7 @@ describe('Event projections - coverage expansion', () => {
       expect(stopCmd).toBeDefined();
       expect(mockAuthorizeSessionHold).toHaveBeenCalledWith(
         expect.objectContaining({ sessionId: 'session-nopay-nofree', driverId: 'drv_nopay' }),
-        mockPaymentContext,
+        GATE_PAYMENT_CONTEXT,
       );
 
       consoleWarnSpy.mockRestore();
@@ -3429,7 +3440,7 @@ describe('Event projections - coverage expansion', () => {
       expect(mockSettleSessionPayment).toHaveBeenCalledTimes(1);
       expect(mockSettleSessionPayment).toHaveBeenCalledWith(
         'session-capture',
-        mockPaymentContext,
+        SETTLE_PAYMENT_CONTEXT,
         SETTLE_OPTIONS,
       );
     });
@@ -4265,7 +4276,7 @@ describe('Event projections - coverage expansion', () => {
       // The settlement still runs: a cost of 0 cancels the hold
       expect(mockSettleSessionPayment).toHaveBeenCalledWith(
         'session-connect-timeout',
-        mockPaymentContext,
+        SETTLE_PAYMENT_CONTEXT,
         SETTLE_OPTIONS,
       );
     });
@@ -4584,7 +4595,7 @@ describe('Event projections - coverage expansion', () => {
 
       expect(mockSettleSessionPayment).toHaveBeenCalledWith(
         'session-pp-end',
-        mockPaymentContext,
+        SETTLE_PAYMENT_CONTEXT,
         SETTLE_OPTIONS,
       );
       expect(mockPubSub.publish).toHaveBeenCalledWith(

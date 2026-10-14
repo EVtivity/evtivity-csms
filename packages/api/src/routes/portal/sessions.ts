@@ -4,7 +4,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, sql, desc, and, asc } from 'drizzle-orm';
-import { db, getCompanyCurrency } from '@evtivity/database';
+import { db, getCompanyCurrency, writeAudit, sessionAuditLog } from '@evtivity/database';
 import {
   chargingSessions,
   chargingStations,
@@ -21,6 +21,7 @@ import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/compan
 import { storedSessionCostTax } from '@evtivity/lib';
 import { sessionLimitReached } from '../../lib/session-limit.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
+import { getAuditActor } from '../../lib/audit-actor.js';
 import { paginatedResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
 import { ERROR_CODES } from '../../lib/error-codes.generated.js';
 import { paginationQuery } from '../../lib/pagination.js';
@@ -684,7 +685,7 @@ export function portalSessionRoutes(app: FastifyInstance): void {
       const { vehicleId } = request.body as { vehicleId: string | null };
 
       const [session] = await db
-        .select({ driverId: chargingSessions.driverId })
+        .select({ driverId: chargingSessions.driverId, vehicleId: chargingSessions.vehicleId })
         .from(chargingSessions)
         .where(eq(chargingSessions.id, id));
 
@@ -716,6 +717,22 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         .update(chargingSessions)
         .set({ vehicleId, updatedAt: new Date() })
         .where(eq(chargingSessions.id, id));
+
+      if ((session.vehicleId ?? null) !== vehicleId) {
+        await writeAudit(
+          { table: sessionAuditLog, idColumn: 'session_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'vehicle_changed',
+            ...getAuditActor(request),
+            before: { vehicleId: session.vehicleId ?? null },
+            after: { vehicleId },
+          },
+          db,
+          request.log,
+        );
+      }
 
       return { vehicleId };
     },

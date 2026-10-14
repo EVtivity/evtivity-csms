@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, sql, and, isNull } from 'drizzle-orm';
 import {
@@ -12,6 +12,10 @@ import {
   ocpiPartners,
   pgErrorCode,
   PG_UNIQUE_VIOLATION,
+  ocpiPartnerAuditLog,
+  pricingGroupAuditLog,
+  tariffAuditLog,
+  writeAudit,
 } from '@evtivity/database';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -28,6 +32,76 @@ import {
 import { publishOcpiTariffPush } from '../lib/ocpi-tariff-push.js';
 import type { OcpiTariffPushTarget } from '../lib/ocpi-tariff-push.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
+import { getAuditActor } from '../lib/audit-actor.js';
+
+interface MappingAuditState {
+  id: number;
+  ocpiTariffId: string;
+  partnerId: string | null;
+  tariffId: string | null;
+  pricingGroupId: string | null;
+}
+
+/**
+ * `tariff_mapping_changed` audit rows on every tariff, pricing group and
+ * partner the mapping names before or after the change. A create has no
+ * before, a delete no after; an update records the mapping id and the changed
+ * fields only, and nothing when no field changed. Fail-open (writeAudit).
+ */
+async function writeTariffMappingAudit(
+  request: FastifyRequest,
+  before: MappingAuditState | null,
+  after: MappingAuditState | null,
+): Promise<void> {
+  let auditBefore: Record<string, unknown> | null = before == null ? null : { ...before };
+  let auditAfter: Record<string, unknown> | null = after == null ? null : { ...after };
+  if (before != null && after != null) {
+    const changedBefore: Record<string, unknown> = { id: before.id };
+    const changedAfter: Record<string, unknown> = { id: after.id };
+    for (const key of ['ocpiTariffId', 'partnerId', 'tariffId', 'pricingGroupId'] as const) {
+      if (before[key] !== after[key]) {
+        changedBefore[key] = before[key];
+        changedAfter[key] = after[key];
+      }
+    }
+    if (Object.keys(changedAfter).length === 1) return;
+    auditBefore = changedBefore;
+    auditAfter = changedAfter;
+  }
+
+  const ids = (key: 'tariffId' | 'pricingGroupId' | 'partnerId'): string[] => [
+    ...new Set([before?.[key], after?.[key]].filter((v): v is string => v != null)),
+  ];
+  const targets = [
+    ...ids('tariffId').map((id) => ({ table: tariffAuditLog, idColumn: 'tariff_id', id })),
+    ...ids('pricingGroupId').map((id) => ({
+      table: pricingGroupAuditLog,
+      idColumn: 'pricing_group_id',
+      id,
+    })),
+    ...ids('partnerId').map((id) => ({
+      table: ocpiPartnerAuditLog,
+      idColumn: 'ocpi_partner_id',
+      id,
+    })),
+  ];
+  const actor = getAuditActor(request);
+  for (const target of targets) {
+    await writeAudit(
+      { table: target.table, idColumn: target.idColumn },
+      {
+        entityId: target.id,
+        entityIdSnapshot: target.id,
+        action: 'tariff_mapping_changed',
+        ...actor,
+        before: auditBefore,
+        after: auditAfter,
+      },
+      db,
+      request.log,
+    );
+  }
+}
 
 // A tariff mapping publishes one OCPI tariff to one partner (or every
 // partner). The OCPI server generates the tariff from the internal tariff or
@@ -369,6 +443,13 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
       }
 
       await publishOcpiTariffPush({ targets: [{ partnerId, ocpiTariffId: body.ocpiTariffId }] });
+      await writeTariffMappingAudit(request, null, {
+        id: createdId,
+        ocpiTariffId: body.ocpiTariffId,
+        partnerId,
+        tariffId,
+        pricingGroupId,
+      });
       await reply.status(201).send(await loadMapping(createdId));
     },
   );
@@ -469,6 +550,17 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         targets.push({ partnerId: existing.partnerId, ocpiTariffId: existing.ocpiTariffId });
       }
       await publishOcpiTariffPush({ targets });
+      await writeTariffMappingAudit(
+        request,
+        {
+          id,
+          ocpiTariffId: existing.ocpiTariffId,
+          partnerId: existing.partnerId,
+          tariffId: existing.tariffId,
+          pricingGroupId: existing.pricingGroupId,
+        },
+        { id, ocpiTariffId, partnerId, tariffId, pricingGroupId },
+      );
 
       return loadMapping(id);
     },
@@ -503,6 +595,8 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         .returning({
           partnerId: ocpiTariffMappings.partnerId,
           ocpiTariffId: ocpiTariffMappings.ocpiTariffId,
+          tariffId: ocpiTariffMappings.tariffId,
+          pricingGroupId: ocpiTariffMappings.pricingGroupId,
         });
 
       if (deleted == null) {
@@ -512,7 +606,10 @@ export function ocpiTariffRoutes(app: FastifyInstance): void {
         return;
       }
 
-      await publishOcpiTariffPush({ targets: [deleted] });
+      await publishOcpiTariffPush({
+        targets: [{ partnerId: deleted.partnerId, ocpiTariffId: deleted.ocpiTariffId }],
+      });
+      await writeTariffMappingAudit(request, { id, ...deleted }, null);
       return { success: true };
     },
   );

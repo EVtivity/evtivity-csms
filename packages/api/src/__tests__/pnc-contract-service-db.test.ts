@@ -40,6 +40,8 @@ function makeChain(kind: string): Chain {
   return chain;
 }
 
+const { writeAuditMock } = vi.hoisted(() => ({ writeAuditMock: vi.fn() }));
+
 vi.mock('@evtivity/database', () => ({
   db: {
     select: vi.fn(() => makeChain('select')),
@@ -57,6 +59,8 @@ vi.mock('@evtivity/database', () => ({
     revokedAt: 'pc.revokedAt',
   },
   settings: { key: 'settings.key', value: 'settings.value' },
+  driverAuditLog: { table: 'driver_audit_log' },
+  writeAudit: writeAuditMock,
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -95,6 +99,15 @@ import {
 const DRIVER_ID = 'drv_000000000001';
 const TOKEN_ID = 'dtk_000000000001';
 const ACTOR = { type: 'operator', userId: 'usr_000000000001' } as const;
+const AUDIT = {
+  actor: {
+    actor: 'operator' as const,
+    actorUserId: 'usr_000000000001',
+    actorDriverId: null,
+    actorApiKeyId: null,
+    actorLabel: null,
+  },
+};
 
 const mockCreateToken = vi.mocked(tokenService.createToken);
 const mockDeleteToken = vi.mocked(tokenService.deleteToken);
@@ -143,7 +156,7 @@ describe('pnc-contract.service', () => {
     it.each(['---', '', 'A'.repeat(65)])(
       'rejects PCID %j with 400 VALIDATION_ERROR before any query',
       async (pcid) => {
-        await expect(createContract(DRIVER_ID, pcid, ACTOR)).rejects.toMatchObject({
+        await expect(createContract(DRIVER_ID, pcid, ACTOR, AUDIT)).rejects.toMatchObject({
           statusCode: 400,
           code: 'VALIDATION_ERROR',
         });
@@ -160,13 +173,13 @@ describe('pnc-contract.service', () => {
         [contractRow({ id: 9, pcid })],
       );
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
-      const contract = await createContract(DRIVER_ID, pcid, ACTOR);
+      const contract = await createContract(DRIVER_ID, pcid, ACTOR, AUDIT);
       expect(contract.pcid).toBe(pcid);
     });
 
     it('throws 404 DRIVER_NOT_FOUND for an unknown driver', async () => {
       setupDbResults([]);
-      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR)).rejects.toMatchObject({
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toMatchObject({
         statusCode: 404,
         code: 'DRIVER_NOT_FOUND',
       });
@@ -179,7 +192,7 @@ describe('pnc-contract.service', () => {
       ['non-string', [{ key: 'pnc.local.caEnc', value: 42 }]],
     ])('throws 409 LOCAL_CA_NOT_CONFIGURED when the CA is %s', async (_label, rows) => {
       setupDbResults([{ id: DRIVER_ID }], rows);
-      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR)).rejects.toMatchObject({
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toMatchObject({
         statusCode: 409,
         code: 'LOCAL_CA_NOT_CONFIGURED',
       });
@@ -205,7 +218,7 @@ describe('pnc-contract.service', () => {
       ];
       if (provider !== undefined) rows.push({ key: 'pnc.local.emaidProviderId', value: provider });
       setupDbResults([{ id: DRIVER_ID }], rows);
-      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR)).rejects.toMatchObject({
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toMatchObject({
         statusCode: 409,
         code: 'EMAID_PREFIX_NOT_CONFIGURED',
       });
@@ -215,7 +228,7 @@ describe('pnc-contract.service', () => {
     it('creates an eMAID token and a contract bound to the normalized PCID', async () => {
       setupDbResults([{ id: DRIVER_ID }], goodSettings, [{ id: 5 }], [contractRow()]);
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
-      const contract = await createContract(DRIVER_ID, 'wmi-v 0001.x', ACTOR);
+      const contract = await createContract(DRIVER_ID, 'wmi-v 0001.x', ACTOR, AUDIT);
       expect(contract).toEqual({
         id: 5,
         driverId: DRIVER_ID,
@@ -237,6 +250,19 @@ describe('pnc-contract.service', () => {
       });
       expect(eq).toHaveBeenCalledWith('pc.id', 5);
       expect(mockDeleteToken).not.toHaveBeenCalled();
+      expect(writeAuditMock).toHaveBeenCalledWith(
+        { table: { table: 'driver_audit_log' }, idColumn: 'driver_id' },
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'pnc_contract_issued',
+          actor: 'operator',
+          actorUserId: 'usr_000000000001',
+          before: null,
+          after: { contractId: 5, emaid: 'USEVTCABCD1234', pcid: 'WMIV0001X', status: 'active' },
+        }),
+        db,
+        undefined,
+      );
     });
 
     it('retries with a new eMAID when the token is a duplicate', async () => {
@@ -245,7 +271,7 @@ describe('pnc-contract.service', () => {
         .mockRejectedValueOnce(new tokenService.DuplicateTokenError('X', 'eMAID'))
         .mockRejectedValueOnce(new tokenService.DuplicateTokenError('Y', 'eMAID'))
         .mockResolvedValueOnce({ id: TOKEN_ID } as never);
-      const contract = await createContract(DRIVER_ID, 'wmi-1', ACTOR);
+      const contract = await createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT);
       expect(contract.id).toBe(5);
       expect(mockCreateToken).toHaveBeenCalledTimes(3);
     });
@@ -253,7 +279,7 @@ describe('pnc-contract.service', () => {
     it('gives up after five duplicate eMAIDs', async () => {
       setupDbResults([{ id: DRIVER_ID }], goodSettings);
       mockCreateToken.mockRejectedValue(new tokenService.DuplicateTokenError('X', 'eMAID'));
-      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR)).rejects.toThrow(
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow(
         'Could not allocate a unique eMAID',
       );
       expect(mockCreateToken).toHaveBeenCalledTimes(5);
@@ -263,7 +289,7 @@ describe('pnc-contract.service', () => {
     it('rethrows a non-duplicate token error without retrying', async () => {
       setupDbResults([{ id: DRIVER_ID }], goodSettings);
       mockCreateToken.mockRejectedValue(new Error('db down'));
-      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR)).rejects.toThrow('db down');
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow('db down');
       expect(mockCreateToken).toHaveBeenCalledTimes(1);
       expect(db.insert).not.toHaveBeenCalled();
     });
@@ -271,14 +297,16 @@ describe('pnc-contract.service', () => {
     it('deletes the orphan eMAID token when the contract insert fails', async () => {
       setupDbResults([{ id: DRIVER_ID }], goodSettings, new Error('unique violation'));
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
-      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR)).rejects.toThrow('unique violation');
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow(
+        'unique violation',
+      );
       expect(mockDeleteToken).toHaveBeenCalledWith(TOKEN_ID, ACTOR);
     });
 
     it('deletes the eMAID token when the insert returns no row', async () => {
       setupDbResults([{ id: DRIVER_ID }], goodSettings, []);
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
-      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR)).rejects.toThrow(
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow(
         'Contract insert returned no row',
       );
       expect(mockDeleteToken).toHaveBeenCalledWith(TOKEN_ID, ACTOR);
@@ -287,7 +315,7 @@ describe('pnc-contract.service', () => {
     it('deletes the eMAID token when the inserted contract cannot be read back', async () => {
       setupDbResults([{ id: DRIVER_ID }], goodSettings, [{ id: 5 }], []);
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
-      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR)).rejects.toThrow(
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow(
         'Contract insert returned no row',
       );
       expect(mockDeleteToken).toHaveBeenCalledWith(TOKEN_ID, ACTOR);
@@ -297,7 +325,7 @@ describe('pnc-contract.service', () => {
   describe('revokeContract', () => {
     it('throws 404 PNC_CONTRACT_NOT_FOUND for an unknown contract', async () => {
       setupDbResults([]);
-      await expect(revokeContract(DRIVER_ID, 5, ACTOR)).rejects.toMatchObject({
+      await expect(revokeContract(DRIVER_ID, 5, ACTOR, AUDIT)).rejects.toMatchObject({
         statusCode: 404,
         code: 'PNC_CONTRACT_NOT_FOUND',
       });
@@ -306,7 +334,7 @@ describe('pnc-contract.service', () => {
 
     it("throws 404 PNC_CONTRACT_NOT_FOUND for another driver's contract", async () => {
       setupDbResults([contractRow({ driverId: 'drv_000000000099' })]);
-      await expect(revokeContract(DRIVER_ID, 5, ACTOR)).rejects.toMatchObject({
+      await expect(revokeContract(DRIVER_ID, 5, ACTOR, AUDIT)).rejects.toMatchObject({
         statusCode: 404,
         code: 'PNC_CONTRACT_NOT_FOUND',
       });
@@ -321,7 +349,7 @@ describe('pnc-contract.service', () => {
         [{ driverTokenId: TOKEN_ID }],
         [contractRow({ status: 'revoked', revokedAt })],
       );
-      const result = await revokeContract(DRIVER_ID, 5, ACTOR);
+      const result = await revokeContract(DRIVER_ID, 5, ACTOR, AUDIT);
       expect(result).toMatchObject({ id: 5, status: 'revoked', revokedAt });
       const update = chains.find((c) => c.kind === 'update');
       const setArg = update?.chain['set']?.mock.calls[0]?.[0] as Record<string, unknown>;
@@ -331,6 +359,17 @@ describe('pnc-contract.service', () => {
       // Only an active contract moves to revoked (revoked is terminal).
       expect(eq).toHaveBeenCalledWith('pc.status', 'active');
       expect(mockUpdateToken).toHaveBeenCalledWith(TOKEN_ID, { isActive: false }, ACTOR);
+      expect(writeAuditMock).toHaveBeenCalledWith(
+        { table: { table: 'driver_audit_log' }, idColumn: 'driver_id' },
+        expect.objectContaining({
+          entityId: DRIVER_ID,
+          action: 'pnc_contract_revoked',
+          before: expect.objectContaining({ contractId: 5, status: 'active' }),
+          after: expect.objectContaining({ contractId: 5, status: 'revoked' }),
+        }),
+        db,
+        undefined,
+      );
     });
 
     it('is idempotent: an already revoked contract does not touch the token', async () => {
@@ -339,14 +378,15 @@ describe('pnc-contract.service', () => {
         [],
         [contractRow({ status: 'revoked' })],
       );
-      const result = await revokeContract(DRIVER_ID, 5, ACTOR);
+      const result = await revokeContract(DRIVER_ID, 5, ACTOR, AUDIT);
       expect(result.status).toBe('revoked');
       expect(mockUpdateToken).not.toHaveBeenCalled();
+      expect(writeAuditMock).not.toHaveBeenCalled();
     });
 
     it('throws 404 when the contract disappears after the update', async () => {
       setupDbResults([contractRow()], [{ driverTokenId: TOKEN_ID }], []);
-      await expect(revokeContract(DRIVER_ID, 5, ACTOR)).rejects.toMatchObject({
+      await expect(revokeContract(DRIVER_ID, 5, ACTOR, AUDIT)).rejects.toMatchObject({
         statusCode: 404,
         code: 'PNC_CONTRACT_NOT_FOUND',
       });

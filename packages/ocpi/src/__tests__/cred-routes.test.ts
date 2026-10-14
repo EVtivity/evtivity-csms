@@ -21,15 +21,19 @@ function makeChain(): Record<string, unknown> {
   return chain;
 }
 
-const { mockRegistration, mockUpdate, mockUnregister, updateMock } = vi.hoisted(() => ({
-  mockRegistration: vi.fn(),
-  mockUpdate: vi.fn(),
-  mockUnregister: vi.fn(),
-  updateMock: vi.fn(),
-}));
+const { mockRegistration, mockUpdate, mockUnregister, updateMock, mockWriteAudit } = vi.hoisted(
+  () => ({
+    mockWriteAudit: vi.fn(),
+    mockRegistration: vi.fn(),
+    mockUpdate: vi.fn(),
+    mockUnregister: vi.fn(),
+    updateMock: vi.fn(),
+  }),
+);
 
 vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
+  writeAudit: mockWriteAudit,
   db: {
     select: vi.fn(() => makeChain()),
     update: updateMock,
@@ -109,6 +113,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
+  mockWriteAudit.mockReset().mockResolvedValue(undefined);
   dbResults = [];
   updateSets.length = 0;
   mockRegistration.mockReset();
@@ -466,6 +471,39 @@ describe('hubclientinfo', () => {
     expect(res.json<Envelope>()).toMatchObject({ status_code: 1000, data: null });
     expect(updateMock).toHaveBeenCalledTimes(1);
     expect(updateSets[0]).toMatchObject({ status: partnerStatus });
+  });
+
+  it('PUT audits a status change reported by the hub as a system row', async () => {
+    dbResults = [[{ id: 'opr_000000000001', status: 'connected' }], []];
+    const res = await app.inject({
+      method: 'PUT',
+      url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
+      headers: as(REGISTERED),
+      payload: { status: 'SUSPENDED' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    expect(mockWriteAudit.mock.calls[0]?.[1]).toEqual({
+      entityId: 'opr_000000000001',
+      entityIdSnapshot: 'opr_000000000001',
+      action: 'updated',
+      actor: 'system',
+      actorLabel: 'ocpi-hubclientinfo',
+      before: { status: 'connected' },
+      after: { status: 'suspended', hubStatus: 'SUSPENDED' },
+      notes: 'Status reported by the hub (PUT hubclientinfo)',
+    });
+  });
+
+  it('PUT writes no audit row when the hub reports the stored status', async () => {
+    dbResults = [[{ id: 'opr_000000000001', status: 'connected' }], []];
+    await app.inject({
+      method: 'PUT',
+      url: '/ocpi/2.2.1/hubclientinfo/NL/ABC',
+      headers: as(REGISTERED),
+      payload: { status: 'CONNECTED' },
+    });
+    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('PUT succeeds without an update when the partner row is unknown', async () => {

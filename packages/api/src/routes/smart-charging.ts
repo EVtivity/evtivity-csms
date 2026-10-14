@@ -372,7 +372,13 @@ const createTemplateBody = z
         { message: 'schedulePeriods must be ordered by strictly increasing startPeriod' },
       )
       .describe('Charging schedule periods (ordered by ascending startPeriod)'),
-    startSchedule: z.string().datetime().optional().describe('Schedule start time (ISO 8601)'),
+    startSchedule: z
+      .string()
+      .datetime()
+      .optional()
+      .describe(
+        'Schedule start time (ISO 8601). Required: Absolute and Recurring profiles carry a start (OCPP 2.1 K01.FR.40)',
+      ),
     duration: z.number().int().optional().describe('Schedule duration in seconds'),
     validFrom: z.string().datetime().optional().describe('Profile validity start (ISO 8601)'),
     validTo: z.string().datetime().optional().describe('Profile validity end (ISO 8601)'),

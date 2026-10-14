@@ -858,7 +858,13 @@ export function paymentRoutes(app: FastifyInstance): void {
     siteId: string,
     accountId: string | null,
   ): Promise<void> {
-    if (await setSitePayoutAccountId(siteId, accountId, paymentContext(request.log))) {
+    if (
+      await setSitePayoutAccountId(
+        siteId,
+        accountId,
+        paymentContext(request.log, getAuditActor(request)),
+      )
+    ) {
       await revokePayoutInvites(siteId);
     }
   }
@@ -1500,7 +1506,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof driverIdParams>;
       const result = await startDriverMethodSetup(
         { driverId: id, channel: 'web' },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       if (result.status === 'driver_not_found') {
         await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
@@ -1565,7 +1571,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           methodId: body.stripePaymentMethodId,
           adoptCustomer: true,
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       switch (result.status) {
         case 'saved':
@@ -1639,7 +1645,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           ...(browser != null ? { browser } : {}),
           adoptCustomer: true,
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       await sendSetupStepOutcome(reply, outcome, (method) => method);
     },
@@ -1671,7 +1677,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           attemptId: body.attemptId,
           details: body.details,
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       await sendSetupStepOutcome(reply, outcome, (method) => method);
     },
@@ -1697,7 +1703,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       const { id, pmId } = request.params as z.infer<typeof paymentMethodParams>;
       const result = await removeDriverMethod(
         { driverId: id, methodRowId: pmId, blockWhenInUse: false },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       if (result.status === 'not_found') {
         await reply.status(404).send({
@@ -1728,7 +1734,11 @@ export function paymentRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       const { id, pmId } = request.params as z.infer<typeof paymentMethodParams>;
-      const updated = await setDefaultDriverMethod(id, pmId);
+      const updated = await setDefaultDriverMethod(
+        id,
+        pmId,
+        paymentContext(request.log, getAuditActor(request)),
+      );
       if (updated == null) {
         await reply.status(404).send({
           error: 'Payment method not found',
@@ -1817,7 +1827,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           ...(body.amountCents != null ? { amountCents: body.amountCents } : {}),
           trigger: 'operator',
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       const recordOf = async (recordId: number | null): Promise<unknown> => {
         if (recordId == null) return null;
@@ -1921,7 +1931,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       // the hold. The platform fee is a percent of the net amount captured.
       const outcome = await captureSessionHold(
         { sessionId: id, ...(body.amountCents != null ? { amountCents: body.amountCents } : {}) },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       switch (outcome.status) {
         case 'no_hold':
@@ -2003,7 +2013,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           actorUserId: userId,
           actionReason: (full) => body.reason ?? (full ? 'Full refund' : 'Partial refund'),
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       if (outcome.status !== 'refunded') {
         await sendRefundRefusal(reply, outcome);
@@ -2149,7 +2159,7 @@ export function paymentRoutes(app: FastifyInstance): void {
           actorUserId: userId,
           actionReason: (full) => body.reason ?? (full ? 'Full refund' : 'Partial refund'),
         },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       if (outcome.status !== 'refunded') {
         await sendRefundRefusal(reply, outcome);
@@ -2265,7 +2275,7 @@ export function paymentRoutes(app: FastifyInstance): void {
       // topup_retry_<paymentId>_<captured> shared with the daily retry.
       const outcome = await retryShortfallForRecord(
         { recordId: id, actorUserId: userId },
-        paymentContext(request.log),
+        paymentContext(request.log, getAuditActor(request)),
       );
       switch (outcome.status) {
         case 'not_found':
@@ -2355,7 +2365,7 @@ export function paymentRoutes(app: FastifyInstance): void {
     },
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_PAYMENT_NOT_FOUND))) return;
-      return runPaymentReconciliation(paymentContext(request.log));
+      return runPaymentReconciliation(paymentContext(request.log, getAuditActor(request)));
     },
   );
 

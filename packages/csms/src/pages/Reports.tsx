@@ -5,14 +5,17 @@ import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { GenerateTab } from '@/components/reports/GenerateTab';
-import { HistoryTab } from '@/components/reports/HistoryTab';
+import { GeneratedReportsTab } from '@/components/reports/GeneratedReportsTab';
 import { SchedulesTab } from '@/components/reports/SchedulesTab';
 import { NeviComplianceTab } from '@/components/reports/NeviComplianceTab';
 import { SustainabilityTab } from '@/components/reports/SustainabilityTab';
+import { EntityHistoryTab } from '@/components/EntityHistoryTab';
+import { useHasPermission } from '@/lib/auth';
 
 export function Reports(): React.JSX.Element {
   const { t } = useTranslation();
   const [tab, setTab] = useTab('generate');
+  const canReadAudit = useHasPermission('audit:read');
 
   return (
     <div className="space-y-6">
@@ -27,19 +30,20 @@ export function Reports(): React.JSX.Element {
           <TabsTrigger value="schedules">{t('reports.schedulesTab')}</TabsTrigger>
           <TabsTrigger value="sustainability">{t('nav.sustainability')}</TabsTrigger>
           <TabsTrigger value="nevi">{t('nevi.title')}</TabsTrigger>
-          <TabsTrigger value="history">{t('reports.historyTab')}</TabsTrigger>
+          <TabsTrigger value="generated">{t('reports.generatedReportsTab')}</TabsTrigger>
+          {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="generate">
           <GenerateTab
             onGenerated={() => {
-              setTab('history');
+              setTab('generated');
             }}
           />
         </TabsContent>
 
-        <TabsContent value="history">
-          <HistoryTab />
+        <TabsContent value="generated">
+          <GeneratedReportsTab />
         </TabsContent>
 
         <TabsContent value="schedules">
@@ -53,6 +57,27 @@ export function Reports(): React.JSX.Element {
         <TabsContent value="nevi">
           <NeviComplianceTab />
         </TabsContent>
+
+        {canReadAudit && (
+          <TabsContent value="history">
+            {/* Report schedule changes and report deletes. */}
+            <EntityHistoryTab
+              entityType="report_schedule"
+              entityId={null}
+              extraColumns={[
+                {
+                  header: t('common.name'),
+                  className: 'text-sm font-medium',
+                  render: (row) => {
+                    const after = row.after as { name?: string } | null;
+                    const before = row.before as { name?: string } | null;
+                    return after?.name ?? before?.name ?? row.entityIdSnapshot;
+                  },
+                },
+              ]}
+            />
+          </TabsContent>
+        )}
       </Tabs>
     </div>
   );

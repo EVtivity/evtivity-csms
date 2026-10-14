@@ -128,14 +128,16 @@ export function createGuestSessionWorker(connection: ConnectionOptions): Worker 
     if (sessionId == null) return;
 
     const failureReason = err instanceof Error ? err.message.slice(0, 500) : 'Unknown error';
-    failExhaustedGuestCapture(sessionId, failureReason, paymentContext(log)).catch(
-      (cleanupErr: unknown) => {
-        log.error(
-          { sessionId, err: cleanupErr },
-          'Failed to clean up after exhausted guest capture retries',
-        );
-      },
-    );
+    failExhaustedGuestCapture(
+      sessionId,
+      failureReason,
+      paymentContext(log, 'guest-session-worker'),
+    ).catch((cleanupErr: unknown) => {
+      log.error(
+        { sessionId, err: cleanupErr },
+        'Failed to clean up after exhausted guest capture retries',
+      );
+    });
   });
 
   return worker;

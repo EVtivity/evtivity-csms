@@ -60,7 +60,14 @@ export function creditCdrData(
 }
 
 export type CreditCdrResult =
-  | { status: 'created'; cdrId: string; cdrData: Record<string, unknown> }
+  | {
+      status: 'created';
+      cdrId: string;
+      cdrData: Record<string, unknown>;
+      /** The charging session of the credited CDR (for its audit row). */
+      chargingSessionId: string;
+      partnerId: string;
+    }
   | { status: 'existing'; cdrId: string; cdrData: Record<string, unknown> }
   | { status: 'not_found' }
   | { status: 'is_credit' }
@@ -129,6 +136,13 @@ export async function createCreditCdr(
       isCredit: true,
       pushStatus: 'pending',
     });
-    return { status: 'created', cdrId: creditCdrId, cdrData };
+    return {
+      status: 'created',
+      cdrId: creditCdrId,
+      cdrData,
+      // Non-null: the original was selected with isNotNull(chargingSessionId).
+      chargingSessionId: original.chargingSessionId ?? '',
+      partnerId: original.partnerId,
+    };
   });
 }

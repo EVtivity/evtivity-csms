@@ -181,7 +181,11 @@ async function publishStationOffline(
 
 export async function stationOfflineSweepHandler(log: Logger): Promise<void> {
   const pubsub = getPubSub();
-  const expiryDeps = { pubsub, payments: paymentContext(log), logger: log };
+  const expiryDeps = {
+    pubsub,
+    payments: paymentContext(log, 'station-offline-sweep'),
+    logger: log,
+  };
   const result = await runStationOfflineSweep(
     {
       sql: client,

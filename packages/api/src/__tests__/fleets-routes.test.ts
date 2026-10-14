@@ -133,7 +133,8 @@ vi.mock('@evtivity/database', () => {
     drivers: {},
     chargingStations: {},
     pricingGroups: {},
-    fleetAuditLog: {},
+    fleetAuditLog: { name: 'fleet_audit_log' },
+    driverAuditLog: { name: 'driver_audit_log' },
     pricingAssignmentAuditLog: {},
     writeAudit: vi.fn().mockResolvedValue(undefined),
   };
@@ -157,6 +158,7 @@ vi.mock('../middleware/rbac.js', () => ({
 
 import { registerAuth } from '../plugins/auth.js';
 import { fleetRoutes } from '../routes/fleets.js';
+import { writeAudit } from '@evtivity/database';
 import {
   resetSiteAccessMock,
   setMockStationSites,
@@ -983,6 +985,17 @@ describe('Fleet routes - handler logic', () => {
 
       expect(response.statusCode).toBe(201);
       expect(response.json().driverId).toBe('drv_000000000001');
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        { table: { name: 'driver_audit_log' }, idColumn: 'driver_id' },
+        expect.objectContaining({
+          entityId: 'drv_000000000001',
+          action: 'fleet_assignment_changed',
+          before: null,
+          after: { fleetId: VALID_FLEET_ID },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('returns 400 for missing driverId', async () => {
@@ -1022,6 +1035,17 @@ describe('Fleet routes - handler logic', () => {
       expect(response.statusCode).toBe(200);
       expect(response.json().driverId).toBe('drv_000000000001');
       expect(mockFleetService.notifyMemberLeft).toHaveBeenCalledWith(record, expect.anything());
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        { table: { name: 'driver_audit_log' }, idColumn: 'driver_id' },
+        expect.objectContaining({
+          entityId: 'drv_000000000001',
+          action: 'fleet_assignment_changed',
+          before: { fleetId: VALID_FLEET_ID },
+          after: null,
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('returns 404 when driver not found in fleet', async () => {

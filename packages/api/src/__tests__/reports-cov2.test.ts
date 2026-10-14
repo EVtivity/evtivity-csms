@@ -50,6 +50,8 @@ vi.mock('@evtivity/database', () => ({
   },
   reports: { id: 'reports.id', reportType: 'reports.reportType', siteScope: 'reports.siteScope' },
   reportSchedules: { id: 'rs.id', siteScope: 'rs.siteScope' },
+  reportScheduleAuditLog: {},
+  writeAudit: vi.fn(() => Promise.resolve()),
   chargingStations: { id: 'cs.id', siteId: 'cs.siteId' },
   reportStatusEnum: { enumValues: ['pending', 'generating', 'completed', 'failed'] as const },
   reportFrequencyEnum: { enumValues: ['daily', 'weekly', 'monthly'] as const },

@@ -82,6 +82,10 @@ vi.mock('@evtivity/database', () => ({
   ocpiPartners: { id: 'p.id' },
   pgErrorCode: (err: unknown) => (err as { code?: string }).code,
   PG_UNIQUE_VIOLATION: '23505',
+  tariffAuditLog: {},
+  pricingGroupAuditLog: {},
+  ocpiPartnerAuditLog: {},
+  writeAudit: vi.fn(),
 }));
 
 const { publishOcpiTariffPush } = vi.hoisted(() => ({

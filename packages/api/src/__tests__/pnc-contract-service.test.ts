@@ -9,6 +9,8 @@ vi.mock('@evtivity/database', () => ({
   driverTokens: {},
   pncContracts: {},
   settings: {},
+  driverAuditLog: {},
+  writeAudit: vi.fn(),
 }));
 vi.mock('../services/token.service.js', () => ({}));
 

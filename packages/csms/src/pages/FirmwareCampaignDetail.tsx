@@ -11,14 +11,13 @@ import {
   FirmwareCampaignDetailsTab,
   type CampaignDetail,
 } from '@/components/firmware-campaign/DetailsTab';
-import { FirmwareCampaignHistoryTab } from '@/components/firmware-campaign/CampaignHistoryTab';
+import { FirmwareCampaignsTab } from '@/components/firmware-campaign/CampaignsTab';
 import { FirmwareCampaignMatchingStationsTab } from '@/components/firmware-campaign/MatchingStationsTab';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EntityHistoryTab } from '@/components/EntityHistoryTab';
 import { useTab } from '@/hooks/use-tab';
 import { api } from '@/lib/api';
-import { useHasPermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 
 const STATUS_VARIANT: Record<
@@ -33,7 +32,6 @@ const STATUS_VARIANT: Record<
 
 export function FirmwareCampaignDetail(): React.JSX.Element {
   const { t } = useTranslation();
-  const canReadAudit = useHasPermission('audit:read');
   const { id } = useParams<{ id: string }>();
   const campaignId = id ?? '';
   const [activeTab, setActiveTab] = useTab('details');
@@ -83,9 +81,7 @@ export function FirmwareCampaignDetail(): React.JSX.Element {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="details">{t('common.details')}</TabsTrigger>
-          {canReadAudit && (
-            <TabsTrigger value="history">{t('firmwareCampaigns.campaignHistory')}</TabsTrigger>
-          )}
+          <TabsTrigger value="history">{t('firmwareCampaigns.progress')}</TabsTrigger>
           <TabsTrigger value="matching" className="gap-2">
             {t('firmwareCampaigns.matchingStations')}
             <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-foreground/15 px-1.5 text-xs font-semibold">
@@ -98,7 +94,7 @@ export function FirmwareCampaignDetail(): React.JSX.Element {
           <FirmwareCampaignDetailsTab campaign={campaign} />
         </TabsContent>
         <TabsContent value="history" className="space-y-6">
-          <FirmwareCampaignHistoryTab campaignId={campaignId} />
+          <FirmwareCampaignsTab campaignId={campaignId} />
         </TabsContent>
         <TabsContent value="matching" className="space-y-6">
           <FirmwareCampaignMatchingStationsTab campaignId={campaignId} />

@@ -48,6 +48,8 @@ export type { ReservationFeeSnapshot, ReservationFeeTerms } from './lib/reservat
 export { isSupportEnabled, clearSupportCache } from './lib/support-setting.js';
 export { getPlatformFeePercent, clearPlatformFeeCache } from './lib/payment-settings.js';
 export { writeReservationAudit, reservationDiffChanged } from './lib/reservation-audit.js';
+export { writeCsmsSessionAudit } from './lib/session-csms-audit.js';
+export type { CsmsSessionAuditArgs } from './lib/session-csms-audit.js';
 export type {
   ReservationAuditAction,
   ReservationAuditActor,

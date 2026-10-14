@@ -109,7 +109,7 @@ describe('chargeReservationFee', () => {
       reason: 'Payout account not ready',
     });
     expect(m.sitePayoutReadiness).toHaveBeenCalledWith('site_1', ctx);
-    expect(m.markChargeFailed).toHaveBeenCalledWith(7, 'Payout account not ready');
+    expect(m.markChargeFailed).toHaveBeenCalledWith(7, 'Payout account not ready', ctx);
     expect(provider.chargeSavedMethod).not.toHaveBeenCalled();
   });
 
@@ -172,18 +172,21 @@ describe('chargeReservationFee', () => {
 
     expect(registry.getPaymentProvider).toHaveBeenCalledWith('stripe');
     expect(m.getSitePaymentConfig).toHaveBeenCalledWith('site_1');
-    expect(m.recordPendingCharge).toHaveBeenCalledWith({
-      chargeType: 'reservation_cancellation',
-      reservationId: 'rsv_1',
-      driverId: 'drv_1',
-      sitePaymentConfigId: 3,
-      provider: 'stripe',
-      customerId: 'cus_1',
-      methodId: 'pm_1',
-      currency: 'USD',
-      taxRate: 0.19,
-      feeRequest: { grossCents: 595, platformFeePercent: 10, payoutAccountId: 'acct_site' },
-    });
+    expect(m.recordPendingCharge).toHaveBeenCalledWith(
+      {
+        chargeType: 'reservation_cancellation',
+        reservationId: 'rsv_1',
+        driverId: 'drv_1',
+        sitePaymentConfigId: 3,
+        provider: 'stripe',
+        customerId: 'cus_1',
+        methodId: 'pm_1',
+        currency: 'USD',
+        taxRate: 0.19,
+        feeRequest: { grossCents: 595, platformFeePercent: 10, payoutAccountId: 'acct_site' },
+      },
+      ctx,
+    );
     expect(m.recordPendingCharge.mock.invocationCallOrder[0]).toBeLessThan(
       provider.chargeSavedMethod.mock.invocationCallOrder[0] ?? 0,
     );
@@ -200,11 +203,15 @@ describe('chargeReservationFee', () => {
       metadata: { reservationId: 'rsv_1', type: 'reservation_cancellation_fee' },
       idempotencyKey: 'cancellation-fee-rsv_1',
     });
-    expect(m.markChargeCaptured).toHaveBeenCalledWith(7, {
-      provider: 'stripe',
-      paymentId: 'pi_fee',
-      amountCents: 595,
-    });
+    expect(m.markChargeCaptured).toHaveBeenCalledWith(
+      7,
+      {
+        provider: 'stripe',
+        paymentId: 'pi_fee',
+        amountCents: 595,
+      },
+      ctx,
+    );
     expect(result).toEqual({
       status: 'charged',
       paymentRecordId: 7,
@@ -255,6 +262,7 @@ describe('chargeReservationFee', () => {
     expect(m.markChargeCaptured).toHaveBeenCalledWith(
       7,
       expect.objectContaining({ amountCents: 357 }),
+      ctx,
     );
   });
 
@@ -334,6 +342,7 @@ describe('chargeReservationFee', () => {
     expect(m.getSitePaymentConfig).not.toHaveBeenCalled();
     expect(m.recordPendingCharge).toHaveBeenCalledWith(
       expect.objectContaining({ sitePaymentConfigId: null }),
+      ctx,
     );
     expect(provider.chargeSavedMethod).toHaveBeenCalledWith(
       expect.objectContaining({ payoutAccountId: null }),
@@ -370,7 +379,7 @@ describe('chargeReservationFee', () => {
       paymentRecordId: 7,
       reason: 'Your card was declined.',
     });
-    expect(m.markChargeFailed).toHaveBeenCalledWith(7, 'Your card was declined.');
+    expect(m.markChargeFailed).toHaveBeenCalledWith(7, 'Your card was declined.', ctx);
     expect(m.markChargeCaptured).not.toHaveBeenCalled();
   });
 

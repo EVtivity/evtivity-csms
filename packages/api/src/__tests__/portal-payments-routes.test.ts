@@ -24,7 +24,11 @@ const {
   mockSetDefaultDriverMethod: vi.fn(),
   mockSubmitDriverMethodSetup: vi.fn(),
   mockContinueDriverMethodSetup: vi.fn(),
-  mockPaymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
+  mockPaymentContext: vi.fn((logger: unknown, actor: unknown) => ({
+    registry: 'registry',
+    logger,
+    actor,
+  })),
   mockGetMobileAppConfig: vi.fn(),
 }));
 
@@ -56,7 +60,12 @@ const VALID_ROLE_ID = 'rol_000000000001';
 const DRIVER_ID = 'drv_000000000001';
 const VALID_PM_ID = '1';
 
-const CTX = { registry: 'registry', logger: expect.anything() };
+// The payment context names the request's actor on the audit rows it writes.
+const CTX = {
+  registry: 'registry',
+  logger: expect.anything(),
+  actor: expect.objectContaining({ actor: 'driver' }),
+};
 
 function methodRow(overrides: Partial<DriverPaymentMethod> = {}): DriverPaymentMethod {
   return {
@@ -747,7 +756,13 @@ describe('Portal payment routes - handler logic', () => {
       expect(body).toMatchObject({ id: '1', isDefault: true });
       expect(body).not.toHaveProperty('stripeCustomerId');
       expect(body).not.toHaveProperty('providerCustomerId');
-      expect(mockSetDefaultDriverMethod).toHaveBeenCalledWith(DRIVER_ID, 1);
+      expect(mockSetDefaultDriverMethod).toHaveBeenCalledWith(
+        DRIVER_ID,
+        1,
+        expect.objectContaining({
+          actor: expect.objectContaining({ actor: 'driver', actorDriverId: DRIVER_ID }),
+        }),
+      );
     });
   });
 });

@@ -9,8 +9,11 @@ import type { Logger } from 'pino';
 // queued in call order: settings SELECT, expired-station UPDATE, expired-CA
 // UPDATE, critical-certs SELECT, warning-certs SELECT.
 const mockClient = vi.fn();
+const mockWriteAudit = vi.fn().mockResolvedValue(undefined);
 vi.mock('@evtivity/database', () => ({
   client: (...args: unknown[]) => mockClient(...args),
+  certificateAuditLog: 'certificate_audit_log',
+  writeAudit: (...args: unknown[]) => mockWriteAudit(...args) as unknown,
 }));
 
 const mockPublish = vi.fn().mockResolvedValue(undefined);
@@ -97,6 +100,58 @@ describe('certificateExpirationCheckHandler', () => {
     expect(log.info).toHaveBeenCalledWith({ count: 2 }, 'Marked expired station certificates');
     expect(log.info).toHaveBeenCalledWith({ count: 1 }, 'Marked expired CA certificates');
     expect(mockPublish).not.toHaveBeenCalled();
+    expect(mockWriteAudit).toHaveBeenCalledTimes(3);
+  });
+
+  it('audits each certificate it marked expired as a system row, without the body', async () => {
+    const validTo = new Date('2026-10-01T00:00:00.000Z');
+    mockClient
+      .mockResolvedValueOnce(settingsRows(true))
+      .mockResolvedValueOnce([
+        {
+          id: 11,
+          station_id: 'sta_1',
+          certificate_type: 'V2GCertificate',
+          serial_number: 'AB01',
+          valid_to: validTo,
+        },
+      ])
+      .mockResolvedValueOnce([
+        { id: 3, certificate_type: 'CSMSRootCertificate', serial_number: null, valid_to: validTo },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    await mod.certificateExpirationCheckHandler(log);
+
+    expect(mockWriteAudit).toHaveBeenNthCalledWith(
+      1,
+      { table: 'certificate_audit_log', idColumn: 'certificate_id' },
+      {
+        entityId: '11',
+        entityIdSnapshot: '11',
+        action: 'expired',
+        actor: 'system',
+        actorLabel: 'certificate-expiration-check',
+        before: { status: 'active' },
+        after: {
+          status: 'expired',
+          table: 'station_certificates',
+          certificateType: 'V2GCertificate',
+          serialNumber: 'AB01',
+          validTo: '2026-10-01T00:00:00.000Z',
+          stationId: 'sta_1',
+        },
+      },
+      undefined,
+      log,
+    );
+    expect(mockWriteAudit.mock.calls[1]?.[1]).toMatchObject({
+      entityId: '3',
+      action: 'expired',
+      after: { table: 'pki_ca_certificates', certificateType: 'CSMSRootCertificate' },
+    });
+    expect(mockWriteAudit.mock.calls[1]?.[1]).not.toHaveProperty('after.stationId');
   });
 
   it('does not log expiry counts when no certs are expired', async () => {

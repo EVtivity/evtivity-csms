@@ -19,6 +19,13 @@ vi.mock('react-i18next', () => ({
 }));
 
 const access = vi.hoisted(() => ({ canWrite: true }));
+// Mocked so the test can prove the editor renders no History list of its own.
+vi.mock('@/components/EntityHistoryTab', () => ({
+  EntityHistoryTab: ({ entityType, entityId }: { entityType: string; entityId: string | null }) => (
+    <div data-testid="entity-history">{`${entityType}:${entityId ?? '*'}`}</div>
+  ),
+}));
+
 vi.mock('@/lib/auth', () => ({ useHasCompanyWidePermission: () => access.canWrite }));
 
 vi.mock('@/lib/api', () => ({
@@ -79,6 +86,8 @@ describe('StationMessageSettings', () => {
     await waitFor(() => {
       expect(body().value).toBe('DE verfügbar');
     });
+    // Template changes are listed in the Settings History tab, not under the editor.
+    expect(screen.queryByTestId('entity-history')).toBeNull();
     await waitFor(() => {
       expect(postMock).toHaveBeenCalledWith(
         '/v1/station-message-templates/preview',

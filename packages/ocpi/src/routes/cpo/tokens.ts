@@ -1,9 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { eq, and } from 'drizzle-orm';
-import { db, ocpiExternalTokens } from '@evtivity/database';
+import { db, ocpiExternalTokens, ocpiPartnerAuditLog, writeAudit } from '@evtivity/database';
 import { ocpiSuccess, ocpiError, OcpiStatusCode } from '../../lib/ocpi-response.js';
 import { ocpiAuthenticate } from '../../middleware/ocpi-auth.js';
 import type { OcpiVersion, OcpiToken, OcpiAuthorizationInfo } from '../../types/ocpi.js';
@@ -20,6 +20,36 @@ function isValidToken(body: unknown): body is OcpiToken {
     typeof obj['whitelist'] === 'string' &&
     typeof obj['country_code'] === 'string' &&
     typeof obj['party_id'] === 'string'
+  );
+}
+
+/**
+ * The `ocpi_partner.token_received` row of a token the partner pushed (PUT or
+ * PATCH), on the pushing partner: actor `system`, label `ocpi-tokens`. Only
+ * the token's identity and authorization fields, never the full token object.
+ * Fail-open (writeAudit).
+ */
+async function auditTokenReceived(
+  partnerId: string,
+  log: FastifyBaseLogger,
+  token: { uid: string; method: 'PUT' | 'PATCH'; created: boolean },
+  before: Record<string, unknown> | null,
+  after: Record<string, unknown>,
+): Promise<void> {
+  await writeAudit(
+    { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+    {
+      entityId: partnerId,
+      entityIdSnapshot: partnerId,
+      action: 'token_received',
+      actor: 'system',
+      actorLabel: 'ocpi-tokens',
+      before,
+      after: { uid: token.uid, ...after },
+      notes: `${token.method} token ${token.uid}${token.created ? ' (new)' : ''}`,
+    },
+    db,
+    log,
   );
 }
 
@@ -112,7 +142,12 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
       // who slipped a row past the namespace check above cannot subsequently
       // hijack the update path either.
       const existing = await db
-        .select({ id: ocpiExternalTokens.id })
+        .select({
+          id: ocpiExternalTokens.id,
+          tokenType: ocpiExternalTokens.tokenType,
+          isValid: ocpiExternalTokens.isValid,
+          whitelist: ocpiExternalTokens.whitelist,
+        })
         .from(ocpiExternalTokens)
         .where(
           and(
@@ -147,6 +182,17 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
           tokenData: body,
         });
       }
+
+      const previous = existing[0];
+      await auditTokenReceived(
+        partner.partnerId,
+        request.log,
+        { uid: token_uid, method: 'PUT', created: previous == null },
+        previous != null
+          ? { type: previous.tokenType, valid: previous.isValid, whitelist: previous.whitelist }
+          : null,
+        { type: body.type, valid: body.valid, whitelist: body.whitelist },
+      );
 
       return ocpiSuccess(null);
     },
@@ -230,6 +276,18 @@ function registerCpoTokenRoutes(app: FastifyInstance, version: OcpiVersion): voi
         .update(ocpiExternalTokens)
         .set(updateFields)
         .where(eq(ocpiExternalTokens.id, existing.id));
+
+      await auditTokenReceived(
+        partner.partnerId,
+        request.log,
+        { uid: token_uid, method: 'PATCH', created: false },
+        { type: existing.tokenType, valid: existing.isValid, whitelist: existing.whitelist },
+        {
+          type: updateFields['tokenType'] ?? existing.tokenType,
+          valid: updateFields['isValid'] ?? existing.isValid,
+          whitelist: updateFields['whitelist'] ?? existing.whitelist,
+        },
+      );
 
       return ocpiSuccess(null);
     },

@@ -50,6 +50,12 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', async () => ({
+  writeAudit: vi.fn(() => Promise.resolve()),
+  userAuditLog: { _table: 'user_audit_log' },
+  driverAuditLog: { _table: 'driver_audit_log' },
+  stationAuditLog: { _table: 'station_audit_log' },
+  sessionAuditLog: { _table: 'session_audit_log' },
+  apiKeyAuditLog: { _table: 'api_key_audit_log' },
   isStationLevelUnavailable: (
     await vi.importActual<typeof import('../../../database/src/lib/station-status.js')>(
       '../../../database/src/lib/station-status.js',
@@ -186,7 +192,7 @@ import { isStationChargingFree, resolveStationTariff } from '@evtivity/database'
 import { isEvseInReservationBuffer } from '../lib/reservation-buffer.js';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import { triggerAndWaitForStatus } from '../lib/station-status-check.js';
-import { db } from '@evtivity/database';
+import { db, writeAudit } from '@evtivity/database';
 import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
 import { config as apiConfig } from '../lib/config.js';
 
@@ -478,8 +484,11 @@ describe('Portal guest routes - handler logic', () => {
         [], // active reservation gate (no reservation)
         [], // evse active session check (none)
         [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
+        [], // guest session insert
+        [{ id: 'sta_000000000001' }], // station lookup of the start audit row
       );
       vi.mocked(isStationChargingFree).mockResolvedValue(true);
+      vi.mocked(writeAudit).mockClear();
 
       const response = await app.inject({
         method: 'POST',
@@ -491,6 +500,18 @@ describe('Portal guest routes - handler logic', () => {
       // A guest has no driver and no reservation; the site's free vend comes first.
       expect(vi.mocked(isStationChargingFree)).toHaveBeenCalledWith(
         { stationUuid: 'sta_000000000001', driverUuid: null, reserved: false, freeVend: false },
+        expect.anything(),
+      );
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'station_id' }),
+        expect.objectContaining({
+          entityId: 'sta_000000000001',
+          action: 'command_dispatched',
+          actor: 'system',
+          actorLabel: 'guest',
+          after: expect.objectContaining({ action: 'RequestStartTransaction', evseId: 1 }),
+        }),
+        expect.anything(),
         expect.anything(),
       );
     });
@@ -1177,10 +1198,13 @@ describe('Portal guest routes - handler logic', () => {
             status: 'charging',
             chargingSessionId: 'ses_000000000001',
             stationOcppId: 'CS-001',
+            evseId: 1,
           },
         ],
         [{ transactionId: 'tx-456' }],
+        [{ id: 'sta_000000000001' }], // station lookup of the audit row
       );
+      vi.mocked(writeAudit).mockClear();
       const response = await app.inject({
         method: 'POST',
         url: '/portal/guest/stop/abc123def456abc12345',
@@ -1195,6 +1219,24 @@ describe('Portal guest routes - handler logic', () => {
         action: 'RequestStopTransaction',
         payload: { transactionId: 'tx-456' },
       });
+      // A guest stop is on the station history as a system action labelled guest.
+      expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+        expect.objectContaining({ idColumn: 'station_id' }),
+        expect.objectContaining({
+          entityId: 'sta_000000000001',
+          action: 'command_dispatched',
+          actor: 'system',
+          actorLabel: 'guest',
+          after: {
+            action: 'RequestStopTransaction',
+            sessionId: 'ses_000000000001',
+            evseId: 1,
+            outcome: 'sent',
+          },
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
   });
 

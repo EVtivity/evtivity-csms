@@ -103,6 +103,7 @@ vi.mock('@evtivity/database', () => {
       variableInstance: 'variableInstance',
     },
     stationAuditLog: {},
+    localAuthListAuditLog: {},
     writeAudit: vi.fn().mockResolvedValue(undefined),
   };
 });

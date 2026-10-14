@@ -215,18 +215,21 @@ export async function chargeReservationFee(
 
   // The request is stored with the record: a resume after a crash sends the
   // same parameters with the same key, which the provider requires (G11).
-  const recordId = await recordPendingCharge({
-    chargeType: input.type,
-    reservationId: input.reservationId,
-    driverId: input.driverId,
-    sitePaymentConfigId: site?.configId ?? null,
-    provider: provider.id,
-    customerId,
-    methodId,
-    currency,
-    taxRate,
-    feeRequest: { grossCents: charge.grossCents, platformFeePercent, payoutAccountId },
-  });
+  const recordId = await recordPendingCharge(
+    {
+      chargeType: input.type,
+      reservationId: input.reservationId,
+      driverId: input.driverId,
+      sitePaymentConfigId: site?.configId ?? null,
+      provider: provider.id,
+      customerId,
+      methodId,
+      currency,
+      taxRate,
+      feeRequest: { grossCents: charge.grossCents, platformFeePercent, payoutAccountId },
+    },
+    ctx,
+  );
   if (recordId == null) {
     const existing = await findReservationCharge(input.reservationId, input.type);
     return { status: 'duplicate', paymentRecordId: existing ?? 0 };
@@ -273,7 +276,7 @@ async function chargeRecordedFee(
       ? await sitePayoutReadiness(input.siteId, ctx)
       : 'none';
   if (readiness === 'not_ready') {
-    await markChargeFailed(recordId, PAYOUT_NOT_READY_FAILURE);
+    await markChargeFailed(recordId, PAYOUT_NOT_READY_FAILURE, ctx);
     await auditFee(input, ctx, {
       kind: 'failed',
       reason: 'provider_error',
@@ -304,7 +307,7 @@ async function chargeRecordedFee(
     paymentId = result.paymentId;
   } catch (err) {
     const reason = errorMessage(err, 'Unknown payment error');
-    await markChargeFailed(recordId, reason);
+    await markChargeFailed(recordId, reason, ctx);
     await auditFee(input, ctx, {
       kind: 'failed',
       reason: err instanceof PaymentDeclinedError ? 'declined' : 'provider_error',
@@ -315,11 +318,15 @@ async function chargeRecordedFee(
   }
 
   if (
-    !(await markChargeCaptured(recordId, {
-      provider: provider.id,
-      paymentId,
-      amountCents: charge.grossCents,
-    }))
+    !(await markChargeCaptured(
+      recordId,
+      {
+        provider: provider.id,
+        paymentId,
+        amountCents: charge.grossCents,
+      },
+      ctx,
+    ))
   ) {
     ctx.logger.error(
       { paymentRecordId: recordId, paymentId },
@@ -460,7 +467,7 @@ export async function resumeStaleReservationFees(
     try {
       if (record.createdAt < keyWindowStart) {
         const reason = `No provider answer within ${String(RESERVATION_FEE_RESUME_MAX_HOURS)} hours; check the provider for a payment with the key ${key}`;
-        if (await markChargeFailed(record.id, reason)) {
+        if (await markChargeFailed(record.id, reason, ctx)) {
           result.expired++;
           await auditFee(
             {

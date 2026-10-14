@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { randomUUID } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, and, count, sql, inArray, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
@@ -60,6 +60,7 @@ import { siteInScope } from '../lib/site-scope.js';
 import type { JwtPayload } from '../plugins/auth.js';
 import { generateStationPassword, tryParseJson } from '@evtivity/lib';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { auditStationChange } from '../lib/station-audit.js';
 import {
   initialStationPassword,
   changeStationPassword,
@@ -85,6 +86,28 @@ async function isCssStationAccessible(stationId: string, userId: string): Promis
     .where(eq(chargingStations.stationId, stationId))
     .limit(1);
   return siteInScope(siteIds, cs?.siteId);
+}
+
+/**
+ * Audits a simulator change on the paired charging station. A simulator row
+ * without a charging_stations row has no station entity to audit.
+ */
+async function auditCssStation(
+  request: FastifyRequest,
+  stationId: string,
+  enabled: boolean | null,
+  notes: string,
+): Promise<void> {
+  const [cs] = await db
+    .select({ id: chargingStations.id })
+    .from(chargingStations)
+    .where(eq(chargingStations.stationId, stationId))
+    .limit(1);
+  if (cs == null) return;
+  await auditStationChange(request, cs.id, 'simulator_toggled', {
+    after: enabled == null ? { simulator: 'deleted' } : { simulatorEnabled: enabled },
+    notes,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1248,19 +1271,24 @@ export function cssRoutes(app: FastifyInstance): void {
       // and an incomplete cssStations setup.
       const result = await db.transaction(async (tx) => {
         // Ensure a charging_stations row exists, marked as simulator.
+        let chargingStationId = existingCs?.id ?? null;
         if (existingCs == null) {
-          await tx.insert(chargingStations).values({
-            stationId: body.stationId,
-            siteId: body.siteId ?? null,
-            model: body.model ?? 'CSS-1000',
-            serialNumber: body.serialNumber ?? `SN-${body.stationId}`,
-            firmwareVersion: body.firmwareVersion ?? '1.0.0',
-            securityProfile: body.securityProfile ?? 1,
-            ocppProtocol: body.ocppProtocol ?? 'ocpp1.6',
-            basicAuthPasswordHash: newStationPasswordHash,
-            isSimulator: true,
-            onboardingStatus: 'accepted',
-          });
+          const [created] = await tx
+            .insert(chargingStations)
+            .values({
+              stationId: body.stationId,
+              siteId: body.siteId ?? null,
+              model: body.model ?? 'CSS-1000',
+              serialNumber: body.serialNumber ?? `SN-${body.stationId}`,
+              firmwareVersion: body.firmwareVersion ?? '1.0.0',
+              securityProfile: body.securityProfile ?? 1,
+              ocppProtocol: body.ocppProtocol ?? 'ocpp1.6',
+              basicAuthPasswordHash: newStationPasswordHash,
+              isSimulator: true,
+              onboardingStatus: 'accepted',
+            })
+            .returning({ id: chargingStations.id });
+          chargingStationId = created?.id ?? null;
         } else if (!existingCs.isSimulator) {
           await tx
             .update(chargingStations)
@@ -1315,8 +1343,38 @@ export function cssRoutes(app: FastifyInstance): void {
         // the just-inserted rows.
         const evses = await tx.select().from(cssEvses).where(eq(cssEvses.cssStationId, station.id));
 
-        return { station, evses };
+        return { station, evses, chargingStationId };
       });
+
+      if (result.chargingStationId != null) {
+        await auditStationChange(
+          request,
+          result.chargingStationId,
+          existingCs == null ? 'created' : 'updated',
+          {
+            before: existingCs == null ? null : { isSimulator: existingCs.isSimulator },
+            after: {
+              stationId: body.stationId,
+              isSimulator: true,
+              simulator: {
+                targetUrl: body.targetUrl,
+                sourceType: body.sourceType ?? 'api',
+                evseCount: result.evses.length,
+              },
+              ...(existingCs == null
+                ? {
+                    siteId: body.siteId ?? null,
+                    model: body.model ?? 'CSS-1000',
+                    ocppProtocol: body.ocppProtocol ?? 'ocpp1.6',
+                    securityProfile: body.securityProfile ?? 1,
+                  }
+                : {}),
+            },
+            notes:
+              existingCs == null ? 'Simulator station created' : 'Simulator paired to the station',
+          },
+        );
+      }
 
       return reply.status(201).send({ ...publicCssStation(result.station), evses: result.evses });
     },
@@ -1480,7 +1538,11 @@ export function cssRoutes(app: FastifyInstance): void {
       }
 
       const [existing] = await db
-        .select({ id: cssStations.id })
+        .select({
+          id: cssStations.id,
+          targetUrl: cssStations.targetUrl,
+          enabled: cssStations.enabled,
+        })
         .from(cssStations)
         .where(eq(cssStations.stationId, stationId));
 
@@ -1489,7 +1551,13 @@ export function cssRoutes(app: FastifyInstance): void {
       }
 
       const [pairedCs] = await db
-        .select({ id: chargingStations.id })
+        .select({
+          id: chargingStations.id,
+          ocppProtocol: chargingStations.ocppProtocol,
+          model: chargingStations.model,
+          serialNumber: chargingStations.serialNumber,
+          firmwareVersion: chargingStations.firmwareVersion,
+        })
         .from(chargingStations)
         .where(eq(chargingStations.stationId, stationId));
 
@@ -1550,6 +1618,36 @@ export function cssRoutes(app: FastifyInstance): void {
       if (updated == null) {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
+
+      // Changed fields only. The password and security profile are audited by
+      // the station security service; certificates and keys are recorded as
+      // changed, never by value.
+      if (pairedCs != null) {
+        const before: Record<string, unknown> = {};
+        const after: Record<string, unknown> = {};
+        const record = (key: string, prev: unknown, next: unknown): void => {
+          if (next !== undefined && prev !== next) {
+            before[key] = prev;
+            after[key] = next;
+          }
+        };
+        record('ocppProtocol', pairedCs.ocppProtocol, body.ocppProtocol);
+        record('model', pairedCs.model, body.model);
+        record('serialNumber', pairedCs.serialNumber, body.serialNumber);
+        record('firmwareVersion', pairedCs.firmwareVersion, body.firmwareVersion);
+        record('simulatorTargetUrl', existing.targetUrl, body.targetUrl);
+        record('simulatorEnabled', existing.enabled, body.enabled);
+        for (const key of ['clientCert', 'clientKey', 'caCert'] as const) {
+          if (body[key] !== undefined) after[`${key}Changed`] = true;
+        }
+        if (Object.keys(after).length > 0) {
+          await auditStationChange(request, pairedCs.id, 'updated', {
+            before,
+            after,
+            notes: 'Simulator station updated',
+          });
+        }
+      }
       return publicCssStation(updated);
     },
   );
@@ -1589,6 +1687,7 @@ export function cssRoutes(app: FastifyInstance): void {
       }
 
       await db.delete(cssStations).where(eq(cssStations.id, existing.id));
+      await auditCssStation(request, stationId, null, 'Simulator removed from the station');
 
       return reply.status(204).send();
     },
@@ -1637,6 +1736,7 @@ export function cssRoutes(app: FastifyInstance): void {
       if (updated == null) {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
+      await auditCssStation(request, stationId, true, 'Simulator enabled');
       return publicCssStation(updated);
     },
   );
@@ -1684,6 +1784,7 @@ export function cssRoutes(app: FastifyInstance): void {
       if (updated == null) {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
+      await auditCssStation(request, stationId, false, 'Simulator disabled');
       return publicCssStation(updated);
     },
   );

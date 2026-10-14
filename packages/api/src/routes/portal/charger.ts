@@ -22,6 +22,7 @@ import {
   resolveStationPricing,
   isSplitBillingEnabled,
   hasPaidTariff,
+  writeCsmsSessionAudit,
 } from '@evtivity/database';
 import { decryptString, notificationMoney, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import { config as apiConfig } from '../../lib/config.js';
@@ -82,6 +83,8 @@ import { dispatchDriverNotification } from '@evtivity/lib';
 import { ALL_TEMPLATES_DIRS } from '@evtivity/services/template-dirs';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 import { driverBillingSchema, toDriverBilling } from '../../lib/portal-billing.js';
+import { getAuditActor } from '../../lib/audit-actor.js';
+import { commandOutcome, recordStationCommandAudit } from '../../lib/station-command-audit.js';
 
 // The seeded default map view (`googleMaps.default*` in seed.ts and migration
 // 0001): the center of the contiguous United States. Used when a row is missing
@@ -2193,7 +2196,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
             siteId: station.siteId ?? null,
             trigger: 'portal_start',
           },
-          paymentContext(request.log),
+          paymentContext(request.log, getAuditActor(request)),
         );
         if (hold.outcome === 'declined' || hold.outcome === 'record_failed') {
           const declined = hold.outcome === 'declined';
@@ -2236,12 +2239,36 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         remoteStartId,
         idToken: startIdToken,
       });
+      await recordStationCommandAudit(
+        {
+          stationId: station.id,
+          actor: getAuditActor(request),
+          command: 'RequestStartTransaction',
+          sessionId: session.id,
+          evseId: params.evseId,
+          outcome: commandOutcome(cmdResult),
+        },
+        request.log,
+      );
 
       if (cmdResult.error != null) {
         await db
           .update(chargingSessions)
           .set({ status: 'faulted', updatedAt: new Date() })
           .where(eq(chargingSessions.id, session.id));
+        await writeCsmsSessionAudit(
+          {
+            sessionId: session.id,
+            action: 'faulted',
+            actor: 'system',
+            actorLabel: 'portal-start-timeout',
+            before: { status: 'active' },
+            after: { status: 'faulted' },
+            notes: 'Station did not answer RequestStartTransaction',
+          },
+          db,
+          request.log,
+        );
         await stopTakenOverTransaction();
         void dispatchDriverNotification(
           client,
@@ -2330,6 +2357,19 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           .update(chargingSessions)
           .set({ status: 'faulted', updatedAt: new Date() })
           .where(eq(chargingSessions.id, session.id));
+        await writeCsmsSessionAudit(
+          {
+            sessionId: session.id,
+            action: 'faulted',
+            actor: 'system',
+            actorLabel: 'portal-start-rejected',
+            before: { status: 'active' },
+            after: { status: 'faulted' },
+            notes: `Station rejected RequestStartTransaction: ${cmdStatus ?? 'Unknown'}`,
+          },
+          db,
+          request.log,
+        );
         await stopTakenOverTransaction();
         // The station will not start: the hold placed above is released now
         // instead of staying open until the provider expires it (P4).
@@ -2338,7 +2378,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           await cancelOpenSessionHold(
             session.id,
             `Station rejected the start: ${cmdStatus ?? 'Unknown'}`,
-            paymentContext(request.log),
+            paymentContext(request.log, getAuditActor(request)),
           );
         } catch (err) {
           request.log.warn(
@@ -2442,6 +2482,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         .select({
           id: chargingSessions.id,
           transactionId: chargingSessions.transactionId,
+          stationDbId: chargingStations.id,
           stationOcppId: chargingStations.stationId,
           ocppProtocol: chargingStations.ocppProtocol,
         })
@@ -2467,6 +2508,16 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         session.stationOcppId,
         'RequestStopTransaction',
         { transactionId: session.transactionId },
+      );
+      await recordStationCommandAudit(
+        {
+          stationId: session.stationDbId,
+          actor: getAuditActor(request),
+          command: 'RequestStopTransaction',
+          sessionId: session.id,
+          outcome: commandOutcome(cmdResult),
+        },
+        request.log,
       );
 
       if (cmdResult.error != null) {
@@ -2849,7 +2900,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           actorDriverId: driverId,
           reason: 'driver_initiated',
           chargeFee: true,
-          payments: paymentContext(request.log),
+          payments: paymentContext(request.log, getAuditActor(request)),
           logger: request.log,
           stationOcppId: reservation.stationOcppId,
           reservationOcppId: reservation.reservationId,

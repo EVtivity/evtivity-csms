@@ -45,6 +45,7 @@ const mocks = vi.hoisted(() => {
       transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(dbRef.db)),
     },
     writeAudit: vi.fn(() => Promise.resolve()),
+    confirmSupportAttachment: vi.fn(),
   };
 });
 const dbRef = vi.hoisted((): { db: unknown } => ({ db: null }));
@@ -101,6 +102,11 @@ vi.mock('@evtivity/lib/pubsub-instance', () => ({
       return Promise.resolve();
     },
   }),
+}));
+vi.mock('../services/ai/attachments/support-attachments.js', () => ({
+  confirmSupportAttachment: mocks.confirmSupportAttachment,
+  requestSupportAttachmentUpload: vi.fn(),
+  supportAttachmentDownloadUrl: vi.fn(),
 }));
 vi.mock('../lib/driver-ai-availability.js', () => ({
   readDriverAiAvailability: () => Promise.resolve(state.availability),
@@ -419,5 +425,78 @@ describe('POST /portal/support-cases route rate limit', () => {
     expect((await post('drv_rate_a')).statusCode).toBe(429);
     // Another driver has its own bucket.
     expect((await post('drv_rate_b')).statusCode).toBe(409);
+  });
+});
+
+describe('POST /portal/support-cases/:id/messages/:messageId/attachments', () => {
+  let app: FastifyInstance;
+  let auth: string;
+  const CASE_ID = 'cas_000000000001';
+  const attachment = {
+    id: 5,
+    messageId: 3,
+    fileName: 'photo.png',
+    fileSize: 2048,
+    contentType: 'image/png',
+    createdAt: new Date('2026-10-13T10:00:00Z'),
+  };
+  const url = `/portal/support-cases/${CASE_ID}/messages/3/attachments`;
+
+  beforeAll(async () => {
+    app = Fastify();
+    await registerAuth(app);
+    app.register(async (instance) => {
+      portalSupportCaseRoutes(instance);
+    });
+    await app.ready();
+    auth = `Bearer ${app.jwt.sign({ driverId: DRIVER_ID, type: 'driver' })}`;
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  beforeEach(() => {
+    // The case is the driver's, the message the driver's own.
+    state.results = [[{ driverId: DRIVER_ID }], [{ id: 3 }]];
+    state.index = 0;
+    mocks.writeAudit.mockClear();
+    mocks.confirmSupportAttachment.mockReset();
+  });
+
+  it('audits a new attachment with the driver as actor', async () => {
+    mocks.confirmSupportAttachment.mockResolvedValue({ attachment, created: true });
+    const res = await app.inject({
+      method: 'POST',
+      url,
+      headers: { authorization: auth },
+      payload: { s3Key: 'quarantine/key' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.writeAudit).toHaveBeenCalledTimes(1);
+    expect(mocks.writeAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ idColumn: 'support_case_id' }),
+      expect.objectContaining({
+        entityId: CASE_ID,
+        action: 'attachment_added',
+        actor: 'driver',
+        actorDriverId: DRIVER_ID,
+        after: { messageId: 3, fileName: 'photo.png', fileSize: 2048, contentType: 'image/png' },
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('writes no second row when the same upload is confirmed again', async () => {
+    mocks.confirmSupportAttachment.mockResolvedValue({ attachment, created: false });
+    const res = await app.inject({
+      method: 'POST',
+      url,
+      headers: { authorization: auth },
+      payload: { s3Key: 'quarantine/key' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { sql } from 'drizzle-orm';
+import { sql, type SQL } from 'drizzle-orm';
 import { db } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 
@@ -23,15 +23,19 @@ import type { Logger } from '@evtivity/lib';
  *
  * `retentionDays <= 0` (or non-finite) is treated as "disabled, skip" --
  * the caller-side check is redundant but kept here for safety.
+ *
+ * `filter`, when given, limits the prune to the rows it matches (for example
+ * the login rows of an audit table, which keep a shorter retention).
  */
 export async function pruneOldRows(args: {
   table: string;
   cutoffColumn: string;
   retentionDays: number;
   batchSize?: number;
+  filter?: SQL;
   log: Logger;
 }): Promise<number> {
-  const { table, cutoffColumn, retentionDays, log } = args;
+  const { table, cutoffColumn, retentionDays, filter, log } = args;
   const batchSize = args.batchSize ?? 1000;
 
   if (!Number.isFinite(retentionDays) || retentionDays <= 0) {
@@ -39,6 +43,7 @@ export async function pruneOldRows(args: {
   }
 
   const cutoff = sql`NOW() - (${retentionDays} || ' days')::interval`;
+  const andFilter = filter != null ? sql` AND ${filter}` : sql``;
   let total = 0;
 
   try {
@@ -48,7 +53,7 @@ export async function pruneOldRows(args: {
         sql`
           WITH batch AS (
             SELECT id FROM ${sql.identifier(table)}
-            WHERE ${sql.identifier(cutoffColumn)} < ${cutoff}
+            WHERE ${sql.identifier(cutoffColumn)} < ${cutoff}${andFilter}
             LIMIT ${batchSize}
           )
           DELETE FROM ${sql.identifier(table)} WHERE id IN (SELECT id FROM batch)

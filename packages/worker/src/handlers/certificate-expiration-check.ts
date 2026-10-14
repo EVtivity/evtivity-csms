@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { client } from '@evtivity/database';
+import { certificateAuditLog, client, writeAudit } from '@evtivity/database';
 import type { Logger } from 'pino';
 import { publishOcppCommand } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -37,10 +37,13 @@ export async function certificateExpirationCheckHandler(log: Logger): Promise<vo
     WHERE status = 'active'
       AND valid_to IS NOT NULL
       AND valid_to < NOW()
-    RETURNING id
+    RETURNING id, station_id, certificate_type, serial_number, valid_to
   `;
   if (expiredStation.length > 0) {
     log.info({ count: expiredStation.length }, 'Marked expired station certificates');
+  }
+  for (const row of expiredStation) {
+    await auditExpired(log, 'station_certificates', row);
   }
 
   const expiredCa = await sql`
@@ -49,10 +52,13 @@ export async function certificateExpirationCheckHandler(log: Logger): Promise<vo
     WHERE status = 'active'
       AND valid_to IS NOT NULL
       AND valid_to < NOW()
-    RETURNING id
+    RETURNING id, certificate_type, serial_number, valid_to
   `;
   if (expiredCa.length > 0) {
     log.info({ count: expiredCa.length }, 'Marked expired CA certificates');
+  }
+  for (const row of expiredCa) {
+    await auditExpired(log, 'pki_ca_certificates', row);
   }
 
   // Auto-renew certs in the critical window (online OCPP 2.1 stations only)
@@ -122,4 +128,40 @@ export async function certificateExpirationCheckHandler(log: Logger): Promise<vo
   if (warningCerts.length > 0) {
     log.info({ count: warningCerts.length }, 'Notified for certs in warning window');
   }
+}
+
+/**
+ * The `certificate.expired` audit row of a certificate this run marked
+ * expired (only rows the guarded UPDATE changed). The id is the row id of its
+ * table, like the operator certificate routes; `after.table` tells a CA from
+ * a station certificate. No certificate body. Fail-open (writeAudit).
+ */
+async function auditExpired(
+  log: Logger,
+  table: 'station_certificates' | 'pki_ca_certificates',
+  row: Record<string, unknown>,
+): Promise<void> {
+  const id = String(row['id']);
+  const validTo = row['valid_to'];
+  await writeAudit(
+    { table: certificateAuditLog, idColumn: 'certificate_id' },
+    {
+      entityId: id,
+      entityIdSnapshot: id,
+      action: 'expired',
+      actor: 'system',
+      actorLabel: 'certificate-expiration-check',
+      before: { status: 'active' },
+      after: {
+        status: 'expired',
+        table,
+        certificateType: row['certificate_type'] ?? null,
+        serialNumber: row['serial_number'] ?? null,
+        validTo: validTo instanceof Date ? validTo.toISOString() : (validTo ?? null),
+        ...(row['station_id'] != null ? { stationId: row['station_id'] } : {}),
+      },
+    },
+    undefined,
+    log,
+  );
 }

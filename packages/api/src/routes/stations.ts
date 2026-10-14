@@ -33,6 +33,7 @@ import {
   toDate,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { auditStationChange } from '../lib/station-audit.js';
 import { assertProfileIdAllowed, maxExternalConstraintsIds } from '../lib/charging-profile-id.js';
 import { clearProfileSlotBeforePush } from '../lib/charging-profile-push.js';
 import { requestGhostSessionEnd } from '../lib/ghost-session-end.js';
@@ -1919,6 +1920,19 @@ export function stationRoutes(app: FastifyInstance): void {
           });
       }
 
+      await auditStationChange(request, id, 'evse_changed', {
+        after: {
+          evseId: evse.evseId,
+          connectors: connectorRows.map((c) => ({
+            connectorId: c.connectorId,
+            connectorType: c.connectorType,
+            maxPowerKw: c.maxPowerKw,
+            maxCurrentAmps: c.maxCurrentAmps,
+          })),
+        },
+        notes: `EVSE ${String(evse.evseId)} added`,
+      });
+
       await reply.status(201).send({
         evseId: evse.evseId,
         connectors: connectorRows.map((c) => ({
@@ -1996,7 +2010,12 @@ export function stationRoutes(app: FastifyInstance): void {
       // some connectors had the new values and others did not.
       const requestedConnectorIds = body.connectors.map((c) => c.connectorId);
       const existingConnectors = await db
-        .select({ connectorId: connectors.connectorId })
+        .select({
+          connectorId: connectors.connectorId,
+          connectorType: connectors.connectorType,
+          maxPowerKw: connectors.maxPowerKw,
+          maxCurrentAmps: connectors.maxCurrentAmps,
+        })
         .from(connectors)
         .where(
           and(
@@ -2041,6 +2060,34 @@ export function stationRoutes(app: FastifyInstance): void {
         .from(connectors)
         .where(eq(connectors.evseId, evse.id))
         .orderBy(connectors.connectorId);
+
+      // Audit the changed connector fields only (before from the pre-check read).
+      const auditBefore: Record<string, unknown>[] = [];
+      const auditAfter: Record<string, unknown>[] = [];
+      for (const c of body.connectors) {
+        const prev = existingConnectors.find((e) => e.connectorId === c.connectorId);
+        const next = updatedConnectors.find((u) => u.connectorId === c.connectorId);
+        if (prev == null || next == null) continue;
+        const before: Record<string, unknown> = {};
+        const after: Record<string, unknown> = {};
+        for (const key of ['connectorType', 'maxPowerKw', 'maxCurrentAmps'] as const) {
+          if (String(prev[key]) !== String(next[key])) {
+            before[key] = prev[key];
+            after[key] = next[key];
+          }
+        }
+        if (Object.keys(after).length > 0) {
+          auditBefore.push({ connectorId: c.connectorId, ...before });
+          auditAfter.push({ connectorId: c.connectorId, ...after });
+        }
+      }
+      if (auditAfter.length > 0) {
+        await auditStationChange(request, id, 'evse_changed', {
+          before: { evseId: evse.evseId, connectors: auditBefore },
+          after: { evseId: evse.evseId, connectors: auditAfter },
+          notes: `EVSE ${String(evse.evseId)} connectors updated`,
+        });
+      }
 
       return {
         evseId: evse.evseId,
@@ -2226,14 +2273,35 @@ export function stationRoutes(app: FastifyInstance): void {
         transactionId: activeSession.transactionId,
       });
 
+      const status = cmdResult.response?.['status'] as string | undefined;
+      const statusInfo = cmdResult.response?.['statusInfo'] as { reasonCode?: string } | undefined;
+      const isGhost =
+        cmdResult.error == null && status === 'Rejected' && statusInfo?.reasonCode === 'TxNotFound';
+
+      // Like the generic command routes, the dispatch is audited with its
+      // outcome whether the station accepted, refused or never answered.
+      const stopOutcome =
+        cmdResult.error != null
+          ? cmdResult.timedOut === true
+            ? 'timeout'
+            : `error: ${cmdResult.error}`
+          : (status ?? 'unknown');
+      await auditStationChange(request, id, 'command_dispatched', {
+        after: {
+          action: 'RequestStopTransaction',
+          payload: { transactionId: activeSession.transactionId },
+          sessionId: activeSession.id,
+          evseId: ocppEvseId,
+          outcome: stopOutcome,
+          ghostRecovered: isGhost,
+        },
+        notes: `RequestStopTransaction (${stopOutcome})${isGhost ? ', ghost session end requested' : ''}`,
+      });
+
       if (cmdResult.error != null) {
         await reply.status(504).send({ error: 'Station did not respond', code: 'STATION_TIMEOUT' });
         return;
       }
-
-      const status = cmdResult.response?.['status'] as string | undefined;
-      const statusInfo = cmdResult.response?.['statusInfo'] as { reasonCode?: string } | undefined;
-      const isGhost = status === 'Rejected' && statusInfo?.reasonCode === 'TxNotFound';
 
       if (isGhost) {
         // Ghost session: ended completed and billed by the OCPP server.
@@ -2391,6 +2459,21 @@ export function stationRoutes(app: FastifyInstance): void {
           });
       }
 
+      await auditStationChange(request, id, 'evse_changed', {
+        after: {
+          evseId: ocppEvseId,
+          connectors: [
+            {
+              connectorId: connector.connectorId,
+              connectorType: connector.connectorType,
+              maxPowerKw: connector.maxPowerKw,
+              maxCurrentAmps: connector.maxCurrentAmps,
+            },
+          ],
+        },
+        notes: `Connector ${String(connector.connectorId)} added to EVSE ${String(ocppEvseId)}`,
+      });
+
       await reply.status(201).send({
         connectorId: connector.connectorId,
         connectorType: connector.connectorType,
@@ -2476,6 +2559,10 @@ export function stationRoutes(app: FastifyInstance): void {
         if (siteId != null) await recordRemovedOcpiEvses(siteId, [evse.id], tx);
         await tx.delete(evses).where(eq(evses.id, evse.id));
       });
+      await auditStationChange(request, id, 'evse_changed', {
+        before: { evseId: ocppEvseId },
+        notes: `EVSE ${String(ocppEvseId)} deleted`,
+      });
       if (siteId != null) await publishOcpiLocationPush(siteId, null, request.log);
       return { status: 'deleted' };
     },
@@ -2527,7 +2614,12 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // Find the connector
       const [connector] = await db
-        .select({ id: connectors.id, status: connectors.status })
+        .select({
+          id: connectors.id,
+          status: connectors.status,
+          connectorType: connectors.connectorType,
+          maxPowerKw: connectors.maxPowerKw,
+        })
         .from(connectors)
         .where(and(eq(connectors.evseId, evse.id), eq(connectors.connectorId, ocppConnectorId)));
       if (connector == null) {
@@ -2545,6 +2637,19 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       await db.delete(connectors).where(eq(connectors.id, connector.id));
+      await auditStationChange(request, id, 'evse_changed', {
+        before: {
+          evseId: ocppEvseId,
+          connectors: [
+            {
+              connectorId: ocppConnectorId,
+              connectorType: connector.connectorType,
+              maxPowerKw: connector.maxPowerKw,
+            },
+          ],
+        },
+        notes: `Connector ${String(ocppConnectorId)} deleted from EVSE ${String(ocppEvseId)}`,
+      });
       return { status: 'deleted' };
     },
   );
@@ -5059,6 +5164,16 @@ export function stationRoutes(app: FastifyInstance): void {
         }
       }
 
+      // Like the generic command routes, the dispatch is audited with its
+      // outcome whether the station accepted, refused or never answered.
+      const clearOutcome = accepted
+        ? 'Accepted'
+        : ((lastResponse?.['status'] as string | undefined) ?? firstError ?? 'unknown');
+      await auditStationChange(request, id, 'command_dispatched', {
+        after: { action: 'ClearChargingProfile', payload: payloads, outcome: clearOutcome },
+        notes: `ClearChargingProfile (${clearOutcome})`,
+      });
+
       if (lastResponse == null && firstError != null) {
         await reply.status(502).send({ error: firstError, code: 'OCPP_COMMAND_FAILED' });
         return;
@@ -5848,6 +5963,22 @@ export function stationRoutes(app: FastifyInstance): void {
         )
         .returning();
 
+      // The rule row exists whatever the station answered (active or error).
+      await auditStationChange(request, id, 'monitoring_changed', {
+        after: {
+          ruleId: rule.id,
+          component: body.component,
+          variable: body.variable,
+          type: body.type,
+          value: String(body.value),
+          severity: body.severity,
+          status: outcome.status,
+          monitoringId: outcome.monitoringId,
+          errorInfo: outcome.errorInfo,
+        },
+        notes: `Monitoring rule ${String(rule.id)} created (${outcome.status})`,
+      });
+
       if (outcome.status === 'active') {
         return reply.status(201).send(stored ?? rule);
       }
@@ -5973,6 +6104,21 @@ export function stationRoutes(app: FastifyInstance): void {
         .update(variableMonitoringRules)
         .set({ status: 'cleared', updatedAt: new Date() })
         .where(eq(variableMonitoringRules.id, ruleId));
+
+      await auditStationChange(request, id, 'monitoring_changed', {
+        before: {
+          ruleId: rule.id,
+          component: rule.component,
+          variable: rule.variable,
+          type: rule.type,
+          value: rule.value,
+          severity: rule.severity,
+          status: rule.status,
+          monitoringId: rule.monitoringId,
+        },
+        after: { ruleId: rule.id, status: 'cleared' },
+        notes: `Monitoring rule ${String(rule.id)} cleared`,
+      });
 
       return reply.status(204).send();
     },
@@ -6115,12 +6261,29 @@ export function stationRoutes(app: FastifyInstance): void {
           acknowledgedBy: userId,
         })
         .where(and(eq(eventAlerts.id, alertId), eq(eventAlerts.stationId, id)))
-        .returning({ id: eventAlerts.id });
+        .returning({
+          id: eventAlerts.id,
+          component: eventAlerts.component,
+          variable: eventAlerts.variable,
+          severity: eventAlerts.severity,
+          acknowledgedAt: eventAlerts.acknowledgedAt,
+        });
 
       if (updated == null) {
         await reply.status(404).send({ error: 'Alert not found', code: 'ALERT_NOT_FOUND' });
         return;
       }
+
+      await auditStationChange(request, id, 'alert_acknowledged', {
+        after: {
+          alertId: updated.id,
+          component: updated.component,
+          variable: updated.variable,
+          severity: updated.severity,
+          acknowledgedAt: updated.acknowledgedAt,
+        },
+        notes: `Event alert ${String(updated.id)} acknowledged`,
+      });
 
       return { success: true as const };
     },

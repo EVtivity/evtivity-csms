@@ -197,7 +197,11 @@ const {
     mockRevokePayoutInvites: vi.fn(),
     mockGetPaymentProvider: vi.fn(),
     mockClearPaymentCaches: vi.fn(),
-    mockPaymentContext: vi.fn((logger: unknown) => ({ registry: 'registry', logger })),
+    mockPaymentContext: vi.fn((logger: unknown, actor: unknown) => ({
+      registry: 'registry',
+      logger,
+      actor,
+    })),
     MockPaymentProviderNotConfiguredError,
   };
 });
@@ -263,7 +267,12 @@ import { getUserSiteIds } from '../lib/site-access.js';
 import { resetSiteAccessMock, setMockUserSiteIds } from './helpers/site-access-mock.js';
 
 /** The payment context the routes build from the request logger. */
-const CTX = { registry: 'registry', logger: expect.anything() };
+// The payment context names the request's actor on the audit rows it writes.
+const CTX = {
+  registry: 'registry',
+  logger: expect.anything(),
+  actor: expect.objectContaining({ actor: 'operator' }),
+};
 
 function paymentRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -1112,7 +1121,11 @@ describe('Payment routes - handler logic', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().isDefault).toBe(true);
-      expect(mockSetDefaultDriverMethod).toHaveBeenCalledWith(VALID_DRIVER_ID, 1);
+      expect(mockSetDefaultDriverMethod).toHaveBeenCalledWith(
+        VALID_DRIVER_ID,
+        1,
+        expect.objectContaining({ actor: expect.objectContaining({ actor: 'operator' }) }),
+      );
     });
 
     it('returns 404 when payment method not found', async () => {

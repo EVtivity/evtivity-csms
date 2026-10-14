@@ -151,10 +151,14 @@ describe('settleTransactionEnded', () => {
     sqlResults = [[sessionRow], [endedSessionRow('completed')], []];
     mockSettleSessionPayment.mockResolvedValue({ mode: 'none' });
     await settleTransactionEnded(deps, endedEvent(), attempt);
-    expect(mockSettleSessionPayment).toHaveBeenCalledWith('sess-1', deps.payments, {
-      rethrowConnectionErrors: false,
-      resumeAdjustment: false,
-    });
+    expect(mockSettleSessionPayment).toHaveBeenCalledWith(
+      'sess-1',
+      { ...deps.payments, actor: { actor: 'ocpp', actorLabel: 'session-settlement' } },
+      {
+        rethrowConnectionErrors: false,
+        resumeAdjustment: false,
+      },
+    );
   });
 
   it('prepaid: a debit already recorded is logged as such and still published', async () => {
@@ -191,10 +195,14 @@ describe('settleTransactionEnded', () => {
 
     await settleTransactionEnded(deps, endedEvent(), { ...attempt, number: 2, isLast: false });
 
-    expect(mockSettleSessionPayment).toHaveBeenCalledWith('sess-1', deps.payments, {
-      rethrowConnectionErrors: true,
-      resumeAdjustment: true,
-    });
+    expect(mockSettleSessionPayment).toHaveBeenCalledWith(
+      'sess-1',
+      { ...deps.payments, actor: { actor: 'ocpp', actorLabel: 'session-settlement' } },
+      {
+        rethrowConnectionErrors: true,
+        resumeAdjustment: true,
+      },
+    );
   });
 
   it('prepaid: notifies payment.settled, publishes token.changed, sends the session end emails', async () => {
@@ -638,12 +646,15 @@ describe('projectNotifySettlement', () => {
       settlementEvent({ transactionId: 'tx-1', settlementAmount: 12.34 }),
     );
 
-    expect(mockRecordTerminalSettlement).toHaveBeenCalledWith({
-      sessionId: 'sess-1',
-      driverId: 'drv-1',
-      currency: 'USD',
-      capturedCents: 1234,
-    });
+    expect(mockRecordTerminalSettlement).toHaveBeenCalledWith(
+      {
+        sessionId: 'sess-1',
+        driverId: 'drv-1',
+        currency: 'USD',
+        capturedCents: 1234,
+      },
+      expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'NotifySettlement' } }),
+    );
     expect(notifyChange).toHaveBeenCalledWith(
       'payment.settled',
       'station-uuid',

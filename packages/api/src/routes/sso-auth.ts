@@ -11,6 +11,7 @@ import { createRefreshToken } from '../services/refresh-token.service.js';
 import { config as apiConfig } from '../lib/config.js';
 import { errorWith } from '../lib/response-schemas.js';
 import { emailEquals } from '../lib/email-match.js';
+import { recordAuthAudit } from '../lib/auth-audit.js';
 import { beginOperatorMfa, type OperatorMfaPending } from '../lib/operator-mfa.js';
 
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
@@ -133,6 +134,13 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
 
       if (existingUser != null) {
         if (!existingUser.isActive) {
+          await recordAuthAudit(request, {
+            kind: 'user',
+            accountId: existingUser.id,
+            action: 'login_failed',
+            method: 'sso',
+            reason: 'inactive',
+          });
           await reply.redirect('/login?error=sso_account_disabled');
           return;
         }
@@ -159,6 +167,12 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
           .update(users)
           .set({ lastLoginAt: new Date() })
           .where(eq(users.id, existingUser.id));
+        await recordAuthAudit(request, {
+          kind: 'user',
+          accountId: existingUser.id,
+          action: 'login_succeeded',
+          method: 'sso',
+        });
 
         await reply.redirect('/');
         return;
@@ -235,6 +249,12 @@ export function ssoAuthRoutes(app: FastifyInstance): void {
       );
       const refreshResult = await createRefreshToken({ userId: newUserId });
       setAuthCookies('csms', reply, token, refreshResult.rawToken, isSecureRequest(request));
+      await recordAuthAudit(request, {
+        kind: 'user',
+        accountId: newUserId,
+        action: 'login_succeeded',
+        method: 'sso',
+      });
 
       await reply.redirect('/');
     },

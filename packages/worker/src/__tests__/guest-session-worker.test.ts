@@ -369,7 +369,7 @@ describe('guest-session-worker failed listener (exhausted-retry cleanup)', () =>
       'capture failed',
       paymentCtx,
     );
-    expect(mockPaymentContext).toHaveBeenCalledWith(mockLog);
+    expect(mockPaymentContext).toHaveBeenCalledWith(mockLog, 'guest-session-worker');
     expect(mockLog.error).toHaveBeenCalledWith(
       { jobName: 'guest-session-ended', attemptsMade: 3, error: expect.any(Error) },
       'Guest session job failed',

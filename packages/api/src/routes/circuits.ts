@@ -11,6 +11,11 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { changedFields } from '../lib/audit-diff.js';
+import {
+  writeSiteLoadManagementAudit,
+  writeStationLoadAudit,
+} from '../lib/load-management-audit.js';
 import { circuitConductorPhases, computeMaxContinuousKw } from '@evtivity/lib';
 
 // --- Schemas ---
@@ -159,6 +164,12 @@ export function circuitRoutes(app: FastifyInstance): void {
         return;
       }
 
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: null,
+        after: { circuit: created },
+        notes: `circuit created: ${created.name}`,
+      });
+
       return reply.status(201).send({
         ...created,
         maxContinuousKw: Number(created.maxContinuousKw),
@@ -303,6 +314,13 @@ export function circuitRoutes(app: FastifyInstance): void {
         return;
       }
 
+      const change = changedFields(existing, updated);
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: { circuitId, ...change.before },
+        after: { circuitId, ...change.after },
+        notes: `circuit updated: ${updated.name}`,
+      });
+
       const stationCount = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(chargingStations)
@@ -346,7 +364,14 @@ export function circuitRoutes(app: FastifyInstance): void {
       // The circuit's panel must belong to the URL site: a site-restricted
       // user cannot delete another site's circuit through one of their sites.
       const [existing] = await db
-        .select({ id: circuits.id })
+        .select({
+          id: circuits.id,
+          panelId: circuits.panelId,
+          name: circuits.name,
+          breakerRatingAmps: circuits.breakerRatingAmps,
+          maxContinuousKw: circuits.maxContinuousKw,
+          phaseConnections: circuits.phaseConnections,
+        })
         .from(circuits)
         .innerJoin(panels, eq(circuits.panelId, panels.id))
         .where(
@@ -366,6 +391,12 @@ export function circuitRoutes(app: FastifyInstance): void {
 
       // Delete the circuit (cascades unmanaged loads)
       await db.delete(circuits).where(eq(circuits.id, circuitId));
+
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: { circuit: existing },
+        after: null,
+        notes: `circuit deleted: ${existing.name}`,
+      });
 
       return { success: true as const };
     },
@@ -410,6 +441,7 @@ export function circuitRoutes(app: FastifyInstance): void {
           id: chargingStations.id,
           stationId: chargingStations.stationId,
           siteId: chargingStations.siteId,
+          circuitId: chargingStations.circuitId,
         })
         .from(chargingStations)
         .where(eq(chargingStations.id, stationId));
@@ -512,6 +544,15 @@ export function circuitRoutes(app: FastifyInstance): void {
       if (assignedStation == null) {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
+      }
+
+      if (station.circuitId !== assignedStation.circuitId) {
+        await writeStationLoadAudit(request, assignedStation.id, {
+          before: { circuitId: station.circuitId },
+          after: { circuitId: assignedStation.circuitId },
+          notes:
+            assignedStation.circuitId == null ? 'unassigned from circuit' : 'assigned to circuit',
+        });
       }
 
       return {

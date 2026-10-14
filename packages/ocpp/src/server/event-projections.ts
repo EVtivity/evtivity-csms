@@ -168,7 +168,8 @@ export function registerProjections(
     eventBus,
     pubsub,
     logger,
-    payments: paymentContext(logger),
+    // Each payment step names itself (withPaymentActor); this is the fallback.
+    payments: paymentContext(logger, { actor: 'ocpp', actorLabel: 'event-projections' }),
     lookups,
     notify,
   };

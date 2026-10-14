@@ -54,7 +54,7 @@ async function downloadReport(id: string, fileName: string): Promise<void> {
   URL.revokeObjectURL(url);
 }
 
-export function HistoryTab(): React.JSX.Element {
+export function GeneratedReportsTab(): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const timezone = useUserTimezone();
@@ -91,6 +91,8 @@ export function HistoryTab(): React.JSX.Element {
     mutationFn: (id: string) => api.delete(`/v1/reports/${id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['reports'] });
+      // A report delete is listed in the page's History (report_schedule audit).
+      void queryClient.invalidateQueries({ queryKey: ['audit', 'report_schedule'] });
     },
   });
 

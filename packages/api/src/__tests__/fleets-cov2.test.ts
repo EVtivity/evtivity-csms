@@ -47,6 +47,7 @@ vi.mock('@evtivity/database', () => {
     chargingStations: { id: 'charging_stations.id' },
     pricingGroups: { id: 'pricing_groups.id' },
     fleetAuditLog: { name: 'fleetAuditLog' },
+    driverAuditLog: { name: 'driverAuditLog' },
     pricingAssignmentAuditLog: { name: 'pricingAssignmentAuditLog' },
     writeAudit,
     pgErrorCode: (err: unknown) => (err as { code?: string }).code,

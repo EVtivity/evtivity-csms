@@ -18,10 +18,23 @@ import {
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { ID_PARAMS } from '../lib/id-validation.js';
+import { changedFields } from '../lib/audit-diff.js';
+import {
+  writeSiteLoadManagementAudit,
+  writeStationLoadAudit,
+} from '../lib/load-management-audit.js';
 
 const putBody = z.object({
   strategy: z.enum(LOAD_ALLOCATION_STRATEGIES).describe('Load distribution strategy'),
   isEnabled: z.boolean().describe('Whether load management is active for this site'),
+});
+
+// The station is the CSMS station ID (sta_...), not the OCPP identifier: the pattern tells API
+// clients and the AI assistant which one to send.
+const siteStationParams = z.object({
+  id: ID_PARAMS.siteId.describe('Site ID'),
+  stationId: ID_PARAMS.stationId.describe('Station ID (not the OCPP station identifier)'),
 });
 
 const patchPriorityBody = z.object({
@@ -405,6 +418,16 @@ export function loadManagementRoutes(app: FastifyInstance): void {
             request.log,
           );
         }
+        const change = changedFields(
+          { strategy: existing.strategy, isEnabled: existing.isEnabled },
+          { strategy: body.strategy, isEnabled: body.isEnabled },
+        );
+        if (Object.keys(change.after).length > 0) {
+          await writeSiteLoadManagementAudit(request, id, {
+            ...change,
+            notes: 'load management configuration updated',
+          });
+        }
         return toConfigRecord(updated);
       }
 
@@ -416,6 +439,12 @@ export function loadManagementRoutes(app: FastifyInstance): void {
           isEnabled: body.isEnabled,
         })
         .returning();
+
+      await writeSiteLoadManagementAudit(request, id, {
+        before: null,
+        after: { strategy: body.strategy, isEnabled: body.isEnabled },
+        notes: 'load management configuration created',
+      });
 
       return reply.status(201).send(toConfigRecord(created));
     },
@@ -431,6 +460,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         summary: 'Update load priority for a station',
         operationId: 'updateStationLoadPriority',
         security: [{ bearerAuth: [] }],
+        params: zodSchema(siteStationParams),
         body: zodSchema(patchPriorityBody),
         response: {
           200: itemResponse(loadPriorityItem),
@@ -451,6 +481,10 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       // Bind the station to the URL site so an operator with access to
       // siteA can't bump load-priority on a station that lives at siteB
       // by passing PATCH /sites/<siteA>/stations/<stationB>/load-priority.
+      const [previous] = await db
+        .select({ loadPriority: chargingStations.loadPriority })
+        .from(chargingStations)
+        .where(and(eq(chargingStations.id, stationId), eq(chargingStations.siteId, id)));
       const [updated] = await db
         .update(chargingStations)
         .set({
@@ -462,6 +496,14 @@ export function loadManagementRoutes(app: FastifyInstance): void {
 
       if (updated == null) {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      }
+
+      if (previous?.loadPriority !== updated.loadPriority) {
+        await writeStationLoadAudit(request, updated.id, {
+          before: { loadPriority: previous?.loadPriority ?? null },
+          after: { loadPriority: updated.loadPriority },
+          notes: 'load priority changed',
+        });
       }
 
       return { id: updated.id, stationId: updated.stationId, loadPriority: updated.loadPriority };
@@ -480,6 +522,7 @@ export function loadManagementRoutes(app: FastifyInstance): void {
           'Load management never gives a charging session at this station less than this power. When the minimums do not fit, the lowest priority sessions stop (limit 0) first.',
         operationId: 'updateStationLoadMinPower',
         security: [{ bearerAuth: [] }],
+        params: zodSchema(siteStationParams),
         body: zodSchema(patchMinPowerBody),
         response: {
           200: itemResponse(loadMinPowerItem),
@@ -498,6 +541,10 @@ export function loadManagementRoutes(app: FastifyInstance): void {
       }
 
       // Bound to the URL site, like the load priority.
+      const [previous] = await db
+        .select({ loadMinPowerKw: chargingStations.loadMinPowerKw })
+        .from(chargingStations)
+        .where(and(eq(chargingStations.id, stationId), eq(chargingStations.siteId, id)));
       const [updated] = await db
         .update(chargingStations)
         .set({
@@ -511,10 +558,20 @@ export function loadManagementRoutes(app: FastifyInstance): void {
         return reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       }
 
+      const beforeKw = previous?.loadMinPowerKw != null ? Number(previous.loadMinPowerKw) : null;
+      const afterKw = updated.loadMinPowerKw != null ? Number(updated.loadMinPowerKw) : null;
+      if (beforeKw !== afterKw) {
+        await writeStationLoadAudit(request, updated.id, {
+          before: { loadMinPowerKw: beforeKw },
+          after: { loadMinPowerKw: afterKw },
+          notes: 'load minimum power changed',
+        });
+      }
+
       return {
         id: updated.id,
         stationId: updated.stationId,
-        loadMinPowerKw: updated.loadMinPowerKw != null ? Number(updated.loadMinPowerKw) : null,
+        loadMinPowerKw: afterKw,
       };
     },
   );

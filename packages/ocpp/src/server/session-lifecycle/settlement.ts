@@ -14,6 +14,7 @@ import {
   isReleasedBelowMinimum,
   recordTerminalSettlement,
   settleSessionPayment,
+  withPaymentActor,
 } from '@evtivity/payments';
 import type { SettlementOutcome } from '@evtivity/payments';
 import { pgConnectionErrorKind } from '@evtivity/database';
@@ -51,12 +52,15 @@ export async function projectNotifySettlement(
   // Convert settlement amount to cents (OCPP sends in major currency units)
   const capturedAmountCents = centsFromMajorUnits(settlementAmount);
 
-  const recorded = await recordTerminalSettlement({
-    sessionId: session.id as string,
-    driverId: (session.driver_id as string | null) ?? null,
-    currency: session.currency as string,
-    capturedCents: capturedAmountCents,
-  });
+  const recorded = await recordTerminalSettlement(
+    {
+      sessionId: session.id as string,
+      driverId: (session.driver_id as string | null) ?? null,
+      currency: session.currency as string,
+      capturedCents: capturedAmountCents,
+    },
+    withPaymentActor(deps.payments, { actor: 'ocpp', actorLabel: 'NotifySettlement' }),
+  );
 
   if (!recorded) {
     logger.warn(
@@ -268,10 +272,14 @@ export async function settleTransactionEnded(
     // keeps its behavior without retry. A rerun resumes an adjustment claim
     // the first run made but never got a provider reference for.
     const outcome = await attempt.memo('settle:outcome', () =>
-      settleSessionPayment(session.id as string, payments, {
-        rethrowConnectionErrors: !attempt.isLast,
-        resumeAdjustment: attempt.number > 1,
-      }),
+      settleSessionPayment(
+        session.id as string,
+        withPaymentActor(payments, { actor: 'ocpp', actorLabel: 'session-settlement' }),
+        {
+          rethrowConnectionErrors: !attempt.isLast,
+          resumeAdjustment: attempt.number > 1,
+        },
+      ),
     );
     try {
       await notifySessionEnded(

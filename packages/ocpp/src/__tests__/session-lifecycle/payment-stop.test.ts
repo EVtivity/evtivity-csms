@@ -12,8 +12,10 @@ const {
   mockPublishOcppCommand,
   mockDispatchOneShot,
   mockDispatchDriver,
+  mockSessionAudit,
 } = vi.hoisted(() => ({
   calls: [] as string[],
+  mockSessionAudit: vi.fn(),
   mockFaultUnbilledSession: vi.fn(),
   mockPublishOcppCommand: vi.fn(),
   mockDispatchOneShot: vi.fn(),
@@ -27,6 +29,7 @@ vi.mock('../../server/notification-dispatcher.js', () => ({
 
 vi.mock('@evtivity/database', () => ({
   faultUnbilledSession: mockFaultUnbilledSession,
+  writeCsmsSessionAudit: mockSessionAudit,
 }));
 
 vi.mock('@evtivity/lib', async (importOriginal) => ({
@@ -395,6 +398,83 @@ describe('stopSessionForPayment', () => {
         expect(mockPublishOcppCommand).not.toHaveBeenCalled();
         expect(mockDispatchDriver).not.toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('session audit', () => {
+    it('writes one faulted row for a payment fault, noting the stop it sent', async () => {
+      const h = makeHarness();
+      await stopSessionForPayment(h.deps, target, 'PaymentFailed');
+      expect(mockSessionAudit).toHaveBeenCalledTimes(1);
+      expect(mockSessionAudit).toHaveBeenCalledWith(
+        {
+          sessionId: 'sess-1',
+          action: 'faulted',
+          actor: 'ocpp',
+          actorLabel: 'PaymentFailed',
+          before: { status: 'active' },
+          after: { status: 'faulted', stoppedReason: 'PaymentFailed', finalCostCents: 0 },
+          notes: 'RequestStopTransaction sent for transaction tx-1',
+        },
+        undefined,
+        h.logger,
+      );
+    });
+
+    it('writes the faulted row without a stop note when the publish fails', async () => {
+      const h = makeHarness();
+      mockPublishOcppCommand.mockRejectedValueOnce(new Error('redis down'));
+      await stopSessionForPayment(h.deps, target, 'AccountCreditLimit');
+      expect(mockSessionAudit.mock.calls[0]?.[0]).toMatchObject({
+        action: 'faulted',
+        actorLabel: 'AccountCreditLimit',
+        notes: null,
+      });
+    });
+
+    it('writes stopped_by_csms with the claimed reason for a ceiling stop', async () => {
+      const h = makeHarness();
+      h.sql.mockImplementationOnce(() => Promise.resolve([{ ...claimRow, driver_id: null }]));
+      await stopSessionForPayment(h.deps, target, 'GuestHoldExhausted');
+      expect(mockSessionAudit).toHaveBeenCalledWith(
+        {
+          sessionId: 'sess-1',
+          action: 'stopped_by_csms',
+          actor: 'ocpp',
+          actorLabel: 'GuestHoldExhausted',
+          before: { stoppedReason: null },
+          after: {
+            command: 'RequestStopTransaction',
+            transactionId: 'tx-1',
+            stoppedReason: 'GuestHoldExhausted',
+          },
+        },
+        undefined,
+        h.logger,
+      );
+    });
+
+    it('writes stopped_by_csms for an anonymous stop', async () => {
+      const h = makeHarness();
+      await stopSessionForPayment(h.deps, target, 'AnonymousSession');
+      expect(mockSessionAudit.mock.calls[0]?.[0]).toMatchObject({
+        action: 'stopped_by_csms',
+        before: null,
+        after: { command: 'RequestStopTransaction', reason: 'AnonymousSession' },
+      });
+    });
+
+    it('writes nothing when the fault changed no row and no stop went out', async () => {
+      const h = makeHarness();
+      mockFaultUnbilledSession.mockResolvedValueOnce(false);
+      await stopSessionForPayment(h.deps, target, 'PaymentFailed', { transactionEnded: true });
+      expect(mockSessionAudit).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing when another call claimed the ceiling stop', async () => {
+      const h = makeHarness();
+      await stopSessionForPayment(h.deps, target, 'PrepaidCreditExhausted');
+      expect(mockSessionAudit).not.toHaveBeenCalled();
     });
   });
 

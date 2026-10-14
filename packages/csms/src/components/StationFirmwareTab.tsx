@@ -68,7 +68,7 @@ export function StationFirmwareTab({ stationId, timezone }: Props): React.JSX.El
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{t('stations.firmwareHistory')}</CardTitle>
+        <CardTitle>{t('stations.firmwareUpdates')}</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (

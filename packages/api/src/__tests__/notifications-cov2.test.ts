@@ -103,6 +103,8 @@ vi.mock('@evtivity/database', () => ({
   driverEventSettings: {},
   ocppEventSettings: {},
   settings: {},
+  notificationTemplateAuditLog: {},
+  writeAudit: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('drizzle-orm', () => ({
@@ -233,7 +235,8 @@ describe('Notification routes: validation, test sends, templates', () => {
         language: 'de',
         ...TS,
       };
-      setupDbResults([saved]);
+      // The audit before-read, then the upsert.
+      setupDbResults([], [saved]);
       const res = await req('PUT', '/ocpp-event-settings', {
         eventType: 'station.Faulted',
         recipient: 'https://hooks.example.com/x',
@@ -243,7 +246,7 @@ describe('Notification routes: validation, test sends, templates', () => {
       });
       expect(res.statusCode).toBe(200);
       expect(res.json()).toMatchObject({ channel: 'webhook', language: 'de' });
-      const insertChain = chains[0];
+      const insertChain = chains[1];
       expect(insertChain?.['onConflictDoUpdate']).toHaveBeenCalledWith(
         expect.objectContaining({
           set: expect.objectContaining({
@@ -261,17 +264,20 @@ describe('Notification routes: validation, test sends, templates', () => {
 
     it('still saves when the cache invalidation publish fails', async () => {
       mockPublish.mockRejectedValue(new Error('redis down'));
-      setupDbResults([
-        {
-          id: 2,
-          eventType: 'station.Connected',
-          recipient: '$admin',
-          channel: 'email',
-          templateHtml: null,
-          language: null,
-          ...TS,
-        },
-      ]);
+      setupDbResults(
+        [],
+        [
+          {
+            id: 2,
+            eventType: 'station.Connected',
+            recipient: '$admin',
+            channel: 'email',
+            templateHtml: null,
+            language: null,
+            ...TS,
+          },
+        ],
+      );
       const res = await req('PUT', '/ocpp-event-settings', {
         eventType: 'station.Connected',
         recipient: '$admin',

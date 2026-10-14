@@ -151,6 +151,11 @@ function lastInsertValues(): Record<string, unknown> {
   return chain.values.mock.calls[0]?.[0] as Record<string, unknown>;
 }
 
+function lastSiteAudit(): Record<string, unknown> | undefined {
+  const calls = (writeAudit as ReturnType<typeof vi.fn>).mock.calls;
+  return calls[calls.length - 1]?.[1] as Record<string, unknown> | undefined;
+}
+
 async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify();
   await registerAuth(app);
@@ -176,6 +181,7 @@ describe('Electricity rate routes', () => {
     setupDbResults();
     (db.insert as ReturnType<typeof vi.fn>).mockClear();
     (clearElectricityRateCache as ReturnType<typeof vi.fn>).mockClear();
+    (writeAudit as ReturnType<typeof vi.fn>).mockClear();
     getUserSiteIdsMock.mockReset();
     getUserSiteIdsMock.mockResolvedValue(null);
   });
@@ -240,6 +246,15 @@ describe('Electricity rate routes', () => {
     expect(inserted.isDefault).toBe(true);
     expect(inserted.ratePerKwh).toBe('0.12');
     expect(clearElectricityRateCache).toHaveBeenCalledWith(VALID_SITE_ID);
+    const auditArgs = lastSiteAudit();
+    expect(auditArgs).toMatchObject({
+      entityId: VALID_SITE_ID,
+      action: 'electricity_rates_changed',
+      actor: 'operator',
+      before: null,
+      after: { electricityRate: { name: 'Flat' } },
+      notes: 'electricity rate created: Flat',
+    });
   });
 
   it('POST derives priority 10 for a time-only TOU period', async () => {
@@ -289,7 +304,7 @@ describe('Electricity rate routes', () => {
       priority: 0,
       isDefault: true,
     };
-    setupDbResults([updated]);
+    setupDbResults([{ ...updated, ratePerKwh: '0.100000' }], [updated]);
     const res = await app.inject({
       method: 'PATCH',
       url: `/sites/${VALID_SITE_ID}/electricity-rates/3`,
@@ -299,6 +314,15 @@ describe('Electricity rate routes', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().ratePerKwh).toBe(0.15);
     expect(clearElectricityRateCache).toHaveBeenCalledWith(VALID_SITE_ID);
+    expect(lastSiteAudit()).toMatchObject({
+      entityId: VALID_SITE_ID,
+      action: 'electricity_rates_changed',
+      before: { electricityRateId: 3, ratePerKwh: '0.100000' },
+      after: { electricityRateId: 3, ratePerKwh: '0.150000' },
+      notes: 'electricity rate updated: Flat',
+    });
+    // Only the changed field is recorded.
+    expect(lastSiteAudit()?.['after']).not.toHaveProperty('name');
   });
 
   it('PATCH returns 404 when the period does not exist', async () => {
@@ -314,7 +338,7 @@ describe('Electricity rate routes', () => {
   });
 
   it('DELETE removes the period', async () => {
-    setupDbResults([{ id: 4 }]);
+    setupDbResults([{ id: 4, name: 'Night' }]);
     const res = await app.inject({
       method: 'DELETE',
       url: `/sites/${VALID_SITE_ID}/electricity-rates/4`,
@@ -323,6 +347,23 @@ describe('Electricity rate routes', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().success).toBe(true);
     expect(clearElectricityRateCache).toHaveBeenCalledWith(VALID_SITE_ID);
+    expect(lastSiteAudit()).toMatchObject({
+      entityId: VALID_SITE_ID,
+      action: 'electricity_rates_changed',
+      before: { electricityRate: { id: 4, name: 'Night' } },
+      after: null,
+      notes: 'electricity rate deleted: Night',
+    });
+  });
+
+  it('writes no audit row when the period does not exist', async () => {
+    setupDbResults([]);
+    await app.inject({
+      method: 'DELETE',
+      url: `/sites/${VALID_SITE_ID}/electricity-rates/999`,
+      headers: authHeaders(),
+    });
+    expect(lastSiteAudit()).toBeUndefined();
   });
 
   it('DELETE returns 404 when the period does not exist', async () => {

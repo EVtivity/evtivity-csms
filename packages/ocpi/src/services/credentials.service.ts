@@ -3,7 +3,14 @@
 
 import { randomBytes } from 'node:crypto';
 import * as argon2 from 'argon2';
-import { db, ocpiPartners, ocpiPartnerEndpoints, ocpiCredentialsTokens } from '@evtivity/database';
+import {
+  db,
+  ocpiPartners,
+  ocpiPartnerEndpoints,
+  ocpiCredentialsTokens,
+  ocpiPartnerAuditLog,
+  writeAudit,
+} from '@evtivity/database';
 import { eq, and } from 'drizzle-orm';
 import { createLogger, encryptString, decryptString } from '@evtivity/lib';
 import { OcpiClient } from '../lib/ocpi-client.js';
@@ -40,6 +47,48 @@ function getOurPartyId(): string {
 
 function getOurBusinessName(): string {
   return config.OCPI_BUSINESS_NAME;
+}
+
+/**
+ * The audit view of a partner: what the handshake changes, never a token
+ * (the credentials token, the registration token or their ciphertext).
+ */
+interface PartnerAuditView {
+  name?: string;
+  status?: string;
+  version?: string | null;
+  versionUrl?: string | null;
+  roles?: unknown;
+  endpointCount?: number;
+}
+
+/**
+ * The `ocpi_partner` audit row of a handshake the partner (or the OCPI
+ * server for an operator's outbound registration) carried out: actor
+ * `system`, label `ocpi-credentials`. Fail-open (writeAudit).
+ */
+async function auditPartnerHandshake(
+  partnerId: string,
+  action: 'registered' | 'updated' | 'disconnected',
+  before: PartnerAuditView | null,
+  after: PartnerAuditView,
+  notes: string,
+): Promise<void> {
+  await writeAudit(
+    { table: ocpiPartnerAuditLog, idColumn: 'ocpi_partner_id' },
+    {
+      entityId: partnerId,
+      entityIdSnapshot: partnerId,
+      action,
+      actor: 'system',
+      actorLabel: 'ocpi-credentials',
+      before,
+      after,
+      notes,
+    },
+    db,
+    logger,
+  );
 }
 
 export function buildOurCredentials(token: string): OcpiCredentials {
@@ -293,6 +342,29 @@ export async function handleRegistration(
   // Registration token already deactivated atomically at the top of this
   // function via claimRegistrationToken().
 
+  const previous = existing[0];
+  await auditPartnerHandshake(
+    partnerId,
+    'registered',
+    previous != null
+      ? {
+          name: previous.name,
+          status: previous.status,
+          version: previous.version,
+          versionUrl: previous.versionUrl,
+        }
+      : null,
+    {
+      name: partnerRole.business_details.name,
+      status: 'connected',
+      version,
+      versionUrl: credentials.url,
+      roles: credentials.roles,
+      endpointCount: endpoints.length,
+    },
+    'Partner registered through POST credentials',
+  );
+
   return buildOurCredentials(newToken);
 }
 
@@ -309,7 +381,12 @@ export async function handleCredentialUpdate(
   }
 
   const [current] = await db
-    .select({ allowPrivateNetwork: ocpiPartners.allowPrivateNetwork })
+    .select({
+      allowPrivateNetwork: ocpiPartners.allowPrivateNetwork,
+      name: ocpiPartners.name,
+      version: ocpiPartners.version,
+      versionUrl: ocpiPartners.versionUrl,
+    })
     .from(ocpiPartners)
     .where(eq(ocpiPartners.id, partnerId))
     .limit(1);
@@ -366,6 +443,22 @@ export async function handleCredentialUpdate(
   await deactivateTokens(partnerId, 'issued');
   const newToken = await generateAndStoreToken(partnerId, 'issued');
 
+  await auditPartnerHandshake(
+    partnerId,
+    'updated',
+    current != null
+      ? { name: current.name, version: current.version, versionUrl: current.versionUrl }
+      : null,
+    {
+      name: partnerRole.business_details.name,
+      version,
+      versionUrl: credentials.url,
+      roles: credentials.roles,
+      endpointCount: endpoints.length,
+    },
+    'Partner updated its credentials through PUT credentials (tokens rotated)',
+  );
+
   return buildOurCredentials(newToken);
 }
 
@@ -384,6 +477,14 @@ export async function handleUnregister(partnerId: string): Promise<void> {
     .where(
       and(eq(ocpiCredentialsTokens.partnerId, partnerId), eq(ocpiCredentialsTokens.isActive, true)),
     );
+
+  await auditPartnerHandshake(
+    partnerId,
+    'disconnected',
+    null,
+    { status: 'disconnected' },
+    'Partner unregistered through DELETE credentials',
+  );
 }
 
 /**
@@ -519,6 +620,21 @@ export async function initiateRegistration(
       updatedAt: new Date(),
     })
     .where(eq(ocpiPartners.id, partnerId));
+
+  // The operator's request is audited by the API (`registered`); this row
+  // records the completed handshake.
+  await auditPartnerHandshake(
+    partnerId,
+    'updated',
+    { status: partner.status, version: partner.version, versionUrl: partner.versionUrl },
+    {
+      status: 'connected',
+      version,
+      versionUrl: theirCredentials.url,
+      endpointCount: newEndpoints.length,
+    },
+    'Outbound registration completed (registration token retired)',
+  );
 
   return theirCredentials;
 }

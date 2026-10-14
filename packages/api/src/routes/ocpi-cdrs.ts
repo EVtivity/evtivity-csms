@@ -4,7 +4,14 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, desc, sql, and } from 'drizzle-orm';
-import { db, createCreditCdr, ocpiCdrs, ocpiPartners } from '@evtivity/database';
+import {
+  db,
+  createCreditCdr,
+  ocpiCdrs,
+  ocpiPartners,
+  sessionAuditLog,
+  writeAudit,
+} from '@evtivity/database';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -15,6 +22,7 @@ import { authorize } from '../middleware/rbac.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { sessionInSites } from '../lib/ocpi-site-scope.js';
 import type { JwtPayload } from '../plugins/auth.js';
+import { getAuditActor } from '../lib/audit-actor.js';
 
 const cdrListItem = z
   .object({
@@ -201,6 +209,29 @@ export function ocpiCdrRoutes(app: FastifyInstance): void {
             .send({ error: 'The CDR has no total cost to credit', code: 'VALIDATION_ERROR' });
           return;
         case 'created':
+          // Only a new credit CDR is audited: 'existing' is a retry of a
+          // credit already recorded.
+          await writeAudit(
+            { table: sessionAuditLog, idColumn: 'session_id' },
+            {
+              entityId: result.chargingSessionId,
+              entityIdSnapshot: result.chargingSessionId,
+              action: 'cdr_credited',
+              ...getAuditActor(request),
+              before: null,
+              after: {
+                originalCdrId: body.originalCdrId,
+                creditCdrId: result.cdrId,
+                partnerId: result.partnerId,
+                totalCost: result.cdrData['total_cost'] ?? null,
+              },
+              notes: body.reason,
+            },
+            db,
+            request.log,
+          );
+          await reply.status(201).send({ cdrId: result.cdrId });
+          return;
         case 'existing':
           await reply.status(201).send({ cdrId: result.cdrId });
           return;

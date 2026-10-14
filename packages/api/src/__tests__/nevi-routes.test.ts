@@ -48,7 +48,18 @@ function makeChain() {
   return chain;
 }
 
+const { mockWriteAudit, stationAuditLogTable } = vi.hoisted(() => ({
+  mockWriteAudit: vi.fn(() => Promise.resolve()),
+  stationAuditLogTable: { name: 'station_audit_log' },
+}));
+
+function auditRows(): Array<Record<string, unknown>> {
+  return mockWriteAudit.mock.calls.map((c) => (c as unknown[])[1] as Record<string, unknown>);
+}
+
 vi.mock('@evtivity/database', () => ({
+  writeAudit: mockWriteAudit,
+  stationAuditLog: stationAuditLogTable,
   db: {
     select: vi.fn(() => makeChain()),
     insert: vi.fn(() => makeChain()),
@@ -187,8 +198,10 @@ describe('NEVI routes', () => {
   });
 
   it('PUT /v1/nevi/station-data/:stationId upserts station data when found', async () => {
+    mockWriteAudit.mockClear();
     setupDbResults(
       [{ id: 1 }],
+      [{ stationId: '1', operatorName: 'Old Operator', operatorEmail: 'test@example.com' }],
       [
         {
           id: 1,
@@ -219,6 +232,17 @@ describe('NEVI routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.operatorName).toBe('Test Operator');
+    // Changed fields only: the email did not change.
+    expect(auditRows()).toHaveLength(1);
+    expect(auditRows()[0]).toMatchObject({
+      entityId: '1',
+      action: 'nevi_data_changed',
+      before: { stationData: { operatorName: 'Old Operator' } },
+      after: { stationData: { operatorName: 'Test Operator' } },
+    });
+    expect(
+      (auditRows()[0]?.['after'] as { stationData: Record<string, unknown> }).stationData,
+    ).not.toHaveProperty('operatorEmail');
   });
 
   it('GET /v1/nevi/excluded-downtime returns paginated list', async () => {
@@ -278,6 +302,12 @@ describe('NEVI routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.reason).toBe('utility_outage');
+    expect(auditRows().at(-1)).toMatchObject({
+      entityId: VALID_STATION_ID,
+      action: 'nevi_data_changed',
+      after: { excludedDowntime: { id: 1, evseId: 1, reason: 'utility_outage' } },
+      notes: 'Excluded downtime 1 created',
+    });
   });
 
   it('PATCH /v1/nevi/excluded-downtime/:id returns 404 when not found', async () => {
@@ -294,8 +324,9 @@ describe('NEVI routes', () => {
   });
 
   it('PATCH /v1/nevi/excluded-downtime/:id updates record when found', async () => {
+    mockWriteAudit.mockClear();
     setupDbResults(
-      [{ id: 1 }],
+      [{ id: 1, stationId: VALID_STATION_ID, evseId: 1, reason: 'utility_outage' }],
       [
         {
           id: 1,
@@ -318,6 +349,13 @@ describe('NEVI routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.reason).toBe('vandalism');
+    expect(auditRows()).toHaveLength(1);
+    expect(auditRows()[0]).toMatchObject({
+      entityId: VALID_STATION_ID,
+      action: 'nevi_data_changed',
+      before: { excludedDowntime: { reason: 'utility_outage' } },
+      after: { excludedDowntime: { reason: 'vandalism' } },
+    });
   });
 
   it('DELETE /v1/nevi/excluded-downtime/:id returns 404 when not found', async () => {
@@ -333,7 +371,8 @@ describe('NEVI routes', () => {
   });
 
   it('DELETE /v1/nevi/excluded-downtime/:id deletes record when found', async () => {
-    setupDbResults([{ id: 1 }]);
+    mockWriteAudit.mockClear();
+    setupDbResults([{ id: 1, stationId: VALID_STATION_ID, reason: 'vandalism' }]);
     const response = await app.inject({
       method: 'DELETE',
       url: `/nevi/excluded-downtime/1`,
@@ -342,5 +381,11 @@ describe('NEVI routes', () => {
     expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.success).toBe(true);
+    expect(auditRows()[0]).toMatchObject({
+      entityId: VALID_STATION_ID,
+      action: 'nevi_data_changed',
+      before: { excludedDowntime: { id: 1, reason: 'vandalism' } },
+      notes: 'Excluded downtime 1 deleted',
+    });
   });
 });

@@ -18,6 +18,7 @@ import {
   toDate,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
+import { changedFields } from '../lib/audit-diff.js';
 import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
 import {
   profitCents,
@@ -2050,6 +2051,7 @@ export function siteRoutes(app: FastifyInstance): void {
       // the station, so a foreign station would otherwise get a layout row
       // pointing at this site.
       const requested = [...new Set(positions.map((p) => p.stationId))];
+      let previousPositions: { stationId: string; positionX: number; positionY: number }[] = [];
       if (requested.length > 0) {
         const own = await db
           .select({ id: chargingStations.id })
@@ -2059,6 +2061,19 @@ export function siteRoutes(app: FastifyInstance): void {
           await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
           return;
         }
+        const previousRows = await db
+          .select({
+            stationId: stationLayoutPositions.stationId,
+            positionX: stationLayoutPositions.positionX,
+            positionY: stationLayoutPositions.positionY,
+          })
+          .from(stationLayoutPositions)
+          .where(inArray(stationLayoutPositions.stationId, requested));
+        previousPositions = previousRows.map((row) => ({
+          stationId: row.stationId,
+          positionX: Number(row.positionX),
+          positionY: Number(row.positionY),
+        }));
       }
 
       for (const pos of positions) {
@@ -2078,6 +2093,23 @@ export function siteRoutes(app: FastifyInstance): void {
               updatedAt: new Date(),
             },
           });
+      }
+
+      if (positions.length > 0) {
+        await writeAudit(
+          { table: siteAuditLog, idColumn: 'site_id' },
+          {
+            entityId: id,
+            entityIdSnapshot: id,
+            action: 'updated',
+            ...getAuditActor(request),
+            before: { layoutPositions: previousPositions },
+            after: { layoutPositions: positions },
+            notes: 'station layout updated',
+          },
+          db,
+          request.log,
+        );
       }
 
       return { ok: true };
@@ -2747,6 +2779,20 @@ export function siteRoutes(app: FastifyInstance): void {
         throw new Error('Electricity rate insert returned no row');
       }
       clearElectricityRateCache(id);
+      await writeAudit(
+        { table: siteAuditLog, idColumn: 'site_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'electricity_rates_changed',
+          ...getAuditActor(request),
+          before: null,
+          after: { electricityRate: created },
+          notes: `electricity rate created: ${created.name}`,
+        },
+        db,
+        request.log,
+      );
       await reply.status(201).send({
         id: created.id,
         siteId: created.siteId,
@@ -2798,6 +2844,15 @@ export function siteRoutes(app: FastifyInstance): void {
           .send({ error: 'Invalid rate restrictions', code: 'VALIDATION_ERROR' });
         return;
       }
+      const [previous] = await db
+        .select()
+        .from(siteElectricityRatePeriods)
+        .where(
+          and(
+            eq(siteElectricityRatePeriods.id, periodId),
+            eq(siteElectricityRatePeriods.siteId, id),
+          ),
+        );
       const [updated] = await db
         .update(siteElectricityRatePeriods)
         .set({
@@ -2822,6 +2877,21 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       clearElectricityRateCache(id);
+      const rateChange = changedFields(previous ?? {}, updated);
+      await writeAudit(
+        { table: siteAuditLog, idColumn: 'site_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'electricity_rates_changed',
+          ...getAuditActor(request),
+          before: { electricityRateId: updated.id, ...rateChange.before },
+          after: { electricityRateId: updated.id, ...rateChange.after },
+          notes: `electricity rate updated: ${updated.name}`,
+        },
+        db,
+        request.log,
+      );
       return {
         id: updated.id,
         siteId: updated.siteId,
@@ -2876,6 +2946,20 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
       clearElectricityRateCache(id);
+      await writeAudit(
+        { table: siteAuditLog, idColumn: 'site_id' },
+        {
+          entityId: id,
+          entityIdSnapshot: id,
+          action: 'electricity_rates_changed',
+          ...getAuditActor(request),
+          before: { electricityRate: deleted },
+          after: null,
+          notes: `electricity rate deleted: ${deleted.name}`,
+        },
+        db,
+        request.log,
+      );
       return { success: true };
     },
   );

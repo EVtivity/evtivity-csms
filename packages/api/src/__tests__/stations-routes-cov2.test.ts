@@ -555,6 +555,270 @@ describe('Station routes - cov2', () => {
     });
   });
 
+  describe('station audit rows', () => {
+    function auditCalls(action: string): Array<Record<string, unknown>> {
+      return mocks.writeAudit.mock.calls
+        .filter(
+          (c) =>
+            (c[0] as { table: unknown }).table === tables['stationAuditLog'] &&
+            (c[1] as { action: string }).action === action,
+        )
+        .map((c) => c[1] as Record<string, unknown>);
+    }
+
+    it('create EVSE writes evse_changed with the new EVSE and connectors', async () => {
+      queue(
+        [{ id: STATION, ocppProtocol: 'ocpp2.1' }],
+        [],
+        [{ id: 7, evseId: 2 }],
+        [
+          {
+            connectorId: 1,
+            connectorType: 'CCS2',
+            maxPowerKw: '150',
+            maxCurrentAmps: null,
+            status: 'unavailable',
+          },
+        ],
+        [],
+      );
+      const res = await inject('POST', `/stations/${STATION}/evses`, {
+        evseId: 2,
+        connectors: [{ connectorId: 1, connectorType: 'CCS2', maxPowerKw: 150 }],
+      });
+      expect(res.statusCode).toBe(201);
+      const [row] = auditCalls('evse_changed');
+      expect(row).toMatchObject({
+        entityId: STATION,
+        actor: 'operator',
+        actorUserId: USER,
+        after: { evseId: 2, connectors: [{ connectorId: 1, connectorType: 'CCS2' }] },
+      });
+    });
+
+    it('update EVSE audits only the changed connector fields', async () => {
+      queue(
+        [{ id: 7, evseId: 1 }],
+        [{ connectorId: 1, connectorType: 'Type2', maxPowerKw: '22', maxCurrentAmps: 32 }],
+        [],
+        [
+          {
+            connectorId: 1,
+            connectorType: 'CCS2',
+            maxPowerKw: '150',
+            maxCurrentAmps: 32,
+            status: 'available',
+          },
+        ],
+      );
+      const res = await inject('PATCH', `/stations/${STATION}/evses/1`, {
+        connectors: [{ connectorId: 1, connectorType: 'CCS2', maxPowerKw: 150 }],
+      });
+      expect(res.statusCode).toBe(200);
+      const [row] = auditCalls('evse_changed');
+      expect(row?.['before']).toEqual({
+        evseId: 1,
+        connectors: [{ connectorId: 1, connectorType: 'Type2', maxPowerKw: '22' }],
+      });
+      expect(row?.['after']).toEqual({
+        evseId: 1,
+        connectors: [{ connectorId: 1, connectorType: 'CCS2', maxPowerKw: '150' }],
+      });
+    });
+
+    it('update EVSE without a change writes no audit row', async () => {
+      const current = {
+        connectorId: 1,
+        connectorType: 'Type2',
+        maxPowerKw: '22',
+        maxCurrentAmps: 32,
+      };
+      queue([{ id: 7, evseId: 1 }], [current], [], [{ ...current, status: 'available' }]);
+      const res = await inject('PATCH', `/stations/${STATION}/evses/1`, {
+        connectors: [{ connectorId: 1, connectorType: 'Type2' }],
+      });
+      expect(res.statusCode).toBe(200);
+      expect(auditCalls('evse_changed')).toHaveLength(0);
+    });
+
+    it('add connector writes evse_changed with the connector', async () => {
+      queue(
+        [{ id: 7, ocppProtocol: 'ocpp2.1' }],
+        [],
+        [
+          {
+            connectorId: 2,
+            connectorType: 'Type2',
+            maxPowerKw: '22',
+            maxCurrentAmps: null,
+            status: 'unavailable',
+          },
+        ],
+        [],
+      );
+      const res = await inject('POST', `/stations/${STATION}/evses/1/connectors`, {
+        connectorId: 2,
+        connectorType: 'Type2',
+        maxPowerKw: 22,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(auditCalls('evse_changed')[0]).toMatchObject({
+        after: { evseId: 1, connectors: [{ connectorId: 2, connectorType: 'Type2' }] },
+      });
+    });
+
+    it('delete EVSE writes evse_changed with the removed EVSE', async () => {
+      queue([{ id: 7 }], [], [{ siteId: null }], []);
+      const res = await inject('DELETE', `/stations/${STATION}/evses/1`);
+      expect(res.statusCode).toBe(200);
+      expect(auditCalls('evse_changed')[0]).toMatchObject({
+        before: { evseId: 1 },
+        notes: 'EVSE 1 deleted',
+      });
+    });
+
+    it('delete connector writes evse_changed with the removed connector', async () => {
+      queue(
+        [{ id: 7 }],
+        [{ id: 9, status: 'available', connectorType: 'Type2', maxPowerKw: '22' }],
+        [],
+      );
+      const res = await inject('DELETE', `/stations/${STATION}/evses/1/connectors/2`);
+      expect(res.statusCode).toBe(200);
+      expect(auditCalls('evse_changed')[0]).toMatchObject({
+        before: { evseId: 1, connectors: [{ connectorId: 2, connectorType: 'Type2' }] },
+      });
+    });
+
+    it('stop active session writes command_dispatched with the session', async () => {
+      queue(
+        [{ stationId: 'CS-1', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 7 }],
+        [{ id: 'ses_1', transactionId: 'tx-1' }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/evses/1/stop-active-session`);
+      expect(res.statusCode).toBe(200);
+      expect(auditCalls('command_dispatched')[0]).toMatchObject({
+        entityId: STATION,
+        after: {
+          action: 'RequestStopTransaction',
+          payload: { transactionId: 'tx-1' },
+          sessionId: 'ses_1',
+          outcome: 'Accepted',
+          ghostRecovered: false,
+        },
+      });
+    });
+
+    it('stop active session audits a station that did not answer', async () => {
+      mocks.sendOcpp.mockResolvedValueOnce({ commandId: 'c', error: 'timeout', timedOut: true });
+      queue(
+        [{ stationId: 'CS-1', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 7 }],
+        [{ id: 'ses_1', transactionId: 'tx-1' }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/evses/1/stop-active-session`);
+      expect(res.statusCode).toBe(504);
+      expect(auditCalls('command_dispatched')[0]).toMatchObject({
+        after: { outcome: 'timeout' },
+      });
+    });
+
+    it('clear charging profiles writes command_dispatched with the outcome', async () => {
+      queue([{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp1.6' }]);
+      const res = await inject('POST', `/stations/${STATION}/charging-profiles/clear`, {});
+      expect(res.statusCode).toBe(200);
+      expect(auditCalls('command_dispatched')[0]).toMatchObject({
+        after: { action: 'ClearChargingProfile', payload: [{}], outcome: 'Accepted' },
+        notes: 'ClearChargingProfile (Accepted)',
+      });
+    });
+
+    it('create monitoring rule writes monitoring_changed with the rule and result', async () => {
+      mocks.sendOcpp.mockResolvedValueOnce({
+        commandId: 'c',
+        response: { setMonitoringResult: [{ status: 'Accepted', id: 12 }] },
+      });
+      const ruleRow = {
+        id: 5,
+        stationId: STATION,
+        monitoringId: null,
+        component: 'EVSE',
+        variable: 'Power',
+        type: 'UpperThreshold',
+        value: '50',
+        severity: 5,
+        status: 'pending',
+        errorInfo: null,
+        createdAt: NOW,
+        updatedAt: NOW,
+      };
+      queue(
+        [{ id: STATION, stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [ruleRow],
+        [{ ...ruleRow, status: 'active', monitoringId: 12 }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/monitoring-rules`, {
+        component: 'EVSE',
+        variable: 'Power',
+        type: 'UpperThreshold',
+        value: 50,
+        severity: 5,
+      });
+      expect(res.statusCode).toBe(201);
+      expect(auditCalls('monitoring_changed')[0]).toMatchObject({
+        after: {
+          ruleId: 5,
+          component: 'EVSE',
+          variable: 'Power',
+          status: 'active',
+          monitoringId: 12,
+        },
+      });
+    });
+
+    it('clear monitoring rule writes monitoring_changed with the cleared rule', async () => {
+      queue(
+        [
+          {
+            id: 5,
+            stationId: STATION,
+            component: 'EVSE',
+            variable: 'Power',
+            type: 'UpperThreshold',
+            value: '50',
+            severity: 5,
+            status: 'error',
+            monitoringId: null,
+          },
+        ],
+        [],
+      );
+      const res = await inject('DELETE', `/stations/${STATION}/monitoring-rules/5`);
+      expect(res.statusCode).toBe(204);
+      expect(auditCalls('monitoring_changed')[0]).toMatchObject({
+        before: { ruleId: 5, status: 'error' },
+        after: { ruleId: 5, status: 'cleared' },
+      });
+    });
+
+    it('acknowledge event alert writes alert_acknowledged, a missing alert writes none', async () => {
+      queue([{ id: 3, component: 'EVSE', variable: 'Power', severity: 2, acknowledgedAt: NOW }]);
+      const res = await inject('POST', `/stations/${STATION}/event-alerts/3/acknowledge`);
+      expect(res.statusCode).toBe(200);
+      expect(auditCalls('alert_acknowledged')[0]).toMatchObject({
+        entityId: STATION,
+        after: { alertId: 3, component: 'EVSE', severity: 2 },
+      });
+
+      mocks.writeAudit.mockClear();
+      queue([]);
+      const missing = await inject('POST', `/stations/${STATION}/event-alerts/4/acknowledge`);
+      expect(missing.statusCode).toBe(404);
+      expect(auditCalls('alert_acknowledged')).toHaveLength(0);
+    });
+  });
+
   describe('POST /stations/:id/evses/:evseId/refresh-status', () => {
     it('returns 404 when the station does not exist', async () => {
       queue([]);

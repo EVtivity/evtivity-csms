@@ -11,6 +11,8 @@ import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { authorize } from '../middleware/rbac.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { changedFields } from '../lib/audit-diff.js';
+import { writeSiteLoadManagementAudit } from '../lib/load-management-audit.js';
 import {
   PANEL_VOLTAGES,
   circuitConductorPhases,
@@ -249,6 +251,12 @@ export function panelRoutes(app: FastifyInstance): void {
         await reply.status(500).send({ error: 'Failed to create panel', code: 'CREATE_FAILED' });
         return;
       }
+
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: null,
+        after: { panel: created },
+        notes: `panel created: ${created.name}`,
+      });
 
       return reply.status(201).send({
         ...created,
@@ -493,6 +501,13 @@ export function panelRoutes(app: FastifyInstance): void {
         }
       }
 
+      const change = changedFields(existing, updated);
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: { panelId, ...change.before },
+        after: { panelId, ...change.after },
+        notes: `panel updated: ${updated.name}`,
+      });
+
       const circuitCount = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(circuits)
@@ -536,7 +551,7 @@ export function panelRoutes(app: FastifyInstance): void {
       }
 
       const [existing] = await db
-        .select({ id: panels.id })
+        .select()
         .from(panels)
         .where(and(eq(panels.id, panelId), eq(panels.siteId, siteId)));
 
@@ -562,6 +577,12 @@ export function panelRoutes(app: FastifyInstance): void {
 
       // Delete the panel (cascades to circuits and unmanaged loads)
       await db.delete(panels).where(eq(panels.id, panelId));
+
+      await writeSiteLoadManagementAudit(request, siteId, {
+        before: { panel: existing, circuitIds: panelCircuits.map((c) => c.id) },
+        after: null,
+        notes: `panel deleted: ${existing.name}`,
+      });
 
       return { success: true as const };
     },

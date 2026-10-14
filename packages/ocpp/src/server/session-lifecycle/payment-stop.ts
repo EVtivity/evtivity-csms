@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type postgres from 'postgres';
-import { faultUnbilledSession } from '@evtivity/database';
+import { faultUnbilledSession, writeCsmsSessionAudit } from '@evtivity/database';
 import {
   dispatchOneShotStationMessage,
   notificationMoney,
@@ -163,6 +163,7 @@ export async function stopSessionForPayment(
 
   // A transaction the station already ended (the gate ran for an idToken
   // first presented in TransactionEvent Ended) needs no stop.
+  let stopSent = false;
   if (options.transactionEnded !== true) {
     try {
       await publishOcppCommand(pubsub, {
@@ -170,10 +171,13 @@ export async function stopSessionForPayment(
         action: 'RequestStopTransaction',
         payload: { transactionId },
       });
+      stopSent = true;
     } catch (err) {
       logger.error({ err }, 'Failed to publish RequestStopTransaction');
     }
   }
+
+  await auditPaymentStop(deps, target, reason, { faulted, stopSent, ceiling: ceilingStop != null });
 
   if (reason === 'PrepaidCreditExhausted') {
     // Only the call that claimed the stop gets here.
@@ -205,6 +209,57 @@ export async function stopSessionForPayment(
   if (faulted) {
     await notify.auditLinkedReservationFault(sessionId, `faulted: ${reason}`);
   }
+}
+
+/**
+ * The session audit row of a payment stop (fail-open): `faulted` when this
+ * call faulted the session (its notes say whether the stop went out), else
+ * `stopped_by_csms` when the stop was sent. A ceiling stop records the
+ * stopped reason its claim set. Nothing when neither happened (a repeated
+ * call, or a stop that could not be published to a session left as it was).
+ */
+async function auditPaymentStop(
+  deps: ProjectionDeps,
+  target: StopTarget,
+  reason: PaymentStopReason,
+  outcome: { faulted: boolean; stopSent: boolean; ceiling: boolean },
+): Promise<void> {
+  const { sessionId, transactionId } = target;
+  if (outcome.faulted) {
+    await writeCsmsSessionAudit(
+      {
+        sessionId,
+        action: 'faulted',
+        actor: 'ocpp',
+        actorLabel: reason,
+        before: { status: 'active' },
+        after: { status: 'faulted', stoppedReason: reason, finalCostCents: 0 },
+        notes: outcome.stopSent
+          ? `RequestStopTransaction sent for transaction ${transactionId}`
+          : null,
+      },
+      undefined,
+      deps.logger,
+    );
+    return;
+  }
+  if (!outcome.stopSent) return;
+  await writeCsmsSessionAudit(
+    {
+      sessionId,
+      action: 'stopped_by_csms',
+      actor: 'ocpp',
+      actorLabel: reason,
+      before: outcome.ceiling ? { stoppedReason: null } : null,
+      after: {
+        command: 'RequestStopTransaction',
+        transactionId,
+        ...(outcome.ceiling ? { stoppedReason: reason } : { reason }),
+      },
+    },
+    undefined,
+    deps.logger,
+  );
 }
 
 /**
