@@ -20,6 +20,7 @@ import type { AiWorkerAction, AiWorkerActionKind, AiWorkerJob } from '@evtivity/
 import { formatUnitPrice } from '@evtivity/lib/currency';
 import { aiArgsHash, authorizationSubjectId, isUiLanguage } from '@evtivity/lib';
 import { writeAudit } from './lib/audit.js';
+import { sessionSiteIdSql } from './lib/session-site.js';
 import type { AuditActor } from './lib/audit.js';
 import { computeInsightScopeCounts } from './lib/insight-scope.js';
 import { applyConnectorStatus } from './lib/station-status.js';
@@ -397,12 +398,12 @@ interface DemoSession {
 async function insertSession(ctx: Context, s: DemoSession): Promise<void> {
   await ctx.sql`
     INSERT INTO charging_sessions (
-      id, station_id, evse_id, driver_id, transaction_id, status, started_at, ended_at,
+      id, station_id, site_id, evse_id, driver_id, transaction_id, status, started_at, ended_at,
       meter_start, meter_stop, energy_delivered_wh, current_cost_cents, final_cost_cents,
       tariff_price_per_kwh, currency, stopped_reason, created_at, updated_at
     )
     VALUES (
-      ${s.id}, ${s.station.id}, ${s.station.evseUuid}, ${ctx.input.driverId}, ${s.transactionId},
+      ${s.id}, ${s.station.id}, ${sessionSiteIdSql(ctx.sql, s.station.id)}, ${s.station.evseUuid}, ${ctx.input.driverId}, ${s.transactionId},
       ${s.status}, ${s.startedAt}, ${s.endedAt}, 0, ${s.endedAt == null ? null : s.energyWh},
       ${String(s.energyWh)}, ${s.finalCostCents}, ${s.finalCostCents}, ${s.tariffPricePerKwh},
       ${ctx.input.currency}, ${s.stoppedReason}, ${s.startedAt}, ${s.lastActivityAt}

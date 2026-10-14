@@ -17,6 +17,8 @@
  * 7. Evidence, deterministic scope (SQL), one model call with structured
  *    output where the model has it (prompted JSON otherwise), one repair
  *    retry, then the rule fallback of the kind. Each call records its usage.
+ *    A regeneration's call also carries the requester's own wrong-vote note
+ *    on the replaced insight, as untrusted operator feedback.
  *
  * A provider error throws: the job retries with backoff, and the queue's
  * final failure marks the insight `failed` (internal, never listed).
@@ -52,6 +54,7 @@ import {
   claimInsightCooldown,
   getInsightRow,
   publishInsightUpdated,
+  regenerationFeedbackNote,
   skipInsight,
 } from '@evtivity/services/ai-insight.service';
 import type { AiInsightRow } from '@evtivity/services/ai-insight.service';
@@ -73,6 +76,7 @@ import type { EvidencePack } from '@evtivity/services/ai-evidence';
 import type { OpsAiConfig } from '@evtivity/services/ai-ops-config';
 import {
   INSIGHT_RESPONSE_SCHEMA,
+  insightFeedbackBlock,
   insightRepairRequest,
   insightSystemBlocks,
   parseJsonAnswer,
@@ -305,17 +309,24 @@ export async function askInsightModel(input: {
   language: string;
   evidenceText: string;
   evidenceIds: ReadonlySet<string>;
+  /**
+   * A regeneration's operator feedback: the regenerating user's own note on
+   * the insight it replaces (untrusted, framed and redacted by
+   * `insightFeedbackBlock`). Rule insights never get here.
+   */
+  feedbackNote?: string | null;
   /** Runs the budget check; false refuses the call. */
   allowed: () => Promise<boolean>;
   /** The ledger row of each call, without its usage and cost. */
   ledger: Omit<AiUsageRecord, 'usage' | 'costMicros' | 'provider' | 'model'>;
   log: Logger;
-}): Promise<{ answer: InsightModelOutput | null; refused: boolean }> {
+}): Promise<{ answer: InsightModelOutput | null; refused: boolean; feedbackUsed: boolean }> {
   const prices = getModelEntry(input.config.provider, input.config.model)?.prices ?? null;
   const capabilities = input.adapter.capabilities(input.config.model);
-  const messages: AiMessage[] = [
-    { role: 'user', parts: [{ type: 'text', text: input.evidenceText }] },
-  ];
+  const feedback = insightFeedbackBlock(input.feedbackNote);
+  const feedbackUsed = feedback != null;
+  const userText = feedback == null ? input.evidenceText : `${input.evidenceText}\n\n${feedback}`;
+  const messages: AiMessage[] = [{ role: 'user', parts: [{ type: 'text', text: userText }] }];
   const base: Omit<AiRequest, 'messages'> = {
     model: input.config.model,
     system: insightSystemBlocks(input.kind, input.language, input.config.systemPrompt),
@@ -329,7 +340,7 @@ export async function askInsightModel(input: {
   };
   for (let attempt = 0; attempt < 2; attempt++) {
     // The budget is checked before every model call, the repair retry included.
-    if (!(await input.allowed())) return { answer: null, refused: attempt === 0 };
+    if (!(await input.allowed())) return { answer: null, refused: attempt === 0, feedbackUsed };
     const signal = AbortSignal.timeout(MODEL_CALL_TIMEOUT_MS);
     const result = await input.adapter.complete(
       redactProviderRequest({ ...base, messages: [...messages] }, 'insight'),
@@ -344,7 +355,7 @@ export async function askInsightModel(input: {
     });
     const parsed = parseJsonAnswer(result.text);
     const answer = sanitizeInsightModelOutput(parsed, input.evidenceIds);
-    if (answer != null) return { answer, refused: false };
+    if (answer != null) return { answer, refused: false, feedbackUsed };
     const empty = result.text.trim() === '';
     // Why the answer failed, never its text: the field, the issue, the length.
     const problem = empty
@@ -371,7 +382,7 @@ export async function askInsightModel(input: {
       { role: 'user', parts: [{ type: 'text', text: insightRepairRequest(problem) }] },
     );
   }
-  return { answer: null, refused: false };
+  return { answer: null, refused: false, feedbackUsed };
 }
 
 /** Runs the generation of one insight. Idempotent: a closed insight is left alone. */
@@ -433,10 +444,13 @@ export async function generateInsight(
 
   const config = deps.resolveConfig(settings);
   let answer: InsightModelOutput | null = null;
+  let feedbackUsed = false;
   if (config == null) {
     log.warn({ insightId }, 'opsAi has no usable provider key; storing the rule fallback');
   } else {
     const rendered = renderEvidencePack(evidence.pack);
+    // A regeneration reads the requester's own note on the replaced insight.
+    const feedbackNote = await regenerationFeedbackNote(row);
     const asked = await askInsightModel({
       adapter: deps.createAdapter(config),
       config,
@@ -444,6 +458,7 @@ export async function generateInsight(
       language,
       evidenceText: rendered.text,
       evidenceIds: evidenceIds(rendered.pack),
+      feedbackNote,
       allowed: async () =>
         (
           await deps.checkBudgets({
@@ -472,6 +487,7 @@ export async function generateInsight(
       });
     }
     answer = asked.answer;
+    feedbackUsed = asked.feedbackUsed;
   }
 
   if (answer == null) {
@@ -507,6 +523,7 @@ export async function generateInsight(
     model: config?.model ?? null,
     basisAt: now,
     basisFingerprint,
+    feedbackUsed,
   });
   return finish(deps, row, stored, 'model');
 }

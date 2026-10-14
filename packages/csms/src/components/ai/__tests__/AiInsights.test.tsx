@@ -70,6 +70,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
     resolvedAt: null,
     dismissedAt: null,
     action: null,
+    feedbackUsed: false,
     ...overrides,
   };
 }
@@ -338,6 +339,64 @@ describe('InsightCard', () => {
     await waitFor(() => {
       expect(apiMock.post).toHaveBeenLastCalledWith('/v1/ai/insights/ins1/regenerate', {});
     });
+  });
+
+  it('TC-AI-FB-UI-12 a stored Wrong vote shows the panel on a later visit; Wrong again removes the vote', async () => {
+    perms.add('aiInsights:write');
+    apiMock.post.mockResolvedValue({});
+    apiMock.delete.mockResolvedValue({});
+    wrap(
+      <InsightCard
+        insight={insight({ feedback: { helpfulCount: 0, wrongCount: 1, mine: false } })}
+      />,
+    );
+    expect(screen.getByTestId('ai-insight-wrong-panel')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('ai-insight-wrong-regenerate'));
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenLastCalledWith('/v1/ai/insights/ins1/regenerate', {});
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'aiInsights.wrong' }));
+    await waitFor(() => {
+      expect(apiMock.delete).toHaveBeenCalledWith('/v1/ai/insights/ins1/feedback');
+    });
+  });
+
+  it('TC-AI-FB-UI-08 Regenerate in the Wrong panel saves a typed note first, then regenerates', async () => {
+    perms.add('aiInsights:write');
+    apiMock.post.mockResolvedValue({});
+    wrap(
+      <InsightCard
+        insight={insight({ feedback: { helpfulCount: 0, wrongCount: 0, mine: null } })}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'aiInsights.wrong' }));
+    const reason = await screen.findByLabelText('aiInsights.feedback.reasonLabel');
+    fireEvent.change(reason, { target: { value: 'Planned maintenance' } });
+    fireEvent.click(screen.getByTestId('ai-insight-wrong-regenerate'));
+    await waitFor(() => {
+      expect(apiMock.post).toHaveBeenLastCalledWith('/v1/ai/insights/ins1/regenerate', {});
+    });
+    const calls = apiMock.post.mock.calls.map((c) => [c[0], c[1]] as const);
+    expect(calls).toEqual([
+      ['/v1/ai/insights/ins1/feedback', { helpful: false }],
+      ['/v1/ai/insights/ins1/feedback', { helpful: false, reason: 'Planned maintenance' }],
+      ['/v1/ai/insights/ins1/regenerate', {}],
+    ]);
+  });
+
+  it('TC-AI-FB-UI-09 a regeneration that read a note says whose feedback it used', () => {
+    wrap(<InsightCard insight={insight({ feedbackUsed: true, feedbackFromYou: true })} />);
+    expect(screen.getByTestId('ai-insight-feedback-used').textContent).toBe(
+      'aiInsights.feedback.usedYours',
+    );
+    cleanup();
+    wrap(<InsightCard insight={insight({ feedbackUsed: true, feedbackFromYou: false })} />);
+    expect(screen.getByTestId('ai-insight-feedback-used').textContent).toBe(
+      'aiInsights.feedback.usedOther',
+    );
+    cleanup();
+    wrap(<InsightCard insight={insight()} />);
+    expect(screen.queryByTestId('ai-insight-feedback-used')).toBeNull();
   });
 
   it('TC-AI-FB-UI-04 a reader sees the helpful count but no vote buttons or note', () => {

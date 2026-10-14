@@ -90,6 +90,11 @@ export const aiInsights = pgTable(
     model: varchar('model', { length: 200 }),
     /** The user who asked for a regeneration: its model call is charged to them. */
     requestedBy: text('requested_by').references(() => users.id, { onDelete: 'set null' }),
+    /**
+     * The model analysis of this regeneration read the regenerating user's
+     * note on the insight it replaced (untrusted, framed and redacted).
+     */
+    feedbackUsed: boolean('feedback_used').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     resolvedAt: timestamp('resolved_at', { withTimezone: true }),

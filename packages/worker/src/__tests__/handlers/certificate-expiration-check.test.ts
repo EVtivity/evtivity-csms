@@ -63,26 +63,52 @@ describe('certificateExpirationCheckHandler', () => {
     mockPublish.mockResolvedValue(undefined);
   });
 
-  it('returns early without touching the DB when PnC is disabled', async () => {
-    mockClient.mockResolvedValueOnce(settingsRows(false));
+  it('checks station TLS certificates only when PnC is disabled', async () => {
+    mockClient
+      .mockResolvedValueOnce(settingsRows(false))
+      .mockResolvedValueOnce([{ id: 'sc_1', certificate_type: 'ChargingStationCertificate' }])
+      .mockResolvedValueOnce([
+        {
+          id: 'sc_2',
+          station_id: 'sta_2',
+          certificate_type: 'ChargingStationCertificate',
+          valid_to: new Date('2026-06-10T00:00:00Z'),
+          station_ocpp_id: 'CS-2',
+          ocpp_protocol: 'ocpp2.1',
+        },
+      ])
+      .mockResolvedValueOnce([]);
 
     const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
-    // Only the settings SELECT ran. No expiry UPDATE/SELECT, no publishes.
-    expect(mockClient).toHaveBeenCalledTimes(1);
-    expect(mockPublish).not.toHaveBeenCalled();
+    // Settings, expired station certificates, critical, warning: no CA UPDATE.
+    expect(mockClient).toHaveBeenCalledTimes(4);
+    const texts = mockClient.mock.calls.map((c) => (c[0] as string[]).join('?'));
+    expect(texts.some((t) => t.includes('UPDATE pki_ca_certificates'))).toBe(false);
+    // Each station query limits itself to the TLS certificate while PnC is off.
+    for (const i of [1, 2, 3]) {
+      expect(texts[i]).toContain('? OR');
+      expect(texts[i]).toMatch(/certificate_type = 'ChargingStationCertificate'/);
+      expect(mockClient.mock.calls[i]).toContain(false);
+    }
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(mockPublish.mock.calls[0]?.[1] as string)).toMatchObject({
+      stationId: 'CS-2',
+      action: 'TriggerMessage',
+      payload: { requestedMessage: 'SignChargingStationCertificate' },
+    });
   });
 
-  it('returns early when pnc.enabled is missing entirely', async () => {
-    // No pnc.enabled row at all -> Map.get returns undefined !== true.
-    mockClient.mockResolvedValueOnce([]);
+  it('treats a missing pnc.enabled as disabled', async () => {
+    mockClient.mockResolvedValue([]);
 
     const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
-    expect(mockClient).toHaveBeenCalledTimes(1);
-    expect(mockPublish).not.toHaveBeenCalled();
+    expect(mockClient).toHaveBeenCalledTimes(4);
+    expect(mockClient.mock.calls[1]).toContain(false);
+    mockClient.mockReset();
   });
 
   it('marks expired station and CA certs and logs counts', async () => {
@@ -172,7 +198,7 @@ describe('certificateExpirationCheckHandler', () => {
     expect(log.info).not.toHaveBeenCalledWith(expect.anything(), 'Marked expired CA certificates');
   });
 
-  it('publishes a TriggerMessage auto-renewal command per critical cert', async () => {
+  it('triggers the renewal message of each certificate type and protocol', async () => {
     mockClient
       .mockResolvedValueOnce(settingsRows(true))
       .mockResolvedValueOnce([])
@@ -184,13 +210,39 @@ describe('certificateExpirationCheckHandler', () => {
           certificate_type: 'V2GCertificate',
           valid_to: new Date('2026-06-10T00:00:00Z'),
           station_ocpp_id: 'CS-A',
+          ocpp_protocol: 'ocpp2.1',
         },
         {
           id: 'sc_b',
           station_id: 'sta_b',
-          certificate_type: 'V2GCertificate',
+          certificate_type: 'ChargingStationCertificate',
           valid_to: new Date('2026-06-11T00:00:00Z'),
           station_ocpp_id: 'CS-B',
+          ocpp_protocol: 'ocpp2.1',
+        },
+        {
+          id: 'sc_c',
+          station_id: 'sta_c',
+          certificate_type: 'V2G20Certificate',
+          valid_to: new Date('2026-06-11T00:00:00Z'),
+          station_ocpp_id: 'CS-C',
+          ocpp_protocol: 'ocpp2.1',
+        },
+        {
+          id: 'sc_d',
+          station_id: 'sta_d',
+          certificate_type: 'ChargingStationCertificate',
+          valid_to: new Date('2026-06-12T00:00:00Z'),
+          station_ocpp_id: 'CS-D',
+          ocpp_protocol: 'ocpp1.6',
+        },
+        {
+          id: 'sc_e',
+          station_id: 'sta_e',
+          certificate_type: 'V2GCertificate',
+          valid_to: new Date('2026-06-12T00:00:00Z'),
+          station_ocpp_id: 'CS-E',
+          ocpp_protocol: 'ocpp1.6',
         },
       ])
       .mockResolvedValueOnce([]);
@@ -198,27 +250,65 @@ describe('certificateExpirationCheckHandler', () => {
     const { certificateExpirationCheckHandler } = mod;
     await certificateExpirationCheckHandler(log);
 
-    expect(mockPublish).toHaveBeenCalledTimes(2);
-    expect(mockPublish).toHaveBeenNthCalledWith(
-      1,
-      'ocpp_commands',
-      JSON.stringify({
+    const sent = mockPublish.mock.calls.map((c) => JSON.parse(c[1] as string) as unknown);
+    expect(sent).toEqual([
+      {
         commandId: 'fixed-uuid',
         stationId: 'CS-A',
         action: 'TriggerMessage',
-        payload: { requestedMessage: 'SignChargingStationCertificate' },
-      }),
-    );
-    expect(mockPublish).toHaveBeenNthCalledWith(
-      2,
-      'ocpp_commands',
-      JSON.stringify({
+        payload: { requestedMessage: 'SignV2GCertificate' },
+      },
+      {
         commandId: 'fixed-uuid',
         stationId: 'CS-B',
         action: 'TriggerMessage',
         payload: { requestedMessage: 'SignChargingStationCertificate' },
-      }),
+      },
+      {
+        commandId: 'fixed-uuid',
+        stationId: 'CS-C',
+        action: 'TriggerMessage',
+        payload: { requestedMessage: 'SignV2G20Certificate' },
+      },
+      {
+        commandId: 'fixed-uuid',
+        stationId: 'CS-D',
+        action: 'ExtendedTriggerMessage',
+        payload: { requestedMessage: 'SignChargePointCertificate' },
+      },
+      {
+        commandId: 'fixed-uuid',
+        stationId: 'CS-E',
+        action: 'TriggerMessage',
+        payload: { requestedMessage: 'SignV2GCertificate' },
+      },
+    ]);
+  });
+
+  it('renews only station-keyed certificates not already replaced or awaiting a CSR', async () => {
+    mockClient
+      .mockResolvedValueOnce(settingsRows(true))
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const { certificateExpirationCheckHandler } = mod;
+    await certificateExpirationCheckHandler(log);
+
+    const text = (mockClient.mock.calls[3]?.[0] as string[]).join('?');
+    // Root certificates the CSMS installed are never "renewed" by a CSR.
+    expect(text).toContain(
+      "sc.certificate_type IN ('ChargingStationCertificate', 'V2GCertificate', 'V2G20Certificate')",
     );
+    expect(text).toContain(
+      "sc.certificate_type IN ('ChargingStationCertificate', 'V2GCertificate'))",
+    );
+    // A newer certificate of the type replaced it.
+    expect(text).toContain('n.valid_to > ?');
+    // A renewal CSR is still open.
+    expect(text).toContain("r.status IN ('pending', 'submitted')");
+    expect(text).toContain('DISTINCT ON (sc.station_id, sc.certificate_type)');
   });
 
   it('publishes a certificate.expiring SSE event per warning cert and logs the count', async () => {

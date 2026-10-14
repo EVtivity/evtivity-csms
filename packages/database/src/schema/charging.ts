@@ -20,7 +20,7 @@ import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 import { createId } from '../lib/id.js';
 import { tariffs } from './pricing.js';
-import { chargingStations, evses, connectors } from './assets.js';
+import { chargingStations, evses, connectors, sites } from './assets.js';
 import { drivers, driverTokens, vehicles, fleets } from './drivers.js';
 import { reservations } from './reservations.js';
 import { invoices } from './invoices.js';
@@ -56,6 +56,10 @@ export const chargingSessions = pgTable(
     stationId: text('station_id')
       .notNull()
       .references(() => chargingStations.id, { onDelete: 'cascade' }),
+    // The site the session happened at, stamped from its station at insert by
+    // the BEFORE INSERT trigger charging_sessions_stamp_site (migration 0475),
+    // so revenue and history stay with that site when the station moves.
+    siteId: text('site_id').references(() => sites.id, { onDelete: 'set null' }),
     evseId: text('evse_id').references(() => evses.id),
     connectorId: text('connector_id').references(() => connectors.id),
     driverId: text('driver_id').references(() => drivers.id),
@@ -177,6 +181,15 @@ export const chargingSessions = pgTable(
     // account_invoice_recipient at start and never rewritten (P5), so a later
     // recipient switch never moves a started session.
     memberBilled: boolean('member_billed').notNull().default(false),
+    // The vehicle id the charger sent at the start (@evtivity/lib/vehicle-id):
+    // the normalized value, its type (VIN, EVCCID, MacAddress) and source
+    // (id_token, additional_info, id_tag). Written once, by the first event
+    // that carries one.
+    vehicleIdValue: varchar('vehicle_id_value', { length: 255 }),
+    vehicleIdType: varchar('vehicle_id_type', { length: 20 }),
+    vehicleIdSource: varchar('vehicle_id_source', { length: 20 }),
+    // The session was authorized by an Autocharge vehicle (no card or app).
+    autocharge: boolean('autocharge').notNull().default(false),
     metadata: jsonb('metadata'),
     freeVend: boolean('free_vend').notNull().default(false),
     co2AvoidedKg: numeric('co2_avoided_kg'),
@@ -186,6 +199,7 @@ export const chargingSessions = pgTable(
   },
   (table) => [
     index('idx_sessions_station_id').on(table.stationId),
+    index('idx_sessions_site_started_at').on(table.siteId, table.startedAt),
     index('idx_sessions_status').on(table.status),
     uniqueIndex('uq_charging_sessions_station_transaction').on(
       table.stationId,

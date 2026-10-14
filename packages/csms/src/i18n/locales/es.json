@@ -488,7 +488,7 @@
     "contactPhone": "Teléfono de contacto",
     "contactIsPublic": "Hacer pública la información de contacto",
     "contactPublicNote": "Cuando es pública, la información de contacto es visible para los conductores en el Portal.",
-    "removeStationsFirst": "Elimine todas las estaciones antes de eliminar",
+    "removeStationsFirst": "Mueva todas las estaciones a otro sitio antes de eliminar. Una estación eliminada permanece en su sitio.",
     "noStationsAtSite": "No hay estaciones en este sitio",
     "layout": "Disposición",
     "loadManagement": "Gestión de carga",
@@ -534,8 +534,8 @@
     "enableFreeVend": "Habilitar Carga Libre",
     "disableFreeVend": "Deshabilitar Carga Libre",
     "confirmEnableFreeVend": "Esto permitirá que todas las estaciones en este sitio carguen sin identificación del conductor ni pago. La configuración de inicio automático OCPP se enviará a todas las estaciones en línea.",
-    "confirmDisableFreeVend": "Esto requerirá identificación del conductor y pago para cargar en este sitio. La configuración OCPP de las estaciones no se cambiará.",
-    "freeVendDisabledNote": "Carga Libre está deshabilitada. Las sesiones ahora requieren identificación del conductor y pago. La configuración OCPP de las estaciones no fue cambiada. Para restaurar los requisitos de autorización en las estaciones, edite la plantilla de configuración y vuelva a enviar.",
+    "confirmDisableFreeVend": "Esto requerirá identificación del conductor y pago para cargar en este sitio. Las estaciones en línea recuperan su configuración de autorización anterior.",
+    "freeVendDisabledNote": "Carga Libre está deshabilitada. Las sesiones ahora requieren identificación del conductor y pago. Las estaciones en línea recibieron las plantillas de restauración de autorización de abajo; una estación que estaba sin conexión recupera la autorización cuando las vuelve a enviar.",
     "freeVendOcpp16Note": "OCPP 1.6 no define un mecanismo estándar de carga libre. Estas claves predeterminadas funcionan con la mayoría de las estaciones, pero algunos fabricantes usan claves específicas del fabricante (por ejemplo, FreeCharging, FreeVendEnabled). Si los resultados del envío muestran variables rechazadas, edite la plantilla para agregar la clave específica de su estación y vuelva a enviar.",
     "freeVendViewTemplate": "Ver Plantilla",
     "freeVendLastPush": "Último envío",
@@ -581,7 +581,19 @@
     "electricityCostRecalculateMore_other": "{{count}} sesiones aún no tienen costo de electricidad. Vuelva a recalcular para continuar.",
     "tabs": {
       "ai": "Uso de IA"
-    }
+    },
+    "stationLayout": "Distribución de estaciones",
+    "layoutDraw": "Consumo",
+    "levelDcFast": "CC rápida",
+    "levelL2": "Nivel 2",
+    "levelL1": "Nivel 1",
+    "deleteSiteTitle": "Eliminar sitio",
+    "deleteSiteDescription": "{{name}} se eliminará de forma permanente con sus tarifas de electricidad, distribución, gestión de carga, asignación de precios y configuración de pago.",
+    "freeVendRestoreTitle": "Plantillas de restauración de autorización",
+    "freeVendRestoreDescription": "Se envían al desactivar Carga Libre: autorización activada, con los valores que las estaciones informaron al activarla. Cada plantilla muestra sus resultados de envío.",
+    "autocharge": "Autocharge",
+    "autochargeDescription": "Cargar al conectar en las estaciones de este sitio. Se aplica el ajuste de la empresa salvo que lo active o desactive aquí.",
+    "autochargeDefault": "Usar el ajuste de la empresa"
   },
   "stations": {
     "title": "Estaciones",
@@ -743,6 +755,15 @@
     "simActionFailed": "Acción del simulador fallida",
     "stationOfflineCannotSim": "Estación desconectada - no se puede enviar acción del simulador",
     "deleteEvse": "Eliminar EVSE",
+    "retire": "Retirar",
+    "retired": "Retirado",
+    "retireEvse": "Retirar EVSE",
+    "restoreEvse": "Restaurar EVSE",
+    "retireConnector": "Retirar conector",
+    "restoreConnector": "Restaurar conector",
+    "confirmRetireEvse": "El EVSE {{id}} queda fuera de servicio. Los conductores y los socios de roaming ya no lo ven, no acepta nuevas sesiones ni reservas y su historial se conserva. Puede restaurarlo más tarde.",
+    "confirmRetireConnector": "El conector {{id}} queda fuera de servicio. Los conductores y los socios de roaming ya no lo ven y su historial se conserva. Puede restaurarlo más tarde.",
+    "cannotRetireOccupied": "No se puede retirar mientras la carga está en progreso.",
     "deleteConnector": "Eliminar conector",
     "confirmDeleteEvse": "Esto eliminará el EVSE {{id}} y todos sus conectores. Esta acción no se puede deshacer.",
     "confirmDeleteConnector": "Esto eliminará el conector {{id}}. Esta acción no se puede deshacer.",
@@ -832,9 +853,14 @@
     "confirmRealStationDescription": "Se quita la marca de simulador y el simulador deja de conectarse como {{stationId}}. Puede volver a activar el simulador más tarde editando la estación.",
     "confirmRealStationSuccess": "Marca de simulador eliminada",
     "approve": "Aprobar",
+    "approvedSuccess": "Estación aprobada",
     "reject": "Rechazar",
-    "blockedInfo": "Esta estación está bloqueada. Apruebe para permitir que acepte sesiones de carga.",
+    "rejectedSuccess": "Estación rechazada",
+    "rejectStationTitle": "¿Rechazar esta estación?",
+    "rejectStationDescription": "La estación queda bloqueada: el CSMS rechaza sus conexiones hasta que la desbloquee.",
+    "blockedInfo": "Esta estación está bloqueada: el CSMS rechaza sus conexiones. Desbloquéela para que vuelva a quedar pendiente de aprobación.",
     "unblock": "Desbloquear",
+    "unblockedSuccess": "Estación desbloqueada",
     "blockStation": "Bloquear estación",
     "blockStationDescription": "Esto bloqueará la conexión de la estación. No se eliminará permanentemente. Puede desbloquearla más tarde para restaurarla al estado pendiente.",
     "onboardingStatus": "Estado de Incorporación",
@@ -993,6 +1019,8 @@
     "stoppedReason": "Motivo de Parada",
     "reservation": "Reserva",
     "token": "Token",
+    "pncContract": "Contrato de Plug & Charge",
+    "pncContractPcid": "PCID {{pcid}}",
     "preAuthAmount": "Pre-autorizado",
     "capturedAmount": "Capturado",
     "refundedAmount": "Reembolsado",
@@ -1095,7 +1123,12 @@
     "electricityCostMissing": "Faltante",
     "costMissingNotice": "Estas sesiones no tienen costo de electricidad y no se incluyen en la ganancia.",
     "costMissingSelectSite": "Estas sesiones no tienen costo de electricidad y no se incluyen en la ganancia. Seleccione un sitio para recalcular sus costos.",
-    "billedToMember": "A cuenta: {{fleet}} (factura del conductor)"
+    "billedToMember": "A cuenta: {{fleet}} (factura del conductor)",
+    "capturedFromCharger": "Capturado del cargador",
+    "captured": "(capturado)",
+    "useVehicleForPlugIn": "Usar este vehículo para cargar al conectar",
+    "useVehicleDescription": "Guarda {{id}}, el identificador que el cargador envió para esta sesión, en un vehículo del conductor. Con Autocharge activado, la próxima conexión inicia la carga para el conductor sin tarjeta ni aplicación.",
+    "vehicleClaimed": "Vehículo guardado"
   },
   "drivers": {
     "title": "Conductores",
@@ -1664,7 +1697,9 @@
       "completed": "Completada",
       "expired": "Expirada",
       "cancelled": "Cancelada"
-    }
+    },
+    "deleteFleetTitle": "Eliminar flota",
+    "deleteFleetDescription": "{{name}} se eliminará de forma permanente. Sus vehículos y estaciones se conservan, sin esta flota."
   },
   "tokens": {
     "title": "Tokens",
@@ -2210,6 +2245,12 @@
     "pncLocalCaCreateConfirm": "¿Crear la CA de contratos? El CSMS genera los certificados del operador de movilidad y de aprovisionamiento y guarda sus claves privadas cifradas. La CA se crea una sola vez.",
     "pncLocalCaCreated": "CA de contratos creada",
     "pncLocalCaCreateFailed": "No se pudo crear la CA de contratos",
+    "pncLocalCpoCreate": "Añadir sub-CA de CPO",
+    "pncLocalCpoCreateConfirm": "¿Añadir las sub-CA de CPO bajo la raíz V2G? Con el proveedor local, la sub-CA de CPO 2 firma entonces los certificados V2G que solicitan las estaciones de carga. Sus claves privadas se guardan cifradas.",
+    "pncLocalCpoCreated": "Sub-CA de CPO añadida",
+    "pncLocalCpoCreateFailed": "No se pudo añadir la sub-CA de CPO",
+    "pncLocalCpoActive": "La sub-CA de CPO 2 firma automáticamente las solicitudes de certificado V2G de las estaciones. Las solicitudes de certificado TLS de las estaciones quedan en Solicitudes CSR para su firma manual.",
+    "pncLocalCpoMissing": "Las solicitudes de certificado V2G de las estaciones esperan en Solicitudes CSR la firma manual. Añade la sub-CA de CPO para firmarlas automáticamente.",
     "pncLocalCaEdition": "Edición",
     "pncLocalCaRole": "Función",
     "pncLocalCaRoles": {
@@ -2219,7 +2260,9 @@
       "cpsRoot": "Raíz V2G",
       "cpsSubCa1": "Sub-CA 1 de CPS",
       "cpsSubCa2": "Sub-CA 2 de CPS",
-      "cpsLeaf": "Certificado de firma de CPS"
+      "cpsLeaf": "Certificado de firma de CPS",
+      "cpoSubCa1": "Sub-CA de CPO 1",
+      "cpoSubCa2": "Sub-CA de CPO 2"
     },
     "pncSaved": "Configuración de Plug & Charge guardada.",
     "pncSaveFailed": "Error al guardar configuración de Plug & Charge.",
@@ -2694,7 +2737,11 @@
     "aiAdvancedOptions": "Opciones avanzadas",
     "aiPromptCustomSummary": "Prompt del sistema personalizado",
     "aiPromptDefaultSummary": "Prompt del sistema integrado",
-    "aiBaseUrlDefaultSummary": "Endpoint predeterminado"
+    "aiBaseUrlDefaultSummary": "Endpoint predeterminado",
+    "autocharge": "Autocharge",
+    "autochargeDescription": "Cargar al conectar: un cargador que envía el VIN, el EVCCID o la dirección MAC de un vehículo inicia una sesión para su conductor cuando este ha activado Autocharge. Un sitio puede activarlo o desactivarlo para sus propias estaciones.",
+    "autochargeEnabled": "Autocharge activado",
+    "autochargeEnabledDesc": "Desactivado por defecto. Los conductores activan Autocharge por vehículo en el portal; cada inicio envía un aviso al conductor."
   },
   "pnc": {
     "certificates": "Certificados",
@@ -2864,7 +2911,8 @@
       "invoice.FleetInvoice": "Factura de flota emitida",
       "invoice.FleetCreditNote": "Nota de crédito de flota emitida",
       "invoice.FleetOverdue": "Factura de flota vencida",
-      "ai.ProposalDigest": "Resumen de acciones de análisis de IA"
+      "ai.ProposalDigest": "Resumen de acciones de análisis de IA",
+      "session.AutochargeStarted": "Sesión iniciada por Autocharge"
     },
     "templatePreviewInvalid": "La plantilla tiene un error:",
     "htmlPreview": "Vista previa HTML",
@@ -3057,8 +3105,10 @@
     "EMAIL_REQUIRED": "Se requiere correo electrónico para carga de pago",
     "EMAIL_SEND_FAILED": "Error al enviar el correo electrónico",
     "ENCRYPTION_KEY_MISSING": "SETTINGS_ENCRYPTION_KEY no está configurada en el servidor",
+    "EVSE_HAS_HISTORY": "El EVSE o el conector tiene historial de carga y no se puede eliminar. Retírelo en su lugar.",
     "EVSE_IN_USE": "Ya hay otra sesión activa en este conector",
     "EVSE_NOT_FOUND": "EVSE no encontrado",
+    "EVSE_RESERVED": "El EVSE tiene una reserva activa o próxima. Cancélela antes de retirar el EVSE.",
     "FAVORITE_NOT_FOUND": "Favorito no encontrado",
     "FLEET_CREDIT_LIMIT_REACHED": "Se alcanzó el límite de crédito de la flota a la que se facturan sus sesiones. Contacte al responsable de su flota.",
     "FLEET_DISABLED": "La flota está deshabilitada",
@@ -3231,6 +3281,7 @@
     "SSO_DISABLED": "SSO no está configurado",
     "START_REJECTED": "La estación rechazó la solicitud de inicio: ...",
     "STATION_ALREADY_IN_FLEET": "La estación ya está en esta flota",
+    "STATION_HAS_ACTIVE_SESSION": "La estación tiene una sesión de carga activa. Deténgala antes de eliminar la estación.",
     "STATION_ID_EXISTS": "Ya existe una estación con este ID",
     "STATION_NOT_FOUND": "Estación no encontrada",
     "STATION_OFFLINE": "La estación está fuera de línea",
@@ -3288,7 +3339,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "Configure primero el código de país y el ID de proveedor del eMAID",
     "LOCAL_CA_EXISTS": "Ya existe una CA de contratos local",
     "LOCAL_CA_NOT_CONFIGURED": "Cree primero la CA de contratos local",
+    "LOCAL_CPO_SUB_CA_EXISTS": "La CA de contratos local ya tiene sus sub-CA de CPO",
     "PNC_CONTRACT_NOT_FOUND": "Contrato de Plug & Charge no encontrado",
+    "PNC_CONTRACT_TOKEN_LOCKED": "Este token pertenece a un contrato de Plug & Charge. Gestiónelo desde los contratos del conductor.",
     "PHONE_REGISTRATION_LIMITED": "Se registraron demasiadas cuentas con este número de teléfono. Vuelva a intentarlo más tarde.",
     "VERIFICATION_RESEND_LIMITED": "Demasiados correos de verificación. Espere antes de solicitar otro.",
     "AI_INSIGHT_NOT_FOUND": "Análisis no encontrado",
@@ -3304,7 +3357,11 @@
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
     "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde",
     "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación.",
-    "TOKEN_BLOCKED_BY_OPERATOR": "El operador desactivó esta tarjeta. Contacte al operador para reactivarla."
+    "TOKEN_BLOCKED_BY_OPERATOR": "El operador desactivó esta tarjeta. Contacte al operador para reactivarla.",
+    "SESSION_NO_VEHICLE_ID": "El cargador no envió ningún identificador de vehículo para esta sesión.",
+    "VEHICLE_BLOCKED_BY_OPERATOR": "El operador bloqueó Autocharge para este vehículo. Contacte al operador para desbloquearlo.",
+    "VEHICLE_ID_IN_USE": "Otro vehículo ya usa este VIN o EVCCID para Autocharge.",
+    "VEHICLE_ID_REQUIRED": "Autocharge necesita un VIN o un EVCCID en el vehículo."
   },
   "logs": {
     "title": "Registros",
@@ -3643,7 +3700,35 @@
     "vehicleId": "ID del Vehículo",
     "confirmDelete": "¿Está seguro de que desea eliminar este vehículo?",
     "owner": "Propietario",
-    "vehicleNotFound": "Vehículo no encontrado"
+    "vehicleNotFound": "Vehículo no encontrado",
+    "vehicle": "Vehículo",
+    "vehicleIdColumn": "ID del vehículo",
+    "idTypes": {
+      "VIN": "VIN",
+      "EVCCID": "EVCCID",
+      "MacAddress": "Dirección MAC"
+    },
+    "evccid": "EVCCID (dirección MAC)",
+    "evccidHelp": "El identificador del controlador de carga que el cargador lee del vehículo, normalmente su dirección MAC. Mayúsculas, minúsculas y separadores indistintos.",
+    "evccidFormat": "Introduzca una dirección MAC o un EVCCID sin espacios.",
+    "autocharge": "Autocharge",
+    "autochargeHelp": "Cargar al conectar: cuando un cargador envía el VIN o el EVCCID de este vehículo, se inicia una sesión para el conductor sin tarjeta ni aplicación.",
+    "autochargeNeedsId": "Añada un VIN o un EVCCID para activar Autocharge.",
+    "autochargeOn": "Activado",
+    "autochargeOff": "Desactivado",
+    "newVehicle": "Vehículo nuevo",
+    "makeModelRequired": "Introduzca la marca y el modelo.",
+    "blocked": "Bloqueado",
+    "block": "Bloquear vehículo",
+    "unblock": "Desbloquear vehículo",
+    "blockedToast": "Vehículo bloqueado",
+    "unblockedToast": "Vehículo desbloqueado",
+    "blockedDescription": "Bloqueado por un operador: el VIN y el EVCCID de este vehículo se rechazan en cada inicio y el conductor no puede activar Autocharge.",
+    "confirmBlockDesc": "Los inicios con el VIN o el EVCCID de este vehículo se rechazarán como una tarjeta bloqueada, con Autocharge activado o no. El conductor no podrá volver a activar Autocharge.",
+    "confirmUnblockDesc": "Los inicios con los identificadores de este vehículo se aceptan de nuevo cuando Autocharge está activado.",
+    "lastSeen": "Visto por última vez",
+    "lastSeenValue": "{{station}}, {{time}}",
+    "neverSeen": "Ningún cargador ha enviado aún sus identificadores"
   },
   "firmwareCampaigns": {
     "subtitle": "Planifica y despacha actualizaciones de firmware a estaciones coincidentes en un solo despliegue.",
@@ -3653,7 +3738,6 @@
     "version": "Versión",
     "start": "Iniciar",
     "startCampaign": "Iniciar campaña",
-    "progress": "Progreso",
     "progress": "Progreso",
     "totalStations": "Total",
     "completedStations": "Completadas",
@@ -4429,7 +4513,12 @@
       "refunded": "Reembolsado",
       "event_settings_changed": "Configuración de eventos modificada",
       "reset": "Restablecido al predeterminado",
-      "report_deleted": "Informe eliminado"
+      "report_deleted": "Informe eliminado",
+      "autocharge_enabled": "Autocharge activado",
+      "autocharge_disabled": "Autocharge desactivado",
+      "autocharge_blocked": "Vehículo bloqueado",
+      "autocharge_unblocked": "Vehículo desbloqueado",
+      "vehicle_id_claimed": "Identificador de vehículo añadido desde una sesión"
     },
     "entities": {
       "site": "Sitio",
@@ -4993,9 +5082,16 @@
       "wrongPrompt": "Marcado como incorrecto. Vuelve a generar el análisis con datos actuales o descártalo.",
       "reasonLabel": "¿Qué es incorrecto? (opcional)",
       "reasonPlaceholder": "Por ejemplo: la estación estaba desconectada por un mantenimiento programado.",
-      "reasonHint": "Se guarda solo con tu valoración. Nunca se envía a un proveedor de IA.",
+      "reasonHint": "Se muestra en este análisis con tu valoración. Solo se envía al proveedor de IA cuando regeneras el análisis, como una afirmación que se comprueba con los datos.",
       "saveReason": "Guardar nota",
-      "reasonSaved": "Nota guardada."
+      "reasonSaved": "Nota guardada.",
+      "usedYours": "Regenerado con tus comentarios",
+      "usedOther": "Regenerado con comentarios de un usuario"
+    },
+    "wrongVotes": {
+      "title": "Marcado como incorrecto",
+      "anotherUser": "Otro usuario",
+      "noNote": "Sin nota"
     },
     "action": {
       "kind": {

@@ -86,6 +86,24 @@ vi.mock('@evtivity/database', () => ({
   pricingAssignmentAuditLog: { name: 'pricingAssignmentAuditLog' },
 }));
 
+// Vehicle writes go through the vehicle service (vehicle-service-mapping is
+// checked here; the service itself runs against the database in
+// __integration__/118-autocharge-vehicles).
+const vehicleServiceMock = vi.hoisted(() => ({
+  createVehicle: vi.fn(),
+  updateVehicle: vi.fn(),
+  deleteVehicle: vi.fn(),
+  setVehicleBlocked: vi.fn(),
+}));
+vi.mock('../services/vehicle.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/vehicle.service.js')>()),
+  ...vehicleServiceMock,
+}));
+vi.mock('../lib/vehicle-response.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/vehicle-response.js')>()),
+  vehicleLastSeen: vi.fn(() => Promise.resolve(new Map())),
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   ne: vi.fn(),
@@ -131,12 +149,14 @@ vi.mock('../services/token.service.js', () => {
   class DuplicateTokenError extends Error {}
   class TokenDriverNotFoundError extends Error {}
   class TokenDriverInactiveError extends Error {}
+  class PncContractTokenError extends Error {}
   return {
     createToken: createTokenMock,
     bulkSetActive: bulkSetActiveMock,
     DuplicateTokenError,
     TokenDriverNotFoundError,
     TokenDriverInactiveError,
+    PncContractTokenError,
     tokenActorOf: (actor: { actorUserId: string | null }) => ({
       type: 'operator',
       userId: actor.actorUserId,
@@ -666,7 +686,10 @@ describe('Driver routes (operator), uncovered paths', () => {
     });
 
     it('maps a foreign key violation (driver deleted meanwhile) to 404', async () => {
-      setupDbResults([{ id: DRIVER_ID }], pgError('23503'));
+      // The service maps the violation to VehicleDriverNotFoundError.
+      const { VehicleDriverNotFoundError } = await import('../services/vehicle.service.js');
+      setupDbResults([{ id: DRIVER_ID }]);
+      vehicleServiceMock.createVehicle.mockRejectedValueOnce(new VehicleDriverNotFoundError());
       const res = await app.inject({
         method: 'POST',
         url: `/drivers/${DRIVER_ID}/vehicles`,
@@ -679,7 +702,8 @@ describe('Driver routes (operator), uncovered paths', () => {
     });
 
     it('returns 500 for other insert errors', async () => {
-      setupDbResults([{ id: DRIVER_ID }], pgError('XX000'));
+      setupDbResults([{ id: DRIVER_ID }]);
+      vehicleServiceMock.createVehicle.mockRejectedValueOnce(pgError('XX000'));
       const res = await app.inject({
         method: 'POST',
         url: `/drivers/${DRIVER_ID}/vehicles`,
@@ -691,7 +715,7 @@ describe('Driver routes (operator), uncovered paths', () => {
   });
 
   describe('PATCH /drivers/:id/vehicles/:vehicleId', () => {
-    it('removes the year, VIN and license plate with null', async () => {
+    it('passes null removals and the new id fields to the vehicle service', async () => {
       const updated = {
         id: VEHICLE_ID,
         driverId: DRIVER_ID,
@@ -700,58 +724,48 @@ describe('Driver routes (operator), uncovered paths', () => {
         year: null,
         vin: null,
         licensePlate: null,
+        evccid: '92D50A693F80',
+        autochargeEnabled: true,
+        autochargeBlockedAt: null,
         createdAt: now,
         updatedAt: now,
       };
-      setupDbResults([{ ...updated, vin: 'OLD' }], [updated]);
+      vehicleServiceMock.updateVehicle.mockResolvedValueOnce(updated);
+      const payload = {
+        year: null,
+        vin: null,
+        licensePlate: null,
+        evccid: '92:d5:0a:69:3f:80',
+        autochargeEnabled: true,
+      };
       const res = await app.inject({
         method: 'PATCH',
         url: `/drivers/${DRIVER_ID}/vehicles/${VEHICLE_ID}`,
         headers: auth,
-        payload: { year: null, vin: null, licensePlate: null },
+        payload,
       });
       expect(res.statusCode).toBe(200);
-      expect(lastChain('update')?.['set']).toHaveBeenCalledWith(
-        expect.objectContaining({ year: null, vin: null, licensePlate: null }),
+      expect(res.json()).toMatchObject({ evccid: '92D50A693F80', autochargeEnabled: true });
+      expect(vehicleServiceMock.updateVehicle).toHaveBeenCalledWith(
+        DRIVER_ID,
+        VEHICLE_ID,
+        payload,
+        expect.anything(),
+        expect.anything(),
       );
     });
 
-    it('sets only the given fields and audits before and after', async () => {
-      const before = { id: VEHICLE_ID, driverId: DRIVER_ID, vin: 'OLD' };
-      const updated = {
-        id: VEHICLE_ID,
-        driverId: DRIVER_ID,
-        make: 'BMW',
-        model: 'i4',
-        year: '2023',
-        vin: 'NEWVIN',
-        licensePlate: 'XY1',
-        createdAt: now,
-        updatedAt: now,
-      };
-      setupDbResults([before], [updated]);
+    it('answers a bad VIN with 400 VALIDATION_ERROR', async () => {
+      const { VehicleIdInvalidError } = await import('../services/vehicle.service.js');
+      vehicleServiceMock.updateVehicle.mockRejectedValueOnce(new VehicleIdInvalidError('vin'));
       const res = await app.inject({
         method: 'PATCH',
         url: `/drivers/${DRIVER_ID}/vehicles/${VEHICLE_ID}`,
         headers: auth,
-        payload: { make: 'BMW', model: 'i4', year: '2023', vin: 'NEWVIN', licensePlate: 'XY1' },
+        payload: { vin: 'NOT-A-VIN' },
       });
-      expect(res.statusCode).toBe(200);
-      expect(lastChain('update')?.['set']).toHaveBeenCalledWith(
-        expect.objectContaining({
-          make: 'BMW',
-          model: 'i4',
-          year: '2023',
-          vin: 'NEWVIN',
-          licensePlate: 'XY1',
-        }),
-      );
-      expect(writeAudit).toHaveBeenCalledWith(
-        expect.objectContaining({ idColumn: 'vehicle_id' }),
-        expect.objectContaining({ action: 'updated', before, after: updated }),
-        expect.anything(),
-        expect.anything(),
-      );
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({ code: 'VALIDATION_ERROR', details: { field: 'vin' } });
     });
   });
 

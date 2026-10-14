@@ -27,6 +27,18 @@ vi.mock('../services/pki/index.js', () => ({
   })),
 }));
 
+const { mockIsValidCsr, mockRecordCsr, mockMarkFailed } = vi.hoisted(() => ({
+  mockIsValidCsr: vi.fn(),
+  mockRecordCsr: vi.fn(),
+  mockMarkFailed: vi.fn(),
+}));
+
+vi.mock('../services/pki/csr-requests.js', () => ({
+  isValidCsr: mockIsValidCsr,
+  recordCsrRequest: mockRecordCsr,
+  markCsrFailed: mockMarkFailed,
+}));
+
 const logger = pino({ level: 'silent' });
 
 function makeCtx(payload: Record<string, unknown>): {
@@ -72,6 +84,9 @@ beforeEach(() => {
     providerReference: 'mock-ref',
   });
   vi.mocked(isPncEnabled).mockResolvedValue(true);
+  mockIsValidCsr.mockResolvedValue(true);
+  mockRecordCsr.mockResolvedValue(31);
+  mockMarkFailed.mockResolvedValue(undefined);
   vi.mocked(getPkiProvider).mockResolvedValue({
     signCsr: mockSignCsr,
     getContractCertificate: vi.fn(),
@@ -87,7 +102,7 @@ describe('v2_1 SignCertificate handler - uncovered branches', () => {
 
     expect(response).toEqual({ status: 'Accepted' });
     // The signCsr should be called with the default certificate type
-    expect(mockSignCsr).toHaveBeenCalledWith('csr-data', 'ChargingStationCertificate', 'sta_001');
+    expect(mockSignCsr).toHaveBeenCalledWith('csr-data', 'ChargingStationCertificate');
     // Should publish both SignCertificate event and CsrSigned event
     expect(publishMock).toHaveBeenCalledTimes(2);
     expect(publishMock).toHaveBeenCalledWith(
@@ -142,6 +157,46 @@ describe('v2_1 SignCertificate handler - uncovered branches', () => {
     );
   });
 
+  it('records every accepted CSR with its station and requestId (A02.FR.25)', async () => {
+    const { ctx, publishMock } = makeCtx({
+      csr: 'csr-data',
+      certificateType: 'V2GCertificate',
+      requestId: 12,
+    });
+    await handleSignCertificate(ctx);
+    expect(mockRecordCsr).toHaveBeenCalledWith({
+      stationDbId: 'sta_001',
+      csr: 'csr-data',
+      certificateType: 'V2GCertificate',
+      requestId: 12,
+    });
+    expect(publishMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'pnc.CsrSigned',
+        payload: expect.objectContaining({ csrId: 31, requestId: 12 }) as unknown,
+      }),
+    );
+  });
+
+  it('rejects a CSR that is not a valid PKCS#10 request (A02.FR.12)', async () => {
+    mockIsValidCsr.mockResolvedValue(false);
+    const { ctx, publishMock } = makeCtx({ csr: 'garbage' });
+    const response = await handleSignCertificate(ctx);
+    expect(response).toEqual({ status: 'Rejected' });
+    expect(mockRecordCsr).not.toHaveBeenCalled();
+    expect(mockSignCsr).not.toHaveBeenCalled();
+    expect(publishMock).not.toHaveBeenCalled();
+  });
+
+  it('leaves a manual CSR pending (no failure mark)', async () => {
+    const manualError = new Error('Manual signing required');
+    (manualError as Error & { code?: string }).code = 'MANUAL_SIGNING_REQUIRED';
+    mockSignCsr.mockRejectedValue(manualError);
+    const { ctx } = makeCtx({ csr: 'csr-data', certificateType: 'V2GCertificate' });
+    await handleSignCertificate(ctx);
+    expect(mockMarkFailed).not.toHaveBeenCalled();
+  });
+
   it('logs error and returns Accepted when provider throws a generic error', async () => {
     mockSignCsr.mockRejectedValue(new Error('network timeout'));
 
@@ -152,13 +207,11 @@ describe('v2_1 SignCertificate handler - uncovered branches', () => {
     const response = await handleSignCertificate(ctx);
 
     expect(response).toEqual({ status: 'Accepted' });
-    // The initial event is published
+    // The initial event is published and the CSR ends rejected with the reason
     expect(publishMock).toHaveBeenCalledWith(
       expect.objectContaining({ eventType: 'ocpp.SignCertificate' }),
     );
-    expect(publishMock).toHaveBeenCalledWith(
-      expect.objectContaining({ eventType: 'ocpp.SignCertificate' }),
-    );
+    expect(mockMarkFailed).toHaveBeenCalledWith(31, 'network timeout');
   });
 
   it('rejects V2GCertificate when PnC is disabled', async () => {

@@ -176,13 +176,18 @@ export async function assertReservationWindow(window: {
   }
 }
 
-/** The EVSE row id of an OCPP EVSE number on the station (404 when unknown). */
+/**
+ * The EVSE row id of an OCPP EVSE number on the station (404 when unknown or
+ * retired: a retired EVSE takes no new reservation).
+ */
 async function resolveEvse(stationUuid: string, evseOcppId: number | null | undefined) {
   if (evseOcppId == null) return null;
   const [evse] = await db
     .select({ id: evses.id })
     .from(evses)
-    .where(and(eq(evses.stationId, stationUuid), eq(evses.evseId, evseOcppId)));
+    .where(
+      and(eq(evses.stationId, stationUuid), eq(evses.evseId, evseOcppId), isNull(evses.retiredAt)),
+    );
   if (evse == null) throw new AppError('EVSE not found', 404, 'EVSE_NOT_FOUND');
   return evse.id;
 }
@@ -201,7 +206,13 @@ async function assertEvseFree(
   const { activeSessionCheckHours } = await getReservationSettings();
   const checkMs = activeSessionCheckHours * 3_600_000;
   if (checkMs <= 0 || start.getTime() - Date.now() >= checkMs) return;
-  const conditions = [eq(evses.stationId, stationUuid), sql`${connectors.status} <> 'available'`];
+  // Retired EVSEs and connectors are out of service and never hold a station back.
+  const conditions = [
+    eq(evses.stationId, stationUuid),
+    sql`${connectors.status} <> 'available'`,
+    isNull(evses.retiredAt),
+    isNull(connectors.retiredAt),
+  ];
   if (evseUuid != null) conditions.push(eq(evses.id, evseUuid));
   const [busy] = await db
     .select({ status: connectors.status })

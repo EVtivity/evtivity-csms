@@ -27,6 +27,7 @@ export const OCPP_EVENT_TYPES = OCPP_NOTIFICATION_EVENT_TYPES;
 // Driver-facing events: notifications sent to drivers
 export const DRIVER_SESSION_EVENTS = [
   'session.Started',
+  'session.AutochargeStarted',
   'session.Updated',
   'session.Completed',
   'session.Faulted',
@@ -364,6 +365,20 @@ export const TEMPLATE_VARIABLES: Record<string, TemplateVariable[]> = {
     { name: 'stationId', description: 'Station identifier' },
     { name: 'transactionId', description: 'Transaction ID' },
     { name: 'startedAt', description: 'Start timestamp' },
+  ],
+  'session.AutochargeStarted': [
+    { name: 'firstName', description: 'Driver first name' },
+    { name: 'lastName', description: 'Driver last name' },
+    { name: 'email', description: 'Driver email address' },
+    { name: 'siteName', description: 'Site name' },
+    { name: 'stationId', description: 'Station identifier' },
+    { name: 'transactionId', description: 'Transaction ID' },
+    { name: 'startedAt', description: 'Start timestamp' },
+    { name: 'vehicleName', description: 'Vehicle that started the session (year, make, model)' },
+    {
+      name: 'vehiclesUrl',
+      description: 'Portal page where the driver turns Autocharge off (empty without a portal URL)',
+    },
   ],
   'session.Updated': [
     { name: 'firstName', description: 'Driver first name' },

@@ -23,6 +23,8 @@ export { ActionRegistry as ActionRegistry16 } from './generated/v1_6/registry.js
 export type { ActionName as ActionName16 } from './generated/v1_6/registry.js';
 
 export {
+  addCpoSubCas,
+  hasCpoSubCas,
   createLocalContractCa,
   describeLocalContractCa,
   parseLocalContractCa,

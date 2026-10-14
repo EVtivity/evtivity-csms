@@ -13,18 +13,29 @@ const whereFn = vi.fn((): Promise<{ onboardingStatus: string }[]> => {
 const fromFn = vi.fn(() => ({ where: whereFn }));
 const selectFn = vi.fn(() => ({ from: fromFn }));
 
+// Open registration accepts a pending station with a compare-and-set UPDATE.
+let updateResult: { id: string }[] = [{ id: 'sta_4' }];
+const returningFn = vi.fn(() => Promise.resolve(updateResult));
+const updateWhereFn = vi.fn(() => ({ returning: returningFn }));
+const setFn = vi.fn((_values: Record<string, unknown>) => ({ where: updateWhereFn }));
+const updateFn = vi.fn(() => ({ set: setFn }));
+const writeAuditMock = vi.fn().mockResolvedValue(undefined);
+
 const getHeartbeatIntervalSecondsMock = vi.fn().mockResolvedValue(300);
 const getRegistrationPolicyMock = vi.fn().mockResolvedValue('auto-approve');
 
 vi.mock('@evtivity/database', () => ({
-  db: { select: selectFn },
+  db: { select: selectFn, update: updateFn },
   chargingStations: { id: 'id', onboardingStatus: 'onboarding_status' },
+  stationAuditLog: { __name: 'stationAuditLog' },
+  writeAudit: writeAuditMock,
   getHeartbeatIntervalSeconds: getHeartbeatIntervalSecondsMock,
   getRegistrationPolicy: getRegistrationPolicyMock,
 }));
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ type: 'eq', a, b })),
+  and: vi.fn((...conds: unknown[]) => ({ type: 'and', conds })),
 }));
 
 const logger = pino({ level: 'silent' });
@@ -81,8 +92,9 @@ beforeAll(async () => {
 beforeEach(() => {
   vi.clearAllMocks();
   whereResult = [];
+  updateResult = [{ id: 'sta_4' }];
   getHeartbeatIntervalSecondsMock.mockResolvedValue(300);
-  getRegistrationPolicyMock.mockResolvedValue('auto-approve');
+  getRegistrationPolicyMock.mockResolvedValue('approval-required');
 });
 
 describe('v2_1 BootNotification handler', () => {
@@ -168,15 +180,54 @@ describe('v2_1 BootNotification handler', () => {
     expect(ctx.session.bootStatus).toBe('Pending');
   });
 
-  it('accepts a pending station when policy is auto-approve', async () => {
+  it('accepts a pending station and marks it accepted when the policy is open', async () => {
     whereResult = [{ onboardingStatus: 'pending' }];
-    getRegistrationPolicyMock.mockResolvedValue('auto-approve');
+    getRegistrationPolicyMock.mockResolvedValue('open');
     const { handleBootNotification } = bootNotificationHandlerModule;
-    const { ctx } = makeCtx(bootPayload, 'sta_4');
+    const { ctx, publishMock } = makeCtx(bootPayload, 'sta_4');
     const response = await handleBootNotification(ctx);
 
     expect(response).toMatchObject({ status: 'Accepted' });
     expect(ctx.session.bootStatus).toBe('Accepted');
+    // The onboarding status changes before the event is published, so the
+    // boot projection runs the accepted-station path.
+    expect(setFn.mock.calls[0]?.[0]).toMatchObject({ onboardingStatus: 'accepted' });
+    expect(returningFn.mock.invocationCallOrder[0]).toBeLessThan(
+      publishMock.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(writeAuditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        entityId: 'sta_4',
+        action: 'onboarding_status_changed',
+        actor: 'ocpp',
+        before: { onboardingStatus: 'pending' },
+        after: { onboardingStatus: 'accepted' },
+      }),
+      undefined,
+      expect.anything(),
+    );
+  });
+
+  it('answers Pending when the station left pending while it booted (open policy)', async () => {
+    whereResult = [{ onboardingStatus: 'pending' }];
+    updateResult = [];
+    getRegistrationPolicyMock.mockResolvedValue('open');
+    const { handleBootNotification } = bootNotificationHandlerModule;
+    const { ctx } = makeCtx(bootPayload, 'sta_4');
+    const response = await handleBootNotification(ctx);
+
+    expect(response).toMatchObject({ status: 'Pending' });
+    expect(writeAuditMock).not.toHaveBeenCalled();
+  });
+
+  it('never changes the onboarding status when approval is required', async () => {
+    whereResult = [{ onboardingStatus: 'pending' }];
+    const { handleBootNotification } = bootNotificationHandlerModule;
+    const { ctx } = makeCtx(bootPayload, 'sta_3');
+    await handleBootNotification(ctx);
+
+    expect(updateFn).not.toHaveBeenCalled();
   });
 
   it('accepts when the station row is not found (undefined onboardingStatus)', async () => {

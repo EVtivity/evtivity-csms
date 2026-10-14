@@ -142,6 +142,9 @@ describe('Authorize attempts route', () => {
         outcome: 'accepted',
         ocppVersion: 'ocpp2.1',
         reason: 'active',
+        vehicleIdValue: null,
+        vehicleIdType: null,
+        matchedVehicleId: null,
         createdAt: new Date(),
       };
       setupDbResults([row], [{ count: 1 }]);

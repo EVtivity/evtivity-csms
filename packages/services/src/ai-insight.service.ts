@@ -255,6 +255,11 @@ export interface InsightResult {
   model: string | null;
   basisAt: Date;
   basisFingerprint: string | null;
+  /**
+   * The model request carried the regenerating user's note on the insight
+   * this one replaced (`regenerationFeedbackNote`). False when omitted.
+   */
+  feedbackUsed?: boolean;
 }
 
 /**
@@ -280,6 +285,7 @@ export async function activateInsight(id: string, result: InsightResult): Promis
         generatedBy: result.generatedBy,
         provider: result.provider,
         model: result.model,
+        feedbackUsed: result.feedbackUsed ?? false,
         updatedAt: sql`now()`,
       })
       .where(and(eq(aiInsights.id, id), eq(aiInsights.status, 'analyzing')))
@@ -503,6 +509,88 @@ export async function insightFeedbackRates(
   );
 }
 
+/** One wrong vote on an insight, as the Marked Wrong list shows it. */
+export interface InsightWrongVote {
+  userId: string;
+  /** The note (untrusted operator text), or null when none was given. */
+  reason: string | null;
+  /** When the vote (or its note) was last given. */
+  updatedAt: Date;
+}
+
+/**
+ * The wrong votes on one insight, newest first (by when the vote or its note
+ * was last given), one page. Read only; the caller applies the insight
+ * visibility gate and resolves which voter names the viewer may see.
+ */
+export async function listInsightWrongVotes(
+  insightId: string,
+  page: { limit: number; offset: number },
+): Promise<{ data: InsightWrongVote[]; total: number }> {
+  const where = and(
+    eq(aiInsightFeedback.insightId, insightId),
+    eq(aiInsightFeedback.helpful, false),
+  );
+  const [rows, [count]] = await Promise.all([
+    db
+      .select({
+        userId: aiInsightFeedback.userId,
+        reason: aiInsightFeedback.reason,
+        updatedAt: aiInsightFeedback.updatedAt,
+      })
+      .from(aiInsightFeedback)
+      .where(where)
+      .orderBy(desc(aiInsightFeedback.updatedAt), desc(aiInsightFeedback.userId))
+      .limit(page.limit)
+      .offset(page.offset),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(aiInsightFeedback)
+      .where(where),
+  ]);
+  return { data: rows, total: count?.total ?? 0 };
+}
+
+/** The wrong-vote note of one user on one insight, or null (no vote, a helpful vote, no note). */
+async function wrongVoteNote(
+  executor: Pick<typeof db, 'select'>,
+  insightId: string,
+  userId: string,
+): Promise<string | null> {
+  const [row] = await executor
+    .select({ reason: aiInsightFeedback.reason })
+    .from(aiInsightFeedback)
+    .where(
+      and(
+        eq(aiInsightFeedback.insightId, insightId),
+        eq(aiInsightFeedback.userId, userId),
+        eq(aiInsightFeedback.helpful, false),
+      ),
+    )
+    .limit(1);
+  return row?.reason ?? null;
+}
+
+/** `regenerate:<old insight id>:<ts>`: the insight a regeneration replaced. */
+const REGENERATION_KEY = /^regenerate:([^:]+):/;
+
+/**
+ * The note a regeneration reads (owner decision 2026-10-14): the wrong-vote
+ * note the user who asked for the regeneration left on the insight it
+ * replaced. Only that user's own note, never another user's; null for an
+ * insight the scan raised, a regeneration without a requester, or when the
+ * requester has no wrong vote with a note there (any more). Untrusted text:
+ * the caller frames and redacts it before a model reads it.
+ */
+export async function regenerationFeedbackNote(
+  row: Pick<AiInsightRow, 'triggerKey' | 'requestedBy'>,
+): Promise<string | null> {
+  if (row.requestedBy == null) return null;
+  const oldId = REGENERATION_KEY.exec(row.triggerKey)?.[1];
+  if (oldId == null) return null;
+  return wrongVoteNote(db, oldId, row.requestedBy);
+}
+
 async function auditInsight(
   id: string,
   action:
@@ -537,7 +625,8 @@ async function auditInsight(
 export const REGENERATABLE_STATUSES = ['open', 'resolved', 'skipped', 'failed'] as const;
 
 export type RegenerateResult =
-  | { status: 'created'; insightId: string }
+  /** `feedbackUsed`: the user's note on the old insight goes to the new analysis. */
+  | { status: 'created'; insightId: string; feedbackUsed: boolean }
   /** Not regeneratable: analyzing, dismissed, superseded or a site incident member. */
   | { status: 'not_allowed' }
   /** A generation of the same subject and kind is already analyzing. */
@@ -581,6 +670,9 @@ export async function regenerateInsight(
       )
       .limit(1);
     if (running != null) return { status: 'busy' };
+    // The regenerating user's own note on the old insight goes to the new
+    // analysis (`regenerationFeedbackNote`); the audit records only whether.
+    const note = await wrongVoteNote(tx, old.id, actor.actorUserId);
     const [created] = await tx
       .insert(aiInsights)
       .values({
@@ -610,10 +702,14 @@ export async function regenerateInsight(
       .update(aiInsights)
       .set({ status: 'superseded', updatedAt: sql`now()` })
       .where(and(eq(aiInsights.id, old.id), eq(aiInsights.status, 'open')));
-    return { status: 'created', insightId: created.id };
+    return { status: 'created', insightId: created.id, feedbackUsed: note != null };
   });
   if (result.status === 'created') {
-    await auditInsight(oldId, 'regenerated', actor, { newInsightId: result.insightId });
+    // Whether the user's note goes to the new analysis, never the note itself.
+    await auditInsight(oldId, 'regenerated', actor, {
+      newInsightId: result.insightId,
+      feedbackUsed: result.feedbackUsed,
+    });
   }
   return result;
 }
@@ -1031,6 +1127,7 @@ export function toInsightDto(
     resolvedAt: row.resolvedAt?.toISOString() ?? null,
     dismissedAt: row.dismissedAt?.toISOString() ?? null,
     action: options.action ?? null,
+    feedbackUsed: row.feedbackUsed,
   };
   return aiInsightDtoSchema.parse(dto);
 }

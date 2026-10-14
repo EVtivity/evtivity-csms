@@ -158,10 +158,12 @@ export async function createContract(
     throw new AppError('PCID must contain letters or digits', 400, 'VALIDATION_ERROR');
   }
   const [driver] = await db
-    .select({ id: drivers.id })
+    .select({ id: drivers.id, isActive: drivers.isActive })
     .from(drivers)
     .where(eq(drivers.id, driverId));
   if (driver == null) throw new AppError('Driver not found', 404, 'DRIVER_NOT_FOUND');
+  // An inactive (or erased) driver gets no new eMAID: its tokens must stay off.
+  if (!driver.isActive) throw new AppError('Driver is inactive', 409, 'DRIVER_INACTIVE');
 
   const config = await readSettings([
     'pnc.local.caEnc',

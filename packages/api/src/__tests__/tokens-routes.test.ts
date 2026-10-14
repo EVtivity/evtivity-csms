@@ -90,6 +90,7 @@ vi.mock('@evtivity/database', () => {
     drivers: {},
     users: {},
     tokenAuditLog: {},
+    pncContracts: {},
     stationLocalAuthEntries: {},
     stationLocalAuthVersions: {},
     writeAudit: vi.fn().mockResolvedValue(undefined),

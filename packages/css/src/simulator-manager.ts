@@ -6,6 +6,7 @@ import type postgres from 'postgres';
 import { CSS_RECONNECT_SPREAD_S, tryParseJson, type PubSubClient } from '@evtivity/lib';
 import {
   StationSimulator,
+  type PluggedInEv,
   type ReservationReply,
   type StationConfig,
 } from './station-simulator.js';
@@ -425,9 +426,16 @@ export class SimulatorManager {
     let resultData: Record<string, unknown> | undefined;
     try {
       switch (action) {
-        case 'plugIn':
-          await sim.plugIn(params.evseId as number);
+        case 'plugIn': {
+          const ev = params.ev as PluggedInEv | undefined;
+          if (ev == null) {
+            await sim.plugIn(params.evseId as number);
+            break;
+          }
+          const autocharge = await sim.plugInEv(params.evseId as number, ev);
+          if (autocharge != null) resultData = { autocharge };
           break;
+        }
         case 'authorize':
           await sim.authorize(
             params.evseId as number,
@@ -476,6 +484,12 @@ export class SimulatorManager {
           break;
         case 'installPncContract':
           resultData = await sim.installPncContract(params.evseId as number);
+          break;
+        case 'updatePncContract':
+          resultData = await sim.updatePncContract(params.evseId as number);
+          break;
+        case 'authorizePnc':
+          resultData = await sim.authorizePnc(params.evseId as number);
           break;
         case 'startPncCharging': {
           const txId = await sim.startPncCharging(params.evseId as number);

@@ -14,13 +14,17 @@ import {
   writeAudit,
   siteAuditLog,
   stationAuditLog,
+  siteLoadManagement,
 } from '@evtivity/database';
 import { csvEscape } from '@evtivity/lib';
 import { sendAvailabilityCommand } from '@evtivity/services/availability-command';
+import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { publishStationStatusChanged } from '../lib/station-status-events.js';
 import { publishOcpiStationSiteMove } from '../lib/ocpi-location-push.js';
 import { siteInScope } from '../lib/site-scope.js';
 import { circuitIdAfterSiteChange } from '../lib/station-circuit.js';
+import { createStationConfigTemplate } from '../lib/station-config-template.js';
+import { applyStationSiteMove } from '@evtivity/services/maintenance.service';
 
 interface ImportActor {
   actor: 'operator' | 'driver' | 'api_key' | 'system' | 'ocpp';
@@ -72,12 +76,36 @@ export interface ImportResult {
   errors: string[];
 }
 
-export async function exportSitesCsv(search?: string, siteIds?: string[]): Promise<string> {
+/** The site list filters the export applies, as `GET /v1/sites` does. */
+export interface SiteExportFilters {
+  city?: string | undefined;
+  state?: string | undefined;
+  loadManagement?: 'true' | 'false' | undefined;
+}
+
+export async function exportSitesCsv(
+  search?: string,
+  siteIds?: string[],
+  filters: SiteExportFilters = {},
+): Promise<string> {
   const conditions = [];
   if (search) {
     const pattern = `%${search}%`;
     conditions.push(
-      or(ilike(sites.name, pattern), ilike(sites.city, pattern), ilike(sites.state, pattern)),
+      or(
+        ilike(sites.id, pattern),
+        ilike(sites.name, pattern),
+        ilike(sites.city, pattern),
+        ilike(sites.state, pattern),
+      ),
+    );
+  }
+  if (filters.city) conditions.push(ilike(sites.city, filters.city));
+  if (filters.state) conditions.push(ilike(sites.state, filters.state));
+  if (filters.loadManagement != null) {
+    const enabled = sql`coalesce((SELECT ${siteLoadManagement.isEnabled} FROM ${siteLoadManagement} WHERE ${siteLoadManagement.siteId} = ${sites.id}), false)`;
+    conditions.push(
+      filters.loadManagement === 'true' ? sql`${enabled} = true` : sql`${enabled} = false`,
     );
   }
   if (siteIds != null) {
@@ -350,7 +378,7 @@ export async function importSitesCsv(
         // and connectors to it. The message is the same whatever the reason,
         // so it does not say where the station is.
         const [previous] = await tx
-          .select({ id: chargingStations.id, siteId: chargingStations.siteId })
+          .select()
           .from(chargingStations)
           .where(eq(chargingStations.stationId, stationId));
         if (previous != null && !siteInScope(allowedSiteIds ?? null, previous.siteId)) {
@@ -375,13 +403,13 @@ export async function importSitesCsv(
                 updatedAt: new Date(),
               },
             })
-            .returning({
-              id: chargingStations.id,
-              createdAt: chargingStations.createdAt,
-              updatedAt: chargingStations.updatedAt,
-            });
+            .returning();
           if (station != null) {
             stationUuidByStationId.set(stationId, station.id);
+            await auditImportedStation(tx, actor, previous ?? null, station);
+            // A new station gets its bound config template, like POST /v1/stations
+            // (idempotent for one that already has it).
+            if (previous == null) await createStationConfigTemplate(tx, station);
             if (previous != null && previous.siteId !== siteId) {
               siteMoves.push({
                 stationUuid: station.id,
@@ -403,12 +431,11 @@ export async function importSitesCsv(
             stationUuidByStationId.set(stationId, previous.id);
             result.errors.push(`Station "${stationId}" already exists, skipped`);
           } else {
-            const [station] = await tx
-              .insert(chargingStations)
-              .values(stationValues)
-              .returning({ id: chargingStations.id });
+            const [station] = await tx.insert(chargingStations).values(stationValues).returning();
             if (station != null) {
               stationUuidByStationId.set(stationId, station.id);
+              await auditImportedStation(tx, actor, null, station);
+              await createStationConfigTemplate(tx, station);
               if (requestedStatus != null) {
                 operatorDisableByUuid.set(station.id, requestedStatus === 'unavailable');
               }
@@ -567,9 +594,54 @@ export async function importSitesCsv(
   );
   for (const move of siteMoves) {
     await publishOcpiStationSiteMove(move.stationUuid, move.fromSiteId, move.toSiteId, logger);
+    // The site sets the station's display language and can change its tariff.
+    if (logger != null) {
+      await requestStationMessageRepush(logger, { stationId: move.stationUuid });
+    }
+    // The old site's active maintenance window releases the station and the
+    // new site's applies (fail-open: the move is stored).
+    try {
+      await applyStationSiteMove(move.stationUuid, move.fromSiteId, move.toSiteId, {
+        type: actor?.actor === 'operator' ? 'operator' : 'system',
+        userId: actor?.actorUserId ?? null,
+        label: 'CSV import',
+      });
+    } catch (err) {
+      logger?.warn(
+        { err, stationId: move.stationUuid },
+        'Maintenance hand-off of a moved station failed',
+      );
+    }
   }
 
   return result;
+}
+
+type StationRow = typeof chargingStations.$inferSelect;
+type ImportTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+// A station the import created or changed gets its station audit row, as the
+// station routes write one (writeAudit redacts the password hash).
+async function auditImportedStation(
+  tx: ImportTx,
+  actor: ImportActor | undefined,
+  before: StationRow | null,
+  after: StationRow,
+): Promise<void> {
+  if (actor == null) return;
+  await writeAudit(
+    { table: stationAuditLog, idColumn: 'station_id' },
+    {
+      entityId: after.id,
+      entityIdSnapshot: after.id,
+      action: before == null ? 'created' : 'updated',
+      ...actor,
+      before,
+      after,
+      notes: 'CSV import',
+    },
+    tx,
+  );
 }
 
 // After the import commits: apply each station's stationStatus through the

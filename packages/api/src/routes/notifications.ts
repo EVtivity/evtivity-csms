@@ -287,6 +287,7 @@ const ocppEventTemplateResponse = z
 // (packages/csms/src/lib/template-variables.ts).
 export const DRIVER_EVENT_TYPES = [
   'session.Started',
+  'session.AutochargeStarted',
   'session.Updated',
   'session.Completed',
   'session.Faulted',

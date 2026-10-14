@@ -3,6 +3,7 @@
 
 import type { FastifyBaseLogger, FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
+import { invalidateAutochargeCaches } from '../lib/autocharge-invalidation.js';
 import { eq, like, or, inArray } from 'drizzle-orm';
 import {
   db,
@@ -13,6 +14,8 @@ import {
   isPncEnabled,
   isFleetEnabled,
   isGuestChargingEnabled,
+  isAutochargeOffered,
+  clearCompanyPortalUrlCache,
   isChatbotAiEnabled,
   isAiInsightsEnabled,
   clearRoamingCache,
@@ -473,6 +476,7 @@ function clearCachesForKey(key: string): void {
   if (key === 'support.enabled') clearSupportCache();
   if (key === 'fleet.enabled') clearFleetCache();
   if (key === 'guest.enabled') clearGuestChargingCache();
+  if (key === 'company.portalUrl') clearCompanyPortalUrlCache();
   if (key.startsWith('pnc.')) clearPncSettingsCache();
   if (isAiSettingKey(key)) clearAiSettingsCache();
 }
@@ -574,6 +578,11 @@ export function settingsRoutes(app: FastifyInstance): void {
                   .describe(
                     'Whether guest charging (pay at the station without an account) is enabled',
                   ),
+                autochargeEnabled: z
+                  .boolean()
+                  .describe(
+                    'Whether Autocharge (charge by plugging in) is on company-wide or at any site, so drivers can turn it on for a vehicle',
+                  ),
                 chatbotAiEnabled: z
                   .boolean()
                   .describe('Whether the AI assistant is enabled for CSMS users'),
@@ -630,6 +639,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       const pncEnabled = await isPncEnabled();
       const fleetEnabled = await isFleetEnabled();
       const guestChargingEnabled = await isGuestChargingEnabled();
+      const autochargeEnabled = await isAutochargeOffered();
       const chatbotAiEnabled = await isChatbotAiEnabled();
       const aiInsightsEnabled = await isAiInsightsEnabled();
       const driverAi = await readDriverAiAvailability();
@@ -642,6 +652,7 @@ export function settingsRoutes(app: FastifyInstance): void {
         pncEnabled,
         fleetEnabled,
         guestChargingEnabled,
+        autochargeEnabled,
         chatbotAiEnabled,
         aiInsightsEnabled,
         driverAiSupport: driverAi.available,
@@ -818,6 +829,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       );
       clearCachesForKey(row.key);
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
+      if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, before?.value, row.value, request.log);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
@@ -894,6 +906,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       );
       clearCachesForKey(row.key);
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
+      if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, before?.value, row.value, request.log);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },
@@ -945,6 +958,7 @@ export function settingsRoutes(app: FastifyInstance): void {
       );
       clearCachesForKey(row.key);
       if (affectsNotificationSettings(row.key)) await invalidateNotificationSettings();
+      if (row.key === 'autocharge.enabled') await invalidateAutochargeCaches(request.log);
       await repushStationMessagesIfChanged(row.key, row.value, undefined, request.log);
       return { key: row.key, value: decryptForRead(row.key, row.value) };
     },

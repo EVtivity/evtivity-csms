@@ -179,6 +179,13 @@ export function portalTokenRoutes(app: FastifyInstance): void {
         // Only a card already on this driver's account can be operator
         // blocked here (re-adding it reactivates it), so the answer tells the
         // driver nothing about other drivers' cards.
+        if (err instanceof tokenService.PncContractTokenError) {
+          await reply.status(403).send({
+            error: 'This card was deactivated by the operator',
+            code: 'TOKEN_BLOCKED_BY_OPERATOR',
+          });
+          return;
+        }
         if (err instanceof tokenService.TokenReactivationBlockedError) {
           await reply.status(403).send({
             error: 'This card was deactivated by the operator',
@@ -244,6 +251,13 @@ export function portalTokenRoutes(app: FastifyInstance): void {
           { type: 'driver', driverId },
         );
       } catch (err) {
+        if (err instanceof tokenService.PncContractTokenError) {
+          await reply.status(403).send({
+            error: 'This card was deactivated by the operator',
+            code: 'TOKEN_BLOCKED_BY_OPERATOR',
+          });
+          return;
+        }
         if (err instanceof tokenService.TokenReactivationBlockedError) {
           await reply.status(403).send({
             error: 'This card was deactivated by the operator',

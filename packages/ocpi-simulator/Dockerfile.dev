@@ -1,4 +1,8 @@
 FROM node:24-slim
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
 
 WORKDIR /app
 
@@ -26,6 +30,8 @@ COPY tsconfig.base.json tsconfig.json ./
 COPY packages/lib/ packages/lib/
 COPY packages/database/ packages/database/
 COPY packages/ocpi-simulator/ packages/ocpi-simulator/
+# The database package tests import scripts/lib (the migration file helpers).
+COPY scripts/lib/ scripts/lib/
 RUN npx tsc -b --force packages/lib packages/database
 
 CMD ["node", "--import", "tsx", "packages/ocpi-simulator/src/index.ts"]

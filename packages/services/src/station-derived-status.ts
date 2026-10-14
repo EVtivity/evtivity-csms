@@ -23,7 +23,7 @@ const IN_USE_STATUSES_SQL = `'occupied', 'charging', 'preparing', 'ev_connected'
  * firmware install or a station that reports itself faulted, an install in
  * progress or a station that reports itself unavailable. Otherwise it is the
  * plug summary: charging > reserved > faulted > unknown (no connectors) >
- * available > unavailable.
+ * available > unavailable. Retired EVSEs and connectors are left out.
  *
  * Pass the station-id column to correlate against (e.g. `chargingStations.id`).
  * The frontend status badge mapping depends on these exact values.
@@ -43,8 +43,8 @@ export function buildDerivedStatusSubquery(stationIdColumn: Column): SQL<string>
       ELSE 'unavailable'
     END
     FROM ${chargingStations} s2
-    LEFT JOIN ${evses} e2 ON e2.station_id = s2.id
-    LEFT JOIN ${connectors} c2 ON c2.evse_id = e2.id
+    LEFT JOIN ${evses} e2 ON e2.station_id = s2.id AND e2.retired_at IS NULL
+    LEFT JOIN ${connectors} c2 ON c2.evse_id = e2.id AND c2.retired_at IS NULL
     WHERE s2.id = ${outerColumn}
   )`;
 }
@@ -65,7 +65,7 @@ export function buildStatusReasonSubquery(stationIdColumn: Column): SQL<string |
     SELECT CASE
       WHEN r3.reason = 'connector_faulted' AND EXISTS (
         SELECT 1 FROM ${connectors} c3 JOIN ${evses} e3 ON e3.id = c3.evse_id
-        WHERE e3.station_id = r3.id
+        WHERE e3.station_id = r3.id AND e3.retired_at IS NULL AND c3.retired_at IS NULL
           AND c3.status::text IN (${sql.raw(IN_USE_STATUSES_SQL)}, 'reserved')
       ) THEN NULL
       ELSE r3.reason

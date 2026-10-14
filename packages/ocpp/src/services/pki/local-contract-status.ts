@@ -5,8 +5,9 @@
 // no OCSP responder: the CSMS knows their status from its own records, so
 // contract certificate authorization (C07) answers them here instead of over
 // OCSP. A contract certificate is good while its contract is active and the
-// certificate is within its validity period, revoked once the contract is
-// revoked, and unknown when the CA has no record of it.
+// certificate is within its validity period, expired after it (C07.FR.15),
+// revoked once the contract is revoked, and unknown when the CA has no record
+// of it.
 
 import { client } from '@evtivity/database';
 import type { Certificate } from '@peculiar/asn1-x509';
@@ -19,6 +20,9 @@ import {
   type OcspCertId,
   type OcspCertStatus,
 } from './ocsp.js';
+
+/** Status of a local CA certificate: an OCSP status, or expired for a contract certificate. */
+export type LocalCertStatus = OcspCertStatus | 'expired';
 
 export interface LocalMoCertificates {
   /** MO roots of both hierarchies, the trust anchors of local contracts. */
@@ -53,7 +57,7 @@ function serialOf(cert: Certificate): string {
  * Status of the certificate a CertID names when a local MO CA issued it;
  * null when the issuer is not part of the local contract CA.
  */
-export async function localCertificateStatus(certId: OcspCertId): Promise<OcspCertStatus | null> {
+export async function localCertificateStatus(certId: OcspCertId): Promise<LocalCertStatus | null> {
   const local = await getLocalMoCertificates();
   if (local == null) return null;
   const serial = normalizeSerialHex(certId.serialNumber);
@@ -68,7 +72,7 @@ export async function localCertificateStatus(certId: OcspCertId): Promise<OcspCe
     const row = rows[0];
     if (row == null) return 'unknown';
     if (row.status === 'revoked') return 'revoked';
-    return new Date(row.valid_to as Date | string).getTime() > Date.now() ? 'good' : 'unknown';
+    return new Date(row.valid_to as Date | string).getTime() > Date.now() ? 'good' : 'expired';
   }
   const issuer = local.all.find((ca) => isIssuerOf(ca, certId));
   if (issuer == null) return null;

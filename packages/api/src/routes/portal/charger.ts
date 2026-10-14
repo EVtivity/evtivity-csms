@@ -36,9 +36,10 @@ import {
   reservations,
   stationImages,
   settings,
+  sessionSiteIdSql,
 } from '@evtivity/database';
 import { checkStationOnboarded } from '../../lib/onboarding-gate.js';
-import { publicStationListed } from '../../lib/public-station.js';
+import { publicSiteListed, publicStationListed } from '../../lib/public-station.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { optionalDriverId } from '../../lib/optional-driver.js';
 import { requestGhostSessionEnd } from '../../lib/ghost-session-end.js';
@@ -642,7 +643,13 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           evseId: evses.evseId,
         })
         .from(evses)
-        .where(and(eq(evses.stationId, station.id), eq(evses.evseId, params.evseId)));
+        .where(
+          and(
+            eq(evses.stationId, station.id),
+            eq(evses.evseId, params.evseId),
+            isNull(evses.retiredAt),
+          ),
+        );
 
       if (evse == null) {
         await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
@@ -658,7 +665,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           status: connectors.status,
         })
         .from(connectors)
-        .where(eq(connectors.evseId, evse.id));
+        .where(and(eq(connectors.evseId, evse.id), isNull(connectors.retiredAt)));
 
       // Look up active reservation regardless of connector status. Status
       // flips from `reserved` to `preparing`/`occupied` the moment the
@@ -868,7 +875,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteName: sites.name,
           siteAddress: sites.address,
           siteCity: sites.city,
-          evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id})`,
+          evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id} AND evses.retired_at IS NULL)`,
           availableCount: sql<number>`${sql.raw(availableEvseCountSql('charging_stations'))}`,
         })
         .from(chargingStations)
@@ -889,7 +896,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
               })
               .from(connectors)
               .innerJoin(evses, eq(connectors.evseId, evses.id))
-              .where(sql`${evses.stationId} IN ${stationUuids}`)
+              .where(
+                sql`${evses.stationId} IN ${stationUuids} AND ${evses.retiredAt} IS NULL AND ${connectors.retiredAt} IS NULL`,
+              )
           : [];
 
       const connectorsByStation = new Map<string, typeof connectorRows>();
@@ -958,7 +967,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           siteAddress: sites.address,
           siteCity: sites.city,
           distanceKm: distanceExpr,
-          evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id})`,
+          evseCount: sql<number>`(SELECT count(*)::int FROM evses WHERE evses.station_id = ${chargingStations.id} AND evses.retired_at IS NULL)`,
           availableCount: sql<number>`${sql.raw(availableEvseCountSql('charging_stations'))}`,
         })
         .from(chargingStations)
@@ -987,7 +996,9 @@ export function portalChargerRoutes(app: FastifyInstance): void {
               })
               .from(connectors)
               .innerJoin(evses, eq(connectors.evseId, evses.id))
-              .where(sql`${evses.stationId} IN ${stationUuids}`)
+              .where(
+                sql`${evses.stationId} IN ${stationUuids} AND ${evses.retiredAt} IS NULL AND ${connectors.retiredAt} IS NULL`,
+              )
           : [];
 
       const connectorsByStation = new Map<string, typeof connectorRows>();
@@ -1217,7 +1228,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           contactIsPublic: sites.contactIsPublic,
         })
         .from(sites)
-        .where(eq(sites.id, siteId));
+        .where(and(eq(sites.id, siteId), publicSiteListed()));
 
       if (site == null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
@@ -1231,8 +1242,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           availableCount: sql<number>`count(DISTINCT ${evses.id}) FILTER (WHERE ${sql.raw(evseAvailableSql('evses', 'charging_stations'))})::int`,
         })
         .from(chargingStations)
-        .leftJoin(evses, eq(evses.stationId, chargingStations.id))
-        .leftJoin(connectors, eq(connectors.evseId, evses.id))
+        .leftJoin(evses, and(eq(evses.stationId, chargingStations.id), isNull(evses.retiredAt)))
+        .leftJoin(connectors, and(eq(connectors.evseId, evses.id), isNull(connectors.retiredAt)))
         .where(and(eq(chargingStations.siteId, siteId), publicStationListed()));
 
       // Per-EVSE detail for the chargers list. One row per EVSE with the first
@@ -1249,8 +1260,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           available: sql<boolean>`(${sql.raw(evseOpenToDriversSql('evses', 'charging_stations'))} AND ${inArray(connectors.status, [...STARTABLE_CONNECTOR_STATUSES])})`,
         })
         .from(chargingStations)
-        .innerJoin(evses, eq(evses.stationId, chargingStations.id))
-        .innerJoin(connectors, eq(connectors.evseId, evses.id))
+        .innerJoin(evses, and(eq(evses.stationId, chargingStations.id), isNull(evses.retiredAt)))
+        .innerJoin(connectors, and(eq(connectors.evseId, evses.id), isNull(connectors.retiredAt)))
         .where(and(eq(chargingStations.siteId, siteId), publicStationListed()))
         .orderBy(chargingStations.stationId, evses.evseId);
 
@@ -1304,7 +1315,15 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         })
         .from(stationImages)
         .innerJoin(chargingStations, eq(stationImages.stationId, chargingStations.id))
-        .where(and(eq(chargingStations.siteId, siteId), eq(stationImages.isDriverVisible, true)))
+        // Only stations the location page lists: a pending, refused or deleted
+        // station's photos stay private.
+        .where(
+          and(
+            eq(chargingStations.siteId, siteId),
+            publicStationListed(),
+            eq(stationImages.isDriverVisible, true),
+          ),
+        )
         .orderBy(asc(stationImages.sortOrder), asc(stationImages.id));
 
       return images;
@@ -1355,6 +1374,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           and(
             eq(stationImages.id, imageId),
             eq(chargingStations.siteId, siteId),
+            publicStationListed(),
             eq(stationImages.isDriverVisible, true),
           ),
         );
@@ -1404,7 +1424,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const [site] = await db
         .select({ id: sites.id, timezone: sites.timezone })
         .from(sites)
-        .where(eq(sites.id, siteId));
+        .where(and(eq(sites.id, siteId), publicSiteListed()));
 
       if (site == null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
@@ -1508,8 +1528,8 @@ export function portalChargerRoutes(app: FastifyInstance): void {
           connectorStatus: connectors.status,
         })
         .from(evses)
-        .leftJoin(connectors, eq(connectors.evseId, evses.id))
-        .where(eq(evses.stationId, station.id))
+        .leftJoin(connectors, and(eq(connectors.evseId, evses.id), isNull(connectors.retiredAt)))
+        .where(and(eq(evses.stationId, station.id), isNull(evses.retiredAt)))
         .orderBy(asc(evses.evseId));
 
       const evseMap = new Map<
@@ -1705,6 +1725,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
         sql`SELECT c.connector_id FROM connectors c
             JOIN evses e ON c.evse_id = e.id
             WHERE e.station_id = ${station.id} AND e.evse_id = ${evseId}
+              AND e.retired_at IS NULL AND c.retired_at IS NULL
             ORDER BY c.connector_id ASC LIMIT 1`,
       );
       const connectorRow = connectorRows[0];
@@ -1838,7 +1859,13 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const [evse] = await db
         .select({ id: evses.id })
         .from(evses)
-        .where(and(eq(evses.stationId, station.id), eq(evses.evseId, params.evseId)));
+        .where(
+          and(
+            eq(evses.stationId, station.id),
+            eq(evses.evseId, params.evseId),
+            isNull(evses.retiredAt),
+          ),
+        );
 
       if (evse == null) {
         await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
@@ -1848,7 +1875,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
       const [connector] = await db
         .select({ status: connectors.status })
         .from(connectors)
-        .where(eq(connectors.evseId, evse.id))
+        .where(and(eq(connectors.evseId, evse.id), isNull(connectors.retiredAt)))
         .limit(1);
 
       // Reservation gate first: if any active reservation covers this EVSE,
@@ -2128,6 +2155,7 @@ export function portalChargerRoutes(app: FastifyInstance): void {
               .insert(chargingSessions)
               .values({
                 stationId: station.id,
+                siteId: sessionSiteIdSql(sql, station.id),
                 evseId: evse.id,
                 driverId,
                 transactionId,

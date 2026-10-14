@@ -34,6 +34,7 @@ const { publishMock, state } = vi.hoisted(() => ({
   state: {
     csrRow: null as Record<string, unknown> | null,
     stationRows: [] as Record<string, unknown>[],
+    updated: [{ id: 5 }] as Array<{ id: number }>,
   },
 }));
 
@@ -60,7 +61,8 @@ vi.mock('@evtivity/database', () => {
   };
   const updateChain = {
     set: () => updateChain,
-    where: () => Promise.resolve([]),
+    where: () => updateChain,
+    returning: () => Promise.resolve(state.updated),
   };
   return {
     db: {
@@ -110,6 +112,7 @@ describe('POST /pnc/csr-requests/:id/sign', () => {
     vi.clearAllMocks();
     state.csrRow = { id: 5, stationId: 'sta_000000000001', certificateType: 'V2GCertificate' };
     state.stationRows = [{ station_id: 'CS-001' }];
+    state.updated = [{ id: 5 }];
   });
 
   async function sign(): Promise<number> {
@@ -137,6 +140,27 @@ describe('POST /pnc/csr-requests/:id/sign', () => {
       action: 'CertificateSigned',
       payload: { certificateChain: TEST_PEM_CERTIFICATE, certificateType: 'V2GCertificate' },
     });
+  });
+
+  it('echoes the requestId of the SignCertificate request (A02.FR.25)', async () => {
+    state.csrRow = {
+      id: 5,
+      stationId: 'sta_000000000001',
+      certificateType: 'V2GCertificate',
+      requestId: 9,
+    };
+    expect(await sign()).toBe(200);
+    const call = publishMock.mock.calls.find((c) => (c as unknown[])[0] === 'ocpp_commands') as
+      | [string, string]
+      | undefined;
+    const message = JSON.parse(call?.[1] ?? '{}') as { payload: Record<string, unknown> };
+    expect(message.payload['requestId']).toBe(9);
+  });
+
+  it('sends nothing when a concurrent request signed the CSR first', async () => {
+    state.updated = [];
+    expect(await sign()).toBe(404);
+    expect(publishMock.mock.calls.some((c) => (c as unknown[])[0] === 'ocpp_commands')).toBe(false);
   });
 
   it('publishes nothing when the CSR has no station', async () => {

@@ -506,3 +506,48 @@ describe('ISO 15118-20 installation loop', () => {
     ).toBe('Failed');
   });
 });
+
+describe('LocalContractProvider.signCsr', () => {
+  async function csr(): Promise<string> {
+    const { webcrypto } = await import('node:crypto');
+    const x509 = await import('@peculiar/x509');
+    x509.cryptoProvider.set(webcrypto as unknown as Crypto);
+    const alg = { name: 'ECDSA', namedCurve: 'P-256', hash: 'SHA-256' };
+    const keys = (await webcrypto.subtle.generateKey(alg, true, [
+      'sign',
+      'verify',
+    ])) as CryptoKeyPair;
+    return (
+      await x509.Pkcs10CertificateRequestGenerator.create({
+        name: 'CN=CS-LOCAL',
+        keys,
+        signingAlgorithm: alg,
+      })
+    ).toString('pem');
+  }
+
+  it('signs a V2GCertificate request with the CPO Sub-CA 2', async () => {
+    const result = await new LocalContractProvider().signCsr(await csr(), 'V2GCertificate');
+    expect(result.providerReference).toMatch(/^local-cpo-[0-9a-f]+$/);
+    expect(result.certificateChain.match(/BEGIN CERTIFICATE/g)).toHaveLength(3);
+  });
+
+  it('leaves a station TLS certificate, or a CA without CPO Sub-CA, to the operator', async () => {
+    const provider = new LocalContractProvider();
+    await expect(provider.signCsr(await csr(), 'ChargingStationCertificate')).rejects.toMatchObject(
+      {
+        code: 'MANUAL_SIGNING_REQUIRED',
+      },
+    );
+    const old = JSON.parse(JSON.stringify(ca)) as LocalContractCa;
+    delete old.iso2.cpoSubCa2;
+    store.ca = old;
+    await expect(provider.signCsr(await csr(), 'V2GCertificate')).rejects.toMatchObject({
+      code: 'MANUAL_SIGNING_REQUIRED',
+    });
+    store.ca = null;
+    await expect(provider.signCsr(await csr(), 'V2GCertificate')).rejects.toMatchObject({
+      code: 'MANUAL_SIGNING_REQUIRED',
+    });
+  });
+});

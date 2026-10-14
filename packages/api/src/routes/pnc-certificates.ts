@@ -525,7 +525,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         tags: ['PnC'],
         summary: 'Sign a pending CSR request',
         description:
-          'Marks the CSR signed with the operator-supplied PEM certificate and dispatches CertificateSigned to the station. The station_certificates mirror is updated when the station acknowledges via the certificate event projection. Returns 400 if the CSR is not in pending state.',
+          'Marks the CSR signed with the operator-supplied PEM certificate and dispatches CertificateSigned to the station, with the requestId of its SignCertificate request. The station_certificates mirror gets the certificate when the station answers Accepted. Returns 404 if the CSR is not pending.',
         operationId: 'signPncCsrRequest',
         security: [{ bearerAuth: [] }],
         params: zodSchema(idParams),
@@ -572,8 +572,9 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Update CSR status
-      await db
+      // Only the request that moves the CSR out of pending signs it: a second
+      // concurrent sign finds it signed and sends no second CertificateSigned.
+      const [signed] = await db
         .update(pkiCsrRequests)
         .set({
           status: 'signed',
@@ -581,7 +582,12 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
           completedAt: new Date(),
           updatedAt: new Date(),
         })
-        .where(eq(pkiCsrRequests.id, id));
+        .where(and(eq(pkiCsrRequests.id, id), eq(pkiCsrRequests.status, 'pending')))
+        .returning({ id: pkiCsrRequests.id });
+      if (signed == null) {
+        await reply.status(404).send({ error: 'Pending CSR not found', code: 'CSR_NOT_FOUND' });
+        return;
+      }
 
       // If station is associated, dispatch CertificateSigned command
       if (csrRow.stationId != null) {
@@ -597,6 +603,8 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
             payload: {
               certificateChain: body.signedCertificateChain,
               certificateType: csrRow.certificateType,
+              // The station matches the answer to its SignCertificateRequest (A02.FR.25).
+              ...(csrRow.requestId != null ? { requestId: csrRow.requestId } : {}),
             },
           });
         }
@@ -628,7 +636,7 @@ export function pncCertificateRoutes(app: FastifyInstance): void {
         tags: ['PnC'],
         summary: 'Reject a pending CSR request',
         description:
-          'Marks the CSR rejected with an optional reason. The station is informed via CertificateSigned with status=Rejected so it can retry or fall back. Returns 400 if the CSR is not in pending state.',
+          'Marks the pending CSR rejected. Nothing is sent to the station: OCPP has no rejection message, so a station that gets no CertificateSigned resends its SignCertificate request. Returns 404 if the CSR is not pending.',
         operationId: 'rejectPncCsrRequest',
         security: [{ bearerAuth: [] }],
         params: zodSchema(idParams),

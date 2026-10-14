@@ -488,7 +488,7 @@
     "contactPhone": "Kontakttelefon",
     "contactIsPublic": "Kontaktinformationen öffentlich machen",
     "contactPublicNote": "Wenn öffentlich, sind die Kontaktinformationen für Fahrer im Portal sichtbar.",
-    "removeStationsFirst": "Löschen Sie alle Stationen, bevor Sie den Standort löschen",
+    "removeStationsFirst": "Verschieben Sie vor dem Löschen alle Stationen an einen anderen Standort. Eine gelöschte Station bleibt an ihrem Standort.",
     "noStationsAtSite": "Keine Stationen an diesem Standort",
     "layout": "Layout",
     "loadManagement": "Lastmanagement",
@@ -534,8 +534,8 @@
     "enableFreeVend": "Freies Laden aktivieren",
     "disableFreeVend": "Freies Laden deaktivieren",
     "confirmEnableFreeVend": "Dies erlaubt allen Stationen an diesem Standort das Laden ohne Fahreridentifizierung oder Zahlung. Die OCPP-Autostart-Konfiguration wird an alle Online-Stationen übertragen.",
-    "confirmDisableFreeVend": "Dies erfordert künftig Fahreridentifizierung und Zahlung für das Laden an diesem Standort. Die OCPP-Konfiguration der Station wird nicht geändert.",
-    "freeVendDisabledNote": "Freies Laden ist deaktiviert. Ladevorgänge erfordern jetzt Fahreridentifizierung und Zahlung. Die OCPP-Konfiguration der Station wurde nicht geändert. Um die Autorisierungsanforderungen auf den Stationen wiederherzustellen, bearbeiten Sie die Konfigurationsvorlage und übertragen Sie sie erneut.",
+    "confirmDisableFreeVend": "Dies erfordert künftig Fahreridentifizierung und Zahlung für das Laden an diesem Standort. Online-Stationen erhalten ihre früheren Autorisierungseinstellungen zurück.",
+    "freeVendDisabledNote": "Freies Laden ist deaktiviert. Ladevorgänge erfordern jetzt Fahreridentifizierung und Zahlung. Online-Stationen haben die unten stehenden Vorlagen zur Wiederherstellung der Autorisierung erhalten; eine Station, die offline war, erhält die Autorisierung zurück, wenn Sie sie erneut übertragen.",
     "freeVendOcpp16Note": "OCPP 1.6 definiert keinen standardisierten Mechanismus für freies Laden. Diese Standardschlüssel funktionieren mit den meisten Stationen, einige Hersteller verwenden jedoch herstellerspezifische Schlüssel (z. B. FreeCharging, FreeVendEnabled). Wenn die Übertragungsergebnisse abgelehnte Variablen anzeigen, bearbeiten Sie die Vorlage, um den herstellerspezifischen Schlüssel Ihrer Station hinzuzufügen, und übertragen Sie sie erneut.",
     "freeVendViewTemplate": "Vorlage anzeigen",
     "freeVendLastPush": "Letzte Übertragung",
@@ -581,7 +581,19 @@
     "electricityCostRecalculateMore_other": "{{count}} Ladevorgänge haben noch keine Stromkosten. Berechnen Sie erneut, um fortzufahren.",
     "tabs": {
       "ai": "KI-Nutzung"
-    }
+    },
+    "stationLayout": "Stationslayout",
+    "layoutDraw": "Aufnahme",
+    "levelDcFast": "DC-Schnellladen",
+    "levelL2": "Level 2",
+    "levelL1": "Level 1",
+    "deleteSiteTitle": "Standort löschen",
+    "deleteSiteDescription": "{{name}} wird mit Stromtarifen, Layout, Lastmanagement, Preiszuordnung und Zahlungskonfiguration dauerhaft gelöscht.",
+    "freeVendRestoreTitle": "Vorlagen zur Wiederherstellung der Autorisierung",
+    "freeVendRestoreDescription": "Werden beim Ausschalten von freiem Laden übertragen: Autorisierung an, mit den Werten, die die Stationen beim Einschalten gemeldet haben. Jede Vorlage zeigt ihre Übertragungsergebnisse.",
+    "autocharge": "Autocharge",
+    "autochargeDescription": "Laden durch Einstecken an den Ladestationen dieses Standorts. Es gilt die Firmeneinstellung, außer Sie schalten es hier ein oder aus.",
+    "autochargeDefault": "Firmeneinstellung verwenden"
   },
   "stations": {
     "title": "Stationen",
@@ -743,6 +755,15 @@
     "simActionFailed": "Simulatoraktion fehlgeschlagen",
     "stationOfflineCannotSim": "Station offline - Simulatoraktion kann nicht gesendet werden",
     "deleteEvse": "EVSE löschen",
+    "retire": "Stilllegen",
+    "retired": "Stillgelegt",
+    "retireEvse": "EVSE stilllegen",
+    "restoreEvse": "EVSE wieder in Betrieb nehmen",
+    "retireConnector": "Anschluss stilllegen",
+    "restoreConnector": "Anschluss wieder in Betrieb nehmen",
+    "confirmRetireEvse": "EVSE {{id}} wird außer Betrieb genommen. Fahrer und Roaming-Partner sehen ihn nicht mehr, er nimmt keine neuen Ladevorgänge oder Reservierungen an, und sein Verlauf bleibt erhalten. Sie können ihn später wieder in Betrieb nehmen.",
+    "confirmRetireConnector": "Anschluss {{id}} wird außer Betrieb genommen. Fahrer und Roaming-Partner sehen ihn nicht mehr, und sein Verlauf bleibt erhalten. Sie können ihn später wieder in Betrieb nehmen.",
+    "cannotRetireOccupied": "Kann während eines laufenden Ladevorgangs nicht stillgelegt werden.",
     "deleteConnector": "Anschluss löschen",
     "confirmDeleteEvse": "Dadurch werden EVSE {{id}} und alle zugehörigen Anschlüsse entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
     "confirmDeleteConnector": "Dadurch wird Anschluss {{id}} entfernt. Diese Aktion kann nicht rückgängig gemacht werden.",
@@ -832,9 +853,14 @@
     "confirmRealStationDescription": "Die Simulator-Markierung wird entfernt, und der Simulator verbindet sich nicht mehr als {{stationId}}. Sie können den Simulator später wieder einschalten, indem Sie die Station bearbeiten.",
     "confirmRealStationSuccess": "Simulator-Markierung entfernt",
     "approve": "Genehmigen",
+    "approvedSuccess": "Station genehmigt",
     "reject": "Ablehnen",
-    "blockedInfo": "Diese Station ist blockiert. Genehmigen Sie sie, um Ladevorgänge zu erlauben.",
+    "rejectedSuccess": "Station abgelehnt",
+    "rejectStationTitle": "Diese Station ablehnen?",
+    "rejectStationDescription": "Die Station wird blockiert: Das CSMS lehnt ihre Verbindungen ab, bis Sie sie entsperren.",
+    "blockedInfo": "Diese Station ist blockiert: Das CSMS lehnt ihre Verbindungen ab. Entsperren Sie sie, damit sie wieder auf Freigabe wartet.",
     "unblock": "Entsperren",
+    "unblockedSuccess": "Station entsperrt",
     "blockStation": "Station blockieren",
     "blockStationDescription": "Dadurch wird die Station an der Verbindung gehindert. Die Station wird nicht dauerhaft gelöscht. Sie können sie später entsperren, um sie wieder in den Status Ausstehend zu versetzen.",
     "onboardingStatus": "Onboarding-Status",
@@ -993,6 +1019,8 @@
     "stoppedReason": "Stoppgrund",
     "reservation": "Reservierung",
     "token": "Token",
+    "pncContract": "Plug & Charge-Vertrag",
+    "pncContractPcid": "PCID {{pcid}}",
     "preAuthAmount": "Vorautorisiert",
     "capturedAmount": "Eingezogen",
     "refundedAmount": "Erstattet",
@@ -1095,7 +1123,12 @@
     "electricityCostMissing": "Fehlend",
     "costMissingNotice": "Diese Ladevorgänge haben keine Stromkosten und sind nicht im Gewinn enthalten.",
     "costMissingSelectSite": "Diese Ladevorgänge haben keine Stromkosten und sind nicht im Gewinn enthalten. Wählen Sie einen Standort, um seine Kosten neu zu berechnen.",
-    "billedToMember": "Auf Rechnung: {{fleet}} (Fahrerrechnung)"
+    "billedToMember": "Auf Rechnung: {{fleet}} (Fahrerrechnung)",
+    "capturedFromCharger": "Von der Ladestation erfasst",
+    "captured": "(erfasst)",
+    "useVehicleForPlugIn": "Fahrzeug zum Laden durch Einstecken verwenden",
+    "useVehicleDescription": "Speichert {{id}}, die Kennung, die die Ladestation für diesen Ladevorgang gesendet hat, an einem Fahrzeug des Fahrers. Mit Autocharge startet das nächste Einstecken den Ladevorgang für den Fahrer ohne Karte oder App.",
+    "vehicleClaimed": "Fahrzeug gespeichert"
   },
   "drivers": {
     "title": "Fahrer",
@@ -1664,7 +1697,9 @@
       "completed": "Abgeschlossen",
       "expired": "Abgelaufen",
       "cancelled": "Storniert"
-    }
+    },
+    "deleteFleetTitle": "Flotte löschen",
+    "deleteFleetDescription": "{{name}} wird dauerhaft gelöscht. Fahrzeuge und Stationen bleiben erhalten, ohne diese Flotte."
   },
   "tokens": {
     "title": "Token",
@@ -2210,6 +2245,12 @@
     "pncLocalCaCreateConfirm": "Vertrags-CA erstellen? Das CSMS erzeugt die Mobility-Operator- und Bereitstellungszertifikate und speichert ihre privaten Schlüssel verschlüsselt. Eine CA wird einmal erstellt.",
     "pncLocalCaCreated": "Vertrags-CA erstellt",
     "pncLocalCaCreateFailed": "Die Vertrags-CA konnte nicht erstellt werden",
+    "pncLocalCpoCreate": "CPO-Sub-CA hinzufügen",
+    "pncLocalCpoCreateConfirm": "Die CPO-Sub-CAs unter der V2G-Root hinzufügen? Mit dem lokalen Anbieter signiert CPO-Sub-CA 2 dann die V2G-Zertifikate, die Ladestationen anfordern. Ihre privaten Schlüssel werden verschlüsselt gespeichert.",
+    "pncLocalCpoCreated": "CPO-Sub-CA hinzugefügt",
+    "pncLocalCpoCreateFailed": "CPO-Sub-CA konnte nicht hinzugefügt werden",
+    "pncLocalCpoActive": "V2G-Zertifikatsanfragen von Stationen werden automatisch von CPO-Sub-CA 2 signiert. TLS-Zertifikatsanfragen von Stationen bleiben unter CSR-Anfragen zur manuellen Signierung.",
+    "pncLocalCpoMissing": "V2G-Zertifikatsanfragen von Stationen warten unter CSR-Anfragen auf die manuelle Signierung. Fügen Sie die CPO-Sub-CA hinzu, um sie automatisch zu signieren.",
     "pncLocalCaEdition": "Ausgabe",
     "pncLocalCaRole": "Rolle",
     "pncLocalCaRoles": {
@@ -2219,7 +2260,9 @@
       "cpsRoot": "V2G-Root",
       "cpsSubCa1": "CPS-Sub-CA 1",
       "cpsSubCa2": "CPS-Sub-CA 2",
-      "cpsLeaf": "CPS-Signaturzertifikat"
+      "cpsLeaf": "CPS-Signaturzertifikat",
+      "cpoSubCa1": "CPO-Sub-CA 1",
+      "cpoSubCa2": "CPO-Sub-CA 2"
     },
     "pncSaved": "Plug-&-Charge-Einstellungen gespeichert.",
     "pncSaveFailed": "Plug-&-Charge-Einstellungen konnten nicht gespeichert werden.",
@@ -2694,7 +2737,11 @@
     "aiAdvancedOptions": "Erweiterte Optionen",
     "aiPromptCustomSummary": "Eigener Systemprompt",
     "aiPromptDefaultSummary": "Integrierter Systemprompt",
-    "aiBaseUrlDefaultSummary": "Standard-Endpunkt"
+    "aiBaseUrlDefaultSummary": "Standard-Endpunkt",
+    "autocharge": "Autocharge",
+    "autochargeDescription": "Laden durch Einstecken: Eine Ladestation, die FIN, EVCCID oder MAC-Adresse eines Fahrzeugs sendet, startet einen Ladevorgang für den Fahrer des Fahrzeugs, wenn der Fahrer Autocharge dafür eingeschaltet hat. Ein Standort kann es für seine eigenen Ladestationen ein- oder ausschalten.",
+    "autochargeEnabled": "Autocharge aktiviert",
+    "autochargeEnabledDesc": "Standardmäßig aus. Fahrer schalten Autocharge im Portal pro Fahrzeug ein; jeder Start sendet dem Fahrer eine Benachrichtigung."
   },
   "pnc": {
     "certificates": "Zertifikate",
@@ -2864,7 +2911,8 @@
       "invoice.FleetInvoice": "Flottenrechnung ausgestellt",
       "invoice.FleetCreditNote": "Stornorechnung der Flotte ausgestellt",
       "invoice.FleetOverdue": "Flottenrechnung überfällig",
-      "ai.ProposalDigest": "Zusammenfassung der KI-Analyseaktionen"
+      "ai.ProposalDigest": "Zusammenfassung der KI-Analyseaktionen",
+      "session.AutochargeStarted": "Ladevorgang per Autocharge gestartet"
     },
     "templatePreviewInvalid": "Die Vorlage enthält einen Fehler:",
     "htmlPreview": "HTML-Vorschau",
@@ -3057,8 +3105,10 @@
     "EMAIL_REQUIRED": "E-Mail-Adresse für kostenpflichtiges Laden erforderlich",
     "EMAIL_SEND_FAILED": "E-Mail konnte nicht gesendet werden",
     "ENCRYPTION_KEY_MISSING": "SETTINGS_ENCRYPTION_KEY ist auf dem Server nicht konfiguriert",
+    "EVSE_HAS_HISTORY": "Der EVSE oder Stecker hat einen Ladeverlauf und kann nicht gelöscht werden. Legen Sie ihn stattdessen still.",
     "EVSE_IN_USE": "An diesem Anschluss ist bereits ein anderer Ladevorgang aktiv",
     "EVSE_NOT_FOUND": "EVSE nicht gefunden",
+    "EVSE_RESERVED": "Der EVSE hat eine aktive oder bevorstehende Reservierung. Stornieren Sie sie, bevor Sie den EVSE stilllegen.",
     "FAVORITE_NOT_FOUND": "Favorit nicht gefunden",
     "FLEET_CREDIT_LIMIT_REACHED": "Das Kreditlimit der Flotte, über die Ihre Ladevorgänge abgerechnet werden, ist erreicht. Wenden Sie sich an Ihren Flottenverwalter.",
     "FLEET_DISABLED": "Flotte ist deaktiviert",
@@ -3231,6 +3281,7 @@
     "SSO_DISABLED": "SSO ist nicht konfiguriert",
     "START_REJECTED": "Station hat Startanforderung abgelehnt: ...",
     "STATION_ALREADY_IN_FLEET": "Station ist bereits in dieser Flotte",
+    "STATION_HAS_ACTIVE_SESSION": "An der Station läuft ein Ladevorgang. Beenden Sie ihn, bevor Sie die Station löschen.",
     "STATION_ID_EXISTS": "Eine Station mit dieser ID existiert bereits",
     "STATION_NOT_FOUND": "Station nicht gefunden",
     "STATION_OFFLINE": "Station ist offline",
@@ -3288,7 +3339,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "Legen Sie zuerst Ländercode und Provider-ID der eMAID fest",
     "LOCAL_CA_EXISTS": "Eine lokale Vertrags-CA ist bereits vorhanden",
     "LOCAL_CA_NOT_CONFIGURED": "Erstellen Sie zuerst die lokale Vertrags-CA",
+    "LOCAL_CPO_SUB_CA_EXISTS": "Die lokale Vertrags-CA hat ihre CPO-Sub-CAs bereits",
     "PNC_CONTRACT_NOT_FOUND": "Plug & Charge-Vertrag nicht gefunden",
+    "PNC_CONTRACT_TOKEN_LOCKED": "Dieses Token gehört zu einem Plug & Charge-Vertrag. Verwalten Sie es über die Verträge des Fahrers.",
     "PHONE_REGISTRATION_LIMITED": "Mit dieser Telefonnummer wurden zu viele Konten registriert. Versuchen Sie es später erneut.",
     "VERIFICATION_RESEND_LIMITED": "Zu viele Bestätigungs-E-Mails. Warten Sie, bevor Sie eine weitere anfordern.",
     "AI_INSIGHT_NOT_FOUND": "Analyse nicht gefunden",
@@ -3304,7 +3357,11 @@
     "AI_CONFIRMATION_REQUIRES_SESSION": "Bestätigen Sie diese Aktion angemeldet im Dashboard, nicht mit einem API-Schlüssel",
     "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut",
     "CHARGING_PROFILE_ID_RESERVED": "Die ID des Ladeprofils muss größer als MaxExternalConstraintsId der Ladestation sein.",
-    "TOKEN_BLOCKED_BY_OPERATOR": "Der Betreiber hat diese Karte deaktiviert. Wenden Sie sich an den Betreiber, um sie wieder zu aktivieren."
+    "TOKEN_BLOCKED_BY_OPERATOR": "Der Betreiber hat diese Karte deaktiviert. Wenden Sie sich an den Betreiber, um sie wieder zu aktivieren.",
+    "SESSION_NO_VEHICLE_ID": "Die Ladestation hat für diesen Ladevorgang keine Fahrzeugkennung gesendet.",
+    "VEHICLE_BLOCKED_BY_OPERATOR": "Der Betreiber hat Autocharge für dieses Fahrzeug gesperrt. Wenden Sie sich an den Betreiber, um es zu entsperren.",
+    "VEHICLE_ID_IN_USE": "Ein anderes Fahrzeug verwendet diese FIN oder EVCCID bereits für Autocharge.",
+    "VEHICLE_ID_REQUIRED": "Autocharge benötigt eine FIN oder EVCCID am Fahrzeug."
   },
   "logs": {
     "title": "Protokolle",
@@ -3643,7 +3700,35 @@
     "vehicleId": "Fahrzeug-ID",
     "confirmDelete": "Möchten Sie dieses Fahrzeug wirklich löschen?",
     "owner": "Besitzer",
-    "vehicleNotFound": "Fahrzeug nicht gefunden"
+    "vehicleNotFound": "Fahrzeug nicht gefunden",
+    "vehicle": "Fahrzeug",
+    "vehicleIdColumn": "Fahrzeugkennung",
+    "idTypes": {
+      "VIN": "FIN",
+      "EVCCID": "EVCCID",
+      "MacAddress": "MAC-Adresse"
+    },
+    "evccid": "EVCCID (MAC-Adresse)",
+    "evccidHelp": "Die Kennung des Ladecontrollers, die die Ladestation vom Fahrzeug liest, meist seine MAC-Adresse. Groß- und Kleinschreibung und Trennzeichen sind egal.",
+    "evccidFormat": "Geben Sie eine MAC-Adresse oder eine EVCCID ohne Leerzeichen ein.",
+    "autocharge": "Autocharge",
+    "autochargeHelp": "Laden durch Einstecken: Sendet eine Ladestation die FIN oder EVCCID dieses Fahrzeugs, startet ein Ladevorgang für den Fahrer ohne Karte oder App.",
+    "autochargeNeedsId": "Fügen Sie eine FIN oder EVCCID hinzu, um Autocharge einzuschalten.",
+    "autochargeOn": "Ein",
+    "autochargeOff": "Aus",
+    "newVehicle": "Neues Fahrzeug",
+    "makeModelRequired": "Geben Sie Marke und Modell ein.",
+    "blocked": "Gesperrt",
+    "block": "Fahrzeug sperren",
+    "unblock": "Fahrzeug entsperren",
+    "blockedToast": "Fahrzeug gesperrt",
+    "unblockedToast": "Fahrzeug entsperrt",
+    "blockedDescription": "Von einem Betreiber gesperrt: FIN und EVCCID dieses Fahrzeugs werden bei jedem Start abgelehnt, und der Fahrer kann Autocharge nicht einschalten.",
+    "confirmBlockDesc": "Starts mit der FIN oder EVCCID dieses Fahrzeugs werden wie eine gesperrte Karte abgelehnt, ob Autocharge ein- oder ausgeschaltet ist. Der Fahrer kann Autocharge nicht wieder einschalten.",
+    "confirmUnblockDesc": "Starts mit den Kennungen dieses Fahrzeugs werden wieder angenommen, wenn Autocharge eingeschaltet ist.",
+    "lastSeen": "Zuletzt gesehen",
+    "lastSeenValue": "{{station}}, {{time}}",
+    "neverSeen": "Noch keine Ladestation hat seine Kennungen gesendet"
   },
   "firmwareCampaigns": {
     "subtitle": "Plane Firmware-Updates und sende sie in einem einzelnen Rollout an passende Stationen.",
@@ -3653,7 +3738,6 @@
     "version": "Version",
     "start": "Starten",
     "startCampaign": "Kampagne starten",
-    "progress": "Fortschritt",
     "progress": "Fortschritt",
     "totalStations": "Gesamt",
     "completedStations": "Abgeschlossen",
@@ -4429,7 +4513,12 @@
       "refunded": "Erstattet",
       "event_settings_changed": "Ereigniseinstellungen geändert",
       "reset": "Auf Standard zurückgesetzt",
-      "report_deleted": "Bericht gelöscht"
+      "report_deleted": "Bericht gelöscht",
+      "autocharge_enabled": "Autocharge eingeschaltet",
+      "autocharge_disabled": "Autocharge ausgeschaltet",
+      "autocharge_blocked": "Fahrzeug gesperrt",
+      "autocharge_unblocked": "Fahrzeug entsperrt",
+      "vehicle_id_claimed": "Fahrzeugkennung aus einem Ladevorgang übernommen"
     },
     "entities": {
       "site": "Standort",
@@ -4993,9 +5082,16 @@
       "wrongPrompt": "Als falsch markiert. Erstellen Sie die Analyse mit aktuellen Daten neu oder verwerfen Sie sie.",
       "reasonLabel": "Was ist falsch? (optional)",
       "reasonPlaceholder": "Zum Beispiel: Die Station war wegen geplanter Wartung offline.",
-      "reasonHint": "Wird nur mit Ihrer Bewertung gespeichert und nie an einen KI-Anbieter gesendet.",
+      "reasonHint": "Wird mit Ihrer Bewertung bei dieser Analyse angezeigt. An den KI-Anbieter geht sie nur, wenn Sie die Analyse neu erstellen, als Hinweis, der an den Daten geprüft wird.",
       "saveReason": "Notiz speichern",
-      "reasonSaved": "Notiz gespeichert."
+      "reasonSaved": "Notiz gespeichert.",
+      "usedYours": "Mit Ihrem Feedback neu erstellt",
+      "usedOther": "Mit Feedback eines Benutzers neu erstellt"
+    },
+    "wrongVotes": {
+      "title": "Als falsch markiert",
+      "anotherUser": "Anderer Benutzer",
+      "noNote": "Keine Notiz"
     },
     "action": {
       "kind": {

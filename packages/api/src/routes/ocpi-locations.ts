@@ -13,12 +13,15 @@ import {
   ocpiLocationAudience,
   pgConstraintName,
   pgErrorCode,
+  PG_FOREIGN_KEY_VIOLATION,
   PG_UNIQUE_VIOLATION,
   ocpiPartnerAuditLog,
   siteAuditLog,
   writeAudit,
 } from '@evtivity/database';
 import type { OcpiLocationAudience } from '@evtivity/database';
+
+type PublishRow = typeof ocpiLocationPublish.$inferSelect;
 import { ID_PREFIXES } from '@evtivity/lib';
 import { zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -406,92 +409,88 @@ export function ocpiLocationRoutes(app: FastifyInstance): void {
         }
       }
 
-      // Who sees the location now: partners that lose it get its EVSEs as
-      // REMOVED (OCPI 8.1, there is no DELETE).
-      const audienceBefore = await ocpiLocationAudience(siteId);
+      // One save per site at a time: the site row lock orders two saves, so the
+      // second sees the first one's row (no duplicate insert, no 500) and its
+      // audience. Partners that lose the location get its EVSEs as REMOVED
+      // (OCPI 8.1, there is no DELETE).
+      let saved: { audienceBefore: OcpiLocationAudience | null; existing: PublishRow | undefined };
+      try {
+        saved = await db.transaction(async (tx) => {
+          await tx.select({ id: sites.id }).from(sites).where(eq(sites.id, siteId)).for('update');
+          const audienceBefore = await ocpiLocationAudience(siteId);
+          const [existing] = await tx
+            .select()
+            .from(ocpiLocationPublish)
+            .where(eq(ocpiLocationPublish.siteId, siteId))
+            .limit(1);
 
-      const [existing] = await db
-        .select()
-        .from(ocpiLocationPublish)
-        .where(eq(ocpiLocationPublish.siteId, siteId))
-        .limit(1);
+          let publishId: number;
+          if (existing != null) {
+            const updateData: Record<string, unknown> = {
+              isPublished: body.isPublished,
+              updatedAt: new Date(),
+            };
+            if (publishToAll != null) updateData['publishToAll'] = publishToAll;
+            if (body.ocpiLocationId != null) updateData['ocpiLocationId'] = body.ocpiLocationId;
+            await tx
+              .update(ocpiLocationPublish)
+              .set(updateData)
+              .where(eq(ocpiLocationPublish.id, existing.id));
+            publishId = existing.id;
+          } else {
+            const insertValues: {
+              siteId: string;
+              isPublished: boolean;
+              publishToAll?: boolean;
+              ocpiLocationId?: string;
+            } = {
+              siteId,
+              isPublished: body.isPublished,
+            };
+            if (publishToAll != null) insertValues.publishToAll = publishToAll;
+            if (body.ocpiLocationId != null) insertValues.ocpiLocationId = body.ocpiLocationId;
+            const [inserted] = await tx
+              .insert(ocpiLocationPublish)
+              .values(insertValues)
+              .returning({ id: ocpiLocationPublish.id });
+            if (inserted == null) throw new Error('OCPI location publish insert returned no row');
+            publishId = inserted.id;
+          }
 
-      let publishId: number;
-
-      if (existing != null) {
-        const updateData: Record<string, unknown> = {
-          isPublished: body.isPublished,
-          updatedAt: new Date(),
-        };
-        if (publishToAll != null) updateData['publishToAll'] = publishToAll;
-        if (body.ocpiLocationId != null) updateData['ocpiLocationId'] = body.ocpiLocationId;
-
-        try {
-          await db
-            .update(ocpiLocationPublish)
-            .set(updateData)
-            .where(eq(ocpiLocationPublish.id, existing.id));
-        } catch (err) {
-          // A concurrent write took the id after the check above.
-          if (!isLocationIdUniqueViolation(err)) throw err;
+          // Update partner visibility if not publish_to_all
+          if (partnerIds != null) {
+            await tx
+              .delete(ocpiLocationPublishPartners)
+              .where(eq(ocpiLocationPublishPartners.locationPublishId, publishId));
+            if (partnerIds.length > 0) {
+              await tx.insert(ocpiLocationPublishPartners).values(
+                partnerIds.map((partnerId) => ({
+                  locationPublishId: publishId,
+                  partnerId,
+                })),
+              );
+            }
+          }
+          return { audienceBefore, existing };
+        });
+      } catch (err) {
+        // A concurrent write took the location id after the check above.
+        if (isLocationIdUniqueViolation(err)) {
           await sendValidationError(reply, LOCATION_ID_TAKEN, {
             ocpiLocationId: LOCATION_ID_TAKEN,
           });
           return;
         }
-        publishId = existing.id;
-      } else {
-        const insertValues: {
-          siteId: string;
-          isPublished: boolean;
-          publishToAll?: boolean;
-          ocpiLocationId?: string;
-        } = {
-          siteId,
-          isPublished: body.isPublished,
-        };
-        if (publishToAll != null) insertValues.publishToAll = publishToAll;
-        if (body.ocpiLocationId != null) insertValues.ocpiLocationId = body.ocpiLocationId;
-
-        let inserted: { id: number } | undefined;
-        try {
-          [inserted] = await db
-            .insert(ocpiLocationPublish)
-            .values(insertValues)
-            .returning({ id: ocpiLocationPublish.id });
-        } catch (err) {
-          // A concurrent write took the id after the check above.
-          if (!isLocationIdUniqueViolation(err)) throw err;
-          await sendValidationError(reply, LOCATION_ID_TAKEN, {
-            ocpiLocationId: LOCATION_ID_TAKEN,
+        // A partner deleted after the check above: nothing was saved.
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
+          await sendValidationError(reply, 'Unknown partner id', {
+            partnerIds: 'Unknown partner id',
           });
           return;
         }
-
-        if (inserted == null) {
-          await reply
-            .status(500)
-            .send({ error: 'Failed to create publish setting', code: 'INTERNAL_ERROR' });
-          return;
-        }
-        publishId = inserted.id;
+        throw err;
       }
-
-      // Update partner visibility if not publish_to_all
-      if (partnerIds != null) {
-        await db
-          .delete(ocpiLocationPublishPartners)
-          .where(eq(ocpiLocationPublishPartners.locationPublishId, publishId));
-
-        if (partnerIds.length > 0) {
-          await db.insert(ocpiLocationPublishPartners).values(
-            partnerIds.map((partnerId) => ({
-              locationPublishId: publishId,
-              partnerId,
-            })),
-          );
-        }
-      }
+      const { audienceBefore, existing } = saved;
 
       // Notify push service
       const audienceAfter = await ocpiLocationAudience(siteId);

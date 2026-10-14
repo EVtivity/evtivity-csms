@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and, gte, lte, sql, isNotNull, desc } from 'drizzle-orm';
+import { eq, and, gte, lte, sql, isNotNull, isNull, desc } from 'drizzle-orm';
 import {
   db,
   sites,
@@ -163,6 +163,7 @@ async function getEvsesWithConnectors(
       stationOcppId: chargingStations.stationId,
       evseId: evses.evseId,
       updatedAt: evses.updatedAt,
+      retiredAt: evses.retiredAt,
       disabledReason: chargingStations.disabledReason,
       firmwareState: chargingStations.firmwareState,
       reportedStatus: chargingStations.reportedStatus,
@@ -178,7 +179,8 @@ async function getEvsesWithConnectors(
       ? await db
           .select()
           .from(connectors)
-          .where(sql`${connectors.evseId} IN ${evseIds}`)
+          // A retired connector is out of service: left out of the location.
+          .where(sql`${connectors.evseId} IN ${evseIds} AND ${connectors.retiredAt} IS NULL`)
       : [];
 
   const connectorsByEvse = new Map<string, ConnectorRow[]>();
@@ -207,8 +209,9 @@ async function getEvsesWithConnectors(
       evseId: e.evseId,
       updatedAt: e.updatedAt,
       stationLevelUnavailable: isStationLevelUnavailable(e),
-      // A deleted station is kept with onboarding status `blocked`.
-      removed: e.onboardingStatus === 'blocked',
+      // A deleted station is kept with onboarding status `blocked`; a retired
+      // EVSE is out of service. Both are REMOVED (OCPI 8.1).
+      removed: e.onboardingStatus === 'blocked' || e.retiredAt != null,
       connectors: connectorsByEvse.get(e.id) ?? [],
     });
     result.set(stId, list);
@@ -504,14 +507,14 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         evseId: found.evseNumber,
         updatedAt: found.updatedAt,
         stationLevelUnavailable: isStationLevelUnavailable(found.stationState),
-        removed: found.stationRemoved,
+        removed: found.stationRemoved || found.evseRetired,
       };
       const evseTariffIds = await stationTariffIds(partner.partnerId, found.stationDbId, siteId);
 
       const connectorRows = await db
         .select()
         .from(connectors)
-        .where(eq(connectors.evseId, evseRow.id));
+        .where(and(eq(connectors.evseId, evseRow.id), isNull(connectors.retiredAt)));
 
       const evseWithConnectors = {
         ...evseRow,
@@ -581,7 +584,11 @@ function registerCpoLocationRoutes(app: FastifyInstance, version: OcpiVersion): 
         .select()
         .from(connectors)
         .where(
-          and(eq(connectors.evseId, found.evseDbId), eq(connectors.connectorId, connectorIdNum)),
+          and(
+            eq(connectors.evseId, found.evseDbId),
+            eq(connectors.connectorId, connectorIdNum),
+            isNull(connectors.retiredAt),
+          ),
         )
         .limit(1);
 

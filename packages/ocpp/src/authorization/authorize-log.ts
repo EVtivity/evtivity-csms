@@ -49,6 +49,9 @@ export async function logAuthorizeAttempt(
     outcome: AuthorizeOutcome;
     ocppVersion: 'ocpp1.6' | 'ocpp2.1';
     reason?: string | null;
+    vehicleIdValue?: string | null;
+    vehicleIdType?: string | null;
+    matchedVehicleId?: string | null;
   },
   logger: Logger,
 ): Promise<void> {
@@ -64,6 +67,9 @@ export async function logAuthorizeAttempt(
       outcome: args.outcome,
       ocppVersion: args.ocppVersion,
       reason: args.reason ?? null,
+      vehicleIdValue: args.vehicleIdValue ?? null,
+      vehicleIdType: args.vehicleIdType ?? null,
+      matchedVehicleId: args.matchedVehicleId ?? null,
     });
   } catch (err) {
     logger.warn({ err, ...args }, 'Failed to record authorize attempt');

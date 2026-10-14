@@ -116,6 +116,7 @@ const cases: Array<[string, string, string]> = [
   ['POST', '/pnc/settings/test-provider', 'SETTING_NOT_FOUND'],
   ['GET', '/pnc/settings/local-ca', 'SETTING_NOT_FOUND'],
   ['POST', '/pnc/settings/local-ca', 'SETTING_NOT_FOUND'],
+  ['POST', '/pnc/settings/local-ca/cpo-sub-ca', 'SETTING_NOT_FOUND'],
 ];
 
 describe('company-wide configuration for a site-restricted user', () => {

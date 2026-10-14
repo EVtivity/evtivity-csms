@@ -85,6 +85,17 @@ async function loadCaCertificates(logger: Logger): Promise<CaCache> {
   return caCache;
 }
 
+/**
+ * The CA certificates an OCSP or CRL answer about a contract or vehicle
+ * certificate is verified against: the active operator CA certificates and
+ * the local MO CAs.
+ */
+export async function knownCertificateIssuers(logger: Logger): Promise<Certificate[]> {
+  const operatorCas = await loadCaCertificates(logger);
+  const local = await getLocalMoCertificates();
+  return [...operatorCas.issuers, ...(local?.all ?? [])];
+}
+
 /** Splits a PEM bundle into its certificates, in order. */
 function splitPemChain(pem: string): string[] {
   return pem.match(/-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/g) ?? [];
@@ -168,6 +179,8 @@ async function checkRevocation(
     }),
   );
   if (statuses.includes('revoked')) return 'CertificateRevoked';
+  // C07.FR.15: a contract certificate of the local CA past its validity.
+  if (statuses.includes('expired')) return 'CertificateExpired';
   if (statuses.every((s) => s === 'good')) return 'Accepted';
   return 'CertChainError';
 }

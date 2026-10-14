@@ -27,9 +27,20 @@ import { formatDateTime, useUserTimezone } from '@/lib/timezone';
 export interface LocalCaStatus {
   configured: boolean;
   createdAt: string | null;
+  /** The CPO Sub-CAs that sign station V2G certificates exist. */
+  cpoSubCa: boolean;
   certificates: Array<{
     schema: 2 | 20;
-    role: 'moRoot' | 'moSubCa1' | 'moSubCa2' | 'cpsRoot' | 'cpsSubCa1' | 'cpsSubCa2' | 'cpsLeaf';
+    role:
+      | 'moRoot'
+      | 'moSubCa1'
+      | 'moSubCa2'
+      | 'cpsRoot'
+      | 'cpsSubCa1'
+      | 'cpsSubCa2'
+      | 'cpsLeaf'
+      | 'cpoSubCa1'
+      | 'cpoSubCa2';
     subject: string;
     serialNumber: string;
     validFrom: string;
@@ -60,6 +71,7 @@ export function PncLocalCaSection({
   const timezone = useUserTimezone();
   const canWrite = useHasPermission('settings.integrations:write');
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [cpoConfirmOpen, setCpoConfirmOpen] = useState(false);
 
   const { data: ca } = useQuery({
     queryKey: ['pnc-local-ca'],
@@ -81,6 +93,23 @@ export function PncLocalCaSection({
         variant: 'destructive',
       });
       setConfirmOpen(false);
+    },
+  });
+
+  const cpoMutation = useMutation({
+    mutationFn: () => api.post<LocalCaStatus>('/v1/pnc/settings/local-ca/cpo-sub-ca', {}),
+    onSuccess: (status) => {
+      queryClient.setQueryData(['pnc-local-ca'], status);
+      toast({ title: t('settings.pncLocalCpoCreated'), variant: 'success' });
+      setCpoConfirmOpen(false);
+    },
+    onError: (err) => {
+      toast({
+        title: t('settings.pncLocalCpoCreateFailed'),
+        description: getErrorMessage(err, t),
+        variant: 'destructive',
+      });
+      setCpoConfirmOpen(false);
     },
   });
 
@@ -137,7 +166,6 @@ export function PncLocalCaSection({
         )}
         {canWrite && ca != null && !ca.configured && (
           <Button
-            variant="outline"
             onClick={() => {
               setConfirmOpen(true);
             }}
@@ -146,7 +174,22 @@ export function PncLocalCaSection({
             {t('settings.pncLocalCaCreate')}
           </Button>
         )}
+        {canWrite && ca?.configured === true && !ca.cpoSubCa && (
+          <Button
+            onClick={() => {
+              setCpoConfirmOpen(true);
+            }}
+          >
+            <ShieldPlus className="h-4 w-4" />
+            {t('settings.pncLocalCpoCreate')}
+          </Button>
+        )}
       </div>
+      {ca?.configured === true && (
+        <p className="text-xs text-muted-foreground">
+          {ca.cpoSubCa ? t('settings.pncLocalCpoActive') : t('settings.pncLocalCpoMissing')}
+        </p>
+      )}
 
       {ca?.configured === true && (
         <div className="overflow-x-auto">
@@ -183,6 +226,19 @@ export function PncLocalCaSection({
         isPending={createMutation.isPending}
         onConfirm={() => {
           createMutation.mutate();
+          return false;
+        }}
+      />
+      <ConfirmDialog
+        open={cpoConfirmOpen}
+        onOpenChange={setCpoConfirmOpen}
+        title={t('settings.pncLocalCpoCreate')}
+        description={t('settings.pncLocalCpoCreateConfirm')}
+        confirmLabel={t('settings.pncLocalCpoCreate')}
+        variant="default"
+        isPending={cpoMutation.isPending}
+        onConfirm={() => {
+          cpoMutation.mutate();
           return false;
         }}
       />

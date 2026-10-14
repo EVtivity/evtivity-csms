@@ -46,8 +46,11 @@ export interface OcspResult {
 }
 
 export interface PkiProvider {
-  /** `stationDbId` links a CSR queued for manual signing to its station. */
-  signCsr(csr: string, certificateType: string, stationDbId: string | null): Promise<SignCsrResult>;
+  /**
+   * Signs a CSR the SignCertificate handler already recorded. A provider that
+   * leaves it to the operator throws an error with code MANUAL_SIGNING_REQUIRED.
+   */
+  signCsr(csr: string, certificateType: string): Promise<SignCsrResult>;
   getContractCertificate(request: ContractCertRequest): Promise<ContractCertResult>;
   getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult>;
   getRootCertificates(type: string): Promise<string[]>;

@@ -177,6 +177,18 @@ export class CommandListener {
           aggregateId: stationId,
           payload: { ...payload, status: response.status },
         });
+      } else if (action === 'CertificateSigned') {
+        void this.eventBus.publish({
+          eventType: 'pnc.CertificateSignedResult',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: {
+            certificateChain: payload['certificateChain'],
+            // The 1.6 message has no type: it carries the station certificate.
+            certificateType: payload['certificateType'] ?? 'ChargingStationCertificate',
+            status: response.status,
+          },
+        });
       }
 
       // Command tracking: publish events so projections can persist results

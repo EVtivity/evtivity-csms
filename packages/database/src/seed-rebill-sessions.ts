@@ -5,6 +5,7 @@ import type postgres from 'postgres';
 import { DEFAULT_TAX_BASIS } from '@evtivity/lib';
 import { writeAudit } from './lib/audit.js';
 import { createId } from './lib/id.js';
+import { sessionSiteIdSql } from './lib/session-site.js';
 import { SESSION_END_FAILED_REASON } from './lib/session-end-request.js';
 import {
   faultUnbilledSession,
@@ -117,11 +118,11 @@ async function seedGivenUpSession(
   const energyWh = (last?.registerWh ?? plan.meterStartWh) - plan.meterStartWh;
   const inserted = await sql`
     INSERT INTO charging_sessions (
-      id, station_id, evse_id, driver_id, transaction_id, status, started_at,
+      id, station_id, site_id, evse_id, driver_id, transaction_id, status, started_at,
       meter_start, energy_delivered_wh, currency, end_request_reason, end_attempts
     )
     VALUES (
-      ${createId('session')}, ${input.stationId}, ${input.evseId}, ${input.driverId},
+      ${createId('session')}, ${input.stationId}, ${sessionSiteIdSql(sql, input.stationId)}, ${input.evseId}, ${input.driverId},
       ${plan.transactionId}, 'active', ${plan.startedAt}, ${plan.meterStartWh},
       ${energyWh}, ${input.currency}, 'GhostRecovered', ${END_ATTEMPTS}
     )

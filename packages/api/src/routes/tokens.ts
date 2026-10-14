@@ -301,7 +301,10 @@ export function tokenRoutes(app: FastifyInstance): void {
               .object({ updated: z.number().int().min(0).describe('Number of tokens updated') })
               .passthrough(),
           ),
-          409: errorWith('Driver is inactive', [ERROR_CODES.DRIVER_INACTIVE]),
+          409: errorWith('Inactive driver or a revoked Plug and Charge contract', [
+            ERROR_CODES.DRIVER_INACTIVE,
+            ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
+          ]),
         },
       },
     },
@@ -314,6 +317,13 @@ export function tokenRoutes(app: FastifyInstance): void {
           tokenService.tokenActorOf(getAuditActor(request)),
         );
       } catch (err) {
+        if (err instanceof tokenService.PncContractTokenError) {
+          await reply.status(409).send({
+            error: 'This token is the eMAID of a Plug and Charge contract',
+            code: 'PNC_CONTRACT_TOKEN_LOCKED',
+          });
+          return;
+        }
         if (err instanceof tokenService.TokenDriverInactiveError) {
           await reply.status(409).send({ error: 'Driver is inactive', code: 'DRIVER_INACTIVE' });
           return;
@@ -443,9 +453,10 @@ export function tokenRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(tokenCreated),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
-          409: errorWith('Duplicate token or inactive driver', [
+          409: errorWith('Duplicate token, inactive driver, or a Plug and Charge contract token', [
             ERROR_CODES.TOKEN_DUPLICATE,
             ERROR_CODES.DRIVER_INACTIVE,
+            ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
           ]),
         },
       },
@@ -465,6 +476,13 @@ export function tokenRoutes(app: FastifyInstance): void {
         }
         if (err instanceof tokenService.TokenDriverInactiveError) {
           await reply.status(409).send({ error: 'Driver is inactive', code: 'DRIVER_INACTIVE' });
+          return;
+        }
+        if (err instanceof tokenService.PncContractTokenError) {
+          await reply.status(409).send({
+            error: 'This token is the eMAID of a Plug and Charge contract',
+            code: 'PNC_CONTRACT_TOKEN_LOCKED',
+          });
           return;
         }
         if (err instanceof tokenService.DuplicateTokenError) {
@@ -495,9 +513,10 @@ export function tokenRoutes(app: FastifyInstance): void {
             ERROR_CODES.TOKEN_NOT_FOUND,
             ERROR_CODES.DRIVER_NOT_FOUND,
           ]),
-          409: errorWith('Duplicate token or inactive driver', [
+          409: errorWith('Duplicate token, inactive driver, or a Plug and Charge contract token', [
             ERROR_CODES.TOKEN_DUPLICATE,
             ERROR_CODES.DRIVER_INACTIVE,
+            ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
           ]),
         },
       },
@@ -525,6 +544,13 @@ export function tokenRoutes(app: FastifyInstance): void {
           await reply.status(409).send({ error: 'Driver is inactive', code: 'DRIVER_INACTIVE' });
           return;
         }
+        if (err instanceof tokenService.PncContractTokenError) {
+          await reply.status(409).send({
+            error: 'This token is the eMAID of a Plug and Charge contract',
+            code: 'PNC_CONTRACT_TOKEN_LOCKED',
+          });
+          return;
+        }
         if (err instanceof tokenService.DuplicateTokenError) {
           await reply
             .status(409)
@@ -549,8 +575,9 @@ export function tokenRoutes(app: FastifyInstance): void {
         response: {
           200: itemResponse(tokenCreated),
           404: errorWith('Token not found', [ERROR_CODES.TOKEN_NOT_FOUND]),
-          409: errorWith('Token is currently in use by an active charging session', [
+          409: errorWith('Token in use, or the eMAID of an active Plug and Charge contract', [
             ERROR_CODES.TOKEN_IN_USE,
+            ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
           ]),
         },
       },
@@ -571,10 +598,22 @@ export function tokenRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const token = await tokenService.deleteToken(
-        id,
-        tokenService.tokenActorOf(getAuditActor(request)),
-      );
+      let token: Awaited<ReturnType<typeof tokenService.deleteToken>>;
+      try {
+        token = await tokenService.deleteToken(
+          id,
+          tokenService.tokenActorOf(getAuditActor(request)),
+        );
+      } catch (err) {
+        if (err instanceof tokenService.PncContractTokenError) {
+          await reply.status(409).send({
+            error: 'This token is the eMAID of a Plug and Charge contract',
+            code: 'PNC_CONTRACT_TOKEN_LOCKED',
+          });
+          return;
+        }
+        throw err;
+      }
       if (token == null) {
         await reply.status(404).send({ error: 'Token not found', code: 'TOKEN_NOT_FOUND' });
         return;

@@ -60,6 +60,8 @@ export interface AiInsightView extends AiInsightDto {
   tokenLabel?: string | null;
   /** Detail only: the votes (one per user) and the viewer's own vote. */
   feedback?: InsightFeedbackSummary;
+  /** `feedbackUsed`, and the viewer asked for the regeneration: the note was theirs. */
+  feedbackFromYou?: boolean;
 }
 
 export interface InsightFilter {
@@ -299,7 +301,11 @@ export function useDismissInsight(): InsightMutation<never> {
   return useInsightMutation<never>('dismiss');
 }
 
-/** The body of a vote: a wrong vote can carry a short note (stored only, never sent to a model). */
+/**
+ * The body of a vote: a wrong vote can carry a short note. Readers of the
+ * insight see it; a regeneration by its author sends it to the model as a
+ * claim to check.
+ */
 interface InsightFeedbackBody {
   helpful: boolean;
   reason?: string | null;
@@ -319,6 +325,52 @@ export function useClearInsightFeedback(): InsightMutation<never> {
       refreshInsight(queryClient, id);
     },
   });
+}
+
+/** One wrong vote on an insight (`GET /v1/ai/insights/:id/feedback`). */
+export interface InsightWrongVote {
+  /** Null for a voter the viewer's site access does not let it see. */
+  userId: string | null;
+  userName: string | null;
+  /** Operator text, shown as plain text; null when no note was given. */
+  note: string | null;
+  votedAt: string;
+}
+
+/** Rows per page of the Marked Wrong card. */
+export const WRONG_VOTES_PAGE_SIZE = 10;
+
+/** The wrong votes on an insight with their notes, newest first, one page. */
+export function useInsightWrongVotes(
+  insightId: string,
+  page: number,
+  enabled = true,
+): {
+  votes: InsightWrongVote[];
+  total: number;
+  isLoading: boolean;
+  isError: boolean;
+  refetch: () => void;
+} {
+  const canRead = useHasPermission('aiInsights:read');
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: [...AI_INSIGHTS_KEY, 'wrong-votes', insightId, page],
+    queryFn: () =>
+      api.get<{ data: InsightWrongVote[]; total: number }>(
+        `/v1/ai/insights/${encodeURIComponent(insightId)}/feedback?page=${String(page)}&limit=${String(WRONG_VOTES_PAGE_SIZE)}`,
+      ),
+    enabled: canRead && enabled,
+    staleTime: INSIGHT_STALE_TIME_MS,
+  });
+  return {
+    votes: data?.data ?? [],
+    total: data?.total ?? 0,
+    isLoading: canRead && enabled && isLoading,
+    isError,
+    refetch: () => {
+      void refetch();
+    },
+  };
 }
 
 /** The nav count also polls, in case the event stream is down. */

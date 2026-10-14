@@ -59,6 +59,10 @@ export const AUDIT_ACTIONS = [
   'assigned',
   'attachment_added',
   'attachment_deleted',
+  'autocharge_blocked',
+  'autocharge_disabled',
+  'autocharge_enabled',
+  'autocharge_unblocked',
   'availability_changed',
   'billing_address_updated',
   'billing_updated',
@@ -187,6 +191,7 @@ export const AUDIT_ACTIONS = [
   'uploaded',
   'used',
   'vehicle_changed',
+  'vehicle_id_claimed',
   'voided',
 ] as const;
 

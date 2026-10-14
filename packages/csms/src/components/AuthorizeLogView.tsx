@@ -24,6 +24,7 @@ import { LoadingLogo } from '@/components/loading-logo';
 import { useCanExplain } from '@/components/ai/ExplainButton';
 import { AuthorizeInsightCell } from '@/components/ai/insights/AuthorizeInsightCell';
 import { useAuthorizationInsights } from '@/components/ai/insights/insight-api';
+import { formatVehicleId } from '@evtivity/lib/vehicle-id';
 
 interface AuthorizeAttempt {
   id: number;
@@ -37,6 +38,8 @@ interface AuthorizeAttempt {
   outcome: string;
   ocppVersion: string | null;
   reason: string | null;
+  vehicleIdValue?: string | null;
+  vehicleIdType?: string | null;
   createdAt: string;
 }
 
@@ -112,9 +115,9 @@ export function AuthorizeLogView({
   const insightsByAttempt = useAuthorizationInsights(refusedIds);
   const showAiColumn = canExplain || insightsByAttempt.size > 0;
 
-  // Columns: timestamp, idToken, type, outcome, reason (always 5) + station + matchedToken + session + AI (conditional).
+  // Columns: timestamp, idToken, type, vehicle id, outcome, reason (always 6) + station + matchedToken + session + AI (conditional).
   const visibleColumns =
-    5 +
+    6 +
     (hideStationColumn ? 0 : 1) +
     (hideMatchedTokenColumn ? 0 : 1) +
     (hideSessionColumn ? 0 : 1) +
@@ -171,6 +174,7 @@ export function AuthorizeLogView({
                 {!hideStationColumn && <TableHead>{t('tokens.stationColumn')}</TableHead>}
                 <TableHead>{t('tokens.idToken')}</TableHead>
                 <TableHead>{t('tokens.type')}</TableHead>
+                <TableHead>{t('vehicles.vehicleIdColumn')}</TableHead>
                 <TableHead>{t('tokens.outcome')}</TableHead>
                 <TableHead>{t('tokens.reason')}</TableHead>
                 {!hideMatchedTokenColumn && <TableHead>{t('tokens.matchedToken')}</TableHead>}
@@ -223,6 +227,24 @@ export function AuthorizeLogView({
                     )}
                     <TableCell>{row.idToken}</TableCell>
                     <TableCell>{row.tokenType ?? 'n/a'}</TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {row.vehicleIdValue != null ? (
+                        <span>
+                          <span className="font-mono">{formatVehicleId(row.vehicleIdValue)}</span>
+                          {row.vehicleIdType != null && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              (
+                              {t(`vehicles.idTypes.${row.vehicleIdType}`, {
+                                defaultValue: row.vehicleIdType,
+                              })}
+                              )
+                            </span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={outcomeVariant(row.outcome)}>{row.outcome}</Badge>
                     </TableCell>

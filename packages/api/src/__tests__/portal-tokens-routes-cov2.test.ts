@@ -36,16 +36,20 @@ const { createTokenMock, updateTokenMock } = vi.hoisted(() => ({
   updateTokenMock: vi.fn(),
 }));
 
-const { DuplicateTokenError, TokenReactivationBlockedError } = vi.hoisted(() => ({
-  DuplicateTokenError: class DuplicateTokenError extends Error {},
-  TokenReactivationBlockedError: class TokenReactivationBlockedError extends Error {},
-}));
+const { DuplicateTokenError, TokenReactivationBlockedError, PncContractTokenError } = vi.hoisted(
+  () => ({
+    DuplicateTokenError: class DuplicateTokenError extends Error {},
+    TokenReactivationBlockedError: class TokenReactivationBlockedError extends Error {},
+    PncContractTokenError: class PncContractTokenError extends Error {},
+  }),
+);
 
 vi.mock('../services/token.service.js', () => ({
   createToken: createTokenMock,
   updateToken: updateTokenMock,
   DuplicateTokenError,
   TokenReactivationBlockedError,
+  PncContractTokenError,
 }));
 
 import { registerAuth } from '../plugins/auth.js';

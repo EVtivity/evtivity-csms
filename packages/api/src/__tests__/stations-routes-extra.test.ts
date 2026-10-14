@@ -100,6 +100,8 @@ const mocks = vi.hoisted(() => ({
   publishPricingChanged: vi.fn(),
   enableCssPair: vi.fn(),
   disableCssPair: vi.fn(),
+  mirrorCssConnectors: vi.fn(),
+  removeCssConnectors: vi.fn(),
   getUserSiteIds: vi.fn(),
   checkStationSiteAccess: vi.fn(),
   userCanAccessSite: vi.fn(),
@@ -247,6 +249,8 @@ vi.mock('../lib/pricing-events.js', () => ({
 vi.mock('../lib/css-pairing.js', () => ({
   enableCssPair: mocks.enableCssPair,
   disableCssPair: mocks.disableCssPair,
+  mirrorCssConnectors: mocks.mirrorCssConnectors,
+  removeCssConnectors: mocks.removeCssConnectors,
 }));
 
 vi.mock('../services/station-security.service.js', () => ({
@@ -588,7 +592,9 @@ describe('Station routes - extra coverage', () => {
     });
 
     it('pairs a simulator, creates its config template, and audits the creation', async () => {
-      queue([{ id: VENDOR }], [], [createdRow], []);
+      // 1: the site exists, 2: the vendor exists, 3: no station with the id,
+      // 4: the station INSERT, 5: the template INSERT
+      queue([{ id: SITE_A }], [{ id: VENDOR }], [], [createdRow], []);
       const res = await inject('POST', '/stations', {
         stationId: 'CS-NEW',
         siteId: SITE_A,
@@ -678,10 +684,26 @@ describe('Station routes - extra coverage', () => {
       expect(res.statusCode).toBe(500);
       expect(mocks.writeAudit).not.toHaveBeenCalled();
     });
+
+    it('returns 404 SITE_NOT_FOUND for a site that does not exist, before any insert', async () => {
+      queue([], []);
+      const res = await inject('POST', '/stations', { stationId: 'CS-NEW', siteId: SITE_A });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('SITE_NOT_FOUND');
+      expect(chainsOf('insert')).toHaveLength(0);
+    });
   });
 
   // ---------------------------------------------------------------------------
   describe('PATCH /stations/:id site scope', () => {
+    it('returns 404 SITE_NOT_FOUND when moving a station to a site that does not exist', async () => {
+      queue([]);
+      const res = await inject('PATCH', `/stations/${STATION}`, { siteId: SITE_A });
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('SITE_NOT_FOUND');
+      expect(chainsOf('update')).toHaveLength(0);
+    });
+
     it('returns 404 when a scoped user patches a missing station', async () => {
       mocks.getUserSiteIds.mockResolvedValue([SITE_A]);
       queue([]);
@@ -755,9 +777,9 @@ describe('Station routes - extra coverage', () => {
       expect(res.json().code).toBe('INTERNAL_ERROR');
     });
 
-    it('mirrors new connectors into css_evses for a paired simulator', async () => {
+    it('mirrors new connectors into the paired simulator by the OCPP identity', async () => {
       queue(
-        [{ id: STATION, ocppProtocol: 'ocpp2.1' }],
+        [{ id: STATION, stationId: 'CS-1', ocppProtocol: 'ocpp2.1' }],
         [],
         [{ id: 'evs_000000000009', evseId: 2 }],
         [
@@ -769,8 +791,6 @@ describe('Station routes - extra coverage', () => {
             status: 'unavailable',
           },
         ],
-        [{ id: 'css-1' }],
-        [],
       );
       const res = await inject('POST', `/stations/${STATION}/evses`, body);
       expect(res.statusCode).toBe(201);
@@ -786,18 +806,10 @@ describe('Station routes - extra coverage', () => {
           },
         ],
       });
-      const cssInsert = chainsOf('insert')[2];
-      expect(argsOf(cssInsert, 'into')?.[0]).toBe(tables['cssEvses']);
-      expect(argsOf(cssInsert, 'values')?.[0]).toEqual([
-        {
-          cssStationId: 'css-1',
-          evseId: 2,
-          connectorId: 1,
-          connectorType: 'dc_ccs2',
-          maxPowerW: 150000,
-        },
+      // css_stations is keyed by the OCPP identity, not the internal id.
+      expect(mocks.mirrorCssConnectors).toHaveBeenCalledWith(expect.anything(), 'CS-1', [
+        { evseId: 2, connectorId: 1, connectorType: 'CCS2', maxPowerKw: 150 },
       ]);
-      expect(argsOf(cssInsert, 'onConflictDoUpdate')).toBeDefined();
     });
   });
 
@@ -818,9 +830,9 @@ describe('Station routes - extra coverage', () => {
       expect(res.json().code).toBe('INTERNAL_ERROR');
     });
 
-    it('mirrors the connector into css_evses for a paired simulator', async () => {
+    it('mirrors the connector into the paired simulator by the OCPP identity', async () => {
       queue(
-        [{ id: 'evs_000000000001', ocppProtocol: 'ocpp2.1' }],
+        [{ id: 'evs_000000000001', stationOcppId: 'CS-1', ocppProtocol: 'ocpp2.1' }],
         [],
         [
           {
@@ -831,8 +843,6 @@ describe('Station routes - extra coverage', () => {
             status: 'unavailable',
           },
         ],
-        [{ id: 'css-7' }],
-        [],
       );
       const res = await inject('POST', `/stations/${STATION}/evses/1/connectors`, body);
       expect(res.statusCode).toBe(201);
@@ -843,14 +853,9 @@ describe('Station routes - extra coverage', () => {
         maxCurrentAmps: null,
         status: 'unavailable',
       });
-      const cssInsert = chainsOf('insert')[1];
-      expect(argsOf(cssInsert, 'values')?.[0]).toEqual({
-        cssStationId: 'css-7',
-        evseId: 1,
-        connectorId: 2,
-        connectorType: 'dc_chademo',
-        maxPowerW: 50000,
-      });
+      expect(mocks.mirrorCssConnectors).toHaveBeenCalledWith(expect.anything(), 'CS-1', [
+        { evseId: 1, connectorId: 2, connectorType: 'CHAdeMO', maxPowerKw: 50 },
+      ]);
     });
   });
 
@@ -1111,25 +1116,51 @@ describe('Station routes - extra coverage', () => {
       );
     });
 
-    it('does not nudge a real station', async () => {
-      queue([{ onboardingStatus: 'pending', stationId: 'CS-1', isSimulator: false }], []);
+    it('does not nudge a real station that is offline', async () => {
+      queue([{ stationId: 'CS-1', isSimulator: false, isOnline: false }], []);
       const res = await inject('POST', `/stations/${STATION}/approve`);
       expect(res.statusCode).toBe(200);
       expect(publishedOn('css_commands')).toEqual([]);
+      expect(publishedOn('ocpp_commands')).toEqual([]);
+    });
+
+    it('asks a connected real station to boot again with TriggerMessage', async () => {
+      queue([{ stationId: 'CS-1', isSimulator: false, isOnline: true }], []);
+      const res = await inject('POST', `/stations/${STATION}/approve`);
+      expect(res.statusCode).toBe(200);
+      expect(publishedOn('css_commands')).toEqual([]);
+      expect(publishedOn('ocpp_commands')).toEqual([
+        expect.objectContaining({
+          stationId: 'CS-1',
+          action: 'TriggerMessage',
+          payload: { requestedMessage: 'BootNotification' },
+        }),
+      ]);
     });
 
     it('returns 409 when unblocking a station that is not blocked', async () => {
-      queue([{ onboardingStatus: 'accepted' }]);
+      // The compare-and-set on blocked moves nothing, the station exists.
+      queue([], [{ id: STATION }]);
       const res = await inject('POST', `/stations/${STATION}/unblock`);
       expect(res.statusCode).toBe(409);
       expect(res.json().code).toBe('NOT_BLOCKED');
-      expect(chainsOf('update')).toHaveLength(0);
+      expect(mocks.writeAudit).not.toHaveBeenCalled();
+      expect(publishedOn('csms_events')).toEqual([]);
     });
 
     it('returns 404 when unblocking a missing station', async () => {
-      queue([]);
+      queue([], []);
       const res = await inject('POST', `/stations/${STATION}/unblock`);
       expect(res.statusCode).toBe(404);
+    });
+
+    it('rejects a pending station and closes its live connection', async () => {
+      queue([{ stationId: 'CS-1', isSimulator: false, siteId: null }]);
+      const res = await inject('POST', `/stations/${STATION}/reject`);
+      expect(res.statusCode).toBe(200);
+      expect(publishedOn('cache_invalidate')).toEqual([
+        { kind: 'station_disconnect', stationId: 'CS-1' },
+      ]);
     });
 
     it('unblocks a blocked station back to pending', async () => {
@@ -2010,7 +2041,10 @@ describe('Station routes - extra coverage', () => {
     });
 
     it('batches SetVariables on 2.1, refreshes with GetBaseReport, and audits', async () => {
-      queue([{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }], [{ variables }]);
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [{ variables, ocppVersion: '2.1' }],
+      );
       mocks.sendOcpp.mockImplementation((_s: string, action: string) =>
         Promise.resolve(
           action === 'SetVariables'
@@ -2074,15 +2108,18 @@ describe('Station routes - extra coverage', () => {
         expect.anything(),
         expect.objectContaining({
           action: 'configuration_pushed',
-          notes: 'Config template ct-1 pushed',
+          notes: 'Config template ct-1 pushed (2 of 2 accepted)',
         }),
         expect.anything(),
         expect.anything(),
       );
     });
 
-    it('reports a partial rejection on 2.1 and skips the audit', async () => {
-      queue([{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }], [{ variables }]);
+    it('reports a partial rejection on 2.1 and audits what the station accepted', async () => {
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [{ variables, ocppVersion: '2.1' }],
+      );
       mocks.sendOcpp.mockResolvedValueOnce({
         commandId: 'c',
         response: {
@@ -2107,11 +2144,23 @@ describe('Station routes - extra coverage', () => {
           { component: '', variable: '', status: 'Unknown' },
         ],
       });
-      expect(mocks.writeAudit).not.toHaveBeenCalled();
+      // The accepted variable changed on the station, so the push is audited.
+      expect(mocks.writeAudit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          action: 'configuration_pushed',
+          notes: 'Config template ct-1 pushed (1 of 2 accepted)',
+        }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('marks every variable failed when the 2.1 batch errors', async () => {
-      queue([{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }], [{ variables }]);
+      queue(
+        [{ stationId: 'CS-1', isOnline: true, ocppProtocol: 'ocpp2.1' }],
+        [{ variables, ocppVersion: '2.1' }],
+      );
       mocks.sendOcpp.mockResolvedValueOnce({ commandId: 'c', error: 'Timeout' });
       mocks.sendOcpp.mockRejectedValueOnce(new Error('refresh failed'));
       const res = await inject('POST', `/stations/${STATION}/configurations/push`, {
@@ -2125,11 +2174,19 @@ describe('Station routes - extra coverage', () => {
           { component: 'TxCtrlr', variable: 'EVConnectionTimeOut', status: 'Timeout' },
         ],
       });
-      expect(mocks.writeAudit).not.toHaveBeenCalled();
+      expect(mocks.writeAudit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ notes: 'Config template ct-1 pushed (0 of 2 accepted)' }),
+        expect.anything(),
+        expect.anything(),
+      );
     });
 
     it('sends one SetVariables per variable on 1.6 and refreshes with GetConfiguration', async () => {
-      queue([{ stationId: 'CS-16', isOnline: true, ocppProtocol: 'ocpp1.6' }], [{ variables }]);
+      queue(
+        [{ stationId: 'CS-16', isOnline: true, ocppProtocol: 'ocpp1.6' }],
+        [{ variables, ocppVersion: '1.6' }],
+      );
       mocks.sendOcpp
         .mockResolvedValueOnce({ commandId: 'a', response: { status: 'Accepted' } })
         .mockResolvedValueOnce({ commandId: 'b', error: 'Timeout' })
@@ -2157,13 +2214,32 @@ describe('Station routes - extra coverage', () => {
         ],
       });
       expect(ocppCalls('GetConfiguration')).toEqual([['CS-16', 'GetConfiguration', {}, '1.6']]);
+      expect(mocks.writeAudit).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ notes: 'Config template ct-1 pushed (1 of 2 accepted)' }),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('refuses a template of another OCPP version with OCPP_VERSION_MISMATCH', async () => {
+      queue(
+        [{ stationId: 'CS-16', isOnline: true, ocppProtocol: 'ocpp1.6' }],
+        [{ variables, ocppVersion: '2.1' }],
+      );
+      const res = await inject('POST', `/stations/${STATION}/configurations/push`, {
+        templateId: 'ct-1',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('OCPP_VERSION_MISMATCH');
+      expect(mocks.sendOcpp).not.toHaveBeenCalled();
       expect(mocks.writeAudit).not.toHaveBeenCalled();
     });
 
     it('reads the per-variable attributeStatus on 1.6', async () => {
       queue(
         [{ stationId: 'CS-16', isOnline: true, ocppProtocol: 'ocpp1.6' }],
-        [{ variables: [variables[0]] }],
+        [{ variables: [variables[0]], ocppVersion: '1.6' }],
       );
       mocks.sendOcpp.mockResolvedValueOnce({
         commandId: 'a',

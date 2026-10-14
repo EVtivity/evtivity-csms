@@ -97,6 +97,7 @@ vi.mock('@evtivity/database', async () => ({
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   and: vi.fn(),
+  isNull: vi.fn(),
   or: vi.fn(),
   ilike: vi.fn(),
   sql: vi.fn(),

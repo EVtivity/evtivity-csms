@@ -41,6 +41,13 @@ export interface LocalCaHierarchy {
   cpsSubCa1: CaEntry;
   cpsSubCa2: CaEntry;
   cpsLeaf: CaEntry;
+  /**
+   * CPO Sub-CA 1 and 2 under the V2G root: Sub-CA 2 (key kept) signs the
+   * charging station V2G (SECC) certificates. Absent in a CA created before
+   * v0.1.46 until the operator adds them.
+   */
+  cpoSubCa1?: CaEntry;
+  cpoSubCa2?: CaEntry;
 }
 
 export interface LocalContractCa {
@@ -209,7 +216,9 @@ async function createHierarchy(schema: ContractSchema): Promise<LocalCaHierarchy
     x509.KeyUsageFlags.digitalSignature,
     false,
   );
+  const cpo = await createCpoSubCas(profile, cpsRoot);
   return {
+    ...cpo,
     moRoot: await entry(moRoot, true),
     moSubCa1: await entry(moSubCa1, false),
     moSubCa2: await entry(moSubCa2, true),
@@ -218,6 +227,69 @@ async function createHierarchy(schema: ContractSchema): Promise<LocalCaHierarchy
     cpsSubCa2: await entry(cpsSubCa2, false),
     cpsLeaf: await entry(cpsLeaf, true),
   };
+}
+
+/** CPO Sub-CA 1 and 2 under the hierarchy's V2G root (ISO 15118-2 Annex F CPO chain). */
+async function createCpoSubCas(
+  profile: Profile,
+  v2gRoot: Issued,
+): Promise<{ cpoSubCa1: CaEntry; cpoSubCa2: CaEntry }> {
+  const s = profile.suffix;
+  const cpoSubCa1 = await issueCa(
+    profile,
+    `CN=EVtivity CPO Sub-CA 1${s},O=EVtivity`,
+    v2gRoot,
+    1,
+    20,
+    CA_USAGE,
+    true,
+  );
+  const cpoSubCa2 = await issueCa(
+    profile,
+    `CN=EVtivity CPO Sub-CA 2${s},O=EVtivity`,
+    cpoSubCa1,
+    0,
+    10,
+    CA_USAGE,
+    true,
+  );
+  return { cpoSubCa1: await entry(cpoSubCa1, false), cpoSubCa2: await entry(cpoSubCa2, true) };
+}
+
+/** A stored CA entry with its key as an issuer. */
+async function issuerOf(profile: Profile, ca: CaEntry): Promise<Issued> {
+  if (ca.key == null) throw new Error('The CA entry has no private key');
+  const cert = new x509.X509Certificate(ca.cert);
+  const privateKey = crypto
+    .createPrivateKey(ca.key)
+    .toCryptoKey({ name: 'ECDSA', namedCurve: profile.curve }, false, [
+      'sign',
+    ]) as unknown as CryptoKey;
+  const publicKey = await cert.publicKey.export({ name: 'ECDSA', namedCurve: profile.curve }, [
+    'verify',
+  ]);
+  return { cert, keys: { privateKey, publicKey }, keyId: await keyId(profile, publicKey) };
+}
+
+/** Whether both hierarchies have the CPO Sub-CAs that sign station V2G certificates. */
+export function hasCpoSubCas(ca: LocalContractCa): boolean {
+  return ca.iso2.cpoSubCa2?.key != null && ca.iso20.cpoSubCa2?.key != null;
+}
+
+/**
+ * Adds the CPO Sub-CAs to a CA created without them (under the kept V2G root
+ * keys). Returns the CA unchanged when it already has them.
+ */
+export async function addCpoSubCas(ca: LocalContractCa): Promise<LocalContractCa> {
+  if (hasCpoSubCas(ca)) return ca;
+  const out: LocalContractCa = { ...ca };
+  for (const schema of [2, 20] as const) {
+    const key = schema === 2 ? 'iso2' : 'iso20';
+    const profile = PROFILES[schema];
+    const root = await issuerOf(profile, ca[key].cpsRoot);
+    out[key] = { ...ca[key], ...(await createCpoSubCas(profile, root)) };
+  }
+  return out;
 }
 
 /** Generates a new local contract CA (both hierarchies). */
@@ -246,6 +318,8 @@ const ROLES = [
   'cpsLeaf',
 ] as const;
 
+const CPO_ROLES = ['cpoSubCa1', 'cpoSubCa2'] as const;
+
 /** Parses a stored bundle; null when it is not a version 1 bundle. */
 export function parseLocalContractCa(json: string): LocalContractCa | null {
   const value = tryParseJson(json);
@@ -257,6 +331,9 @@ export function parseLocalContractCa(json: string): LocalContractCa | null {
     if (h == null || ROLES.some((role) => !isEntry(h[role]))) return null;
     if (h['moSubCa2'] == null || (h['moSubCa2'] as CaEntry).key == null) return null;
     if (h['cpsLeaf'] == null || (h['cpsLeaf'] as CaEntry).key == null) return null;
+    for (const role of CPO_ROLES) {
+      if (h[role] !== undefined && !isEntry(h[role])) return null;
+    }
   }
   return value as LocalContractCa;
 }
@@ -268,17 +345,20 @@ export function hierarchyFor(ca: LocalContractCa, schema: ContractSchema): Local
 /** Public view of the CA: subject, serial and validity of every certificate. */
 export function describeLocalContractCa(ca: LocalContractCa): Array<{
   schema: ContractSchema;
-  role: (typeof ROLES)[number];
+  role: (typeof ROLES)[number] | (typeof CPO_ROLES)[number];
   subject: string;
   serialNumber: string;
   validFrom: string;
   validTo: string;
+  certificate: string;
 }> {
   const out = [];
   for (const schema of [2, 20] as const) {
     const h = hierarchyFor(ca, schema);
-    for (const role of ROLES) {
-      const cert = new crypto.X509Certificate(h[role].cert);
+    for (const role of [...ROLES, ...CPO_ROLES]) {
+      const pem = h[role]?.cert;
+      if (pem == null) continue;
+      const cert = new crypto.X509Certificate(pem);
       out.push({
         schema,
         role,
@@ -286,6 +366,8 @@ export function describeLocalContractCa(ca: LocalContractCa): Array<{
         serialNumber: cert.serialNumber.toLowerCase(),
         validFrom: new Date(cert.validFrom).toISOString(),
         validTo: new Date(cert.validTo).toISOString(),
+        // Public certificate (PEM), for example the V2G root to install on stations.
+        certificate: pem,
       });
     }
   }
@@ -356,6 +438,62 @@ export async function issueContractCertificate(
     serialNumber: normalizeSerialHex(serialNumber),
     validTo: notAfter,
     keyId: id,
+  };
+}
+
+export interface IssuedSeccCertificate {
+  /** PEM chain from the leaf: leaf, CPO Sub-CA 2, CPO Sub-CA 1. */
+  certificateChain: string;
+  serialNumber: string;
+}
+
+/**
+ * Signs a charging station V2G (SECC) certificate request with the CPO Sub-CA
+ * 2 of the hierarchy: the CSR subject and public key, one year or until the
+ * Sub-CA expires, digitalSignature and keyAgreement. Throws when the CSR does
+ * not verify or the hierarchy has no CPO Sub-CA.
+ */
+export async function issueSeccCertificate(
+  hierarchy: LocalCaHierarchy,
+  schema: ContractSchema,
+  csrPem: string,
+): Promise<IssuedSeccCertificate> {
+  const profile = PROFILES[schema];
+  if (hierarchy.cpoSubCa1 == null || hierarchy.cpoSubCa2?.key == null) {
+    throw new Error('Local contract CA has no CPO Sub-CA');
+  }
+  const csr = new x509.Pkcs10CertificateRequest(csrPem);
+  if (!(await csr.verify())) throw new Error('CSR signature does not verify');
+  const issuer = await issuerOf(profile, hierarchy.cpoSubCa2);
+  const notBefore = new Date(Date.now() - 60_000);
+  let notAfter = new Date(notBefore.getTime() + YEAR_MS);
+  if (notAfter > issuer.cert.notAfter) notAfter = issuer.cert.notAfter;
+  const subjectKey = await csr.publicKey.export();
+  const serialNumber = randomSerial();
+  const leaf = await x509.X509CertificateGenerator.create({
+    serialNumber,
+    subject: csr.subject,
+    issuer: issuer.cert.subject,
+    notBefore,
+    notAfter,
+    signingAlgorithm: algorithm(profile),
+    publicKey: subjectKey,
+    signingKey: issuer.keys.privateKey,
+    extensions: [
+      new x509.BasicConstraintsExtension(false, undefined, true),
+      new x509.KeyUsagesExtension(
+        x509.KeyUsageFlags.digitalSignature | x509.KeyUsageFlags.keyAgreement,
+        true,
+      ),
+      new x509.SubjectKeyIdentifierExtension(await keyId(profile, subjectKey)),
+      new x509.AuthorityKeyIdentifierExtension(issuer.keyId),
+    ],
+  });
+  return {
+    certificateChain: [leaf.toString('pem'), hierarchy.cpoSubCa2.cert, hierarchy.cpoSubCa1.cert]
+      .map((pem) => pem.trim())
+      .join('\n'),
+    serialNumber: normalizeSerialHex(serialNumber),
   };
 }
 

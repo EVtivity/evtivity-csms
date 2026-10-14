@@ -10,6 +10,7 @@ import {
   logAuthorizeDecision,
   recordAuthorizeDecision,
 } from '../../authorization/authorize-token.js';
+import { vehicleIdFromIdTag } from '@evtivity/lib/vehicle-id';
 import { idTagInfoFor } from './id-tag-info.js';
 
 /**
@@ -36,6 +37,7 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     token: { value: idTag, type: null },
     context: 'authorize',
     ocppVersion: 'ocpp1.6',
+    vehicleId: vehicleIdFromIdTag(idTag),
   };
   const decision = await authorizeToken(input, ctx.logger);
   logAuthorizeDecision(input, decision, ctx.logger);

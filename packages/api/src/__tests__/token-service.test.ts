@@ -89,6 +89,7 @@ vi.mock('@evtivity/database', async () => ({
     lastName: 'lastName',
     email: 'email',
   },
+  pncContracts: { driverTokenId: 'driverTokenId', status: 'status' },
   tokenAuditLog: {
     id: 'id',
     tokenId: 'tokenId',
@@ -160,6 +161,7 @@ import {
   TokenDriverNotFoundError,
   TokenDriverInactiveError,
   TokenReactivationBlockedError,
+  PncContractTokenError,
   tokenActorOf,
 } from '../services/token.service.js';
 import { dispatchDriverNotification } from '@evtivity/lib';
@@ -735,8 +737,9 @@ describe('bulkSetActive', () => {
     // 1. update returning
     // 2. insert audit
     // 3. select entries -> empty (no station bump)
-    // no token of a deactivated driver, update returning, audit, stations
-    setupDbResults([], updatedRows, [], []);
+    // no revoked contract token, no token of a deactivated driver, update
+    // returning, audit, stations
+    setupDbResults([], [], updatedRows, [], []);
 
     const result = await bulkSetActive(['t1'], true, { type: 'operator', userId: 'usr_1' });
 
@@ -966,7 +969,47 @@ describe('tokenActorOf', () => {
 
 describe('bulkSetActive with a deactivated driver', () => {
   it('refuses activation when a token belongs to a deactivated driver', async () => {
-    setupDbResults([{ driverId: 'drv_off' }]);
+    setupDbResults([], [{ driverId: 'drv_off' }]);
     await expect(bulkSetActive(['t1'], true)).rejects.toBeInstanceOf(TokenDriverInactiveError);
+  });
+});
+
+describe('Plug and Charge contract tokens', () => {
+  const emaid = {
+    id: 't9',
+    idToken: 'USEVTC12345678',
+    tokenType: 'eMAID',
+    driverId: 'drv_1',
+    isActive: false,
+    deactivatedBy: 'operator',
+  };
+
+  it('refuses to reactivate the eMAID of a revoked contract', async () => {
+    setupDbResults([emaid], [{ tokenId: 't9', status: 'revoked' }]);
+    await expect(updateToken('t9', { isActive: true })).rejects.toMatchObject({
+      name: 'PncContractTokenError',
+      reason: 'contract_revoked',
+    });
+  });
+
+  it.each([
+    ['value', { idToken: 'USEVTC00000000' }],
+    ['type', { tokenType: 'ISO14443' }],
+    ['driver', { driverId: 'drv_2' }],
+  ])('refuses to change the %s of a contract eMAID', async (_label, data) => {
+    setupDbResults([{ ...emaid, isActive: true }], [{ tokenId: 't9', status: 'active' }]);
+    await expect(updateToken('t9', data)).rejects.toBeInstanceOf(PncContractTokenError);
+  });
+
+  it('refuses to delete the eMAID of an active contract', async () => {
+    // stations holding it, delete matches nothing, the contract lookup finds
+    // the active contract
+    setupDbResults([], [], [{ tokenId: 't9', status: 'active' }]);
+    await expect(deleteToken('t9')).rejects.toMatchObject({ reason: 'contract_active' });
+  });
+
+  it('refuses a bulk activation that holds the eMAID of a revoked contract', async () => {
+    setupDbResults([{ tokenId: 't9', status: 'revoked' }]);
+    await expect(bulkSetActive(['t1', 't9'], true)).rejects.toBeInstanceOf(PncContractTokenError);
   });
 });

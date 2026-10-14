@@ -268,7 +268,7 @@ describe('getPkiProvider', () => {
       ok: true,
       status: 200,
       json: vi.fn().mockResolvedValue({ access_token: 't', expires_in: 3600 }),
-      text: vi.fn().mockResolvedValue(''),
+      text: vi.fn().mockResolvedValue('-----BEGIN CERTIFICATE-----\nA\n-----END CERTIFICATE-----'),
     });
     vi.stubGlobal('fetch', fetchMock);
 

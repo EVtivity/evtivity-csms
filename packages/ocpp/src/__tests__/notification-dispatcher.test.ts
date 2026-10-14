@@ -16,12 +16,16 @@ const mockRecordNotificationAttempt = vi.fn();
 const mockClearContractValidationCaCache = vi.fn();
 const mockClearStationMessageCache = vi.fn();
 const mockClearStationMessageSettingsCache = vi.fn();
+const mockClearAutochargeCache = vi.fn();
 const mockGetWebhookAllowedPrivateHosts = vi.fn().mockResolvedValue([]);
 
 vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>('../../../database/src/lib/pg-errors.js')),
   clearStationMessageSettingsCache: () => {
     mockClearStationMessageSettingsCache();
+  },
+  clearAutochargeCache: () => {
+    mockClearAutochargeCache();
   },
   getWebhookAllowedPrivateHosts: () => mockGetWebhookAllowedPrivateHosts(),
 }));
@@ -612,6 +616,7 @@ describe('dispatchDriverNotification wrapper', () => {
       variables,
       ALL_TEMPLATES_DIRS,
       undefined,
+      undefined,
     );
   });
 
@@ -637,6 +642,33 @@ describe('dispatchDriverNotification wrapper', () => {
       {},
       '/custom/dir',
       pubsub,
+      undefined,
+    );
+  });
+
+  it('passes the dispatch options through (no SMS for session.AutochargeStarted)', async () => {
+    const { dispatchDriverNotification } = notificationDispatcherModule;
+    mockDispatchDriverNotification.mockResolvedValue(undefined);
+
+    const sql = createSqlMock();
+    await dispatchDriverNotification(
+      sql as never,
+      'session.AutochargeStarted',
+      'drv_1',
+      {},
+      '/custom/dir',
+      undefined,
+      { sms: false },
+    );
+
+    expect(mockDispatchDriverNotification).toHaveBeenCalledWith(
+      sql,
+      'session.AutochargeStarted',
+      'drv_1',
+      {},
+      '/custom/dir',
+      undefined,
+      { sms: false },
     );
   });
 });
@@ -753,6 +785,25 @@ describe('subscribeOcppEventSettingsInvalidation', () => {
     handler!(JSON.stringify({ kind: 'station_message' }));
     expect(mockClearStationMessageCache).toHaveBeenCalledTimes(1);
     expect(mockClearStationMessageSettingsCache).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the Autocharge readers on an autocharge message', async () => {
+    const mod = notificationDispatcherModule;
+    let handler: ((p: string) => void) | null = null;
+    const pubsub = {
+      publish: vi.fn(),
+      subscribe: vi.fn((_channel: string, h: (p: string) => void) => {
+        handler = h;
+        return Promise.resolve({ unsubscribe: vi.fn().mockResolvedValue(undefined) });
+      }),
+      close: vi.fn(),
+    };
+    await mod.subscribeOcppEventSettingsInvalidation(pubsub);
+    mockClearAutochargeCache.mockClear();
+    handler!(JSON.stringify({ kind: 'station_message' }));
+    expect(mockClearAutochargeCache).not.toHaveBeenCalled();
+    handler!(JSON.stringify({ kind: 'autocharge' }));
+    expect(mockClearAutochargeCache).toHaveBeenCalledTimes(1);
   });
 });
 

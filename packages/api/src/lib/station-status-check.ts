@@ -49,9 +49,10 @@ export async function triggerAndWaitForStatus(
   stationDbId: string,
   version?: string,
 ): Promise<StatusCheckResult> {
-  // Read current status + updated_at before triggering
-  const before = await db.execute<{ status: string; updated_at: string }>(
-    sql`SELECT c.status, c.updated_at
+  // Read current status + updated_at before triggering, and the database time,
+  // which later station messages are logged after.
+  const before = await db.execute<{ status: string; updated_at: string; checked_at: string }>(
+    sql`SELECT c.status, c.updated_at, now() AS checked_at
         FROM connectors c
         JOIN evses e ON c.evse_id = e.id
         WHERE e.station_id = ${stationDbId} AND e.evse_id = ${evseId} AND c.connector_id = ${connectorId}`,
@@ -71,6 +72,7 @@ export async function triggerAndWaitForStatus(
   //   - OCPP 2.1 without active session: StatusNotification — there's no
   //     transaction to refresh; connector-level state is all the station has.
   let triggerPayload: Record<string, unknown>;
+  let triggersTransactionEvent = false;
   if (version === 'ocpp1.6') {
     triggerPayload = { requestedMessage: 'StatusNotification', connectorId };
   } else {
@@ -83,6 +85,7 @@ export async function triggerAndWaitForStatus(
           LIMIT 1`,
     );
     if (activeSessionRows.length > 0) {
+      triggersTransactionEvent = true;
       triggerPayload = {
         requestedMessage: 'TransactionEvent',
         evse: { id: evseId, connectorId },
@@ -132,9 +135,35 @@ export async function triggerAndWaitForStatus(
       if (currentUpdatedAt > beforeUpdatedAt) {
         return { status: currentRow.status };
       }
+      // A TransactionEvent carries chargingState only when it changed (OCPP
+      // 2.1 E02.FR.13). One without it, sent after the trigger, says the
+      // stored status still holds.
+      if (
+        triggersTransactionEvent &&
+        (await reportedUnchangedChargingState(stationDbId, beforeRow.checked_at))
+      ) {
+        return { status: currentRow.status };
+      }
     }
   }
 
   // Timeout: status was not updated within 10s
   return { status: null, errorCode: 'STATUS_CHECK_TIMEOUT' };
+}
+
+// True when the station sent a TransactionEvent without chargingState after
+// `since` (the database time read before the trigger). A TransactionEvent with
+// chargingState updates the connector itself, so the caller waits for that.
+async function reportedUnchangedChargingState(
+  stationDbId: string,
+  since: string,
+): Promise<boolean> {
+  const rows = await db.execute<{ found: number }>(
+    sql`SELECT 1 AS found FROM ocpp_message_logs
+        WHERE station_id = ${stationDbId} AND direction = 'inbound' AND message_type = 2
+          AND action = 'TransactionEvent' AND created_at > ${since}::timestamptz
+          AND payload -> 'transactionInfo' ->> 'chargingState' IS NULL
+        LIMIT 1`,
+  );
+  return rows.length > 0;
 }

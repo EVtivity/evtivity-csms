@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../types.js';
 import { defaultReply } from '../../../default-replies.js';
+import { OCTT_CSR } from '../../../certificate-fixtures.js';
 
 export const TC_074_CSMS: TestCase = {
   id: 'TC_074_CSMS',
@@ -58,7 +59,7 @@ export const TC_074_CSMS: TestCase = {
     // Step 2: Station sends SignCertificate after receiving the trigger
     if (extTriggerReceived) {
       const signResp = await ctx.client.sendCall('SignCertificate', {
-        csr: '-----BEGIN CERTIFICATE REQUEST-----\nMIIBHDCBwwIBADBhMQswCQYDVQQGEwJVUzENMAsGA1UECAwEVGVzdDENMAsGA1UE\nBwwEVGVzdDENMAsGA1UECgwET0NUVDENMAsGA1UECwwET0NUVDEQMA4GA1UEAwwH\nT0NUVF9DUzBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJlF9BYzq+U+QRgFOdNg\nKB8pBK0cVF0a+P1WDMiYAoqEMEMmT7L/1h8f+6ASa0VHN3kp/+JV1fVKD0V+cVMM\nF6UwCgYIKoZIzj0EAwIDSAAwRQIhANdHB6xRz+Ym1g7GYFJ8\n-----END CERTIFICATE REQUEST-----',
+        csr: OCTT_CSR,
       });
       const signStatus = signResp['status'] as string;
       steps.push({

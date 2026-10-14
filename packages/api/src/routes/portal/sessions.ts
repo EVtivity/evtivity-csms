@@ -4,7 +4,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, sql, desc, and, asc } from 'drizzle-orm';
-import { db, getCompanyCurrency, writeAudit, sessionAuditLog } from '@evtivity/database';
+import {
+  db,
+  getCompanyCurrency,
+  isAutochargeEnabledForStation,
+  writeAudit,
+  sessionAuditLog,
+} from '@evtivity/database';
 import {
   chargingSessions,
   chargingStations,
@@ -16,7 +22,13 @@ import {
   vehicles,
   vehicleEfficiencyLookup,
 } from '@evtivity/database';
-import { zodSchema } from '../../lib/zod-schema.js';
+import { parseZodRequest, zodSchema } from '../../lib/zod-schema.js';
+import * as vehicleService from '../../services/vehicle.service.js';
+import {
+  replyVehicleServiceError,
+  sessionVehicleCaptureItem,
+  vehicleClaimBody,
+} from '../../lib/vehicle-response.js';
 import { inCompanyCurrency, sessionCurrencySql } from '@evtivity/services/company-currency';
 import { storedSessionCostTax } from '@evtivity/lib';
 import { sessionLimitReached } from '../../lib/session-limit.js';
@@ -180,6 +192,9 @@ const portalSessionDetail = portalSessionListItem
         make: z.string().nullable().describe('Vehicle make'),
         model: z.string().nullable().describe('Vehicle model'),
         year: z.string().nullable().describe('Vehicle year'),
+        vin: z.string().nullable().describe('VIN stored on the vehicle'),
+        evccid: z.string().nullable().describe('EVCCID (MAC address) stored on the vehicle'),
+        autochargeEnabled: z.boolean().describe('Autocharge is on for the vehicle'),
         efficiencyMiPerKwh: z
           .number()
           .min(0)
@@ -188,6 +203,15 @@ const portalSessionDetail = portalSessionListItem
       .passthrough()
       .nullable()
       .describe('Vehicle linked to this session for distance estimation'),
+    vehicleCapture: sessionVehicleCaptureItem,
+    autocharge: z
+      .boolean()
+      .describe('The session was started by an Autocharge vehicle (charge by plugging in)'),
+    autochargeAvailable: z
+      .boolean()
+      .describe(
+        "Autocharge is on at the session's site, so the driver can use the captured vehicle id for plug-in charging",
+      ),
   })
   .passthrough();
 
@@ -532,6 +556,14 @@ export function portalSessionRoutes(app: FastifyInstance): void {
           vehicleMake: vehicles.make,
           vehicleModel: vehicles.model,
           vehicleYear: vehicles.year,
+          vehicleVin: vehicles.vin,
+          vehicleEvccid: vehicles.evccid,
+          vehicleAutochargeEnabled: vehicles.autochargeEnabled,
+          vehicleIdValue: chargingSessions.vehicleIdValue,
+          vehicleIdType: chargingSessions.vehicleIdType,
+          vehicleIdSource: chargingSessions.vehicleIdSource,
+          autocharge: chargingSessions.autocharge,
+          ocppStationId: chargingStations.stationId,
           ...sessionAccountBillingColumns(),
         })
         .from(chargingSessions)
@@ -612,9 +644,25 @@ export function portalSessionRoutes(app: FastifyInstance): void {
         vehicleMake,
         vehicleModel,
         vehicleYear,
+        vehicleVin,
+        vehicleEvccid,
+        vehicleAutochargeEnabled,
+        vehicleIdValue,
+        vehicleIdType,
+        vehicleIdSource,
+        ocppStationId,
+        autocharge,
         costBreakdown,
         ...sessionRest
       } = withAccountBilling(session);
+      const vehicleCapture =
+        vehicleIdValue != null && vehicleIdType != null && vehicleIdSource != null
+          ? { value: vehicleIdValue, type: vehicleIdType, source: vehicleIdSource }
+          : null;
+      const autochargeAvailable =
+        vehicleCapture != null && ocppStationId != null
+          ? await isAutochargeEnabledForStation(ocppStationId)
+          : false;
       const costTax = storedSessionCostTax({
         costCents: session.finalCostCents ?? session.currentCostCents,
         costBreakdown,
@@ -636,13 +684,88 @@ export function portalSessionRoutes(app: FastifyInstance): void {
                 make: vehicleMake,
                 model: vehicleModel,
                 year: vehicleYear,
+                vin: vehicleVin ?? null,
+                evccid: vehicleEvccid ?? null,
+                autochargeEnabled: vehicleAutochargeEnabled === true,
                 efficiencyMiPerKwh:
                   vehicleEfficiency != null
                     ? Number(vehicleEfficiency.efficiencyMiPerKwh)
                     : DEFAULT_EFFICIENCY,
               }
             : null,
+        vehicleCapture,
+        autocharge,
+        autochargeAvailable,
       };
+    },
+  );
+
+  // "Use This Vehicle for Plug-In Charging": the vehicle id the charger sent
+  // for the driver's own session goes on a new or existing vehicle of the
+  // driver, with Autocharge on by default (vehicle.service.ts). Another
+  // driver's session answers like a missing one.
+  app.post(
+    '/portal/sessions/:id/vehicle-claim',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Sessions'],
+        summary: 'Use the vehicle id the charger sent for this session on a vehicle',
+        operationId: 'portalClaimSessionVehicleId',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(sessionParams),
+        body: zodSchema(vehicleClaimBody),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                vehicleId: z.string().describe('Vehicle that now holds the id'),
+                created: z.boolean().describe('A new vehicle was created'),
+                autochargeEnabled: z.boolean().describe('Autocharge is on for the vehicle'),
+              })
+              .passthrough(),
+          ),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          403: errorWith('Blocked by the operator', [ERROR_CODES.VEHICLE_BLOCKED_BY_OPERATOR]),
+          404: errorWith('Not found', [
+            ERROR_CODES.SESSION_NOT_FOUND,
+            ERROR_CODES.VEHICLE_NOT_FOUND,
+            ERROR_CODES.DRIVER_NOT_FOUND,
+          ]),
+          409: errorWith('No vehicle id or the id is in use', [
+            ERROR_CODES.SESSION_NO_VEHICLE_ID,
+            ERROR_CODES.VEHICLE_ID_IN_USE,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const { id } = request.params as z.infer<typeof sessionParams>;
+      const body = parseZodRequest(vehicleClaimBody, request.body);
+      try {
+        const result = await vehicleService.claimSessionVehicleId(
+          {
+            sessionId: id,
+            driverId,
+            target:
+              body.vehicleId != null
+                ? { vehicleId: body.vehicleId }
+                : { vehicle: body.vehicle ?? { make: '', model: '' } },
+            enableAutocharge: body.enableAutocharge,
+          },
+          getAuditActor(request),
+          request.log,
+        );
+        return {
+          vehicleId: result.vehicle.id,
+          created: result.created,
+          autochargeEnabled: result.vehicle.autochargeEnabled,
+        };
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
+      }
     },
   );
 

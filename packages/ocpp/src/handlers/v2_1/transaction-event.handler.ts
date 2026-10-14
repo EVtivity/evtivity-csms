@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { client } from '@evtivity/database';
+import { vehicleIdFromTypedToken } from '@evtivity/lib/vehicle-id';
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { TransactionEventRequest } from '../../generated/v2_1/types/messages/TransactionEventRequest.js';
 import type { TransactionEventResponse } from '../../generated/v2_1/types/messages/TransactionEventResponse.js';
@@ -51,6 +52,9 @@ export async function handleTransactionEvent(
   );
 
   const transactionId = request.transactionInfo.transactionId;
+  // The vehicle id the idToken carries (the token itself, or an EVCCID in its
+  // additionalInfo, Q01.FR.02), stored on the session by the projection.
+  const vehicleId = request.idToken != null ? vehicleIdFromTypedToken(request.idToken) : null;
   const queue = projectionQueueFor(ctx.eventBus);
   // A transactionId is unique per station only: the projection lane of this
   // transaction is keyed by both.
@@ -104,6 +108,7 @@ export async function handleTransactionEvent(
       timestamp: request.timestamp,
       idToken: request.idToken?.idToken,
       tokenType: request.idToken?.type,
+      ...(vehicleId != null ? { vehicleId } : {}),
       evseId: request.evse?.id ?? 0,
       connectorId: request.evse?.connectorId,
       reservationId: request.reservationId,
@@ -195,6 +200,7 @@ export async function handleTransactionEvent(
       context: request.eventType === 'Started' ? 'tx_start' : 'tx_update',
       ocppVersion: 'ocpp2.1',
       transactionId: request.transactionInfo.transactionId,
+      vehicleId,
     };
     let decision = await authorizeToken(input, ctx.logger);
 
@@ -279,7 +285,11 @@ export async function handleTransactionEvent(
       if (request.eventType !== 'Ended' && prepaidCreditCents != null) {
         transactionLimit = { maxCost: prepaidMaxCost(prepaidCreditCents) };
       }
-    } else if (decision.status === 'no_credit') {
+    } else if (
+      decision.status === 'no_credit' ||
+      (decision.status === 'accepted' && decision.source === 'vehicle')
+    ) {
+      // An Autocharge vehicle is not cached, as in the Authorize response.
       prepaidExpiry = new Date().toISOString();
     }
 

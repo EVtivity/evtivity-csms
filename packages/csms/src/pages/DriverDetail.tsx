@@ -190,6 +190,7 @@ export function DriverDetail(): React.JSX.Element {
                 vehicles={driverVehicles}
                 page={1}
                 totalPages={1}
+                showAutocharge
                 onPageChange={() => {}}
                 onRowClick={(vehicle) => {
                   void navigate(`/drivers/${id ?? ''}/vehicles/${vehicle.id}`);

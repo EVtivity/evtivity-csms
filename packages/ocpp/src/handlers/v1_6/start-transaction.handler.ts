@@ -12,6 +12,7 @@ import {
   logAuthorizeDecision,
   recordAuthorizeDecision,
 } from '../../authorization/authorize-token.js';
+import { vehicleIdFromIdTag } from '@evtivity/lib/vehicle-id';
 import { idTagInfoFor } from './id-tag-info.js';
 
 async function nextOcpp16TransactionId(ctx: HandlerContext): Promise<number> {
@@ -48,6 +49,7 @@ export async function handleStartTransaction(
   );
 
   let transactionId: number | null = null;
+  const vehicleId = vehicleIdFromIdTag(request.idTag);
 
   if (ctx.stationDbId != null) {
     // A resend (the station retries a StartTransaction whose response it did
@@ -135,6 +137,7 @@ export async function handleStartTransaction(
       connectorId: request.connectorId,
       meterStart: request.meterStart,
       reservationId: request.reservationId,
+      ...(vehicleId != null ? { vehicleId } : {}),
     },
   });
 
@@ -152,6 +155,7 @@ export async function handleStartTransaction(
     context: 'tx_start',
     ocppVersion: 'ocpp1.6',
     transactionId: String(transactionId),
+    vehicleId,
   };
   const decision = await authorizeToken(input, ctx.logger);
   logAuthorizeDecision(input, decision, ctx.logger);

@@ -5,21 +5,36 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import pino from 'pino';
 import type { HandlerContext } from '../../../server/middleware/pipeline.js';
 
-const { selectFn, fromFn, whereFn } = vi.hoisted(() => ({
-  selectFn: vi.fn(),
-  fromFn: vi.fn(),
-  whereFn: vi.fn(),
-}));
+const { selectFn, fromFn, whereFn, updateFn, setFn, returningFn, writeAuditMock } = vi.hoisted(
+  () => {
+    const returning = vi.fn().mockResolvedValue([{ id: 'sta_pending_auto' }]);
+    const set = vi.fn((_values: Record<string, unknown>) => ({
+      where: vi.fn(() => ({ returning })),
+    }));
+    return {
+      selectFn: vi.fn(),
+      fromFn: vi.fn(),
+      whereFn: vi.fn(),
+      updateFn: vi.fn(() => ({ set })),
+      setFn: set,
+      returningFn: returning,
+      writeAuditMock: vi.fn().mockResolvedValue(undefined),
+    };
+  },
+);
 
 vi.mock('@evtivity/database', () => ({
-  db: { select: selectFn },
+  db: { select: selectFn, update: updateFn },
   chargingStations: { id: 'id', onboardingStatus: 'onboarding_status' },
+  stationAuditLog: { __name: 'stationAuditLog' },
+  writeAudit: writeAuditMock,
   getHeartbeatIntervalSeconds: vi.fn().mockResolvedValue(300),
   getRegistrationPolicy: vi.fn().mockResolvedValue('open'),
 }));
 
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn((a: unknown, b: unknown) => ({ type: 'eq', a, b })),
+  and: vi.fn((...conds: unknown[]) => ({ type: 'and', conds })),
 }));
 
 import { handleBootNotification } from '../../../handlers/v1_6/boot-notification.handler.js';
@@ -64,6 +79,7 @@ beforeEach(() => {
   whereFn.mockResolvedValue([{ onboardingStatus: 'accepted' }]);
   fromFn.mockReturnValue({ where: whereFn });
   selectFn.mockReturnValue({ from: fromFn });
+  returningFn.mockResolvedValue([{ id: 'sta_pending_auto' }]);
   vi.mocked(getHeartbeatIntervalSeconds).mockResolvedValue(300);
   vi.mocked(getRegistrationPolicy).mockResolvedValue('open');
 });
@@ -176,6 +192,28 @@ describe('OCPP 1.6 BootNotification handler', () => {
     expect(response).toMatchObject({ status: 'Accepted', interval: 300 });
     expect(ctx.session.bootStatus).toBe('Accepted');
     expect(getRegistrationPolicy).toHaveBeenCalledTimes(1);
+    // The station is accepted for good, audited as an OCPP change.
+    expect(setFn.mock.calls[0]?.[0]).toMatchObject({ onboardingStatus: 'accepted' });
+    expect(writeAuditMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ action: 'onboarding_status_changed', actor: 'ocpp' }),
+      undefined,
+      expect.anything(),
+    );
+  });
+
+  it('returns Pending when an open-policy station left pending while it booted', async () => {
+    whereFn.mockResolvedValue([{ onboardingStatus: 'pending' }]);
+    returningFn.mockResolvedValue([]);
+    const { ctx } = makeCtx(
+      { chargePointVendor: 'V', chargePointModel: 'M' },
+      { stationDbId: 'sta_pending_auto' },
+    );
+
+    const response = await handleBootNotification(ctx);
+
+    expect(response).toMatchObject({ status: 'Pending' });
+    expect(writeAuditMock).not.toHaveBeenCalled();
   });
 
   it('returns Accepted when the station row is not found (undefined row)', async () => {

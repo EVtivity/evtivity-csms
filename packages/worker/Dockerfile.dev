@@ -1,4 +1,8 @@
 FROM node:24-slim
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
 
 # Noto Sans CJK for Korean and Chinese scheduled report PDFs, as in the
 # production image (packages/worker/Dockerfile).
@@ -41,6 +45,8 @@ COPY packages/css/ packages/css/
 COPY packages/v2g-exi/ packages/v2g-exi/
 COPY packages/ocpp/ packages/ocpp/
 COPY packages/worker/ packages/worker/
+# The database package tests import scripts/lib (the migration file helpers).
+COPY scripts/lib/ scripts/lib/
 RUN npx tsc -b --force packages/lib packages/database packages/payments packages/ocpp packages/css packages/octt
 
 CMD ["node", "--import", "tsx", "packages/worker/src/index.ts"]

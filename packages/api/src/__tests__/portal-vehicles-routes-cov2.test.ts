@@ -97,14 +97,15 @@ describe('Portal vehicle routes, uncovered paths', () => {
       expect(res.statusCode).toBe(204);
       expect(writeAudit).toHaveBeenCalledWith(
         expect.objectContaining({ idColumn: 'vehicle_id' }),
-        {
+        expect.objectContaining({
           entityId: null,
           entityIdSnapshot: VEHICLE_ID,
           action: 'deleted',
           actor: 'driver',
           actorDriverId: DRIVER_ID,
           before: full,
-        },
+          after: null,
+        }),
         expect.anything(),
         expect.anything(),
       );

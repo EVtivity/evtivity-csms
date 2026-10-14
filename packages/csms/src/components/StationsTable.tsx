@@ -84,6 +84,7 @@ export interface Station {
   id: string;
   stationId: string;
   siteId?: string | null;
+  siteName?: string | null;
   vendorName?: string | null;
   model: string | null;
   securityProfile?: number | undefined;
@@ -469,7 +470,7 @@ export function StationsTable({
                         e.stopPropagation();
                       }}
                     >
-                      {siteMap.get(station.siteId) ?? station.siteId}
+                      {station.siteName ?? siteMap.get(station.siteId) ?? station.siteId}
                     </Link>
                   ) : (
                     '-'

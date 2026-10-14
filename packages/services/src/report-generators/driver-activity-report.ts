@@ -70,7 +70,7 @@ async function queryDriverActivity(filters: Filters, currency: string): Promise<
     sql`${chargingSessions.driverId} IS NOT NULL`,
   ];
   // Only sessions at stations in the report's site scope count.
-  const sessionInScope = stationSiteInScope(chargingStations.siteId, filters.scope);
+  const sessionInScope = stationSiteInScope(chargingSessions.siteId, filters.scope);
   if (sessionInScope != null) conditions.push(sessionInScope);
 
   const rows = await db

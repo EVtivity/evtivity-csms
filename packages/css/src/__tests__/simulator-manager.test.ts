@@ -390,6 +390,12 @@ describe('SimulatorManager.handleCommand', () => {
       sim.createPncEv = vi.fn(async () => ({ pcid: 'P', oemRootCertificate: 'PEM', edition: 2 }));
       sim.installPncContract = vi.fn(async () => ({ emaid: 'E', remainingContracts: null }));
       sim.startPncCharging = vi.fn(async () => 'tx-pnc');
+      sim.updatePncContract = vi.fn(async () => ({ emaid: 'E2' }));
+      sim.authorizePnc = vi.fn(async () => ({
+        emaid: 'E2',
+        status: 'Invalid',
+        certificateStatus: 'CertificateRevoked',
+      }));
       await send('createPncEv', { evseId: 1 });
       expect(sim.createPncEv).toHaveBeenCalledWith(1, 2);
       await send('installPncContract', { evseId: 1 });
@@ -402,6 +408,17 @@ describe('SimulatorManager.handleCommand', () => {
         },
         { commandId: 'cmd', success: true, data: { emaid: 'E', remainingContracts: null } },
         { commandId: 'cmd', success: true, data: { transactionId: 'tx-pnc' } },
+      ]);
+      await send('updatePncContract', { evseId: 1 });
+      await send('authorizePnc', { evseId: 1 });
+      expect(sim.updatePncContract).toHaveBeenCalledWith(1);
+      expect(results(pubsub).slice(-2)).toEqual([
+        { commandId: 'cmd', success: true, data: { emaid: 'E2' } },
+        {
+          commandId: 'cmd',
+          success: true,
+          data: { emaid: 'E2', status: 'Invalid', certificateStatus: 'CertificateRevoked' },
+        },
       ]);
     });
 
@@ -460,6 +477,23 @@ describe('SimulatorManager.handleCommand', () => {
       await send('doTheThing', {});
       expect(results(pubsub)).toEqual([
         { commandId: 'cmd', success: false, error: 'Unknown action: doTheThing' },
+      ]);
+    });
+
+    it('plugIn with an EV runs the Autocharge plug-in and returns its outcome', async () => {
+      const outcome = {
+        idToken: 'VID:92D50A693F80',
+        tokenType: 'ISO14443',
+        status: 'Accepted',
+        transactionId: '7',
+      };
+      const plugInEv = vi.fn(async () => outcome);
+      (sim as unknown as { plugInEv: typeof plugInEv }).plugInEv = plugInEv;
+      const ev = { evccid: '92D50A693F80', autocharge: 'MacAddress' };
+      await send('plugIn', { evseId: 1, ev });
+      expect(plugInEv).toHaveBeenCalledWith(1, ev);
+      expect(results(pubsub)).toEqual([
+        { commandId: 'cmd', success: true, data: { autocharge: outcome } },
       ]);
     });
 

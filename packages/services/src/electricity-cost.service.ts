@@ -2,13 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { and, asc, count, eq, gt, isNotNull, isNull, sql, type SQL } from 'drizzle-orm';
-import {
-  db,
-  chargingSessions,
-  chargingStations,
-  loadElectricityRatePeriodsForSite,
-  sites,
-} from '@evtivity/database';
+import { db, chargingSessions, loadElectricityRatePeriodsForSite, sites } from '@evtivity/database';
 import { computeSessionElectricityCost } from '@evtivity/lib';
 import { inCompanyCurrency } from './company-currency.js';
 
@@ -49,7 +43,10 @@ export function sessionCostMissing(companyCurrency: string): SQL {
   ) as SQL;
 }
 
-/** Sessions at the site without an electricity cost (sessionCostMissing). */
+/**
+ * Sessions that happened at the site (site_id, kept when a station moves)
+ * without an electricity cost (sessionCostMissing).
+ */
 export async function countSiteCostMissingSessions(
   siteId: string,
   companyCurrency: string,
@@ -57,8 +54,7 @@ export async function countSiteCostMissingSessions(
   const [row] = await db
     .select({ n: count() })
     .from(chargingSessions)
-    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-    .where(and(eq(chargingStations.siteId, siteId), sessionCostMissing(companyCurrency)));
+    .where(and(eq(chargingSessions.siteId, siteId), sessionCostMissing(companyCurrency)));
   return row?.n ?? 0;
 }
 
@@ -110,10 +106,9 @@ export async function recalculateSiteElectricityCost(
         energyWh: chargingSessions.energyDeliveredWh,
       })
       .from(chargingSessions)
-      .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
       .where(
         and(
-          eq(chargingStations.siteId, siteId),
+          eq(chargingSessions.siteId, siteId),
           missing,
           isNotNull(chargingSessions.endedAt),
           cursor != null ? gt(chargingSessions.id, cursor) : undefined,

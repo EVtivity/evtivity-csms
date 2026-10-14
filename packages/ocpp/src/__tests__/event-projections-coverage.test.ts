@@ -195,6 +195,8 @@ vi.mock('../../../database/src/lib/audit.js', () => ({
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
+  // The session site sub-select (lib/session-site.ts), a plain value here.
+  sessionSiteIdSql: vi.fn(() => 'site-of-station'),
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
@@ -286,10 +288,12 @@ vi.mock('@evtivity/lib', async () => {
 
 const mockHandleCsrSigned = vi.fn().mockResolvedValue(undefined);
 const mockHandleInstallCertificateResult = vi.fn().mockResolvedValue(undefined);
+const mockHandleCertificateSignedResult = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('../services/pki/certificate-projections.js', () => ({
   handleCsrSigned: mockHandleCsrSigned,
   handleInstallCertificateResult: mockHandleInstallCertificateResult,
+  handleCertificateSignedResult: mockHandleCertificateSignedResult,
 }));
 
 const mockComputeAndSendChargingProfile = vi.fn().mockResolvedValue(undefined);
@@ -2489,6 +2493,8 @@ describe('Event projections - coverage expansion', () => {
         'CS-PNC',
         'sta_000000000001',
         {
+          csrId: null,
+          requestId: null,
           certificateChain: '-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----',
           certificateType: 'V2GCertificate',
           providerReference: 'hubject-ref-123',
@@ -2536,6 +2542,33 @@ describe('Event projections - coverage expansion', () => {
         'sta_directpnc01',
         expect.objectContaining({ certificateType: 'ChargingStationCertificate' }),
         mockPubSub,
+      );
+    });
+  });
+
+  // ---- pnc.CertificateSignedResult ----
+
+  describe('pnc.CertificateSignedResult', () => {
+    it('stores the station answer through handleCertificateSignedResult', async () => {
+      await setup();
+      setupSqlResults([{ site_id: 'site-signed' }]);
+
+      await eventBus.emit(
+        'pnc.CertificateSignedResult',
+        makeDomainEvent('pnc.CertificateSignedResult', 'CS-SIGNED', {
+          stationDbId: 'sta_signed00001',
+          certificateChain: 'chain',
+          certificateType: 'V2GCertificate',
+          status: 'Accepted',
+        }),
+      );
+
+      expect(mockHandleCertificateSignedResult).toHaveBeenCalledWith(
+        expect.anything(),
+        'sta_signed00001',
+        'chain',
+        'V2GCertificate',
+        'Accepted',
       );
     });
   });

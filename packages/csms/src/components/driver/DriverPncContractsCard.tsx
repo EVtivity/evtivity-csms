@@ -4,9 +4,9 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { CreateButton } from '@/components/create-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Input } from '@/components/ui/input';
@@ -122,15 +122,12 @@ export function DriverPncContractsCard({
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <CardTitle>{t('drivers.pncContracts')}</CardTitle>
         {canWrite && (
-          <Button
-            variant="outline"
+          <CreateButton
+            label={t('drivers.pncContractCreate')}
             onClick={() => {
               setCreateOpen(true);
             }}
-          >
-            <Plus className="h-4 w-4" />
-            {t('drivers.pncContractCreate')}
-          </Button>
+          />
         )}
       </CardHeader>
       <CardContent className="space-y-2 text-sm">

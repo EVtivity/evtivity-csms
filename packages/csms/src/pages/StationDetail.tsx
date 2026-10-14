@@ -52,12 +52,6 @@ import { StationChargingNeedsTab } from '@/components/StationChargingNeedsTab';
 import { useHasPermission } from '@/lib/auth';
 import { LoadingLogo } from '@/components/loading-logo';
 
-interface Site {
-  id: string;
-  name: string;
-  timezone: string;
-}
-
 interface Station {
   id: string;
   stationId: string;
@@ -87,6 +81,7 @@ interface Station {
   longitude: string | null;
   reservationsEnabled: boolean;
   siteHoursOfOperation: string | null;
+  siteTimezone: string | null;
   siteFreeVendEnabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -119,17 +114,12 @@ export function StationDetail(): React.JSX.Element {
   const [availabilityConfirm, setAvailabilityConfirm] = useState<
     'available' | 'unavailable' | null
   >(null);
-
-  const { data: sitesResponse } = useQuery({
-    queryKey: ['sites'],
-    queryFn: () => api.get<{ data: Site[]; total: number }>('/v1/sites?limit=100'),
-  });
+  const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
 
   const {
     flags: { guestChargingEnabled, reservationEnabled, aiInsightsEnabled },
   } = useFeatureFlags();
   const showInsightsTab = useHasPermission('aiInsights:read') && aiInsightsEnabled;
-  const sites = sitesResponse?.data;
 
   const { data: station, isLoading } = useQuery({
     queryKey: ['stations', id],
@@ -143,18 +133,35 @@ export function StationDetail(): React.JSX.Element {
     enabled: id != null,
   });
 
+  // Approve, reject and unblock: a refused change (another operator acted
+  // first) is shown, and the station reloads either way.
+  function onboardingMutationOptions(
+    successKey:
+      | 'stations.approvedSuccess'
+      | 'stations.rejectedSuccess'
+      | 'stations.unblockedSuccess',
+  ) {
+    return {
+      onSuccess: () => {
+        toast({ variant: 'success', title: t(successKey) });
+      },
+      onError: (err: unknown) => {
+        toast({ variant: 'destructive', title: getErrorMessage(err, t) });
+      },
+      onSettled: () => {
+        void queryClient.invalidateQueries({ queryKey: ['stations'] });
+      },
+    };
+  }
+
   const approveMutation = useMutation({
     mutationFn: () => api.post(`/v1/stations/${id ?? ''}/approve`, {}),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations'] });
-    },
+    ...onboardingMutationOptions('stations.approvedSuccess'),
   });
 
   const rejectMutation = useMutation({
     mutationFn: () => api.post(`/v1/stations/${id ?? ''}/reject`, {}),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations'] });
-    },
+    ...onboardingMutationOptions('stations.rejectedSuccess'),
   });
 
   const availabilityMutation = useMutation({
@@ -177,9 +184,7 @@ export function StationDetail(): React.JSX.Element {
 
   const unblockMutation = useMutation({
     mutationFn: () => api.post(`/v1/stations/${id ?? ''}/unblock`, {}),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['stations'] });
-    },
+    ...onboardingMutationOptions('stations.unblockedSuccess'),
   });
 
   if (isLoading) {
@@ -190,7 +195,7 @@ export function StationDetail(): React.JSX.Element {
     return <p className="text-destructive">{t('stations.stationNotFound')}</p>;
   }
 
-  const siteTimezone = sites?.find((s) => s.id === station.siteId)?.timezone ?? 'America/New_York';
+  const siteTimezone = station.siteTimezone ?? 'America/New_York';
   const availabilityActions = stationAvailabilityActions(station);
   const explainContext = { kind: 'station' as const, id: station.id, label: station.stationId };
 
@@ -271,6 +276,24 @@ export function StationDetail(): React.JSX.Element {
         }}
       />
 
+      <ConfirmDialog
+        open={rejectConfirmOpen}
+        onOpenChange={setRejectConfirmOpen}
+        title={t('stations.rejectStationTitle')}
+        description={t('stations.rejectStationDescription')}
+        confirmLabel={t('stations.reject')}
+        variant="destructive"
+        isPending={rejectMutation.isPending}
+        onConfirm={() => {
+          rejectMutation.mutate(undefined, {
+            onSettled: () => {
+              setRejectConfirmOpen(false);
+            },
+          });
+          return false;
+        }}
+      />
+
       {station.isSimulator && station.simulatorConflictAt != null && (
         <StationSimulatorConflict
           stationDbId={station.id}
@@ -284,27 +307,29 @@ export function StationDetail(): React.JSX.Element {
         <Card className="border-warning">
           <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm">{t('stations.pendingApproval')}</p>
-            <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex sm:shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  rejectMutation.mutate();
-                }}
-                disabled={rejectMutation.isPending}
-              >
-                {t('stations.reject')}
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  approveMutation.mutate();
-                }}
-                disabled={approveMutation.isPending}
-              >
-                {t('stations.approve')}
-              </Button>
-            </div>
+            {canWriteStations && (
+              <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex sm:shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setRejectConfirmOpen(true);
+                  }}
+                  disabled={rejectMutation.isPending}
+                >
+                  {t('stations.reject')}
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    approveMutation.mutate();
+                  }}
+                  disabled={approveMutation.isPending}
+                >
+                  {t('stations.approve')}
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -312,15 +337,17 @@ export function StationDetail(): React.JSX.Element {
         <Card className="border-destructive">
           <CardContent className="flex items-center justify-between p-4">
             <p className="text-sm">{t('stations.blockedInfo')}</p>
-            <Button
-              size="sm"
-              onClick={() => {
-                unblockMutation.mutate();
-              }}
-              disabled={unblockMutation.isPending}
-            >
-              {t('stations.unblock')}
-            </Button>
+            {canWriteStations && (
+              <Button
+                size="sm"
+                onClick={() => {
+                  unblockMutation.mutate();
+                }}
+                disabled={unblockMutation.isPending}
+              >
+                {t('stations.unblock')}
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -495,7 +522,7 @@ export function StationDetail(): React.JSX.Element {
         <TabsContent value="pricing" className="space-y-6">
           <StationPricingTab
             stationId={id ?? ''}
-            siteTimezone={sites?.find((s) => s.id === station.siteId)?.timezone}
+            siteTimezone={station.siteTimezone ?? undefined}
           />
         </TabsContent>
 

@@ -40,6 +40,7 @@ import { SiteMaintenanceTab } from '@/components/SiteMaintenanceTab';
 import { SiteElectricityRatesTab } from '@/components/SiteElectricityRatesTab';
 import { SiteElectricityRatesNotice } from '@/components/ElectricityCostNotices';
 import { LoadingLogo } from '@/components/loading-logo';
+import { getErrorMessage } from '@/lib/error-message';
 
 interface Site {
   id: string;
@@ -61,8 +62,11 @@ interface Site {
   freeVendEnabled: boolean;
   freeVendTemplateId21: string | null;
   freeVendTemplateId16: string | null;
+  freeVendRestoreTemplateId21?: string | null;
+  freeVendRestoreTemplateId16?: string | null;
   carbonRegionCode: string | null;
   stationMessageLanguage: string | null;
+  autochargeEnabled?: boolean | null;
   aiInsightsEnabled?: boolean;
   aiMonthlyTokenBudget?: number | null;
   stationCount: number;
@@ -100,6 +104,7 @@ export function SiteDetail(): React.JSX.Element {
   // every site and sites:write who edit the budget and the insights switch.
   const canReadAiUsage = useHasPermission('aiUsage:read');
   const canWriteSites = useHasPermission('sites:write');
+  const canWriteStations = useHasPermission('stations:write');
   const allSites = useHasAllSiteAccess();
   const {
     flags: { guestChargingEnabled, reservationEnabled, aiInsightsEnabled },
@@ -257,18 +262,21 @@ export function SiteDetail(): React.JSX.Element {
             deleteMutation.mutate();
           }}
           deleteIsPending={deleteMutation.isPending}
+          deleteError={deleteMutation.error ?? undefined}
         />
 
         <TabsContent value="stations">
           <Card>
             <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>{t('nav.stations')}</CardTitle>
-              <CreateButton
-                label={t('stations.addStation')}
-                onClick={() => {
-                  void navigate(`/stations/new?siteId=${id ?? ''}`);
-                }}
-              />
+              {canWriteStations && (
+                <CreateButton
+                  label={t('stations.addStation')}
+                  onClick={() => {
+                    void navigate(`/stations/new?siteId=${id ?? ''}`);
+                  }}
+                />
+              )}
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="overflow-x-auto">
@@ -410,9 +418,14 @@ export function SiteDetail(): React.JSX.Element {
                     onCheckedChange={() => {
                       reservationToggleMutation.mutate(!site.reservationsEnabled);
                     }}
-                    disabled={reservationToggleMutation.isPending}
+                    disabled={!canWriteSites || reservationToggleMutation.isPending}
                   />
                 </div>
+                {reservationToggleMutation.isError && (
+                  <p className="mt-3 text-sm text-destructive">
+                    {getErrorMessage(reservationToggleMutation.error, t)}
+                  </p>
+                )}
               </CardContent>
             </Card>
             <ReservationsTable siteId={id} timezone={site.timezone} />

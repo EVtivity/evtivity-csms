@@ -18,7 +18,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { LANGUAGES } from '@/components/ui/language-select';
 import { GoogleMapPicker } from '@/components/GoogleMapPicker';
 import { HoursOfOperationField } from '@/components/site/HoursOfOperationField';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
+import { getErrorMessage } from '@/lib/error-message';
 import { TIMEZONE_OPTIONS, formatDateTime } from '@/lib/timezone';
 
 interface Site {
@@ -43,6 +46,7 @@ interface Site {
   freeVendTemplateId16: string | null;
   carbonRegionCode: string | null;
   stationMessageLanguage: string | null;
+  autochargeEnabled?: boolean | null;
   stationCount: number;
   createdAt: string;
   updatedAt: string;
@@ -63,6 +67,8 @@ export interface SiteDetailsTabProps {
   googleMapsApiKey: string;
   onDelete: () => void;
   deleteIsPending: boolean;
+  /** The failed delete (409 when the site has stations or payments), shown in the dialog. */
+  deleteError?: unknown;
 }
 
 export function SiteDetailsTab({
@@ -71,9 +77,12 @@ export function SiteDetailsTab({
   googleMapsApiKey,
   onDelete,
   deleteIsPending,
+  deleteError,
 }: SiteDetailsTabProps): React.JSX.Element {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const canWrite = useHasPermission('sites:write');
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -112,8 +121,16 @@ export function SiteDetailsTab({
     },
   });
 
+  const autochargeMutation = useMutation({
+    mutationFn: (value: boolean | null) =>
+      api.patch<Site>(`/v1/sites/${siteId}`, { autochargeEnabled: value }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['sites'] });
+    },
+  });
+
   const updateMutation = useMutation({
-    mutationFn: (body: Record<string, string>) => api.patch<Site>(`/v1/sites/${siteId}`, body),
+    mutationFn: (body: Record<string, unknown>) => api.patch<Site>(`/v1/sites/${siteId}`, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['sites'] });
       setEditing(false);
@@ -136,6 +153,7 @@ export function SiteDetailsTab({
     setContactPhone(site.contactPhone ?? '');
     setContactIsPublic(site.contactIsPublic);
     setHoursOfOperation(site.hoursOfOperation ?? '');
+    updateMutation.reset();
     setEditing(true);
   }
 
@@ -153,22 +171,25 @@ export function SiteDetailsTab({
     e.preventDefault();
     setHasSubmitted(true);
     if (Object.keys(validationErrors).length > 0) return;
-    const body: Record<string, string> = {};
-    if (name !== '') body['name'] = name;
-    if (address !== '') body['address'] = address;
-    if (city !== '') body['city'] = city;
-    if (state !== '') body['state'] = state;
-    if (postalCode !== '') body['postalCode'] = postalCode;
-    if (country !== '') body['country'] = country;
-    if (latitude !== '') body['latitude'] = latitude;
-    if (longitude !== '') body['longitude'] = longitude;
+    // An emptied field is sent as null so the site forgets it (a removed
+    // contact email or phone must not stay public).
+    const orNull = (value: string): string | null => (value.trim() === '' ? null : value.trim());
+    const body: Record<string, unknown> = {
+      name,
+      address: orNull(address),
+      city: orNull(city),
+      state: orNull(state),
+      postalCode: orNull(postalCode),
+      country: orNull(country),
+      latitude: orNull(latitude),
+      longitude: orNull(longitude),
+      contactName: orNull(contactName),
+      contactEmail: orNull(contactEmail),
+      contactPhone: orNull(contactPhone),
+      contactIsPublic,
+      hoursOfOperation: orNull(hoursOfOperation),
+    };
     if (editTimezone !== '') body['timezone'] = editTimezone;
-    if (contactName !== '') body['contactName'] = contactName;
-    if (contactEmail !== '') body['contactEmail'] = contactEmail;
-    if (contactPhone !== '') body['contactPhone'] = contactPhone;
-    (body as Record<string, unknown>)['contactIsPublic'] = contactIsPublic;
-    (body as Record<string, unknown>)['hoursOfOperation'] =
-      hoursOfOperation.trim() !== '' ? hoursOfOperation.trim() : null;
     updateMutation.mutate(body);
   }
 
@@ -178,13 +199,17 @@ export function SiteDetailsTab({
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle>{t('common.details')}</CardTitle>
           <div className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex">
-            {!editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
-            <RemoveButton
-              label={t('common.delete')}
-              onClick={onDelete}
-              disabled={deleteIsPending || site.stationCount > 0}
-              title={site.stationCount > 0 ? t('sites.removeStationsFirst') : ''}
-            />
+            {canWrite && !editing && <EditButton label={t('common.edit')} onClick={startEdit} />}
+            {canWrite && (
+              <RemoveButton
+                label={t('common.delete')}
+                onClick={() => {
+                  setDeleteOpen(true);
+                }}
+                disabled={deleteIsPending || site.stationCount > 0}
+                title={site.stationCount > 0 ? t('sites.removeStationsFirst') : ''}
+              />
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -386,6 +411,11 @@ export function SiteDetailsTab({
                   </Label>
                 </div>
               </div>
+              {updateMutation.isError && (
+                <p className="text-sm text-destructive">
+                  {getErrorMessage(updateMutation.error, t)}
+                </p>
+              )}
               <div className="flex justify-end gap-2">
                 <CancelButton
                   onClick={() => {
@@ -493,6 +523,7 @@ export function SiteDetailsTab({
                   const val = e.target.value;
                   carbonRegionMutation.mutate(val === '' ? null : val);
                 }}
+                disabled={!canWrite || carbonRegionMutation.isPending}
                 className="h-9 max-w-sm"
               >
                 <option value="">{t('sites.noCarbonRegion')}</option>
@@ -526,6 +557,11 @@ export function SiteDetailsTab({
                   ) : null;
                 })()}
             </div>
+            {carbonRegionMutation.isError && (
+              <p className="text-sm text-destructive">
+                {getErrorMessage(carbonRegionMutation.error, t)}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -543,7 +579,7 @@ export function SiteDetailsTab({
                 const val = e.target.value;
                 stationMessageLanguageMutation.mutate(val === '' ? null : val);
               }}
-              disabled={stationMessageLanguageMutation.isPending}
+              disabled={!canWrite || stationMessageLanguageMutation.isPending}
               className="h-9 max-w-sm"
             >
               <option value="">{t('sites.stationMessageLanguageDefault')}</option>
@@ -553,6 +589,40 @@ export function SiteDetailsTab({
                 </option>
               ))}
             </Select>
+            {stationMessageLanguageMutation.isError && (
+              <p className="mt-2 text-sm text-destructive">
+                {getErrorMessage(stationMessageLanguageMutation.error, t)}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+      {!editing && (
+        <Card>
+          <CardHeader>
+            <CardTitle>{t('sites.autocharge')}</CardTitle>
+            <CardDescription>{t('sites.autochargeDescription')}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Select
+              aria-label={t('sites.autocharge')}
+              value={site.autochargeEnabled == null ? '' : site.autochargeEnabled ? 'on' : 'off'}
+              onChange={(e) => {
+                const val = e.target.value;
+                autochargeMutation.mutate(val === '' ? null : val === 'on');
+              }}
+              disabled={autochargeMutation.isPending}
+              className="h-9 max-w-sm"
+            >
+              <option value="">{t('sites.autochargeDefault')}</option>
+              <option value="on">{t('vehicles.autochargeOn')}</option>
+              <option value="off">{t('vehicles.autochargeOff')}</option>
+            </Select>
+            {autochargeMutation.isError && (
+              <p className="text-sm text-destructive">
+                {getErrorMessage(autochargeMutation.error, t)}
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -576,6 +646,22 @@ export function SiteDetailsTab({
           </CardContent>
         </Card>
       )}
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={t('sites.deleteSiteTitle')}
+        description={t('sites.deleteSiteDescription', { name: site.name })}
+        confirmLabel={t('common.delete')}
+        isPending={deleteIsPending}
+        onConfirm={() => {
+          onDelete();
+          return false;
+        }}
+      >
+        {deleteError != null && (
+          <p className="text-sm text-destructive">{getErrorMessage(deleteError, t)}</p>
+        )}
+      </ConfirmDialog>
     </TabsContent>
   );
 }

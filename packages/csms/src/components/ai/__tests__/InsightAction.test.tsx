@@ -106,6 +106,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
     resolvedAt: null,
     dismissedAt: null,
     action: action(),
+    feedbackUsed: false,
     stationName: 'CS-1',
     siteName: 'Convention Center',
     ...overrides,

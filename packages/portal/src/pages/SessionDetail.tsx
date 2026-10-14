@@ -26,6 +26,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ErrorCard } from '@/components/ui/error-card';
 import { useToast } from '@/components/ui/toast';
 import { SessionCharts } from '@/components/SessionCharts';
+import { SessionVehicleCard, type SessionVehicleCapture } from '@/components/SessionVehicleCard';
 import { ReportIssue } from '@/components/ReportIssue';
 import { api } from '@/lib/api';
 import {
@@ -88,8 +89,17 @@ interface SessionDetailData {
     make: string | null;
     model: string | null;
     year: string | null;
+    vin?: string | null;
+    evccid?: string | null;
+    autochargeEnabled?: boolean;
     efficiencyMiPerKwh: number;
   } | null;
+  /** The vehicle id the charger sent at the start (Autocharge). */
+  vehicleCapture?: SessionVehicleCapture | null;
+  /** The session was started by an Autocharge vehicle. */
+  autocharge?: boolean;
+  /** Autocharge is on at the session's site. */
+  autochargeAvailable?: boolean;
 }
 
 interface DriverVehicle {
@@ -431,6 +441,17 @@ export function SessionDetail(): React.JSX.Element {
           <CircleStop className="mr-2 h-5 w-5" />
           {stopping ? t('sessionDetail.stopping') : t('sessionDetail.stopCharging')}
         </Button>
+      )}
+
+      {/* The vehicle id the charger sent (Autocharge) */}
+      {session.vehicleCapture != null && (
+        <SessionVehicleCard
+          sessionId={session.id}
+          capture={session.vehicleCapture}
+          autocharge={session.autocharge === true}
+          autochargeAvailable={session.autochargeAvailable === true}
+          vehicle={session.vehicle}
+        />
       )}
 
       {/* Station info */}

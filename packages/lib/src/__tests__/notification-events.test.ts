@@ -34,3 +34,10 @@ describe('OCPP notification events', () => {
     }
   });
 });
+
+describe('required driver events', () => {
+  it('always sends the notice of a session an Autocharge vehicle started', () => {
+    expect(isRequiredDriverEventType('session.AutochargeStarted')).toBe(true);
+    expect(isRequiredDriverEventType('session.Started')).toBe(false);
+  });
+});

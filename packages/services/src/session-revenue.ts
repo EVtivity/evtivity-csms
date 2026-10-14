@@ -61,7 +61,7 @@ function revenueItemsSql(companyCurrency: string): SQL {
     SELECT CASE WHEN cs.billing_mode = 'account' AND pr.id IS NULL AND inv.status = 'paid'
                 THEN coalesce(inv.paid_at, cs.started_at) ELSE cs.started_at END AS occurred_at,
            cs.station_id,
-           st.site_id,
+           cs.site_id,
            cs.driver_id,
            coalesce(cs.tariff_tax_rate, 0)::text AS tax_rate,
            greatest(cs.final_cost_cents - coalesce(pr.refunded_amount_cents, 0), 0) AS gross_cents,
@@ -75,7 +75,6 @@ function revenueItemsSql(companyCurrency: string): SQL {
            (cs.electricity_cost_cents IS NULL
              AND coalesce(cs.energy_delivered_wh, 0) > 0) AS cost_missing
     FROM charging_sessions cs
-    JOIN charging_stations st ON st.id = cs.station_id
     LEFT JOIN payment_records pr ON pr.session_id = cs.id
     LEFT JOIN invoices inv ON inv.id = cs.invoice_id
     WHERE cs.final_cost_cents IS NOT NULL
@@ -103,7 +102,8 @@ function revenueItemsSql(companyCurrency: string): SQL {
 /**
  * Columns of a revenue item, for the `key` and `where` of queryRevenue:
  * when it happened (session start or fee charge), its station, site, and
- * driver.
+ * driver. A session's site is the one it happened at (charging_sessions.site_id,
+ * kept when the station moves); a reservation fee's is its station's site.
  */
 export const revenueItem = {
   occurredAt: sql.raw('ri.occurred_at'),

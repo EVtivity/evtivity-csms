@@ -82,7 +82,15 @@ function allConnectors(station: LayoutStation): ConnectorData[] {
   return result;
 }
 
-function stationLevel(station: LayoutStation): string {
+type StationLevel = 'dcFast' | 'level2' | 'level1' | '';
+
+const LEVEL_LABEL_KEYS = {
+  dcFast: 'sites.levelDcFast',
+  level2: 'sites.levelL2',
+  level1: 'sites.levelL1',
+} as const;
+
+function stationLevel(station: LayoutStation): StationLevel {
   let maxKw = 0;
   for (const evse of station.evses) {
     for (const conn of evse.connectors) {
@@ -91,9 +99,9 @@ function stationLevel(station: LayoutStation): string {
       }
     }
   }
-  if (maxKw >= 50) return 'DC Fast';
-  if (maxKw >= 7) return 'Level 2';
-  if (maxKw > 0) return 'Level 1';
+  if (maxKw >= 50) return 'dcFast';
+  if (maxKw >= 7) return 'level2';
+  if (maxKw > 0) return 'level1';
   return '';
 }
 
@@ -314,7 +322,7 @@ export function StationCard({
       ? t(`stations.statusReason.${station.statusReason}`, station.statusReason)
       : null;
   const stationIcon = (
-    <StationIcon status={station.status} charging={charging} dc={level === 'DC Fast'} />
+    <StationIcon status={station.status} charging={charging} dc={level === 'dcFast'} />
   );
   const iconWithReason =
     reasonLabel != null ? <Tooltip label={reasonLabel}>{stationIcon}</Tooltip> : stationIcon;
@@ -373,7 +381,7 @@ export function StationCard({
         <div className="flex items-center gap-1.5">
           <span
             className="relative inline-flex h-2 w-2 shrink-0"
-            title={station.isOnline ? 'Online' : 'Offline'}
+            title={station.isOnline ? t('status.online') : t('status.offline')}
           >
             {station.isOnline && (
               <span className="absolute inset-0 rounded-full bg-success animate-ping opacity-75" />
@@ -426,7 +434,9 @@ export function StationCard({
             <div className="flex items-center gap-2">
               {iconWithReason}
               {level !== '' && (
-                <span className="text-xs font-medium text-muted-foreground">{level}</span>
+                <span className="text-xs font-medium text-muted-foreground">
+                  {t(LEVEL_LABEL_KEYS[level])}
+                </span>
               )}
             </div>
 

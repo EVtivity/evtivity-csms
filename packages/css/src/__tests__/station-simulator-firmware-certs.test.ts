@@ -796,6 +796,35 @@ describe('OCPP 2.1 certificate signing (A02)', () => {
     expect(h.sent('SignCertificate')).toHaveLength(1);
   });
 
+  it('sends a requestId and accepts only CertificateSigned carrying it (A02.FR.24, FR.26)', async () => {
+    const h = await makeHarness();
+    const v2gRoot = await rootCa('CN=V2G Root R');
+    const rootCert = new crypto.X509Certificate(v2gRoot.pem);
+    const rootHash = certificateHashData(rootCert, rootCert);
+    (priv(h, 'installedCertificatesCache') as { set: (k: string, v: unknown) => void }).set(
+      rootHash.serialNumber,
+      {
+        certificateType: 'V2GRootCertificate',
+        certificateHashData: { ...rootHash },
+        certificate: v2gRoot.pem,
+      },
+    );
+    await call(h, 'handleTriggerMessage', 'SignV2G20Certificate', {});
+    const sent = h.sent('SignCertificate')[0];
+    expect(sent?.['certificateType']).toBe('V2G20Certificate');
+    const requestId = sent?.['requestId'];
+    expect(typeof requestId).toBe('number');
+    const signed = await leaf(v2gRoot, 'CN=TEST-SIM', await csrKey(h));
+    const answer = (id: number) =>
+      h.invoke('CertificateSigned', {
+        certificateChain: signed.pem,
+        certificateType: 'V2G20Certificate',
+        requestId: id,
+      });
+    expect(await answer((requestId as number) + 1)).toEqual({ status: 'Rejected' });
+    expect(await answer(requestId as number)).toEqual({ status: 'Accepted' });
+  });
+
   it('stores a V2GCertificate chain issued by an installed V2G root', async () => {
     const h = await makeHarness();
     const v2gRoot = await rootCa('CN=V2G Root');

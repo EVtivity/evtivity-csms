@@ -22,10 +22,13 @@ export type StationStatusReason =
   | 'firmware_installing'
   | 'station_unavailable';
 
+// A retired EVSE or connector is out of service: its reports never fault the
+// station.
 function connectorFaultedSql(stationAlias: string): string {
   return `EXISTS (
     SELECT 1 FROM connectors sc JOIN evses se ON se.id = sc.evse_id
     WHERE se.station_id = ${stationAlias}.id AND sc.status = 'faulted'
+      AND se.retired_at IS NULL AND sc.retired_at IS NULL
   )`;
 }
 

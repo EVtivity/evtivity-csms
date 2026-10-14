@@ -28,12 +28,14 @@ import { LinkIconButton } from '@/components/link-icon-button';
 import { PlugInIconButton } from '@/components/plug-in-icon-button';
 import { RefreshIconButton } from '@/components/refresh-icon-button';
 import { RemoveIconButton } from '@/components/remove-icon-button';
+import { RetireIconButton } from '@/components/retire-icon-button';
+import { RestoreIconButton } from '@/components/restore-icon-button';
 import { StopIconButton } from '@/components/stop-icon-button';
 import { UnplugIconButton } from '@/components/unplug-icon-button';
 import { useToast } from '@/components/ui/toast';
+import { getErrorMessage } from '@/lib/error-message';
 import { PORTAL_BASE_URL } from '@/lib/config';
 import { api } from '@/lib/api';
-import { getErrorMessage } from '@/lib/error-message';
 import { Select } from '@/components/ui/select';
 import { connectorStatusVariant } from '@/lib/status-variants';
 
@@ -101,12 +103,14 @@ interface Connector {
   status: string;
   autoCreated?: boolean;
   isIdling?: boolean;
+  retiredAt?: string | null;
 }
 
 interface Evse {
   evseId: number;
   status: string;
   autoCreated?: boolean;
+  retiredAt?: string | null;
   connectors: Connector[];
 }
 
@@ -269,9 +273,20 @@ export function ConnectorStatus({
   const [deleteConnectorOpen, setDeleteConnectorOpen] = useState(false);
   const [deleteConnectorTarget, setDeleteConnectorTarget] = useState({ evseId: 0, connectorId: 0 });
 
+  // Retire (confirmed) and restore: out of service with history kept.
+  const [retireTarget, setRetireTarget] = useState<{
+    evseId: number;
+    connectorId?: number;
+  } | null>(null);
+
+  // A refused EVSE or connector change (duplicate number, a plug in use, an
+  // EVSE with charging history) is shown, not swallowed.
   const invalidateConnectors = {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'connectors'] });
+    },
+    onError: (err: unknown) => {
+      toast({ variant: 'destructive', title: getErrorMessage(err, t) });
     },
   };
 
@@ -320,6 +335,25 @@ export function ConnectorStatus({
 
   const deleteEvseMutation = useMutation({
     mutationFn: (evseId: number) => api.delete(`/v1/stations/${stationId}/evses/${String(evseId)}`),
+    ...invalidateConnectors,
+  });
+
+  function retirePath(target: { evseId: number; connectorId?: number }): string {
+    const evsePath = `/v1/stations/${stationId}/evses/${String(target.evseId)}`;
+    return target.connectorId != null
+      ? `${evsePath}/connectors/${String(target.connectorId)}`
+      : evsePath;
+  }
+
+  const retireMutation = useMutation({
+    mutationFn: (target: { evseId: number; connectorId?: number }) =>
+      api.post(`${retirePath(target)}/retire`, {}),
+    ...invalidateConnectors,
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: (target: { evseId: number; connectorId?: number }) =>
+      api.post(`${retirePath(target)}/restore`, {}),
     ...invalidateConnectors,
   });
 
@@ -485,6 +519,11 @@ export function ConnectorStatus({
                         {t('stations.autoCreated')}
                       </Badge>
                     )}
+                    {evse.retiredAt != null && (
+                      <Badge variant="secondary" className="text-xs font-normal">
+                        {t('stations.retired')}
+                      </Badge>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-1">
                     <RefreshIconButton
@@ -571,6 +610,27 @@ export function ConnectorStatus({
                       }}
                       title={t('stations.editEvse')}
                     />
+                    {evse.retiredAt != null ? (
+                      <RestoreIconButton
+                        onClick={() => {
+                          restoreMutation.mutate({ evseId: evse.evseId });
+                        }}
+                        disabled={restoreMutation.isPending}
+                        title={t('stations.restoreEvse')}
+                      />
+                    ) : (
+                      <RetireIconButton
+                        disabled={hasInUseConnector(evse)}
+                        onClick={() => {
+                          setRetireTarget({ evseId: evse.evseId });
+                        }}
+                        title={
+                          hasInUseConnector(evse)
+                            ? t('stations.cannotRetireOccupied')
+                            : t('stations.retireEvse')
+                        }
+                      />
+                    )}
                     <RemoveIconButton
                       disabled={hasInUseConnector(evse)}
                       onClick={() => {
@@ -604,6 +664,11 @@ export function ConnectorStatus({
                               {t('stations.autoCreated')}
                             </Badge>
                           )}
+                          {conn.retiredAt != null && (
+                            <Badge variant="secondary" className="text-xs font-normal">
+                              {t('stations.retired')}
+                            </Badge>
+                          )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           {conn.maxPowerKw != null ? (
@@ -631,6 +696,36 @@ export function ConnectorStatus({
                               ? t('status.idle')
                               : t(`status.${conn.status}`, conn.status)}
                           </Badge>
+                          {evse.retiredAt == null &&
+                            (conn.retiredAt != null ? (
+                              <RestoreIconButton
+                                size="sm"
+                                onClick={() => {
+                                  restoreMutation.mutate({
+                                    evseId: evse.evseId,
+                                    connectorId: conn.connectorId,
+                                  });
+                                }}
+                                disabled={restoreMutation.isPending}
+                                title={t('stations.restoreConnector')}
+                              />
+                            ) : (
+                              <RetireIconButton
+                                size="sm"
+                                disabled={IN_USE_STATUSES.includes(conn.status)}
+                                onClick={() => {
+                                  setRetireTarget({
+                                    evseId: evse.evseId,
+                                    connectorId: conn.connectorId,
+                                  });
+                                }}
+                                title={
+                                  IN_USE_STATUSES.includes(conn.status)
+                                    ? t('stations.cannotRetireOccupied')
+                                    : t('stations.retireConnector')
+                                }
+                              />
+                            ))}
                           <RemoveIconButton
                             size="sm"
                             disabled={IN_USE_STATUSES.includes(conn.status)}
@@ -938,6 +1033,36 @@ export function ConnectorStatus({
           </form>
         </DialogContent>
       </Dialog>
+
+      {/* Retire confirmation */}
+      <ConfirmDialog
+        open={retireTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setRetireTarget(null);
+        }}
+        title={
+          retireTarget?.connectorId != null
+            ? t('stations.retireConnector')
+            : t('stations.retireEvse')
+        }
+        description={
+          retireTarget?.connectorId != null
+            ? t('stations.confirmRetireConnector', { id: retireTarget.connectorId })
+            : t('stations.confirmRetireEvse', { id: retireTarget?.evseId ?? '' })
+        }
+        confirmLabel={t('stations.retire')}
+        isPending={retireMutation.isPending}
+        onConfirm={() => {
+          if (retireTarget != null) {
+            retireMutation.mutate(retireTarget, {
+              onSettled: () => {
+                setRetireTarget(null);
+              },
+            });
+          }
+          return false;
+        }}
+      />
 
       {/* Delete EVSE Confirmation */}
       <ConfirmDialog

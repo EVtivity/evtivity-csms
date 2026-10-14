@@ -63,6 +63,18 @@ vi.mock('../lib/station-status-events.js', () => ({
   publishStationStatusChanged: mockPublishStatus,
 }));
 
+const mockRepush = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('@evtivity/services/station-message.service', () => ({
+  requestStationMessageRepush: mockRepush,
+}));
+
+// New stations get their bound config template (the helper is covered by
+// the import integration test).
+const mockCreateTemplate = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+vi.mock('../lib/station-config-template.js', () => ({
+  createStationConfigTemplate: mockCreateTemplate,
+}));
+
 const mockSiteMove = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('../lib/ocpi-location-push.js', () => ({
   publishOcpiStationSiteMove: mockSiteMove,
@@ -321,6 +333,7 @@ describe('importSitesCsv', () => {
     expect(result.evsesCreated).toBe(1);
     expect(result.connectorsCreated).toBe(1);
     expect(result.errors).toEqual([]);
+    expect(mockCreateTemplate).toHaveBeenCalledWith(expect.anything(), { id: 'station-1' });
   });
 
   it('skips existing site when updateExisting is false', async () => {
@@ -590,6 +603,70 @@ describe('importSitesCsv', () => {
     await importSitesCsv([{ siteName: 'Moved', stationId: 'CS-001' }], true);
 
     expect(mockSiteMove).toHaveBeenCalledWith('station-1', 'site-0', 'site-1', undefined);
+  });
+
+  it('audits a moved station and re-renders its screens for the new site', async () => {
+    const created = new Date('2026-01-01T00:00:00Z');
+    const updated = new Date('2026-02-01T00:00:00Z');
+    const previous = { id: 'station-1', stationId: 'CS-001', siteId: 'site-0' };
+    const after = { ...previous, siteId: 'site-1', createdAt: created, updatedAt: updated };
+    setupDbResults(
+      [], // site ilike pre-check: not found
+      [{ id: 'site-1', createdAt: created, updatedAt: created }], // site insert (created)
+      [previous], // the station before the import
+      [after], // station upsert
+    );
+    const actor = { actor: 'operator' as const, actorUserId: 'usr_1' };
+    const log = { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() };
+
+    await importSitesCsv(
+      [{ siteName: 'Moved', stationId: 'CS-001' }],
+      true,
+      actor,
+      null,
+      log as never,
+    );
+
+    expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+      expect.objectContaining({ idColumn: 'station_id' }),
+      expect.objectContaining({
+        entityId: 'station-1',
+        action: 'updated',
+        before: previous,
+        after,
+        notes: 'CSV import',
+      }),
+      expect.anything(),
+    );
+    expect(mockRepush).toHaveBeenCalledWith(log, { stationId: 'station-1' });
+  });
+
+  it('audits a station the import creates', async () => {
+    const now = new Date('2026-01-01T00:00:00Z');
+    const station = { id: 'station-9', stationId: 'CS-009', siteId: 'site-1' };
+    setupDbResults(
+      [], // site ilike pre-check: not found
+      [{ id: 'site-1', createdAt: now, updatedAt: now }], // site insert
+      [], // no station with that id yet
+      [station], // station insert
+    );
+
+    await importSitesCsv([{ siteName: 'New', stationId: 'CS-009' }], false, {
+      actor: 'operator',
+      actorUserId: 'usr_1',
+    });
+
+    expect(vi.mocked(writeAudit)).toHaveBeenCalledWith(
+      expect.objectContaining({ idColumn: 'station_id' }),
+      expect.objectContaining({
+        entityId: 'station-9',
+        action: 'created',
+        before: null,
+        after: station,
+      }),
+      expect.anything(),
+    );
+    expect(mockRepush).not.toHaveBeenCalled();
   });
 
   it('counts a station as updated when the upsert returns differing timestamps', async () => {

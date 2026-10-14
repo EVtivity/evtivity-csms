@@ -126,6 +126,9 @@ describe('logAuthorizeAttempt', () => {
       outcome: 'accepted',
       ocppVersion: 'ocpp1.6',
       reason: 'matched_active_token',
+      vehicleIdValue: null,
+      vehicleIdType: null,
+      matchedVehicleId: null,
     });
   });
 
@@ -150,6 +153,9 @@ describe('logAuthorizeAttempt', () => {
       outcome: 'unknown',
       ocppVersion: 'ocpp1.6',
       reason: null,
+      vehicleIdValue: null,
+      vehicleIdType: null,
+      matchedVehicleId: null,
     });
   });
 
@@ -177,6 +183,9 @@ describe('logAuthorizeAttempt', () => {
       outcome: 'invalid',
       ocppVersion: 'ocpp2.1',
       reason: null,
+      vehicleIdValue: null,
+      vehicleIdType: null,
+      matchedVehicleId: null,
     });
   });
 

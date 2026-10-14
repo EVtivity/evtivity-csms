@@ -96,6 +96,8 @@ const mocks = vi.hoisted(() => ({
   publishPricingChanged: vi.fn(),
   enableCssPair: vi.fn(),
   disableCssPair: vi.fn(),
+  mirrorCssConnectors: vi.fn(),
+  removeCssConnectors: vi.fn(),
   getUserSiteIds: vi.fn(),
   checkStationSiteAccess: vi.fn(),
   userCanAccessSite: vi.fn(),
@@ -250,6 +252,8 @@ vi.mock('../lib/pricing-events.js', () => ({
 vi.mock('../lib/css-pairing.js', () => ({
   enableCssPair: mocks.enableCssPair,
   disableCssPair: mocks.disableCssPair,
+  mirrorCssConnectors: mocks.mirrorCssConnectors,
+  removeCssConnectors: mocks.removeCssConnectors,
 }));
 
 vi.mock('../services/station-security.service.js', () => ({
@@ -480,13 +484,34 @@ describe('Station routes - cov2', () => {
       expect(mocks.disableCssPair).not.toHaveBeenCalled();
     });
 
+    it('refuses a station with an active session with 409 STATION_HAS_ACTIVE_SESSION', async () => {
+      queue([stationRow], [{ id: 'ses_1' }]);
+      const res = await inject('DELETE', `/stations/${STATION}`);
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('STATION_HAS_ACTIVE_SESSION');
+      expect(chainsOf('update')).toHaveLength(0);
+      expect(mocks.publish).not.toHaveBeenCalled();
+    });
+
     it('returns 404 when the removal update matches no row', async () => {
-      queue([stationRow], []);
+      queue([stationRow], [], []);
       const res = await inject('DELETE', `/stations/${STATION}`);
       expect(res.statusCode).toBe(404);
       expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
       expect(mocks.disableCssPair).not.toHaveBeenCalled();
       expect(mocks.writeAudit).not.toHaveBeenCalled();
+    });
+
+    it('blocks the station and closes its live connection', async () => {
+      queue([stationRow], [], [{ ...stationRow, onboardingStatus: 'blocked' }]);
+      const res = await inject('DELETE', `/stations/${STATION}`);
+      expect(res.statusCode).toBe(200);
+      const disconnects = mocks.publish.mock.calls
+        .filter((c) => c[0] === 'cache_invalidate')
+        .map((c) => JSON.parse(c[1] as string) as unknown);
+      expect(disconnects).toEqual([
+        { kind: 'station_disconnect', stationId: stationRow.stationId },
+      ]);
     });
   });
 
@@ -688,6 +713,55 @@ describe('Station routes - cov2', () => {
       expect(auditCalls('evse_changed')[0]).toMatchObject({
         before: { evseId: 1, connectors: [{ connectorId: 2, connectorType: 'Type2' }] },
       });
+    });
+
+    it('delete EVSE removes it from the paired simulator by the OCPP identity', async () => {
+      queue([{ id: 7 }], [], [{ siteId: null, stationOcppId: 'CS-1' }], []);
+      const res = await inject('DELETE', `/stations/${STATION}/evses/1`);
+      expect(res.statusCode).toBe(200);
+      expect(mocks.removeCssConnectors).toHaveBeenCalledWith(expect.anything(), 'CS-1', 1);
+    });
+
+    it('delete EVSE with sessions or meter values answers 409 EVSE_HAS_HISTORY', async () => {
+      queue([{ id: 7 }], [], [{ siteId: null, stationOcppId: 'CS-1' }], pgError('23503'));
+      const res = await inject('DELETE', `/stations/${STATION}/evses/1`);
+      expect(res.statusCode).toBe(409);
+      expect(res.json()).toEqual({
+        error:
+          'The EVSE or connector has charging history and cannot be deleted. Retire it instead.',
+        code: 'EVSE_HAS_HISTORY',
+      });
+      expect(auditCalls('evse_changed')).toHaveLength(0);
+      expect(mocks.removeCssConnectors).not.toHaveBeenCalled();
+    });
+
+    it('delete connector with sessions answers 409 EVSE_HAS_HISTORY', async () => {
+      queue(
+        [{ id: 7, stationOcppId: 'CS-1', siteId: null }],
+        [{ id: 9, status: 'available', connectorType: 'Type2', maxPowerKw: '22' }],
+        pgError('23503'),
+      );
+      const res = await inject('DELETE', `/stations/${STATION}/evses/1/connectors/2`);
+      expect(res.statusCode).toBe(409);
+      expect(res.json().code).toBe('EVSE_HAS_HISTORY');
+      expect(auditCalls('evse_changed')).toHaveLength(0);
+    });
+
+    it('delete connector removes it from the simulator and pushes the OCPI location', async () => {
+      queue(
+        [{ id: 7, stationOcppId: 'CS-1', siteId: 'sit_000000000001' }],
+        [{ id: 9, status: 'available', connectorType: 'Type2', maxPowerKw: '22' }],
+        [],
+      );
+      const { isRoamingEnabled } = await import('@evtivity/database');
+      vi.mocked(isRoamingEnabled).mockResolvedValueOnce(true);
+      const res = await inject('DELETE', `/stations/${STATION}/evses/1/connectors/2`);
+      expect(res.statusCode).toBe(200);
+      expect(mocks.removeCssConnectors).toHaveBeenCalledWith(expect.anything(), 'CS-1', 1, 2);
+      expect(mocks.publish).toHaveBeenCalledWith(
+        'ocpi_push',
+        JSON.stringify({ type: 'location', siteId: 'sit_000000000001' }),
+      );
     });
 
     it('stop active session writes command_dispatched with the session', async () => {
@@ -916,11 +990,12 @@ describe('Station routes - cov2', () => {
   });
 
   it('reject returns 404 for an unknown station', async () => {
-    queue([]);
+    // The compare-and-set moves nothing and no station has the id.
+    queue([], []);
     const res = await inject('POST', `/stations/${STATION}/reject`);
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toEqual({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-    expect(chainsOf('update')).toHaveLength(0);
+    expect(res.json().code).toBe('STATION_NOT_FOUND');
+    expect(mocks.writeAudit).not.toHaveBeenCalled();
   });
 });
 

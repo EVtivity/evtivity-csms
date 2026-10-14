@@ -7,7 +7,7 @@
  * Driver notification event types that are always on: what a driver needs to get into
  * their account (password reset, MFA codes, email verification, the portal invitation,
  * the notice that someone tried to register with their address) and the member invoice documents a fleet bills them with (invoice, credit note,
- * overdue reminder). The API refuses to turn them off, dispatch ignores a stored
+ * overdue reminder), and the notice of a session an Autocharge vehicle started. The API refuses to turn them off, dispatch ignores a stored
  * disabled setting, and a recipient's own notification preferences do not suppress them.
  */
 export const REQUIRED_DRIVER_EVENT_TYPES = [
@@ -19,6 +19,8 @@ export const REQUIRED_DRIVER_EVENT_TYPES = [
   'invoice.MemberInvoice',
   'invoice.MemberCreditNote',
   'invoice.MemberOverdue',
+  // A start the driver may not have made (Autocharge): owner decision 2026-10-14.
+  'session.AutochargeStarted',
 ] as const;
 
 const REQUIRED = new Set<string>(REQUIRED_DRIVER_EVENT_TYPES);

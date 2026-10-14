@@ -7,7 +7,8 @@
  * to the authorize attempts log. Steps, in order: free vend, token types
  * accepted without lookup, identity resolution (driver tokens, then the drv_
  * driver id fallback where the context has it and, for an untyped 1.6 idTag,
- * the guest session fallback), OCPI external tokens, the concurrent
+ * the guest session fallback), Autocharge vehicles (a token that is a vehicle
+ * id), OCPI external tokens, the concurrent
  * transaction check, prepaid credit, the fleet credit limit of a driver who
  * charges on account. The per-context differences live in
  * AUTHORIZE_CONTEXT_RULES.
@@ -26,6 +27,9 @@ import {
   guestSessions,
   isRoamingEnabled,
   isSiteFreeVendEnabledByStation,
+  findAutochargeVehicle,
+  findBlockedVehicle,
+  isAutochargeEnabledForStation,
 } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 import { logAuthorizeAttempt, parseOcpiValidThru } from './authorize-log.js';
@@ -116,6 +120,9 @@ export function recordAuthorizeDecision(
       outcome: decision.outcome,
       ocppVersion: input.ocppVersion,
       reason: decision.reason,
+      vehicleIdValue: input.vehicleId?.value ?? null,
+      vehicleIdType: input.vehicleId?.type ?? null,
+      matchedVehicleId: decision.matchedVehicleId ?? null,
     },
     logger,
   ).catch((err: unknown) => {
@@ -138,6 +145,7 @@ export function authorizeDecisionMessage(decision: AuthorizeDecision): string {
     return decision.status === 'accepted' ? 'Driver-id token accepted' : 'Driver-id token blocked';
   }
   if (decision.source === 'guest') return `Guest session token ${decision.status}`;
+  if (decision.source === 'vehicle') return `Autocharge vehicle ${decision.status}`;
   if (decision.reason === ACCOUNT_CREDIT_LIMIT_REASON) return 'Fleet credit limit reached';
   if (decision.status === 'no_credit') return 'Prepaid token without credit';
   if (decision.status !== 'accepted') return 'Token rejected by status';
@@ -382,6 +390,9 @@ async function resolveUntyped(
     }
   }
 
+  const byVehicle = await resolveVehicle(input);
+  if (byVehicle != null) return byVehicle;
+
   return notFound(input, rules, logger);
 }
 
@@ -401,6 +412,8 @@ async function resolveTyped(
   if (token == null) {
     const byDriverId = await resolveDriverId(input, rules);
     if (byDriverId != null) return byDriverId;
+    const byVehicle = await resolveVehicle(input);
+    if (byVehicle != null) return byVehicle;
     if (
       rules.acceptIssuedCentral &&
       type === DRIVER_ID_TOKEN_TYPE &&
@@ -470,6 +483,60 @@ async function resolveDriverId(
         source: 'driver_id',
         matchedDriverId: driver.id,
       };
+}
+
+/**
+ * Autocharge: no driver token has the value and the token is itself a vehicle
+ * id (a 2.1 idToken of type VIN, EVCCID or MacAddress, or a vehicle-shaped
+ * 1.6 idTag; a vehicle id in additionalInfo only rides along with another
+ * token). The vehicle with Autocharge on that holds the id authorizes the
+ * start as its driver when Autocharge is on at the station's site, the
+ * vehicle is not blocked and the driver is active; the later steps
+ * (ConcurrentTx, the fleet credit limit) and the payment gate then apply as to
+ * a card. An operator block refuses the id like a blocked token, with
+ * Autocharge on or off. Null when no vehicle holds the id: the token goes on
+ * to OCPI and is Invalid when nothing knows it.
+ */
+async function resolveVehicle(input: AuthorizeTokenInput): Promise<AuthorizeDecision | null> {
+  const capture = input.vehicleId;
+  if (capture == null || capture.source === 'additional_info') return null;
+  const match = await findAutochargeVehicle(capture);
+  if (match == null) {
+    const blocked = await findBlockedVehicle(capture);
+    return blocked != null
+      ? vehicleDecision('blocked', 'vehicle_blocked', blocked.vehicleId, blocked.driverId)
+      : null;
+  }
+  if (match.blocked) {
+    return vehicleDecision('blocked', 'vehicle_blocked', match.vehicleId, match.driverId);
+  }
+  if (!(await isAutochargeEnabledForStation(input.stationId))) {
+    return vehicleDecision('invalid', 'autocharge_disabled', match.vehicleId, match.driverId);
+  }
+  if (!match.driverIsActive) {
+    return vehicleDecision('blocked', 'driver_inactive', match.vehicleId, match.driverId);
+  }
+  return {
+    ...vehicleDecision('accepted', 'autocharge', match.vehicleId, match.driverId),
+    echoGroupId: true,
+  };
+}
+
+function vehicleDecision(
+  status: 'accepted' | 'blocked' | 'invalid',
+  reason: string,
+  vehicleId: string,
+  driverId: string,
+): AuthorizeDecision {
+  return {
+    ...NO_MATCH,
+    status,
+    outcome: status,
+    reason,
+    source: 'vehicle',
+    matchedDriverId: driverId,
+    matchedVehicleId: vehicleId,
+  };
 }
 
 /**
@@ -544,7 +611,8 @@ async function notFound(
 /**
  * A driver token already in an active session gets ConcurrentTx. Only an
  * accepted driver token is checked: the other sources do not write
- * `charging_sessions.token_id`. The session of the message's own transaction
+ * `charging_sessions.token_id`. An Autocharge vehicle is checked the same
+ * way against the active sessions it authorized itself. The session of the message's own transaction
  * at this station is not counted, matched by the station row id or, when the
  * context has none, by the station's OCPP id. A failed lookup keeps the
  * decision.
@@ -559,7 +627,7 @@ async function checkConcurrentTransaction(
     rules.concurrentTx === 'off' ||
     (rules.concurrentTx === 'prepaid_only' && decision.prepaidBalanceCents == null) ||
     decision.status !== 'accepted' ||
-    decision.matchedTokenId == null
+    (decision.matchedTokenId == null && decision.matchedVehicleId == null)
   ) {
     return decision;
   }
@@ -580,7 +648,12 @@ async function checkConcurrentTransaction(
       .from(chargingSessions)
       .where(
         and(
-          eq(chargingSessions.tokenId, decision.matchedTokenId),
+          decision.matchedTokenId != null
+            ? eq(chargingSessions.tokenId, decision.matchedTokenId)
+            : and(
+                eq(chargingSessions.vehicleId, decision.matchedVehicleId ?? ''),
+                eq(chargingSessions.autocharge, true),
+              ),
           eq(chargingSessions.status, 'active'),
           input.transactionId != null && ownStationDbId != null
             ? or(

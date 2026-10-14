@@ -81,6 +81,12 @@ export const sites = pgTable(
     freeVendEnabled: boolean('free_vend_enabled').notNull().default(false),
     freeVendTemplateId21: text('free_vend_template_id_21'),
     freeVendTemplateId16: text('free_vend_template_id_16'),
+    // Config templates that push authorization back when free vend is turned
+    // off: the values the stations reported when free vend was turned on.
+    freeVendRestoreTemplateId21: text('free_vend_restore_template_id_21'),
+    freeVendRestoreTemplateId16: text('free_vend_restore_template_id_16'),
+    // Autocharge at this site; null follows the autocharge.enabled setting.
+    autochargeEnabled: boolean('autocharge_enabled'),
     carbonRegionCode: varchar('carbon_region_code', { length: 20 }),
     // Station display language of the site; null follows stationMessage.language.
     stationMessageLanguage: varchar('station_message_language', { length: 10 }),
@@ -179,6 +185,10 @@ export const evses = pgTable(
       .references(() => chargingStations.id, { onDelete: 'cascade' }),
     evseId: integer('evse_id').notNull(),
     autoCreated: boolean('auto_created').default(false).notNull(),
+    // Retired by an operator: hidden from drivers, roaming partners, new
+    // sessions and reservations, the derived status and uptime, with its
+    // history kept (station-evse-retire.ts). Null while in service.
+    retiredAt: timestamp('retired_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -206,6 +216,9 @@ export const connectors = pgTable(
     maxPowerKw: numeric('max_power_kw'),
     maxCurrentAmps: integer('max_current_amps'),
     autoCreated: boolean('auto_created').default(false).notNull(),
+    // Retired by an operator, like evses.retired_at; a connector of a retired
+    // EVSE is out of service too. Null while in service.
+    retiredAt: timestamp('retired_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

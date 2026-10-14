@@ -9,6 +9,7 @@
  * response. Nothing here imports generated OCPP types.
  */
 
+import type { VehicleIdCapture } from '@evtivity/lib/vehicle-id';
 import type { AuthorizeOutcome } from './authorize-log.js';
 
 /** Why the token is checked: an Authorize request, a transaction start, or a later transaction event. */
@@ -33,6 +34,14 @@ export interface AuthorizeTokenInput {
    * session the projection already linked to the token.
    */
   transactionId?: string | null;
+  /**
+   * The vehicle id the message carries (@evtivity/lib/vehicle-id): a 2.1
+   * idToken of type VIN, EVCCID or MacAddress, a vehicle id in its
+   * additionalInfo, or a vehicle-shaped 1.6 idTag. Logged with the attempt;
+   * only a token that is itself the vehicle id (not additionalInfo) can be
+   * authorized by an Autocharge vehicle.
+   */
+  vehicleId?: VehicleIdCapture | null;
 }
 
 export type AuthorizeStatus =
@@ -52,6 +61,7 @@ export type AuthorizeSource =
   | 'no_lookup_type'
   | 'accept_when_not_found'
   | 'issued_central'
+  | 'vehicle'
   | 'no_authorization'
   | 'not_found'
   | 'db_error';
@@ -65,6 +75,13 @@ export interface AuthorizeDecision {
   source: AuthorizeSource;
   matchedTokenId: string | null;
   matchedDriverId: string | null;
+  /**
+   * The Autocharge vehicle that authorized or refused the start (source
+   * `vehicle`). An accepted vehicle is never cached by the station: the
+   * adapters send a cache expiry of now, so turning Autocharge off or an
+   * operator block takes effect at the next start.
+   */
+  matchedVehicleId?: string | null;
   /**
    * The matched token's expiry, set when a usable driver token matched. It
    * stays set when a later step (ConcurrentTx, prepaid) changes the status, so

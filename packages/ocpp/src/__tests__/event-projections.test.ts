@@ -108,6 +108,8 @@ vi.mock('../../../database/src/lib/audit.js', () => ({
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
+  // The session site sub-select (lib/session-site.ts), a plain value here.
+  sessionSiteIdSql: vi.fn(() => 'site-of-station'),
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
@@ -503,14 +505,14 @@ describe('Event projections', () => {
       expect(fanoutCall).toBeUndefined();
     });
 
-    it('logs port status transitions for existing EVSEs', async () => {
+    it('logs each connector back at its stored status', async () => {
       await setup();
 
       setupSqlResults(
         [{ id: 'sta_000000000001' }], // resolveStationId
         [], // UPDATE charging_stations
         [], // INSERT connection_logs
-        [], // INSERT port_status_log ... SELECT FROM evses
+        [], // INSERT port_status_log ... SELECT FROM connectors
         [{ site_id: null }], // resolveSiteId
         [], // pg_notify
       );
@@ -520,12 +522,14 @@ describe('Event projections', () => {
         makeDomainEvent('station.Connected', 'CS-001', { ocppProtocol: 'ocpp2.1' }),
       );
 
-      // One statement logs every EVSE of the station, so a retry cannot log a part twice.
+      // One statement logs every connector of the station, so a retry cannot
+      // log a part twice. A connector returns to its stored status (a faulted
+      // one stays down), the mirror of the disconnect rows.
       const portLogs = sqlCalls.filter((c) => c.strings.join('?').includes('port_status_log'));
       expect(portLogs).toHaveLength(1);
-      expect(portLogs[0]?.strings.join('?')).toMatch(
-        /SELECT \?, evse_id, 'unavailable', 'available', now\(\)\s+FROM evses WHERE station_id = \?/,
-      );
+      const statement = portLogs[0]?.strings.join('?') ?? '';
+      expect(statement).toMatch(/'unavailable', c\.status, now\(\)\s+FROM connectors c/);
+      expect(statement).toMatch(/AND c\.status != 'unavailable'/);
     });
   });
 
@@ -1520,7 +1524,8 @@ describe('Event projections', () => {
         const inserts = sqlCalls.filter((c) =>
           c.strings.join('?').includes('INSERT INTO charging_sessions'),
         );
-        return inserts[inserts.length - 1]?.values[2];
+        // id, station, site, evse.
+        return inserts[inserts.length - 1]?.values[3];
       };
 
       await eventBus.emit('ocpp.TransactionEvent', started('tx-before-evse'));

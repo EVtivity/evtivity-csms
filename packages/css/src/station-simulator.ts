@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomInt, randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import {
   buildCssConfigDefaults,
@@ -17,6 +17,14 @@ import { validateStationPassword } from '@evtivity/lib/station-password';
 import { OcppClient } from './ocpp-client.js';
 import { config as cssConfig } from './lib/config.js';
 import { logger } from './lib/logger.js';
+import {
+  PNC16_VENDOR_ID,
+  isPnc16MessageId,
+  unwrapPnc16Answer,
+  unwrapPnc16Data,
+  wrapPnc16,
+  type Pnc16MessageId,
+} from '@evtivity/lib';
 import { MeterValueGenerator } from './meter-value-generator.js';
 import { OcmfMeterSigner } from './signed-meter-values.js';
 import { computeCompositeSchedule } from './composite-schedule.js';
@@ -29,6 +37,7 @@ import {
   contractCertificateHashData,
   randomPcid,
   TestEv,
+  updateRequest,
   type Edition,
   type InstalledContract,
 } from './lib/iso15118-test-ev.js';
@@ -206,6 +215,31 @@ export function clampStatusForAdminAvailability(status: string, adminUnavailable
   return 'Unavailable';
 }
 
+/**
+ * The EV plugged into an EVSE, as the charger learns it in the ISO 15118-2 /
+ * DIN 70121 handshake: its charging controller id (EVCCID, the MAC address)
+ * and VIN. With `autocharge` the station authorizes the EV by that id after
+ * the plug-in (Autocharge, charge by plugging in): OCPP 2.1 Authorize with
+ * idToken type MacAddress, EVCCID or VIN, OCPP 1.6 Authorize with the idTag
+ * `<idTagPrefix><id>` (default prefix `VID:` for a MAC address, none for a
+ * VIN). Any 2.1 transaction start on the EVSE carries the EVCCID in
+ * idToken.additionalInfo (type EVCCID, Q01.FR.02). In memory only.
+ */
+export interface PluggedInEv {
+  evccid?: string | undefined;
+  vin?: string | undefined;
+  autocharge?: 'MacAddress' | 'EVCCID' | 'VIN' | undefined;
+  idTagPrefix?: string | undefined;
+}
+
+/** The outcome of an Autocharge plug-in: the authorize status and the transaction it started. */
+export interface AutochargeResult {
+  idToken: string;
+  tokenType: string;
+  status: string;
+  transactionId: string | null;
+}
+
 /** Forced answer of the next ReserveNow: a status, or no CALLRESULT at all. */
 export type ReservationReplyOverride = 'Rejected' | 'Occupied' | 'NoReply';
 
@@ -249,6 +283,8 @@ export class StationSimulator {
    */
   private stationPowerLimitW: number | null = null;
   private readonly evseIdle = new Map<number, boolean>();
+  /** The EV plugged into each EVSE (vehicle ids for Autocharge and additionalInfo). */
+  private readonly pluggedInEvs = new Map<number, PluggedInEv>();
   /** Plug and Charge EV per EVSE and its installed contract (in memory, like the EV). */
   private readonly pncEvs = new Map<number, { ev: TestEv; contract: InstalledContract | null }>();
   private readonly evseChargingState = new Map<number, string | null>();
@@ -306,6 +342,8 @@ export class StationSimulator {
   private interruptedTransactions16 = new Set<number>();
   // Key pairs of the CSRs sent per certificateType, awaiting CertificateSigned (A02).
   private readonly pendingCsrKeys = new Map<string, string[]>();
+  /** requestId of the open SignCertificateRequest per certificate type (2.1, A02.FR.24). */
+  private readonly pendingCsrRequestIds = new Map<string, number>();
   // A02.FR.17-19 resend timers per certificateType.
   private readonly certSigningTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private certificateReconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1151,8 +1189,24 @@ export class StationSimulator {
     console.log(`[${this.config.stationId}] Next ReserveNow reply: ${reply}`);
   }
 
-  async plugIn(evseId: number): Promise<void> {
+  /**
+   * Plugs in an EV with vehicle ids. With `ev.autocharge` the station then
+   * authorizes the EV by that id (Autocharge) and returns the outcome; null
+   * when it does not (no autocharge, a transaction or an authorization
+   * already on the EVSE).
+   */
+  async plugInEv(evseId: number, ev: PluggedInEv): Promise<AutochargeResult | null> {
+    await this.plugIn(evseId, ev);
     const ctx = this.evseContexts.get(evseId) as EvseContext;
+    if (ev.autocharge == null || ctx.transactionId != null || ctx.state !== 'Preparing') {
+      return null;
+    }
+    return this.autochargeAuthorize(evseId, ev);
+  }
+
+  async plugIn(evseId: number, ev?: PluggedInEv): Promise<void> {
+    const ctx = this.evseContexts.get(evseId) as EvseContext;
+    if (ev != null) this.pluggedInEvs.set(evseId, ev);
 
     // No-op if cable is already plugged AND a transaction is active. Without
     // this guard, clicking Plug In during Charging regresses the connector
@@ -1236,6 +1290,31 @@ export class StationSimulator {
     } else {
       ctx.state = 'Preparing';
     }
+  }
+
+  /**
+   * Autocharge: the station authorizes the plugged-in EV by its id and, when
+   * accepted, starts the transaction with it (the authorize auto-start of a
+   * plugged cable). A refused id starts nothing.
+   */
+  private async autochargeAuthorize(evseId: number, ev: PluggedInEv): Promise<AutochargeResult> {
+    const type = ev.autocharge ?? 'MacAddress';
+    const raw = type === 'VIN' ? ev.vin : ev.evccid;
+    if (raw == null || raw === '') {
+      throw new Error(
+        `Autocharge with ${type} needs the EV's ${type === 'VIN' ? 'vin' : 'evccid'}`,
+      );
+    }
+    const prefix = ev.idTagPrefix ?? (type === 'VIN' ? '' : 'VID:');
+    const idToken = this.is16 ? `${prefix}${raw}` : raw;
+    const tokenType = this.is16 ? 'ISO14443' : type;
+    const result = await this.authorize(evseId, idToken, tokenType);
+    const info = result[this.is16 ? 'idTagInfo' : 'idTokenInfo'] as
+      | Record<string, unknown>
+      | undefined;
+    const status = typeof info?.['status'] === 'string' ? info['status'] : 'Unknown';
+    const ctx = this.evseContexts.get(evseId) as EvseContext;
+    return { idToken, tokenType, status, transactionId: ctx.transactionId };
   }
 
   async authorize(
@@ -1913,6 +1992,7 @@ export class StationSimulator {
     }
 
     ctx.cablePlugged = false;
+    this.pluggedInEvs.delete(evseId);
     const connectorId = this.getConnectorId(evseId);
 
     // If a transaction is active, check StopTransactionOnEVSideDisconnect
@@ -2221,6 +2301,9 @@ export class StationSimulator {
     edition: Edition = 2,
   ): Promise<{ pcid: string; oemRootCertificate: string; edition: Edition }> {
     this.requirePnc(evseId);
+    if (this.is16 && edition !== 2) {
+      throw new Error('The OCPP 1.6 application note covers ISO 15118-2 EVs only (edition 2)');
+    }
     const ev = await TestEv.create(edition, randomPcid('EVSIM'), 'EVtivity Simulator');
     this.pncEvs.set(evseId, { ev, contract: null });
     return { pcid: ev.pcid, oemRootCertificate: ev.oemRoot.toString('pem'), edition };
@@ -2263,6 +2346,80 @@ export class StationSimulator {
   }
 
   /**
+   * The EV updates its contract (M02, ISO 15118-2 only): Get15118EVCertificate with action
+   * Update and a CertificateUpdateReq signed with the current contract key. The station keeps
+   * the new contract only when the response is Accepted and the EV's checks pass. Returns the
+   * eMAID.
+   */
+  async updatePncContract(evseId: number): Promise<{ emaid: string }> {
+    this.requirePnc(evseId);
+    const entry = this.pncEvs.get(evseId);
+    const contract = entry?.contract;
+    if (entry == null || contract == null) {
+      throw new Error('No contract installed, install one first');
+    }
+    if (entry.ev.edition !== 2) {
+      throw new Error('Contract update is an ISO 15118-2 message: create the EV with edition 2');
+    }
+    const response = await this.sendGet15118EVCertificate(
+      entry.ev.namespace,
+      'Update',
+      updateRequest(contract),
+    );
+    const exi = response['exiResponse'];
+    if (response['status'] !== 'Accepted' || typeof exi !== 'string' || exi === '') {
+      throw new Error(
+        `Get15118EVCertificate was not accepted (status ${String(response['status'])})`,
+      );
+    }
+    const check = checkIso2Response(exi, 'CertificateUpdateRes', contract.privateKey);
+    if (!check.ok) throw new Error(`The EV refused the contract: ${check.reason}`);
+    this.pncEvs.set(evseId, { ev: entry.ev, contract: check.contract });
+    return { emaid: check.contract.emaid };
+  }
+
+  /**
+   * Plug and Charge authorization (C07) without a start: Authorize with the contract's eMAID
+   * (type eMAID) and the iso15118CertificateHashData of its certificate chain. Returns the
+   * CSMS answer, so a check can see a revoked contract refused.
+   */
+  async authorizePnc(
+    evseId: number,
+  ): Promise<{ emaid: string; status: string; certificateStatus: string | null }> {
+    this.requirePnc(evseId);
+    const contract = this.pncEvs.get(evseId)?.contract;
+    if (contract == null) throw new Error('No contract installed, install one first');
+    const info = await this.authorizeContract(contract);
+    return {
+      emaid: contract.emaid,
+      status: String(info.status),
+      certificateStatus: typeof info.certificateStatus === 'string' ? info.certificateStatus : null,
+    };
+  }
+
+  /** Authorize with the contract (C07); the answer's idTokenInfo is cached like any token. */
+  private async authorizeContract(
+    contract: InstalledContract,
+  ): Promise<{ status: unknown; certificateStatus: unknown }> {
+    if (!this.client.isConnected) {
+      throw new Error('Plug and Charge needs the station online');
+    }
+    // 1.6: the wrapped Authorize replaces the regular one; its IdTokenType has no type (5, 7.3).
+    const response = this.is16
+      ? await this.sendPnc16('Authorize', {
+          idToken: { idToken: contract.emaid },
+          iso15118CertificateHashData: contractCertificateHashData(contract),
+        })
+      : await this.client.sendCall('Authorize', {
+          idToken: { idToken: contract.emaid, type: 'eMAID' },
+          iso15118CertificateHashData: contractCertificateHashData(contract),
+        });
+    const info = response['idTokenInfo'] as Record<string, unknown> | undefined;
+    if (info != null) this.cacheIdTokenInfo(contract.emaid, info);
+    return { status: info?.['status'], certificateStatus: response['certificateStatus'] };
+  }
+
+  /**
    * Plug and Charge start (C07): Authorize with the contract's eMAID (type eMAID) and the
    * iso15118CertificateHashData of its certificate chain, then the transaction starts with
    * the eMAID. Needs the cable plugged in and the station online (the CSMS validates the
@@ -2278,27 +2435,198 @@ export class StationSimulator {
       if (ctx.authorizedToken === contract.emaid) return ctx.transactionId;
       throw new Error('Transaction already active on this EVSE');
     }
-    if (!this.client.isConnected) {
-      throw new Error('Plug and Charge needs the station online');
-    }
-    const response = await this.client.sendCall('Authorize', {
-      idToken: { idToken: contract.emaid, type: 'eMAID' },
-      iso15118CertificateHashData: contractCertificateHashData(contract),
-    });
-    const info = response['idTokenInfo'] as Record<string, unknown> | undefined;
-    if (info != null) this.cacheIdTokenInfo(contract.emaid, info);
-    if (info?.['status'] !== 'Accepted') {
-      throw new Error(`Authorization rejected: ${String(info?.['status'])}`);
+    const { status, certificateStatus } = await this.authorizeContract(contract);
+    if (status !== 'Accepted') {
+      throw new Error(
+        `Authorization rejected: ${String(status)} (certificate ${String(certificateStatus)})`,
+      );
     }
     ctx.authorizedToken = contract.emaid;
     ctx.authorizedTokenType = 'eMAID';
     return this.beginTransaction(evseId, contract.emaid, 'eMAID');
   }
 
-  /** Plug and Charge is OCPP 2.1 only and needs a known EVSE. */
+  /**
+   * DataTransfer with the ISO 15118 vendorId on a 1.6 station (OCA application
+   * note): the Central System's TriggerMessage, CertificateSigned,
+   * InstallCertificate, GetInstalledCertificateIds and DeleteCertificate,
+   * answered in the DataTransfer data. UnknownMessageId for other messageIds,
+   * Rejected while ISO15118PnCEnabled is false or for a message that is not valid.
+   */
+  private pnc16DataTransfer(payload: Record<string, unknown>): Record<string, unknown> {
+    const messageId = payload['messageId'];
+    if (!isPnc16MessageId(messageId)) return { status: 'UnknownMessageId' };
+    if (this.getConfigValue('ISO15118PnCEnabled') === 'false') return { status: 'Rejected' };
+    const message = unwrapPnc16Data(payload['data']);
+    if (message == null) return { status: 'Rejected' };
+    let answer: Record<string, unknown>;
+    switch (messageId) {
+      case 'TriggerMessage':
+        // 6.9: no fields; a CSR for the station's ISO 15118 V2G certificate.
+        setTimeout(() => {
+          void this.requestCertificateSigning('V2GCertificate').catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[${this.config.stationId}] V2G SignCertificate failed: ${msg}`);
+          });
+        }, 100);
+        answer = { status: 'Accepted' };
+        break;
+      case 'CertificateSigned':
+        answer = this.handleCertificateSigned({
+          certificateChain: message['certificateChain'],
+          certificateType: 'V2GCertificate',
+        });
+        break;
+      case 'InstallCertificate':
+        answer =
+          message['certificateType'] === 'V2GRootCertificate' ||
+          message['certificateType'] === 'MORootCertificate'
+            ? this.installCertificate21(message)
+            : { status: 'Rejected' };
+        break;
+      case 'GetInstalledCertificateIds':
+        answer = this.getInstalledCertificateIds21(message);
+        break;
+      case 'DeleteCertificate':
+        answer = this.deleteCertificate21(message);
+        break;
+      default:
+        // Station-initiated messages are not sent to a station.
+        return { status: 'Rejected' };
+    }
+    return { status: 'Accepted', data: JSON.stringify(answer) };
+  }
+
+  /** DeleteCertificate (2.1, and the ISO 15118 DataTransfer on 1.6). */
+  private deleteCertificate21(payload: Record<string, unknown>): Record<string, unknown> {
+    const hashData = payload['certificateHashData'] as Record<string, string> | undefined;
+    const serial = hashData?.['serialNumber'] ?? '';
+    // Check in-memory cache first
+    if (this.installedCertificatesCache.has(serial)) {
+      const entry = this.installedCertificatesCache.get(serial);
+      // Refuse to delete CSMSRootCertificate (station's own trust anchor)
+      if (entry?.certificateType === 'CSMSRootCertificate') {
+        return { status: 'Failed' };
+      }
+      this.installedCertificatesCache.delete(serial);
+      console.log(`[${this.config.stationId}] DeleteCertificate: removed ${serial}`);
+      return { status: 'Accepted' };
+    }
+    return { status: 'NotFound' };
+  }
+
+  /** GetInstalledCertificateIds (2.1, and the ISO 15118 DataTransfer on 1.6). */
+  private getInstalledCertificateIds21(payload: Record<string, unknown>): Record<string, unknown> {
+    const requestedTypes = payload['certificateType'] as string[] | undefined;
+
+    // Build cert chain from in-memory cache (loaded from DB + defaults on startup,
+    // updated by InstallCertificate/DeleteCertificate)
+    type CertEntry = {
+      certificateType: string;
+      certificateHashData: Record<string, string>;
+      childCertificateHashData?: Array<Record<string, string>>;
+    };
+    let certChain: CertEntry[] = [];
+    for (const entry of this.installedCertificatesCache.values()) {
+      const item: CertEntry = {
+        certificateType: entry.certificateType,
+        certificateHashData: { ...entry.certificateHashData },
+      };
+      // V2GCertificateChain includes child certificate hash data
+      if (entry.certificateType === 'V2GCertificateChain') {
+        item.childCertificateHashData = [
+          {
+            hashAlgorithm: 'SHA256',
+            issuerNameHash: entry.certificateHashData['issuerNameHash'] ?? '',
+            issuerKeyHash: entry.certificateHashData['issuerKeyHash'] ?? '',
+            serialNumber: `${entry.certificateHashData['serialNumber'] ?? ''}-child`,
+          },
+        ];
+      }
+      certChain.push(item);
+    }
+
+    // Filter by requested types if specified
+    if (requestedTypes != null && requestedTypes.length > 0) {
+      certChain = certChain.filter((c) => requestedTypes.includes(c.certificateType));
+    }
+
+    if (certChain.length === 0) {
+      return { status: 'NotFound' };
+    }
+
+    return {
+      status: 'Accepted',
+      certificateHashDataChain: certChain,
+    };
+  }
+
+  /** InstallCertificate (2.1, and the ISO 15118 DataTransfer on 1.6). */
+  private installCertificate21(payload: Record<string, unknown>): Record<string, unknown> {
+    const installType = (payload['certificateType'] as string | undefined) ?? 'CSMSRootCertificate';
+    const certPem = (payload['certificate'] as string | undefined) ?? '';
+
+    // Reject obviously invalid certificates (expired, unsigned, too short to be valid PEM)
+    if (
+      certPem.includes('EXPIRED') ||
+      certPem.includes('UNSIGNED') ||
+      (certPem.length < 50 && !certPem.startsWith('MII'))
+    ) {
+      return { status: 'Rejected' };
+    }
+
+    const installSerial = randomUUID().slice(0, 8);
+    const issuerNameHash = randomUUID().replace(/-/g, '').slice(0, 40);
+    const issuerKeyHash = randomUUID().replace(/-/g, '').slice(0, 40);
+    const parsed = parseCertificateChain(certPem)?.[0];
+    // A real certificate must be within its validity period.
+    if (parsed != null && !isWithinValidity(parsed)) {
+      return { status: 'Rejected' };
+    }
+
+    this.installedCertificatesCache.set(installSerial, {
+      certificateType: installType,
+      certificateHashData: {
+        hashAlgorithm: 'SHA256',
+        issuerNameHash,
+        issuerKeyHash,
+        serialNumber: installSerial,
+      },
+      ...(parsed != null ? { certificate: parsed.toString() } : {}),
+    });
+
+    // A real CSMS root joins the TLS trust store of the CSMS connection.
+    if (installType === 'CSMSRootCertificate' && parsed != null) {
+      this.refreshTrustAnchors();
+    }
+
+    console.log(`[${this.config.stationId}] InstallCertificate: ${installType} (${installSerial})`);
+
+    return { status: 'Accepted' };
+  }
+
+  /**
+   * Plug and Charge needs a known EVSE. A 1.6 station runs it over DataTransfer
+   * (OCA application note) when ISO15118PnCEnabled is not false.
+   */
   private requirePnc(evseId: number): void {
-    if (this.is16) throw new Error('Plug and Charge needs an OCPP 2.1 station');
+    if (this.is16 && this.getConfigValue('ISO15118PnCEnabled') === 'false') {
+      throw new Error('Plug and Charge is off on this OCPP 1.6 station (ISO15118PnCEnabled)');
+    }
     if (!this.evseContexts.has(evseId)) throw new Error(`Unknown EVSE ${String(evseId)}`);
+  }
+
+  /**
+   * Sends an application note message in a DataTransfer (1.6) and returns the
+   * wrapped answer; a DataTransfer the CSMS did not accept answers `{ status }`
+   * with its DataTransfer status.
+   */
+  private async sendPnc16(
+    messageId: Pnc16MessageId,
+    message: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const response = await this.client.sendCall('DataTransfer', wrapPnc16(messageId, message));
+    return unwrapPnc16Answer(response) ?? { status: response['status'] };
   }
 
   // ---------------------------------------------------------------------------
@@ -3107,10 +3435,17 @@ export class StationSimulator {
     };
 
     if (opts.idToken != null) {
-      payload['idToken'] = {
+      const idToken: Record<string, unknown> = {
         idToken: opts.idToken,
         type: opts.tokenType ?? 'ISO14443',
       };
+      // Q01.FR.02: the EVCCID of the plugged-in EV rides along with the token
+      // that authorizes the transaction, unless the token is that id.
+      const evccid = this.pluggedInEvs.get(evseId)?.evccid;
+      if (!this.is16 && evccid != null && evccid !== '' && evccid !== opts.idToken) {
+        idToken['additionalInfo'] = [{ additionalIdToken: evccid, type: 'EVCCID' }];
+      }
+      payload['idToken'] = idToken;
     }
 
     if (opts.meterValue != null) {
@@ -3569,8 +3904,17 @@ export class StationSimulator {
   async sendSignCertificate(
     csr: string,
     certificateType: string = 'ChargingStationCertificate',
+    requestId?: number,
   ): Promise<Record<string, unknown>> {
-    return this.client.sendCall('SignCertificate', { csr, certificateType });
+    // 1.6: the V2G certificate CSR goes in the application note's DataTransfer (6.8, csr only).
+    if (this.is16 && certificateType === 'V2GCertificate') {
+      return this.sendPnc16('SignCertificate', { csr });
+    }
+    return this.client.sendCall('SignCertificate', {
+      csr,
+      certificateType,
+      ...(requestId != null ? { requestId } : {}),
+    });
   }
 
   async sendGetCertificateStatus(
@@ -3643,11 +3987,9 @@ export class StationSimulator {
     action: string,
     exiRequest: string,
   ): Promise<Record<string, unknown>> {
-    return this.client.sendCall('Get15118EVCertificate', {
-      iso15118SchemaVersion,
-      action,
-      exiRequest,
-    });
+    const message = { iso15118SchemaVersion, action, exiRequest };
+    if (this.is16) return this.sendPnc16('Get15118EVCertificate', message);
+    return this.client.sendCall('Get15118EVCertificate', message);
   }
 
   async sendGetCertificateChainStatus(
@@ -4413,6 +4755,7 @@ export class StationSimulator {
           'TransactionEvent',
           'SignChargingStationCertificate',
           'SignV2GCertificate',
+          'SignV2G20Certificate',
           'PublishFirmwareStatusNotification',
           'CustomTrigger',
         ];
@@ -5475,113 +5818,17 @@ export class StationSimulator {
 
       case 'DeleteCertificate': {
         if (this.is16) return this.deleteCertificate16(payload);
-        const hashData = payload['certificateHashData'] as Record<string, string> | undefined;
-        const serial = hashData?.['serialNumber'] ?? '';
-        // Check in-memory cache first
-        if (this.installedCertificatesCache.has(serial)) {
-          const entry = this.installedCertificatesCache.get(serial);
-          // Refuse to delete CSMSRootCertificate (station's own trust anchor)
-          if (entry?.certificateType === 'CSMSRootCertificate') {
-            return { status: 'Failed' };
-          }
-          this.installedCertificatesCache.delete(serial);
-          console.log(`[${this.config.stationId}] DeleteCertificate: removed ${serial}`);
-          return { status: 'Accepted' };
-        }
-        return { status: 'NotFound' };
+        return this.deleteCertificate21(payload);
       }
 
       case 'GetInstalledCertificateIds': {
         if (this.is16) return this.getInstalledCertificateIds16(payload);
-        const requestedTypes = payload['certificateType'] as string[] | undefined;
-
-        // Build cert chain from in-memory cache (loaded from DB + defaults on startup,
-        // updated by InstallCertificate/DeleteCertificate)
-        type CertEntry = {
-          certificateType: string;
-          certificateHashData: Record<string, string>;
-          childCertificateHashData?: Array<Record<string, string>>;
-        };
-        let certChain: CertEntry[] = [];
-        for (const entry of this.installedCertificatesCache.values()) {
-          const item: CertEntry = {
-            certificateType: entry.certificateType,
-            certificateHashData: { ...entry.certificateHashData },
-          };
-          // V2GCertificateChain includes child certificate hash data
-          if (entry.certificateType === 'V2GCertificateChain') {
-            item.childCertificateHashData = [
-              {
-                hashAlgorithm: 'SHA256',
-                issuerNameHash: entry.certificateHashData['issuerNameHash'] ?? '',
-                issuerKeyHash: entry.certificateHashData['issuerKeyHash'] ?? '',
-                serialNumber: `${entry.certificateHashData['serialNumber'] ?? ''}-child`,
-              },
-            ];
-          }
-          certChain.push(item);
-        }
-
-        // Filter by requested types if specified
-        if (requestedTypes != null && requestedTypes.length > 0) {
-          certChain = certChain.filter((c) => requestedTypes.includes(c.certificateType));
-        }
-
-        if (certChain.length === 0) {
-          return { status: 'NotFound' };
-        }
-
-        return {
-          status: 'Accepted',
-          certificateHashDataChain: certChain,
-        };
+        return this.getInstalledCertificateIds21(payload);
       }
 
       case 'InstallCertificate': {
         if (this.is16) return this.installCertificate16(payload);
-        const installType =
-          (payload['certificateType'] as string | undefined) ?? 'CSMSRootCertificate';
-        const certPem = (payload['certificate'] as string | undefined) ?? '';
-
-        // Reject obviously invalid certificates (expired, unsigned, too short to be valid PEM)
-        if (
-          certPem.includes('EXPIRED') ||
-          certPem.includes('UNSIGNED') ||
-          (certPem.length < 50 && !certPem.startsWith('MII'))
-        ) {
-          return { status: 'Rejected' };
-        }
-
-        const installSerial = randomUUID().slice(0, 8);
-        const issuerNameHash = randomUUID().replace(/-/g, '').slice(0, 40);
-        const issuerKeyHash = randomUUID().replace(/-/g, '').slice(0, 40);
-        const parsed = parseCertificateChain(certPem)?.[0];
-        // A real certificate must be within its validity period.
-        if (parsed != null && !isWithinValidity(parsed)) {
-          return { status: 'Rejected' };
-        }
-
-        this.installedCertificatesCache.set(installSerial, {
-          certificateType: installType,
-          certificateHashData: {
-            hashAlgorithm: 'SHA256',
-            issuerNameHash,
-            issuerKeyHash,
-            serialNumber: installSerial,
-          },
-          ...(parsed != null ? { certificate: parsed.toString() } : {}),
-        });
-
-        // A real CSMS root joins the TLS trust store of the CSMS connection.
-        if (installType === 'CSMSRootCertificate' && parsed != null) {
-          this.refreshTrustAnchors();
-        }
-
-        console.log(
-          `[${this.config.stationId}] InstallCertificate: ${installType} (${installSerial})`,
-        );
-
-        return { status: 'Accepted' };
+        return this.installCertificate21(payload);
       }
 
       case 'ExtendedTriggerMessage':
@@ -6245,7 +6492,9 @@ export class StationSimulator {
       }
 
       case 'DataTransfer':
-        // Unknown vendor/message: return UnknownVendorId per OCPP spec
+        // ISO 15118 Plug and Charge on 1.6 (OCA application note); any other vendor is unknown.
+        if (this.is16 && payload['vendorId'] === PNC16_VENDOR_ID)
+          return this.pnc16DataTransfer(payload);
         return { status: 'UnknownVendorId' };
 
       case 'SetDefaultTariff': {
@@ -7272,6 +7521,9 @@ export class StationSimulator {
           break;
         case 'SignV2GCertificate':
           await this.requestCertificateSigning('V2GCertificate');
+          break;
+        case 'SignV2G20Certificate':
+          await this.requestCertificateSigning('V2G20Certificate');
           break;
         case 'PublishFirmwareStatusNotification':
           await this.sendPublishFirmwareStatusNotification('Idle');
@@ -8410,7 +8662,7 @@ export class StationSimulator {
    */
   private async requestCertificateSigning(certificateType: string): Promise<void> {
     this.clearCertSigningTimer(certificateType);
-    const v2g = certificateType === 'V2GCertificate';
+    const v2g = certificateType === 'V2GCertificate' || certificateType === 'V2G20Certificate';
     const organizationName =
       this.getConfigValue('SecurityCtrlr.OrganizationName') ?? this.config.vendorName;
     // A00.FR.511: CN of the Charging Station certificate is its serial number.
@@ -8419,6 +8671,8 @@ export class StationSimulator {
       organizationName,
     });
     this.pendingCsrKeys.set(certificateType, [privateKeyPem]);
+    // A02.FR.24: a requestId the CertificateSignedRequest must carry back.
+    if (!this.is16) this.pendingCsrRequestIds.set(certificateType, randomInt(1, 2_147_483_647));
     await this.sendSignCertificateWithBackoff(certificateType, csrPem, 0);
   }
 
@@ -8427,7 +8681,11 @@ export class StationSimulator {
     csrPem: string,
     doublings: number,
   ): Promise<void> {
-    const response = await this.sendSignCertificate(csrPem, certificateType);
+    const response = await this.sendSignCertificate(
+      csrPem,
+      certificateType,
+      this.pendingCsrRequestIds.get(certificateType),
+    );
     if (response['status'] !== 'Accepted') return;
     const waitMinimum = Number(this.getConfigValue('SecurityCtrlr.CertSigningWaitMinimum') ?? '');
     const repeatTimes = Number(this.getConfigValue('SecurityCtrlr.CertSigningRepeatTimes') ?? '');
@@ -8464,7 +8722,16 @@ export class StationSimulator {
     const certificateType =
       (payload['certificateType'] as string | undefined) ?? 'ChargingStationCertificate';
     const chainPem = (payload['certificateChain'] as string | undefined) ?? '';
-    const v2g = certificateType === 'V2GCertificate';
+    const v2g = certificateType === 'V2GCertificate' || certificateType === 'V2G20Certificate';
+    // A02.FR.26: a requestId that matches no SignCertificateRequest of the type is Rejected.
+    const requestId = payload['requestId'];
+    if (
+      typeof requestId === 'number' &&
+      this.pendingCsrRequestIds.get(certificateType) !== requestId
+    ) {
+      console.log(`[${this.config.stationId}] CertificateSigned rejected: unknown requestId`);
+      return { status: 'Rejected' };
+    }
     const chain = parseCertificateChain(chainPem);
     const leaf = chain?.[0];
     // A02.FR.06: the leaf carries the key of a CSR this station sent, and the
@@ -8481,7 +8748,7 @@ export class StationSimulator {
         `[${this.config.stationId}] CertificateSigned rejected: invalid ${certificateType}`,
       );
       void this.sendSecurityEventNotification(
-        'InvalidChargingStationCertificate',
+        this.is16 ? 'InvalidChargePointCertificate' : 'InvalidChargingStationCertificate',
         undefined,
         `CertificateSignedRequest ${certificateType} chain failed validation`,
       ).catch((err: unknown) => {
@@ -8491,6 +8758,7 @@ export class StationSimulator {
       return { status: 'Rejected' };
     }
     this.clearCertSigningTimer(certificateType);
+    this.pendingCsrRequestIds.delete(certificateType);
     if (v2g) {
       const issuer = chain[1] ?? roots.find((root) => isIssuedBy(leaf, root)) ?? leaf;
       const hashData = certificateHashData(leaf, issuer);

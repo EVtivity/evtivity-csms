@@ -232,6 +232,20 @@ describe('validateContractCertificate for the local contract CA', () => {
     ).toBe('CertificateRevoked');
   });
 
+  it('answers CertificateExpired for an expired local contract certificate (C07.FR.15)', async () => {
+    localCertificateStatus.mockResolvedValueOnce('expired').mockResolvedValue('good');
+    const hashData = [contract, moSub2].map((c) => requestDataFor(c, ''));
+    const verdict = await validateContractCertificate(
+      { iso15118CertificateHashData: hashData },
+      logger,
+    );
+    expect(verdict).toBe('CertificateExpired');
+    expect(applyContractCertificateVerdict('Accepted', verdict)).toEqual({
+      status: 'Expired',
+      certificateStatus: 'CertificateExpired',
+    });
+  });
+
   it('fails a certificate without a responder URL that the local CA did not issue', async () => {
     const hashData = [requestDataFor(contract, '')];
     expect(

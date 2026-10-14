@@ -57,3 +57,19 @@ END $$;
 --> statement-breakpoint
 CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS uq_transaction_events_event
   ON transaction_events (session_id, event_type, seq_no, timestamp, trigger_reason);
+--> statement-breakpoint
+-- charging_sessions: site revenue, metrics and reports read sessions by the
+-- site they happened at (site_id, 0475) and their start.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_index
+    WHERE indexrelid = to_regclass('idx_sessions_site_started_at') AND NOT indisvalid
+  ) THEN
+    DROP INDEX idx_sessions_site_started_at;
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_sessions_site_started_at
+  ON charging_sessions (site_id, started_at);
+

@@ -1,0 +1,62 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Hallo,</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Ladevorgang per Autocharge gestartet</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Dein Fahrzeug wurde beim Einstecken erkannt, und ein Ladevorgang wurde ohne Karte oder App auf deinem Konto gestartet.</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='width:100%;border-collapse:collapse;border-spacing:0;margin-bottom:24px;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  {{#if vehicleName}}
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >Fahrzeug</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{vehicleName}}</td>
+  </tr>
+  {{/if}}
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >Standort</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{siteName}}</td>
+  </tr>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >Stations-ID</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{stationId}}</td>
+  </tr>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >Transaktions-ID</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{transactionId}}</td>
+  </tr>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >Beginn</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{startedAt}}</td>
+  </tr>
+</table>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if vehiclesUrl}}Wenn du das nicht warst, schalte Autocharge für dieses Fahrzeug aus <a href="{{vehiclesUrl}}" style="color:#2563eb;text-decoration:underline;">im Portal</a>.{{else}}Wenn du das nicht warst, schalte Autocharge für dieses Fahrzeug im Portal unter Fahrzeuge aus.{{/if}}</p>

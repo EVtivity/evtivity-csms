@@ -81,6 +81,9 @@ vi.mock('@evtivity/database', () => ({
   clearSupportCache: mocks.clearSupportCache,
   clearFleetCache: mocks.clearFleetCache,
   clearGuestChargingCache: mocks.clearGuestChargingCache,
+  clearAutochargeCache: vi.fn(),
+  clearCompanyPortalUrlCache: vi.fn(),
+  isAutochargeOffered: vi.fn(() => Promise.resolve(false)),
   clearPncSettingsCache: mocks.clearPncSettingsCache,
   clearAiSettingsCache: mocks.clearAiSettingsCache,
   clearSystemSettingsCache: vi.fn(),
@@ -252,6 +255,7 @@ describe('settings routes (cov2)', () => {
       pncEnabled: false,
       fleetEnabled: true,
       guestChargingEnabled: false,
+      autochargeEnabled: false,
       chatbotAiEnabled: true,
       aiInsightsEnabled: false,
       // TC-AI-DR-03: off by default.

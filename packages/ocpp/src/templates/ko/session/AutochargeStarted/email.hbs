@@ -1,0 +1,62 @@
+<p
+  style="color:#4b5563;font-size:16px;line-height:1.6;margin:0 0 16px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>안녕하세요,</p>
+<h2
+  style="color:#1a1a1a;margin:0 0 8px 0;font-size:20px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>Autocharge로 충전 시작</h2>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>차량을 연결할 때 차량이 인식되어 카드나 앱 없이 회원님의 계정으로 충전 세션이 시작되었습니다.</p>
+<table
+  cellpadding='0'
+  cellspacing='0'
+  border='0'
+  width='100%'
+  style='width:100%;border-collapse:collapse;border-spacing:0;margin-bottom:24px;mso-table-lspace:0pt;mso-table-rspace:0pt;'
+>
+  {{#if vehicleName}}
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >차량</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{vehicleName}}</td>
+  </tr>
+  {{/if}}
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >사이트</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{siteName}}</td>
+  </tr>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >충전소 ID</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{stationId}}</td>
+  </tr>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >거래 ID</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{transactionId}}</td>
+  </tr>
+  <tr>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top;width:40%"
+    >시작 시각</td>
+    <td
+      style="padding:10px 12px;border-bottom:1px solid #e5e7eb;color:#1a1a1a;font-size:14px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;text-align:left;vertical-align:top"
+    >{{startedAt}}</td>
+  </tr>
+</table>
+<p
+  style="color:#4b5563;line-height:1.6;margin:0 0 24px 0;font-size:16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;"
+>{{#if vehiclesUrl}}본인이 아니라면 이 차량의 Autocharge를 끄십시오 <a href="{{vehiclesUrl}}" style="color:#2563eb;text-decoration:underline;">포털에서</a>.{{else}}본인이 아니라면 포털의 차량 메뉴에서 이 차량의 Autocharge를 끄십시오.{{/if}}</p>

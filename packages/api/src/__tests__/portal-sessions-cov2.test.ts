@@ -183,6 +183,7 @@ describe('Portal sessions routes: vehicle and meter history', () => {
             vehicleMake: 'Tesla',
             vehicleModel: 'Model 3',
             vehicleYear: '2022',
+            autocharge: false,
           },
         ],
         [],
@@ -202,6 +203,9 @@ describe('Portal sessions routes: vehicle and meter history', () => {
         make: 'Tesla',
         model: 'Model 3',
         year: '2022',
+        vin: null,
+        evccid: null,
+        autochargeEnabled: false,
         efficiencyMiPerKwh: 4.1,
       });
     });
@@ -217,6 +221,7 @@ describe('Portal sessions routes: vehicle and meter history', () => {
             vehicleMake: 'Rare',
             vehicleModel: 'EV',
             vehicleYear: null,
+            autocharge: false,
           },
         ],
         [],

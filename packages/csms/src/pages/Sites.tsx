@@ -36,11 +36,13 @@ import { FilterPopover } from '@/components/FilterBar';
 import { Label } from '@/components/ui/label';
 import { Pagination } from '@/components/ui/pagination';
 import { usePaginatedQuery } from '@/hooks/use-paginated-query';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
+import { getErrorMessage } from '@/lib/error-message';
+import { useToast } from '@/components/ui/toast';
 import { TableSkeleton } from '@/components/TableSkeleton';
 import { formatDate, useUserTimezone } from '@/lib/timezone';
 import { formatNumber } from '@/lib/formatting';
-import { useHasAllSiteAccess } from '@/lib/auth';
+import { useHasAllSiteAccess, useHasPermission } from '@/lib/auth';
 
 interface Site {
   id: string;
@@ -74,6 +76,8 @@ export function Sites(): React.JSX.Element {
   const timezone = useUserTimezone();
   const { t } = useTranslation();
   const hasAllSiteAccess = useHasAllSiteAccess();
+  const canWrite = useHasPermission('sites:write');
+  const { toast } = useToast();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -116,16 +120,28 @@ export function Sites(): React.JSX.Element {
   });
 
   function handleExport(): void {
-    const params = search ? `?search=${encodeURIComponent(search)}` : '';
-    const url = `${API_BASE_URL}/v1/sites/export${params}`;
+    // The export applies the same filters as the list on screen.
+    const params = new URLSearchParams();
+    if (search) params.set('search', search);
+    if (locationCity) params.set('city', locationCity);
+    if (locationState) params.set('state', locationState);
+    if (loadManagementFilter) params.set('loadManagement', loadManagementFilter);
+    const query = params.toString();
+    const url = `${API_BASE_URL}/v1/sites/export${query ? `?${query}` : ''}`;
     void fetch(url, { credentials: 'include' })
-      .then((res) => res.blob())
+      .then(async (res) => {
+        if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null));
+        return res.blob();
+      })
       .then((blob) => {
         const link = document.createElement('a');
         link.href = URL.createObjectURL(blob);
         link.download = 'sites.csv';
         link.click();
         URL.revokeObjectURL(link.href);
+      })
+      .catch((err: unknown) => {
+        toast({ title: getErrorMessage(err, t), variant: 'destructive' });
       });
   }
 
@@ -205,14 +221,18 @@ export function Sites(): React.JSX.Element {
           <p className="text-sm text-muted-foreground">{t('sites.subtitle')}</p>
         </div>
         <div className="flex flex-col gap-2 *:w-full sm:flex-row sm:flex-wrap sm:items-center sm:gap-2 sm:*:w-auto">
-          <TemplateButton label={t('sites.downloadTemplate')} onClick={handleDownloadTemplate} />
-          <ImportButton
-            label={importMutation.isPending ? t('sites.importing') : t('sites.importCsv')}
-            onClick={() => {
-              fileInputRef.current?.click();
-            }}
-            disabled={importMutation.isPending}
-          />
+          {canWrite && (
+            <TemplateButton label={t('sites.downloadTemplate')} onClick={handleDownloadTemplate} />
+          )}
+          {canWrite && (
+            <ImportButton
+              label={importMutation.isPending ? t('sites.importing') : t('sites.importCsv')}
+              onClick={() => {
+                fileInputRef.current?.click();
+              }}
+              disabled={importMutation.isPending}
+            />
+          )}
           <ExportButton label={t('sites.exportCsv')} onClick={handleExport} />
           <input
             ref={fileInputRef}
@@ -221,7 +241,7 @@ export function Sites(): React.JSX.Element {
             className="hidden"
             onChange={handleImportFile}
           />
-          {hasAllSiteAccess && (
+          {hasAllSiteAccess && canWrite && (
             <CreateButton
               label={t('sites.addSite')}
               onClick={() => {
@@ -460,6 +480,9 @@ export function Sites(): React.JSX.Element {
               <span>{t('sites.updateExisting')}</span>
             </label>
             <p className="text-xs text-muted-foreground">{t('sites.updateExistingDescription')}</p>
+            {importMutation.isError && (
+              <p className="text-sm text-destructive">{getErrorMessage(importMutation.error, t)}</p>
+            )}
           </div>
           <DialogFooter>
             <CancelButton

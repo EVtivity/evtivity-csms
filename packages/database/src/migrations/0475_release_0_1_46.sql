@@ -515,6 +515,80 @@ INSERT INTO cronjobs (name, schedule, status, next_run_at)
 SELECT 'driver-token-expiry', '5 * * * *', 'pending', NOW() + INTERVAL '1 hour'
 WHERE NOT EXISTS (SELECT 1 FROM cronjobs WHERE name = 'driver-token-expiry');
 --> statement-breakpoint
+-- Autocharge (charge by plugging in): a vehicle's VIN or EVCCID authorizes a
+-- start as the vehicle's driver. Off by default, company-wide and per site
+-- (null follows the setting). An operator value already set stays.
+INSERT INTO settings (key, value) VALUES ('autocharge.enabled', 'false'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+--> statement-breakpoint
+-- Vehicle ids compare normalized: a VIN uppercase without spaces, an empty
+-- VIN as none. A rerun finds every VIN normalized and writes nothing.
+UPDATE "vehicles" SET "vin" = NULLIF(upper(btrim("vin")), ''), "updated_at" = now()
+  WHERE "vin" IS NOT NULL AND "vin" IS DISTINCT FROM NULLIF(upper(btrim("vin")), '');
+--> statement-breakpoint
+-- Free vend off restores authorization: the config templates holding the
+-- values the site's stations reported when free vend was turned on.
+ALTER TABLE "sites" ADD COLUMN IF NOT EXISTS "free_vend_restore_template_id_21" text;
+--> statement-breakpoint
+ALTER TABLE "sites" ADD COLUMN IF NOT EXISTS "free_vend_restore_template_id_16" text;
+--> statement-breakpoint
+-- Retired EVSEs and connectors (an operator takes hardware with history out
+-- of service instead of deleting it). Nullable without a default: no rewrite.
+ALTER TABLE "evses" ADD COLUMN IF NOT EXISTS "retired_at" timestamp with time zone;
+--> statement-breakpoint
+ALTER TABLE "connectors" ADD COLUMN IF NOT EXISTS "retired_at" timestamp with time zone;
+--> statement-breakpoint
+-- Automatic insights: a regeneration's model analysis read the regenerating
+-- user's wrong-vote note on the insight it replaced (owner decision
+-- 2026-10-14). A constant default needs no rewrite; every older insight read
+-- no note, so false is right for them.
+ALTER TABLE "ai_insights" ADD COLUMN IF NOT EXISTS "feedback_used" boolean DEFAULT false NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "sites" ADD COLUMN IF NOT EXISTS "autocharge_enabled" boolean;
+--> statement-breakpoint
+ALTER TYPE "vehicle_audit_action" ADD VALUE IF NOT EXISTS 'autocharge_enabled';
+--> statement-breakpoint
+ALTER TYPE "vehicle_audit_action" ADD VALUE IF NOT EXISTS 'autocharge_disabled';
+--> statement-breakpoint
+ALTER TYPE "vehicle_audit_action" ADD VALUE IF NOT EXISTS 'autocharge_blocked';
+--> statement-breakpoint
+ALTER TYPE "vehicle_audit_action" ADD VALUE IF NOT EXISTS 'autocharge_unblocked';
+--> statement-breakpoint
+ALTER TYPE "vehicle_audit_action" ADD VALUE IF NOT EXISTS 'vehicle_id_claimed';
+--> statement-breakpoint
+ALTER TABLE "vehicles" ADD COLUMN IF NOT EXISTS "evccid" varchar(255);
+--> statement-breakpoint
+ALTER TABLE "vehicles" ADD COLUMN IF NOT EXISTS "autocharge_enabled" boolean DEFAULT false NOT NULL;
+--> statement-breakpoint
+ALTER TABLE "vehicles" ADD COLUMN IF NOT EXISTS "autocharge_blocked_at" timestamp with time zone;
+--> statement-breakpoint
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'vehicles_autocharge_id_check'
+  ) THEN
+    ALTER TABLE "vehicles" ADD CONSTRAINT "vehicles_autocharge_id_check"
+      CHECK (NOT "autocharge_enabled" OR "evccid" IS NOT NULL OR "vin" IS NOT NULL);
+  END IF;
+END $$;
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_vehicles_evccid" ON "vehicles" ("evccid");
+--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "idx_vehicles_vin" ON "vehicles" ("vin");
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_vehicles_autocharge_evccid" ON "vehicles" ("evccid")
+  WHERE "autocharge_enabled" AND "evccid" IS NOT NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "uq_vehicles_autocharge_vin" ON "vehicles" ("vin")
+  WHERE "autocharge_enabled" AND "vin" IS NOT NULL;
+--> statement-breakpoint
+-- The vehicle id of each start, refused starts included. Nullable without a
+-- default: no rewrite.
+ALTER TABLE "authorize_attempts" ADD COLUMN IF NOT EXISTS "vehicle_id_value" varchar(255);
+--> statement-breakpoint
+ALTER TABLE "authorize_attempts" ADD COLUMN IF NOT EXISTS "vehicle_id_type" varchar(20);
+--> statement-breakpoint
+ALTER TABLE "authorize_attempts" ADD COLUMN IF NOT EXISTS "matched_vehicle_id" text;
+--> statement-breakpoint
 -- Last: the hot table's ACCESS EXCLUSIVE lock is held to the commit. A constant
 -- default needs no rewrite. The check is NOT VALID (no scan) and enforced on
 -- new writes; VALIDATE CONSTRAINT is a v0.1.47 contract step.
@@ -529,3 +603,51 @@ DO $$ BEGIN
       NOT VALID;
   END IF;
 END $$;
+--> statement-breakpoint
+-- The vehicle id the charger sent at the start and whether an Autocharge
+-- vehicle authorized it. Nullable or a constant default: no rewrite.
+ALTER TABLE "charging_sessions" ADD COLUMN IF NOT EXISTS "vehicle_id_value" varchar(255);
+--> statement-breakpoint
+ALTER TABLE "charging_sessions" ADD COLUMN IF NOT EXISTS "vehicle_id_type" varchar(20);
+--> statement-breakpoint
+ALTER TABLE "charging_sessions" ADD COLUMN IF NOT EXISTS "vehicle_id_source" varchar(20);
+--> statement-breakpoint
+ALTER TABLE "charging_sessions" ADD COLUMN IF NOT EXISTS "autocharge" boolean DEFAULT false NOT NULL;
+--> statement-breakpoint
+-- Sessions keep the site they happened at: charging_sessions.site_id, stamped
+-- from the station at insert by the code (sessionSiteIdSql), so a station moved to another site leaves its
+-- revenue and session history at the old site. The backfill (every existing
+-- session gets its station's current site, the best record there is) runs only
+-- when this statement adds the column, so a rerun never overwrites a stamp.
+-- It rewrites every session row once under the column's ACCESS EXCLUSIVE lock.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'charging_sessions' AND column_name = 'site_id'
+  ) THEN
+    ALTER TABLE "charging_sessions" ADD COLUMN "site_id" text;
+    UPDATE "charging_sessions" cs SET "site_id" = st."site_id"
+    FROM "charging_stations" st
+    WHERE st."id" = cs."station_id" AND st."site_id" IS NOT NULL;
+  END IF;
+END $$;
+--> statement-breakpoint
+-- NOT VALID: no scan here (the backfill only copied existing site ids);
+-- VALIDATE CONSTRAINT is a v0.1.47 contract step.
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'charging_sessions_site_id_sites_id_fk'
+  ) THEN
+    ALTER TABLE "charging_sessions" ADD CONSTRAINT "charging_sessions_site_id_sites_id_fk"
+      FOREIGN KEY ("site_id") REFERENCES "sites"("id") ON DELETE SET NULL NOT VALID;
+  END IF;
+END $$;
+--> statement-breakpoint
+-- The code stamps site_id on every insert (sessionSiteIdSql in
+-- @evtivity/database). An earlier build of this release stamped it with a
+-- trigger; the schema keeps no triggers or functions, so a database that ran
+-- that build drops both here.
+DROP TRIGGER IF EXISTS charging_sessions_stamp_site ON "charging_sessions";
+--> statement-breakpoint
+DROP FUNCTION IF EXISTS charging_sessions_stamp_site();
+

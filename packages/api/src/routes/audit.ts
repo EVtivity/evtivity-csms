@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { sql, and, inArray } from 'drizzle-orm';
+import { sql, inArray } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import {
   db,
@@ -24,7 +24,7 @@ import { errorWith, paginatedResponse } from '../lib/response-schemas.js';
 import { ERROR_CODES } from '../lib/error-codes.generated.js';
 import { getUserSiteIds } from '../lib/site-access.js';
 import { supportCaseSiteCondition } from '../lib/support-case-scope.js';
-import { manageableUsersCondition } from '../lib/user-management-scope.js';
+import { visibleUserIds } from '../lib/user-management-scope.js';
 import {
   redactSupportCaseAuditRows,
   supportCaseAuditSessionCondition,
@@ -228,29 +228,6 @@ function actorNameFor(
   return null;
 }
 
-/**
- * The actor users a site-restricted viewer may see: itself and the users it
- * sees in the user list (manageableUsersCondition). All-site users and users
- * of other sites are invisible to it. Null for an all-site viewer (all).
- */
-async function visibleActorUserIds(
-  userIds: Iterable<string>,
-  viewerId: string,
-  siteIds: string[] | null,
-): Promise<Set<string> | null> {
-  if (siteIds == null) return null;
-  const ids = new Set(userIds);
-  ids.delete(viewerId);
-  const visible = new Set<string>([viewerId]);
-  if (ids.size === 0) return visible;
-  const rows = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(and(inArray(users.id, [...ids]), manageableUsersCondition(siteIds)));
-  for (const r of rows) visible.add(r.id);
-  return visible;
-}
-
 function viaAiConfirmedBy(viaAi: unknown): string | null {
   if (viaAi == null || typeof viaAi !== 'object') return null;
   const confirmedBy = (viaAi as { confirmedBy?: unknown }).confirmedBy;
@@ -275,7 +252,7 @@ async function hideInvisibleActors(
     const confirmedBy = viaAiConfirmedBy(row.viaAi);
     if (confirmedBy != null) referenced.push(confirmedBy);
   }
-  const visible = await visibleActorUserIds(referenced, viewerId, siteIds);
+  const visible = await visibleUserIds(referenced, viewerId, siteIds);
   if (visible == null) return;
   for (const row of rows) {
     if (row.actorUserId != null && !visible.has(row.actorUserId)) {
@@ -574,7 +551,7 @@ export function auditRoutes(app: FastifyInstance): void {
       // A restricted viewer filters only on an operator it can see: the rows of
       // any other operator are not attributed to it, so the filter matches none.
       if (q.actorUserId != null) {
-        const visible = await visibleActorUserIds([q.actorUserId], userId, siteIds);
+        const visible = await visibleUserIds([q.actorUserId], userId, siteIds);
         if (visible != null && !visible.has(q.actorUserId)) {
           return { data: [], total: 0 } satisfies PaginatedResponse<unknown>;
         }

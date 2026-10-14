@@ -13,6 +13,7 @@ import {
   InMemoryEventBus,
   OcppError,
   parseStationAuthInvalidation,
+  parseStationDisconnect,
   tryParseJson,
 } from '@evtivity/lib';
 import { getHeartbeatIntervalSeconds } from '@evtivity/database';
@@ -454,14 +455,29 @@ export class OcppServer {
    * publishes a station auth invalidation (password or security profile
    * changed). The cache entry also binds the stored hash, so a lost message
    * never lets an old password through; this evicts the entry at once.
+   * A station disconnect (the station was blocked) closes the connection this
+   * process holds; the connection authentication refuses its reconnect.
    */
   subscribeStationAuthInvalidation(pubsub: PubSubClient): Promise<Subscription> {
     return pubsub.subscribe(CACHE_INVALIDATE_CHANNEL, (payload: string) => {
-      const stationDbId = parseStationAuthInvalidation(tryParseJson(payload));
-      if (stationDbId == null) return;
-      this.passwordVerifier.invalidate(stationDbId);
-      this.logger.debug({ stationDbId }, 'Station auth cache entry invalidated');
+      const message = tryParseJson(payload);
+      const stationDbId = parseStationAuthInvalidation(message);
+      if (stationDbId != null) {
+        this.passwordVerifier.invalidate(stationDbId);
+        this.logger.debug({ stationDbId }, 'Station auth cache entry invalidated');
+        return;
+      }
+      const blockedStationId = parseStationDisconnect(message);
+      if (blockedStationId != null) this.closeBlockedStation(blockedStationId);
     });
+  }
+
+  /** Closes a blocked station's connection when this process holds it (1008, policy violation). */
+  closeBlockedStation(stationId: string): void {
+    const connection = this.connectionManager.get(stationId);
+    if (connection == null) return;
+    this.logger.info({ stationId }, 'Closing the connection of a blocked station');
+    connection.ws.close(1008, 'Station is blocked');
   }
 
   // The CSMS sends a station queued commands and screen messages only once it

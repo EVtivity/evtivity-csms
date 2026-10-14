@@ -31,7 +31,9 @@ import { useCompanyCurrency } from '@/hooks/use-company-currency';
 import { formatRatePerKwh } from '@/lib/formatting';
 import { SaveButton } from '@/components/save-button';
 import { CancelButton } from '@/components/cancel-button';
-import { api, ApiError } from '@/lib/api';
+import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
+import { getErrorMessage } from '@/lib/error-message';
 import { useToast } from '@/components/ui/toast';
 import { RecalculateElectricityCostAction } from '@/components/ElectricityCostNotices';
 
@@ -109,6 +111,7 @@ export function SiteElectricityRatesTab({
   siteName: string;
 }): React.JSX.Element {
   const { t } = useTranslation();
+  const canWrite = useHasPermission('sites:write');
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -166,8 +169,7 @@ export function SiteElectricityRatesTab({
       invalidate();
     },
     onError: (err: unknown) => {
-      const message = err instanceof ApiError ? err.message : t('common.error');
-      toast({ title: message, variant: 'destructive' });
+      toast({ title: getErrorMessage(err, t), variant: 'destructive' });
     },
   });
 
@@ -180,8 +182,7 @@ export function SiteElectricityRatesTab({
       invalidate();
     },
     onError: (err: unknown) => {
-      const message = err instanceof ApiError ? err.message : t('common.error');
-      toast({ title: message, variant: 'destructive' });
+      toast({ title: getErrorMessage(err, t), variant: 'destructive' });
     },
   });
 
@@ -233,10 +234,12 @@ export function SiteElectricityRatesTab({
           {rates.length > 0 && (
             <RecalculateElectricityCostAction siteId={siteId} siteName={siteName} size="default" />
           )}
-          <Button onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            {t('sites.addElectricityRate')}
-          </Button>
+          {canWrite && (
+            <Button onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              {t('sites.addElectricityRate')}
+            </Button>
+          )}
         </div>
       </CardHeader>
       <CardContent>
@@ -254,7 +257,7 @@ export function SiteElectricityRatesTab({
                 <TableHead>{t('sites.electricityRateName')}</TableHead>
                 <TableHead className="text-right">{t('sites.ratePerKwh')}</TableHead>
                 <TableHead>{t('sites.electricityRateRestrictions')}</TableHead>
-                <TableHead className="text-right">{t('common.actions')}</TableHead>
+                {canWrite && <TableHead className="text-right">{t('common.actions')}</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -265,28 +268,30 @@ export function SiteElectricityRatesTab({
                     {currency != null ? formatRatePerKwh(rate.ratePerKwh, currency) : '-'}
                   </TableCell>
                   <TableCell>{describeRestrictions(rate.restrictions)}</TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t('common.edit')}
-                      onClick={() => {
-                        openEdit(rate);
-                      }}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t('sites.deleteElectricityRate')}
-                      onClick={() => {
-                        setDeleteTarget(rate);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </TableCell>
+                  {canWrite && (
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t('common.edit')}
+                        onClick={() => {
+                          openEdit(rate);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t('sites.deleteElectricityRate')}
+                        onClick={() => {
+                          setDeleteTarget(rate);
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

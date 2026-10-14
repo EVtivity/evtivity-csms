@@ -3,11 +3,14 @@
 
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Plug, Circle, Zap, Shield } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
 import { ResetButton } from '@/components/reset-button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { api } from '@/lib/api';
+import { useHasPermission } from '@/lib/auth';
+import { getErrorMessage } from '@/lib/error-message';
 import { StationCard, type LayoutStation } from './StationCard';
 import { STATUS_COLORS } from '@/lib/chart-theme';
 import { formatNumber } from '@/lib/formatting';
@@ -54,7 +57,9 @@ function autoLayout(stations: LayoutStation[]): Map<string, { x: number; y: numb
 }
 
 export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const canWrite = useHasPermission('sites:write');
   const [pendingPositions, setPendingPositions] = useState<Map<string, { x: number; y: number }>>(
     new Map(),
   );
@@ -130,28 +135,33 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
   }
 
   if (isLoading) {
-    return <p className="text-muted-foreground">Loading layout...</p>;
+    return <p className="text-muted-foreground">{t('common.loading')}</p>;
   }
 
   return (
     <Card>
       <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <CardTitle>Station Layout</CardTitle>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSave();
-          }}
-          noValidate
-          className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex"
-        >
-          <ResetButton onClick={handleReset} disabled={pendingPositions.size === 0} />
-          <SaveButton isPending={saveMutation.isPending} />
-        </form>
+        <CardTitle>{t('sites.stationLayout')}</CardTitle>
+        {canWrite && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSave();
+            }}
+            noValidate
+            className="grid grid-cols-2 gap-2 [&>*:last-child:nth-child(odd)]:col-span-2 sm:flex"
+          >
+            <ResetButton onClick={handleReset} disabled={pendingPositions.size === 0} />
+            <SaveButton isPending={saveMutation.isPending} />
+          </form>
+        )}
       </CardHeader>
       <CardContent>
+        {saveMutation.isError && (
+          <p className="mb-3 text-sm text-destructive">{getErrorMessage(saveMutation.error, t)}</p>
+        )}
         {resolvedStations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No stations at this site.</p>
+          <p className="text-sm text-muted-foreground">{t('sites.noStationsAtSite')}</p>
         ) : (
           <div className="relative w-full h-[700px] border-2 border-dashed rounded-lg overflow-auto">
             {resolvedStations.map((station) => {
@@ -171,10 +181,10 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               <div className="absolute top-3 right-3 z-50 rounded-lg border bg-card/80 backdrop-blur-xs p-3 space-y-1.5 text-xs shadow-xs max-w-[180px]">
                 <div className="flex items-center gap-1.5 font-semibold text-sm">
                   <Zap className="h-3.5 w-3.5" />
-                  Power Draw
+                  {t('sites.powerDraw')}
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Draw</span>
+                  <span className="text-muted-foreground">{t('sites.layoutDraw')}</span>
                   <span className="font-medium">
                     {formatNumber(
                       loadManagement.stations.reduce((sum, s) => sum + s.currentDrawKw, 0),
@@ -185,9 +195,13 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
                 </div>
                 {loadManagement.config != null && loadManagement.config.isEnabled && (
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Strategy</span>
+                    <span className="text-muted-foreground">
+                      {t('loadManagement.allocationStrategy')}
+                    </span>
                     <span className="font-medium">
-                      {loadManagement.config.strategy.replace('_', ' ')}
+                      {loadManagement.config.strategy === 'priority_based'
+                        ? t('loadManagement.priorityBased')
+                        : t('loadManagement.equalShare')}
                     </span>
                   </div>
                 )}
@@ -201,13 +215,14 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               <span className="absolute inset-0 rounded-full bg-success animate-ping opacity-75" />
               <span className="relative h-2 w-2 rounded-full bg-success" />
             </span>{' '}
-            Online
+            {t('status.online')}
           </span>
           <span className="flex items-center gap-1">
-            <span className="h-2 w-2 rounded-full bg-muted-foreground inline-block" /> Offline
+            <span className="h-2 w-2 rounded-full bg-muted-foreground inline-block" />{' '}
+            {t('status.offline')}
           </span>
           <span className="flex items-center gap-1">
-            <Plug className="h-3.5 w-3.5 text-success" /> Available
+            <Plug className="h-3.5 w-3.5 text-success" /> {t('status.available')}
           </span>
           <span className="flex items-center gap-1">
             <span className="relative inline-flex h-3 w-3">
@@ -221,7 +236,7 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
                 fill={STATUS_COLORS.occupied}
               />
             </span>{' '}
-            Charging
+            {t('status.charging')}
           </span>
           <span className="flex items-center gap-1">
             <Circle
@@ -229,27 +244,28 @@ export function SiteLayout({ siteId }: SiteLayoutProps): React.JSX.Element {
               style={{ color: STATUS_COLORS.reserved }}
               fill={STATUS_COLORS.reserved}
             />{' '}
-            Reserved
+            {t('status.reserved')}
           </span>
           <span className="flex items-center gap-1">
-            <Circle className="h-3 w-3 text-destructive" fill={STATUS_COLORS.faulted} /> Faulted
+            <Circle className="h-3 w-3 text-destructive" fill={STATUS_COLORS.faulted} />{' '}
+            {t('status.faulted')}
           </span>
           <span className="flex items-center gap-1">
             <Circle className="h-3 w-3 text-muted-foreground" fill={STATUS_COLORS.unavailable} />{' '}
-            Unavailable
+            {t('status.unavailable')}
           </span>
           <span className="text-muted-foreground/40">|</span>
           <span className="flex items-center gap-0.5 text-muted-foreground">
-            <Shield className="h-3 w-3" />0 None
+            <Shield className="h-3 w-3" />0 {t('stations.sp0')}
           </span>
           <span className="flex items-center gap-0.5 text-link">
-            <Shield className="h-3 w-3" />1 Basic Auth
+            <Shield className="h-3 w-3" />1 {t('stations.sp1')}
           </span>
           <span className="flex items-center gap-0.5 text-success">
-            <Shield className="h-3 w-3" />2 TLS
+            <Shield className="h-3 w-3" />2 {t('stations.sp2')}
           </span>
           <span className="flex items-center gap-0.5 text-warning">
-            <Shield className="h-3 w-3" />3 mTLS
+            <Shield className="h-3 w-3" />3 {t('stations.sp3')}
           </span>
         </div>
       </CardContent>

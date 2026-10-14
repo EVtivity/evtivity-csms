@@ -11,6 +11,7 @@ import {
   sites,
   drivers,
   driverTokens,
+  pncContracts,
   vehicles,
   transactionEvents,
   transactionEventTypeEnum,
@@ -24,7 +25,6 @@ import {
 } from '@evtivity/database';
 import { sessionCostMissing } from '@evtivity/services/electricity-cost.service';
 import { PaymentProviderUnavailableError } from '@evtivity/payments';
-import { zodSchema } from '../lib/zod-schema.js';
 import { sessionCurrencySql } from '@evtivity/services/company-currency';
 import { ID_PARAMS } from '../lib/id-validation.js';
 import { paginationQuery } from '../lib/pagination.js';
@@ -42,6 +42,30 @@ import {
   rebillSession,
   SessionRebillRefusedError,
 } from '../services/session-rebill.service.js';
+import { normalizeMacAddress } from '@evtivity/lib/vehicle-id';
+import * as vehicleService from '../services/vehicle.service.js';
+import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
+import {
+  replyVehicleServiceError,
+  sessionVehicleCaptureItem,
+  vehicleClaimBody,
+} from '../lib/vehicle-response.js';
+
+/** The display name of a session's linked vehicle (year make model, else the plate). */
+const vehicleNameSql = sql<
+  string | null
+>`NULLIF(coalesce(NULLIF(concat_ws(' ', ${vehicles.year}, ${vehicles.make}, ${vehicles.model}), ''), ${vehicles.licensePlate}), '')`;
+
+/** The captured vehicle id of a session row, or null. */
+function sessionVehicleCapture(row: {
+  vehicleIdValue: string | null;
+  vehicleIdType: string | null;
+  vehicleIdSource: string | null;
+}): { value: string; type: string; source: string } | null {
+  return row.vehicleIdValue != null && row.vehicleIdType != null && row.vehicleIdSource != null
+    ? { value: row.vehicleIdValue, type: row.vehicleIdType, source: row.vehicleIdSource }
+    : null;
+}
 
 const rebillStatusField = z
   .enum(SESSION_REBILL_STATUSES)
@@ -107,6 +131,15 @@ const sessionListItem = z
     isGuestSession: z
       .boolean()
       .describe('True when this is a guest (non-registered driver) session'),
+    vehicleId: z.string().nullable().describe('Vehicle linked to the session'),
+    vehicleName: z
+      .string()
+      .nullable()
+      .describe('Linked vehicle: year, make and model, else its license plate'),
+    vehicleCapture: sessionVehicleCaptureItem,
+    autocharge: z
+      .boolean()
+      .describe('The session was authorized by an Autocharge vehicle (charge by plugging in)'),
     createdAt: z.coerce.date().describe('Timestamp the session row was created in the CSMS'),
   })
   .passthrough();
@@ -300,6 +333,17 @@ const sessionDetail = z
         id: z.string().describe('Driver token ID (nanoid prefixed dtk_)'),
         idToken: z.string().describe('RFID UID or token identifier transmitted by the station'),
         tokenType: z.string().describe('OCPP IdToken type (e.g. ISO14443, Central, eMAID)'),
+        pncContract: z
+          .object({
+            id: z.number().int().describe('Plug and Charge contract ID'),
+            pcid: z.string().describe('Provisioning certificate ID of the vehicle'),
+            status: z.enum(['active', 'revoked']).describe('Contract status now'),
+          })
+          .passthrough()
+          .nullable()
+          .describe(
+            'Plug and Charge contract whose eMAID authorized the session (ISO 15118), null otherwise',
+          ),
       })
       .passthrough()
       .nullable()
@@ -312,10 +356,16 @@ const sessionDetail = z
         make: z.string().nullable().describe('Vehicle make'),
         model: z.string().nullable().describe('Vehicle model'),
         year: z.string().nullable().describe('Vehicle year'),
+        licensePlate: z.string().nullable().describe('Vehicle license plate'),
+        autochargeEnabled: z.boolean().describe('Autocharge is on for the vehicle'),
       })
       .passthrough()
       .nullable()
       .describe('Vehicle linked to this session, null when no vehicle is associated'),
+    vehicleCapture: sessionVehicleCaptureItem,
+    autocharge: z
+      .boolean()
+      .describe('The session was authorized by an Autocharge vehicle (charge by plugging in)'),
     metadata: z
       .record(z.unknown())
       .nullable()
@@ -508,6 +558,11 @@ export function sessionRoutes(app: FastifyInstance): void {
             ilike(chargingStations.stationId, pattern),
             ilike(drivers.firstName, pattern),
             ilike(drivers.lastName, pattern),
+            ilike(chargingSessions.vehicleIdValue, pattern),
+            // A MAC address typed with separators matches its stored form.
+            ...(normalizeMacAddress(search) != null
+              ? [eq(chargingSessions.vehicleIdValue, normalizeMacAddress(search) ?? '')]
+              : []),
           ),
         );
       }
@@ -560,6 +615,12 @@ export function sessionRoutes(app: FastifyInstance): void {
           billingMode: chargingSessions.billingMode,
           rebillStatus: chargingSessions.rebillStatus,
           guestSessionToken: guestSessions.sessionToken,
+          vehicleId: chargingSessions.vehicleId,
+          vehicleName: vehicleNameSql,
+          vehicleIdValue: chargingSessions.vehicleIdValue,
+          vehicleIdType: chargingSessions.vehicleIdType,
+          vehicleIdSource: chargingSessions.vehicleIdSource,
+          autocharge: chargingSessions.autocharge,
           createdAt: chargingSessions.createdAt,
           _total: sql<number>`count(*) OVER()`.as('_total'),
         })
@@ -567,6 +628,7 @@ export function sessionRoutes(app: FastifyInstance): void {
         .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .leftJoin(sites, eq(chargingStations.siteId, sites.id))
         .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
+        .leftJoin(vehicles, eq(chargingSessions.vehicleId, vehicles.id))
         .leftJoin(guestSessions, eq(guestSessions.chargingSessionId, chargingSessions.id))
         .where(where)
         .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
@@ -574,13 +636,27 @@ export function sessionRoutes(app: FastifyInstance): void {
         .offset(offset);
 
       const total = rows[0]?._total ?? 0;
-      const data = rows.map(({ _total, guestSessionToken, ...rest }) => {
-        void _total;
-        return {
-          ...rest,
-          isGuestSession: guestSessionToken != null,
-        };
-      });
+      const data = rows.map(
+        ({
+          _total,
+          guestSessionToken,
+          vehicleIdValue,
+          vehicleIdType,
+          vehicleIdSource,
+          ...rest
+        }) => {
+          void _total;
+          return {
+            ...rest,
+            vehicleCapture: sessionVehicleCapture({
+              vehicleIdValue,
+              vehicleIdType,
+              vehicleIdSource,
+            }),
+            isGuestSession: guestSessionToken != null,
+          };
+        },
+      );
 
       return { data, total } satisfies PaginatedResponse<(typeof data)[number]>;
     },
@@ -652,6 +728,12 @@ export function sessionRoutes(app: FastifyInstance): void {
           vehicleMake: vehicles.make,
           vehicleModel: vehicles.model,
           vehicleYear: vehicles.year,
+          vehicleLicensePlate: vehicles.licensePlate,
+          vehicleAutochargeEnabled: vehicles.autochargeEnabled,
+          vehicleIdValue: chargingSessions.vehicleIdValue,
+          vehicleIdType: chargingSessions.vehicleIdType,
+          vehicleIdSource: chargingSessions.vehicleIdSource,
+          autocharge: chargingSessions.autocharge,
           metadata: chargingSessions.metadata,
           paymentId: paymentRecords.id,
           paymentStatus: paymentRecords.status,
@@ -725,8 +807,23 @@ export function sessionRoutes(app: FastifyInstance): void {
         vehicleMake,
         vehicleModel,
         vehicleYear,
+        vehicleLicensePlate,
+        vehicleAutochargeEnabled,
+        vehicleIdValue,
+        vehicleIdType,
+        vehicleIdSource,
         ...session
       } = row;
+
+      // A Plug and Charge session: the contract whose eMAID authorized it.
+      const [pncContract] =
+        tokenId != null && tokenType === 'eMAID'
+          ? await db
+              .select({ id: pncContracts.id, pcid: pncContracts.pcid, status: pncContracts.status })
+              .from(pncContracts)
+              .where(eq(pncContracts.driverTokenId, tokenId))
+              .limit(1)
+          : [];
 
       return {
         ...session,
@@ -734,12 +831,25 @@ export function sessionRoutes(app: FastifyInstance): void {
         rebillBlockedReason: rebill != null ? rebill.blockedReason : 'status',
         token:
           tokenId != null
-            ? { id: tokenId, idToken: tokenIdToken ?? '', tokenType: tokenType ?? '' }
+            ? {
+                id: tokenId,
+                idToken: tokenIdToken ?? '',
+                tokenType: tokenType ?? '',
+                pncContract: pncContract ?? null,
+              }
             : null,
         vehicle:
           vehicleId != null
-            ? { id: vehicleId, make: vehicleMake, model: vehicleModel, year: vehicleYear }
+            ? {
+                id: vehicleId,
+                make: vehicleMake,
+                model: vehicleModel,
+                year: vehicleYear,
+                licensePlate: vehicleLicensePlate ?? null,
+                autochargeEnabled: vehicleAutochargeEnabled ?? false,
+              }
             : null,
+        vehicleCapture: sessionVehicleCapture({ vehicleIdValue, vehicleIdType, vehicleIdSource }),
         paymentRecord:
           paymentId != null
             ? {
@@ -769,6 +879,87 @@ export function sessionRoutes(app: FastifyInstance): void {
               }
             : null,
       };
+    },
+  );
+
+  // "Use This Vehicle for Plug-In Charging" for the session's driver: the
+  // vehicle id the charger sent goes on a new or existing vehicle of that
+  // driver (vehicle.service.ts).
+  app.post(
+    '/sessions/:id/vehicle-claim',
+    {
+      onRequest: [authorize('drivers:write')],
+      schema: {
+        tags: ['Sessions'],
+        summary: "Store the session's captured vehicle id on a vehicle of the session's driver",
+        operationId: 'claimSessionVehicleId',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(sessionParams),
+        body: zodSchema(vehicleClaimBody),
+        response: {
+          200: itemResponse(
+            z
+              .object({
+                vehicleId: z.string().describe('Vehicle that now holds the id'),
+                created: z.boolean().describe('A new vehicle was created'),
+                autochargeEnabled: z.boolean().describe('Autocharge is on for the vehicle'),
+              })
+              .passthrough(),
+          ),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Not found', [
+            ERROR_CODES.SESSION_NOT_FOUND,
+            ERROR_CODES.VEHICLE_NOT_FOUND,
+            ERROR_CODES.DRIVER_NOT_FOUND,
+          ]),
+          409: errorWith('No vehicle id or the id is in use', [
+            ERROR_CODES.SESSION_NO_VEHICLE_ID,
+            ERROR_CODES.VEHICLE_ID_IN_USE,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params as z.infer<typeof sessionParams>;
+      const body = parseZodRequest(vehicleClaimBody, request.body);
+      const [row] = await db
+        .select({ driverId: chargingSessions.driverId, siteId: chargingStations.siteId })
+        .from(chargingSessions)
+        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
+        .where(eq(chargingSessions.id, id));
+      const { userId } = request.user as JwtPayload;
+      if (row == null || !siteInScope(await getUserSiteIds(userId), row.siteId)) {
+        await reply.status(404).send({ error: 'Session not found', code: 'SESSION_NOT_FOUND' });
+        return;
+      }
+      if (row.driverId == null) {
+        // Only the session's driver can own the id: a session without one has none.
+        await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+        return;
+      }
+      try {
+        const result = await vehicleService.claimSessionVehicleId(
+          {
+            sessionId: id,
+            driverId: row.driverId,
+            target:
+              body.vehicleId != null
+                ? { vehicleId: body.vehicleId }
+                : { vehicle: body.vehicle ?? { make: '', model: '' } },
+            enableAutocharge: body.enableAutocharge,
+          },
+          getAuditActor(request),
+          request.log,
+        );
+        return {
+          vehicleId: result.vehicle.id,
+          created: result.created,
+          autochargeEnabled: result.vehicle.autochargeEnabled,
+        };
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
+      }
     },
   );
 

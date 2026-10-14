@@ -19,6 +19,8 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, client } from './config.js';
 import { sql, eq, and, inArray, isNotNull, isNull } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
+import { sessionSiteIdSql } from './lib/session-site.js';
 import { getCompanyCurrency, clearSystemSettingsCache } from './lib/system-settings.js';
 import {
   settings,
@@ -683,6 +685,7 @@ async function seed(): Promise<void> {
     'fleet.creditReservationCents': 5000,
     'support.enabled': true,
     'guest.enabled': true,
+    'autocharge.enabled': false,
     'ocpp.commandRetryMaxAttempts': 3,
     'ocpp.commandRetryBaseDelayMs': 1000,
     'ocpp.commandRetryMaxDelayMs': 30000,
@@ -1841,6 +1844,7 @@ async function seed(): Promise<void> {
   const sessionRows: Array<{
     currency: string;
     stationId: string;
+    siteId: SQL<string | null>;
     evseId: string;
     connectorId: string;
     driverId: string;
@@ -1891,6 +1895,7 @@ async function seed(): Promise<void> {
     sessionRows.push({
       currency: companyCurrency,
       stationId: at(createdStations, stationIdx).id,
+      siteId: sessionSiteIdSql(sql, at(createdStations, stationIdx).id),
       evseId: evse.id,
       connectorId: at(connectorRows, createdEvses.indexOf(evse)).evseId,
       driverId: driver.id,
@@ -2555,7 +2560,7 @@ async function seed(): Promise<void> {
   const portalDriverId = portalTestDriver.id;
   const portalSessionRows: Array<{
     stationId: string;
-    siteId: string;
+    siteId: SQL<string | null>;
     evseId: string;
     driverId: string;
     transactionId: string;
@@ -2608,7 +2613,7 @@ async function seed(): Promise<void> {
 
     portalSessionRows.push({
       stationId: station.id,
-      siteId: at(createdSites, stationIdx % createdSites.length).id,
+      siteId: sessionSiteIdSql(sql, station.id),
       evseId: evse.id,
       driverId: portalDriverId,
       transactionId: `txn_portal_${String(i + 1).padStart(3, '0')}`,

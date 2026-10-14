@@ -1,4 +1,8 @@
 FROM node:24-slim AS deps
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
 
 WORKDIR /app
 
@@ -31,6 +35,10 @@ COPY packages/ocpi-simulator/ packages/ocpi-simulator/
 RUN node scripts/build.mjs ocpi-simulator
 
 FROM node:24-slim
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
 
 WORKDIR /app
 

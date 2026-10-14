@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray, isNull } from 'drizzle-orm';
 import { db, availableEvseCountSql } from '@evtivity/database';
 import { stationWatches, chargingStations, sites, evses } from '@evtivity/database';
 import { publicStationListed } from '../../lib/public-station.js';
@@ -101,7 +101,7 @@ export function portalStationWatchRoutes(app: FastifyInstance): void {
             total: sql<number>`count(*)::int`,
           })
           .from(evses)
-          .where(inArray(evses.stationId, stationUuids))
+          .where(and(inArray(evses.stationId, stationUuids), isNull(evses.retiredAt)))
           .groupBy(evses.stationId);
       }
 

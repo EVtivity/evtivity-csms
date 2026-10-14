@@ -1,4 +1,8 @@
 FROM node:24-slim AS deps
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
 
 WORKDIR /app
 
@@ -40,6 +44,10 @@ COPY packages/worker/ packages/worker/
 RUN node scripts/build.mjs worker
 
 FROM node:24-slim
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
 
 # Noto Sans CJK (Regular and Bold collections) for Korean and Chinese scheduled
 # report PDFs (packages/services/src/pdf-fonts.ts). The dpkg exclude skips the

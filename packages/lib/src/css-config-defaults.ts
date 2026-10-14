@@ -111,6 +111,10 @@ export function buildCssConfigDefaults(input: CssConfigDefaultsInput): CssConfig
       t('CertificateStoreMaxLength', '10', true),
       t('CpoName', input.vendorName, false),
       t('SecurityProfile', String(input.securityProfile), false),
+      // ISO 15118 Plug and Charge over DataTransfer (OCA application note for 1.6, section 9).
+      t('ISO15118PnCEnabled', 'true', false),
+      t('ContractValidationOffline', 'false', false),
+      t('CentralContractValidationAllowed', 'false', false),
       t('ChargePointVendor', input.vendorName, true),
       t('ChargePointModel', input.model, true),
       t('ChargePointSerialNumber', input.serialNumber, true),

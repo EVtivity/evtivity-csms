@@ -103,6 +103,24 @@ vi.mock('@evtivity/database', () => ({
   localAuthListAuditLog: {},
 }));
 
+// Vehicle writes go through the vehicle service (vehicle-service-mapping is
+// checked here; the service itself runs against the database in
+// __integration__/118-autocharge-vehicles).
+const vehicleServiceMock = vi.hoisted(() => ({
+  createVehicle: vi.fn(),
+  updateVehicle: vi.fn(),
+  deleteVehicle: vi.fn(),
+  setVehicleBlocked: vi.fn(),
+}));
+vi.mock('../services/vehicle.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/vehicle.service.js')>()),
+  ...vehicleServiceMock,
+}));
+vi.mock('../lib/vehicle-response.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/vehicle-response.js')>()),
+  vehicleLastSeen: vi.fn(() => Promise.resolve(new Map())),
+}));
+
 vi.mock('drizzle-orm', () => ({
   eq: vi.fn(),
   ne: vi.fn(),
@@ -257,6 +275,9 @@ function makeVehicle(overrides: Record<string, unknown> = {}) {
     year: '2024',
     vin: '5YJ3E1EA1PF000001',
     licensePlate: 'ABC123',
+    evccid: null,
+    autochargeEnabled: false,
+    autochargeBlockedAt: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -994,7 +1015,7 @@ describe('Driver routes (operator)', () => {
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body).toEqual([vehicle]);
+      expect(body).toEqual([{ ...vehicle, lastSeen: null }]);
     });
 
     it('returns 200 with empty array', async () => {
@@ -1027,9 +1048,9 @@ describe('Driver routes (operator)', () => {
 
     it('returns 201 on success', async () => {
       const vehicle = makeVehicle();
-      // New route pre-checks that the driver exists, then inserts the
-      // vehicle. Feed the driver lookup first, then the vehicle returning row.
-      setupDbResults([{ id: VALID_DRIVER_ID }], [vehicle]);
+      // The route pre-checks that the driver exists, then the service inserts.
+      setupDbResults([{ id: VALID_DRIVER_ID }]);
+      vehicleServiceMock.createVehicle.mockResolvedValueOnce(vehicle);
 
       const res = await app.inject({
         method: 'POST',
@@ -1046,7 +1067,8 @@ describe('Driver routes (operator)', () => {
 
     it('returns 201 with all optional fields', async () => {
       const vehicle = makeVehicle();
-      setupDbResults([{ id: VALID_DRIVER_ID }], [vehicle]);
+      setupDbResults([{ id: VALID_DRIVER_ID }]);
+      vehicleServiceMock.createVehicle.mockResolvedValueOnce(vehicle);
 
       const res = await app.inject({
         method: 'POST',
@@ -1062,6 +1084,37 @@ describe('Driver routes (operator)', () => {
       });
 
       expect(res.statusCode).toBe(201);
+    });
+
+    it('answers the service conflict and id errors with their codes', async () => {
+      const { VehicleIdInUseError, VehicleIdRequiredError } =
+        await import('../services/vehicle.service.js');
+      setupDbResults([{ id: VALID_DRIVER_ID }]);
+      vehicleServiceMock.createVehicle.mockRejectedValueOnce(new VehicleIdInUseError());
+      const conflict = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/vehicles`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          make: 'Tesla',
+          model: 'Model 3',
+          evccid: '92D50A693F80',
+          autochargeEnabled: true,
+        },
+      });
+      expect(conflict.statusCode).toBe(409);
+      expect(conflict.json().code).toBe('VEHICLE_ID_IN_USE');
+
+      setupDbResults([{ id: VALID_DRIVER_ID }]);
+      vehicleServiceMock.createVehicle.mockRejectedValueOnce(new VehicleIdRequiredError());
+      const required = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/vehicles`,
+        headers: { authorization: `Bearer ${token}` },
+        payload: { make: 'Tesla', model: 'Model 3', autochargeEnabled: true },
+      });
+      expect(required.statusCode).toBe(400);
+      expect(required.json().code).toBe('VEHICLE_ID_REQUIRED');
     });
 
     it('returns 400 when make is missing', async () => {
@@ -1103,7 +1156,7 @@ describe('Driver routes (operator)', () => {
 
     it('returns 200 on success', async () => {
       const updated = makeVehicle({ make: 'BMW' });
-      setupDbResults([updated], [updated]);
+      vehicleServiceMock.updateVehicle.mockResolvedValueOnce(updated);
 
       const res = await app.inject({
         method: 'PATCH',
@@ -1114,10 +1167,18 @@ describe('Driver routes (operator)', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.json().make).toBe('BMW');
+      expect(vehicleServiceMock.updateVehicle).toHaveBeenCalledWith(
+        VALID_DRIVER_ID,
+        VALID_VEHICLE_ID,
+        { make: 'BMW' },
+        expect.objectContaining({ actor: 'operator' }),
+        expect.anything(),
+      );
     });
 
     it('returns 404 when vehicle not found', async () => {
-      setupDbResults([]);
+      const { VehicleNotFoundError } = await import('../services/vehicle.service.js');
+      vehicleServiceMock.updateVehicle.mockRejectedValueOnce(new VehicleNotFoundError());
 
       const res = await app.inject({
         method: 'PATCH',
@@ -1189,8 +1250,7 @@ describe('Driver routes (operator)', () => {
     });
 
     it('returns 204 on success', async () => {
-      const vehicle = makeVehicle();
-      setupDbResults([vehicle]);
+      vehicleServiceMock.deleteVehicle.mockResolvedValueOnce(undefined);
 
       const res = await app.inject({
         method: 'DELETE',
@@ -1203,7 +1263,8 @@ describe('Driver routes (operator)', () => {
     });
 
     it('returns 404 when vehicle not found', async () => {
-      setupDbResults([]);
+      const { VehicleNotFoundError } = await import('../services/vehicle.service.js');
+      vehicleServiceMock.deleteVehicle.mockRejectedValueOnce(new VehicleNotFoundError());
 
       const res = await app.inject({
         method: 'DELETE',
@@ -1211,6 +1272,43 @@ describe('Driver routes (operator)', () => {
         headers: { authorization: `Bearer ${token}` },
       });
 
+      expect(res.statusCode).toBe(404);
+      expect(res.json().code).toBe('VEHICLE_NOT_FOUND');
+    });
+  });
+
+  describe('POST /v1/drivers/:id/vehicles/:vehicleId/block and /unblock', () => {
+    it.each([
+      ['block', true],
+      ['unblock', false],
+    ] as const)('%s calls the service as the operator', async (suffix, blocked) => {
+      vehicleServiceMock.setVehicleBlocked.mockResolvedValueOnce(
+        makeVehicle({ autochargeBlockedAt: blocked ? now : null }),
+      );
+      const res = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/vehicles/${VALID_VEHICLE_ID}/${suffix}`,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(vehicleServiceMock.setVehicleBlocked).toHaveBeenCalledWith(
+        VALID_DRIVER_ID,
+        VALID_VEHICLE_ID,
+        blocked,
+        expect.objectContaining({ actor: 'operator' }),
+        expect.anything(),
+      );
+      expect(res.json().lastSeen).toBeNull();
+    });
+
+    it('answers 404 for a vehicle of another driver', async () => {
+      const { VehicleNotFoundError } = await import('../services/vehicle.service.js');
+      vehicleServiceMock.setVehicleBlocked.mockRejectedValueOnce(new VehicleNotFoundError());
+      const res = await app.inject({
+        method: 'POST',
+        url: `/drivers/${VALID_DRIVER_ID}/vehicles/${VALID_VEHICLE_ID}/block`,
+        headers: { authorization: `Bearer ${token}` },
+      });
       expect(res.statusCode).toBe(404);
       expect(res.json().code).toBe('VEHICLE_NOT_FOUND');
     });

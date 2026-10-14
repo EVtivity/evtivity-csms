@@ -9,6 +9,7 @@ const { state, svc, selectDistinctMock } = vi.hoisted(() => {
   class DuplicateTokenError extends Error {}
   class TokenDriverNotFoundError extends Error {}
   class TokenDriverInactiveError extends Error {}
+  class PncContractTokenError extends Error {}
   // A plain function (not a mock) so the per-test mockReset keeps it.
   function tokenActorOf(actor: { actorUserId: string | null }) {
     return { type: 'operator', userId: actor.actorUserId };
@@ -19,6 +20,7 @@ const { state, svc, selectDistinctMock } = vi.hoisted(() => {
       DuplicateTokenError,
       TokenDriverNotFoundError,
       TokenDriverInactiveError,
+      PncContractTokenError,
       tokenActorOf,
       listTokens: vi.fn(),
       getToken: vi.fn(),

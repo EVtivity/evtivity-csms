@@ -14,6 +14,8 @@ export { ManualProvider } from './manual-provider.js';
 export { getPkiProvider } from './provider-factory.js';
 export { LocalContractProvider } from './local-contract-provider.js';
 export {
+  addCpoSubCas,
+  hasCpoSubCas,
   createLocalContractCa,
   describeLocalContractCa,
   parseLocalContractCa,

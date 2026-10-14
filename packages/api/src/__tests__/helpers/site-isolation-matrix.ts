@@ -511,6 +511,15 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'AI_INSIGHT_NOT_FOUND',
     { unsited: true },
   ),
+  // The wrong votes and their notes: the insight's own gate (404 outside the sites).
+  s(
+    'GET',
+    '/ai/insights/:id/feedback',
+    'aiInsights:read',
+    (f) => `/ai/insights/${f.insight}/feedback`,
+    'AI_INSIGHT_NOT_FOUND',
+    { unsited: true },
+  ),
   // Votes by kind, no ids in the answer: the dedicated case proves the site filter.
   l('/ai/insights/feedback-summary', 'aiInsights:read', undefined, {
     noLimit: true,
@@ -2322,6 +2331,22 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     },
   ),
   s(
+    'POST',
+    '/sessions/:id/vehicle-claim',
+    'drivers:write',
+    (f) => `/sessions/${f.session}/vehicle-claim`,
+    'SESSION_NOT_FOUND',
+    {
+      unsited: true,
+      body: () => ({ vehicle: { make: 'Matrix', model: 'Vehicle' } }),
+      control: ctl(
+        409,
+        'SESSION_NO_VEHICLE_ID',
+        'the seeded session has no vehicle id from the charger',
+      ),
+    },
+  ),
+  s(
     'GET',
     '/sessions/:id/neighbors',
     'sessions:read',
@@ -2888,6 +2913,38 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     '/stations/:id/evses/:evseId/connectors/:connectorId',
     'stations:write',
     (f) => `${st(f)}/evses/${String(f.evse)}/connectors/${String(f.connector)}`,
+    'STATION_NOT_FOUND',
+    { unsited: true },
+  ),
+  s(
+    'POST',
+    '/stations/:id/evses/:evseId/retire',
+    'stations:write',
+    (f) => `${st(f)}/evses/${String(f.evse)}/retire`,
+    'STATION_NOT_FOUND',
+    { unsited: true },
+  ),
+  s(
+    'POST',
+    '/stations/:id/evses/:evseId/connectors/:connectorId/retire',
+    'stations:write',
+    (f) => `${st(f)}/evses/${String(f.evse)}/connectors/${String(f.connector)}/retire`,
+    'STATION_NOT_FOUND',
+    { unsited: true },
+  ),
+  s(
+    'POST',
+    '/stations/:id/evses/:evseId/restore',
+    'stations:write',
+    (f) => `${st(f)}/evses/${String(f.evse)}/restore`,
+    'STATION_NOT_FOUND',
+    { unsited: true },
+  ),
+  s(
+    'POST',
+    '/stations/:id/evses/:evseId/connectors/:connectorId/restore',
+    'stations:write',
+    (f) => `${st(f)}/evses/${String(f.evse)}/connectors/${String(f.connector)}/restore`,
     'STATION_NOT_FOUND',
     { unsited: true },
   ),
@@ -3809,6 +3866,21 @@ export const SITE_ISOLATION_MATRIX: MatrixEntry[] = [
     'SETTING_NOT_FOUND',
     { body: () => ({}) },
   ),
+  c(
+    'POST',
+    '/pnc/settings/local-ca/cpo-sub-ca',
+    'settings.integrations:write',
+    () => '/pnc/settings/local-ca/cpo-sub-ca',
+    'SETTING_NOT_FOUND',
+    {
+      body: () => ({}),
+      control: ctl(
+        409,
+        'LOCAL_CPO_SUB_CA_EXISTS',
+        'the CA created by the entry above already has its CPO Sub-CAs',
+      ),
+    },
+  ),
 
   // fleets: the records are company-wide, their station counts per site (REVIEW2 #15)
   l('/fleets', 'fleets:read', undefined, {
@@ -3945,6 +4017,8 @@ export const SITE_ISOLATION_ALLOWLIST: AllowlistEntry[] = [
       ['POST', '/drivers/:id/vehicles'],
       ['PATCH', '/drivers/:id/vehicles/:vehicleId'],
       ['DELETE', '/drivers/:id/vehicles/:vehicleId'],
+      ['POST', '/drivers/:id/vehicles/:vehicleId/block'],
+      ['POST', '/drivers/:id/vehicles/:vehicleId/unblock'],
       ['GET', '/vehicles/lookup'],
       ['GET', '/drivers/:id/pricing-groups'],
       ['GET', '/drivers/:id/neighbors'],

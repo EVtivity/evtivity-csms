@@ -12,9 +12,12 @@ import { z } from 'zod';
 import { and, eq } from 'drizzle-orm';
 import { db, settings, settingAuditLog, writeAudit } from '@evtivity/database';
 import { encryptString, decryptString } from '@evtivity/lib';
+import type { LocalContractCa } from '@evtivity/ocpp';
 import {
+  addCpoSubCas,
   createLocalContractCa,
   describeLocalContractCa,
+  hasCpoSubCas,
   parseLocalContractCa,
 } from '@evtivity/ocpp';
 import { zodSchema } from '../lib/zod-schema.js';
@@ -43,19 +46,36 @@ const caCertificate = z
   .object({
     schema: z.union([z.literal(2), z.literal(20)]).describe('ISO 15118 edition (2 or 20)'),
     role: z
-      .enum(['moRoot', 'moSubCa1', 'moSubCa2', 'cpsRoot', 'cpsSubCa1', 'cpsSubCa2', 'cpsLeaf'])
+      .enum([
+        'moRoot',
+        'moSubCa1',
+        'moSubCa2',
+        'cpsRoot',
+        'cpsSubCa1',
+        'cpsSubCa2',
+        'cpsLeaf',
+        'cpoSubCa1',
+        'cpoSubCa2',
+      ])
       .describe('Position in the hierarchy'),
     subject: z.string().describe('Subject distinguished name'),
     serialNumber: z.string().describe('Serial number (hex)'),
     validFrom: z.string().describe('Validity start (ISO 8601)'),
     validTo: z.string().describe('Validity end (ISO 8601)'),
+    certificate: z
+      .string()
+      .describe('PEM certificate (public), for example the V2G root to install on stations'),
   })
   .passthrough();
-
 const localCaStatus = z
   .object({
     configured: z.boolean().describe('Whether the local contract CA exists'),
     createdAt: z.string().nullable().describe('When the CA was created (ISO 8601)'),
+    cpoSubCa: z
+      .boolean()
+      .describe(
+        'Whether the CA has the CPO Sub-CAs that sign charging station V2G certificates automatically',
+      ),
     certificates: z
       .array(caCertificate)
       .describe('CA certificates of both hierarchies (no private keys)'),
@@ -95,18 +115,42 @@ function encryptionKey(): string {
   return key;
 }
 
-async function readCa(): Promise<z.infer<typeof localCaStatus>> {
+const NOT_CONFIGURED = { configured: false, createdAt: null, cpoSubCa: false, certificates: [] };
+
+function statusOf(ca: LocalContractCa): z.infer<typeof localCaStatus> {
+  return {
+    configured: true,
+    createdAt: ca.createdAt,
+    cpoSubCa: hasCpoSubCas(ca),
+    certificates: describeLocalContractCa(ca),
+  };
+}
+
+/** The stored CA and its ciphertext (the compare-and-set of the CPO Sub-CA update reads it). */
+async function loadCa(): Promise<{ ca: LocalContractCa; stored: string } | null> {
   const [row] = await db
     .select({ value: settings.value })
     .from(settings)
     .where(eq(settings.key, CA_KEY));
   const value = row?.value;
-  if (typeof value !== 'string' || value === '') {
-    return { configured: false, createdAt: null, certificates: [] };
-  }
+  if (typeof value !== 'string' || value === '') return null;
   const ca = parseLocalContractCa(decryptString(value, encryptionKey()));
-  if (ca == null) return { configured: false, createdAt: null, certificates: [] };
-  return { configured: true, createdAt: ca.createdAt, certificates: describeLocalContractCa(ca) };
+  return ca == null ? null : { ca, stored: value };
+}
+
+async function readCa(): Promise<z.infer<typeof localCaStatus>> {
+  const loaded = await loadCa();
+  return loaded == null ? NOT_CONFIGURED : statusOf(loaded.ca);
+}
+
+async function publishCaChange(request: {
+  log: { warn: (o: unknown, m: string) => void };
+}): Promise<void> {
+  try {
+    await getPubSub().publish('cache_invalidate', JSON.stringify({ cache: 'pkiCaCertificates' }));
+  } catch (err: unknown) {
+    request.log.warn({ err }, 'Failed to publish local contract CA cache invalidation');
+  }
 }
 
 export function pncLocalRoutes(app: FastifyInstance): void {
@@ -142,7 +186,7 @@ export function pncLocalRoutes(app: FastifyInstance): void {
         tags: ['PnC'],
         summary: 'Create the local contract CA',
         description:
-          'Generates the ISO 15118-2 (secp256r1) and ISO 15118-20 (secp521r1) Mobility Operator and certificate provisioning service hierarchies. The private keys are stored encrypted. A CA is created once.',
+          'Generates the ISO 15118-2 (secp256r1) and ISO 15118-20 (secp521r1) Mobility Operator and certificate provisioning service hierarchies, with the CPO Sub-CAs that sign charging station V2G certificates. The private keys are stored encrypted. A CA is created once.',
         operationId: 'createPncLocalCa',
         security: [{ bearerAuth: [] }],
         response: {
@@ -187,19 +231,75 @@ export function pncLocalRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
-      try {
-        await getPubSub().publish(
-          'cache_invalidate',
-          JSON.stringify({ cache: 'pkiCaCertificates' }),
-        );
-      } catch (err: unknown) {
-        request.log.warn({ err }, 'Failed to publish local contract CA cache invalidation');
+      await publishCaChange(request);
+      return statusOf(ca);
+    },
+  );
+
+  app.post(
+    '/pnc/settings/local-ca/cpo-sub-ca',
+    {
+      onRequest: [authorize('settings.integrations:write')],
+      schema: {
+        tags: ['PnC'],
+        summary: 'Add the CPO Sub-CAs to the local contract CA',
+        description:
+          'Adds CPO Sub-CA 1 and 2 under the V2G root of both hierarchies to a local contract CA created without them. With pnc.provider = local, CPO Sub-CA 2 signs the V2G certificates charging stations request (SignCertificate); station TLS certificates stay manual. The private keys are stored encrypted.',
+        operationId: 'addPncLocalCpoSubCa',
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: itemResponse(localCaStatus),
+          404: errorWith('Setting not found', [ERROR_CODES.SETTING_NOT_FOUND]),
+          409: errorWith('No local contract CA, or the CPO Sub-CAs exist', [
+            ERROR_CODES.LOCAL_CA_NOT_CONFIGURED,
+            ERROR_CODES.LOCAL_CPO_SUB_CA_EXISTS,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
+      const loaded = await loadCa();
+      if (loaded == null) {
+        await reply
+          .status(409)
+          .send({ error: 'No local contract CA', code: 'LOCAL_CA_NOT_CONFIGURED' });
+        return;
       }
-      return {
-        configured: true,
-        createdAt: ca.createdAt,
-        certificates: describeLocalContractCa(ca),
-      };
+      if (hasCpoSubCas(loaded.ca)) {
+        await reply
+          .status(409)
+          .send({ error: 'The CPO Sub-CAs exist', code: 'LOCAL_CPO_SUB_CA_EXISTS' });
+        return;
+      }
+      const next = await addCpoSubCas(loaded.ca);
+      // Compare-and-set on the stored bundle: a concurrent request adds them once.
+      const [written] = await db
+        .update(settings)
+        .set({ value: encryptString(JSON.stringify(next), encryptionKey()), updatedAt: new Date() })
+        .where(and(eq(settings.key, CA_KEY), eq(settings.value, loaded.stored)))
+        .returning({ key: settings.key });
+      if (written == null) {
+        await reply
+          .status(409)
+          .send({ error: 'The CPO Sub-CAs exist', code: 'LOCAL_CPO_SUB_CA_EXISTS' });
+        return;
+      }
+      await writeAudit(
+        { table: settingAuditLog, idColumn: 'setting_key' },
+        {
+          entityId: CA_KEY,
+          entityIdSnapshot: CA_KEY,
+          action: 'updated',
+          ...getAuditActor(request),
+          before: { key: CA_KEY, cpoSubCa: false },
+          after: { key: CA_KEY, cpoSubCa: true },
+        },
+        db,
+        request.log,
+      );
+      await publishCaChange(request);
+      return statusOf(next);
     },
   );
 
@@ -239,10 +339,14 @@ export function pncLocalRoutes(app: FastifyInstance): void {
           201: itemResponse(contractItem),
           400: errorWith('Invalid PCID', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
-          409: errorWith('Local contract CA or eMAID prefix not configured', [
-            ERROR_CODES.LOCAL_CA_NOT_CONFIGURED,
-            ERROR_CODES.EMAID_PREFIX_NOT_CONFIGURED,
-          ]),
+          409: errorWith(
+            'Inactive driver, or the local contract CA or eMAID prefix not configured',
+            [
+              ERROR_CODES.DRIVER_INACTIVE,
+              ERROR_CODES.LOCAL_CA_NOT_CONFIGURED,
+              ERROR_CODES.EMAID_PREFIX_NOT_CONFIGURED,
+            ],
+          ),
         },
       },
     },

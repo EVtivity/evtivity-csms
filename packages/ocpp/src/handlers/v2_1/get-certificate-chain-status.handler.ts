@@ -2,25 +2,23 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { HandlerContext } from '../../server/middleware/pipeline.js';
+import {
+  getCertificateChainStatus,
+  type CertificateStatusRequestInfo,
+} from '../../services/pki/certificate-chain-status.js';
 
-interface CertificateStatusRequestInfo {
-  source: string;
-  urls: string[];
-  certificateHashData: {
-    hashAlgorithm: string;
-    issuerNameHash: string;
-    issuerKeyHash: string;
-    serialNumber: string;
-  };
-}
-
+/**
+ * GetCertificateChainStatus (OCPP 2.1 M07): the revocation status of each
+ * vehicle certificate, by OCSP or CRL as the station asks (M07.FR.01 to
+ * FR.07), one entry per request (M07.FR.08). Not gated by pnc.enabled, like
+ * GetCertificateStatus: the request carries no certificate type.
+ */
 export async function handleGetCertificateChainStatus(
   ctx: HandlerContext,
 ): Promise<Record<string, unknown>> {
   const request = ctx.payload as {
     certificateStatusRequests?: CertificateStatusRequestInfo[];
   };
-
   const requests = request.certificateStatusRequests ?? [];
 
   ctx.logger.info(
@@ -39,15 +37,11 @@ export async function handleGetCertificateChainStatus(
     },
   });
 
-  // Response schema requires certificateStatus array.
-  // Return one status entry per request with status Unknown and a near-future nextUpdate.
-  const nextUpdate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const certificateStatus = requests.map((req) => ({
-    source: req.source,
-    status: 'Unknown' as const,
-    nextUpdate,
-    certificateHashData: req.certificateHashData,
-  }));
-
+  // The station names the OCSP responders and CRL locations, so their
+  // failures carry it.
+  const certificateStatus = await getCertificateChainStatus(
+    requests,
+    ctx.logger.child({ stationId: ctx.stationId }),
+  );
   return { certificateStatus };
 }

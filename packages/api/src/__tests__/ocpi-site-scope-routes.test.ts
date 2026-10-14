@@ -39,6 +39,8 @@ function makeChain(): Record<string, unknown> {
   }
   chain['then'] = (resolve?: (v: unknown) => unknown, reject?: (r: unknown) => unknown) =>
     Promise.resolve(dbResults.shift() ?? []).then(resolve, reject);
+  // The site row lock of the publish save takes no queued result.
+  chain['for'] = vi.fn(() => Promise.resolve([{ id: 'locked' }]));
   return chain;
 }
 
@@ -63,6 +65,11 @@ vi.mock('@evtivity/database', () => ({
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
+    // The publish save runs on the same chain mock.
+    transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const { db: mocked } = await import('@evtivity/database');
+      return fn(mocked);
+    }),
   },
   sites: { id: 'sites.id', name: 'sites.name' },
   ocpiLocationPublish: { id: 'olp.id', siteId: 'olp.siteId', ocpiLocationId: 'olp.ocpiLocationId' },
@@ -79,6 +86,7 @@ vi.mock('@evtivity/database', () => ({
   sessionAuditLog: { name: 'session_audit_log' },
   writeAudit: vi.fn(),
   PG_UNIQUE_VIOLATION: '23505',
+  PG_FOREIGN_KEY_VIOLATION: '23503',
   pgErrorCode: (err: { code?: string }) => err.code,
   pgConstraintName: (err: { constraint_name?: string }) => err.constraint_name,
 }));

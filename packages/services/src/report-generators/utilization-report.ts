@@ -88,7 +88,9 @@ async function querySiteUtilization(
   totalHours: number,
   noSite: string,
 ): Promise<SiteUtilization[]> {
-  const sessionJoinConditions = [eq(chargingSessions.stationId, chargingStations.id)];
+  // Session hours of the sessions that happened at the site (site_id, kept
+  // when a station moves) over the stations the site has now.
+  const sessionJoinConditions = [eq(chargingSessions.siteId, sites.id)];
   if (filters.dateFrom) {
     sessionJoinConditions.push(gte(chargingSessions.startedAt, new Date(filters.dateFrom)));
   }
@@ -101,11 +103,10 @@ async function querySiteUtilization(
   const rows = await db
     .select({
       siteName: sql<string>`coalesce(${sites.name}, ${noSite})`,
-      stationCount: sql<number>`count(distinct ${chargingStations.id})`,
+      stationCount: sql<number>`(select count(*)::int from ${chargingStations} st where st.site_id = ${sites.id})`,
       sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
     })
     .from(sites)
-    .leftJoin(chargingStations, eq(chargingStations.siteId, sites.id))
     .leftJoin(chargingSessions, and(...sessionJoinConditions))
     .where(siteConditions(filters, sites.id))
     .groupBy(sites.id, sites.name)
@@ -170,8 +171,9 @@ async function queryPeakUsage(filters: Filters, tz: string): Promise<PeakHour[]>
     to.setHours(23, 59, 59, 999);
     conditions.push(lte(chargingSessions.startedAt, to));
   }
-  // Peak usage honours the site filter and the site scope like the other sheets.
-  const atSites = siteConditions(filters, chargingStations.siteId);
+  // Peak usage honours the site filter and the site scope like the other
+  // sheets, by the site each session happened at.
+  const atSites = siteConditions(filters, chargingSessions.siteId);
   if (atSites != null) conditions.push(atSites);
 
   const rows = await db
@@ -181,7 +183,6 @@ async function queryPeakUsage(filters: Filters, tz: string): Promise<PeakHour[]>
       count: count(),
     })
     .from(chargingSessions)
-    .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .groupBy(sql`1`, sql`2`)
     .orderBy(sql`3 desc`);

@@ -56,8 +56,8 @@ function parseFilters(raw: Record<string, unknown>, scope: ReportSiteScope): Fil
 /** Conditions on the joined station: the site filter and the report's site scope. */
 function stationConditions(filters: Filters): SQL[] {
   const conditions: SQL[] = [];
-  if (filters.siteId != null) conditions.push(eq(chargingStations.siteId, filters.siteId));
-  const inScope = stationSiteInScope(chargingStations.siteId, filters.scope);
+  if (filters.siteId != null) conditions.push(eq(chargingSessions.siteId, filters.siteId));
+  const inScope = stationSiteInScope(chargingSessions.siteId, filters.scope);
   if (inScope != null) conditions.push(inScope);
   return conditions;
 }
@@ -171,7 +171,7 @@ async function querySessionLog(filters: Filters, tz: string): Promise<SessionLog
     })
     .from(chargingSessions)
     .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-    .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+    .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
     .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(sql`${chargingSessions.startedAt} desc`)

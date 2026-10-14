@@ -80,7 +80,7 @@ async function queryStationUptime(filters: Filters): Promise<StationUptime[]> {
       SELECT DISTINCT e.station_id, e.evse_id
       FROM evses e
       INNER JOIN charging_stations cs ON cs.id = e.station_id
-      WHERE 1=1 ${siteCondition}
+      WHERE e.retired_at IS NULL ${siteCondition}
     ),
     pre_period_status AS (
       SELECT DISTINCT ON (psl.station_id, psl.evse_id)

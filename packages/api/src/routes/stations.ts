@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { randomUUID, X509Certificate } from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { hash } from 'argon2';
 import {
@@ -39,6 +39,7 @@ import { clearProfileSlotBeforePush } from '../lib/charging-profile-push.js';
 import { requestGhostSessionEnd } from '../lib/ghost-session-end.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
+import { applyStationSiteMove } from '@evtivity/services/maintenance.service';
 import { pricingGroupExists } from '../lib/pricing-group-lookup.js';
 import { listStationMessageLog } from '../lib/station-message-log.js';
 import {
@@ -64,11 +65,8 @@ import {
   variableMonitoringRules,
   eventAlerts,
   chargingProfileTemplates,
-  configTemplates,
   guestSessions,
   pricingAssignmentAuditLog,
-  cssStations,
-  cssEvses,
 } from '@evtivity/database';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { ID_PARAMS } from '../lib/id-validation.js';
@@ -76,7 +74,6 @@ import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { paginationQuery } from '../lib/pagination.js';
 import type { PaginatedResponse } from '../lib/pagination.js';
 import {
-  errorResponse,
   successResponse,
   paginatedResponse,
   itemResponse,
@@ -111,7 +108,12 @@ import {
   buildStatusReasonSubquery,
 } from '@evtivity/services/station-derived-status';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
-import { enableCssPair, disableCssPair } from '../lib/css-pairing.js';
+import {
+  enableCssPair,
+  disableCssPair,
+  mirrorCssConnectors,
+  removeCssConnectors,
+} from '../lib/css-pairing.js';
 import { sendAvailabilityCommand } from '@evtivity/services/availability-command';
 import { publishStationStatusChanged } from '../lib/station-status-events.js';
 import { publishOcpiLocationPush, publishOcpiStationSiteMove } from '../lib/ocpi-location-push.js';
@@ -122,8 +124,21 @@ import {
 } from '../services/station-security.service.js';
 import { confirmRealStation } from '../services/station-simulator.service.js';
 import {
-  mapConnectorTypeToCss,
+  retireEvse,
+  restoreEvse,
+  retireConnector,
+  restoreConnector,
+} from '../services/station-evse-retire.service.js';
+import type { AuditActorInfo } from '../lib/audit-actor.js';
+import { createStationConfigTemplate } from '../lib/station-config-template.js';
+import {
+  changeStationOnboarding,
+  type OnboardedStation,
+  type OnboardingTransition,
+} from '../services/station-onboarding.service.js';
+import {
   publishOcppCommand,
+  publishStationDisconnect,
   STATION_PASSWORD_HASH_OPTIONS,
   validateStationPassword,
   CLEARABLE_PROFILE_PURPOSES,
@@ -146,6 +161,21 @@ const CONNECTOR_IN_USE_STATUSES = [
   'idle',
   'discharging',
 ] as const;
+
+// A station can be placed in a site only when the site exists: an unknown id
+// would fail the foreign key with a 500. No site (null or undefined) is valid.
+async function siteExists(siteId: string | null | undefined): Promise<boolean> {
+  if (siteId == null) return true;
+  const [row] = await db.select({ id: sites.id }).from(sites).where(eq(sites.id, siteId));
+  return row != null;
+}
+
+// An EVSE or connector that sessions, reservations or meter values refer to
+// is kept: deleting it would fail their foreign keys.
+const EVSE_HAS_HISTORY = {
+  error: 'The EVSE or connector has charging history and cannot be deleted. Retire it instead.',
+  code: 'EVSE_HAS_HISTORY',
+} as const;
 
 const stationParams = z.object({
   id: ID_PARAMS.stationId.describe('Station ID'),
@@ -319,6 +349,7 @@ const stationItem = z
       .max(255)
       .describe('OCPP station identity used by the charging station to authenticate'),
     siteId: z.string().nullable().describe('Site this station belongs to, if any'),
+    siteName: z.string().nullable().describe('Name of the site this station belongs to, if any'),
     vendorId: z.string().nullable().describe('Vendor (manufacturer) identifier, if known'),
     model: z.string().max(100).nullable().describe('Manufacturer model name'),
     serialNumber: z.string().max(100).nullable().describe('Manufacturer serial number'),
@@ -528,6 +559,11 @@ const stationDetail = z
       .max(500)
       .nullable()
       .describe("Free-form text describing the site's hours of operation"),
+    siteName: z.string().nullable().describe('Name of the site this station belongs to, if any'),
+    siteTimezone: z
+      .string()
+      .nullable()
+      .describe('IANA timezone of the site this station belongs to, null without a site'),
     siteFreeVendEnabled: z
       .boolean()
       .describe("Whether the station's site has free vend mode enabled"),
@@ -610,6 +646,12 @@ const connectorDetail = z
       .describe(
         'Whether an active session on this connector has entered idle (paused) state and is accruing idle time',
       ),
+    retiredAt: z.coerce
+      .date()
+      .nullable()
+      .describe(
+        'When the connector was retired (out of service, history kept), null when in service',
+      ),
   })
   .passthrough();
 
@@ -619,6 +661,10 @@ const evseDetail = z
     autoCreated: z
       .boolean()
       .describe('Whether the EVSE was created automatically from an OCPP message'),
+    retiredAt: z.coerce
+      .date()
+      .nullable()
+      .describe('When the EVSE was retired (out of service, history kept), null when in service'),
     connectors: z.array(connectorDetail).describe('Connectors on this EVSE'),
   })
   .passthrough();
@@ -973,6 +1019,7 @@ export function stationRoutes(app: FastifyInstance): void {
           id: chargingStations.id,
           stationId: chargingStations.stationId,
           siteId: chargingStations.siteId,
+          siteName: sites.name,
           vendorId: chargingStations.vendorId,
           vendorName: vendors.name,
           model: chargingStations.model,
@@ -1087,6 +1134,8 @@ export function stationRoutes(app: FastifyInstance): void {
           status: derivedStatus,
           statusReason: buildStatusReasonSubquery(chargingStations.id),
           siteHoursOfOperation: sites.hoursOfOperation,
+          siteName: sites.name,
+          siteTimezone: sites.timezone,
           siteFreeVendEnabled: sql<boolean>`coalesce(${sites.freeVendEnabled}, false)`,
           underMaintenance: buildUnderMaintenanceSubquery(
             chargingStations.id,
@@ -1216,10 +1265,11 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // Pre-check vendor existence (orphan vendorId would trip FK with a 500
-      // instead of a clean 404) and stationId uniqueness in parallel — they
-      // hit different tables and have no dependency on each other.
-      const [vendorRows, existingRows] = await Promise.all([
+      // Pre-check site and vendor existence (an unknown id would trip the FK
+      // with a 500 instead of a clean 404) and stationId uniqueness in
+      // parallel: they hit different tables and have no dependency on each other.
+      const [siteFound, vendorRows, existingRows] = await Promise.all([
+        siteExists(body.siteId),
         body.vendorId != null
           ? db.select({ id: vendors.id }).from(vendors).where(eq(vendors.id, body.vendorId))
           : Promise.resolve([] as Array<{ id: string }>),
@@ -1228,6 +1278,10 @@ export function stationRoutes(app: FastifyInstance): void {
           .from(chargingStations)
           .where(eq(chargingStations.stationId, body.stationId)),
       ]);
+      if (!siteFound) {
+        await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
+        return;
+      }
       if (body.vendorId != null && vendorRows[0] == null) {
         await reply.status(404).send({ error: 'Vendor not found', code: 'VENDOR_NOT_FOUND' });
         return;
@@ -1302,29 +1356,8 @@ export function stationRoutes(app: FastifyInstance): void {
             );
           }
 
-          // Auto-create an empty config template owned by this station. Cascade
-          // delete is wired on the FK so removing the station also removes the
-          // template.
-          if (created != null) {
-            const tplOcppVersion = created.ocppProtocol === 'ocpp2.1' ? '2.1' : '1.6';
-            const tplFilter: {
-              stationId: string;
-              siteId?: string;
-              vendorId?: string;
-              model?: string;
-            } = { stationId: created.id };
-            if (created.siteId != null) tplFilter.siteId = created.siteId;
-            if (created.vendorId != null) tplFilter.vendorId = created.vendorId;
-            if (created.model != null) tplFilter.model = created.model;
-            await tx.insert(configTemplates).values({
-              name: `${created.stationId} - Configurations`,
-              description: `Auto generated. ${created.stationId} configurations (OCPP ${tplOcppVersion})`,
-              ocppVersion: tplOcppVersion,
-              variables: [],
-              stationId: created.id,
-              targetFilter: tplFilter,
-            });
-          }
+          // The empty config template bound to this station.
+          if (created != null) await createStationConfigTemplate(tx, created);
 
           return created;
         });
@@ -1413,7 +1446,10 @@ export function stationRoutes(app: FastifyInstance): void {
       // Check access to the new site when the station moves. A site-restricted
       // user cannot remove a station from its site (siteId null): only
       // all-site users manage stations without a site.
-      if (body.siteId !== undefined && !(await userCanAccessSite(userId, body.siteId))) {
+      if (
+        body.siteId !== undefined &&
+        (!(await userCanAccessSite(userId, body.siteId)) || !(await siteExists(body.siteId)))
+      ) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
@@ -1577,6 +1613,20 @@ export function stationRoutes(app: FastifyInstance): void {
       }
       if (beforeStation != null && beforeStation.siteId !== station.siteId) {
         await publishOcpiStationSiteMove(id, beforeStation.siteId, station.siteId, request.log);
+        // The old site's active maintenance window releases the station and the
+        // new site's applies at once. Fail-open: the move is stored, and a
+        // reconnect re-asserts the new window.
+        try {
+          await applyStationSiteMove(id, beforeStation.siteId, station.siteId, {
+            type: 'operator',
+            userId,
+          });
+        } catch (err) {
+          request.log.warn(
+            { err, stationId: id },
+            'Maintenance hand-off of a moved station failed',
+          );
+        }
       }
 
       // The site sets the station's display language and can change its tariff.
@@ -1595,11 +1645,17 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Delete a station (marks as removed)',
+        description:
+          'Blocks the station (onboarding status blocked) instead of deleting it, keeps its history, disables a paired simulator and closes the station connection. Returns 409 STATION_HAS_ACTIVE_SESSION while a charging session is active at the station: stop it first.',
         operationId: 'deleteStation',
         security: [{ bearerAuth: [] }],
+        params: zodSchema(stationParams),
         response: {
           200: zodSchema(stationCreated),
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
+          409: errorWith('The station has an active charging session', [
+            ERROR_CODES.STATION_HAS_ACTIVE_SESSION,
+          ]),
         },
       },
     },
@@ -1620,6 +1676,20 @@ export function stationRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
         return;
       }
+      // Blocking closes the station's connection, and a blocked station cannot
+      // reconnect, so an active session would never end: stop it first.
+      const [activeSession] = await db
+        .select({ id: chargingSessions.id })
+        .from(chargingSessions)
+        .where(and(eq(chargingSessions.stationId, id), eq(chargingSessions.status, 'active')))
+        .limit(1);
+      if (activeSession != null) {
+        await reply.status(409).send({
+          error: 'The station has an active charging session. Stop it before deleting the station.',
+          code: 'STATION_HAS_ACTIVE_SESSION',
+        });
+        return;
+      }
       const station = await db.transaction(async (tx) => {
         const [updated] = await tx
           .update(chargingStations)
@@ -1638,6 +1708,8 @@ export function stationRoutes(app: FastifyInstance): void {
       // Roaming partners get the station's EVSEs as REMOVED (OCPI 8.1): the
       // location push renders a blocked station's EVSEs that way.
       await publishStationStatusChanged({ id: station.id, siteId: station.siteId }, request.log);
+      // A blocked station is refused at its next connection; end the one it holds.
+      await publishStationDisconnect(getPubSub(), station.stationId, request.log);
       const actor = getAuditActor(request);
       await writeAudit(
         { table: stationAuditLog, idColumn: 'station_id' },
@@ -1687,12 +1759,14 @@ export function stationRoutes(app: FastifyInstance): void {
         .select({
           evseId: evses.evseId,
           evseAutoCreated: evses.autoCreated,
+          evseRetiredAt: evses.retiredAt,
           connectorId: connectors.connectorId,
           connectorType: connectors.connectorType,
           maxPowerKw: connectors.maxPowerKw,
           maxCurrentAmps: connectors.maxCurrentAmps,
           connectorStatus: connectors.status,
           connectorAutoCreated: connectors.autoCreated,
+          connectorRetiredAt: connectors.retiredAt,
           isIdling: sql<boolean>`EXISTS (
             SELECT 1 FROM charging_sessions cs
             WHERE cs.connector_id = ${connectors.id}
@@ -1710,6 +1784,7 @@ export function stationRoutes(app: FastifyInstance): void {
         {
           evseId: number;
           autoCreated: boolean;
+          retiredAt: Date | null;
           connectors: {
             connectorId: number;
             connectorType: string | null;
@@ -1718,6 +1793,7 @@ export function stationRoutes(app: FastifyInstance): void {
             status: string;
             autoCreated: boolean;
             isIdling: boolean;
+            retiredAt: Date | null;
           }[];
         }
       >();
@@ -1727,6 +1803,7 @@ export function stationRoutes(app: FastifyInstance): void {
           grouped.set(row.evseId, {
             evseId: row.evseId,
             autoCreated: row.evseAutoCreated,
+            retiredAt: row.evseRetiredAt,
             connectors: [],
           });
         }
@@ -1740,6 +1817,7 @@ export function stationRoutes(app: FastifyInstance): void {
             status: row.connectorStatus ?? 'unavailable',
             autoCreated: row.connectorAutoCreated ?? false,
             isIdling: row.isIdling,
+            retiredAt: row.connectorRetiredAt,
           });
         }
       }
@@ -1817,7 +1895,11 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // Verify station exists
       const [station] = await db
-        .select({ id: chargingStations.id, ocppProtocol: chargingStations.ocppProtocol })
+        .select({
+          id: chargingStations.id,
+          stationId: chargingStations.stationId,
+          ocppProtocol: chargingStations.ocppProtocol,
+        })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
       if (station == null) {
@@ -1854,10 +1936,37 @@ export function stationRoutes(app: FastifyInstance): void {
       // The pre-check above is racy: two concurrent POSTs with the same
       // (stationId, evseId) can both pass it, then one wins the INSERT and
       // the other hits the unique constraint. Catch SQLSTATE 23505 here and
-      // return 409 instead of leaking a 500.
-      let evse;
+      // return 409 instead of leaking a 500. The EVSE, its connectors and the
+      // simulator mirror commit together, so a failure never leaves an EVSE
+      // without connectors.
+      let created;
       try {
-        [evse] = await db.insert(evses).values({ stationId: id, evseId: body.evseId }).returning();
+        created = await db.transaction(async (tx) => {
+          const [evseRow] = await tx
+            .insert(evses)
+            .values({ stationId: id, evseId: body.evseId })
+            .returning();
+          if (evseRow == null) return null;
+          const connectorRows = await tx
+            .insert(connectors)
+            .values(
+              body.connectors.map((c) => ({
+                evseId: evseRow.id,
+                connectorId: c.connectorId,
+                connectorType: c.connectorType,
+                maxPowerKw: String(c.maxPowerKw),
+                maxCurrentAmps: c.maxCurrentAmps,
+                status: 'unavailable' as const,
+              })),
+            )
+            .returning();
+          await mirrorCssConnectors(
+            tx,
+            station.stationId,
+            body.connectors.map((c) => ({ evseId: body.evseId, ...c })),
+          );
+          return { evse: evseRow, connectorRows };
+        });
       } catch (err) {
         if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({
@@ -1868,57 +1977,11 @@ export function stationRoutes(app: FastifyInstance): void {
         }
         throw err;
       }
-      if (evse == null) {
+      if (created == null) {
         await reply.status(500).send({ error: 'Failed to create EVSE', code: 'INTERNAL_ERROR' });
         return;
       }
-
-      // Insert connectors
-      const connectorRows = await db
-        .insert(connectors)
-        .values(
-          body.connectors.map((c) => ({
-            evseId: evse.id,
-            connectorId: c.connectorId,
-            connectorType: c.connectorType,
-            maxPowerKw: String(c.maxPowerKw),
-            maxCurrentAmps: c.maxCurrentAmps,
-            status: 'unavailable' as const,
-          })),
-        )
-        .returning();
-
-      // Mirror new EVSE/connector pairs into css_evses for paired simulators
-      // so the next simulator boot picks them up. enableCssPair only seeds
-      // one default EVSE; without this mirror, operator-added EVSEs on a
-      // simulator station would be invisible to the simulator. Upsert
-      // because enableCssPair's default seed (evseId=1, connectorId=1,
-      // ac_type2) may already occupy the slot the operator is now
-      // overwriting with their real plug choice.
-      const [cssRow] = await db
-        .select({ id: cssStations.id })
-        .from(cssStations)
-        .where(eq(cssStations.stationId, id));
-      if (cssRow != null) {
-        const cssStationDbId = cssRow.id;
-        const cssRows = body.connectors.map((c) => ({
-          cssStationId: cssStationDbId,
-          evseId: body.evseId,
-          connectorId: c.connectorId,
-          connectorType: mapConnectorTypeToCss(c.connectorType),
-          maxPowerW: c.maxPowerKw * 1000,
-        }));
-        await db
-          .insert(cssEvses)
-          .values(cssRows)
-          .onConflictDoUpdate({
-            target: [cssEvses.cssStationId, cssEvses.evseId, cssEvses.connectorId],
-            set: {
-              connectorType: sql`EXCLUDED.connector_type`,
-              maxPowerW: sql`EXCLUDED.max_power_w`,
-            },
-          });
-      }
+      const { evse, connectorRows } = created;
 
       await auditStationChange(request, id, 'evse_changed', {
         after: {
@@ -1995,8 +2058,13 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // Look up EVSE by station UUID + OCPP evseId
       const [evse] = await db
-        .select({ id: evses.id, evseId: evses.evseId })
+        .select({
+          id: evses.id,
+          evseId: evses.evseId,
+          stationOcppId: chargingStations.stationId,
+        })
         .from(evses)
+        .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
         .where(and(eq(evses.stationId, id), eq(evses.evseId, ocppEvseId)));
       if (evse == null) {
         await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
@@ -2046,6 +2114,11 @@ export function stationRoutes(app: FastifyInstance): void {
             .set(updates)
             .where(and(eq(connectors.evseId, evse.id), eq(connectors.connectorId, c.connectorId)));
         }
+        await mirrorCssConnectors(
+          tx,
+          evse.stationOcppId,
+          body.connectors.map((c) => ({ evseId: evse.evseId, ...c })),
+        );
       });
 
       // Return updated EVSE with connectors
@@ -2369,7 +2442,11 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // Look up EVSE
       const [evse] = await db
-        .select({ id: evses.id, ocppProtocol: chargingStations.ocppProtocol })
+        .select({
+          id: evses.id,
+          stationOcppId: chargingStations.stationId,
+          ocppProtocol: chargingStations.ocppProtocol,
+        })
         .from(evses)
         .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
         .where(and(eq(evses.stationId, id), eq(evses.evseId, ocppEvseId)));
@@ -2401,20 +2478,25 @@ export function stationRoutes(app: FastifyInstance): void {
       }
 
       // Pre-check is racy across concurrent requests; catch the unique
-      // violation and return a clean 409 instead of leaking a 500.
+      // violation and return a clean 409 instead of leaking a 500. The
+      // connector and its simulator mirror commit together.
       let connector;
       try {
-        [connector] = await db
-          .insert(connectors)
-          .values({
-            evseId: evse.id,
-            connectorId: body.connectorId,
-            connectorType: body.connectorType,
-            maxPowerKw: String(body.maxPowerKw),
-            maxCurrentAmps: body.maxCurrentAmps,
-            status: 'unavailable',
-          })
-          .returning();
+        connector = await db.transaction(async (tx) => {
+          const [row] = await tx
+            .insert(connectors)
+            .values({
+              evseId: evse.id,
+              connectorId: body.connectorId,
+              connectorType: body.connectorType,
+              maxPowerKw: String(body.maxPowerKw),
+              maxCurrentAmps: body.maxCurrentAmps,
+              status: 'unavailable',
+            })
+            .returning();
+          await mirrorCssConnectors(tx, evse.stationOcppId, [{ evseId: ocppEvseId, ...body }]);
+          return row;
+        });
       } catch (err) {
         if (pgErrorCode(err) === PG_UNIQUE_VIOLATION) {
           await reply.status(409).send({
@@ -2430,33 +2512,6 @@ export function stationRoutes(app: FastifyInstance): void {
           .status(500)
           .send({ error: 'Failed to create connector', code: 'INTERNAL_ERROR' });
         return;
-      }
-
-      // Mirror to css_evses for paired simulators (same rationale as the
-      // POST /stations/:id/evses path). Upsert so an existing default seed
-      // for the same (evseId, connectorId) is replaced with the operator's
-      // explicit choice.
-      const [cssRow] = await db
-        .select({ id: cssStations.id })
-        .from(cssStations)
-        .where(eq(cssStations.stationId, id));
-      if (cssRow != null) {
-        await db
-          .insert(cssEvses)
-          .values({
-            cssStationId: cssRow.id,
-            evseId: ocppEvseId,
-            connectorId: body.connectorId,
-            connectorType: mapConnectorTypeToCss(body.connectorType),
-            maxPowerW: body.maxPowerKw * 1000,
-          })
-          .onConflictDoUpdate({
-            target: [cssEvses.cssStationId, cssEvses.evseId, cssEvses.connectorId],
-            set: {
-              connectorType: sql`EXCLUDED.connector_type`,
-              maxPowerW: sql`EXCLUDED.max_power_w`,
-            },
-          });
       }
 
       await auditStationChange(request, id, 'evse_changed', {
@@ -2493,7 +2548,7 @@ export function stationRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Delete an EVSE and all its connectors',
         description:
-          'Removes the EVSE row and cascade-deletes its connectors. Returns 409 if any connector on the EVSE is currently occupied (active session, charging, or any in-use status).',
+          'Removes the EVSE row and cascade-deletes its connectors, and removes them from a paired simulator. Returns 409 CONNECTOR_OCCUPIED if any connector on the EVSE is currently occupied (active session, charging, or any in-use status), and 409 EVSE_HAS_HISTORY when sessions, reservations or meter values refer to the EVSE or its connectors.',
         operationId: 'deleteStationEvse',
         security: [{ bearerAuth: [] }],
         params: zodSchema(evseParams),
@@ -2503,7 +2558,10 @@ export function stationRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
-          409: errorWith('Connector occupied', [ERROR_CODES.CONNECTOR_OCCUPIED]),
+          409: errorWith('Connector occupied or EVSE with history', [
+            ERROR_CODES.CONNECTOR_OCCUPIED,
+            ERROR_CODES.EVSE_HAS_HISTORY,
+          ]),
         },
       },
     },
@@ -2551,14 +2609,27 @@ export function stationRoutes(app: FastifyInstance): void {
       // keeps serving it as REMOVED (ocpi_removed_evses), recorded with the
       // delete, and the location is pushed.
       const [owner] = await db
-        .select({ siteId: chargingStations.siteId })
+        .select({ siteId: chargingStations.siteId, stationOcppId: chargingStations.stationId })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
       const siteId = owner?.siteId ?? null;
-      await db.transaction(async (tx) => {
-        if (siteId != null) await recordRemovedOcpiEvses(siteId, [evse.id], tx);
-        await tx.delete(evses).where(eq(evses.id, evse.id));
-      });
+      try {
+        await db.transaction(async (tx) => {
+          if (siteId != null) await recordRemovedOcpiEvses(siteId, [evse.id], tx);
+          await tx.delete(evses).where(eq(evses.id, evse.id));
+          // The paired simulator stops reporting it, so the CSMS does not
+          // create it again from its next StatusNotification.
+          if (owner != null) await removeCssConnectors(tx, owner.stationOcppId, ocppEvseId);
+        });
+      } catch (err) {
+        // Sessions, reservations and meter values keep their EVSE and
+        // connector: an EVSE with history stays.
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
+          await reply.status(409).send(EVSE_HAS_HISTORY);
+          return;
+        }
+        throw err;
+      }
       await auditStationChange(request, id, 'evse_changed', {
         before: { evseId: ocppEvseId },
         notes: `EVSE ${String(ocppEvseId)} deleted`,
@@ -2576,6 +2647,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Delete a connector from an EVSE',
+        description:
+          'Removes the connector, also from a paired simulator. Returns 409 CONNECTOR_OCCUPIED when the connector is in use, and 409 EVSE_HAS_HISTORY when sessions or reservations refer to it.',
         operationId: 'deleteStationConnector',
         security: [{ bearerAuth: [] }],
         params: zodSchema(connectorParams),
@@ -2586,7 +2659,10 @@ export function stationRoutes(app: FastifyInstance): void {
             ERROR_CODES.EVSE_NOT_FOUND,
             ERROR_CODES.STATION_NOT_FOUND,
           ]),
-          409: errorWith('Connector occupied', [ERROR_CODES.CONNECTOR_OCCUPIED]),
+          409: errorWith('Connector occupied or with history', [
+            ERROR_CODES.CONNECTOR_OCCUPIED,
+            ERROR_CODES.EVSE_HAS_HISTORY,
+          ]),
         },
       },
     },
@@ -2604,8 +2680,13 @@ export function stationRoutes(app: FastifyInstance): void {
 
       // Look up EVSE
       const [evse] = await db
-        .select({ id: evses.id })
+        .select({
+          id: evses.id,
+          stationOcppId: chargingStations.stationId,
+          siteId: chargingStations.siteId,
+        })
         .from(evses)
+        .innerJoin(chargingStations, eq(chargingStations.id, evses.stationId))
         .where(and(eq(evses.stationId, id), eq(evses.evseId, ocppEvseId)));
       if (evse == null) {
         await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
@@ -2636,7 +2717,18 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
-      await db.delete(connectors).where(eq(connectors.id, connector.id));
+      try {
+        await db.transaction(async (tx) => {
+          await tx.delete(connectors).where(eq(connectors.id, connector.id));
+          await removeCssConnectors(tx, evse.stationOcppId, ocppEvseId, ocppConnectorId);
+        });
+      } catch (err) {
+        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
+          await reply.status(409).send(EVSE_HAS_HISTORY);
+          return;
+        }
+        throw err;
+      }
       await auditStationChange(request, id, 'evse_changed', {
         before: {
           evseId: ocppEvseId,
@@ -2650,7 +2742,149 @@ export function stationRoutes(app: FastifyInstance): void {
         },
         notes: `Connector ${String(ocppConnectorId)} deleted from EVSE ${String(ocppEvseId)}`,
       });
+      // Roaming partners get the location without the connector.
+      if (evse.siteId != null) await publishOcpiLocationPush(evse.siteId, null, request.log);
       return { status: 'deleted' };
+    },
+  );
+
+  // --- Retire and restore EVSEs and connectors (station-evse-retire.service.ts) ---
+
+  const retireResponse = z
+    .object({
+      retiredAt: z.coerce
+        .date()
+        .nullable()
+        .describe('When the EVSE or connector was retired, null when it is in service'),
+      changed: z.boolean().describe('False when it already was in the requested state'),
+    })
+    .passthrough();
+
+  const retireDescription =
+    'Takes the EVSE out of service and keeps its history: drivers, roaming partners (OCPI REMOVED), new sessions and reservations, the derived station status and uptime leave it out, and the station is told it is Inoperative. Returns 409 CONNECTOR_OCCUPIED while it is in use and 409 EVSE_RESERVED while it has an active or upcoming reservation. Idempotent: changed is false when it already was retired.';
+
+  const retireRouteErrors = {
+    404: errorWith('Resource not found', [
+      ERROR_CODES.CONNECTOR_NOT_FOUND,
+      ERROR_CODES.EVSE_NOT_FOUND,
+      ERROR_CODES.STATION_NOT_FOUND,
+    ]),
+  };
+
+  async function retireAccess(request: FastifyRequest, reply: FastifyReply): Promise<boolean> {
+    const { id } = request.params as { id: string };
+    const { userId } = request.user as JwtPayload;
+    if (!(await checkStationSiteAccess(id, userId))) {
+      await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      return false;
+    }
+    return true;
+  }
+
+  function retireContext(request: FastifyRequest): {
+    actor: AuditActorInfo;
+    log: FastifyBaseLogger;
+  } {
+    return { actor: getAuditActor(request), log: request.log };
+  }
+
+  app.post(
+    '/stations/:id/evses/:evseId/retire',
+    {
+      onRequest: [authorize('stations:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Retire an EVSE',
+        description: retireDescription,
+        operationId: 'retireStationEvse',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(evseParams),
+        response: {
+          200: itemResponse(retireResponse),
+          ...retireRouteErrors,
+          409: errorWith('In use or reserved', [
+            ERROR_CODES.CONNECTOR_OCCUPIED,
+            ERROR_CODES.EVSE_RESERVED,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await retireAccess(request, reply))) return;
+      const { id, evseId } = request.params as z.infer<typeof evseParams>;
+      return retireEvse(id, evseId, retireContext(request));
+    },
+  );
+
+  app.post(
+    '/stations/:id/evses/:evseId/restore',
+    {
+      onRequest: [authorize('stations:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Restore a retired EVSE',
+        description:
+          'Puts a retired EVSE back in service and tells the station it is Operative (not a disabled station). Idempotent: changed is false when it was in service.',
+        operationId: 'restoreStationEvse',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(evseParams),
+        response: { 200: itemResponse(retireResponse), ...retireRouteErrors },
+      },
+    },
+    async (request, reply) => {
+      if (!(await retireAccess(request, reply))) return;
+      const { id, evseId } = request.params as z.infer<typeof evseParams>;
+      return restoreEvse(id, evseId, retireContext(request));
+    },
+  );
+
+  app.post(
+    '/stations/:id/evses/:evseId/connectors/:connectorId/retire',
+    {
+      onRequest: [authorize('stations:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Retire a connector',
+        description: retireDescription.replace('the EVSE out', 'the connector out'),
+        operationId: 'retireStationConnector',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(connectorParams),
+        response: {
+          200: itemResponse(retireResponse),
+          ...retireRouteErrors,
+          409: errorWith('In use or reserved', [
+            ERROR_CODES.CONNECTOR_OCCUPIED,
+            ERROR_CODES.EVSE_RESERVED,
+          ]),
+        },
+      },
+    },
+    async (request, reply) => {
+      if (!(await retireAccess(request, reply))) return;
+      const { id, evseId, connectorId } = request.params as z.infer<typeof connectorParams>;
+      return retireConnector(id, evseId, connectorId, retireContext(request));
+    },
+  );
+
+  app.post(
+    '/stations/:id/evses/:evseId/connectors/:connectorId/restore',
+    {
+      onRequest: [authorize('stations:write')],
+      schema: {
+        tags: ['Stations'],
+        summary: 'Restore a retired connector',
+        description:
+          'Puts a retired connector back in service and tells the station it is Operative (not a disabled station). Idempotent: changed is false when it was in service.',
+        operationId: 'restoreStationConnector',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(connectorParams),
+        response: { 200: itemResponse(retireResponse), ...retireRouteErrors },
+      },
+    },
+    async (request, reply) => {
+      if (!(await retireAccess(request, reply))) return;
+      const { id, evseId, connectorId } = request.params as z.infer<typeof connectorParams>;
+      return restoreConnector(id, evseId, connectorId, retireContext(request));
     },
   );
 
@@ -2903,7 +3137,7 @@ export function stationRoutes(app: FastifyInstance): void {
           )::date AS day
         ),
         ports AS (
-          SELECT DISTINCT evse_id FROM evses WHERE station_id = ${id}
+          SELECT DISTINCT evse_id FROM evses WHERE station_id = ${id} AND retired_at IS NULL
         ),
         pre_period_status AS (
           SELECT DISTINCT ON (psl.evse_id)
@@ -3089,7 +3323,7 @@ export function stationRoutes(app: FastifyInstance): void {
 
       const uptimeRows = await db.execute(sql`
         WITH ports AS (
-          SELECT DISTINCT evse_id FROM evses WHERE station_id = ${id}
+          SELECT DISTINCT evse_id FROM evses WHERE station_id = ${id} AND retired_at IS NULL
         ),
         pre_period_status AS (
           SELECT DISTINCT ON (psl.evse_id)
@@ -3156,7 +3390,7 @@ export function stationRoutes(app: FastifyInstance): void {
         db
           .select({
             sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
-            portCount: sql<number>`(select count(*) from evses where station_id = ${id})`,
+            portCount: sql<number>`(select count(*) from evses where station_id = ${id} and retired_at is null)`,
           })
           .from(chargingSessions)
           .where(and(eq(chargingSessions.stationId, id), gte(chargingSessions.startedAt, since))),
@@ -3839,11 +4073,23 @@ export function stationRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // The type of the station certificate the hash data names picks the 1.6
+      // message: ISO 15118 certificates go in the Plug and Charge DataTransfer
+      // (OCA application note, 2.3). It is a hint, never sent to the station.
+      const typeRows = await db.execute(
+        sql`SELECT certificate_type FROM station_certificates
+            WHERE station_id = ${id}
+              AND ltrim(upper(regexp_replace(serial_number, '[^0-9A-Fa-f]', '', 'g')), '0')
+                = ltrim(upper(${body.certificateHashData.serialNumber}), '0')
+            LIMIT 1`,
+      );
+      const certificateType = typeRows[0]?.certificate_type as string | undefined;
       await publishOcppCommand(getPubSub(), {
         stationId: stationRow.station_id as string,
         action: 'DeleteCertificate',
         payload: {
           certificateHashData: body.certificateHashData,
+          ...(certificateType != null ? { certificateType } : {}),
         },
       });
 
@@ -4128,6 +4374,25 @@ export function stationRoutes(app: FastifyInstance): void {
 
   // --- Station approval / rejection ---
 
+  // Approve, reject and unblock go through the station onboarding service
+  // (compare-and-set on the expected status, audit, status events).
+  async function onboardingRoute(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    transition: OnboardingTransition,
+  ): Promise<OnboardedStation | null> {
+    const { id } = request.params as z.infer<typeof stationParams>;
+    const { userId } = request.user as JwtPayload;
+    if (!(await checkStationSiteAccess(id, userId))) {
+      await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
+      return null;
+    }
+    return changeStationOnboarding(id, transition, {
+      actor: getAuditActor(request),
+      log: request.log,
+    });
+  }
+
   app.post(
     '/stations/:id/approve',
     {
@@ -4135,71 +4400,21 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Approve a pending station',
+        description:
+          'Moves a pending station to accepted, so its next BootNotification is accepted and drivers can charge there. A connected station is asked to boot again now (TriggerMessage BootNotification; a paired simulator reboots). Returns 409 NOT_PENDING when the station is not pending.',
         operationId: 'approveStation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
         response: {
           200: successResponse,
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
-          409: errorResponse,
+          409: errorWith('Station is not pending approval', [ERROR_CODES.NOT_PENDING]),
         },
       },
     },
     async (request, reply) => {
-      const { id } = request.params as z.infer<typeof stationParams>;
-      const { userId } = request.user as JwtPayload;
-      if (!(await checkStationSiteAccess(id, userId))) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-      const [station] = await db
-        .select({
-          onboardingStatus: chargingStations.onboardingStatus,
-          stationId: chargingStations.stationId,
-          isSimulator: chargingStations.isSimulator,
-          siteId: chargingStations.siteId,
-        })
-        .from(chargingStations)
-        .where(eq(chargingStations.id, id));
-
-      if (station == null) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-
-      if (station.onboardingStatus !== 'pending') {
-        await reply
-          .status(409)
-          .send({ error: 'Station is not pending approval', code: 'NOT_PENDING' });
-        return;
-      }
-
-      await db
-        .update(chargingStations)
-        .set({ onboardingStatus: 'accepted', updatedAt: new Date() })
-        .where(eq(chargingStations.id, id));
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: stationAuditLog, idColumn: 'station_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'updated',
-          ...actor,
-          before: { onboardingStatus: 'pending' },
-          after: { onboardingStatus: 'accepted' },
-          notes: 'Station approved',
-        },
-        db,
-        request.log,
-      );
-
-      const pubsub = getPubSub();
-      await pubsub.publish(
-        'csms_events',
-        JSON.stringify({ eventType: 'station.status', stationId: id, siteId: station.siteId }),
-      );
+      const station = await onboardingRoute(request, reply, 'approve');
+      if (station == null) return;
 
       // Nudge a simulator out of a stale Pending boot state. Real stations
       // re-attempt BootNotification on their own retry interval, so this
@@ -4207,7 +4422,7 @@ export function stationRoutes(app: FastifyInstance): void {
       // css_commands and translates the action into a fresh BootNotification.
       if (station.isSimulator) {
         try {
-          await pubsub.publish(
+          await getPubSub().publish(
             'css_commands',
             JSON.stringify({
               commandId: randomUUID(),
@@ -4220,6 +4435,22 @@ export function stationRoutes(app: FastifyInstance): void {
           // Pub/sub failure is non-fatal: the simulator's own retry timer
           // will eventually re-boot. Log and continue.
           request.log.warn({ err, stationId: station.stationId }, 'Simulator reboot nudge failed');
+        }
+      } else if (station.isOnline) {
+        // A connected station waiting in Pending boots again now instead of
+        // after its retry interval (OCPP 2.1 B02.FR.04, 1.6 TriggerMessage).
+        // Fail-open: the station still retries on its own.
+        try {
+          await publishOcppCommand(getPubSub(), {
+            stationId: station.stationId,
+            action: 'TriggerMessage',
+            payload: { requestedMessage: 'BootNotification' },
+          });
+        } catch (err) {
+          request.log.warn(
+            { err, stationId: station.stationId },
+            'Boot trigger after approve failed',
+          );
         }
       }
 
@@ -4234,6 +4465,8 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Unblock a station (sets status to pending)',
+        description:
+          'Moves a blocked station back to pending, where it waits for approval. Returns 409 NOT_BLOCKED when the station is not blocked.',
         operationId: 'unblockStation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -4245,58 +4478,8 @@ export function stationRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const { id } = request.params as z.infer<typeof stationParams>;
-      const { userId } = request.user as JwtPayload;
-      if (!(await checkStationSiteAccess(id, userId))) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-
-      const [station] = await db
-        .select({
-          onboardingStatus: chargingStations.onboardingStatus,
-          siteId: chargingStations.siteId,
-        })
-        .from(chargingStations)
-        .where(eq(chargingStations.id, id));
-
-      if (station == null) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-
-      if (station.onboardingStatus !== 'blocked') {
-        await reply.status(409).send({ error: 'Station is not blocked', code: 'NOT_BLOCKED' });
-        return;
-      }
-
-      await db
-        .update(chargingStations)
-        .set({ onboardingStatus: 'pending', updatedAt: new Date() })
-        .where(eq(chargingStations.id, id));
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: stationAuditLog, idColumn: 'station_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'updated',
-          ...actor,
-          before: { onboardingStatus: 'blocked' },
-          after: { onboardingStatus: 'pending' },
-          notes: 'Station unblocked',
-        },
-        db,
-        request.log,
-      );
-
-      const pubsub = getPubSub();
-      await pubsub.publish(
-        'csms_events',
-        JSON.stringify({ eventType: 'station.status', stationId: id, siteId: station.siteId }),
-      );
-
+      const station = await onboardingRoute(request, reply, 'unblock');
+      if (station == null) return;
       return { success: true };
     },
   );
@@ -4308,70 +4491,21 @@ export function stationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Stations'],
         summary: 'Reject a pending station',
+        description:
+          'Moves a pending station to blocked: the CSMS refuses its connections until it is unblocked. Returns 409 NOT_PENDING when the station is not pending.',
         operationId: 'rejectStation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
         response: {
           200: successResponse,
           404: errorWith('Station not found', [ERROR_CODES.STATION_NOT_FOUND]),
-          409: errorResponse,
+          409: errorWith('Station is not pending approval', [ERROR_CODES.NOT_PENDING]),
         },
       },
     },
     async (request, reply) => {
-      const { id } = request.params as z.infer<typeof stationParams>;
-      const { userId } = request.user as JwtPayload;
-      if (!(await checkStationSiteAccess(id, userId))) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-      const [station] = await db
-        .select({
-          onboardingStatus: chargingStations.onboardingStatus,
-          siteId: chargingStations.siteId,
-        })
-        .from(chargingStations)
-        .where(eq(chargingStations.id, id));
-
-      if (station == null) {
-        await reply.status(404).send({ error: 'Station not found', code: 'STATION_NOT_FOUND' });
-        return;
-      }
-
-      if (station.onboardingStatus !== 'pending') {
-        await reply
-          .status(409)
-          .send({ error: 'Station is not pending approval', code: 'NOT_PENDING' });
-        return;
-      }
-
-      await db
-        .update(chargingStations)
-        .set({ onboardingStatus: 'blocked', updatedAt: new Date() })
-        .where(eq(chargingStations.id, id));
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: stationAuditLog, idColumn: 'station_id' },
-        {
-          entityId: id,
-          entityIdSnapshot: id,
-          action: 'updated',
-          ...actor,
-          before: { onboardingStatus: 'pending' },
-          after: { onboardingStatus: 'blocked' },
-          notes: 'Station rejected',
-        },
-        db,
-        request.log,
-      );
-
-      const pubsub = getPubSub();
-      await pubsub.publish(
-        'csms_events',
-        JSON.stringify({ eventType: 'station.status', stationId: id, siteId: station.siteId }),
-      );
-
+      const station = await onboardingRoute(request, reply, 'reject');
+      if (station == null) return;
       return { success: true };
     },
   );
@@ -5383,7 +5517,7 @@ export function stationRoutes(app: FastifyInstance): void {
         tags: ['Stations'],
         summary: 'Push a configuration template to this station',
         description:
-          'Iterates the template variables and dispatches SetVariables (OCPP 2.1, batched) or one ChangeConfiguration per variable (OCPP 1.6). Per-variable results are returned with the per-variable status. After a successful push, a refresh (GetBaseReport on 2.1, GetConfiguration on 1.6) updates the CSMS mirror. Returns success=true only when every variable was Accepted. A template that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials.',
+          'Iterates the template variables and dispatches SetVariables (OCPP 2.1, batched) or one ChangeConfiguration per variable (OCPP 1.6). Per-variable results are returned with the per-variable status. After a successful push, a refresh (GetBaseReport on 2.1, GetConfiguration on 1.6) updates the CSMS mirror. Returns success=true only when every variable was Accepted. A template for an OCPP version other than the one the station uses is refused with 400 OCPP_VERSION_MISMATCH. A template that names a station credential (BasicAuthPassword, AuthorizationKey) is refused with 400 STATION_CREDENTIALS_ROUTE_REQUIRED: change station passwords with POST /v1/stations/{id}/credentials.',
         operationId: 'pushStationConfiguration',
         security: [{ bearerAuth: [] }],
         params: zodSchema(stationParams),
@@ -5415,8 +5549,9 @@ export function stationRoutes(app: FastifyInstance): void {
               })
               .passthrough(),
           ),
-          400: errorWith('Station offline or a station credential variable', [
+          400: errorWith('Station offline, another OCPP version or a station credential variable', [
             ERROR_CODES.STATION_OFFLINE,
+            ERROR_CODES.OCPP_VERSION_MISMATCH,
             ERROR_CODES.STATION_CREDENTIALS_ROUTE_REQUIRED,
           ]),
           404: errorWith('Resource not found', [
@@ -5480,10 +5615,19 @@ export function stationRoutes(app: FastifyInstance): void {
       if (variables.length === 0) {
         return { success: true, results: [] };
       }
+      const ocppVersion = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
+      // A template holds the variable names of one OCPP version: a 1.6 key
+      // sent to a 2.1 station (or the reverse) is never a valid variable.
+      if (template.ocppVersion !== ocppVersion) {
+        await reply.status(400).send({
+          error: `The template is for OCPP ${template.ocppVersion}, the station uses OCPP ${ocppVersion}`,
+          code: 'OCPP_VERSION_MISMATCH',
+        });
+        return;
+      }
       // A template saved before v0.1.45 can still name a credential.
       assertNoCredentialVariables(variables);
 
-      const ocppVersion = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
       const results: Array<{ component: string; variable: string; status: string }> = [];
       let hasFailure = false;
 
@@ -5577,21 +5721,13 @@ export function stationRoutes(app: FastifyInstance): void {
         );
       }
 
-      if (!hasFailure) {
-        const actor = getAuditActor(request);
-        await writeAudit(
-          { table: stationAuditLog, idColumn: 'station_id' },
-          {
-            entityId: id,
-            entityIdSnapshot: id,
-            action: 'configuration_pushed',
-            ...actor,
-            notes: `Config template ${body.templateId} pushed`,
-          },
-          db,
-          request.log,
-        );
-      }
+      // Audited whatever the outcome: a partly accepted push still changed
+      // the variables the station accepted.
+      const acceptedCount = results.filter((r) => r.status === 'Accepted').length;
+      await auditStationChange(request, id, 'configuration_pushed', {
+        after: { templateId: body.templateId, results },
+        notes: `Config template ${body.templateId} pushed (${String(acceptedCount)} of ${String(variables.length)} accepted)`,
+      });
 
       return { success: !hasFailure, results };
     },

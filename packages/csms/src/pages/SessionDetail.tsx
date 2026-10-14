@@ -74,13 +74,22 @@ interface SessionDetailData {
   co2AvoidedKg: number | null;
   paymentRecord: PaymentRecord | null;
   guestSession: GuestSessionInfo | null;
-  token: { id: string; idToken: string; tokenType: string } | null;
+  token: {
+    id: string;
+    idToken: string;
+    tokenType: string;
+    pncContract?: { id: number; pcid: string; status: 'active' | 'revoked' } | null;
+  } | null;
   vehicle: {
     id: string;
     make: string | null;
     model: string | null;
     year: string | null;
+    licensePlate?: string | null;
+    autochargeEnabled?: boolean;
   } | null;
+  vehicleCapture?: { value: string; type: string; source: string } | null;
+  autocharge?: boolean;
   metadata: Record<string, unknown> | null;
 }
 

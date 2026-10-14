@@ -3,6 +3,7 @@
 
 import type { StepResult, TestCase } from '../../../types.js';
 import { defaultReply } from '../../../default-replies.js';
+import { OCTT_CSR } from '../../../certificate-fixtures.js';
 
 export const TC_077_CSMS: TestCase = {
   id: 'TC_077_CSMS',
@@ -55,7 +56,7 @@ export const TC_077_CSMS: TestCase = {
     // Step 2: Station sends SignCertificate after trigger
     if (extTriggerReceived) {
       await ctx.client.sendCall('SignCertificate', {
-        csr: '-----BEGIN CERTIFICATE REQUEST-----\nMIIBtest\n-----END CERTIFICATE REQUEST-----',
+        csr: OCTT_CSR,
       });
     }
 

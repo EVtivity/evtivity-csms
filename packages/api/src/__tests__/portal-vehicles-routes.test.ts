@@ -55,9 +55,13 @@ vi.mock('@evtivity/database', () => ({
     insert: vi.fn(() => makeChain()),
     update: vi.fn(() => makeChain()),
     delete: vi.fn(() => makeChain()),
+    selectDistinctOn: vi.fn(() => makeChain()),
     execute: vi.fn(() => Promise.resolve([])),
   },
   vehicles: {},
+  chargingSessions: {},
+  chargingStations: {},
+  sites: {},
   vehicleEfficiencyLookup: {},
   vehicleAuditLog: {},
   writeAudit: vi.fn().mockResolvedValue(undefined),
@@ -71,6 +75,8 @@ vi.mock('drizzle-orm', () => {
     sql: sqlTag,
     desc: vi.fn(),
     asc: vi.fn(),
+    inArray: vi.fn(),
+    isNotNull: vi.fn(),
   };
 });
 
@@ -120,6 +126,10 @@ describe('Portal vehicle routes', () => {
           make: 'Tesla',
           model: 'Model 3',
           year: '2024',
+          vin: null,
+          evccid: '92D50A693F80',
+          autochargeEnabled: true,
+          autochargeBlockedAt: null,
           createdAt: new Date(),
         },
       ]);
@@ -132,6 +142,10 @@ describe('Portal vehicle routes', () => {
       const body = response.json();
       expect(body).toHaveLength(1);
       expect(body[0].make).toBe('Tesla');
+      expect(body[0].evccid).toBe('92D50A693F80');
+      expect(body[0].autochargeEnabled).toBe(true);
+      expect(body[0].autochargeBlocked).toBe(false);
+      expect(body[0].lastSeen).toBeNull();
     });
   });
 
@@ -143,6 +157,10 @@ describe('Portal vehicle routes', () => {
         make: 'Tesla',
         model: 'Model Y',
         year: '2025',
+        vin: null,
+        evccid: null,
+        autochargeEnabled: false,
+        autochargeBlockedAt: null,
         createdAt: new Date(),
       };
       setupDbResults([vehicle]);

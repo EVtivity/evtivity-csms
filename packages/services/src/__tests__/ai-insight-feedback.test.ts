@@ -18,6 +18,9 @@ const state = vi.hoisted(() => ({
   inserted: [] as Record<string, unknown>[],
   conflictSet: [] as Record<string, unknown>[],
   audits: [] as Record<string, unknown>[],
+  /** Rows the plain `db.select()` reads answer (the regeneration note). */
+  noteRows: [] as { reason: string | null }[],
+  noteWhere: [] as unknown[],
 }));
 
 vi.mock('@evtivity/database', () => {
@@ -42,6 +45,14 @@ vi.mock('@evtivity/database', () => {
   return {
     db: {
       transaction: (fn: (t: typeof tx) => Promise<unknown>) => fn(tx),
+      select: () => ({
+        from: () => ({
+          where: (cond: unknown) => {
+            state.noteWhere.push(cond);
+            return { limit: () => Promise.resolve(state.noteRows) };
+          },
+        }),
+      }),
       delete: () => ({
         where: () => ({ returning: () => Promise.resolve(state.deleted) }),
       }),
@@ -64,7 +75,9 @@ vi.mock('@evtivity/database', () => {
 });
 vi.mock('../ai-evidence/state.js', () => ({ currentFingerprints: vi.fn() }));
 
-const { setInsightFeedback, clearInsightFeedback } = await import('../ai-insight.service.js');
+const { setInsightFeedback, clearInsightFeedback, regenerationFeedbackNote } =
+  await import('../ai-insight.service.js');
+const { PgDialect } = await import('drizzle-orm/pg-core');
 
 const actor = { actor: 'operator' as const, actorUserId: 'usr_1' };
 
@@ -75,6 +88,8 @@ beforeEach(() => {
   state.inserted = [];
   state.conflictSet = [];
   state.audits = [];
+  state.noteRows = [];
+  state.noteWhere = [];
 });
 
 describe('setInsightFeedback', () => {
@@ -151,5 +166,35 @@ describe('clearInsightFeedback', () => {
       before: { helpful: false, reasonGiven: true },
       after: { helpful: null },
     });
+  });
+});
+
+describe('regenerationFeedbackNote', () => {
+  it('TC-AI-FB-24 reads only the requester own wrong-vote note on the replaced insight', async () => {
+    state.noteRows = [{ reason: 'It was planned maintenance' }];
+    await expect(
+      regenerationFeedbackNote({
+        triggerKey: 'regenerate:ain_old:1760000000000',
+        requestedBy: 'usr_1',
+      }),
+    ).resolves.toBe('It was planned maintenance');
+    // One condition: the replaced insight, the requester, a wrong vote.
+    const { params } = new PgDialect().sqlToQuery(state.noteWhere[0] as never);
+    expect(params).toEqual(['insight_id', 'ain_old', 'user_id', 'usr_1', 'helpful', false]);
+  });
+
+  it('TC-AI-FB-24 no note for a scan insight, a regeneration without requester, or no vote', async () => {
+    state.noteRows = [{ reason: 'x' }];
+    await expect(
+      regenerationFeedbackNote({ triggerKey: 'station_offline:sta_1:1', requestedBy: 'usr_1' }),
+    ).resolves.toBeNull();
+    await expect(
+      regenerationFeedbackNote({ triggerKey: 'regenerate:ain_old:1', requestedBy: null }),
+    ).resolves.toBeNull();
+    expect(state.noteWhere).toEqual([]);
+    state.noteRows = [];
+    await expect(
+      regenerationFeedbackNote({ triggerKey: 'regenerate:ain_old:1', requestedBy: 'usr_2' }),
+    ).resolves.toBeNull();
   });
 });

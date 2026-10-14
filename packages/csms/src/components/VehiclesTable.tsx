@@ -15,6 +15,9 @@ import {
 } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
 import { LoadingLogo } from '@/components/loading-logo';
+import { Badge } from '@/components/ui/badge';
+import { formatDateTime, useUserTimezone } from '@/lib/timezone';
+import { formatVehicleId } from '@evtivity/lib/vehicle-id';
 
 export interface Vehicle {
   id: string;
@@ -25,6 +28,10 @@ export interface Vehicle {
   vin: string | null;
   licensePlate: string | null;
   driverName?: string;
+  evccid?: string | null;
+  autochargeEnabled?: boolean;
+  autochargeBlockedAt?: string | null;
+  lastSeen?: { stationId: string; siteName: string | null; at: string } | null;
 }
 
 interface VehiclesTableProps {
@@ -38,6 +45,8 @@ interface VehiclesTableProps {
   onEdit?: (vehicle: Vehicle) => void;
   onDelete?: (vehicle: Vehicle) => void;
   onRowClick?: (vehicle: Vehicle) => void;
+  /** The Autocharge columns: EVCCID, Autocharge and Last Seen (a driver's vehicles). */
+  showAutocharge?: boolean;
 }
 
 export function VehiclesTable({
@@ -51,12 +60,14 @@ export function VehiclesTable({
   onEdit,
   onDelete,
   onRowClick,
+  showAutocharge = false,
 }: VehiclesTableProps): React.JSX.Element {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const timezone = useUserTimezone();
   const hasActions = onEdit != null || onDelete != null;
   const baseCols = 6;
-  const colSpan = baseCols + (showDriver ? 1 : 0) + (hasActions ? 1 : 0);
+  const colSpan = baseCols + (showDriver ? 1 : 0) + (hasActions ? 1 : 0) + (showAutocharge ? 3 : 0);
 
   return (
     <>
@@ -71,6 +82,13 @@ export function VehiclesTable({
               <TableHead>{t('vehicles.year')}</TableHead>
               <TableHead>{t('vehicles.vin')}</TableHead>
               <TableHead>{t('vehicles.licensePlate')}</TableHead>
+              {showAutocharge && (
+                <>
+                  <TableHead>{t('vehicles.evccid')}</TableHead>
+                  <TableHead>{t('vehicles.autocharge')}</TableHead>
+                  <TableHead>{t('vehicles.lastSeen')}</TableHead>
+                </>
+              )}
               {hasActions && <TableHead />}
             </TableRow>
           </TableHeader>
@@ -113,6 +131,30 @@ export function VehiclesTable({
                 <TableCell>{v.year ?? 'n/a'}</TableCell>
                 <TableCell>{v.vin ?? 'n/a'}</TableCell>
                 <TableCell>{v.licensePlate ?? 'n/a'}</TableCell>
+                {showAutocharge && (
+                  <>
+                    <TableCell className="font-mono whitespace-nowrap">
+                      {v.evccid != null ? formatVehicleId(v.evccid) : 'n/a'}
+                    </TableCell>
+                    <TableCell>
+                      {v.autochargeBlockedAt != null ? (
+                        <Badge variant="destructive">{t('vehicles.blocked')}</Badge>
+                      ) : v.autochargeEnabled === true ? (
+                        <Badge variant="success">{t('vehicles.autochargeOn')}</Badge>
+                      ) : (
+                        <span className="text-muted-foreground">{t('vehicles.autochargeOff')}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {v.lastSeen != null
+                        ? t('vehicles.lastSeenValue', {
+                            station: v.lastSeen.stationId,
+                            time: formatDateTime(v.lastSeen.at, timezone),
+                          })
+                        : '-'}
+                    </TableCell>
+                  </>
+                )}
                 {hasActions && (
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">

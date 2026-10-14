@@ -215,6 +215,13 @@ export const authorizeAttempts = pgTable(
     outcome: authorizeOutcomeEnum('outcome').notNull(),
     ocppVersion: varchar('ocpp_version', { length: 10 }),
     reason: varchar('reason', { length: 200 }),
+    // The vehicle id the start carried (the token itself, a 2.1 additionalInfo
+    // entry or a vehicle-shaped 1.6 idTag), normalized, refused starts included.
+    vehicleIdValue: varchar('vehicle_id_value', { length: 255 }),
+    vehicleIdType: varchar('vehicle_id_type', { length: 20 }),
+    // The Autocharge vehicle that authorized (or refused) the start. No foreign
+    // key, so the log survives a deleted vehicle.
+    matchedVehicleId: text('matched_vehicle_id'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -239,12 +246,38 @@ export const vehicles = pgTable(
     make: varchar('make', { length: 100 }),
     model: varchar('model', { length: 100 }),
     year: varchar('year', { length: 4 }),
+    // Stored normalized (uppercase, @evtivity/lib/vehicle-id).
     vin: varchar('vin', { length: 17 }),
     licensePlate: varchar('license_plate', { length: 20 }),
+    // The EV charging controller id (ISO 15118 EVCCID, the MAC address for
+    // ISO 15118-2 and DIN 70121) as normalized by @evtivity/lib/vehicle-id:
+    // a MAC address as 12 uppercase hex digits.
+    evccid: varchar('evccid', { length: 255 }),
+    // Autocharge (charge by plugging in): a start the charger sends with this
+    // vehicle's VIN or EVCCID is authorized as the vehicle's driver.
+    autochargeEnabled: boolean('autocharge_enabled').notNull().default(false),
+    // Set by an operator block: the vehicle's ids are refused like a blocked
+    // token and the driver cannot turn Autocharge back on.
+    autochargeBlockedAt: timestamp('autocharge_blocked_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('idx_vehicles_driver_id').on(table.driverId)],
+  (table) => [
+    index('idx_vehicles_driver_id').on(table.driverId),
+    index('idx_vehicles_evccid').on(table.evccid),
+    index('idx_vehicles_vin').on(table.vin),
+    // One Autocharge vehicle per id, so a start resolves to one driver.
+    uniqueIndex('uq_vehicles_autocharge_evccid')
+      .on(table.evccid)
+      .where(sql`${table.autochargeEnabled} AND ${table.evccid} IS NOT NULL`),
+    uniqueIndex('uq_vehicles_autocharge_vin')
+      .on(table.vin)
+      .where(sql`${table.autochargeEnabled} AND ${table.vin} IS NOT NULL`),
+    check(
+      'vehicles_autocharge_id_check',
+      sql`NOT ${table.autochargeEnabled} OR ${table.evccid} IS NOT NULL OR ${table.vin} IS NOT NULL`,
+    ),
+  ],
 );
 
 /**

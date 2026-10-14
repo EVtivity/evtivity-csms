@@ -14,6 +14,7 @@ import type { TaxLine } from '@evtivity/lib';
 import { db } from './config.js';
 import { loadElectricityRatePeriodsForSite } from './lib/electricity-rate.js';
 import { allocateInvoiceNumber } from './lib/invoice-number.js';
+import { sessionSiteIdSql } from './lib/session-site.js';
 
 // Demo data of fleet account billing (charge on account, features/fleet-billing.md):
 // one fleet that bills its members on account, with a billing profile and a
@@ -497,12 +498,12 @@ export async function insertDemoAccountSession(
 ): Promise<number> {
   const breakdown = chargedCostBreakdown(session.costCents, session.taxRate, DEFAULT_TAX_BASIS);
   const rows = await sql`
-    INSERT INTO charging_sessions (id, station_id, evse_id, driver_id, transaction_id, status,
+    INSERT INTO charging_sessions (id, station_id, site_id, evse_id, driver_id, transaction_id, status,
       started_at, ended_at, meter_start, meter_stop, energy_delivered_wh, final_cost_cents,
       tariff_tax_rate, net_cents, tax_cents, cost_breakdown, currency, stopped_reason,
       billing_mode, billing_fleet_id, invoice_id, electricity_cost_cents, created_at, updated_at,
       member_billed)
-    VALUES (${session.id}, ${session.stationId}, ${session.evseId}, ${session.driverId},
+    VALUES (${session.id}, ${session.stationId}, ${sessionSiteIdSql(sql, session.stationId)}, ${session.evseId}, ${session.driverId},
       ${session.transactionId}, 'completed', ${session.startedAt}, ${session.endedAt}, 0,
       ${session.energyWh}, ${String(session.energyWh)}, ${session.costCents},
       ${String(session.taxRate)}, ${breakdown.netCents}, ${breakdown.taxCents},

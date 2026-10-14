@@ -35,13 +35,11 @@ afterEach(() => {
 });
 
 describe('ManualProvider.signCsr', () => {
-  it('inserts the CSR as pending and throws MANUAL_SIGNING_REQUIRED', async () => {
-    clientMock.mockResolvedValueOnce([]);
-
+  it('throws MANUAL_SIGNING_REQUIRED without writing (the handler recorded the CSR)', async () => {
     const provider = new ManualProvider();
     let thrown: (Error & { code?: string }) | null = null;
     try {
-      await provider.signCsr('csr-pem', 'V2GCertificate', 'sta_1');
+      await provider.signCsr();
     } catch (err) {
       thrown = err as Error & { code?: string };
     }
@@ -49,17 +47,7 @@ describe('ManualProvider.signCsr', () => {
     expect(thrown).not.toBeNull();
     expect(thrown?.message).toBe('Manual signing required: CSR stored for operator review');
     expect(thrown?.code).toBe('MANUAL_SIGNING_REQUIRED');
-
-    // The tagged-template call: first arg is the SQL strings array, then the
-    // interpolated values in order (csr, certificateType, station ID).
-    expect(clientMock).toHaveBeenCalledTimes(1);
-    const callArgs = clientMock.mock.calls[0] as unknown[];
-    const sqlStrings = callArgs[0] as string[];
-    expect(sqlStrings.join('?')).toContain('INSERT INTO pki_csr_requests');
-    expect(sqlStrings.join('?')).toContain("'pending'");
-    expect(callArgs[1]).toBe('csr-pem');
-    expect(callArgs[2]).toBe('V2GCertificate');
-    expect(callArgs[3]).toBe('sta_1');
+    expect(clientMock).not.toHaveBeenCalled();
   });
 });
 

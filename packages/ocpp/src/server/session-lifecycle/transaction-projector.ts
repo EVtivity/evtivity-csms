@@ -23,6 +23,7 @@ import {
   SESSION_END_FAILED_REASON,
 } from '@evtivity/database';
 import type { TariffPriceSnapshot } from '@evtivity/database';
+import { sessionSiteIdSql } from '@evtivity/database';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import type { ProjectionAttempt } from '../projection-retry.js';
 import { linkStartedReservation, markReservationUsed } from '../reservation-projections.js';
@@ -45,6 +46,14 @@ import {
 import { dispatchDriverNotification, ALL_TEMPLATES_DIRS } from '../notification-dispatcher.js';
 import { projectionLane, sessionGatedKey, sessionPricedKey } from '../projection-queue.js';
 import { isUnbilledTimeoutEnd } from '../session-cost.js';
+import {
+  autochargeNoticeVariables,
+  linkAutochargeSession,
+  linkCapturedVehicle,
+  readVehicleCapture,
+  recordSessionVehicleCapture,
+  resolveAutochargeVehicle,
+} from './vehicle-capture.js';
 
 const CHARGING_STATE_TO_STATUS: Record<string, string> = {
   Charging: 'charging',
@@ -104,6 +113,8 @@ interface StartedContext {
   } | null;
   sessionTariff: TariffPriceSnapshot | null;
   linkedReservationId: string | null;
+  /** The Autocharge vehicle that authorized the session (its driver is driverUuid). */
+  autochargeVehicleId: string | null;
 }
 
 /**
@@ -372,8 +383,8 @@ export class TransactionProjector {
       // The session is billed in the company currency at its start.
       const initialCurrency = await getCompanyCurrency();
       const inserted = await this.deps.sql`
-          INSERT INTO charging_sessions (id, station_id, evse_id, connector_id, transaction_id, status, started_at, meter_start, is_roaming, currency)
-          VALUES (${newSessionId}, ${stationUuid}, ${txEvseUuid}, (
+          INSERT INTO charging_sessions (id, station_id, site_id, evse_id, connector_id, transaction_id, status, started_at, meter_start, is_roaming, currency)
+          VALUES (${newSessionId}, ${stationUuid}, ${sessionSiteIdSql(this.deps.sql, stationUuid)}, ${txEvseUuid}, (
             SELECT c.id FROM connectors c
             WHERE c.evse_id = ${txEvseUuid}
               AND (c.connector_id = ${reportedConnector}
@@ -536,6 +547,14 @@ export class TransactionProjector {
     // Check if site has free-vend enabled (skip driver resolution and payment gate)
     const isFreeVend = await isSiteFreeVendEnabledByStation(stationId);
 
+    // The vehicle id the start carried, stored on every session (free vend
+    // included) so the operator and the driver see the vehicle.
+    const vehicleCapture = readVehicleCapture(payload);
+    if (vehicleCapture != null) {
+      await recordSessionVehicleCapture(this.deps.sql, sessionId, vehicleCapture);
+    }
+    let autochargeVehicleId: string | null = null;
+
     let driverUuid: string | null = null;
     // Seed from the DB so a remote-start session (created by the API with
     // is_roaming already set) and a station-initiated session (where the
@@ -610,6 +629,20 @@ export class TransactionProjector {
               `;
         }
 
+        // Autocharge: the token is the vehicle id of a vehicle with
+        // Autocharge on (features/autocharge.md). The same checks as the
+        // authorize pipeline, from the database.
+        if (driverUuid == null && tokenLookup == null && !isRoamingSession) {
+          const autocharge = await tx.attempt.memo('started:autocharge', () =>
+            resolveAutochargeVehicle(stationId, vehicleCapture),
+          );
+          if (autocharge != null) {
+            await linkAutochargeSession(this.deps.sql, sessionId, autocharge);
+            driverUuid = autocharge.driverId;
+            autochargeVehicleId = autocharge.vehicleId;
+          }
+        }
+
         // If still unresolved and idToken present, check guest sessions
         if (driverUuid == null && !isRoamingSession && idTokenValue != null) {
           const guest = await this.linkGuestSession(sessionId, idTokenValue);
@@ -623,8 +656,13 @@ export class TransactionProjector {
       // Auto-link the driver's most recent vehicle to this session so the
       // portal session detail page shows estimated miles without prompting.
       // The driver can override later via PATCH /v1/portal/sessions/:id/vehicle.
-      if (driverUuid != null) {
+      // The driver's vehicle with the captured id wins over the last one; an
+      // Autocharge session keeps the vehicle that authorized it.
+      if (driverUuid != null && autochargeVehicleId == null) {
         await this.linkLastVehicle(sessionId, driverUuid);
+        if (vehicleCapture != null) {
+          await linkCapturedVehicle(this.deps.sql, sessionId, driverUuid, vehicleCapture);
+        }
       }
 
       // Resolve the tariff for this station and snapshot its prices and the
@@ -702,6 +740,7 @@ export class TransactionProjector {
       tokenLookup,
       sessionTariff,
       linkedReservationId,
+      autochargeVehicleId,
     };
   }
 
@@ -864,6 +903,12 @@ export class TransactionProjector {
     const remoteStartId =
       typeof tx.payload.remoteStartId === 'number' ? tx.payload.remoteStartId : null;
     if (idTokenValue == null && remoteStartId == null) return null;
+    // A vehicle id first sent after the start (or one Started lacked) is
+    // stored on the session; a session that already has one keeps it.
+    const vehicleCapture = readVehicleCapture(tx.payload);
+    if (vehicleCapture != null) {
+      await recordSessionVehicleCapture(this.deps.sql, sessionId, vehicleCapture);
+    }
     const pending = await tx.attempt.memo(`${stage}:first-token`, async () => {
       // Two kinds of waiting session: one the station started without any
       // driver (resolved from the idToken), and one a portal remote start
@@ -931,8 +976,21 @@ export class TransactionProjector {
     let driverUuid: string | null = null;
     let isRoaming = false;
     let guest: { status: string; email: string | null } | null = null;
+    let autochargeVehicleId: string | null = null;
+    const autocharge =
+      pending.remoteStartDriverId == null && pending.token == null
+        ? await tx.attempt.memo(`${stage}:autocharge`, () =>
+            resolveAutochargeVehicle(stationId, vehicleCapture),
+          )
+        : null;
     if (pending.remoteStartDriverId != null) {
       driverUuid = pending.remoteStartDriverId;
+    } else if (autocharge != null) {
+      // Autocharge (features/autocharge.md): the vehicle authorizes the
+      // session as its driver.
+      await linkAutochargeSession(this.deps.sql, sessionId, autocharge);
+      driverUuid = autocharge.driverId;
+      autochargeVehicleId = autocharge.vehicleId;
     } else if (pending.token != null) {
       tokenLookup = await this.linkDriverToken(sessionId, pending.token);
       if (tokenLookup.driverId != null) {
@@ -978,26 +1036,48 @@ export class TransactionProjector {
         driverUuid,
         basis: await getCompanyTaxBasis(),
       });
-      await this.linkLastVehicle(sessionId, driverUuid);
+      if (autochargeVehicleId == null) {
+        await this.linkLastVehicle(sessionId, driverUuid);
+        if (vehicleCapture != null) {
+          await linkCapturedVehicle(this.deps.sql, sessionId, driverUuid, vehicleCapture);
+        }
+      }
       await this.clearStationWatch(stationUuid, sessionId);
       if (stage === 'updated') {
         const driverIdForNotify = driverUuid;
+        const noticeVehicleId = autochargeVehicleId;
         const siteName = await this.deps.lookups.resolveSiteName(stationUuid);
-        await tx.attempt.once(`${stage}:session-started-notification`, () =>
-          dispatchDriverNotification(
+        await tx.attempt.once(`${stage}:session-started-notification`, async () => {
+          const variables = {
+            siteName: siteName ?? '',
+            stationId,
+            transactionId,
+            startedAt: pending.startedAt,
+          };
+          if (noticeVehicleId != null) {
+            await dispatchDriverNotification(
+              this.deps.sql,
+              'session.AutochargeStarted',
+              driverIdForNotify,
+              {
+                ...variables,
+                ...(await autochargeNoticeVariables(this.deps.sql, noticeVehicleId)),
+              },
+              ALL_TEMPLATES_DIRS,
+              this.deps.pubsub,
+              { sms: false },
+            );
+            return;
+          }
+          await dispatchDriverNotification(
             this.deps.sql,
             'session.Started',
             driverIdForNotify,
-            {
-              siteName: siteName ?? '',
-              stationId,
-              transactionId,
-              startedAt: pending.startedAt,
-            },
+            variables,
             ALL_TEMPLATES_DIRS,
             this.deps.pubsub,
-          ),
-        );
+          );
+        });
       }
     }
 
@@ -1196,6 +1276,7 @@ export class TransactionProjector {
       tokenLookup,
       sessionTariff,
       linkedReservationId,
+      autochargeVehicleId,
     } = started;
     // A payment gate failure, held until the rest of the Started step has run
     // and returned for projectStarted to rethrow after the buffer drain and
@@ -1229,24 +1310,43 @@ export class TransactionProjector {
     if (!isFreeVend) {
       // Driver notification: transaction started (awaited so it is recorded before the payment gate
       // can fire a PreAuthFailed notification, preserving chronological order in the portal drawer)
+      // An Autocharge start sends session.AutochargeStarted in its place: the
+      // same facts plus the vehicle and where to turn Autocharge off, so a
+      // driver notices a start they did not make (email and push, no SMS).
       const driverIdForNotify = driverUuid;
       if (driverIdForNotify != null) {
         const startedSiteName = await this.deps.lookups.resolveSiteName(stationUuid);
-        await tx.attempt.once('started:session-started-notification', () =>
-          dispatchDriverNotification(
+        await tx.attempt.once('started:session-started-notification', async () => {
+          const variables = {
+            siteName: startedSiteName ?? '',
+            stationId,
+            transactionId,
+            startedAt: timestamp,
+          };
+          if (autochargeVehicleId != null) {
+            await dispatchDriverNotification(
+              this.deps.sql,
+              'session.AutochargeStarted',
+              driverIdForNotify,
+              {
+                ...variables,
+                ...(await autochargeNoticeVariables(this.deps.sql, autochargeVehicleId)),
+              },
+              ALL_TEMPLATES_DIRS,
+              this.deps.pubsub,
+              { sms: false },
+            );
+            return;
+          }
+          await dispatchDriverNotification(
             this.deps.sql,
             'session.Started',
             driverIdForNotify,
-            {
-              siteName: startedSiteName ?? '',
-              stationId,
-              transactionId,
-              startedAt: timestamp,
-            },
+            variables,
             ALL_TEMPLATES_DIRS,
             this.deps.pubsub,
-          ),
-        );
+          );
+        });
       }
 
       // Payment gate: pre-authorize or stop session if payment not possible.

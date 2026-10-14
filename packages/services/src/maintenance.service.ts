@@ -83,7 +83,13 @@ export interface SideEffectOptions {
   detachSideEffects?: boolean;
 }
 
-export type MaintenanceFanoutPhase = 'enter' | 'release' | 'add' | 'remove' | 'reassert';
+export type MaintenanceFanoutPhase =
+  | 'enter'
+  | 'release'
+  | 'add'
+  | 'remove'
+  | 'reassert'
+  | 'moved-out';
 
 export interface MaintenanceFanoutActor {
   type: 'operator' | 'system';
@@ -1643,6 +1649,9 @@ export async function runMaintenanceFanout(
     case 'remove':
       await runRemoveStationSideEffects(event, job.stationDbIds ?? [], logger);
       return;
+    case 'moved-out':
+      await runMovedOutStations(event, job.stationDbIds ?? [], logger);
+      return;
     case 'reassert':
       // The event may have completed or been cancelled between the station's
       // reconnect and this job running; re-asserting then would wrongly take
@@ -1714,6 +1723,111 @@ export async function runReassertStations(
   const statusAfter = await loadDerivedStatuses(targets.map((s) => s.id));
   await recordFanoutOutcomes(event.id, 'reassert', outcomes, statusBefore, statusAfter, logger);
   logger?.info({ eventId: event.id, stations: targets.length }, 'maintenance re-assert complete');
+}
+
+// A station moved to another site leaves the old site's window: it is
+// released like a removed station (ChangeAvailability Operative unless it is
+// disabled, slot 9005 cleared). Only stations no longer at the event's site,
+// and not covered by an active window at the site they are at now, whose own
+// fan-out sets their state: the release must not switch them back on or clear
+// that window's message (the two sites' fan-outs run in any order).
+async function runMovedOutStations(
+  event: MaintenanceEventRow,
+  stationDbIds: string[],
+  logger?: ServiceLogger,
+): Promise<void> {
+  if (stationDbIds.length === 0) return;
+  const moved = await db
+    .select({
+      id: chargingStations.id,
+      stationId: chargingStations.stationId,
+      ocppProtocol: chargingStations.ocppProtocol,
+      disabledReason: chargingStations.disabledReason,
+      siteId: chargingStations.siteId,
+    })
+    .from(chargingStations)
+    .where(inArray(chargingStations.id, stationDbIds));
+  const released: FanoutStation[] = [];
+  for (const station of moved) {
+    if (station.siteId === event.siteId) continue;
+    if ((await getActiveMaintenanceForStation(station.id)) != null) continue;
+    released.push(station);
+  }
+  if (released.length === 0) return;
+  await runReleaseStations(event, 'moved-out', logger, released);
+}
+
+/**
+ * A station moved from one site to another (station PATCH, site import). The
+ * active maintenance window of the old site that covered it releases it, and
+ * an active window of the new site that covers it (a whole-site window, or one
+ * that lists it) applies at once, with the add fan-out (Inoperative, slot 9005
+ * message, reservation cancels and the session policy). Both run on the
+ * maintenance fan-out queue. Throws when a job cannot be added (Redis down);
+ * the caller logs it, the move is stored, and a reconnect re-asserts the new
+ * window.
+ */
+export async function applyStationSiteMove(
+  stationDbId: string,
+  fromSiteId: string | null,
+  toSiteId: string | null,
+  actor: MaintenanceFanoutActor,
+): Promise<void> {
+  invalidateMaintenanceCheckCache();
+  const nonce = crypto.randomUUID();
+  if (fromSiteId != null) {
+    const left = await activeEventCovering(fromSiteId, stationDbId);
+    if (left != null) {
+      await enqueueMaintenanceFanout({
+        eventId: left.id,
+        siteId: fromSiteId,
+        phase: 'moved-out',
+        stationDbIds: [stationDbId],
+        actor,
+        nonce,
+      });
+    }
+  }
+  if (toSiteId != null) {
+    const joined = await activeEventCovering(toSiteId, stationDbId);
+    if (joined != null) {
+      await enqueueMaintenanceFanout({
+        eventId: joined.id,
+        siteId: toSiteId,
+        phase: 'add',
+        stationDbIds: [stationDbId],
+        actor,
+        nonce,
+      });
+    }
+  }
+}
+
+// The active window of a site that covers a station: every station of the
+// site (no list) or a list naming it.
+async function activeEventCovering(
+  siteId: string,
+  stationDbId: string,
+): Promise<MaintenanceEventRow | null> {
+  const now = new Date();
+  const [row] = await db
+    .select()
+    .from(maintenanceEvents)
+    .where(
+      and(
+        eq(maintenanceEvents.siteId, siteId),
+        eq(maintenanceEvents.status, 'active'),
+        lt(maintenanceEvents.plannedStartAt, now),
+        gt(maintenanceEvents.plannedEndAt, now),
+        or(
+          isNull(maintenanceEvents.affectedStationIds),
+          sql`${maintenanceEvents.affectedStationIds} = '{}'::text[]`,
+          sql`${stationDbId} = ANY(${maintenanceEvents.affectedStationIds})`,
+        ),
+      ),
+    )
+    .limit(1);
+  return row != null ? rowFromDb(row) : null;
 }
 
 export async function getActiveMaintenanceForStation(

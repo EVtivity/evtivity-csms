@@ -64,7 +64,7 @@ describe('localCertificateStatus', () => {
     state.rows = [{ status: 'active', valid_to: new Date(Date.now() + 60_000) }];
     expect(await localCertificateStatus(contractId)).toBe('good');
     state.rows = [{ status: 'active', valid_to: new Date(Date.now() - 60_000) }];
-    expect(await localCertificateStatus(contractId)).toBe('unknown');
+    expect(await localCertificateStatus(contractId)).toBe('expired');
     state.rows = [{ status: 'revoked', valid_to: new Date(Date.now() + 60_000) }];
     expect(await localCertificateStatus(contractId)).toBe('revoked');
   });

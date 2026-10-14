@@ -72,6 +72,7 @@ vi.mock('@evtivity/database', () => ({
     startedAt: 'sessions.startedAt',
     endedAt: 'sessions.endedAt',
     stationId: 'sessions.stationId',
+    siteId: 'sessions.siteId',
     status: 'sessions.status',
   },
   connectors: {},

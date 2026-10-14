@@ -3,18 +3,18 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { invalidateAutochargeCaches } from '../lib/autocharge-invalidation.js';
 import { eq, or, ilike, sql, gte, lte, and, desc, count, inArray, isNotNull } from 'drizzle-orm';
 import {
   db,
   writeAudit,
   siteAuditLog,
-  configTemplateAuditLog,
-  clearFreeVendCache,
   clearElectricityRateCache,
   clearAiUsageCache,
   getCompanyCurrency,
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
+  PG_UNIQUE_VIOLATION,
   toDate,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -42,15 +42,14 @@ import {
   displayMessages,
   pricingGroupSites,
   pricingGroups,
-  configTemplates,
   carbonIntensityFactors,
   pricingAssignmentAuditLog,
   siteElectricityRatePeriods,
+  sitePaymentConfigs,
+  paymentRecords,
 } from '@evtivity/database';
 import {
   isValidTimezone,
-  FREE_VEND_OCPP_21_VARIABLES,
-  FREE_VEND_OCPP_16_KEYS,
   electricityRateRestrictionsSchema,
   deriveElectricityRatePriority,
   STATION_MESSAGE_LANGUAGES,
@@ -82,12 +81,13 @@ import { getUserSiteIds, requireAllSiteAccess } from '../lib/site-access.js';
 import { dateRangeQuery, parseDateRange } from '../lib/date-range.js';
 import { enumerateLocalDays, zeroFillDays } from '../lib/daily-series.js';
 import { buildUnderMaintenanceSubquery } from '../lib/station-maintenance-flag.js';
-import { pushTemplateToSiteStations } from '../lib/config-push.js';
 import type { JwtPayload } from '../plugins/auth.js';
-import { authorize } from '../middleware/rbac.js';
+import { authorize, requestHasPermission } from '../middleware/rbac.js';
 import { requestStationMessageRepush } from '@evtivity/services/station-message.service';
 import { recalculateSiteElectricityCost } from '@evtivity/services/electricity-cost.service';
+import { setSiteFreeVend } from '../services/free-vend.service.js';
 import { siteInScope } from '../lib/site-scope.js';
+import { publishOcpiLocationPush } from '../lib/ocpi-location-push.js';
 
 const importSiteRow = z.object({
   siteName: z.string().min(1).max(255),
@@ -209,6 +209,28 @@ const createSiteBody = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+// An optional site field that an update can clear: null or an empty string
+// stores null, omitted keeps the stored value.
+function clearable(field: z.ZodType<string, z.ZodTypeDef, string>, description: string) {
+  return field
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? null : v))
+    .describe(`${description}. Null or an empty string clears it`);
+}
+
+const emptyOr = (check: (value: string) => boolean) => (value: string) =>
+  value === '' || check(value);
+const isEmail = (value: string): boolean => z.string().email().safeParse(value).success;
+const isLatitude = (value: string): boolean => {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= -90 && n <= 90;
+};
+const isLongitude = (value: string): boolean => {
+  const n = Number(value);
+  return Number.isFinite(n) && n >= -180 && n <= 180;
+};
+
 const updateSiteBody = z.object({
   name: z
     .string()
@@ -217,21 +239,36 @@ const updateSiteBody = z.object({
     .transform((s) => s.trim())
     .pipe(z.string().min(1, 'Name is required'))
     .optional(),
-  address: z.string().max(500).optional(),
-  city: z.string().max(255).optional(),
-  state: z.string().max(100).optional(),
-  postalCode: z.string().max(20).optional(),
-  country: z.string().max(100).optional(),
-  latitude: latitudeField.optional(),
-  longitude: longitudeField.optional(),
+  address: clearable(z.string().max(500), 'Street address'),
+  city: clearable(z.string().max(255), 'City name'),
+  state: clearable(z.string().max(100), 'State, province, or region'),
+  postalCode: clearable(z.string().max(20), 'Postal or ZIP code'),
+  country: clearable(z.string().max(100), 'Country name or ISO code'),
+  latitude: clearable(
+    z
+      .string()
+      .max(20)
+      .refine(emptyOr(isLatitude), { message: 'Latitude must be a number in [-90, 90]' }),
+    'Latitude in decimal degrees',
+  ),
+  longitude: clearable(
+    z
+      .string()
+      .max(20)
+      .refine(emptyOr(isLongitude), { message: 'Longitude must be a number in [-180, 180]' }),
+    'Longitude in decimal degrees',
+  ),
   timezone: z
     .string()
     .max(100)
     .refine(isValidTimezone, { message: 'Invalid IANA timezone' })
     .optional(),
-  contactName: z.string().max(255).optional(),
-  contactEmail: z.string().email().max(255).optional(),
-  contactPhone: z.string().max(50).optional(),
+  contactName: clearable(z.string().max(255), 'Site contact person name'),
+  contactEmail: clearable(
+    z.string().max(255).refine(emptyOr(isEmail), { message: 'Invalid email' }),
+    'Site contact email address',
+  ),
+  contactPhone: clearable(z.string().max(50), 'Site contact phone number'),
   contactIsPublic: z.boolean().optional(),
   hoursOfOperation: hoursOfOperationField,
   metadata: z.record(z.unknown()).optional(),
@@ -239,6 +276,13 @@ const updateSiteBody = z.object({
     .boolean()
     .optional()
     .describe('Whether reservations are allowed at this site'),
+  autochargeEnabled: z
+    .boolean()
+    .nullable()
+    .optional()
+    .describe(
+      'Autocharge (charge by plugging in) at this site. Null follows the autocharge.enabled setting',
+    ),
   stationMessageLanguage: z
     .enum(STATION_MESSAGE_LANGUAGES)
     .nullable()
@@ -265,6 +309,36 @@ const updateSiteBody = z.object({
 /** Site fields only a user with access to every site may change (a restricted user gets 404). */
 const ALL_SITE_FIELDS = ['aiInsightsEnabled', 'aiMonthlyTokenBudget'] as const;
 
+/** Site columns the OCPI location carries: a change pushes the location to partners. */
+const OCPI_LOCATION_FIELDS = [
+  'name',
+  'address',
+  'city',
+  'state',
+  'postalCode',
+  'country',
+  'latitude',
+  'longitude',
+  'timezone',
+  'hoursOfOperation',
+  'contactName',
+  'contactIsPublic',
+  'freeVendEnabled',
+] as const;
+
+/** Whether a site write changed what roaming partners see in its OCPI location. */
+function ocpiLocationChanged(
+  before: Partial<Record<(typeof OCPI_LOCATION_FIELDS)[number], unknown>>,
+  after: Partial<Record<(typeof OCPI_LOCATION_FIELDS)[number], unknown>>,
+): boolean {
+  return OCPI_LOCATION_FIELDS.some((field) => before[field] !== after[field]);
+}
+
+/** The site name unique index answers a name taken by a concurrent write. */
+function isSiteNameUniqueViolation(err: unknown): boolean {
+  return pgErrorCode(err) === PG_UNIQUE_VIOLATION;
+}
+
 const siteSelect = {
   id: sites.id,
   name: sites.name,
@@ -287,9 +361,12 @@ const siteSelect = {
   stationCount: sql<number>`count(${chargingStations.id})::int`,
   loadManagementEnabled: sql<boolean>`coalesce(${siteLoadManagement.isEnabled}, false)`,
   reservationsEnabled: sites.reservationsEnabled,
+  autochargeEnabled: sites.autochargeEnabled,
   freeVendEnabled: sites.freeVendEnabled,
   freeVendTemplateId21: sites.freeVendTemplateId21,
   freeVendTemplateId16: sites.freeVendTemplateId16,
+  freeVendRestoreTemplateId21: sites.freeVendRestoreTemplateId21,
+  freeVendRestoreTemplateId16: sites.freeVendRestoreTemplateId16,
   stationMessageLanguage: sites.stationMessageLanguage,
   aiInsightsEnabled: sites.aiInsightsEnabled,
   aiMonthlyTokenBudget: sites.aiMonthlyTokenBudget,
@@ -380,6 +457,12 @@ const siteBase = z
     timezone: z.string().nullable().describe('IANA timezone name (e.g. America/Los_Angeles)'),
     hoursOfOperation: z.string().nullable().describe('Free-form description of operating hours'),
     metadata: z.record(z.unknown()).nullable().describe('Arbitrary site metadata as JSON object'),
+    autochargeEnabled: z
+      .boolean()
+      .nullable()
+      .describe(
+        'Autocharge (charge by plugging in) at this site. Null follows the autocharge.enabled setting',
+      ),
     stationMessageLanguage: z
       .string()
       .nullable()
@@ -822,16 +905,24 @@ export function siteRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Sites'],
         summary: 'Export sites as CSV',
+        description:
+          'Exports every site matching the list filters (search, city, state, loadManagement), with their stations, EVSEs and connectors. page and limit are ignored.',
         operationId: 'exportSites',
         security: [{ bearerAuth: [] }],
-        querystring: zodSchema(paginationQuery),
+        querystring: zodSchema(sitesListQuery),
       },
     },
     async (request, reply) => {
-      const { search } = request.query as z.infer<typeof paginationQuery>;
+      const { search, city, state, loadManagement } = request.query as z.infer<
+        typeof sitesListQuery
+      >;
       const { userId } = request.user as JwtPayload;
       const siteIds = await getUserSiteIds(userId);
-      const csv = await exportSitesCsv(search, siteIds ?? undefined);
+      const csv = await exportSitesCsv(search, siteIds ?? undefined, {
+        city,
+        state,
+        loadManagement,
+      });
       await reply
         .header('Content-Type', 'text/csv; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename=sites.csv')
@@ -872,12 +963,30 @@ export function siteRoutes(app: FastifyInstance): void {
         summary: 'Import sites from parsed CSV rows',
         operationId: 'importSites',
         security: [{ bearerAuth: [] }],
+        description:
+          'Creates sites by name and, from rows with a stationId, stations with their EVSEs and connectors. Rows with a stationId also need stations:write (403 INSUFFICIENT_PERMISSIONS).',
         body: zodSchema(importSiteBody),
-        response: { 200: zodSchema(importResultResponse) },
+        response: {
+          200: zodSchema(importResultResponse),
+          403: errorWith('Station rows without stations:write', [
+            ERROR_CODES.INSUFFICIENT_PERMISSIONS,
+          ]),
+        },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { rows, updateExisting } = request.body as z.infer<typeof importSiteBody>;
+      // Station rows create, move and disable stations: the station permission
+      // applies as it does on the station routes.
+      if (
+        rows.some((row) => row.stationId != null && row.stationId !== '') &&
+        !(await requestHasPermission(request, 'stations:write'))
+      ) {
+        await reply
+          .status(403)
+          .send({ error: 'Insufficient permissions', code: 'INSUFFICIENT_PERMISSIONS' });
+        return;
+      }
       const { userId } = request.user as { userId: string };
       const allowedSiteIds = await getUserSiteIds(userId);
       return importSitesCsv(
@@ -972,7 +1081,17 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const [site] = await db.insert(sites).values(body).returning();
+      let site: typeof sites.$inferSelect | undefined;
+      try {
+        [site] = await db.insert(sites).values(body).returning();
+      } catch (err) {
+        // A concurrent create took the name after the check above.
+        if (!isSiteNameUniqueViolation(err)) throw err;
+        await reply
+          .status(409)
+          .send({ error: 'A site with this name already exists', code: 'DUPLICATE_SITE_NAME' });
+        return;
+      }
       if (site != null) {
         const actor = getAuditActor(request);
         await writeAudit(
@@ -1043,11 +1162,21 @@ export function siteRoutes(app: FastifyInstance): void {
         }
       }
 
-      const [site] = await db
-        .update(sites)
-        .set({ ...body, updatedAt: new Date() })
-        .where(eq(sites.id, id))
-        .returning();
+      let site: typeof sites.$inferSelect | undefined;
+      try {
+        [site] = await db
+          .update(sites)
+          .set({ ...body, updatedAt: new Date() })
+          .where(eq(sites.id, id))
+          .returning();
+      } catch (err) {
+        // A concurrent write took the name after the check above.
+        if (!isSiteNameUniqueViolation(err)) throw err;
+        await reply
+          .status(409)
+          .send({ error: 'A site with this name already exists', code: 'DUPLICATE_SITE_NAME' });
+        return;
+      }
       if (site == null) {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
@@ -1074,6 +1203,12 @@ export function siteRoutes(app: FastifyInstance): void {
         await requestStationMessageRepush(request.log, { siteId: site.id });
       }
       if (body.aiMonthlyTokenBudget !== undefined) clearAiUsageCache();
+      // Push partners hold a copy of the location: send them the new address,
+      // coordinates, hours or contact (OCPI 8.1, fail-open).
+      if (before != null && ocpiLocationChanged(before, site)) {
+        await publishOcpiLocationPush(site.id, null, request.log);
+      }
+      if (body.autochargeEnabled !== undefined) await invalidateAutochargeCaches(request.log);
       return site;
     },
   );
@@ -1085,13 +1220,18 @@ export function siteRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Sites'],
         summary: 'Delete a site',
+        description:
+          'Deletes a site that has no stations (a deleted station keeps its site for its history, so it still counts: 409 SITE_HAS_STATIONS). The site payment configuration, its payout account link and open payout onboarding links go with the site; a site whose payment configuration has payments is kept (409 SITE_PAYMENT_CONFIG_IN_USE).',
         operationId: 'deleteSite',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
         response: {
           200: itemResponse(siteBase),
           404: errorWith('Site not found', [ERROR_CODES.SITE_NOT_FOUND]),
-          409: errorWith('Site has stations', [ERROR_CODES.SITE_HAS_STATIONS]),
+          409: errorWith(
+            'The site has stations (deleted stations included), or its payment configuration has payments',
+            [ERROR_CODES.SITE_HAS_STATIONS, ERROR_CODES.SITE_PAYMENT_CONFIG_IN_USE],
+          ),
         },
       },
     },
@@ -1104,25 +1244,79 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const stationRows = await db
-        .select({ id: chargingStations.id })
-        .from(chargingStations)
-        .where(eq(chargingStations.siteId, id))
-        .limit(1);
-
-      if (stationRows.length > 0) {
-        await reply.status(409).send({
-          error: 'Cannot delete site with stations. Remove or reassign stations first.',
-          code: 'SITE_HAS_STATIONS',
+      const hasStationsBody = {
+        error: 'Cannot delete site with stations. Remove or reassign stations first.',
+        code: 'SITE_HAS_STATIONS',
+      };
+      const hasPaymentsBody = {
+        error: "This site's payment configuration has payments, so the site cannot be deleted.",
+        code: 'SITE_PAYMENT_CONFIG_IN_USE',
+      };
+      // The site row lock orders this delete with a station or payment config
+      // that names the site (their foreign key check locks the site row), so
+      // the checks below cannot miss one written meanwhile.
+      let outcome:
+        | { kind: 'missing' }
+        | { kind: 'stations' }
+        | { kind: 'payments' }
+        | {
+            kind: 'deleted';
+            site: typeof sites.$inferSelect;
+            paymentConfig: typeof sitePaymentConfigs.$inferSelect | null;
+          };
+      try {
+        outcome = await db.transaction(async (tx) => {
+          const [locked] = await tx.select().from(sites).where(eq(sites.id, id)).for('update');
+          if (locked == null) return { kind: 'missing' as const };
+          const [station] = await tx
+            .select({ id: chargingStations.id })
+            .from(chargingStations)
+            .where(eq(chargingStations.siteId, id))
+            .limit(1);
+          if (station != null) return { kind: 'stations' as const };
+          // The payment config goes with the site (cascade), but payments keep
+          // their config for their history, so a site with payments stays.
+          const [paymentConfig] = await tx
+            .select()
+            .from(sitePaymentConfigs)
+            .where(eq(sitePaymentConfigs.siteId, id));
+          if (paymentConfig != null) {
+            const [payment] = await tx
+              .select({ id: paymentRecords.id })
+              .from(paymentRecords)
+              .where(eq(paymentRecords.sitePaymentConfigId, paymentConfig.id))
+              .limit(1);
+            if (payment != null) return { kind: 'payments' as const };
+          }
+          await tx.delete(sites).where(eq(sites.id, id));
+          return { kind: 'deleted' as const, site: locked, paymentConfig: paymentConfig ?? null };
         });
+      } catch (err) {
+        // A row written after the checks (outside the lock order) still names
+        // the site or its payment config: answer as the checks would have.
+        if (pgErrorCode(err) !== PG_FOREIGN_KEY_VIOLATION) throw err;
+        const [station] = await db
+          .select({ id: chargingStations.id })
+          .from(chargingStations)
+          .where(eq(chargingStations.siteId, id))
+          .limit(1);
+        await reply.status(409).send(station != null ? hasStationsBody : hasPaymentsBody);
         return;
       }
 
-      const [site] = await db.delete(sites).where(eq(sites.id, id)).returning();
-      if (site == null) {
+      if (outcome.kind === 'missing') {
         await reply.status(404).send({ error: 'Site not found', code: 'SITE_NOT_FOUND' });
         return;
       }
+      if (outcome.kind === 'stations') {
+        await reply.status(409).send(hasStationsBody);
+        return;
+      }
+      if (outcome.kind === 'payments') {
+        await reply.status(409).send(hasPaymentsBody);
+        return;
+      }
+      const { site, paymentConfig } = outcome;
       const actor = getAuditActor(request);
       await writeAudit(
         { table: siteAuditLog, idColumn: 'site_id' },
@@ -1131,7 +1325,8 @@ export function siteRoutes(app: FastifyInstance): void {
           entityIdSnapshot: site.id,
           action: 'deleted',
           ...actor,
-          before: site,
+          // The payment config and its payout account went with the site.
+          before: paymentConfig != null ? { ...site, paymentConfig } : site,
         },
         db,
         request.log,
@@ -1191,6 +1386,7 @@ export function siteRoutes(app: FastifyInstance): void {
           SELECT DISTINCT e.station_id, e.evse_id
           FROM evses e
           INNER JOIN site_stations ss ON ss.station_uuid = e.station_id
+          WHERE e.retired_at IS NULL
         ),
         pre_period_status AS (
           SELECT DISTINCT ON (psl.station_id, psl.evse_id)
@@ -1252,17 +1448,15 @@ export function siteRoutes(app: FastifyInstance): void {
           avgDurationMinutes: sql<number>`coalesce(avg(extract(epoch from (${chargingSessions.endedAt} - ${chargingSessions.startedAt})) / 60) filter (where ${chargingSessions.endedAt} is not null), 0)`,
         })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .where(and(eq(chargingStations.siteId, id), gte(chargingSessions.startedAt, since)));
+        .where(and(eq(chargingSessions.siteId, id), gte(chargingSessions.startedAt, since)));
 
       const [utilizationStats] = await db
         .select({
           sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
-          portCount: sql<number>`(select count(*) from evses e inner join charging_stations cs on cs.id = e.station_id where cs.site_id = ${id})`,
+          portCount: sql<number>`(select count(*) from evses e inner join charging_stations cs on cs.id = e.station_id where cs.site_id = ${id} and e.retired_at is null)`,
         })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .where(and(eq(chargingStations.siteId, id), gte(chargingSessions.startedAt, since)));
+        .where(and(eq(chargingSessions.siteId, id), gte(chargingSessions.startedAt, since)));
 
       const totalPortHours = (utilizationStats?.portCount ?? 1) * (periodMinutes / 60);
       const utilization =
@@ -1281,8 +1475,7 @@ export function siteRoutes(app: FastifyInstance): void {
               ),
           })
           .from(chargingSessions)
-          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-          .where(and(eq(chargingStations.siteId, id), gte(chargingSessions.startedAt, since))),
+          .where(and(eq(chargingSessions.siteId, id), gte(chargingSessions.startedAt, since))),
         // Revenue (session-revenue.ts): ended sessions and reservation fees,
         // minus refunds.
         queryRevenueTotal({
@@ -1477,10 +1670,9 @@ export function siteRoutes(app: FastifyInstance): void {
           energyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
         })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
         .where(
           and(
-            eq(chargingStations.siteId, id),
+            eq(chargingSessions.siteId, id),
             gte(chargingSessions.startedAt, since),
             until ? lte(chargingSessions.startedAt, until) : undefined,
           ),
@@ -1616,8 +1808,7 @@ export function siteRoutes(app: FastifyInstance): void {
           totalSessions: count(),
         })
         .from(chargingSessions)
-        .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-        .where(and(eq(chargingStations.siteId, id), gte(chargingSessions.startedAt, since)))
+        .where(and(eq(chargingSessions.siteId, id), gte(chargingSessions.startedAt, since)))
         .groupBy(sql`1`, sql`2`)
         .orderBy(sql`1`, sql`2`);
 
@@ -1773,7 +1964,8 @@ export function siteRoutes(app: FastifyInstance): void {
       }
       const { page, limit, status, stationId } = request.query as z.infer<typeof sessionsQuery>;
       const offset = (page - 1) * limit;
-      const conditions = [eq(chargingStations.siteId, id)];
+      // Sessions that happened at the site, also from a station that moved away.
+      const conditions = [eq(chargingSessions.siteId, id)];
       if (stationId != null) {
         conditions.push(eq(chargingSessions.stationId, stationId));
       }
@@ -1810,7 +2002,7 @@ export function siteRoutes(app: FastifyInstance): void {
           })
           .from(chargingSessions)
           .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-          .leftJoin(sites, eq(chargingStations.siteId, sites.id))
+          .leftJoin(sites, eq(chargingSessions.siteId, sites.id))
           .leftJoin(drivers, eq(chargingSessions.driverId, drivers.id))
           .where(where)
           .orderBy(desc(chargingSessions.createdAt), desc(chargingSessions.id))
@@ -1819,7 +2011,6 @@ export function siteRoutes(app: FastifyInstance): void {
         db
           .select({ count: sql<number>`count(*)::int` })
           .from(chargingSessions)
-          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
           .where(where),
       ]);
 
@@ -2076,24 +2267,29 @@ export function siteRoutes(app: FastifyInstance): void {
         }));
       }
 
-      for (const pos of positions) {
-        await db
-          .insert(stationLayoutPositions)
-          .values({
-            siteId: id,
-            stationId: pos.stationId,
-            positionX: String(pos.positionX),
-            positionY: String(pos.positionY),
-          })
-          .onConflictDoUpdate({
-            target: stationLayoutPositions.stationId,
-            set: {
+      // One position row per station: a station that moved here from another
+      // site takes this site with its new position, and the layout saves whole.
+      await db.transaction(async (tx) => {
+        for (const pos of positions) {
+          await tx
+            .insert(stationLayoutPositions)
+            .values({
+              siteId: id,
+              stationId: pos.stationId,
               positionX: String(pos.positionX),
               positionY: String(pos.positionY),
-              updatedAt: new Date(),
-            },
-          });
-      }
+            })
+            .onConflictDoUpdate({
+              target: stationLayoutPositions.stationId,
+              set: {
+                siteId: id,
+                positionX: String(pos.positionX),
+                positionY: String(pos.positionY),
+                updatedAt: new Date(),
+              },
+            });
+        }
+      });
 
       if (positions.length > 0) {
         await writeAudit(
@@ -2324,13 +2520,13 @@ export function siteRoutes(app: FastifyInstance): void {
         .string()
         .optional()
         .describe(
-          'Identifier of the OCPP 2.1 config push triggered for stations at the site, if any',
+          'Identifier of the OCPP 2.1 config push (free vend on, or the authorization restore when off) for stations at the site, empty when no online station got one',
         ),
       pushId16: z
         .string()
         .optional()
         .describe(
-          'Identifier of the OCPP 1.6 config push triggered for stations at the site, if any',
+          'Identifier of the OCPP 1.6 config push (free vend on, or the authorization restore when off) for stations at the site, empty when no online station got one',
         ),
     })
     .passthrough();
@@ -2342,6 +2538,8 @@ export function siteRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Sites'],
         summary: 'Toggle free vend mode for a site',
+        description:
+          'On: creates the free vend config templates when missing and pushes them to the online stations of the site. When the site was off, the values the stations report then (2.1 TxCtrlr.TxStartPoint, 1.6 LocalPreAuthorize and LocalAuthorizeOffline) are kept in the restore templates. Off: pushes the restore templates, which turn authorization back on (2.1 AuthCtrlr.Enabled true, 1.6 AllowOfflineTxForUnknownId false). A value no station reported restores to PowerPathClosed (2.1), LocalPreAuthorize false and LocalAuthorizeOffline true (1.6). pushId21 and pushId16 name the config pushes.',
         operationId: 'toggleSiteFreeVend',
         security: [{ bearerAuth: [] }],
         params: zodSchema(siteParams),
@@ -2369,140 +2567,12 @@ export function siteRoutes(app: FastifyInstance): void {
         return;
       }
 
-      const actor = getAuditActor(request);
-
-      if (!enabled) {
-        const [updated] = await db
-          .update(sites)
-          .set({ freeVendEnabled: false, updatedAt: new Date() })
-          .where(eq(sites.id, id))
-          .returning();
-        await writeAudit(
-          { table: siteAuditLog, idColumn: 'site_id' },
-          {
-            entityId: site.id,
-            entityIdSnapshot: site.id,
-            action: 'updated',
-            ...actor,
-            before: site,
-            after: updated ?? site,
-            notes: 'free-vend disabled',
-          },
-          db,
-          request.log,
-        );
-        clearFreeVendCache();
-        return { success: true };
-      }
-
-      // Atomic: create both templates AND mark the site as free-vend enabled
-      // in one transaction so a partial failure can't orphan a template or
-      // double-create on retry.
-      const { templateId21, templateId16 } = await db.transaction(async (tx) => {
-        let id21 = site.freeVendTemplateId21;
-        if (id21 == null) {
-          const [template] = await tx
-            .insert(configTemplates)
-            .values({
-              name: `Free Vend - ${site.name} (OCPP 2.1)`,
-              description: `Auto generated. Free Vend configuration for ${site.name} (OCPP 2.1).`,
-              ocppVersion: '2.1',
-              variables: FREE_VEND_OCPP_21_VARIABLES,
-              targetFilter: { siteId: site.id },
-            })
-            .returning();
-          id21 = template?.id ?? null;
-          if (template != null) {
-            await writeAudit(
-              { table: configTemplateAuditLog, idColumn: 'template_id' },
-              {
-                entityId: template.id,
-                entityIdSnapshot: template.id,
-                action: 'created',
-                ...actor,
-                after: template,
-                notes: `auto-created for free-vend on site ${site.id}`,
-              },
-              tx,
-              request.log,
-            );
-          }
-        }
-
-        let id16 = site.freeVendTemplateId16;
-        if (id16 == null) {
-          const [template] = await tx
-            .insert(configTemplates)
-            .values({
-              name: `Free Vend - ${site.name} (OCPP 1.6)`,
-              description: `Auto generated. Free Vend configuration for ${site.name} (OCPP 1.6). OCPP 1.6 has no standard free-vend mechanism; these keys work with most stations but some vendors require vendor-specific keys (edit and re-push as needed).`,
-              ocppVersion: '1.6',
-              variables: FREE_VEND_OCPP_16_KEYS.map((k) => ({
-                component: k.key,
-                variable: k.key,
-                value: k.value,
-              })),
-              targetFilter: { siteId: site.id },
-            })
-            .returning();
-          id16 = template?.id ?? null;
-          if (template != null) {
-            await writeAudit(
-              { table: configTemplateAuditLog, idColumn: 'template_id' },
-              {
-                entityId: template.id,
-                entityIdSnapshot: template.id,
-                action: 'created',
-                ...actor,
-                after: template,
-                notes: `auto-created for free-vend on site ${site.id}`,
-              },
-              tx,
-              request.log,
-            );
-          }
-        }
-
-        const [updated] = await tx
-          .update(sites)
-          .set({
-            freeVendEnabled: true,
-            freeVendTemplateId21: id21,
-            freeVendTemplateId16: id16,
-            updatedAt: new Date(),
-          })
-          .where(eq(sites.id, id))
-          .returning();
-
-        await writeAudit(
-          { table: siteAuditLog, idColumn: 'site_id' },
-          {
-            entityId: site.id,
-            entityIdSnapshot: site.id,
-            action: 'updated',
-            ...actor,
-            before: site,
-            after: updated ?? site,
-            notes: 'free-vend enabled',
-          },
-          tx,
-          request.log,
-        );
-
-        return { templateId21: id21, templateId16: id16 };
-      });
-
-      clearFreeVendCache();
-
-      // Push templates to online stations at this site (outside the
-      // transaction since pushTemplateToSiteStations dispatches OCPP commands).
-      // The 2.1 and 1.6 pushes target disjoint station sets, so fire them in
-      // parallel to halve the toggle latency on mixed fleets.
-      const [pushId21, pushId16] = await Promise.all([
-        templateId21 != null ? pushTemplateToSiteStations(templateId21, id) : Promise.resolve(''),
-        templateId16 != null ? pushTemplateToSiteStations(templateId16, id) : Promise.resolve(''),
-      ]);
-
+      const { pushId21, pushId16 } = await setSiteFreeVend(
+        site,
+        enabled,
+        getAuditActor(request),
+        request.log,
+      );
       return { success: true, pushId21, pushId16 };
     },
   );
@@ -2655,7 +2725,7 @@ export function siteRoutes(app: FastifyInstance): void {
       id: z.number().int().describe('Rate period ID'),
       siteId: z.string().describe('Site ID'),
       name: z.string().describe('Rate period name'),
-      ratePerKwh: z.number().describe('Wholesale electricity rate in dollars per kWh'),
+      ratePerKwh: z.number().describe('Wholesale electricity rate per kWh in the company currency'),
       restrictions: z
         .record(z.unknown())
         .nullable()
@@ -2669,7 +2739,13 @@ export function siteRoutes(app: FastifyInstance): void {
 
   const electricityRateBody = z.object({
     name: z.string().min(1).max(100).describe('Rate period name'),
-    ratePerKwh: z.number().nonnegative().describe('Wholesale electricity rate in dollars per kWh'),
+    ratePerKwh: z
+      .number()
+      .nonnegative()
+      .max(9999.999999)
+      .describe(
+        'Wholesale electricity rate per kWh in the company currency (major units, up to 6 decimals)',
+      ),
     restrictions: electricityRateRestrictionsSchema
       .nullable()
       .optional()

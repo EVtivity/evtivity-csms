@@ -802,12 +802,48 @@ describe('Config template routes', () => {
       expect(body).toEqual([]);
     });
 
-    it('returns 200 with drift items when values differ', async () => {
-      const station = { id: 'sta-1', siteId: 'site-1', vendorId: 'vnd-1', model: 'Model X' };
+    it('ignores a template of another OCPP version than the station', async () => {
+      const station = {
+        id: 'sta-1',
+        siteId: 'site-1',
+        vendorId: 'vnd-1',
+        model: 'Model X',
+        ocppProtocol: 'ocpp1.6',
+      };
       const templates = [
         {
           id: 'tpl-1',
           name: 'Config',
+          ocppVersion: '2.1',
+          variables: [{ component: 'EVSE', variable: 'MaxCurrent', value: '32' }],
+          targetFilter: null,
+          stationId: null,
+        },
+      ];
+      setupDbResults([station], templates);
+
+      const res = await app.inject({
+        method: 'GET',
+        url: '/v1/stations/sta-1/config-drift',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual([]);
+    });
+
+    it('returns 200 with drift items when values differ', async () => {
+      const station = {
+        id: 'sta-1',
+        siteId: 'site-1',
+        vendorId: 'vnd-1',
+        model: 'Model X',
+        ocppProtocol: 'ocpp2.1',
+      };
+      const templates = [
+        {
+          id: 'tpl-1',
+          name: 'Config',
+          ocppVersion: '2.1',
           variables: [
             { component: 'EVSE', variable: 'MaxCurrent', value: '32' },
             { component: 'ChargingStation', variable: 'HeartbeatInterval', value: '60' },

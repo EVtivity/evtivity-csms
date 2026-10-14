@@ -8,6 +8,7 @@ import { useCanExplain, useOpenExplain } from '@/components/ai/ExplainButton';
 import { aiRequestErrorText } from '@/components/ai/ai-error-text';
 import { InsightCard } from '@/components/ai/insights/InsightCard';
 import { InsightRecordLink } from '@/components/ai/insights/InsightRecordLink';
+import { InsightWrongVotesCard } from '@/components/ai/insights/InsightWrongVotesCard';
 import { useInsight } from '@/components/ai/insights/insight-api';
 import type { AiInsightView } from '@/components/ai/insights/insight-api';
 import { insightHeadline } from '@/components/ai/insights/insight-display';
@@ -41,7 +42,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }):
  * header (back, headline, status, Prev and Next in the list order), the
  * insight card (with the action a background worker suggested, and Reject
  * and Confirm), the records it is about with the action's job, target,
- * precondition and timing, and the history (`ai_insight` audit rows, and the
+ * precondition and timing, Marked Wrong (the wrong votes with their notes,
+ * when there are any), and the history (`ai_insight` audit rows, and the
  * action's `ai_proposal` rows). Rows of the dashboard card and of the
  * insights list open it.
  */
@@ -214,6 +216,11 @@ export function AiInsightDetail(): React.JSX.Element {
           </CardContent>
         </Card>
       </div>
+
+      <InsightWrongVotesCard
+        insightId={insight.id}
+        wrongCount={insight.feedback?.wrongCount ?? 0}
+      />
 
       <EntityHistoryTab entityType="ai_insight" entityId={insight.id} />
     </div>

@@ -22,8 +22,10 @@ import { useInsightFeedbackSummary } from './insight-api';
 /**
  * Settings > AI > Automatic Insights: how often operators found insights
  * helpful, by insight type, from the votes of the last 30 days on insights in
- * the user's sites. Read only, shared components only; votes never feed any
- * prompt. Shown with `aiInsights:read`.
+ * the user's sites. A type with wrong votes links to its insights marked
+ * wrong (the list with the kind and feedback filters), where each insight
+ * page lists the notes. Read only, shared components only. Shown with
+ * `aiInsights:read`.
  */
 export function InsightQualityCard(): React.JSX.Element | null {
   const { t } = useTranslation();
@@ -77,7 +79,19 @@ export function InsightQualityCard(): React.JSX.Element | null {
               <TableBody>
                 {rates.map((r) => (
                   <TableRow key={r.kind} data-testid="ai-insight-quality-row">
-                    <TableCell>{t(`aiInsights.kind.${r.kind}`)}</TableCell>
+                    <TableCell>
+                      {r.wrong > 0 ? (
+                        <Link
+                          to={`/ai/insights?kind=${encodeURIComponent(r.kind)}&feedback=wrong`}
+                          className="text-link hover:underline"
+                          data-testid="ai-insight-quality-wrong-link"
+                        >
+                          {t(`aiInsights.kind.${r.kind}`)}
+                        </Link>
+                      ) : (
+                        t(`aiInsights.kind.${r.kind}`)
+                      )}
+                    </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatNumber(r.helpful, 0)}
                     </TableCell>

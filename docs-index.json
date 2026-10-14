@@ -70,6 +70,11 @@
     "description": "Optional scheduled jobs that summarize your network, find stuck sessions, and check tariffs. Their suggestions are insights with an action that runs only when you confirm it."
   },
   {
+    "path": "/docs/csms/autocharge",
+    "title": "Autocharge",
+    "description": "Start charging when a driver plugs in, identified by the vehicle id the charger reads from the EV."
+  },
+  {
     "path": "/docs/csms/certificates",
     "title": "Certificates",
     "description": "Manage ISO 15118 Plug and Charge certificates, Mutual TLS station certificates, and PKI provider integration."
@@ -562,7 +567,7 @@
   {
     "path": "/docs/portal/vehicles",
     "title": "Vehicles",
-    "description": "Add vehicles to your account for estimated miles driven from energy consumed."
+    "description": "Add vehicles to your account for estimated miles driven, and charge by plugging in with Autocharge."
   },
   {
     "path": "/docs/simulator/actions",

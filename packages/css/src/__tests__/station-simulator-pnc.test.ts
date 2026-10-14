@@ -1,6 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
+import { generateKeyPairSync } from 'node:crypto';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { liveHarness, silenceConsole, type Harness } from './sim-harness.js';
 
@@ -106,8 +107,60 @@ describe('Plug and Charge actions', () => {
     expect(txEvents(h, 'Started')).toHaveLength(0);
   });
 
-  it('is OCPP 2.1 only', async () => {
-    const h = await liveHarness('ocpp1.6');
-    await expect(h.sim.createPncEv(1)).rejects.toThrow(/2\.1/);
+  it('updates an ISO 15118-2 contract through Get15118EVCertificate Update', async () => {
+    const h = await liveHarness('ocpp2.1', (action) =>
+      action === 'Get15118EVCertificate' ? { status: 'Accepted', exiResponse: 'EXI' } : undefined,
+    );
+    await h.sim.createPncEv(1);
+    await expect(h.sim.updatePncContract(1)).rejects.toThrow(/install one first/);
+    // updateRequest signs with the contract key: a real key, no certificate needed.
+    const keyed = {
+      ...contract,
+      privateKey: generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey,
+    };
+    checks.iso2.mockReturnValueOnce({ ok: true, contract: keyed, remaining: null });
+    await h.sim.installPncContract(1);
+    const renewed = { ...keyed, emaid: 'NLEVSC87654321' };
+    checks.iso2.mockReturnValueOnce({ ok: true, contract: renewed, remaining: null });
+    expect(await h.sim.updatePncContract(1)).toEqual({ emaid: 'NLEVSC87654321' });
+    expect(h.sent('Get15118EVCertificate').at(-1)).toMatchObject({ action: 'Update' });
+    expect(checks.iso2).toHaveBeenLastCalledWith('EXI', 'CertificateUpdateRes', keyed.privateKey);
+  });
+
+  it('refuses an update for an ISO 15118-20 EV', async () => {
+    const h = await liveHarness('ocpp2.1', (action) =>
+      action === 'Get15118EVCertificate' ? { status: 'Accepted', exiResponse: 'EXI' } : undefined,
+    );
+    checks.iso20.mockReturnValue({ ok: true, contract, remaining: 0 });
+    await h.sim.createPncEv(1, 20);
+    await h.sim.installPncContract(1);
+    await expect(h.sim.updatePncContract(1)).rejects.toThrow(/ISO 15118-2/);
+  });
+
+  it('authorizes the contract without starting and returns the CSMS verdict', async () => {
+    const h = await liveHarness('ocpp2.1', (action) => {
+      if (action === 'Get15118EVCertificate') return { status: 'Accepted', exiResponse: 'EXI' };
+      if (action === 'Authorize') {
+        return { idTokenInfo: { status: 'Invalid' }, certificateStatus: 'CertificateRevoked' };
+      }
+      return undefined;
+    });
+    await h.sim.createPncEv(1);
+    await h.sim.installPncContract(1);
+    expect(await h.sim.authorizePnc(1)).toEqual({
+      emaid: contract.emaid,
+      status: 'Invalid',
+      certificateStatus: 'CertificateRevoked',
+    });
+    expect(h.sent('Authorize').at(-1)).toEqual({
+      idToken: { idToken: contract.emaid, type: 'eMAID' },
+      iso15118CertificateHashData: hashData,
+    });
+    expect(txEvents(h, 'Started')).toHaveLength(0);
+  });
+
+  it('needs a known EVSE', async () => {
+    const h = await liveHarness('ocpp2.1');
+    await expect(h.sim.createPncEv(99)).rejects.toThrow(/Unknown EVSE/);
   });
 });

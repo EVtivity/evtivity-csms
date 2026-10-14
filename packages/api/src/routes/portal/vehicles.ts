@@ -5,7 +5,14 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, sql, asc, desc } from 'drizzle-orm';
 import { db } from '@evtivity/database';
-import { vehicles, vehicleEfficiencyLookup, vehicleAuditLog, writeAudit } from '@evtivity/database';
+import { vehicles, vehicleEfficiencyLookup } from '@evtivity/database';
+import { getAuditActor } from '../../lib/audit-actor.js';
+import * as vehicleService from '../../services/vehicle.service.js';
+import {
+  replyVehicleServiceError,
+  vehicleAutochargeFields,
+  vehicleLastSeen,
+} from '../../lib/vehicle-response.js';
 import { zodSchema } from '../../lib/zod-schema.js';
 import { ID_PARAMS } from '../../lib/id-validation.js';
 import { arrayResponse, itemResponse, errorWith } from '../../lib/response-schemas.js';
@@ -23,9 +30,66 @@ const vehicleItem = z
       .regex(/^\d{4}$/)
       .nullable()
       .describe('Vehicle year (4-digit)'),
+    ...vehicleAutochargeFields,
+    autochargeBlocked: z
+      .boolean()
+      .describe('The operator blocked Autocharge for this vehicle; the driver cannot turn it on'),
     createdAt: z.coerce.date().describe('Timestamp when the vehicle was added'),
   })
   .passthrough();
+
+const vehicleIdFields = {
+  vin: z
+    .string()
+    .max(17)
+    .nullable()
+    .optional()
+    .describe('VIN (17 characters, no I, O or Q). Null or empty removes it.'),
+  evccid: z
+    .string()
+    .max(255)
+    .nullable()
+    .optional()
+    .describe('EVCCID or MAC address of the EV charging controller. Null or empty removes it.'),
+};
+
+const updateVehicleBody = z.object({
+  make: z.string().min(1).max(100).optional().describe('Vehicle manufacturer'),
+  model: z.string().min(1).max(100).optional().describe('Vehicle model'),
+  year: z
+    .string()
+    .regex(/^\d{4}$/)
+    .nullable()
+    .optional()
+    .describe('Model year (4-digit). Null removes it.'),
+  ...vehicleIdFields,
+  autochargeEnabled: z
+    .boolean()
+    .optional()
+    .describe('Autocharge (charge by plugging in); needs a VIN or an EVCCID'),
+});
+
+type VehicleRow = typeof vehicles.$inferSelect;
+
+/** The portal shape of a vehicle: no operator fields, the block as a flag. */
+function portalVehicle(
+  v: VehicleRow,
+  lastSeen: { stationId: string; siteName: string | null; at: Date } | null,
+): Record<string, unknown> {
+  return {
+    id: v.id,
+    driverId: v.driverId,
+    make: v.make,
+    model: v.model,
+    year: v.year,
+    vin: v.vin,
+    evccid: v.evccid,
+    autochargeEnabled: v.autochargeEnabled,
+    autochargeBlocked: v.autochargeBlockedAt != null,
+    lastSeen,
+    createdAt: v.createdAt,
+  };
+}
 
 const createVehicleBody = z.object({
   make: z.string().min(1).max(100).describe('Vehicle manufacturer'),
@@ -35,6 +99,7 @@ const createVehicleBody = z.object({
     .regex(/^\d{4}$/)
     .optional()
     .describe('Model year (4-digit)'),
+  ...vehicleIdFields,
 });
 
 const vehicleParams = z.object({
@@ -82,18 +147,16 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { driverId } = request.user as DriverJwtPayload;
-      return db
-        .select({
-          id: vehicles.id,
-          driverId: vehicles.driverId,
-          make: vehicles.make,
-          model: vehicles.model,
-          year: vehicles.year,
-          createdAt: vehicles.createdAt,
-        })
+      const rows = await db
+        .select()
         .from(vehicles)
         .where(eq(vehicles.driverId, driverId))
         .orderBy(desc(vehicles.createdAt), desc(vehicles.id));
+      const lastSeen = await vehicleLastSeen(
+        rows.map((r) => r.id),
+        null,
+      );
+      return rows.map((r) => portalVehicle(r, lastSeen.get(r.id) ?? null));
     },
   );
 
@@ -110,6 +173,7 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(vehicleItem),
           400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
+          404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
         },
       },
     },
@@ -117,33 +181,62 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
       const { driverId } = request.user as DriverJwtPayload;
       const body = request.body as z.infer<typeof createVehicleBody>;
 
-      const [vehicle] = await db
-        .insert(vehicles)
-        .values({
+      try {
+        const vehicle = await vehicleService.createVehicle(
           driverId,
-          make: body.make,
-          model: body.model,
-          year: body.year ?? null,
-        })
-        .returning();
-
-      if (vehicle != null) {
-        await writeAudit(
-          { table: vehicleAuditLog, idColumn: 'vehicle_id' },
-          {
-            entityId: vehicle.id,
-            entityIdSnapshot: vehicle.id,
-            action: 'created',
-            actor: 'driver',
-            actorDriverId: driverId,
-            after: vehicle,
-          },
-          db,
+          body,
+          getAuditActor(request),
           request.log,
         );
+        return await reply.status(201).send(portalVehicle(vehicle, null));
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
       }
+    },
+  );
 
-      return reply.status(201).send(vehicle);
+  app.patch(
+    '/portal/vehicles/:id',
+    {
+      onRequest: [app.authenticateDriver],
+      schema: {
+        tags: ['Portal Vehicles'],
+        summary: 'Update a vehicle, its VIN or EVCCID, or turn Autocharge on or off',
+        operationId: 'portalUpdateVehicle',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(vehicleParams),
+        body: zodSchema(updateVehicleBody),
+        response: {
+          200: itemResponse(vehicleItem),
+          400: errorWith('Validation error', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.VEHICLE_ID_REQUIRED,
+          ]),
+          403: errorWith('Blocked by the operator', [ERROR_CODES.VEHICLE_BLOCKED_BY_OPERATOR]),
+          404: errorWith('Vehicle not found', [ERROR_CODES.VEHICLE_NOT_FOUND]),
+          409: errorWith('Vehicle id in use', [ERROR_CODES.VEHICLE_ID_IN_USE]),
+        },
+      },
+    },
+    async (request, reply) => {
+      const { driverId } = request.user as DriverJwtPayload;
+      const { id } = request.params as z.infer<typeof vehicleParams>;
+      const body = request.body as z.infer<typeof updateVehicleBody>;
+      try {
+        const vehicle = await vehicleService.updateVehicle(
+          driverId,
+          id,
+          body,
+          getAuditActor(request),
+          request.log,
+        );
+        const lastSeen = await vehicleLastSeen([vehicle.id], null);
+        return portalVehicle(vehicle, lastSeen.get(vehicle.id) ?? null);
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
+      }
     },
   );
 
@@ -168,30 +261,13 @@ export function portalVehicleRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof vehicleParams>;
 
       // Another driver's vehicle answers like a missing one, so vehicle ids
-      // cannot be probed. One statement, so a concurrent delete cannot audit twice.
-      const [deleted] = await db
-        .delete(vehicles)
-        .where(and(eq(vehicles.id, id), eq(vehicles.driverId, driverId)))
-        .returning();
-
-      if (deleted == null) {
-        await reply.status(404).send({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
-        return;
+      // cannot be probed.
+      try {
+        await vehicleService.deleteVehicle(driverId, id, getAuditActor(request), request.log);
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
       }
-
-      await writeAudit(
-        { table: vehicleAuditLog, idColumn: 'vehicle_id' },
-        {
-          entityId: null,
-          entityIdSnapshot: deleted.id,
-          action: 'deleted',
-          actor: 'driver',
-          actorDriverId: driverId,
-          before: deleted,
-        },
-        db,
-        request.log,
-      );
       return reply.status(204).send();
     },
   );

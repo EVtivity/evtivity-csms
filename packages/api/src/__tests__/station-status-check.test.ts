@@ -189,6 +189,60 @@ describe('triggerAndWaitForStatus', () => {
     expect(result).toEqual({ status: 'Occupied' });
   });
 
+  it('answers with the stored status when the triggered TransactionEvent omits chargingState', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-04T00:00:00Z'));
+    executeMock
+      .mockResolvedValueOnce([makeRow('Charging', '2026-06-04T00:00:00Z')]) // before
+      .mockResolvedValueOnce([{ id: 'ses_1' }]) // active session lookup
+      .mockResolvedValueOnce([makeRow('Charging', '2026-06-04T00:00:00Z')]) // poll: unchanged
+      .mockResolvedValueOnce([{ found: 1 }]); // a TransactionEvent without chargingState arrived
+
+    const ref: { handler: ((raw: string) => void) | null } = { handler: null };
+    subscribeMock.mockImplementation(async (_c: string, cb: (raw: string) => void) => {
+      ref.handler = cb;
+      return { unsubscribe: unsubscribeMock };
+    });
+
+    const promise = triggerAndWaitForStatus('CS-1', 1, 1, 'sta_1', 'ocpp2.1');
+    await vi.advanceTimersByTimeAsync(0);
+    const sent = JSON.parse((publishMock.mock.calls[0] as [string, string])[1]) as {
+      commandId: string;
+    };
+    ref.handler?.(JSON.stringify({ commandId: sent.commandId, response: { status: 'Accepted' } }));
+
+    // Answered at the first poll, not after the 10 s timeout.
+    await vi.advanceTimersByTimeAsync(600);
+    const result = await promise;
+    expect(result).toEqual({ status: 'Charging' });
+    const logLookup = executeMock.mock.calls[3]?.[0] as { strings: string[] };
+    expect(logLookup.strings.join('?')).toContain("action = 'TransactionEvent'");
+  });
+
+  it('never reads the message log on the StatusNotification path', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-04T00:00:00Z'));
+    executeMock.mockResolvedValueOnce([makeRow('Available', '2026-06-04T00:00:00Z')]);
+    executeMock.mockResolvedValue([makeRow('Available', '2026-06-04T00:00:00Z')]);
+    const ref: { handler: ((raw: string) => void) | null } = { handler: null };
+    subscribeMock.mockImplementation(async (_c: string, cb: (raw: string) => void) => {
+      ref.handler = cb;
+      return { unsubscribe: unsubscribeMock };
+    });
+    const promise = triggerAndWaitForStatus('CS-1', 1, 1, 'sta_1', 'ocpp1.6');
+    await vi.advanceTimersByTimeAsync(0);
+    const sent = JSON.parse((publishMock.mock.calls[0] as [string, string])[1]) as {
+      commandId: string;
+    };
+    ref.handler?.(JSON.stringify({ commandId: sent.commandId, response: { status: 'Accepted' } }));
+    await vi.advanceTimersByTimeAsync(11_000);
+    await promise;
+    const statements = executeMock.mock.calls.map((c) =>
+      (c[0] as { strings: string[] }).strings.join('?'),
+    );
+    expect(statements.some((q) => q.includes('ocpp_message_logs'))).toBe(false);
+  });
+
   it('uses a StatusNotification trigger for OCPP 2.1 stations with no active session', async () => {
     executeMock
       .mockResolvedValueOnce([makeRow('Available', '2026-06-04T00:00:00Z')]) // before

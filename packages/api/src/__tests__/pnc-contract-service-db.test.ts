@@ -167,7 +167,7 @@ describe('pnc-contract.service', () => {
     it('accepts a PCID of exactly 64 characters', async () => {
       const pcid = 'B'.repeat(64);
       setupDbResults(
-        [{ id: DRIVER_ID }],
+        [{ id: DRIVER_ID, isActive: true }],
         goodSettings,
         [{ id: 9 }],
         [contractRow({ id: 9, pcid })],
@@ -186,12 +186,21 @@ describe('pnc-contract.service', () => {
       expect(mockCreateToken).not.toHaveBeenCalled();
     });
 
+    it('throws 409 DRIVER_INACTIVE for an inactive or erased driver', async () => {
+      setupDbResults([{ id: DRIVER_ID, isActive: false }]);
+      await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'DRIVER_INACTIVE',
+      });
+      expect(mockCreateToken).not.toHaveBeenCalled();
+    });
+
     it.each([
       ['missing', []],
       ['empty', [{ key: 'pnc.local.caEnc', value: '' }]],
       ['non-string', [{ key: 'pnc.local.caEnc', value: 42 }]],
     ])('throws 409 LOCAL_CA_NOT_CONFIGURED when the CA is %s', async (_label, rows) => {
-      setupDbResults([{ id: DRIVER_ID }], rows);
+      setupDbResults([{ id: DRIVER_ID, isActive: true }], rows);
       await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toMatchObject({
         statusCode: 409,
         code: 'LOCAL_CA_NOT_CONFIGURED',
@@ -217,7 +226,7 @@ describe('pnc-contract.service', () => {
         { key: 'pnc.local.emaidCountry', value: country },
       ];
       if (provider !== undefined) rows.push({ key: 'pnc.local.emaidProviderId', value: provider });
-      setupDbResults([{ id: DRIVER_ID }], rows);
+      setupDbResults([{ id: DRIVER_ID, isActive: true }], rows);
       await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toMatchObject({
         statusCode: 409,
         code: 'EMAID_PREFIX_NOT_CONFIGURED',
@@ -226,7 +235,12 @@ describe('pnc-contract.service', () => {
     });
 
     it('creates an eMAID token and a contract bound to the normalized PCID', async () => {
-      setupDbResults([{ id: DRIVER_ID }], goodSettings, [{ id: 5 }], [contractRow()]);
+      setupDbResults(
+        [{ id: DRIVER_ID, isActive: true }],
+        goodSettings,
+        [{ id: 5 }],
+        [contractRow()],
+      );
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
       const contract = await createContract(DRIVER_ID, 'wmi-v 0001.x', ACTOR, AUDIT);
       expect(contract).toEqual({
@@ -266,7 +280,12 @@ describe('pnc-contract.service', () => {
     });
 
     it('retries with a new eMAID when the token is a duplicate', async () => {
-      setupDbResults([{ id: DRIVER_ID }], goodSettings, [{ id: 5 }], [contractRow()]);
+      setupDbResults(
+        [{ id: DRIVER_ID, isActive: true }],
+        goodSettings,
+        [{ id: 5 }],
+        [contractRow()],
+      );
       mockCreateToken
         .mockRejectedValueOnce(new tokenService.DuplicateTokenError('X', 'eMAID'))
         .mockRejectedValueOnce(new tokenService.DuplicateTokenError('Y', 'eMAID'))
@@ -277,7 +296,7 @@ describe('pnc-contract.service', () => {
     });
 
     it('gives up after five duplicate eMAIDs', async () => {
-      setupDbResults([{ id: DRIVER_ID }], goodSettings);
+      setupDbResults([{ id: DRIVER_ID, isActive: true }], goodSettings);
       mockCreateToken.mockRejectedValue(new tokenService.DuplicateTokenError('X', 'eMAID'));
       await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow(
         'Could not allocate a unique eMAID',
@@ -287,7 +306,7 @@ describe('pnc-contract.service', () => {
     });
 
     it('rethrows a non-duplicate token error without retrying', async () => {
-      setupDbResults([{ id: DRIVER_ID }], goodSettings);
+      setupDbResults([{ id: DRIVER_ID, isActive: true }], goodSettings);
       mockCreateToken.mockRejectedValue(new Error('db down'));
       await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow('db down');
       expect(mockCreateToken).toHaveBeenCalledTimes(1);
@@ -295,7 +314,11 @@ describe('pnc-contract.service', () => {
     });
 
     it('deletes the orphan eMAID token when the contract insert fails', async () => {
-      setupDbResults([{ id: DRIVER_ID }], goodSettings, new Error('unique violation'));
+      setupDbResults(
+        [{ id: DRIVER_ID, isActive: true }],
+        goodSettings,
+        new Error('unique violation'),
+      );
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
       await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow(
         'unique violation',
@@ -304,7 +327,7 @@ describe('pnc-contract.service', () => {
     });
 
     it('deletes the eMAID token when the insert returns no row', async () => {
-      setupDbResults([{ id: DRIVER_ID }], goodSettings, []);
+      setupDbResults([{ id: DRIVER_ID, isActive: true }], goodSettings, []);
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
       await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow(
         'Contract insert returned no row',
@@ -313,7 +336,7 @@ describe('pnc-contract.service', () => {
     });
 
     it('deletes the eMAID token when the inserted contract cannot be read back', async () => {
-      setupDbResults([{ id: DRIVER_ID }], goodSettings, [{ id: 5 }], []);
+      setupDbResults([{ id: DRIVER_ID, isActive: true }], goodSettings, [{ id: 5 }], []);
       mockCreateToken.mockResolvedValue({ id: TOKEN_ID } as never);
       await expect(createContract(DRIVER_ID, 'wmi-1', ACTOR, AUDIT)).rejects.toThrow(
         'Contract insert returned no row',

@@ -288,6 +288,8 @@ const mockElectricityPeriods = vi.fn().mockResolvedValue([]);
 vi.mock('@evtivity/database', async () => ({
   // The session audit of a CSMS stop or fault (tested in payment-stop.test.ts).
   writeCsmsSessionAudit: vi.fn().mockResolvedValue(undefined),
+  // The session site sub-select (lib/session-site.ts), a plain value here.
+  sessionSiteIdSql: vi.fn(() => 'site-of-station'),
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../../database/src/lib/session-end-request.js',
   )),

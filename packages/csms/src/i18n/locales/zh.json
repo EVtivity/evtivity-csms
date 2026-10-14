@@ -488,7 +488,7 @@
     "contactPhone": "联系人电话",
     "contactIsPublic": "公开联系信息",
     "contactPublicNote": "公开后，联系信息将对门户上的驾驶员可见。",
-    "removeStationsFirst": "请先删除所有充电站再删除",
+    "removeStationsFirst": "删除前请将所有充电站移至其他站点。已删除的充电站仍属于该站点。",
     "noStationsAtSite": "该站点无充电站",
     "layout": "布局",
     "loadManagement": "负载管理",
@@ -534,8 +534,8 @@
     "enableFreeVend": "启用免费充电",
     "disableFreeVend": "禁用免费充电",
     "confirmEnableFreeVend": "这将允许该站点的所有充电站无需驾驶员身份验证或付款即可充电。OCPP自动启动配置将推送到所有在线充电站。",
-    "confirmDisableFreeVend": "这将要求在该站点充电时进行驾驶员身份验证和付款。充电站OCPP配置不会更改。",
-    "freeVendDisabledNote": "免费充电已禁用。会话现在需要驾驶员身份验证和付款。充电站OCPP配置未更改。要恢复充电站的授权要求,请编辑配置模板并重新推送。",
+    "confirmDisableFreeVend": "这将要求在该站点充电时进行驾驶员身份验证和付款。在线充电站将恢复之前的授权设置。",
+    "freeVendDisabledNote": "免费充电已禁用。会话现在需要驾驶员身份验证和付款。在线充电站已收到下方的授权恢复模板;离线的充电站在您重新推送后恢复授权。",
     "freeVendOcpp16Note": "OCPP 1.6 没有定义标准的免费充电机制。这些默认密钥适用于大多数充电站,但某些制造商使用供应商特定的密钥(例如FreeCharging、FreeVendEnabled)。如果推送结果显示被拒绝的变量,请编辑模板以添加您充电站的供应商特定密钥并重新推送。",
     "freeVendViewTemplate": "查看模板",
     "freeVendLastPush": "上次推送",
@@ -581,7 +581,19 @@
     "electricityCostRecalculateMore_other": "{{count}} 个会话仍没有电力成本。请再次重新计算以继续。",
     "tabs": {
       "ai": "AI 用量"
-    }
+    },
+    "stationLayout": "充电站布局",
+    "layoutDraw": "功率",
+    "levelDcFast": "直流快充",
+    "levelL2": "二级",
+    "levelL1": "一级",
+    "deleteSiteTitle": "删除站点",
+    "deleteSiteDescription": "{{name}} 及其电价、布局、负载管理、定价分配和支付配置将被永久删除。",
+    "freeVendRestoreTitle": "授权恢复模板",
+    "freeVendRestoreDescription": "关闭免费充电时推送:开启授权,并使用开启免费充电时充电站上报的值。每个模板列出其推送结果。",
+    "autocharge": "Autocharge",
+    "autochargeDescription": "在此站点的充电站插枪即充。除非在此处开启或关闭，否则适用公司设置。",
+    "autochargeDefault": "使用公司设置"
   },
   "stations": {
     "title": "充电站",
@@ -743,6 +755,15 @@
     "simActionFailed": "模拟器操作失败",
     "stationOfflineCannotSim": "充电站离线 - 无法发送模拟器操作",
     "deleteEvse": "删除 EVSE",
+    "retire": "退役",
+    "retired": "已退役",
+    "retireEvse": "退役 EVSE",
+    "restoreEvse": "恢复 EVSE",
+    "retireConnector": "退役连接器",
+    "restoreConnector": "恢复连接器",
+    "confirmRetireEvse": "EVSE {{id}} 将停止服务。驾驶员和漫游合作伙伴将不再看到它，它不接受新的会话或预约，其历史记录会保留。您可以稍后恢复它。",
+    "confirmRetireConnector": "连接器 {{id}} 将停止服务。驾驶员和漫游合作伙伴将不再看到它，其历史记录会保留。您可以稍后恢复它。",
+    "cannotRetireOccupied": "充电进行中，无法退役。",
     "deleteConnector": "删除连接器",
     "confirmDeleteEvse": "这将删除 EVSE {{id}} 及其所有连接器。此操作无法撤销。",
     "confirmDeleteConnector": "这将删除连接器 {{id}}。此操作无法撤销。",
@@ -832,9 +853,14 @@
     "confirmRealStationDescription": "将清除模拟器标记，模拟器不再以 {{stationId}} 身份连接。之后可通过编辑充电站重新启用模拟器。",
     "confirmRealStationSuccess": "已清除模拟器标记",
     "approve": "批准",
+    "approvedSuccess": "充电站已批准",
     "reject": "拒绝",
-    "blockedInfo": "此充电站已封锁。批准以允许其接受充电会话。",
+    "rejectedSuccess": "充电站已拒绝",
+    "rejectStationTitle": "拒绝此充电站？",
+    "rejectStationDescription": "该充电站将被封锁：在您解除封锁之前，CSMS 会拒绝其连接。",
+    "blockedInfo": "此充电站已封锁：CSMS 拒绝其连接。解除封锁后，它将重新进入待审批状态。",
     "unblock": "解除封锁",
+    "unblockedSuccess": "充电站已解除封锁",
     "blockStation": "屏蔽充电站",
     "blockStationDescription": "这将阻止充电站连接。充电站不会被永久删除。您可以稍后解除屏蔽将其恢复为待审核状态。",
     "onboardingStatus": "入网状态",
@@ -993,6 +1019,8 @@
     "stoppedReason": "停止原因",
     "reservation": "预约",
     "token": "令牌",
+    "pncContract": "Plug & Charge 合同",
+    "pncContractPcid": "PCID {{pcid}}",
     "preAuthAmount": "预授权",
     "capturedAmount": "已扣款",
     "refundedAmount": "已退款",
@@ -1095,7 +1123,12 @@
     "electricityCostMissing": "缺失",
     "costMissingNotice": "这些会话没有电力成本，不计入利润。",
     "costMissingSelectSite": "这些会话没有电力成本，不计入利润。选择一个站点以重新计算其成本。",
-    "billedToMember": "记账：{{fleet}}（驾驶员发票）"
+    "billedToMember": "记账：{{fleet}}（驾驶员发票）",
+    "capturedFromCharger": "从充电站获取",
+    "captured": "（已获取）",
+    "useVehicleForPlugIn": "将此车辆用于插枪即充",
+    "useVehicleDescription": "将充电站为此会话发送的标识 {{id}} 保存到驾驶员的车辆。开启 Autocharge 后，下次插枪即可为驾驶员开始充电，无需卡片或应用。",
+    "vehicleClaimed": "已保存车辆"
   },
   "drivers": {
     "title": "驾驶员",
@@ -1664,7 +1697,9 @@
       "completed": "已完成",
       "expired": "已过期",
       "cancelled": "已取消"
-    }
+    },
+    "deleteFleetTitle": "删除车队",
+    "deleteFleetDescription": "{{name}} 将被永久删除。其车辆和充电站会保留,但不再属于此车队。"
   },
   "tokens": {
     "title": "令牌",
@@ -2210,6 +2245,12 @@
     "pncLocalCaCreateConfirm": "创建合同 CA？CSMS 将生成移动运营商证书和配置证书，并加密存储其私钥。CA 只创建一次。",
     "pncLocalCaCreated": "合同 CA 已创建",
     "pncLocalCaCreateFailed": "无法创建合同 CA",
+    "pncLocalCpoCreate": "添加 CPO 子 CA",
+    "pncLocalCpoCreateConfirm": "在 V2G 根证书下添加 CPO 子 CA？使用本地提供商时，CPO 子 CA 2 将为充电站请求的 V2G 证书签名。其私钥加密存储。",
+    "pncLocalCpoCreated": "已添加 CPO 子 CA",
+    "pncLocalCpoCreateFailed": "无法添加 CPO 子 CA",
+    "pncLocalCpoActive": "充电站的 V2G 证书请求由 CPO 子 CA 2 自动签名。充电站的 TLS 证书请求留在 CSR 请求中等待手动签名。",
+    "pncLocalCpoMissing": "充电站的 V2G 证书请求在 CSR 请求中等待手动签名。添加 CPO 子 CA 即可自动签名。",
     "pncLocalCaEdition": "版本",
     "pncLocalCaRole": "角色",
     "pncLocalCaRoles": {
@@ -2219,7 +2260,9 @@
       "cpsRoot": "V2G 根证书",
       "cpsSubCa1": "CPS 子 CA 1",
       "cpsSubCa2": "CPS 子 CA 2",
-      "cpsLeaf": "CPS 签名证书"
+      "cpsLeaf": "CPS 签名证书",
+      "cpoSubCa1": "CPO 子 CA 1",
+      "cpoSubCa2": "CPO 子 CA 2"
     },
     "pncSaved": "即插即充设置已保存。",
     "pncSaveFailed": "即插即充设置保存失败。",
@@ -2694,7 +2737,11 @@
     "aiAdvancedOptions": "高级选项",
     "aiPromptCustomSummary": "自定义系统提示词",
     "aiPromptDefaultSummary": "内置系统提示词",
-    "aiBaseUrlDefaultSummary": "默认端点"
+    "aiBaseUrlDefaultSummary": "默认端点",
+    "autocharge": "Autocharge",
+    "autochargeDescription": "插枪即充：当充电站发送车辆的 VIN、EVCCID 或 MAC 地址，且驾驶员已为该车辆开启 Autocharge 时，即为该驾驶员开始充电会话。站点可为其自有充电站开启或关闭此功能。",
+    "autochargeEnabled": "启用 Autocharge",
+    "autochargeEnabledDesc": "默认关闭。驾驶员在门户中按车辆开启 Autocharge；每次启动都会向驾驶员发送通知。"
   },
   "pnc": {
     "certificates": "证书",
@@ -2864,7 +2911,8 @@
       "invoice.FleetInvoice": "车队发票已开具",
       "invoice.FleetCreditNote": "车队贷项通知单已开具",
       "invoice.FleetOverdue": "车队发票逾期",
-      "ai.ProposalDigest": "AI 洞察操作摘要"
+      "ai.ProposalDigest": "AI 洞察操作摘要",
+      "session.AutochargeStarted": "Autocharge 充电会话已开始"
     },
     "templatePreviewInvalid": "模板存在错误：",
     "htmlPreview": "HTML 预览",
@@ -3057,8 +3105,10 @@
     "EMAIL_REQUIRED": "付费充电需要提供邮箱",
     "EMAIL_SEND_FAILED": "发送邮件失败",
     "ENCRYPTION_KEY_MISSING": "服务器上未配置 SETTINGS_ENCRYPTION_KEY",
+    "EVSE_HAS_HISTORY": "该 EVSE 或连接器有充电记录，无法删除。请改为将其退役。",
     "EVSE_IN_USE": "该连接器上已有其他活动会话",
     "EVSE_NOT_FOUND": "未找到 EVSE",
+    "EVSE_RESERVED": "该 EVSE 有进行中或即将开始的预约。请先取消预约，再将该 EVSE 退役。",
     "FAVORITE_NOT_FOUND": "未找到收藏",
     "FLEET_CREDIT_LIMIT_REACHED": "为您的会话付费的车队已达到信用额度。请联系您的车队管理员。",
     "FLEET_DISABLED": "车队已禁用",
@@ -3231,6 +3281,7 @@
     "SSO_DISABLED": "SSO 未配置",
     "START_REJECTED": "充电站拒绝启动请求：...",
     "STATION_ALREADY_IN_FLEET": "充电站已在此车队中",
+    "STATION_HAS_ACTIVE_SESSION": "该充电站有正在进行的充电会话。请先停止会话，再删除充电站。",
     "STATION_ID_EXISTS": "已存在具有该 ID 的充电站",
     "STATION_NOT_FOUND": "未找到充电站",
     "STATION_OFFLINE": "充电站离线",
@@ -3288,7 +3339,9 @@
     "EMAID_PREFIX_NOT_CONFIGURED": "请先设置 eMAID 国家代码和提供商 ID",
     "LOCAL_CA_EXISTS": "本地合同 CA 已存在",
     "LOCAL_CA_NOT_CONFIGURED": "请先创建本地合同 CA",
+    "LOCAL_CPO_SUB_CA_EXISTS": "本地合同 CA 已有 CPO 子 CA",
     "PNC_CONTRACT_NOT_FOUND": "未找到 Plug & Charge 合同",
+    "PNC_CONTRACT_TOKEN_LOCKED": "此令牌属于 Plug & Charge 合同。请通过驾驶员的合同进行管理。",
     "PHONE_REGISTRATION_LIMITED": "使用此电话号码注册的账户过多。请稍后再试。",
     "VERIFICATION_RESEND_LIMITED": "验证邮件请求过多。请稍后再请求。",
     "AI_INSIGHT_NOT_FOUND": "未找到洞察",
@@ -3304,7 +3357,11 @@
     "AI_CONFIRMATION_REQUIRES_SESSION": "请登录控制台确认此操作，不能使用 API 密钥",
     "AI_MCP_RATE_LIMITED": "MCP 请求过多，请稍后再试",
     "CHARGING_PROFILE_ID_RESERVED": "充电配置文件 ID 必须大于充电站的 MaxExternalConstraintsId。",
-    "TOKEN_BLOCKED_BY_OPERATOR": "此卡已被运营商停用。请联系运营商重新启用。"
+    "TOKEN_BLOCKED_BY_OPERATOR": "此卡已被运营商停用。请联系运营商重新启用。",
+    "SESSION_NO_VEHICLE_ID": "充电站未为此会话发送车辆标识。",
+    "VEHICLE_BLOCKED_BY_OPERATOR": "运营商已阻止此车辆使用 Autocharge。请联系运营商解除阻止。",
+    "VEHICLE_ID_IN_USE": "另一辆车已将此 VIN 或 EVCCID 用于 Autocharge。",
+    "VEHICLE_ID_REQUIRED": "Autocharge 需要车辆的 VIN 或 EVCCID。"
   },
   "logs": {
     "title": "日志",
@@ -3643,7 +3700,35 @@
     "vehicleId": "车辆ID",
     "confirmDelete": "确定要删除此车辆吗？",
     "owner": "车主",
-    "vehicleNotFound": "未找到车辆"
+    "vehicleNotFound": "未找到车辆",
+    "vehicle": "车辆",
+    "vehicleIdColumn": "车辆标识",
+    "idTypes": {
+      "VIN": "VIN",
+      "EVCCID": "EVCCID",
+      "MacAddress": "MAC 地址"
+    },
+    "evccid": "EVCCID（MAC 地址）",
+    "evccidHelp": "充电站从车辆读取的充电控制器标识，通常是其 MAC 地址。大小写和分隔符不限。",
+    "evccidFormat": "请输入不含空格的 MAC 地址或 EVCCID。",
+    "autocharge": "Autocharge",
+    "autochargeHelp": "插枪即充：当充电站发送此车辆的 VIN 或 EVCCID 时，无需卡片或应用即可为驾驶员开始充电会话。",
+    "autochargeNeedsId": "添加 VIN 或 EVCCID 后才能开启 Autocharge。",
+    "autochargeOn": "开启",
+    "autochargeOff": "关闭",
+    "newVehicle": "新车辆",
+    "makeModelRequired": "请输入品牌和型号。",
+    "blocked": "已阻止",
+    "block": "阻止车辆",
+    "unblock": "解除阻止车辆",
+    "blockedToast": "已阻止车辆",
+    "unblockedToast": "已解除阻止车辆",
+    "blockedDescription": "已被运营商阻止：此车辆的 VIN 和 EVCCID 在每次启动时都会被拒绝，驾驶员无法开启 Autocharge。",
+    "confirmBlockDesc": "使用此车辆 VIN 或 EVCCID 的启动将像被阻止的卡一样被拒绝，无论 Autocharge 是否开启。驾驶员无法重新开启 Autocharge。",
+    "confirmUnblockDesc": "Autocharge 开启时，使用此车辆标识的启动将再次被接受。",
+    "lastSeen": "最近识别",
+    "lastSeenValue": "{{station}}，{{time}}",
+    "neverSeen": "尚无充电站发送过其标识"
   },
   "firmwareCampaigns": {
     "subtitle": "在单次发布中规划并向匹配的充电站分发固件更新。",
@@ -3653,7 +3738,6 @@
     "version": "版本",
     "start": "启动",
     "startCampaign": "启动活动",
-    "progress": "进度",
     "progress": "进度",
     "totalStations": "总计",
     "completedStations": "已完成",
@@ -4429,7 +4513,12 @@
       "refunded": "已退款",
       "event_settings_changed": "事件设置已更改",
       "reset": "已重置为默认",
-      "report_deleted": "报告已删除"
+      "report_deleted": "报告已删除",
+      "autocharge_enabled": "已开启 Autocharge",
+      "autocharge_disabled": "已关闭 Autocharge",
+      "autocharge_blocked": "车辆已阻止",
+      "autocharge_unblocked": "车辆已解除阻止",
+      "vehicle_id_claimed": "已从会话添加车辆标识"
     },
     "entities": {
       "site": "站点",
@@ -4993,9 +5082,16 @@
       "wrongPrompt": "已标记为错误。可以根据最新数据重新生成洞察，或将其关闭。",
       "reasonLabel": "哪里有误？（可选）",
       "reasonPlaceholder": "例如：充电站因计划维护而离线。",
-      "reasonHint": "仅与你的评价一起保存，绝不会发送给 AI 提供商。",
+      "reasonHint": "会与你的评价一起显示在此洞察上。仅在你重新生成洞察时，才会作为需要用数据核实的说法发送给 AI 提供商。",
       "saveReason": "保存备注",
-      "reasonSaved": "备注已保存。"
+      "reasonSaved": "备注已保存。",
+      "usedYours": "已根据你的反馈重新生成",
+      "usedOther": "已根据用户反馈重新生成"
+    },
+    "wrongVotes": {
+      "title": "标记为错误",
+      "anotherUser": "其他用户",
+      "noNote": "无备注"
     },
     "action": {
       "kind": {

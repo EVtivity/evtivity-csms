@@ -167,6 +167,7 @@ describe('Portal sessions routes - handler logic', () => {
             siteState: 'TX',
             co2AvoidedKg: null,
             reservationId: null,
+            autocharge: false,
           },
         ],
         [{ count: 1 }],
@@ -202,6 +203,7 @@ describe('Portal sessions routes - handler logic', () => {
         siteState: null,
         co2AvoidedKg: null,
         reservationId: null,
+        autocharge: false,
       };
       setupDbResults(
         [
@@ -389,6 +391,7 @@ describe('Portal sessions routes - handler logic', () => {
             idleStartedAt: null,
             co2AvoidedKg: null,
             reservationId: null,
+            autocharge: false,
           },
         ],
         [
@@ -460,6 +463,7 @@ describe('Portal sessions routes - handler logic', () => {
             idleStartedAt: null,
             co2AvoidedKg: null,
             reservationId: null,
+            autocharge: false,
           },
         ],
         [],
@@ -503,6 +507,7 @@ describe('Portal sessions routes - handler logic', () => {
             idleStartedAt: null,
             co2AvoidedKg: null,
             reservationId: null,
+            autocharge: false,
           },
         ],
         [],
@@ -545,6 +550,7 @@ describe('Portal sessions routes - handler logic', () => {
             idleStartedAt: null,
             co2AvoidedKg: null,
             reservationId: null,
+            autocharge: false,
             billingMode: 'account',
             billingFleetName: 'Acme',
             billingInvoiceStatus: 'paid',

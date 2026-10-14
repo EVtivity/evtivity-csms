@@ -5,7 +5,12 @@ import postgres from 'postgres';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CACHE_INVALIDATE_CHANNEL, createLogger } from '@evtivity/lib';
-import type { DomainEvent, NotificationDispatchResult, PubSubClient } from '@evtivity/lib';
+import type {
+  DomainEvent,
+  DriverNotificationOptions,
+  NotificationDispatchResult,
+  PubSubClient,
+} from '@evtivity/lib';
 import { getWebhookAllowedPrivateHosts, pgConnectionErrorKind } from '@evtivity/database';
 import type { ProjectionAttempt } from './projection-retry.js';
 import {
@@ -25,7 +30,7 @@ import {
   clearNotificationSettingsCache,
   clearStationMessageCache,
 } from '@evtivity/lib';
-import { clearStationMessageSettingsCache } from '@evtivity/database';
+import { clearAutochargeCache, clearStationMessageSettingsCache } from '@evtivity/database';
 import { clearContractValidationCaCache } from '../services/pki/contract-certificate-validation.js';
 import { clearLocalContractCaCache } from '../services/pki/local-ca-store.js';
 import { clearOemTrustCache } from '../services/pki/local-contract-provider.js';
@@ -39,6 +44,7 @@ export function dispatchDriverNotification(
   variables: Record<string, unknown>,
   templatesDir?: string | string[],
   pubsub?: PubSubClient,
+  options?: DriverNotificationOptions,
 ): Promise<NotificationDispatchResult> {
   return _dispatchDriverNotification(
     sql,
@@ -47,6 +53,7 @@ export function dispatchDriverNotification(
     variables,
     templatesDir ?? ALL_TEMPLATES_DIRS,
     pubsub,
+    options,
   );
 }
 
@@ -112,6 +119,10 @@ export async function subscribeOcppEventSettingsInvalidation(
       if (msg.kind === 'notification_settings') {
         clearNotificationSettingsCache();
         log.info('Notification settings cache invalidated');
+      }
+      if (msg.kind === 'autocharge') {
+        // The autocharge.enabled setting or a site override changed.
+        clearAutochargeCache();
       }
       if (msg.kind === 'station_message') {
         // One-shot station messages render here.

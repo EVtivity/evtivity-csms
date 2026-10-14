@@ -137,10 +137,12 @@ export function StationConfigurationsTab({
       }
       void queryClient.invalidateQueries({ queryKey: ['stations', stationId, 'configurations'] });
     },
-    onError: () => {
+    onError: (err) => {
+      // A refused push (station offline, a template of another OCPP version,
+      // a credential variable) says why.
       setPushResult({
         success: false,
-        results: [{ component: '', variable: 'n/a', status: 'Failed' }],
+        results: [{ component: '', variable: 'n/a', status: getErrorMessage(err, t) }],
       });
     },
   });

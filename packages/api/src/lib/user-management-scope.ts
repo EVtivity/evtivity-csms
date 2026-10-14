@@ -3,7 +3,7 @@
 
 import type { FastifyRequest } from 'fastify';
 import type { SQL } from 'drizzle-orm';
-import { and, eq, exists, notExists, notInArray, sql } from 'drizzle-orm';
+import { and, eq, exists, inArray, notExists, notInArray, sql } from 'drizzle-orm';
 import { db, users, userPermissions, userSiteAssignments } from '@evtivity/database';
 import { isSubsetOf, permissionCatalog } from '@evtivity/lib';
 import { getEffectivePermissions } from '../middleware/rbac.js';
@@ -56,6 +56,30 @@ export function manageableUsersCondition(actorSiteIds: string[] | null): SQL | u
     exists(anyAssignment),
     notExists(foreignAssignment),
   );
+}
+
+/**
+ * The users a viewer may see named among `userIds` (audit actors, insight
+ * voters): itself and the users it sees in the user list
+ * (manageableUsersCondition). For a site-restricted viewer, all-site users
+ * and users of other sites are invisible. Null for an all-site viewer (all).
+ */
+export async function visibleUserIds(
+  userIds: Iterable<string>,
+  viewerId: string,
+  siteIds: string[] | null,
+): Promise<Set<string> | null> {
+  if (siteIds == null) return null;
+  const ids = new Set(userIds);
+  ids.delete(viewerId);
+  const visible = new Set<string>([viewerId]);
+  if (ids.size === 0) return visible;
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(inArray(users.id, [...ids]), manageableUsersCondition(siteIds)));
+  for (const r of rows) visible.add(r.id);
+  return visible;
 }
 
 /**

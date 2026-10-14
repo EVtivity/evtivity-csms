@@ -603,7 +603,13 @@ describe('config template routes, uncovered paths', () => {
   });
 
   describe('GET /v1/stations/:id/config-drift', () => {
-    const station = { id: 'sta_1', siteId: 'sit_1', vendorId: 'ven_1', model: 'M1' };
+    const station = {
+      id: 'sta_1',
+      siteId: 'sit_1',
+      vendorId: 'ven_1',
+      model: 'M1',
+      ocppProtocol: 'ocpp2.1',
+    };
 
     it('answers 404 for a station outside the user sites', async () => {
       vi.mocked(getUserSiteIds).mockResolvedValue(['sit_9']);

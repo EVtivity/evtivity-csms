@@ -113,17 +113,21 @@ export async function loadSiteLocation(
       evseId: e.evseId,
       updatedAt: e.updatedAt,
       stationLevelUnavailable: station != null && isStationLevelUnavailable(station),
-      // A deleted station is kept with onboarding status `blocked`.
-      removed: station?.onboardingStatus === 'blocked',
-      connectors: (connectorsByEvse.get(e.id) ?? []).map((c) => ({
-        id: c.id,
-        connectorId: c.connectorId,
-        connectorType: c.connectorType,
-        maxPowerKw: c.maxPowerKw,
-        maxCurrentAmps: c.maxCurrentAmps,
-        status: c.status,
-        updatedAt: c.updatedAt,
-      })),
+      // A deleted station is kept with onboarding status `blocked`; a retired
+      // EVSE is out of service. Both are REMOVED (OCPI 8.1).
+      removed: station?.onboardingStatus === 'blocked' || e.retiredAt != null,
+      // A retired connector is out of service: left out of the location.
+      connectors: (connectorsByEvse.get(e.id) ?? [])
+        .filter((c) => c.retiredAt == null)
+        .map((c) => ({
+          id: c.id,
+          connectorId: c.connectorId,
+          connectorType: c.connectorType,
+          maxPowerKw: c.maxPowerKw,
+          maxCurrentAmps: c.maxCurrentAmps,
+          status: c.status,
+          updatedAt: c.updatedAt,
+        })),
     };
   });
 

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Combobox } from '@/components/ui/combobox';
 import { Card, CardContent } from '@/components/ui/card';
 import { api, getApiErrorFieldDetails } from '@/lib/api';
+import { normalizeEvccid } from '@evtivity/lib/vehicle-id';
 import { getErrorMessage } from '@/lib/error-message';
 
 interface VehicleLookup {
@@ -46,6 +47,7 @@ export function VehicleCreate(): React.JSX.Element {
   const [year, setYear] = useState('');
   const [vin, setVin] = useState('');
   const [licensePlate, setLicensePlate] = useState('');
+  const [evccid, setEvccid] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const { data: lookup } = useQuery({
@@ -68,6 +70,7 @@ export function VehicleCreate(): React.JSX.Element {
       year?: string;
       vin?: string;
       licensePlate?: string;
+      evccid?: string;
     }) => api.post<Vehicle>(`/v1/drivers/${id ?? ''}/vehicles`, body),
     onSuccess: (created) => {
       void queryClient.invalidateQueries({ queryKey: ['drivers', id ?? '', 'vehicles'] });
@@ -85,6 +88,9 @@ export function VehicleCreate(): React.JSX.Element {
     if (vin.trim() !== '' && !/^[A-HJ-NPR-Z0-9]{17}$/i.test(vin.trim())) {
       errors.vin = t('vehicles.vinFormat');
     }
+    if (evccid.trim() !== '' && normalizeEvccid(evccid) == null) {
+      errors.evccid = t('vehicles.evccidFormat');
+    }
     return errors;
   }
 
@@ -100,10 +106,12 @@ export function VehicleCreate(): React.JSX.Element {
       year?: string;
       vin?: string;
       licensePlate?: string;
+      evccid?: string;
     } = { make, model };
     if (year.trim() !== '') body.year = year;
     if (vin.trim() !== '') body.vin = vin;
     if (licensePlate.trim() !== '') body.licensePlate = licensePlate;
+    if (evccid.trim() !== '') body.evccid = evccid.trim();
     createMutation.mutate(body);
   }
 
@@ -195,6 +203,24 @@ export function VehicleCreate(): React.JSX.Element {
                     setLicensePlate(e.target.value);
                   }}
                 />
+              </div>
+              <div className="space-y-2 md:col-span-2">
+                <Label htmlFor="vehicle-evccid" className="leading-6">
+                  {t('vehicles.evccid')}
+                </Label>
+                <Input
+                  id="vehicle-evccid"
+                  value={evccid}
+                  onChange={(e) => {
+                    setEvccid(e.target.value);
+                  }}
+                  maxLength={255}
+                  className={hasSubmitted && errors.evccid ? 'border-destructive' : ''}
+                />
+                <p className="text-xs text-muted-foreground">{t('vehicles.evccidHelp')}</p>
+                {hasSubmitted && errors.evccid && (
+                  <p className="text-sm text-destructive">{errors.evccid}</p>
+                )}
               </div>
             </div>
             {createMutation.isError && Object.keys(errors).length === 0 && (

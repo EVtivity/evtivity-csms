@@ -18,6 +18,7 @@ import { formatDateTime } from '@/lib/timezone';
 import { sessionStatusVariant } from '@/lib/status-variants';
 import type { ColumnMeta, ColumnVisibility } from '@/lib/column-visibility';
 import { LoadingLogo } from '@/components/loading-logo';
+import { formatVehicleId } from '@evtivity/lib/vehicle-id';
 
 export const SESSIONS_COLUMNS: ColumnMeta[] = [
   {
@@ -39,6 +40,12 @@ export const SESSIONS_COLUMNS: ColumnMeta[] = [
     label: 'sessions.driverName',
     defaultVisible: true,
     defaultVisibleMobile: true,
+  },
+  {
+    key: 'vehicle',
+    label: 'vehicles.vehicle',
+    defaultVisible: true,
+    defaultVisibleMobile: false,
   },
   {
     key: 'guestSession',
@@ -91,6 +98,35 @@ export interface Session {
   co2AvoidedKg: number | null;
   /** Operator re-bill of a session the CSMS could not end; 'manual' waits for billing outside the platform. */
   rebillStatus?: 'in_progress' | 'billed' | 'manual' | null;
+  vehicleId?: string | null;
+  vehicleName?: string | null;
+  vehicleCapture?: { value: string; type: string; source: string } | null;
+  autocharge?: boolean;
+}
+
+/**
+ * The vehicle of a session row: the linked vehicle (with Autocharge when it
+ * started the session), else the id the charger sent, marked as captured.
+ */
+function SessionVehicleCell({ session }: { session: Session }): React.JSX.Element {
+  const { t } = useTranslation();
+  if (session.vehicleName != null && session.vehicleName !== '') {
+    return (
+      <span className="inline-flex items-center gap-2">
+        {session.vehicleName}
+        {session.autocharge === true && <Badge variant="info">{t('vehicles.autocharge')}</Badge>}
+      </span>
+    );
+  }
+  if (session.vehicleCapture != null) {
+    return (
+      <span title={t('sessions.capturedFromCharger')}>
+        <span className="font-mono">{formatVehicleId(session.vehicleCapture.value)}</span>{' '}
+        <span className="text-xs text-muted-foreground">{t('sessions.captured')}</span>
+      </span>
+    );
+  }
+  return <span className="text-muted-foreground">-</span>;
 }
 
 function formatCost(session: Session): string {
@@ -143,6 +179,7 @@ export const SessionsTable = memo(function SessionsTable({
               {!hideDriverName && isVisible('driverName') && (
                 <TableHead>{t('sessions.driverName')}</TableHead>
               )}
+              {isVisible('vehicle') && <TableHead>{t('vehicles.vehicle')}</TableHead>}
               {isVisible('guestSession') && <TableHead>{t('sessions.guestSession')}</TableHead>}
               {isVisible('status') && <TableHead>{t('common.status')}</TableHead>}
               {isVisible('started') && <TableHead>{t('sessions.started')}</TableHead>}
@@ -210,6 +247,11 @@ export const SessionsTable = memo(function SessionsTable({
                     ) : (
                       'n/a'
                     )}
+                  </TableCell>
+                )}
+                {isVisible('vehicle') && (
+                  <TableCell className="whitespace-nowrap">
+                    <SessionVehicleCell session={session} />
                   </TableCell>
                 )}
                 {isVisible('guestSession') && (

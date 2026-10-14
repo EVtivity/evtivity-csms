@@ -325,9 +325,13 @@ describe('findEvseByUid', () => {
       updatedAt,
       stationState: { disabledReason: 'operator', firmwareState: null, reportedStatus: 'Faulted' },
       stationRemoved: true,
+      evseRetired: false,
     });
     selectResults = [[{ ...base, onboardingStatus: 'accepted' }]];
     expect((await findEvseByUid('evs_aaaaaaaaaaaa'))?.stationRemoved).toBe(false);
+    // A retired EVSE is out of service.
+    selectResults = [[{ ...base, onboardingStatus: 'accepted', retiredAt: at(2) }]];
+    expect((await findEvseByUid('evs_aaaaaaaaaaaa'))?.evseRetired).toBe(true);
   });
 });
 

@@ -1,9 +1,9 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
-import { chargingStations } from '@evtivity/database';
+import { chargingStations, sites } from '@evtivity/database';
 
 /**
  * The stations the public portal serves: only stations an operator accepted.
@@ -16,4 +16,14 @@ import { chargingStations } from '@evtivity/database';
  */
 export function publicStationListed(): SQL {
   return eq(chargingStations.onboardingStatus, 'accepted');
+}
+
+/**
+ * A site the portal location pages show: one with a station the page lists.
+ * A site without one (new, or every station pending, refused or deleted)
+ * answers like an unknown id, so a site id never reveals a site that is not
+ * public yet. Use in the WHERE of a query on `sites`.
+ */
+export function publicSiteListed(): SQL {
+  return sql`EXISTS (SELECT 1 FROM ${chargingStations} WHERE ${chargingStations.siteId} = ${sites.id} AND ${publicStationListed()})`;
 }

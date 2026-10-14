@@ -29,6 +29,7 @@ import { PncLocalCaSection } from '../settings/PncLocalCaSection';
 const CONFIGURED = {
   configured: true,
   createdAt: '2026-10-04T10:00:00Z',
+  cpoSubCa: true,
   certificates: [
     {
       schema: 2,
@@ -88,6 +89,21 @@ describe('PncLocalCaSection', () => {
     renderSection();
     expect(await screen.findByText('settings.pncLocalCaNotConfigured')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /settings\.pncLocalCaCreate/ })).toBeNull();
+  });
+
+  it('adds the CPO Sub-CA to a CA created without it', async () => {
+    getMock.mockResolvedValue({ ...CONFIGURED, cpoSubCa: false });
+    postMock.mockResolvedValue(CONFIGURED);
+    renderSection();
+    expect(await screen.findByText('settings.pncLocalCpoMissing')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /settings\.pncLocalCpoCreate/ }));
+    const buttons = await screen.findAllByRole('button', { name: /settings\.pncLocalCpoCreate/ });
+    fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
+    await waitFor(() => {
+      expect(postMock).toHaveBeenCalledWith('/v1/pnc/settings/local-ca/cpo-sub-ca', {});
+    });
+    expect(await screen.findByText('settings.pncLocalCpoActive')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /settings\.pncLocalCpoCreate/ })).toBeNull();
   });
 
   it('upper-cases the eMAID prefix input', async () => {

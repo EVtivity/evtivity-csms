@@ -11,8 +11,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Combobox } from '@/components/ui/combobox';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useToast } from '@/components/ui/toast';
+import { Toggle } from '@/components/ui/toggle';
 import { api, ApiError } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
+import { formatDate } from '@/lib/utils';
+import { useDriverTimezone } from '@/lib/timezone';
+import { formatVehicleId } from '@evtivity/lib/vehicle-id';
 
 const CURRENT_YEAR = new Date().getFullYear();
 // Reasonable EV window: current model year + next year (manufacturers preview
@@ -27,6 +31,15 @@ interface Vehicle {
   make: string | null;
   model: string | null;
   year: string | null;
+  vin?: string | null;
+  evccid?: string | null;
+  autochargeEnabled?: boolean;
+  autochargeBlocked?: boolean;
+  lastSeen?: { stationId: string; siteName: string | null; at: string } | null;
+}
+
+interface PortalFeatures {
+  autochargeEnabled?: boolean;
 }
 
 interface VehicleLookup {
@@ -45,9 +58,30 @@ export function AccountVehicles(): React.JSX.Element {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
+  const timezone = useDriverTimezone();
   const { data: vehicles } = useQuery({
     queryKey: ['portal-vehicles'],
     queryFn: () => api.get<Vehicle[]>('/v1/portal/vehicles'),
+  });
+
+  const { data: features } = useQuery({
+    queryKey: ['portal-features'],
+    queryFn: () => api.get<PortalFeatures>('/v1/portal/features'),
+    staleTime: 60_000,
+  });
+
+  const autochargeMutation = useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
+      api.patch<Vehicle>(`/v1/portal/vehicles/${id}`, { autochargeEnabled: enabled }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['portal-vehicles'] });
+    },
+    onError: (err: unknown) => {
+      toast({
+        variant: 'destructive',
+        title: getErrorMessage(err, t, 'vehicles.autochargeSaveFailed'),
+      });
+    },
   });
 
   const { data: lookup } = useQuery({
@@ -132,27 +166,84 @@ export function AccountVehicles(): React.JSX.Element {
       <div className="space-y-2">
         {vehicles?.map((v) => {
           const label = [v.make ?? '', v.model ?? ''].filter((s) => s !== '').join(' ');
+          const hasId = (v.vin ?? null) != null || (v.evccid ?? null) != null;
+          // The switch shows where Autocharge is offered, and on a vehicle
+          // that has it on (so the driver can always turn it off).
+          const showAutocharge =
+            hasId && (features?.autochargeEnabled === true || v.autochargeEnabled === true);
           return (
-            <Card key={v.id}>
-              <CardContent className="flex items-center justify-between gap-2 p-3">
-                <div className="flex min-w-0 items-center gap-3">
-                  <Car className="h-5 w-5 shrink-0 text-muted-foreground" />
-                  <p className="truncate text-sm font-medium">{label === '' ? '--' : label}</p>
+            <Card key={v.id} data-testid={`portal-vehicle-${v.id}`}>
+              <CardContent className="space-y-3 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Car className="h-5 w-5 shrink-0 text-muted-foreground" />
+                    <p className="truncate text-sm font-medium">{label === '' ? '--' : label}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    {v.year != null && v.year !== '' && <Badge variant="outline">{v.year}</Badge>}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-12 w-12"
+                      onClick={() => {
+                        setPendingDeleteId(v.id);
+                      }}
+                      aria-label={t('vehicles.delete')}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  {v.year != null && v.year !== '' && <Badge variant="outline">{v.year}</Badge>}
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-12 w-12"
-                    onClick={() => {
-                      setPendingDeleteId(v.id);
-                    }}
-                    aria-label={t('vehicles.delete')}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
-                </div>
+                {hasId && (
+                  <dl className="space-y-1 text-xs">
+                    {v.vin != null && (
+                      <div className="flex gap-2">
+                        <dt className="text-muted-foreground">{t('vehicles.vin')}</dt>
+                        <dd className="font-mono">{v.vin}</dd>
+                      </div>
+                    )}
+                    {v.evccid != null && (
+                      <div className="flex gap-2">
+                        <dt className="text-muted-foreground">{t('vehicles.evccid')}</dt>
+                        <dd className="font-mono">{formatVehicleId(v.evccid)}</dd>
+                      </div>
+                    )}
+                    {v.lastSeen != null && (
+                      <div className="flex gap-2">
+                        <dt className="text-muted-foreground">{t('vehicles.lastSeen')}</dt>
+                        <dd>
+                          {t('vehicles.lastSeenValue', {
+                            station: v.lastSeen.stationId,
+                            time: formatDate(v.lastSeen.at, timezone),
+                          })}
+                        </dd>
+                      </div>
+                    )}
+                  </dl>
+                )}
+                {showAutocharge && (
+                  <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-medium">{t('vehicles.autocharge')}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {v.autochargeBlocked === true
+                          ? t('vehicles.autochargeBlocked')
+                          : t('vehicles.autochargeHelp')}
+                      </p>
+                    </div>
+                    <Toggle
+                      aria-label={t('vehicles.autochargeFor', { vehicle: label })}
+                      checked={v.autochargeEnabled === true}
+                      disabled={
+                        autochargeMutation.isPending ||
+                        (v.autochargeBlocked === true && v.autochargeEnabled !== true)
+                      }
+                      onCheckedChange={(checked) => {
+                        autochargeMutation.mutate({ id: v.id, enabled: checked });
+                      }}
+                    />
+                  </div>
+                )}
               </CardContent>
             </Card>
           );

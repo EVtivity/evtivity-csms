@@ -1130,6 +1130,7 @@ export function configTemplateRoutes(app: FastifyInstance): void {
           siteId: chargingStations.siteId,
           vendorId: chargingStations.vendorId,
           model: chargingStations.model,
+          ocppProtocol: chargingStations.ocppProtocol,
         })
         .from(chargingStations)
         .where(eq(chargingStations.id, id));
@@ -1150,8 +1151,14 @@ export function configTemplateRoutes(app: FastifyInstance): void {
       const templates = await db.select().from(configTemplates);
 
       // Templates that target this station. A template bound to a station
-      // matches that station only.
-      const matchingTemplates = templates.filter((t) => configTemplateMatchesStation(t, station));
+      // matches that station only. A template of another OCPP version is
+      // never pushed to the station (its variable names differ), so it
+      // cannot drift either.
+      const matchingTemplates = templates.filter(
+        (t) =>
+          `ocpp${t.ocppVersion}` === station.ocppProtocol &&
+          configTemplateMatchesStation(t, station),
+      );
 
       if (matchingTemplates.length === 0) return [];
 

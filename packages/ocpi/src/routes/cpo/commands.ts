@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import type { FastifyInstance } from 'fastify';
-import { eq, and, lte, gte, asc } from 'drizzle-orm';
+import { eq, and, lte, gte, asc, isNull } from 'drizzle-orm';
 import {
   db,
   chargingStations,
@@ -118,7 +118,8 @@ async function findStationForSite(
   if (evseUid != null) {
     // The uid identifies one EVSE; it must belong to a station at this site.
     const found = await findEvseByUid(evseUid);
-    if (found?.siteId !== siteId) return null;
+    // A retired EVSE is out of service: no start or reservation.
+    if (found?.siteId !== siteId || found.evseRetired) return null;
     return {
       stationDbId: found.stationDbId,
       stationId: found.stationOcppId,
@@ -167,7 +168,13 @@ async function findConnectorId(evseDbId: string, connectorIdStr: string): Promis
   const [connector] = await db
     .select({ connectorId: connectors.connectorId })
     .from(connectors)
-    .where(and(eq(connectors.evseId, evseDbId), eq(connectors.connectorId, connectorIdNum)))
+    .where(
+      and(
+        eq(connectors.evseId, evseDbId),
+        eq(connectors.connectorId, connectorIdNum),
+        isNull(connectors.retiredAt),
+      ),
+    )
     .limit(1);
 
   return connector?.connectorId ?? null;

@@ -109,7 +109,7 @@ async function snapshotSite(
       SELECT DISTINCT e.station_id, e.evse_id
       FROM evses e
       INNER JOIN charging_stations cs ON cs.id = e.station_id
-      WHERE cs.site_id = ${siteId}
+      WHERE cs.site_id = ${siteId} AND e.retired_at IS NULL
     ),
     pre_period_status AS (
       SELECT DISTINCT ON (psl.station_id, psl.evse_id)
@@ -170,7 +170,8 @@ async function snapshotSite(
     FROM station_uptime
   `),
 
-    // 3. Sessions, energy
+    // 3. Sessions, energy: sessions that happened at the site (site_id is kept
+    // when a station moves).
     db.execute(sql`
       SELECT
         COUNT(*) AS total_sessions,
@@ -181,8 +182,7 @@ async function snapshotSite(
         COALESCE(SUM(cs2.electricity_cost_cents) FILTER (WHERE ${sessionBilled} AND cs2.started_at >= ${dayStartIso}::timestamptz AND cs2.started_at < ${dayEndIso}::timestamptz), 0) AS day_electricity_cost_cents,
         COUNT(*) FILTER (WHERE cs2.status = 'active') AS active_sessions
       FROM charging_sessions cs2
-      INNER JOIN charging_stations cs ON cs.id = cs2.station_id
-      WHERE cs.site_id = ${siteId}
+      WHERE cs2.site_id = ${siteId}
     `),
 
     // 4. Revenue (session-revenue.ts, the definition every revenue view

@@ -127,7 +127,7 @@ describe('insight SSE event', () => {
 });
 
 describe('insight feedback never reaches a model', () => {
-  it('TC-AI-FB-18 the getAiInsight tool omits the feedback argument; the summary and the vote writes are no tools', async () => {
+  it('TC-AI-FB-18 the getAiInsight tool omits the feedback argument; the summary, the wrong votes list and the vote writes are no tools', async () => {
     const { toolPolicy } = await import('../services/ai/tools/policy.js');
     const { AI_TOOL_CATALOG } = await import('../services/ai/tools/catalog.js');
     expect(toolPolicy('getAiInsight').omit).toContain('feedback');
@@ -135,6 +135,7 @@ describe('insight feedback never reaches a model', () => {
       'getAiInsightFeedbackSummary',
       'sendAiInsightFeedback',
       'clearAiInsightFeedback',
+      'listAiInsightWrongVotes',
     ]) {
       expect(toolPolicy(op).exposure, op).toBe('never');
     }

@@ -252,6 +252,11 @@ export const vehicleAuditActionEnum = pgEnum('vehicle_audit_action', [
   'created',
   'updated',
   'deleted',
+  'autocharge_enabled',
+  'autocharge_disabled',
+  'autocharge_blocked',
+  'autocharge_unblocked',
+  'vehicle_id_claimed',
 ]);
 
 export const vehicleAuditLog = pgTable(

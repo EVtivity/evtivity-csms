@@ -1,6 +1,10 @@
 # The build output is static files, so build once on the native platform instead of
 # again under emulation for each target architecture.
 FROM --platform=$BUILDPLATFORM node:24-slim AS build
+# A registry connection reset (ECONNRESET) failed whole release builds; retry longer.
+ENV npm_config_fetch_retries=5 \
+    npm_config_fetch_retry_mintimeout=20000 \
+    npm_config_fetch_retry_maxtimeout=120000
 
 WORKDIR /app
 

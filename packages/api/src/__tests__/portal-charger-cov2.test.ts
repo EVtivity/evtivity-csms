@@ -56,6 +56,7 @@ const { mockRecordSessionEndRequest, mockWriteCsmsSessionAudit } = vi.hoisted(()
 
 vi.mock('@evtivity/database', async () => ({
   writeAudit: vi.fn(() => Promise.resolve()),
+  sessionSiteIdSql: vi.fn(() => 'site-of-station'),
   userAuditLog: { _table: 'user_audit_log' },
   driverAuditLog: { _table: 'driver_audit_log' },
   stationAuditLog: { _table: 'station_audit_log' },

@@ -4,7 +4,7 @@
 import crypto from 'node:crypto';
 import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, or, asc, sql } from 'drizzle-orm';
+import { eq, and, or, asc, sql, isNull } from 'drizzle-orm';
 import {
   db,
   client,
@@ -553,6 +553,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         sql`SELECT c.connector_id FROM connectors c
             JOIN evses e ON c.evse_id = e.id
             WHERE e.station_id = ${station.id} AND e.evse_id = ${evseId}
+              AND e.retired_at IS NULL AND c.retired_at IS NULL
             ORDER BY c.connector_id ASC LIMIT 1`,
       );
       const connectorRow = connectorRows[0];
@@ -620,7 +621,13 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const [evse] = await db
         .select({ id: evses.id })
         .from(evses)
-        .where(and(eq(evses.stationId, station.id), eq(evses.evseId, params.evseId)));
+        .where(
+          and(
+            eq(evses.stationId, station.id),
+            eq(evses.evseId, params.evseId),
+            isNull(evses.retiredAt),
+          ),
+        );
 
       if (evse == null) {
         await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
@@ -813,7 +820,13 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const [evse] = await db
         .select({ id: evses.id })
         .from(evses)
-        .where(and(eq(evses.stationId, station.id), eq(evses.evseId, params.evseId)));
+        .where(
+          and(
+            eq(evses.stationId, station.id),
+            eq(evses.evseId, params.evseId),
+            isNull(evses.retiredAt),
+          ),
+        );
 
       if (evse == null) {
         await reply.status(404).send({ error: 'EVSE not found', code: 'EVSE_NOT_FOUND' });
@@ -823,7 +836,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const [connector] = await db
         .select({ status: connectors.status })
         .from(connectors)
-        .where(eq(connectors.evseId, evse.id))
+        .where(and(eq(connectors.evseId, evse.id), isNull(connectors.retiredAt)))
         .limit(1);
 
       // Reservation gate: guest checkout is never allowed against an EVSE

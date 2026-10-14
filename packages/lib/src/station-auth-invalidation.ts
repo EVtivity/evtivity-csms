@@ -48,3 +48,40 @@ export async function publishStationAuthInvalidation(
     log.warn({ err, stationDbId }, 'Failed to publish station auth cache invalidation');
   }
 }
+
+/**
+ * Message kind that closes a station's live connection in the OCPP process
+ * that holds it, after the station was blocked (rejected or deleted). The
+ * connection authentication refuses a blocked station, so it cannot
+ * reconnect. Carries the OCPP identity, the key of the connection registry.
+ */
+export const STATION_DISCONNECT_KIND = 'station_disconnect';
+
+export function stationDisconnectPayload(stationOcppId: string): string {
+  return JSON.stringify({ kind: STATION_DISCONNECT_KIND, stationId: stationOcppId });
+}
+
+/** The OCPP identity of a station disconnect message, or null for any other message. */
+export function parseStationDisconnect(msg: unknown): string | null {
+  if (typeof msg !== 'object' || msg == null) return null;
+  const { kind, stationId } = msg as { kind?: unknown; stationId?: unknown };
+  if (kind !== STATION_DISCONNECT_KIND) return null;
+  return typeof stationId === 'string' && stationId !== '' ? stationId : null;
+}
+
+/**
+ * Fail-open: the station is already blocked in the database, so its next
+ * connection is refused even when this message is lost; the message only ends
+ * the connection it holds now.
+ */
+export async function publishStationDisconnect(
+  pubsub: PubSubClient,
+  stationOcppId: string,
+  log: WarnLogger,
+): Promise<void> {
+  try {
+    await pubsub.publish(CACHE_INVALIDATE_CHANNEL, stationDisconnectPayload(stationOcppId));
+  } catch (err: unknown) {
+    log.warn({ err, stationOcppId }, 'Failed to publish the station disconnect');
+  }
+}

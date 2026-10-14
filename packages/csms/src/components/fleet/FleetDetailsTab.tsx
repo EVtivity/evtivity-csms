@@ -13,7 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EnergyChart } from '@/components/charts/EnergyChart';
-import { useToast } from '@/components/ui/toast';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { formatEnergy, formatDurationMinutes } from '@/lib/formatting';
@@ -50,7 +50,6 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { t } = useTranslation();
-  const { toast } = useToast();
   // Deleting a fleet removes its links at every site: all-site users only.
   const hasAllSiteAccess = useHasAllSiteAccess();
   const timezone = useUserTimezone();
@@ -59,6 +58,7 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const { data: metrics } = useQuery({
     queryKey: ['fleets', fleetId, 'metrics'],
@@ -92,16 +92,9 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
   const deleteMutation = useMutation({
     mutationFn: () => api.delete<Fleet>(`/v1/fleets/${fleetId}`),
     onSuccess: () => {
+      setDeleteOpen(false);
       void queryClient.invalidateQueries({ queryKey: ['fleets'] });
       void navigate('/fleets');
-    },
-    onError: (err) => {
-      // 409 FLEET_HAS_OPEN_BILLING or FLEET_HAS_RESERVATIONS: the fleet stays.
-      toast({
-        title: t('common.error'),
-        description: getErrorMessage(err, t),
-        variant: 'destructive',
-      });
     },
   });
 
@@ -143,7 +136,8 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
                 <RemoveButton
                   label={t('common.delete')}
                   onClick={() => {
-                    deleteMutation.mutate();
+                    deleteMutation.reset();
+                    setDeleteOpen(true);
                   }}
                   disabled={deleteMutation.isPending || driverCount > 0}
                 />
@@ -261,6 +255,23 @@ export function FleetDetailsTab({ fleetId, fleet }: FleetDetailsTabProps): React
       )}
 
       {energyData != null && energyData.length > 0 && <EnergyChart data={energyData} />}
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title={t('fleets.deleteFleetTitle')}
+        description={t('fleets.deleteFleetDescription', { name: fleet.name })}
+        confirmLabel={t('common.delete')}
+        isPending={deleteMutation.isPending}
+        onConfirm={() => {
+          deleteMutation.mutate();
+          return false;
+        }}
+      >
+        {/* 409 FLEET_HAS_OPEN_BILLING or FLEET_HAS_RESERVATIONS: the fleet stays. */}
+        {deleteMutation.isError && (
+          <p className="text-sm text-destructive">{getErrorMessage(deleteMutation.error, t)}</p>
+        )}
+      </ConfirmDialog>
     </div>
   );
 }

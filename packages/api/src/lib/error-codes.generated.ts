@@ -99,6 +99,7 @@ export const ERROR_CODES = {
   EVSE_HAS_HISTORY: 'EVSE_HAS_HISTORY',
   EVSE_IN_USE: 'EVSE_IN_USE',
   EVSE_NOT_FOUND: 'EVSE_NOT_FOUND',
+  EVSE_RESERVED: 'EVSE_RESERVED',
   FAVORITE_NOT_FOUND: 'FAVORITE_NOT_FOUND',
   FLEET_BILLING_CONTACT_REQUIRED: 'FLEET_BILLING_CONTACT_REQUIRED',
   FLEET_BILLING_OLD_PODS_CONNECTED: 'FLEET_BILLING_OLD_PODS_CONNECTED',
@@ -147,6 +148,7 @@ export const ERROR_CODES = {
   LOAD_NOT_FOUND: 'LOAD_NOT_FOUND',
   LOCAL_CA_EXISTS: 'LOCAL_CA_EXISTS',
   LOCAL_CA_NOT_CONFIGURED: 'LOCAL_CA_NOT_CONFIGURED',
+  LOCAL_CPO_SUB_CA_EXISTS: 'LOCAL_CPO_SUB_CA_EXISTS',
   LOCATION_NOT_FOUND: 'LOCATION_NOT_FOUND',
   MAINTENANCE_ACTIVE: 'MAINTENANCE_ACTIVE',
   MAINTENANCE_ALREADY_ACTIVE: 'MAINTENANCE_ALREADY_ACTIVE',
@@ -221,6 +223,7 @@ export const ERROR_CODES = {
   PHONE_REGISTRATION_LIMITED: 'PHONE_REGISTRATION_LIMITED',
   PKI_ROOT_REFRESH_FAILED: 'PKI_ROOT_REFRESH_FAILED',
   PNC_CONTRACT_NOT_FOUND: 'PNC_CONTRACT_NOT_FOUND',
+  PNC_CONTRACT_TOKEN_LOCKED: 'PNC_CONTRACT_TOKEN_LOCKED',
   PNC_DISABLED: 'PNC_DISABLED',
   PORTAL_ALREADY_ACTIVE: 'PORTAL_ALREADY_ACTIVE',
   PORTAL_REGISTRATION_DISABLED: 'PORTAL_REGISTRATION_DISABLED',
@@ -268,6 +271,7 @@ export const ERROR_CODES = {
   SELF_EDIT_FORBIDDEN: 'SELF_EDIT_FORBIDDEN',
   SESSION_ALREADY_ACTIVE: 'SESSION_ALREADY_ACTIVE',
   SESSION_CREATE_FAILED: 'SESSION_CREATE_FAILED',
+  SESSION_NO_VEHICLE_ID: 'SESSION_NO_VEHICLE_ID',
   SESSION_NOT_FOUND: 'SESSION_NOT_FOUND',
   SESSION_NOT_LINKED: 'SESSION_NOT_LINKED',
   SESSION_REBILL_IN_PROGRESS: 'SESSION_REBILL_IN_PROGRESS',
@@ -318,6 +322,9 @@ export const ERROR_CODES = {
   UNKNOWN_ACTION: 'UNKNOWN_ACTION',
   USER_NOT_FOUND: 'USER_NOT_FOUND',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
+  VEHICLE_BLOCKED_BY_OPERATOR: 'VEHICLE_BLOCKED_BY_OPERATOR',
+  VEHICLE_ID_IN_USE: 'VEHICLE_ID_IN_USE',
+  VEHICLE_ID_REQUIRED: 'VEHICLE_ID_REQUIRED',
   VEHICLE_NOT_FOUND: 'VEHICLE_NOT_FOUND',
   VENDOR_NOT_FOUND: 'VENDOR_NOT_FOUND',
   VERIFICATION_RESEND_LIMITED: 'VERIFICATION_RESEND_LIMITED',
@@ -418,6 +425,7 @@ export type ErrorCode =
   | 'EVSE_HAS_HISTORY'
   | 'EVSE_IN_USE'
   | 'EVSE_NOT_FOUND'
+  | 'EVSE_RESERVED'
   | 'FAVORITE_NOT_FOUND'
   | 'FLEET_BILLING_CONTACT_REQUIRED'
   | 'FLEET_BILLING_OLD_PODS_CONNECTED'
@@ -466,6 +474,7 @@ export type ErrorCode =
   | 'LOAD_NOT_FOUND'
   | 'LOCAL_CA_EXISTS'
   | 'LOCAL_CA_NOT_CONFIGURED'
+  | 'LOCAL_CPO_SUB_CA_EXISTS'
   | 'LOCATION_NOT_FOUND'
   | 'MAINTENANCE_ACTIVE'
   | 'MAINTENANCE_ALREADY_ACTIVE'
@@ -540,6 +549,7 @@ export type ErrorCode =
   | 'PHONE_REGISTRATION_LIMITED'
   | 'PKI_ROOT_REFRESH_FAILED'
   | 'PNC_CONTRACT_NOT_FOUND'
+  | 'PNC_CONTRACT_TOKEN_LOCKED'
   | 'PNC_DISABLED'
   | 'PORTAL_ALREADY_ACTIVE'
   | 'PORTAL_REGISTRATION_DISABLED'
@@ -587,6 +597,7 @@ export type ErrorCode =
   | 'SELF_EDIT_FORBIDDEN'
   | 'SESSION_ALREADY_ACTIVE'
   | 'SESSION_CREATE_FAILED'
+  | 'SESSION_NO_VEHICLE_ID'
   | 'SESSION_NOT_FOUND'
   | 'SESSION_NOT_LINKED'
   | 'SESSION_REBILL_IN_PROGRESS'
@@ -637,6 +648,9 @@ export type ErrorCode =
   | 'UNKNOWN_ACTION'
   | 'USER_NOT_FOUND'
   | 'VALIDATION_ERROR'
+  | 'VEHICLE_BLOCKED_BY_OPERATOR'
+  | 'VEHICLE_ID_IN_USE'
+  | 'VEHICLE_ID_REQUIRED'
   | 'VEHICLE_NOT_FOUND'
   | 'VENDOR_NOT_FOUND'
   | 'VERIFICATION_RESEND_LIMITED'
@@ -747,9 +761,12 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   EMAIL_REQUIRED: 'Email required for paid charging',
   EMAIL_SEND_FAILED: 'Failed to send email',
   ENCRYPTION_KEY_MISSING: 'SETTINGS_ENCRYPTION_KEY not configured on server',
-  EVSE_HAS_HISTORY: 'The EVSE or connector has charging history and cannot be deleted',
+  EVSE_HAS_HISTORY:
+    'The EVSE or connector has charging history and cannot be deleted. Retire it instead.',
   EVSE_IN_USE: 'Another session is already active on this connector',
   EVSE_NOT_FOUND: 'EVSE not found',
+  EVSE_RESERVED:
+    'The EVSE has an active or upcoming reservation. Cancel it before retiring the EVSE.',
   FAVORITE_NOT_FOUND: 'Favorite not found',
   FLEET_BILLING_CONTACT_REQUIRED:
     'The fleet needs at least one billing contact for automatic invoicing and invoice emails.',
@@ -807,6 +824,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   LOAD_NOT_FOUND: 'Load not found',
   LOCAL_CA_EXISTS: 'A local contract CA already exists',
   LOCAL_CA_NOT_CONFIGURED: 'Create the local contract CA first',
+  LOCAL_CPO_SUB_CA_EXISTS: 'The local contract CA already has its CPO Sub-CAs',
   LOCATION_NOT_FOUND: 'Location not found',
   MAINTENANCE_ACTIVE: 'Site is currently under maintenance',
   MAINTENANCE_ALREADY_ACTIVE: 'Maintenance event is already active',
@@ -887,6 +905,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
     'Too many accounts were registered with this phone number. Try again later.',
   PKI_ROOT_REFRESH_FAILED: 'Root certificate refresh from the PKI provider failed',
   PNC_CONTRACT_NOT_FOUND: 'Plug & Charge contract not found',
+  PNC_CONTRACT_TOKEN_LOCKED:
+    "This token belongs to a Plug & Charge contract. Manage it through the driver's contracts.",
   PNC_DISABLED: 'Plug & Charge is disabled',
   PORTAL_ALREADY_ACTIVE: 'Driver already has portal access',
   PORTAL_REGISTRATION_DISABLED:
@@ -937,6 +957,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   SELF_EDIT_FORBIDDEN: 'Cannot edit your own role, status, or site access',
   SESSION_ALREADY_ACTIVE: 'You already have an active charging session',
   SESSION_CREATE_FAILED: 'Failed to create session',
+  SESSION_NO_VEHICLE_ID: 'The charger sent no vehicle id for this session.',
   SESSION_NOT_FOUND: 'Session not found',
   SESSION_NOT_LINKED: 'Session not linked to this case',
   SESSION_REBILL_IN_PROGRESS: 'The session is being billed. Try again in a few minutes.',
@@ -996,6 +1017,10 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   UNKNOWN_ACTION: 'Unknown OCPP action',
   USER_NOT_FOUND: 'User not found',
   VALIDATION_ERROR: 'Validation error',
+  VEHICLE_BLOCKED_BY_OPERATOR:
+    'The operator blocked Autocharge for this vehicle. Contact the operator to unblock it.',
+  VEHICLE_ID_IN_USE: 'Another vehicle already uses this VIN or EVCCID for Autocharge.',
+  VEHICLE_ID_REQUIRED: 'Autocharge needs a VIN or an EVCCID on the vehicle.',
   VEHICLE_NOT_FOUND: 'Vehicle not found',
   VENDOR_NOT_FOUND: 'Vendor not found',
   VERIFICATION_RESEND_LIMITED: 'Too many verification emails. Wait before you request another one.',

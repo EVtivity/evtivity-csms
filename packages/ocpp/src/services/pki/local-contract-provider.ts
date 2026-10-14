@@ -49,6 +49,7 @@ import { getLocalContractCa } from './local-ca-store.js';
 import {
   hierarchyFor,
   issueContractCertificate,
+  issueSeccCertificate,
   pemToDer,
   type LocalCaHierarchy,
 } from './local-contract-ca.js';
@@ -269,12 +270,28 @@ export class LocalContractProvider implements PkiProvider {
   // CSRs, OCSP and root certificates work as with the manual provider.
   private readonly manual = new ManualProvider();
 
-  signCsr(
-    csr: string,
-    certificateType: string,
-    stationDbId: string | null,
-  ): Promise<SignCsrResult> {
-    return this.manual.signCsr(csr, certificateType, stationDbId);
+  /**
+   * Station V2G (SECC) certificates are signed by the CPO Sub-CA 2 of the
+   * local CA: V2GCertificate with the ISO 15118-2 hierarchy, V2G20Certificate
+   * with the ISO 15118-20 one. Station TLS certificates, and V2G requests
+   * while the CA has no CPO Sub-CA, stay with the operator (manual signing).
+   */
+  async signCsr(csr: string, certificateType: string): Promise<SignCsrResult> {
+    const schema =
+      certificateType === 'V2GCertificate' ? 2 : certificateType === 'V2G20Certificate' ? 20 : null;
+    const ca = schema == null ? null : await getLocalContractCa();
+    if (schema == null || ca == null || hierarchyFor(ca, schema).cpoSubCa2?.key == null) {
+      return this.manual.signCsr();
+    }
+    const issued = await issueSeccCertificate(hierarchyFor(ca, schema), schema, csr);
+    logger.info(
+      { certificateType, serialNumber: issued.serialNumber },
+      'Station V2G certificate signed by the local CPO Sub-CA',
+    );
+    return {
+      certificateChain: issued.certificateChain,
+      providerReference: `local-cpo-${issued.serialNumber}`,
+    };
   }
 
   getOcspStatus(ocspRequestData: OcspRequestData): Promise<OcspResult> {

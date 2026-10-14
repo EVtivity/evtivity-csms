@@ -3,6 +3,7 @@
 
 export * from './schema/index.js';
 export { db, client } from './config.js';
+export { sessionSiteIdSql } from './lib/session-site.js';
 export { toDate, toDateOrNull, toIsoOrNull } from './lib/raw-timestamp.js';
 export type { RawTimestamp } from './lib/raw-timestamp.js';
 export { PgEventPersistence } from './event-persistence.js';
@@ -285,6 +286,21 @@ export type {
 export { isPortalRegistrationEnabled } from './lib/portal-registration-setting.js';
 export { touchExpiredDriverTokens } from './lib/driver-token-expiry.js';
 export { isGuestChargingEnabled, clearGuestChargingCache } from './lib/guest-setting.js';
+export {
+  AUTOCHARGE_ENABLED_KEY,
+  clearAutochargeCache,
+  findAutochargeVehicle,
+  findBlockedVehicle,
+  isAutochargeEnabled,
+  isAutochargeEnabledForStation,
+  isAutochargeOffered,
+  type AutochargeVehicleMatch,
+} from './lib/autocharge.js';
+export {
+  COMPANY_PORTAL_URL_KEY,
+  clearCompanyPortalUrlCache,
+  getCompanyPortalUrl,
+} from './lib/portal-url-setting.js';
 export { getIdlingGracePeriodMinutes, clearIdlingSettingCache } from './lib/idling-setting.js';
 export {
   PREPAID_LOW_CREDIT_THRESHOLD_KEY,

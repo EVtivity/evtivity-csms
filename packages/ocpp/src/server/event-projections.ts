@@ -98,6 +98,7 @@ import { projectionLane, projectionQueueFor } from './projection-queue.js';
 import { PROJECTION_RETRY_DEFAULTS, runProjectionWithRetry } from './projection-retry.js';
 import type { ProjectionAttempt } from './projection-retry.js';
 import { SERVER_SHUTDOWN_DISCONNECT_REASON } from './graceful-shutdown.js';
+import { drainOfflineCommandQueue } from './offline-queue-drain.js';
 import {
   DEFAULT_LOCATION,
   DEFAULT_MEASURAND,
@@ -446,13 +447,20 @@ export function registerProjections(
         return;
       }
 
-      // One row per EVSE in one statement, so a retry never logs a part twice.
+      // Back from offline: each connector the disconnect logged as unavailable
+      // returns to its stored status, the mirror of the disconnect rows. A
+      // connector that is faulted stays down in the history (uptime, NEVI):
+      // the station's post-boot report of an unchanged status logs nothing.
+      // One statement, so a retry never logs a part twice.
       await attempt.once(
         'port-status-log',
         () => sql`
-          INSERT INTO port_status_log (station_id, evse_id, previous_status, new_status, timestamp)
-          SELECT ${stationUuid}, evse_id, 'unavailable', 'available', now()
-          FROM evses WHERE station_id = ${stationUuid}
+          INSERT INTO port_status_log (station_id, evse_id, connector_id, previous_status, new_status, timestamp)
+          SELECT ${stationUuid}, e.evse_id, c.connector_id, 'unavailable', c.status, now()
+          FROM connectors c
+          INNER JOIN evses e ON c.evse_id = e.id
+          WHERE e.station_id = ${stationUuid}
+            AND c.status != 'unavailable'
         `,
       );
 
@@ -483,71 +491,12 @@ export function registerProjections(
     if (stationUuid == null) return;
     const ocppProtocol = (event.payload as { ocppProtocol?: string }).ocppProtocol ?? null;
 
-    // Drain offline command queue for this station
+    // Drain offline command queue for this station: each command claimed
+    // before it is published, so it is sent at most once.
     const stationOcppId = event.aggregateId;
     try {
-      // Only the newest queued screen message per display message id and cost
-      // update per transaction still matters; older ones would show stale content.
-      const superseded = await sql`
-        WITH keyed AS (
-          SELECT id, action, created_at,
-            CASE action
-              WHEN 'SetDisplayMessage' THEN payload -> 'message' ->> 'id'
-              WHEN 'ClearDisplayMessage' THEN payload ->> 'id'
-              WHEN 'CostUpdated' THEN payload ->> 'transactionId'
-            END AS target
-          FROM offline_command_queue
-          WHERE station_id = ${stationOcppId} AND status = 'pending'
-            AND action IN ('SetDisplayMessage', 'ClearDisplayMessage', 'CostUpdated')
-        ),
-        ranked AS (
-          SELECT id, row_number() OVER (
-            PARTITION BY action, target ORDER BY created_at DESC, id DESC
-          ) AS rn
-          FROM keyed
-          WHERE target IS NOT NULL
-        )
-        UPDATE offline_command_queue q
-        SET status = 'expired', failed_reason = 'Superseded by a newer queued command'
-        FROM ranked
-        WHERE q.id = ranked.id AND ranked.rn > 1
-      `;
-      const pendingCommands = await sql`
-        SELECT id, command_id, action, payload, version
-        FROM offline_command_queue
-        WHERE station_id = ${stationOcppId} AND status = 'pending' AND expires_at > now()
-        ORDER BY created_at ASC
-      `;
-      // Publish all queued commands, collect successful IDs, then batch-update
-      // their status in one query. Per-command try/catch ensures a transient
-      // publish failure on one command doesn't leave previously-published ones
-      // unmarked-as-sent (which would cause duplicate dispatch on next reconnect).
-      const sentIds: number[] = [];
-      for (const cmd of pendingCommands) {
-        try {
-          await publishOcppCommand(pubsub, {
-            commandId: cmd.command_id as string,
-            stationId: stationOcppId,
-            action: cmd.action as string,
-            payload: cmd.payload as Record<string, unknown>,
-            version: cmd.version as string | null,
-          });
-          sentIds.push(cmd.id as number);
-        } catch (publishErr) {
-          logger.warn(
-            { err: publishErr, stationOcppId, commandId: cmd.command_id },
-            'Offline queue drain: publish failed for command; leaving pending for next drain',
-          );
-        }
-      }
-      if (sentIds.length > 0) {
-        await sql`
-          UPDATE offline_command_queue
-          SET status = 'sent', sent_at = now()
-          WHERE id IN ${sql(sentIds)}
-        `;
-      }
-      if (superseded.count > 0 || sentIds.length > 0) {
+      const drained = await drainOfflineCommandQueue(sql, pubsub, stationOcppId, logger);
+      if (drained.superseded > 0 || drained.sent > 0) {
         await notify.notifyChange(
           'ocpp.message',
           stationUuid,
@@ -2429,6 +2378,8 @@ export function registerProjections(
       event.aggregateId,
       stationUuid,
       {
+        csrId: typeof payload.csrId === 'number' ? payload.csrId : null,
+        requestId: typeof payload.requestId === 'number' ? payload.requestId : null,
         certificateChain: payload.certificateChain as string,
         certificateType: payload.certificateType as string,
         providerReference: payload.providerReference as string,
@@ -2438,6 +2389,27 @@ export function registerProjections(
 
     const siteId = await lookups.resolveSiteId(stationUuid);
     await notify.notifyChange('certificate.signed', stationUuid, siteId);
+  });
+
+  safeSubscribe('pnc.CertificateSignedResult', async (event: DomainEvent) => {
+    const stationUuid = await lookups.getStationUuid(event);
+    if (stationUuid == null) return;
+
+    const payload = event.payload;
+    const { handleCertificateSignedResult } =
+      await import('../services/pki/certificate-projections.js');
+    await handleCertificateSignedResult(
+      sql,
+      stationUuid,
+      payload.certificateChain as string,
+      payload.certificateType as string,
+      payload.status as string,
+    );
+
+    if (payload.status === 'Accepted') {
+      const siteId = await lookups.resolveSiteId(stationUuid);
+      await notify.notifyChange('certificate.signed', stationUuid, siteId);
+    }
   });
 
   safeSubscribe('pnc.InstallCertificateResult', async (event: DomainEvent) => {

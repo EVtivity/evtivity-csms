@@ -37,6 +37,15 @@ const h = vi.hoisted(() => {
     roaming: boolean;
     accountCredit: { fleetId: string; remainingCents: number } | null | Error;
     accountCreditCalls: string[];
+    vehicle: {
+      vehicleId: string;
+      driverId: string;
+      driverIsActive: boolean;
+      blocked: boolean;
+    } | null;
+    blockedVehicle: { vehicleId: string; driverId: string } | null;
+    autochargeOn: boolean;
+    vehicleLookups: { value: string; type: string }[];
   } = {
     TABLE,
     table,
@@ -46,6 +55,10 @@ const h = vi.hoisted(() => {
     roaming: false,
     accountCredit: null,
     accountCreditCalls: [],
+    vehicle: null,
+    blockedVehicle: null,
+    autochargeOn: true,
+    vehicleLookups: [],
   };
   return state;
 });
@@ -133,8 +146,16 @@ vi.mock('@evtivity/database', () => ({
     'status',
     'stationId',
     'transactionId',
+    'vehicleId',
+    'autocharge',
   ]),
   chargingStations: h.table('charging_stations', ['id', 'stationId']),
+  findAutochargeVehicle: vi.fn((capture: { value: string; type: string }) => {
+    h.vehicleLookups.push(capture);
+    return Promise.resolve(h.vehicle);
+  }),
+  findBlockedVehicle: vi.fn(() => Promise.resolve(h.blockedVehicle)),
+  isAutochargeEnabledForStation: vi.fn(() => Promise.resolve(h.autochargeOn)),
   isRoamingEnabled: vi.fn(() => Promise.resolve(h.roaming)),
   isSiteFreeVendEnabledByStation: vi.fn(() =>
     h.freeVend instanceof Error ? Promise.reject(h.freeVend) : Promise.resolve(h.freeVend),
@@ -190,6 +211,10 @@ beforeEach(() => {
   h.queries = [];
   h.accountCredit = null;
   h.accountCreditCalls = [];
+  h.vehicle = null;
+  h.blockedVehicle = null;
+  h.autochargeOn = true;
+  h.vehicleLookups = [];
 });
 
 afterAll(() => {
@@ -1071,6 +1096,9 @@ describe('recordAuthorizeDecision', () => {
           outcome: 'accepted',
           ocppVersion: type == null ? 'ocpp1.6' : 'ocpp2.1',
           reason: 'r',
+          vehicleIdValue: null,
+          vehicleIdType: null,
+          matchedVehicleId: null,
         },
         logger,
       );
@@ -1259,5 +1287,192 @@ describe('AUTHORIZE_CONTEXT_RULES', () => {
     expect(rules.authorizeContextRules(input('tx_update', 'X', 'Local'))).toBe(
       rules.AUTHORIZE_CONTEXT_RULES.tx_update.typed,
     );
+  });
+});
+
+describe('Autocharge vehicles', () => {
+  const MAC = { value: '92D50A693F80', type: 'MacAddress' as const, source: 'id_token' as const };
+  const VEHICLE = {
+    vehicleId: 'veh_1',
+    driverId: 'drv-car',
+    driverIsActive: true,
+    blocked: false,
+  };
+
+  it.each([
+    ['authorize', 'MacAddress', 'ocpp2.1'],
+    ['tx_start', 'EVCCID', 'ocpp2.1'],
+    ['authorize', null, 'ocpp1.6'],
+    ['tx_start', null, 'ocpp1.6'],
+  ] as const)(
+    '%s (%s, %s) accepts a vehicle with Autocharge on as its driver',
+    async (context, type, _version) => {
+      h.vehicle = VEHICLE;
+      const value = type == null ? 'VID:92D50A693F80' : '92:D5:0A:69:3F:80';
+      const d = await authorizeToken(
+        input(context, value, type, {
+          vehicleId: { ...MAC, source: type == null ? 'id_tag' : 'id_token' },
+        }),
+        logger,
+      );
+      expect(d).toMatchObject({
+        status: 'accepted',
+        outcome: 'accepted',
+        reason: 'autocharge',
+        source: 'vehicle',
+        matchedTokenId: null,
+        matchedDriverId: 'drv-car',
+        matchedVehicleId: 'veh_1',
+      });
+      // Driver tokens are checked first: a card with the value wins.
+      expect(tables()[0]).toBe('driver_tokens');
+      expect(h.vehicleLookups).toEqual([{ ...MAC, source: type == null ? 'id_tag' : 'id_token' }]);
+    },
+  );
+
+  it('a driver token with the same value wins over the vehicle', async () => {
+    h.vehicle = VEHICLE;
+    h.tables['driver_tokens'] = [
+      token({ id: 'tok-mac', idToken: '92D50A693F80', tokenType: 'MacAddress' }),
+    ];
+    const d = await authorizeToken(
+      input('authorize', '92D50A693F80', 'MacAddress', { vehicleId: MAC }),
+      logger,
+    );
+    expect(d).toMatchObject({ source: 'driver_token', matchedTokenId: 'tok-mac' });
+    expect(h.vehicleLookups).toEqual([]);
+  });
+
+  it('refuses the vehicle when Autocharge is off at the site', async () => {
+    h.vehicle = VEHICLE;
+    h.autochargeOn = false;
+    const d = await authorizeToken(
+      input('authorize', '92D50A693F80', 'MacAddress', { vehicleId: MAC }),
+      logger,
+    );
+    expect(d).toMatchObject({
+      status: 'invalid',
+      reason: 'autocharge_disabled',
+      source: 'vehicle',
+      matchedVehicleId: 'veh_1',
+    });
+  });
+
+  it('blocks a vehicle an operator blocked', async () => {
+    h.vehicle = { ...VEHICLE, blocked: true };
+    const d = await authorizeToken(
+      input('authorize', '92D50A693F80', 'MacAddress', { vehicleId: MAC }),
+      logger,
+    );
+    expect(d).toMatchObject({ status: 'blocked', reason: 'vehicle_blocked', source: 'vehicle' });
+  });
+
+  it('blocks a blocked vehicle id even with Autocharge off on the vehicle', async () => {
+    h.blockedVehicle = { vehicleId: 'veh_2', driverId: 'drv-other' };
+    const d = await authorizeToken(
+      input('authorize', 'VID:92D50A693F80', null, { vehicleId: { ...MAC, source: 'id_tag' } }),
+      logger,
+    );
+    expect(d).toMatchObject({
+      status: 'blocked',
+      reason: 'vehicle_blocked',
+      matchedVehicleId: 'veh_2',
+    });
+  });
+
+  it('blocks a vehicle whose driver is deactivated', async () => {
+    h.vehicle = { ...VEHICLE, driverIsActive: false };
+    const d = await authorizeToken(
+      input('authorize', '92D50A693F80', 'MacAddress', { vehicleId: MAC }),
+      logger,
+    );
+    expect(d).toMatchObject({ status: 'blocked', reason: 'driver_inactive', source: 'vehicle' });
+  });
+
+  it('an unknown vehicle id stays Invalid', async () => {
+    const d = await authorizeToken(
+      input('authorize', '92D50A693F80', 'MacAddress', { vehicleId: MAC }),
+      logger,
+    );
+    expect(d).toMatchObject({ status: 'invalid', source: 'not_found' });
+  });
+
+  it('never authorizes by a vehicle id in additionalInfo', async () => {
+    h.vehicle = VEHICLE;
+    const d = await authorizeToken(
+      input('authorize', 'CARD-1', 'ISO14443', {
+        vehicleId: { ...MAC, type: 'EVCCID', source: 'additional_info' },
+      }),
+      logger,
+    );
+    expect(d).toMatchObject({ status: 'invalid', source: 'not_found' });
+    expect(h.vehicleLookups).toEqual([]);
+  });
+
+  it('answers ConcurrentTx when the vehicle runs an Autocharge session elsewhere', async () => {
+    h.vehicle = VEHICLE;
+    h.tables['charging_sessions'] = [
+      {
+        id: 'ses-other',
+        tokenId: null,
+        vehicleId: 'veh_1',
+        autocharge: true,
+        status: 'active',
+        stationId: 'sta_db_2',
+        transactionId: 'TX-9',
+      },
+    ];
+    const d = await authorizeToken(
+      input('authorize', '92D50A693F80', 'MacAddress', { vehicleId: MAC }),
+      logger,
+    );
+    expect(d).toMatchObject({ status: 'concurrent_tx', matchedVehicleId: 'veh_1' });
+  });
+
+  it('logs the captured vehicle id and the matched vehicle with the attempt', () => {
+    recordAuthorizeDecision(
+      input('authorize', 'CARD-1', 'ISO14443', {
+        vehicleId: { value: '92D50A693F80', type: 'EVCCID', source: 'additional_info' },
+      }),
+      {
+        status: 'invalid',
+        outcome: 'invalid',
+        reason: 'autocharge_disabled',
+        source: 'vehicle',
+        matchedTokenId: null,
+        matchedDriverId: 'drv-car',
+        matchedVehicleId: 'veh_1',
+        expiresAt: null,
+        prepaid: false,
+        prepaidBalanceCents: null,
+        echoGroupId: false,
+      },
+      logger,
+    );
+    expect(logAuthorizeAttemptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        vehicleIdValue: '92D50A693F80',
+        vehicleIdType: 'EVCCID',
+        matchedVehicleId: 'veh_1',
+      }),
+      logger,
+    );
+  });
+
+  it('names the vehicle in the decision message', () => {
+    expect(
+      authorizeDecisionMessage({
+        status: 'accepted',
+        outcome: 'accepted',
+        reason: 'autocharge',
+        source: 'vehicle',
+        matchedTokenId: null,
+        matchedDriverId: 'drv-car',
+        expiresAt: null,
+        prepaid: false,
+        prepaidBalanceCents: null,
+        echoGroupId: true,
+      }),
+    ).toBe('Autocharge vehicle accepted');
   });
 });

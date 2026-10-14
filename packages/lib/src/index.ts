@@ -186,8 +186,21 @@ export {
   stationAuthInvalidationPayload,
   parseStationAuthInvalidation,
   publishStationAuthInvalidation,
+  STATION_DISCONNECT_KIND,
+  stationDisconnectPayload,
+  parseStationDisconnect,
+  publishStationDisconnect,
 } from './station-auth-invalidation.js';
 export type { StationOcppProtocol, StationPasswordError } from './station-password.js';
+export {
+  PNC16_VENDOR_ID,
+  PNC16_MESSAGE_IDS,
+  isPnc16MessageId,
+  wrapPnc16,
+  unwrapPnc16Data,
+  unwrapPnc16Answer,
+  type Pnc16MessageId,
+} from './iso15118-pnc16.js';
 export {
   PASSWORD_MIN_LENGTH,
   PASSWORD_RULES,
@@ -417,8 +430,15 @@ export type { SentryConfig } from './sentry.js';
 
 export { calculateCo2AvoidedKg, GASOLINE_CO2_KG_PER_KWH } from './carbon.js';
 
-export { FREE_VEND_OCPP_21_VARIABLES, FREE_VEND_OCPP_16_KEYS } from './free-vend-defaults.js';
-export type { ConfigTemplateVariable } from './free-vend-defaults.js';
+export {
+  FREE_VEND_OCPP_21_VARIABLES,
+  FREE_VEND_OCPP_16_KEYS,
+  FREE_VEND_RESTORE_TX_START_POINT,
+  FREE_VEND_RESTORE_OCPP_16_DEFAULTS,
+  freeVendRestoreVariables21,
+  freeVendRestoreKeys16,
+} from './free-vend-defaults.js';
+export type { ConfigTemplateVariable, FreeVendRestoreKey16 } from './free-vend-defaults.js';
 
 export {
   renderStationMessage,

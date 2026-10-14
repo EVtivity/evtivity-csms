@@ -14,6 +14,7 @@ import {
   driverTokens,
   driverTokenTombstones,
   drivers,
+  pncContracts,
   tokenAuditLog,
   stationLocalAuthEntries,
   stationLocalAuthVersions,
@@ -177,6 +178,37 @@ export class TokenReactivationBlockedError extends Error {
     super('Token was deactivated by the operator');
     this.name = 'TokenReactivationBlockedError';
   }
+}
+
+/**
+ * The token is the eMAID of a Plug and Charge contract, and the change would
+ * break the contract: a new value, type or driver (the issued certificate
+ * names the eMAID and the contract its driver), reactivating it after its
+ * contract was revoked (revocation is final), or deleting it while its
+ * contract is active (revoke the contract first). The contract service is the
+ * only path for those changes (features/pnc.md).
+ */
+export class PncContractTokenError extends Error {
+  constructor(
+    public readonly tokenId: string,
+    public readonly reason: 'locked_fields' | 'contract_revoked' | 'contract_active',
+  ) {
+    super('Token belongs to a Plug and Charge contract');
+    this.name = 'PncContractTokenError';
+  }
+}
+
+/** The Plug and Charge contract statuses of the given tokens, by token id. */
+async function contractStatuses(
+  tokenIds: string[],
+  executor: TokenDb = db,
+): Promise<Map<string, 'active' | 'revoked'>> {
+  if (tokenIds.length === 0) return new Map();
+  const rows = await executor
+    .select({ tokenId: pncContracts.driverTokenId, status: pncContracts.status })
+    .from(pncContracts)
+    .where(inArray(pncContracts.driverTokenId, tokenIds));
+  return new Map(rows.map((r) => [r.tokenId, r.status]));
 }
 
 /**
@@ -568,6 +600,21 @@ export async function updateToken(
         throw new TokenReactivationBlockedError(id);
       }
 
+      // A contract eMAID keeps its value, type and driver, and stays inactive
+      // once its contract is revoked.
+      const contractStatus =
+        current.tokenType === 'eMAID' ? (await contractStatuses([id], tx)).get(id) : undefined;
+      if (contractStatus != null) {
+        const changes = (field: 'idToken' | 'tokenType' | 'driverId'): boolean =>
+          data[field] !== undefined && data[field] !== current[field];
+        if (changes('idToken') || changes('tokenType') || changes('driverId')) {
+          throw new PncContractTokenError(id, 'locked_fields');
+        }
+        if (data.isActive === true && !current.isActive && contractStatus === 'revoked') {
+          throw new PncContractTokenError(id, 'contract_revoked');
+        }
+      }
+
       // A token that ends up active, when it is reactivated or moved to
       // another driver, needs an active driver.
       const nextDriverId = data.driverId !== undefined ? data.driverId : current.driverId;
@@ -713,8 +760,23 @@ export async function deleteToken(id: string, actor: TokenActor = { type: 'syste
   // (foreign key), after which they can no longer be found. The next push
   // drops those entries, so the station stops accepting the card.
   const stationIds = await stationsHoldingTokens([id]);
-  const [token] = await db.delete(driverTokens).where(eq(driverTokens.id, id)).returning();
-  if (token == null) return null;
+  // The eMAID of an active Plug and Charge contract stays: deleting it would
+  // delete the contract and its certificate records (revoke the contract first).
+  const [token] = await db
+    .delete(driverTokens)
+    .where(
+      and(
+        eq(driverTokens.id, id),
+        sql`NOT EXISTS (SELECT 1 FROM pnc_contracts c WHERE c.driver_token_id = ${driverTokens.id} AND c.status = 'active')`,
+      ),
+    )
+    .returning();
+  if (token == null) {
+    if ((await contractStatuses([id])).get(id) === 'active') {
+      throw new PncContractTokenError(id, 'contract_active');
+    }
+    return null;
+  }
   await writeTokenAudit({
     tokenId: null,
     entityIdSnapshot: token.id,
@@ -746,6 +808,10 @@ export async function bulkSetActive(
 ): Promise<{ updated: number }> {
   if (ids.length === 0) return { updated: 0 };
   if (isActive) {
+    // No eMAID of a revoked Plug and Charge contract comes back.
+    for (const [tokenId, status] of await contractStatuses(ids)) {
+      if (status === 'revoked') throw new PncContractTokenError(tokenId, 'contract_revoked');
+    }
     // No token comes back for a deactivated driver: refuse the batch.
     const [blocked] = await db
       .select({ driverId: drivers.id })

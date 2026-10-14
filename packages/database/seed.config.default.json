@@ -144,6 +144,7 @@
     "fleet.creditReservationCents": 5000,
     "support.enabled": true,
     "guest.enabled": true,
+    "autocharge.enabled": false,
     "ocpp.commandRetryMaxAttempts": 3,
     "ocpp.commandRetryBaseDelayMs": 1000,
     "ocpp.commandRetryMaxDelayMs": 30000,

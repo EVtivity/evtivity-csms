@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { toAuthorizationKeyHex } from '@evtivity/lib';
+import { toAuthorizationKeyHex, unwrapPnc16Answer, wrapPnc16 } from '@evtivity/lib';
 
 export interface CommandTranslation {
   action: string;
@@ -406,6 +406,78 @@ function certificateHashData16(data: unknown): Record<string, unknown> {
   };
 }
 
+// ---- ISO 15118 Plug and Charge on 1.6 stations ----
+// OCA application note "Using ISO 15118 Plug & Charge with OCPP 1.6" (v1.0):
+// the ISO 15118 certificate messages go in a DataTransfer (vendorId
+// org.openchargealliance.iso15118pnc, the message as JSON in data), the
+// Security Whitepaper messages stay for the station's own certificates (2.3).
+// The note covers the ISO 15118-2 V2G certificate only (V2G20Certificate has
+// no 1.6 form).
+
+/** Installable root types of the note (InstallCertificateUseEnumType, 8.12). */
+const PNC16_INSTALL_TYPES = new Set(['V2GRootCertificate', 'MORootCertificate']);
+/** Listed types of the note (GetCertificateIdUseEnumType, 8.7). */
+const PNC16_LIST_TYPES = new Set([
+  'V2GRootCertificate',
+  'MORootCertificate',
+  'V2GCertificateChain',
+]);
+/** Station certificates the note's DeleteCertificate covers (2.3). */
+const PNC16_DELETE_TYPES = new Set([
+  'V2GRootCertificate',
+  'MORootCertificate',
+  'V2GCertificateChain',
+  'V2GCertificate',
+]);
+
+function isV2gCertificate(type: unknown): boolean {
+  return type === 'V2GCertificate' || type === 'V2G20Certificate';
+}
+
+function noV2g20On16(type: unknown): void {
+  if (type === 'V2G20Certificate') {
+    throw new Error(
+      'V2G20Certificate is not supported on ocpp1.6 stations (the ISO 15118 application note covers ISO 15118-2).',
+    );
+  }
+}
+
+/** The wrapped answer's `status`, or `fallback` when the DataTransfer was not accepted. */
+function pnc16Status(response: Record<string, unknown>, fallback: string): Record<string, unknown> {
+  const inner = unwrapPnc16Answer(response);
+  return { status: typeof inner?.['status'] === 'string' ? inner['status'] : fallback };
+}
+
+function wrappedInstall(payload: Record<string, unknown>): boolean {
+  return (
+    typeof payload.certificateType === 'string' && PNC16_INSTALL_TYPES.has(payload.certificateType)
+  );
+}
+
+function wrappedList(payload: Record<string, unknown>): boolean {
+  const types = payload.certificateType as unknown[] | undefined;
+  if (types == null || types.length === 0) return false;
+  const iso = types.filter((t) => typeof t === 'string' && PNC16_LIST_TYPES.has(t));
+  if (iso.length > 0 && iso.length !== types.length) {
+    throw new Error(
+      'GetInstalledCertificateIds to an ocpp1.6 station cannot mix ISO 15118 and Security Whitepaper certificate types.',
+    );
+  }
+  return iso.length > 0;
+}
+
+function wrappedDelete(payload: Record<string, unknown>): boolean {
+  return (
+    typeof payload.certificateType === 'string' && PNC16_DELETE_TYPES.has(payload.certificateType)
+  );
+}
+
+// The 1.6 Security Whitepaper CertificateSigned.req has only certificateChain
+// (additionalProperties false): the 2.1 certificateType and requestId are dropped.
+function mapCertificateSigned16(payload: Record<string, unknown>): Record<string, unknown> {
+  return { certificateChain: payload['certificateChain'] };
+}
+
 function mapInstallCertificate16(payload: Record<string, unknown>): Record<string, unknown> {
   return {
     certificateType: certificateType16(payload.certificateType),
@@ -521,9 +593,23 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
       translateResponse: identity,
     },
     'ocpp1.6': {
+      // SignV2GCertificate is the note's TriggerMessage in a DataTransfer (no
+      // fields, 6.9); every other message is the OCPP 1.6 TriggerMessage.
       action: 'TriggerMessage',
-      translatePayload: identity,
-      translateResponse: identity,
+      resolveAction: (payload) => {
+        if (payload.requestedMessage === 'SignV2G20Certificate') noV2g20On16('V2G20Certificate');
+        return payload.requestedMessage === 'SignV2GCertificate'
+          ? 'DataTransfer'
+          : 'TriggerMessage';
+      },
+      translatePayload: (payload) =>
+        payload.requestedMessage === 'SignV2GCertificate'
+          ? wrapPnc16('TriggerMessage', {})
+          : payload,
+      translateResponse: (response, request) =>
+        request.requestedMessage === 'SignV2GCertificate'
+          ? pnc16Status(response, 'Rejected')
+          : response,
     },
   },
   GetLocalListVersion: {
@@ -667,9 +753,19 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
       translateResponse: identity,
     },
     'ocpp1.6': {
+      // A V2G certificate goes in the note's DataTransfer (3.1), the station
+      // certificate in the Security Whitepaper message.
       action: 'CertificateSigned',
-      translatePayload: identity,
-      translateResponse: identity,
+      resolveAction: (payload) => {
+        noV2g20On16(payload.certificateType);
+        return isV2gCertificate(payload.certificateType) ? 'DataTransfer' : 'CertificateSigned';
+      },
+      translatePayload: (payload) =>
+        isV2gCertificate(payload.certificateType)
+          ? wrapPnc16('CertificateSigned', { certificateChain: payload.certificateChain })
+          : mapCertificateSigned16(payload),
+      translateResponse: (response, request) =>
+        isV2gCertificate(request.certificateType) ? pnc16Status(response, 'Rejected') : response,
     },
   },
   InstallCertificate: {
@@ -680,20 +776,37 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
     },
     'ocpp1.6': {
       action: 'InstallCertificate',
-      translatePayload: mapInstallCertificate16,
-      translateResponse: identity,
+      resolveAction: (payload) => (wrappedInstall(payload) ? 'DataTransfer' : 'InstallCertificate'),
+      translatePayload: (payload) =>
+        wrappedInstall(payload)
+          ? wrapPnc16('InstallCertificate', {
+              certificateType: payload.certificateType,
+              certificate: payload.certificate,
+            })
+          : mapInstallCertificate16(payload),
+      translateResponse: (response, request) =>
+        wrappedInstall(request) ? pnc16Status(response, 'Rejected') : response,
     },
   },
   DeleteCertificate: {
+    // `certificateType` is the CSMS's hint (the type of the station
+    // certificate the hash data names), never sent: it picks the 1.6 message.
     'ocpp2.1': {
       action: 'DeleteCertificate',
-      translatePayload: identity,
+      translatePayload: (payload) => ({ certificateHashData: payload.certificateHashData }),
       translateResponse: identity,
     },
     'ocpp1.6': {
       action: 'DeleteCertificate',
-      translatePayload: mapDeleteCertificate16,
-      translateResponse: identity,
+      resolveAction: (payload) => (wrappedDelete(payload) ? 'DataTransfer' : 'DeleteCertificate'),
+      translatePayload: (payload) =>
+        wrappedDelete(payload)
+          ? wrapPnc16('DeleteCertificate', {
+              certificateHashData: certificateHashData16(payload.certificateHashData),
+            })
+          : mapDeleteCertificate16(payload),
+      translateResponse: (response, request) =>
+        wrappedDelete(request) ? pnc16Status(response, 'Failed') : response,
     },
   },
   GetInstalledCertificateIds: {
@@ -704,8 +817,24 @@ const commandMap: Record<string, Record<string, CommandTranslation>> = {
     },
     'ocpp1.6': {
       action: 'GetInstalledCertificateIds',
-      translatePayload: mapGetInstalledCertificateIds16,
-      translateResponse: mapGetInstalledCertificateIdsResponse16,
+      resolveAction: (payload) =>
+        wrappedList(payload) ? 'DataTransfer' : 'GetInstalledCertificateIds',
+      translatePayload: (payload) =>
+        wrappedList(payload)
+          ? wrapPnc16('GetInstalledCertificateIds', { certificateType: payload.certificateType })
+          : mapGetInstalledCertificateIds16(payload),
+      translateResponse: (response, request) => {
+        if (!wrappedList(request))
+          return mapGetInstalledCertificateIdsResponse16(response, request);
+        const inner = unwrapPnc16Answer(response);
+        if (inner == null || typeof inner['status'] !== 'string') return { status: 'NotFound' };
+        return {
+          status: inner['status'],
+          ...(Array.isArray(inner['certificateHashDataChain'])
+            ? { certificateHashDataChain: inner['certificateHashDataChain'] }
+            : {}),
+        };
+      },
     },
   },
   ExtendedTriggerMessage: {

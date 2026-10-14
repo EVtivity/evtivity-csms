@@ -47,6 +47,9 @@
     "./id-token-types": {
       "import": "./src/id-token-types.ts"
     },
+    "./vehicle-id": {
+      "import": "./src/vehicle-id.ts"
+    },
     "./secret-config": {
       "import": "./src/secret-config.ts"
     },

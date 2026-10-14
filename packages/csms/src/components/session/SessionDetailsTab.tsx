@@ -22,6 +22,11 @@ import { formatDateTime } from '@/lib/timezone';
 import { eventTypeVariant } from '@/lib/status-variants';
 import { LoadingLogo } from '@/components/loading-logo';
 import { formatNumber } from '@/lib/formatting';
+import {
+  SessionVehicle,
+  type SessionVehicleCapture,
+  type SessionVehicleInfo,
+} from '@/components/session/SessionVehicle';
 
 interface TransactionEvent {
   id: number;
@@ -50,13 +55,15 @@ interface SessionOverview {
   freeVend: boolean | null;
   co2AvoidedKg: number | null;
   transactionId: string | null;
-  token: { id: string; idToken: string; tokenType: string } | null;
-  vehicle: {
+  token: {
     id: string;
-    make: string | null;
-    model: string | null;
-    year: string | null;
+    idToken: string;
+    tokenType: string;
+    pncContract?: { id: number; pcid: string; status: 'active' | 'revoked' } | null;
   } | null;
+  vehicle: SessionVehicleInfo | null;
+  vehicleCapture?: SessionVehicleCapture | null;
+  autocharge?: boolean;
   metadata: Record<string, unknown> | null;
 }
 
@@ -148,27 +155,24 @@ export function SessionDetailsTab({
               {session.freeVend === true ? (
                 <span className="text-muted-foreground">{t('sessions.freeVend')}</span>
               ) : session.driverName != null ? (
-                <div className="space-y-1">
-                  <Link
-                    to={`/drivers/${session.driverId ?? ''}`}
-                    className="text-link hover:underline block"
-                  >
-                    {session.driverName}
-                  </Link>
-                  {session.vehicle != null && (
-                    <div className="text-xs text-muted-foreground">
-                      {[session.vehicle.make, session.vehicle.model]
-                        .filter((v) => v != null && v !== '')
-                        .join(' ')}
-                      {session.vehicle.year != null && session.vehicle.year !== ''
-                        ? ` (${session.vehicle.year})`
-                        : ''}
-                    </div>
-                  )}
-                </div>
+                <Link
+                  to={`/drivers/${session.driverId ?? ''}`}
+                  className="text-link hover:underline block"
+                >
+                  {session.driverName}
+                </Link>
               ) : (
                 'n/a'
               )}
+            </Row>
+            <Row label={t('vehicles.vehicle')}>
+              <SessionVehicle
+                sessionId={sessionId}
+                driverId={session.driverId}
+                vehicle={session.vehicle}
+                capture={session.vehicleCapture ?? null}
+                autocharge={session.autocharge === true}
+              />
             </Row>
             <Row label={t('sessions.started')}>
               {session.startedAt != null ? formatDateTime(session.startedAt, timezone) : 'n/a'}
@@ -209,6 +213,21 @@ export function SessionDetailsTab({
                   {session.token.idToken}
                 </Link>
                 <span className="ml-2 text-muted-foreground">{session.token.tokenType}</span>
+              </Row>
+            )}
+            {session.token?.pncContract != null && (
+              <Row label={t('sessions.pncContract')}>
+                <span data-testid="session-pnc-contract">
+                  {t('sessions.pncContractPcid', { pcid: session.token.pncContract.pcid })}
+                </span>
+                <Badge
+                  variant={
+                    session.token.pncContract.status === 'active' ? 'success' : 'destructive'
+                  }
+                  className="ml-2"
+                >
+                  {t(`drivers.pncContractStatus.${session.token.pncContract.status}`)}
+                </Badge>
               </Row>
             )}
             <Row label={t('sessions.stoppedReason')}>{session.stoppedReason ?? 'n/a'}</Row>

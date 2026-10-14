@@ -171,6 +171,7 @@ describe('0476_release_0_1_46_indexes.sql', () => {
     expect(creates.map((c) => c.name)).toEqual([
       'meter_values_station_dedup_idx',
       'uq_transaction_events_event',
+      'idx_sessions_site_started_at',
     ]);
   });
 

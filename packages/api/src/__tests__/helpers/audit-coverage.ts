@@ -45,7 +45,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'DELETE /drivers/:id/pricing-groups/:pricingGroupId': {
     audited: ['pricing_assignment', 'driver'],
   },
-  'DELETE /drivers/:id/vehicles/:vehicleId': { audited: 'vehicle' },
+  'DELETE /drivers/:id/vehicles/:vehicleId': {
+    audited: 'vehicle',
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'DELETE /event-alert-rules/:id': { audited: 'event_alert_rule' },
   'DELETE /firmware-campaigns/:id': { audited: 'firmware_campaign' },
   'DELETE /fleet-reservations/:id': {
@@ -118,7 +121,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'driver',
     service: 'payments/src/methods.ts',
   },
-  'PATCH /drivers/:id/vehicles/:vehicleId': { audited: 'vehicle' },
+  'PATCH /drivers/:id/vehicles/:vehicleId': {
+    audited: 'vehicle',
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'PATCH /event-alert-rules/:id': { audited: 'event_alert_rule' },
   'PATCH /firmware-campaigns/:id': { audited: 'firmware_campaign' },
   'PATCH /fleets/:id': { audited: 'fleet' },
@@ -257,7 +263,18 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'POST /drivers/:id/pricing-groups': { audited: ['pricing_assignment', 'driver'] },
   'POST /drivers/:id/tokens': { audited: 'token', service: 'api/src/services/token.service.ts' },
-  'POST /drivers/:id/vehicles': { audited: 'vehicle' },
+  'POST /drivers/:id/vehicles': {
+    audited: 'vehicle',
+    service: 'api/src/services/vehicle.service.ts',
+  },
+  'POST /drivers/:id/vehicles/:vehicleId/block': {
+    audited: 'vehicle',
+    service: 'api/src/services/vehicle.service.ts',
+  },
+  'POST /drivers/:id/vehicles/:vehicleId/unblock': {
+    audited: 'vehicle',
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'POST /email-wrapper/preview': { allow: 'read-only preview' },
   'POST /event-alert-rules': { audited: 'event_alert_rule' },
   'POST /firmware-campaigns': { audited: 'firmware_campaign' },
@@ -311,6 +328,7 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /pnc/csr-requests/:id/sign': { audited: 'certificate' },
   'POST /pnc/refresh-root-certificates': { audited: 'certificate' },
   'POST /pnc/settings/local-ca': { audited: 'setting' },
+  'POST /pnc/settings/local-ca/cpo-sub-ca': { audited: 'setting' },
   'POST /pnc/settings/test-provider': { allow: 'connection test, no stored state' },
   'POST /portal/access-logs': { allow: 'is the access log itself' },
   'POST /pricing-groups': { audited: 'pricing_group' },
@@ -339,6 +357,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     service: 'api/src/services/session-rebill.service.ts',
   },
   'POST /sessions/:id/refund': { audited: 'payment', service: 'payments/src/payment-records.ts' },
+  'POST /sessions/:id/vehicle-claim': {
+    audited: ['vehicle', 'session'],
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'POST /settings/adyen/test': { allow: 'connection test, no stored state' },
   'POST /settings/adyen/webhook': {
     audited: 'setting',
@@ -353,7 +375,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /sites': { audited: 'site' },
   'POST /sites/:id/electricity-cost/recalculate': { audited: 'site' },
   'POST /sites/:id/electricity-rates': { audited: 'site' },
-  'POST /sites/:id/free-vend': { audited: ['site', 'config_template'] },
+  'POST /sites/:id/free-vend': {
+    audited: ['site', 'config_template'],
+    service: 'api/src/services/free-vend.service.ts',
+  },
   'POST /sites/:id/payout-account': { audited: 'site' },
   'POST /sites/:id/payout-account/invite': {
     audited: 'site',
@@ -393,7 +418,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /smart-charging/templates/:id/push': { audited: 'smart_charging_template' },
   'POST /station-message-templates/preview': { allow: 'read-only preview' },
   'POST /stations': { audited: 'station' },
-  'POST /stations/:id/approve': { audited: 'station' },
+  'POST /stations/:id/approve': {
+    audited: 'station',
+    service: 'api/src/services/station-onboarding.service.ts',
+  },
   'POST /stations/:id/certificates/delete': { audited: 'station' },
   'POST /stations/:id/certificates/install': { audited: 'station' },
   'POST /stations/:id/certificates/query': { audited: 'station' },
@@ -416,19 +444,41 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   'POST /stations/:id/event-alerts/:alertId/acknowledge': { audited: 'station' },
   'POST /stations/:id/evses': { audited: 'station' },
   'POST /stations/:id/evses/:evseId/connectors': { audited: 'station' },
+  'POST /stations/:id/evses/:evseId/connectors/:connectorId/restore': {
+    audited: 'station',
+    service: 'api/src/services/station-evse-retire.service.ts',
+  },
+  'POST /stations/:id/evses/:evseId/connectors/:connectorId/retire': {
+    audited: 'station',
+    service: 'api/src/services/station-evse-retire.service.ts',
+  },
   'POST /stations/:id/evses/:evseId/refresh-status': { allow: 'OCPP read (TriggerMessage)' },
+  'POST /stations/:id/evses/:evseId/restore': {
+    audited: 'station',
+    service: 'api/src/services/station-evse-retire.service.ts',
+  },
+  'POST /stations/:id/evses/:evseId/retire': {
+    audited: 'station',
+    service: 'api/src/services/station-evse-retire.service.ts',
+  },
   'POST /stations/:id/evses/:evseId/stop-active-session': { audited: 'station' },
   'POST /stations/:id/images': { audited: 'station_image' },
   'POST /stations/:id/images/:imageId/set-main': { audited: 'station_image' },
   'POST /stations/:id/images/upload-url': { allow: 'presigned upload URL only' },
   'POST /stations/:id/monitoring-rules': { audited: 'station' },
   'POST /stations/:id/pricing-groups': { audited: 'pricing_assignment' },
-  'POST /stations/:id/reject': { audited: 'station' },
+  'POST /stations/:id/reject': {
+    audited: 'station',
+    service: 'api/src/services/station-onboarding.service.ts',
+  },
   'POST /stations/:id/rotate-credentials': {
     audited: 'station',
     service: 'api/src/services/station-security.service.ts',
   },
-  'POST /stations/:id/unblock': { audited: 'station' },
+  'POST /stations/:id/unblock': {
+    audited: 'station',
+    service: 'api/src/services/station-onboarding.service.ts',
+  },
   'POST /stations/:stationId/display-messages': { audited: 'station' },
   'POST /stations/:stationId/display-messages/refresh': { allow: 'OCPP read (GetDisplayMessages)' },
   'POST /stations/:stationId/local-auth-list/add': { audited: 'local_auth_list' },
@@ -508,7 +558,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'DELETE /portal/station-watches/:id': { allow: 'personal watch' },
   'DELETE /portal/tokens/:id': { audited: 'token', service: 'api/src/services/token.service.ts' },
-  'DELETE /portal/vehicles/:id': { audited: 'vehicle' },
+  'DELETE /portal/vehicles/:id': {
+    audited: 'vehicle',
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'PATCH /portal/driver/billing-address': {
     audited: 'driver',
     service: 'api/src/services/driver-billing.service.ts',
@@ -521,6 +574,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
   },
   'PATCH /portal/sessions/:id/vehicle': { audited: 'session' },
   'PATCH /portal/tokens/:id': { audited: 'token', service: 'api/src/services/token.service.ts' },
+  'PATCH /portal/vehicles/:id': {
+    audited: 'vehicle',
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'POST /portal/auth/activate': {
     audited: 'driver',
     service: 'api/src/services/driver-portal-access.service.ts',
@@ -578,6 +635,10 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     audited: 'reservation',
     service: 'services/src/reservation.service.ts',
   },
+  'POST /portal/sessions/:id/vehicle-claim': {
+    audited: ['vehicle', 'session'],
+    service: 'api/src/services/vehicle.service.ts',
+  },
   'POST /portal/station-watches': { allow: 'personal watch' },
   'POST /portal/support-cases': {
     audited: 'support_case',
@@ -599,6 +660,6 @@ export const AUDIT_COVERAGE: Readonly<Record<string, AuditCoverage>> = {
     allow: 'presigned upload URL only',
   },
   'POST /portal/tokens': { audited: 'token', service: 'api/src/services/token.service.ts' },
-  'POST /portal/vehicles': { audited: 'vehicle' },
+  'POST /portal/vehicles': { audited: 'vehicle', service: 'api/src/services/vehicle.service.ts' },
   'PUT /portal/driver/notification-preferences': { audited: 'driver' },
 };

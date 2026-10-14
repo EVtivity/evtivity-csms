@@ -72,6 +72,7 @@ function insight(overrides: Partial<AiInsightView> = {}): AiInsightView {
     resolvedAt: null,
     dismissedAt: null,
     action: null,
+    feedbackUsed: false,
     stationName: 'CS-1616',
     siteName: 'Convention Center',
     ...overrides,
@@ -773,6 +774,70 @@ describe('insight feedback views', () => {
         .getByRole('link', { name: 'settings.aiInsightsSettings.quality.viewWrong' })
         .getAttribute('href'),
     ).toBe('/ai/insights?feedback=wrong');
+    // A type with wrong votes links to its insights marked wrong; one without has no link.
+    const links = screen.getAllByTestId('ai-insight-quality-wrong-link');
+    expect(links.map((l) => l.getAttribute('href'))).toEqual([
+      '/ai/insights?kind=station_offline&feedback=wrong',
+    ]);
+    expect(within(rows[1] as HTMLElement).queryByRole('link')).toBeNull();
+  });
+
+  it('TC-AI-FB-UI-10 the insight page lists the wrong votes: name or Another user, note or No note, plain text', async () => {
+    perms.add('audit:read');
+    const shown = insight({ feedback: { helpfulCount: 0, wrongCount: 2, mine: null } });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/v1/portal/features') return Promise.resolve(features);
+      if (url.startsWith('/v1/audit')) return Promise.resolve({ data: [], total: 0 });
+      if (url.startsWith('/v1/ai/insights/ins1/feedback')) {
+        return Promise.resolve({
+          data: [
+            {
+              userId: 'u1',
+              userName: 'Dana Ops',
+              note: '<b>Planned</b> [maintenance](https://x.example)',
+              votedAt: '2026-10-14T10:00:00Z',
+            },
+            { userId: null, userName: null, note: null, votedAt: '2026-10-14T09:00:00Z' },
+          ],
+          total: 2,
+        });
+      }
+      if (url.startsWith('/v1/ai/insights/')) return Promise.resolve(shown);
+      return Promise.resolve({ data: [], total: 0 });
+    });
+    wrap(
+      <Routes>
+        <Route path="/ai/insights/:id" element={<AiInsightDetail />} />
+      </Routes>,
+      '/ai/insights/ins1',
+    );
+    const card = await screen.findByTestId('ai-insight-wrong-votes');
+    expect(within(card).getByText('aiInsights.wrongVotes.title')).toBeTruthy();
+    const votes = await within(card).findAllByTestId('ai-insight-wrong-vote');
+    expect(votes).toHaveLength(2);
+    expect(votes[0]?.textContent).toContain('Dana Ops');
+    const note = within(votes[0] as HTMLElement).getByTestId('ai-insight-wrong-vote-note');
+    expect(note.textContent).toBe('<b>Planned</b> [maintenance](https://x.example)');
+    expect(note.querySelector('a, b')).toBeNull();
+    expect(votes[1]?.textContent).toContain('aiInsights.wrongVotes.anotherUser');
+    expect(votes[1]?.textContent).toContain('aiInsights.wrongVotes.noNote');
+    expect(apiMock.get).toHaveBeenCalledWith('/v1/ai/insights/ins1/feedback?page=1&limit=10');
+  });
+
+  it('TC-AI-FB-UI-10 no Marked Wrong card without wrong votes', async () => {
+    perms.add('audit:read');
+    serve([insight({ feedback: { helpfulCount: 1, wrongCount: 0, mine: null } })]);
+    wrap(
+      <Routes>
+        <Route path="/ai/insights/:id" element={<AiInsightDetail />} />
+      </Routes>,
+      '/ai/insights/ins1',
+    );
+    await screen.findByTestId('ai-insight-title');
+    expect(screen.queryByTestId('ai-insight-wrong-votes')).toBeNull();
+    expect(apiMock.get).not.toHaveBeenCalledWith(
+      expect.stringContaining('/v1/ai/insights/ins1/feedback'),
+    );
   });
 
   it('TC-AI-FB-UI-07 the quality card says when there are no votes, and is hidden without aiInsights:read', async () => {

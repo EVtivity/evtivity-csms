@@ -61,8 +61,10 @@ interface InsightCardProps {
  * translation note, the helpful count and the actions. No provider or model
  * name (D14). Helpful and Wrong are one vote per user: the chosen thumb is
  * pressed (`aria-pressed`) and pressing it again removes the vote. Wrong
- * opens an optional note (stored only, never sent to a model) with
- * Regenerate and Dismiss right there.
+ * opens an optional note (shown on the insight page; sent to the model only
+ * when its author regenerates) with Regenerate and Dismiss right there;
+ * Regenerate saves a typed note first. A regeneration that read its
+ * requester's note says so under the summary.
  * Analyzing shows a skeleton of the same shape; skipped, failed or out of
  * date shows one muted line with Regenerate where allowed.
  */
@@ -172,8 +174,27 @@ export function InsightCard({
       },
     );
   };
+  // Regenerate from the Wrong panel saves a typed note first, so the new
+  // analysis reads it (the server sends only the requester's own note).
+  const regenerateWithNote = (): void => {
+    if (reason.trim() === '' || reasonSaved) {
+      regenerate.mutate({ id: insight.id });
+      return;
+    }
+    feedback.mutate(
+      { id: insight.id, body: { helpful: false, reason } },
+      {
+        onSuccess: () => {
+          setReasonSaved(true);
+          regenerate.mutate({ id: insight.id });
+        },
+      },
+    );
+  };
   const steps = stepsBesideAction(insight.fixes, insight.action);
-  const showWrongPanel = canWrite && wrongOpen && mine !== true && !pending && !brief;
+  // A stored Wrong vote keeps the panel open on a later visit, so Regenerate stays reachable.
+  const showWrongPanel =
+    canWrite && (wrongOpen || mine === false) && mine !== true && !pending && !brief;
 
   return (
     <Card
@@ -248,6 +269,13 @@ export function InsightCard({
               data-testid="ai-insight-summary"
             >
               {summary}
+            </p>
+          )}
+          {insight.feedbackUsed && (
+            <p className="text-xs text-muted-foreground" data-testid="ai-insight-feedback-used">
+              {insight.feedbackFromYou === true
+                ? t('aiInsights.feedback.usedYours')
+                : t('aiInsights.feedback.usedOther')}
             </p>
           )}
           {category != null && (
@@ -341,9 +369,7 @@ export function InsightCard({
                 variant="outline"
                 disabled={busy}
                 data-testid="ai-insight-wrong-regenerate"
-                onClick={() => {
-                  regenerate.mutate({ id: insight.id });
-                }}
+                onClick={regenerateWithNote}
               >
                 {regenerate.isPending ? (
                   <Spinner className="h-4 w-4" />

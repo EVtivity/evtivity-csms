@@ -20,12 +20,14 @@ const STATUS: Record<
 /**
  * The 1.6 idTagInfo for an authorize decision (Authorize and StartTransaction).
  * A prepaid idTag expires from the station's authorization cache at once
- * (expiryDate = now), so every start asks the CSMS for the current balance.
+ * (expiryDate = now), so every start asks the CSMS for the current balance;
+ * so does an Autocharge vehicle, so turning Autocharge off or a block applies
+ * to the next start.
  * An accepted token with an expiry sends it.
  */
 export function idTagInfoFor(decision: AuthorizeDecision): IdTagInfoType {
   const idTagInfo: IdTagInfoType = { status: STATUS[decision.status] };
-  if (decision.prepaid) {
+  if (decision.prepaid || (decision.source === 'vehicle' && decision.status === 'accepted')) {
     idTagInfo.expiryDate = new Date().toISOString();
   } else if (decision.status === 'accepted' && decision.expiresAt != null) {
     idTagInfo.expiryDate = decision.expiresAt.toISOString();

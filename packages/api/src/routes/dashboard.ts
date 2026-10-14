@@ -613,9 +613,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         .from(chargingSessions);
 
       if (siteIds != null) {
-        sessionQueryBuilder
-          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-          .where(inArray(chargingStations.siteId, siteIds));
+        sessionQueryBuilder.where(inArray(chargingSessions.siteId, siteIds));
       }
 
       // Faulted stations use the station list's display status, so a station
@@ -706,7 +704,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const conditions = [gte(chargingSessions.startedAt, since)];
       if (until) conditions.push(lte(chargingSessions.startedAt, until));
       if (siteIds != null) {
-        conditions.push(inArray(chargingStations.siteId, siteIds));
+        // The sessions that happened at the user's sites (site_id).
+        conditions.push(inArray(chargingSessions.siteId, siteIds));
       }
 
       const query = db
@@ -715,10 +714,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
           energyWh: sql<number>`coalesce(sum(${chargingSessions.energyDeliveredWh}::numeric), 0)`,
         })
         .from(chargingSessions);
-
-      if (siteIds != null) {
-        query.innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
-      }
 
       const rows = await query
         .where(and(...conditions))
@@ -760,7 +755,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const conditions = [gte(chargingSessions.startedAt, since)];
       if (until) conditions.push(lte(chargingSessions.startedAt, until));
       if (siteIds != null) {
-        conditions.push(inArray(chargingStations.siteId, siteIds));
+        // The sessions that happened at the user's sites (site_id).
+        conditions.push(inArray(chargingSessions.siteId, siteIds));
       }
 
       const query = db
@@ -769,10 +765,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
           count: count(),
         })
         .from(chargingSessions);
-
-      if (siteIds != null) {
-        query.innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
-      }
 
       const rows = await query
         .where(and(...conditions))
@@ -847,8 +839,10 @@ export function dashboardRoutes(app: FastifyInstance): void {
         request.query as { days?: string; from?: string; to?: string },
       );
 
+      // Session hours of the sessions that happened at each site over the
+      // stations the site has now.
       const sessionConditions = [
-        eq(chargingSessions.stationId, chargingStations.id),
+        eq(chargingSessions.siteId, sites.id),
         gte(chargingSessions.startedAt, since),
       ];
       if (until) sessionConditions.push(lte(chargingSessions.startedAt, until));
@@ -862,10 +856,9 @@ export function dashboardRoutes(app: FastifyInstance): void {
         .select({
           siteName: sites.name,
           sessionHours: sql<number>`coalesce(sum(extract(epoch from (coalesce(${chargingSessions.endedAt}, now()) - ${chargingSessions.startedAt})) / 3600), 0)`,
-          stationCount: sql<number>`count(distinct ${chargingStations.id})`,
+          stationCount: sql<number>`(select count(*)::int from ${chargingStations} st where st.site_id = ${sites.id})`,
         })
         .from(sites)
-        .leftJoin(chargingStations, eq(chargingStations.siteId, sites.id))
         .leftJoin(chargingSessions, and(...sessionConditions))
         .where(siteConditions.length > 0 ? and(...siteConditions) : undefined)
         .groupBy(sites.id, sites.name)
@@ -914,7 +907,8 @@ export function dashboardRoutes(app: FastifyInstance): void {
       const conditions = [gte(chargingSessions.startedAt, since)];
       if (until) conditions.push(lte(chargingSessions.startedAt, until));
       if (siteIds != null) {
-        conditions.push(inArray(chargingStations.siteId, siteIds));
+        // The sessions that happened at the user's sites (site_id).
+        conditions.push(inArray(chargingSessions.siteId, siteIds));
       }
 
       const query = db
@@ -924,10 +918,6 @@ export function dashboardRoutes(app: FastifyInstance): void {
           count: count(),
         })
         .from(chargingSessions);
-
-      if (siteIds != null) {
-        query.innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id));
-      }
 
       const rows = await query.where(and(...conditions)).groupBy(sql`1`, sql`2`);
 
@@ -998,9 +988,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         })
         .from(chargingSessions);
       if (siteIds != null) {
-        costQuery
-          .innerJoin(chargingStations, eq(chargingSessions.stationId, chargingStations.id))
-          .where(inArray(chargingStations.siteId, siteIds));
+        costQuery.where(inArray(chargingSessions.siteId, siteIds));
       }
 
       // Revenue (session-revenue.ts): ended sessions and reservation fees,
@@ -1176,7 +1164,7 @@ export function dashboardRoutes(app: FastifyInstance): void {
         WITH all_ports AS (
           SELECT DISTINCT e.station_id, e.evse_id
           FROM evses e
-          INNER JOIN charging_stations cs ON cs.id = e.station_id
+          INNER JOIN charging_stations cs ON cs.id = e.station_id AND e.retired_at IS NULL
           ${siteFilter}
         ),
         pre_period_status AS (

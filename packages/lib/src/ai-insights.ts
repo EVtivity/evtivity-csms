@@ -335,13 +335,21 @@ export const aiInsightDtoSchema = z.object({
   dismissedAt: z.string().nullable(),
   /** The action the insight carries (background worker suggestions), or null. */
   action: aiProposalDtoSchema.nullable(),
+  /**
+   * The model analysis of a regeneration read the regenerating user's note on
+   * the insight it replaced (owner decision 2026-10-14).
+   */
+  feedbackUsed: z.boolean(),
 });
 export type AiInsightDto = z.infer<typeof aiInsightDtoSchema>;
 
 /**
  * Operator feedback on insights (v0.1.45): one vote per user and insight.
- * Votes and reasons never feed any prompt; the reason is untrusted text that
- * is stored only (never sent to a model, never in an API answer).
+ * The note on a wrong vote is untrusted operator text. It is shown to readers
+ * of the insight (`GET /v1/ai/insights/:id/feedback`, plain text) and reaches
+ * a model only when its own author regenerates the insight: the new analysis
+ * reads that one note, framed as untrusted and redacted (owner decision
+ * 2026-10-14). Votes and other users' notes never feed any prompt.
  */
 export const INSIGHT_FEEDBACK_REASON_MAX_LENGTH = 500;
 /** The window of the Settings quality summary (helpful rate by kind). */

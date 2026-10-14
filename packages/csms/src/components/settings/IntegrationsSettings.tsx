@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTab } from '@/hooks/use-tab';
+import { AutochargeSettings } from '@/components/settings/AutochargeSettings';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Send, ChevronDown } from 'lucide-react';
 import { SaveButton } from '@/components/save-button';
@@ -409,6 +410,7 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
         <TabsTrigger value="ocppDefaults">{t('settings.ocppDefaults')}</TabsTrigger>
         <TabsTrigger value="roaming">{t('settings.roaming')}</TabsTrigger>
         <TabsTrigger value="pnc">{t('settings.pnc')}</TabsTrigger>
+        <TabsTrigger value="autocharge">{t('settings.autocharge')}</TabsTrigger>
         <TabsTrigger value="reservation">{t('settings.reservation')}</TabsTrigger>
         <TabsTrigger value="support">{t('settings.support')}</TabsTrigger>
         <TabsTrigger value="fleet">{t('settings.fleet')}</TabsTrigger>
@@ -965,6 +967,9 @@ export function IntegrationsSettings({ settings }: IntegrationsSettingsProps): R
             </div>
           </CardContent>
         </Card>
+      </TabsContent>
+      <TabsContent value="autocharge" className="mt-4">
+        <AutochargeSettings settings={settings} />
       </TabsContent>
       <TabsContent value="guest" className="mt-4">
         <Card>

@@ -19,22 +19,14 @@ export class ManualProvider implements PkiProvider {
   // spinning up a new postgres() connection per provider instance - the
   // provider factory caches by config hash with a 60s TTL and a fresh
   // connection would leak on every cache miss.
-  async signCsr(
-    csr: string,
-    certificateType: string,
-    stationDbId: string | null,
-  ): Promise<SignCsrResult> {
-    // The station ID lets the operator's signing dispatch CertificateSigned to it.
-    await client`
-      INSERT INTO pki_csr_requests (csr, certificate_type, status, station_id)
-      VALUES (${csr}, ${certificateType}, 'pending', ${stationDbId})
-    `;
-
-    logger.info({ certificateType }, 'CSR stored for manual signing');
-
+  signCsr(): Promise<SignCsrResult> {
+    // The SignCertificate handler already recorded the CSR as pending (with
+    // its station and requestId); the operator signs or rejects it in the
+    // CSMS, which dispatches CertificateSigned.
+    logger.info('CSR left pending for manual signing');
     const error = new Error('Manual signing required: CSR stored for operator review');
     (error as Error & { code: string }).code = 'MANUAL_SIGNING_REQUIRED';
-    throw error;
+    return Promise.reject(error);
   }
 
   getContractCertificate(): Promise<ContractCertResult> {

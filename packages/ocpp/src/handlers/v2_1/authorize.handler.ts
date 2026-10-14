@@ -6,6 +6,7 @@ import type { HandlerContext } from '../../server/middleware/pipeline.js';
 import type { AuthorizeRequest } from '../../generated/v2_1/types/messages/AuthorizeRequest.js';
 import type { AuthorizeResponse } from '../../generated/v2_1/types/messages/AuthorizeResponse.js';
 import type { Logger } from '@evtivity/lib';
+import { vehicleIdFromTypedToken } from '@evtivity/lib/vehicle-id';
 import {
   applyContractCertificateVerdict,
   validateContractCertificate,
@@ -45,7 +46,9 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
     evseId: null,
     token: { value: idToken, type: tokenType },
     context: 'authorize',
-    ocppVersion: 'ocpp2.1',
+    // The 1.6 Plug and Charge DataTransfer (OCA application note) runs here too.
+    ocppVersion: ctx.protocolVersion === 'ocpp1.6' ? 'ocpp1.6' : 'ocpp2.1',
+    vehicleId: vehicleIdFromTypedToken(request.idToken),
   };
   let decision = await authorizeToken(input, ctx.logger);
 
@@ -109,10 +112,14 @@ export async function handleAuthorize(ctx: HandlerContext): Promise<Record<strin
   // Prepaid token (C17.FR.01/02): cacheExpiryDateTime = now so the station
   // does not cache it, remembered for the TransactionEventResponse. After C07:
   // a token the contract certificate check rejected is not remembered.
+  // An Autocharge vehicle is not cached either, so turning Autocharge off or
+  // an operator block applies to the next start.
   const prepaidExpiry =
     decision.prepaid && (status === 'Accepted' || status === 'NoCredit')
       ? rememberPrepaidAuthorization(ctx.stationId, idToken)
-      : undefined;
+      : decision.source === 'vehicle' && status === 'Accepted'
+        ? new Date().toISOString()
+        : undefined;
 
   // Logged after C07 so the line names the final status.
   logAuthorizeDecision(input, decision, ctx.logger);

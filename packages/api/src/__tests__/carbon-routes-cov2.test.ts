@@ -126,8 +126,8 @@ describe('carbon routes (cov2)', () => {
     expect(where).toContain("cs.status = 'completed' AND cs.co2_avoided_kg IS NOT NULL");
     expect(where).toContain('cs.ended_at >= [2026-01-01]::timestamptz');
     expect(where).toContain('cs.ended_at <= [2026-02-28T23:59:59.999Z]::timestamptz');
-    expect(where).toContain('st.site_id = [sit_a]');
-    expect(where).toContain('st.site_id IN ([sit_a], [sit_b])');
+    expect(where).toContain('cs.site_id = [sit_a]');
+    expect(where).toContain('cs.site_id IN ([sit_a], [sit_b])');
     // Both aggregations share one predicate.
     expect(whereOf(1)).toBe(where);
 
@@ -201,7 +201,7 @@ describe('carbon routes (cov2)', () => {
     const res = await get('/carbon/report/export?siteId=sit_z');
 
     expect(res.statusCode).toBe(200);
-    expect(whereOf(0)).toContain('st.site_id = [sit_z]');
+    expect(whereOf(0)).toContain('cs.site_id = [sit_z]');
     expect(whereOf(0)).not.toContain('IN (');
     const lines = res.body.split(/\r?\n/);
     // buildCsv starts with a UTF-8 BOM so Excel reads the CO₂ subscript.

@@ -710,6 +710,57 @@ describe('CommandListener', () => {
     );
   });
 
+  it('publishes pnc.CertificateSignedResult with the chain, type and station answer', async () => {
+    dispatcher.sendVersionAwareCommand.mockResolvedValueOnce({ status: 'Accepted' });
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-signed',
+        stationId: 'CS-001',
+        action: 'CertificateSigned',
+        payload: { certificateChain: 'PEM', certificateType: 'V2GCertificate', requestId: 3 },
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'pnc.CertificateSignedResult',
+        aggregateId: 'CS-001',
+        payload: {
+          certificateChain: 'PEM',
+          certificateType: 'V2GCertificate',
+          status: 'Accepted',
+        },
+      }),
+    );
+  });
+
+  it('types a 1.6 CertificateSigned result as the station certificate', async () => {
+    dispatcher.sendCommand.mockResolvedValueOnce({ status: 'Rejected' });
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-signed-16',
+        stationId: 'CS-001',
+        action: 'CertificateSigned',
+        payload: { certificateChain: 'PEM' },
+        version: 'ocpp1.6',
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'pnc.CertificateSignedResult',
+        payload: expect.objectContaining({
+          certificateType: 'ChargingStationCertificate',
+          status: 'Rejected',
+        }) as unknown,
+      }),
+    );
+  });
+
   it('publishes command.GetVariables on GetVariables success', async () => {
     await createAndStart();
     subscribeHandler!(

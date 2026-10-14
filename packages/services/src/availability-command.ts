@@ -20,15 +20,26 @@ function classifyCommandResult(result: { response?: Record<string, unknown>; err
 // per the station's live protocol (1.6 gets { connectorId: 0, type }).
 // Passing a version would skip translation and send this payload raw to 1.6
 // stations, which silently ignore it.
+// With a target, only that EVSE (or connector) changes: 2.1 `evse { id,
+// connectorId }`; a 1.6 station gets the EVSE number as its connectorId.
 export async function sendAvailabilityCommand(
   stationOcppId: string,
   operationalStatus: 'Inoperative' | 'Operative',
   logger?: ServiceLogger,
+  target?: { evseId: number; connectorId?: number },
 ): Promise<{ command: string; commandStatus: string; error: string | null }> {
   const command = `ChangeAvailability(${operationalStatus})`;
   try {
     const result = await sendOcppCommandAndWait(stationOcppId, 'ChangeAvailability', {
       operationalStatus,
+      ...(target != null
+        ? {
+            evse: {
+              id: target.evseId,
+              ...(target.connectorId != null ? { connectorId: target.connectorId } : {}),
+            },
+          }
+        : {}),
     });
     const classified = classifyCommandResult(result);
     if (classified.error != null) {

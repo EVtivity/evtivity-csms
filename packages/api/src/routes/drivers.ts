@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { eq, ne, and, or, ilike, sql, desc, asc } from 'drizzle-orm';
 import {
@@ -27,7 +27,6 @@ import {
   reservations,
   writeAudit,
   driverAuditLog,
-  vehicleAuditLog,
   pricingAssignmentAuditLog,
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
@@ -70,6 +69,12 @@ import {
   applyDriverDeactivation,
   revokeDriverEmailLinks,
 } from '../services/driver-status.service.js';
+import * as vehicleService from '../services/vehicle.service.js';
+import {
+  replyVehicleServiceError,
+  vehicleAutochargeFields,
+  vehicleLastSeen,
+} from '../lib/vehicle-response.js';
 
 // Company-wide configuration: a site-restricted user gets this 404 before any
 // read or write (requireAllSiteAccess, features/site-access-control.md).
@@ -374,12 +379,39 @@ const vehicleItem = z
       .regex(/^\d{4}$/)
       .nullable()
       .describe('Model year (4-digit)'),
-    vin: z.string().max(17).nullable().describe('Vehicle identification number (17 chars)'),
     licensePlate: z.string().max(20).nullable().describe('Vehicle license plate'),
+    ...vehicleAutochargeFields,
+    autochargeBlockedAt: z.coerce
+      .date()
+      .nullable()
+      .describe(
+        'When an operator blocked the vehicle: its ids are refused at every start and the driver cannot turn Autocharge on',
+      ),
     createdAt: z.coerce.date().describe('Timestamp when the vehicle was created'),
     updatedAt: z.coerce.date().describe('Timestamp when the vehicle was last updated'),
   })
   .passthrough();
+
+const vehicleIdFields = {
+  vin: z
+    .string()
+    .max(17)
+    .nullable()
+    .optional()
+    .describe('VIN (17 characters, no I, O or Q; stored uppercase). Null or empty removes it.'),
+  evccid: z
+    .string()
+    .max(255)
+    .nullable()
+    .optional()
+    .describe(
+      'EVCCID or MAC address of the EV charging controller (any case and separators; stored normalized). Null or empty removes it.',
+    ),
+  autochargeEnabled: z
+    .boolean()
+    .optional()
+    .describe('Autocharge (charge by plugging in); needs a VIN or an EVCCID'),
+};
 
 const createVehicleBody = z.object({
   make: z.string().min(1).max(100).describe('Vehicle make (e.g. Tesla, BMW)'),
@@ -389,8 +421,8 @@ const createVehicleBody = z.object({
     .regex(/^\d{4}$/)
     .optional()
     .describe('Model year (4-digit)'),
-  vin: z.string().max(17).optional().describe('Vehicle Identification Number'),
   licensePlate: z.string().max(20).optional().describe('License plate number'),
+  ...vehicleIdFields,
 });
 
 const updateVehicleBody = z.object({
@@ -402,13 +434,13 @@ const updateVehicleBody = z.object({
     .nullable()
     .optional()
     .describe('Model year (4-digit). Null removes it.'),
-  vin: z.string().max(17).nullable().optional().describe('VIN. Null removes it.'),
   licensePlate: z
     .string()
     .max(20)
     .nullable()
     .optional()
     .describe('License plate. Null removes it.'),
+  ...vehicleIdFields,
 });
 
 const vehicleParams = z.object({
@@ -926,9 +958,10 @@ export function driverRoutes(app: FastifyInstance): void {
         response: {
           201: itemResponse(driverTokenItem),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
-          409: errorWith('Duplicate token or inactive driver', [
+          409: errorWith('Duplicate token, inactive driver, or a Plug and Charge contract token', [
             ERROR_CODES.TOKEN_DUPLICATE,
             ERROR_CODES.DRIVER_INACTIVE,
+            ERROR_CODES.PNC_CONTRACT_TOKEN_LOCKED,
           ]),
         },
       },
@@ -945,6 +978,13 @@ export function driverRoutes(app: FastifyInstance): void {
       } catch (err) {
         if (err instanceof tokenService.TokenDriverNotFoundError) {
           await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
+          return;
+        }
+        if (err instanceof tokenService.PncContractTokenError) {
+          await reply.status(409).send({
+            error: 'This token is the eMAID of a Plug and Charge contract',
+            code: 'PNC_CONTRACT_TOKEN_LOCKED',
+          });
           return;
         }
         if (err instanceof tokenService.TokenDriverInactiveError) {
@@ -979,11 +1019,17 @@ export function driverRoutes(app: FastifyInstance): void {
     },
     async (request) => {
       const { id } = request.params as z.infer<typeof driverParams>;
-      return db
+      const rows = await db
         .select()
         .from(vehicles)
         .where(eq(vehicles.driverId, id))
         .orderBy(desc(vehicles.createdAt), desc(vehicles.id));
+      const { userId } = request.user as JwtPayload;
+      const lastSeen = await vehicleLastSeen(
+        rows.map((r) => r.id),
+        await getUserSiteIds(userId),
+      );
+      return rows.map((r) => ({ ...r, lastSeen: lastSeen.get(r.id) ?? null }));
     },
   );
 
@@ -1013,7 +1059,9 @@ export function driverRoutes(app: FastifyInstance): void {
         await reply.status(404).send({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
         return;
       }
-      return vehicle;
+      const { userId } = request.user as JwtPayload;
+      const lastSeen = await vehicleLastSeen([vehicle.id], await getUserSiteIds(userId));
+      return { ...vehicle, lastSeen: lastSeen.get(vehicle.id) ?? null };
     },
   );
 
@@ -1030,8 +1078,15 @@ export function driverRoutes(app: FastifyInstance): void {
         body: zodSchema(createVehicleBody),
         response: {
           201: itemResponse(vehicleItem),
+          400: errorWith('Validation error', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.VEHICLE_ID_REQUIRED,
+          ]),
           404: errorWith('Driver not found', [ERROR_CODES.DRIVER_NOT_FOUND]),
-          409: errorWith('Driver erased', [ERROR_CODES.DRIVER_ERASED]),
+          409: errorWith('Driver erased or vehicle id in use', [
+            ERROR_CODES.DRIVER_ERASED,
+            ERROR_CODES.VEHICLE_ID_IN_USE,
+          ]),
         },
       },
     },
@@ -1050,38 +1105,18 @@ export function driverRoutes(app: FastifyInstance): void {
         await reply.status(409).send({ error: 'The driver was erased', code: 'DRIVER_ERASED' });
         return;
       }
-      let vehicle;
       try {
-        [vehicle] = await db
-          .insert(vehicles)
-          .values({ driverId: id, ...body })
-          .returning();
-      } catch (err) {
-        // Pre-check is non-transactional, so the driver can be deleted
-        // between the check and this INSERT. Map the FK violation back
-        // to the same 404 the pre-check would have produced.
-        if (pgErrorCode(err) === PG_FOREIGN_KEY_VIOLATION) {
-          await reply.status(404).send({ error: 'Driver not found', code: 'DRIVER_NOT_FOUND' });
-          return;
-        }
-        throw err;
-      }
-      if (vehicle != null) {
-        const actor = getAuditActor(request);
-        await writeAudit(
-          { table: vehicleAuditLog, idColumn: 'vehicle_id' },
-          {
-            entityId: vehicle.id,
-            entityIdSnapshot: vehicle.id,
-            action: 'created',
-            ...actor,
-            after: vehicle,
-          },
-          db,
+        const vehicle = await vehicleService.createVehicle(
+          id,
+          body,
+          getAuditActor(request),
           request.log,
         );
+        await reply.status(201).send({ ...vehicle, lastSeen: null });
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
       }
-      await reply.status(201).send(vehicle);
     },
   );
 
@@ -1098,7 +1133,12 @@ export function driverRoutes(app: FastifyInstance): void {
         body: zodSchema(updateVehicleBody),
         response: {
           200: itemResponse(vehicleItem),
+          400: errorWith('Validation error', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.VEHICLE_ID_REQUIRED,
+          ]),
           404: errorWith('Vehicle not found', [ERROR_CODES.VEHICLE_NOT_FOUND]),
+          409: errorWith('Vehicle id in use', [ERROR_CODES.VEHICLE_ID_IN_USE]),
         },
       },
     },
@@ -1106,44 +1146,21 @@ export function driverRoutes(app: FastifyInstance): void {
       const { id, vehicleId } = request.params as z.infer<typeof vehicleParams>;
       const body = request.body as z.infer<typeof updateVehicleBody>;
 
-      const fields: Record<string, unknown> = { updatedAt: new Date() };
-      if (body.make !== undefined) fields['make'] = body.make;
-      if (body.model !== undefined) fields['model'] = body.model;
-      if (body.year !== undefined) fields['year'] = body.year;
-      if (body.vin !== undefined) fields['vin'] = body.vin;
-      if (body.licensePlate !== undefined) fields['licensePlate'] = body.licensePlate;
-
-      const [before] = await db
-        .select()
-        .from(vehicles)
-        .where(and(eq(vehicles.id, vehicleId), eq(vehicles.driverId, id)));
-      const [updated] = await db
-        .update(vehicles)
-        .set(fields)
-        .where(and(eq(vehicles.id, vehicleId), eq(vehicles.driverId, id)))
-        .returning();
-
-      if (updated == null) {
-        await reply.status(404).send({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
-        return;
+      try {
+        const updated = await vehicleService.updateVehicle(
+          id,
+          vehicleId,
+          body,
+          getAuditActor(request),
+          request.log,
+        );
+        const { userId } = request.user as JwtPayload;
+        const lastSeen = await vehicleLastSeen([updated.id], await getUserSiteIds(userId));
+        return { ...updated, lastSeen: lastSeen.get(updated.id) ?? null };
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
       }
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: vehicleAuditLog, idColumn: 'vehicle_id' },
-        {
-          entityId: updated.id,
-          entityIdSnapshot: updated.id,
-          action: 'updated',
-          ...actor,
-          before: before ?? null,
-          after: updated,
-        },
-        db,
-        request.log,
-      );
-
-      return updated;
     },
   );
 
@@ -1166,32 +1183,75 @@ export function driverRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { id, vehicleId } = request.params as z.infer<typeof vehicleParams>;
 
-      const [deleted] = await db
-        .delete(vehicles)
-        .where(and(eq(vehicles.id, vehicleId), eq(vehicles.driverId, id)))
-        .returning();
-
-      if (deleted == null) {
-        await reply.status(404).send({ error: 'Vehicle not found', code: 'VEHICLE_NOT_FOUND' });
-        return;
+      try {
+        await vehicleService.deleteVehicle(id, vehicleId, getAuditActor(request), request.log);
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
       }
-
-      const actor = getAuditActor(request);
-      await writeAudit(
-        { table: vehicleAuditLog, idColumn: 'vehicle_id' },
-        {
-          entityId: null,
-          entityIdSnapshot: deleted.id,
-          action: 'deleted',
-          ...actor,
-          before: deleted,
-        },
-        db,
-        request.log,
-      );
-
       await reply.status(204).send();
     },
+  );
+
+  // Operator block: the vehicle's ids are refused at every start, with
+  // Autocharge on or off, and the driver cannot turn Autocharge back on.
+  const setBlocked =
+    (blocked: boolean) =>
+    async (request: FastifyRequest, reply: FastifyReply): Promise<unknown> => {
+      const { id, vehicleId } = request.params as z.infer<typeof vehicleParams>;
+      try {
+        const vehicle = await vehicleService.setVehicleBlocked(
+          id,
+          vehicleId,
+          blocked,
+          getAuditActor(request),
+          request.log,
+        );
+        const { userId } = request.user as JwtPayload;
+        const lastSeen = await vehicleLastSeen([vehicle.id], await getUserSiteIds(userId));
+        return { ...vehicle, lastSeen: lastSeen.get(vehicle.id) ?? null };
+      } catch (err) {
+        if (await replyVehicleServiceError(reply, err)) return;
+        throw err;
+      }
+    };
+
+  app.post(
+    '/drivers/:id/vehicles/:vehicleId/block',
+    {
+      onRequest: [authorize('drivers:write')],
+      schema: {
+        tags: ['Drivers'],
+        summary: 'Block a vehicle: its VIN and EVCCID are refused at every start',
+        operationId: 'blockDriverVehicle',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(vehicleParams),
+        response: {
+          200: itemResponse(vehicleItem),
+          404: errorWith('Vehicle not found', [ERROR_CODES.VEHICLE_NOT_FOUND]),
+        },
+      },
+    },
+    setBlocked(true),
+  );
+
+  app.post(
+    '/drivers/:id/vehicles/:vehicleId/unblock',
+    {
+      onRequest: [authorize('drivers:write')],
+      schema: {
+        tags: ['Drivers'],
+        summary: 'Unblock a vehicle',
+        operationId: 'unblockDriverVehicle',
+        security: [{ bearerAuth: [] }],
+        params: zodSchema(vehicleParams),
+        response: {
+          200: itemResponse(vehicleItem),
+          404: errorWith('Vehicle not found', [ERROR_CODES.VEHICLE_NOT_FOUND]),
+        },
+      },
+    },
+    setBlocked(false),
   );
 
   // --- Vehicle lookup catalog (typeahead source) ---

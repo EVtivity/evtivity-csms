@@ -52,16 +52,18 @@ export function evseReservedSql(evseAlias: string): string {
   )`;
 }
 
-// A driver can act on this EVSE: its station is open and it is not reserved.
+// A driver can act on this EVSE: in service (not retired), its station is
+// open, and it is not reserved.
 export function evseOpenToDriversSql(evseAlias: string, stationAlias: string): string {
-  return `(${stationOpenToDriversSql(stationAlias)} AND NOT ${evseReservedSql(evseAlias)})`;
+  return `(${evseAlias}.retired_at IS NULL AND ${stationOpenToDriversSql(stationAlias)} AND NOT ${evseReservedSql(evseAlias)})`;
 }
 
 // The EVSE is free for a driver: open, with a connector that reports Available.
 export function evseAvailableSql(evseAlias: string, stationAlias: string): string {
   const e = evseAlias;
   return `(${evseOpenToDriversSql(e, stationAlias)} AND EXISTS (
-    SELECT 1 FROM connectors dav_c WHERE dav_c.evse_id = ${e}.id AND dav_c.status = 'available'
+    SELECT 1 FROM connectors dav_c
+    WHERE dav_c.evse_id = ${e}.id AND dav_c.status = 'available' AND dav_c.retired_at IS NULL
   ))`;
 }
 
