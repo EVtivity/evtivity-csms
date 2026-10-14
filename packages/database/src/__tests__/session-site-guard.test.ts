@@ -127,17 +127,21 @@ describe('charging_sessions inserts stamp site_id', () => {
       const text = readFileSync(join(ROOT, f), 'utf8');
       return text.search(RAW_INSERT) !== -1 || text.search(DRIZZLE_INSERT) !== -1;
     });
-    expect(withInsert).toEqual(
-      expect.arrayContaining([
-        'packages/ocpp/src/server/session-lifecycle/transaction-projector.ts',
-        'packages/api/src/routes/portal/charger.ts',
-        'packages/database/src/seed.ts',
-        'packages/database/src/seed-rebill-sessions.ts',
+    const expected = [
+      'packages/ocpp/src/server/session-lifecycle/transaction-projector.ts',
+      'packages/api/src/routes/portal/charger.ts',
+      'packages/database/src/seed.ts',
+      'packages/database/src/seed-rebill-sessions.ts',
+    ];
+    // The published repository has no integration tests; check them where they exist.
+    if (existsSync(join(PACKAGES_DIR, 'api', 'src', '__integration__'))) {
+      expected.push(
         'packages/api/src/__integration__/helpers/factories.ts',
         'packages/api/src/__integration__/31-reports.integration.test.ts',
         'packages/ocpp/src/__integration__/v21/63-transaction-lifecycle.integration.test.ts',
-      ]),
-    );
+      );
+    }
+    expect(withInsert).toEqual(expect.arrayContaining(expected));
   });
 
   it('every scanned insert sets site_id through sessionSiteIdSql', () => {
