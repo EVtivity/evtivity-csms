@@ -115,7 +115,10 @@ export function kindEnabled(kind: InsightKind, settings: AiSettings): boolean {
   // Background worker suggestions follow their job's switch (translation only:
   // they are stored open by the worker, never generated here).
   if (kind === 'stuck_session') return settings.workers.stuckSessionsEnabled;
-  if (kind === 'station_long_faulted') return settings.workers.networkSummaryEnabled;
+  if (kind === 'station_long_faulted' || kind === 'site_summary' || kind === 'company_summary') {
+    return settings.workers.networkSummaryEnabled;
+  }
+  if (kind === 'tariff_anomaly') return settings.workers.tariffAnomaliesEnabled;
   return false;
 }
 

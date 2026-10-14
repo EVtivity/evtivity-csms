@@ -26,7 +26,11 @@ export async function enqueueGuestSessionStarted(
   await guestSessionQueue.add(
     'guest-session-started',
     { event },
-    { jobId: `guest-session-started-${event.idToken.idToken}`, attempts: 3 },
+    // BullMQ refuses a job id with a colon, and Autocharge tokens are `vid:<mac>`.
+    {
+      jobId: `guest-session-started-${encodeURIComponent(event.idToken.idToken)}`,
+      attempts: 3,
+    },
   );
 }
 

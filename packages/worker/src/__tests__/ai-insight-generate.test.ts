@@ -89,7 +89,8 @@ vi.mock('@evtivity/database', () => ({
   },
 }));
 
-const { generateInsight, INSIGHT_MAX_OUTPUT_TOKENS } = await import('../ai-insights/generate.js');
+const { generateInsight, INSIGHT_MAX_OUTPUT_TOKENS, kindEnabled } =
+  await import('../ai-insights/generate.js');
 const { translateInsight } = await import('../ai-insights/translate.js');
 type Deps = import('../ai-insights/generate.js').InsightJobDeps;
 const { handleAiInsightJobFailed } = await import('../ai-insight-worker.js');
@@ -783,6 +784,25 @@ describe('reservation insights', () => {
     );
     expect(scopes).toHaveLength(2);
     for (const scope of scopes) expect(Object.keys(scope)).toEqual(['site']);
+  });
+});
+
+describe('kindEnabled for background worker insights', () => {
+  it('follows the network summary switch for site and company summaries', () => {
+    for (const kind of ['site_summary', 'company_summary', 'station_long_faulted'] as const) {
+      expect(kindEnabled(kind, settings())).toBe(false);
+      expect(kindEnabled(kind, settings({ 'aiWorkers.networkSummary.enabled': true }))).toBe(true);
+    }
+  });
+
+  it('follows the tariff anomalies switch for tariff anomalies', () => {
+    expect(kindEnabled('tariff_anomaly', settings())).toBe(false);
+    expect(
+      kindEnabled('tariff_anomaly', settings({ 'aiWorkers.tariffAnomalies.enabled': true })),
+    ).toBe(true);
+    expect(
+      kindEnabled('tariff_anomaly', settings({ 'aiWorkers.networkSummary.enabled': true })),
+    ).toBe(false);
   });
 });
 
