@@ -602,16 +602,20 @@ async function requeueStuck(
     await enqueueOrWarn(deps, { kind: 'generate', insightId: r.id }, 0, log);
   }
   // Translations whose request was lost (a failed publish or bridge enqueue).
-  const texts = await client<{ insight_id: string; language: string }[]>`
-    SELECT insight_id, language FROM ai_insight_texts
+  // The try stamp is the row's updated_at in epoch ms (floored like a JS Date),
+  // so the job id matches the one the API queued for the same try.
+  const texts = await client<{ insight_id: string; language: string; attempt: number }[]>`
+    SELECT insight_id, language,
+      floor(extract(epoch FROM updated_at) * 1000)::float8 AS attempt
+    FROM ai_insight_texts
     WHERE status = 'pending' AND source = 'translated'
-      AND created_at < now() - make_interval(mins => ${STUCK_MARGIN_MINUTES})
-    ORDER BY created_at ASC LIMIT 200
+      AND updated_at < now() - make_interval(mins => ${STUCK_MARGIN_MINUTES})
+    ORDER BY updated_at ASC LIMIT 200
   `;
   for (const t of texts) {
     await enqueueOrWarn(
       deps,
-      { kind: 'translate', insightId: t.insight_id, language: t.language },
+      { kind: 'translate', insightId: t.insight_id, language: t.language, attempt: t.attempt },
       0,
       log,
     );

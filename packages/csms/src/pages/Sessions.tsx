@@ -67,6 +67,7 @@ export function Sessions(): React.JSX.Element {
   }, [filterSiteId, filterStationId, filterStatus, filterCostMissing]);
   const filterSiteName = sites?.data.find((s) => s.id === filterSiteId)?.name;
 
+  // A link can open the list already searched (`?search=`).
   const {
     data: sessions,
     isLoading,
@@ -75,7 +76,12 @@ export function Sessions(): React.JSX.Element {
     setPage,
     search,
     setSearch,
-  } = usePaginatedQuery<Session>('sessions', '/v1/sessions', extraParams);
+  } = usePaginatedQuery<Session>(
+    'sessions',
+    '/v1/sessions',
+    extraParams,
+    searchParams.get('search') ?? '',
+  );
 
   const { visibility, setVisibility } = useColumnVisibility('sessions', SESSIONS_COLUMNS);
 

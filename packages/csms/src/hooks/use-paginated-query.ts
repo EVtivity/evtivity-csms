@@ -28,9 +28,10 @@ export function usePaginatedQuery<T>(
   queryKey: string,
   baseUrl: string,
   extraParams?: Record<string, string>,
+  initialSearch = '',
 ): UsePaginatedQueryResult<T> {
   const [page, setPage] = useState(1);
-  const [search, setSearchState] = useState('');
+  const [search, setSearchState] = useState(initialSearch);
 
   const setSearch = useCallback((value: string) => {
     setSearchState(value);

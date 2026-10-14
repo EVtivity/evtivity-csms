@@ -718,18 +718,34 @@ export async function regenerateInsight(
 // Texts (canonical summary and lazy translations, decision D2)
 // ---------------------------------------------------------------------------
 
+/** Minutes before a request tries an `unavailable` translation again. */
+export const INSIGHT_TRANSLATION_RETRY_MINUTES = 60;
+
 /**
- * Asks for the summary in `language`: inserts a `pending` text row. True when
- * this call created it (the caller then queues the translation job), false
- * when a row already exists (pending, ready or unavailable).
+ * Asks for the summary in `language`: inserts a `pending` text row, or sets an
+ * `unavailable` one older than the retry window back to `pending` (a provider
+ * error or an exhausted budget is not final). Returns the try's stamp (the
+ * row's `updated_at` in epoch ms, part of the job id) when this call started a
+ * try, so the caller queues the job; null when a row is pending, ready, or
+ * failed within the window.
  */
-export async function requestInsightTranslation(id: string, language: string): Promise<boolean> {
+export async function requestInsightTranslation(
+  id: string,
+  language: string,
+): Promise<number | null> {
   const rows = await db
     .insert(aiInsightTexts)
     .values({ insightId: id, language, summary: null, status: 'pending', source: 'translated' })
-    .onConflictDoNothing({ target: [aiInsightTexts.insightId, aiInsightTexts.language] })
-    .returning({ insightId: aiInsightTexts.insightId });
-  return rows.length > 0;
+    .onConflictDoUpdate({
+      target: [aiInsightTexts.insightId, aiInsightTexts.language],
+      set: { status: 'pending', summary: null, updatedAt: sql`now()` },
+      setWhere: sql`${aiInsightTexts.status} = 'unavailable'
+        AND ${aiInsightTexts.source} = 'translated'
+        AND ${aiInsightTexts.updatedAt} < now() - make_interval(mins => ${INSIGHT_TRANSLATION_RETRY_MINUTES})`,
+    })
+    .returning({ updatedAt: aiInsightTexts.updatedAt });
+  const at = rows[0]?.updatedAt;
+  return at == null ? null : at.getTime();
 }
 
 /**
@@ -843,7 +859,7 @@ export async function publishInsightUpdated(
 
 export type AiInsightRequest =
   | { kind: 'generate'; insightId: string }
-  | { kind: 'translate'; insightId: string; language: string };
+  | { kind: 'translate'; insightId: string; language: string; attempt: number };
 
 /** Asks the worker for a generation or a translation (fail-open: the scan re-enqueues). */
 export async function publishInsightRequest(

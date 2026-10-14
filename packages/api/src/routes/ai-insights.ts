@@ -799,18 +799,22 @@ export function aiInsightRoutes(app: FastifyInstance, options: AiInsightRouteOpt
       const row = await insightInScope(id, siteIds);
       if (row == null) return reply.status(404).send(NOT_FOUND);
       const language = await viewerLanguage(userId, requested);
-      // A model summary is translated once per language and kept (decision D2).
+      // A model summary is translated once per language and kept (decision D2);
+      // a failed translation is tried again on a view after the retry window.
       if (
         (INSIGHT_LIVE_STATUSES as readonly string[]).includes(row.status) &&
         row.generatedBy === 'model' &&
-        language !== row.primaryLanguage &&
-        (await requestInsightTranslation(row.id, language))
+        language !== row.primaryLanguage
       ) {
-        await publishInsightRequest(getPubSub(), {
-          kind: 'translate',
-          insightId: row.id,
-          language,
-        });
+        const attempt = await requestInsightTranslation(row.id, language);
+        if (attempt != null) {
+          await publishInsightRequest(getPubSub(), {
+            kind: 'translate',
+            insightId: row.id,
+            language,
+            attempt,
+          });
+        }
       }
       const [rendered] = await toView([row], language, request);
       // Counts and the viewer's vote in one aggregate query, only when asked.
