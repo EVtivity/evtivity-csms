@@ -30,6 +30,7 @@ import {
   formatConnectorType,
   qrTransactionLimits,
 } from '@/lib/charger-utils';
+import { guestStartExtras } from '@/lib/guest-start';
 import { useStationEvents } from '@/hooks/use-station-events';
 import { useCableCheck } from '@/hooks/use-cable-check';
 
@@ -59,7 +60,7 @@ interface ChargerInfo {
 }
 
 export function ChargerLanding(): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { stationId, evseId } = useParams<{ stationId: string; evseId: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -123,9 +124,10 @@ export function ChargerLanding(): React.JSX.Element {
     setFreeStartError('');
     setFreeStartLoading(true);
     try {
+      const extras = await guestStartExtras(stationId, evseId, i18n.language);
       const result = await api.post<{ sessionToken: string }>(
         `/v1/portal/guest/start/${stationId}/${evseId}`,
-        qrTransactionLimits(searchParams),
+        { ...qrTransactionLimits(searchParams), ...extras },
       );
       void navigate(`/guest-session/${result.sessionToken}`);
     } catch (err: unknown) {

@@ -2,135 +2,42 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { createRateLimitMiddleware } from '../server/middleware/rate-limit.js';
-import type { HandlerContext } from '../server/middleware/pipeline.js';
+import { consumeStationMessage } from '../server/middleware/rate-limit.js';
 
-function createMockContext(stationId: string): HandlerContext {
-  return {
-    stationId,
-    stationDbId: null,
-    session: {
-      stationId,
-      stationDbId: null,
-      connectedAt: new Date(),
-      lastHeartbeat: new Date(),
-      pendingMessages: new Map(),
-      authenticated: true,
-      ocppProtocol: 'ocpp2.1',
-      bootStatus: null,
-      readyAnnounced: false,
-    },
-    messageId: 'test-msg',
-    action: 'Heartbeat',
-    protocolVersion: 'ocpp2.1',
-    payload: {},
-    logger: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    } as unknown as HandlerContext['logger'],
-    eventBus: {
-      publish: () => Promise.resolve(),
-      subscribe: () => {},
-      drain: () => Promise.resolve(true),
-      track: <T>(work: Promise<T>) => work,
-    },
-    correlator: {} as HandlerContext['correlator'],
-    dispatcher: {} as HandlerContext['dispatcher'],
-  };
-}
-
-describe('Rate limit middleware', () => {
-  it('allows messages under the limit', async () => {
-    const middleware = createRateLimitMiddleware(10);
-    const ctx = createMockContext('RATE-001');
-    let nextCalled = false;
-
-    await middleware(ctx, () => {
-      nextCalled = true;
-      return Promise.resolve();
-    });
-    expect(nextCalled).toBe(true);
+describe('consumeStationMessage', () => {
+  it('allows messages under the limit', () => {
+    expect(consumeStationMessage('RATE-001', 10)).toEqual({ allowed: true, count: 1 });
   });
 
-  it('blocks messages over the limit', async () => {
-    const middleware = createRateLimitMiddleware(2);
-
-    for (let i = 0; i < 2; i++) {
-      const ctx = createMockContext('RATE-002');
-      await middleware(ctx, () => Promise.resolve());
-    }
-
-    const ctx = createMockContext('RATE-002');
-    await expect(middleware(ctx, () => Promise.resolve())).rejects.toThrow('Rate limit exceeded');
+  it('refuses messages over the limit', () => {
+    expect(consumeStationMessage('RATE-002', 2).allowed).toBe(true);
+    expect(consumeStationMessage('RATE-002', 2).allowed).toBe(true);
+    expect(consumeStationMessage('RATE-002', 2)).toEqual({ allowed: false, count: 3 });
   });
 
-  it('tracks rate limits per station', async () => {
-    const middleware = createRateLimitMiddleware(1);
-
-    const ctx1 = createMockContext('RATE-003');
-    let called1 = false;
-    await middleware(ctx1, () => {
-      called1 = true;
-      return Promise.resolve();
-    });
-    expect(called1).toBe(true);
-
-    const ctx2 = createMockContext('RATE-004');
-    let called2 = false;
-    await middleware(ctx2, () => {
-      called2 = true;
-      return Promise.resolve();
-    });
-    expect(called2).toBe(true);
+  it('tracks rate limits per station', () => {
+    expect(consumeStationMessage('RATE-003', 1).allowed).toBe(true);
+    expect(consumeStationMessage('RATE-004', 1).allowed).toBe(true);
+    expect(consumeStationMessage('RATE-003', 1).allowed).toBe(false);
   });
 
-  it('throws OcppError and does not call next when over the limit', async () => {
-    const middleware = createRateLimitMiddleware(1);
-    const ctx = createMockContext('RATE-OVER');
-    const warnSpy = vi.spyOn(ctx.logger, 'warn');
-
-    await middleware(ctx, () => Promise.resolve());
-
-    const next = vi.fn();
-    await expect(middleware(ctx, next)).rejects.toMatchObject({ errorCode: 'GenericError' });
-    await expect(middleware(ctx, () => Promise.resolve())).rejects.toThrow('Rate limit exceeded');
-    expect(next).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ stationId: 'RATE-OVER', count: 2 }),
-      'Rate limit exceeded',
-    );
-  });
-
-  it('resets the per-station window after WINDOW_MS elapses', async () => {
+  it('resets the per-station window after one second', () => {
     vi.useFakeTimers();
     try {
       const start = 1_000_000;
       vi.setSystemTime(start);
-      const middleware = createRateLimitMiddleware(1);
-      const ctx = createMockContext('RATE-WINDOW');
+      expect(consumeStationMessage('RATE-WINDOW', 1).allowed).toBe(true);
+      expect(consumeStationMessage('RATE-WINDOW', 1).allowed).toBe(false);
 
-      // First message in the window: allowed.
-      const first = vi.fn();
-      await middleware(ctx, first);
-      expect(first).toHaveBeenCalledTimes(1);
-
-      // Second message in the same window: blocked.
-      await expect(middleware(ctx, () => Promise.resolve())).rejects.toThrow('Rate limit exceeded');
-
-      // Advance past the 1s window so the counter resets.
       vi.setSystemTime(start + 1001);
-      const third = vi.fn();
-      await middleware(ctx, third);
-      expect(third).toHaveBeenCalledTimes(1);
+      expect(consumeStationMessage('RATE-WINDOW', 1)).toEqual({ allowed: true, count: 1 });
     } finally {
       vi.useRealTimers();
     }
   });
 });
 
-describe('Rate limit middleware stale-entry cleanup', () => {
+describe('consumeStationMessage stale-entry cleanup', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
@@ -146,15 +53,10 @@ describe('Rate limit middleware stale-entry cleanup', () => {
     // Importing under fake timers registers the module-level cleanup interval
     // against the fake clock so it can be fired deterministically.
     const mod = await import('../server/middleware/rate-limit.js');
-    const middleware = mod.createRateLimitMiddleware(50);
-    const ctx = createMockContext('STALE-001');
-
     const deleteSpy = vi.spyOn(Map.prototype, 'delete');
-    await middleware(ctx, () => Promise.resolve());
+    mod.consumeStationMessage('STALE-001', 50);
 
     // Advance past the 300s stale threshold, then fire one 60s cleanup tick.
-    // The idle station's counter (windowStart=start) is now older than the
-    // threshold, so the cleanup callback deletes it.
     vi.setSystemTime(start + 300_001);
     await vi.advanceTimersByTimeAsync(60_000);
 
@@ -168,13 +70,9 @@ describe('Rate limit middleware stale-entry cleanup', () => {
     vi.setSystemTime(start);
 
     const mod = await import('../server/middleware/rate-limit.js');
-    const middleware = mod.createRateLimitMiddleware(50);
-    const ctx = createMockContext('FRESH-001');
-    await middleware(ctx, () => Promise.resolve());
+    mod.consumeStationMessage('FRESH-001', 50);
 
     const deleteSpy = vi.spyOn(Map.prototype, 'delete');
-    // One cleanup tick at 60s: still well within the 300s threshold, so the
-    // counter is retained (the stale branch is not taken).
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(deleteSpy).not.toHaveBeenCalledWith('FRESH-001');

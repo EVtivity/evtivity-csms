@@ -228,8 +228,12 @@ export {
   circuitConductorPhases,
   computeMaxContinuousKw,
   conductorFactor,
+  isCircuitVoltageAllowed,
+  effectiveCircuitVoltageV,
+  SUB_PANEL_PHASE_CONNECTIONS,
+  isSubPanelPhaseConnectionAllowed,
 } from './load-allocation.js';
-export type { LoadAllocationStrategy } from './load-allocation.js';
+export type { LoadAllocationStrategy, SubPanelPhaseConnection } from './load-allocation.js';
 export { OCPI_PULL_MODULES, OCPI_TARIFF_SETTING_KEYS } from './ocpi-modules.js';
 export type { OcpiPullModule } from './ocpi-modules.js';
 export {

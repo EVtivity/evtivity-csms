@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { createDedupMiddleware, clearDedupCache } from '../server/middleware/dedup.js';
+import {
+  createDedupMiddleware,
+  clearDedupCache,
+  MAX_DEDUP_ENTRIES_PER_STATION,
+} from '../server/middleware/dedup.js';
 import type { HandlerContext } from '../server/middleware/pipeline.js';
 
 function createMockContext(stationId: string, messageId: string): HandlerContext {
@@ -136,6 +140,73 @@ describe('Dedup middleware', () => {
 
     expect(nextCalled).toBe(true);
     expect(ctx2.response).toEqual({ id: 'b' });
+  });
+});
+
+describe('Dedup middleware: message identity', () => {
+  beforeEach(() => {
+    clearDedupCache();
+  });
+
+  async function run(
+    middleware: ReturnType<typeof createDedupMiddleware>,
+    ctx: HandlerContext,
+    response: Record<string, unknown>,
+  ): Promise<boolean> {
+    let nextCalled = false;
+    await middleware(ctx, async () => {
+      nextCalled = true;
+      ctx.response = response;
+    });
+    return nextCalled;
+  }
+
+  it('processes a reused message id with another action as a new message', async () => {
+    const middleware = createDedupMiddleware();
+    const first = createMockContext('DEDUP-ACT', 'msg-reused');
+    await run(middleware, first, { currentTime: '2024-01-01T00:00:00Z' });
+
+    const second = createMockContext('DEDUP-ACT', 'msg-reused');
+    second.action = 'StatusNotification';
+    const called = await run(middleware, second, {});
+
+    expect(called).toBe(true);
+    expect(second.response).toEqual({});
+  });
+
+  it('processes a reused message id with another payload as a new message', async () => {
+    const middleware = createDedupMiddleware();
+    const first = createMockContext('DEDUP-PAY', 'msg-reused');
+    first.action = 'Authorize';
+    first.payload = { idToken: { idToken: 'A', type: 'ISO14443' } };
+    await run(middleware, first, { idTokenInfo: { status: 'Accepted' } });
+
+    const second = createMockContext('DEDUP-PAY', 'msg-reused');
+    second.action = 'Authorize';
+    second.payload = { idToken: { idToken: 'B', type: 'ISO14443' } };
+    const called = await run(middleware, second, { idTokenInfo: { status: 'Invalid' } });
+
+    expect(called).toBe(true);
+    expect(second.response).toEqual({ idTokenInfo: { status: 'Invalid' } });
+
+    // The newer message now answers its own retransmission.
+    const retry = createMockContext('DEDUP-PAY', 'msg-reused');
+    retry.action = 'Authorize';
+    retry.payload = { idToken: { idToken: 'B', type: 'ISO14443' } };
+    expect(await run(middleware, retry, {})).toBe(false);
+    expect(retry.response).toEqual({ idTokenInfo: { status: 'Invalid' } });
+  });
+
+  it('keeps at most MAX_DEDUP_ENTRIES_PER_STATION entries, dropping the oldest', async () => {
+    const middleware = createDedupMiddleware();
+    for (let i = 0; i <= MAX_DEDUP_ENTRIES_PER_STATION; i++) {
+      await run(middleware, createMockContext('DEDUP-CAP', `msg-${String(i)}`), { n: i });
+    }
+
+    // msg-0 was evicted, so it runs again; the newest is still cached.
+    expect(await run(middleware, createMockContext('DEDUP-CAP', 'msg-0'), { n: 0 })).toBe(true);
+    const newest = `msg-${String(MAX_DEDUP_ENTRIES_PER_STATION)}`;
+    expect(await run(middleware, createMockContext('DEDUP-CAP', newest), {})).toBe(false);
   });
 });
 

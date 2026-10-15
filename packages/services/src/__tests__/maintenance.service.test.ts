@@ -36,6 +36,8 @@ const h = vi.hoisted(() => {
     // spy-on-Map hack.
     selectResults: new Map<string, unknown[][]>(),
     executeHandler: { fn: (_sqlText: string) => [] as unknown[] },
+    executeCalls: [] as string[],
+    transactions: { count: 0 },
     insertReturning: { rows: [] as unknown[] },
     insertCalls: [] as Array<{ table: string | null; values: unknown }>,
     updateReturning: { rows: [] as unknown[] },
@@ -153,13 +155,20 @@ vi.mock('@evtivity/database', () => {
     then: (resolve: (v: unknown) => unknown) => Promise.resolve(undefined).then(resolve),
   };
 
-  const db = {
+  const db: Record<string, unknown> = {
     select: () => makeSelectChain(),
     insert: (tbl: { __table?: string } | undefined) => makeInsertChain(tbl),
     update: () => updateChain,
     execute: (arg: { __sqlText?: string } | undefined) => {
       const text = arg?.__sqlText ?? '';
+      h.executeCalls.push(text);
       return Promise.resolve(h.executeHandler.fn(text));
+    },
+    // The transaction runs its callback on the same chains; tests read the
+    // order of statements through executeCalls.
+    transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      h.transactions.count++;
+      return fn(db);
     },
   };
 
@@ -296,6 +305,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   h.selectResults.clear();
   h.executeHandler.fn = () => [];
+  h.executeCalls.length = 0;
+  h.transactions.count = 0;
   h.insertReturning.rows = [];
   h.insertCalls.length = 0;
   h.updateReturning.rows = [];
@@ -368,6 +379,33 @@ describe('createEvent', () => {
         actor: OPERATOR_ACTOR,
       }),
     ).rejects.toMatchObject({ statusCode: 409, code: 'MAINTENANCE_OVERLAPS_EXISTING' });
+    // The check ran under the per-site lock and nothing was inserted.
+    expect(h.transactions.count).toBe(1);
+    expect(h.executeCalls.some((t) => t.includes('pg_advisory_xact_lock(hashtext('))).toBe(true);
+    expect(h.insertCalls.filter((c) => c.table === 'maintenanceEvents')).toHaveLength(0);
+  });
+
+  it('takes the per-site lock before the overlap check and the insert', async () => {
+    h.insertReturning.rows = [
+      makeEventRow({
+        status: 'scheduled',
+        plannedStartAt: new Date('2099-06-10T10:00:00Z'),
+        plannedEndAt: new Date('2099-06-10T12:00:00Z'),
+      }),
+    ];
+
+    await createEvent({
+      siteId: 'sit_1',
+      eventType: 'one_off',
+      plannedStartAt: new Date('2099-06-10T10:00:00Z'),
+      plannedEndAt: new Date('2099-06-10T12:00:00Z'),
+      activeSessionPolicy: 'ignore',
+      actor: OPERATOR_ACTOR,
+    });
+
+    expect(h.transactions.count).toBe(1);
+    expect(h.executeCalls[0]).toContain('pg_advisory_xact_lock(hashtext(');
+    expect(h.insertCalls.filter((c) => c.table === 'maintenanceEvents')).toHaveLength(1);
   });
 
   it('creates a scheduled one_off event in the future without entering maintenance', async () => {
@@ -1633,6 +1671,17 @@ describe('updateEvent', () => {
         OPERATOR_ACTOR,
       ),
     ).rejects.toMatchObject({ statusCode: 409, code: 'MAINTENANCE_OVERLAPS_EXISTING' });
+    expect(h.executeCalls.some((t) => t.includes('pg_advisory_xact_lock(hashtext('))).toBe(true);
+  });
+
+  it('takes no per-site lock for an edit that keeps the window', async () => {
+    const before = makeEventRow({ status: 'scheduled' });
+    setSelect('maintenanceEvents', [before]);
+    h.updateReturning.rows = [{ ...before, reason: 'new reason' }];
+
+    await updateEvent('mne_1', { reason: 'new reason' }, OPERATOR_ACTOR);
+
+    expect(h.executeCalls.some((t) => t.includes('pg_advisory_xact_lock'))).toBe(false);
   });
 
   it('updates a scheduled event (all fields) and writes the updated audit', async () => {

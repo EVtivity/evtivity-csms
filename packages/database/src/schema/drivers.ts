@@ -113,6 +113,9 @@ export const guestSessions = pgTable(
     provider: varchar('provider', { length: 32 }),
     providerPaymentId: varchar('provider_payment_id', { length: 255 }),
     guestEmail: varchar('guest_email', { length: 255 }).notNull(),
+    // UI language of the guest at checkout (en, de, es, ko, zh, zh-TW); guest
+    // notices use it. Null: the company language.
+    language: varchar('language', { length: 10 }),
     preAuthAmountCents: integer('pre_auth_amount_cents'),
     // Transaction limit returned in the OCPP 2.1 TransactionEventResponse when
     // the transaction starts (C24.FR.02, C25.FR.24). Null means no limit.

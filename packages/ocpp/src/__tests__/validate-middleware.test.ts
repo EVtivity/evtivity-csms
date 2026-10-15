@@ -49,6 +49,17 @@ describe('validateMiddleware', () => {
     expect(next).toHaveBeenCalled();
   });
 
+  it.each(['constructor', 'toString', '__proto__', 'hasOwnProperty'])(
+    'treats the Object.prototype name %s as an action not in the registry',
+    async (action) => {
+      for (const version of ['ocpp2.1', 'ocpp1.6']) {
+        const next = vi.fn();
+        await validateMiddleware(makeCtx(action, {}, version), next);
+        expect(next).toHaveBeenCalledTimes(1);
+      }
+    },
+  );
+
   it('throws OccurrenceConstraintViolation for missing required field', async () => {
     const ctx = makeCtx('BootNotification', {});
     const next = vi.fn();

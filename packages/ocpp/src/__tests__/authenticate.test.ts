@@ -13,10 +13,14 @@ vi.mock('argon2', async (importActual) => {
   };
 });
 
-const { mockWriteAudit } = vi.hoisted(() => ({ mockWriteAudit: vi.fn() }));
+const { mockWriteAudit, mockGetRegistrationPolicy } = vi.hoisted(() => ({
+  mockWriteAudit: vi.fn(),
+  mockGetRegistrationPolicy: vi.fn(),
+}));
 vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
   writeAudit: mockWriteAudit,
+  getRegistrationPolicy: mockGetRegistrationPolicy,
 }));
 
 import { hash, verify } from 'argon2';
@@ -178,6 +182,30 @@ describe('extractStationId', () => {
   it('returns null for nested path', () => {
     expect(extractStationId('/ocpp/STATION-001')).toBeNull();
   });
+
+  it('accepts every OCPP identifierString character', () => {
+    expect(extractStationId('/CS*01=a+b|c@site.x:1_2-3')).toBe('CS*01=a+b|c@site.x:1_2-3');
+  });
+
+  it('percent-decodes the path segment', () => {
+    expect(extractStationId('/CS%7C01%40site')).toBe('CS|01@site');
+    expect(extractStationId('/CS%2D01')).toBe('CS-01');
+  });
+
+  it('rejects characters outside the identifierString set, also when encoded', () => {
+    expect(extractStationId('/CS 01')).toBeNull();
+    expect(extractStationId('/CS%2001')).toBeNull();
+    expect(extractStationId('/CS%2F01')).toBeNull();
+    expect(extractStationId('/CS#01')).toBeNull();
+  });
+
+  it('rejects a malformed percent-encoding, a query string and an empty or long id', () => {
+    expect(extractStationId('/CS%E0%A4%A')).toBeNull();
+    expect(extractStationId('/CS-01?x=1')).toBeNull();
+    expect(extractStationId('/')).toBeNull();
+    expect(extractStationId('/' + 'A'.repeat(129))).toBeNull();
+    expect(extractStationId('/' + 'A'.repeat(128))).toBe('A'.repeat(128));
+  });
 });
 
 describe('authenticateConnection', () => {
@@ -236,10 +264,48 @@ describe('authenticateConnection', () => {
         onboarding_status: 'pending',
       },
     ]);
+    mockGetRegistrationPolicy.mockResolvedValueOnce('approval-required');
     const req = createMockRequest('/PENDING-STATION');
     const result = await authenticateConnection(req, logger, sql);
     expect(result.authenticated).toBe(true);
     expect(result.stationDbId).toBe('db-id-pending');
+    expect(result.onboardingStatus).toBe('pending');
+    expect(result.awaitingApproval).toBe(true);
+  });
+
+  it('does not mark a pending station awaiting approval under open registration', async () => {
+    const sql = createMockSql([
+      {
+        id: 'db-id-pending-open',
+        security_profile: 0,
+        basic_auth_password_hash: null,
+        onboarding_status: 'pending',
+      },
+    ]);
+    mockGetRegistrationPolicy.mockResolvedValueOnce('open');
+    const result = await authenticateConnection(createMockRequest('/PENDING-OPEN'), logger, sql);
+    expect(result.authenticated).toBe(true);
+    expect(result.awaitingApproval).toBe(false);
+  });
+
+  it('never reads the registration policy for an accepted station', async () => {
+    mockGetRegistrationPolicy.mockClear();
+    const sql = createMockSql([
+      {
+        id: 'db-id-accepted',
+        security_profile: 0,
+        basic_auth_password_hash: null,
+        onboarding_status: 'accepted',
+      },
+    ]);
+    const result = await authenticateConnection(
+      createMockRequest('/ACCEPTED-STATION'),
+      logger,
+      sql,
+    );
+    expect(result.awaitingApproval).toBe(false);
+    expect(result.onboardingStatus).toBe('accepted');
+    expect(mockGetRegistrationPolicy).not.toHaveBeenCalled();
   });
 
   it('accepts SP0 station without credentials', async () => {
@@ -1297,7 +1363,7 @@ describe('authenticateConnection password cache and rehash', () => {
     // exists, and the unsaved new hash is never cached.
     const fresh = await hash(PASSWORD, { ...STATION_PASSWORD_HASH_OPTIONS });
     verifyMock.mockClear();
-    await verifier.verify('sta_cache', fresh, PASSWORD);
+    await verifier.verify('sta_cache', fresh, PASSWORD, '10.0.0.1');
     expect(verifyMock).toHaveBeenCalledTimes(1);
   });
 
@@ -1330,5 +1396,31 @@ describe('authenticateConnection password cache and rehash', () => {
     expect(queries.some((q) => q.values.includes('auth_failed'))).toBe(true);
     // The right password is refused too while no success is cached.
     expect(await attempt(PASSWORD)).toMatchObject({ failure: 'locked_out' });
+  });
+
+  it('keys the lockout on the client IP, so wrong passwords from another address never lock the station out', async () => {
+    const storedHash = await hash(PASSWORD, { ...STATION_PASSWORD_HASH_OPTIONS });
+    // No cache: the real station must pass through argon2, not a cached success.
+    const verifier = new StationPasswordVerifier({
+      cache: null,
+      backoff: new StationAuthBackoff({ limit: 2 }),
+    });
+    const { sql } = stationSql(sp1(storedHash));
+    const attempt = (password: string, clientIp: string) =>
+      authenticateConnection(
+        createMockRequest('/CS-CACHE', auth(password)),
+        createMockLogger(),
+        sql,
+        clientIp,
+        false,
+        verifier,
+      );
+
+    await attempt('wrong-password-0001', '203.0.113.9');
+    await attempt('wrong-password-0002', '203.0.113.9');
+    expect(await attempt(PASSWORD, '203.0.113.9')).toMatchObject({ failure: 'locked_out' });
+
+    // The station on its own address still connects.
+    expect(await attempt(PASSWORD, '198.51.100.20')).toMatchObject({ authenticated: true });
   });
 });

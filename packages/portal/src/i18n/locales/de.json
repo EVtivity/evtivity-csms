@@ -355,6 +355,7 @@
     "loadingPayment": "Zahlungsformular wird geladen..."
   },
   "guestSession": {
+    "faultedNotice": "Diese Sitzung wurde wegen eines Fehlers beendet und nicht abgerechnet.",
     "loadingSession": "Ladevorgang wird geladen...",
     "notFound": "Ladevorgang nicht gefunden.",
     "duration": "Dauer",
@@ -771,6 +772,7 @@
     "PROVIDER_TEST_FAILED": "Anbieter hat zurückgegeben: ...",
     "PUSH_NOT_FOUND": "Push nicht gefunden",
     "PUSH_REJECTED": "Station hat Push abgelehnt: ...",
+    "QR_SCAN_REQUIRED": "Scannen Sie den auf der Ladestation angezeigten QR-Code, um den Ladevorgang zu starten.",
     "RATE_LIMITED": "Zu viele Anfragen. Warten Sie einen Moment und versuchen Sie es erneut.",
     "RECAPTCHA_FAILED": "reCAPTCHA-Verifizierung fehlgeschlagen",
     "RECAPTCHA_REQUIRED": "reCAPTCHA-Token ist erforderlich",
@@ -890,6 +892,8 @@
     "AI_CONFIRMATION_REQUIRES_SESSION": "Bestätigen Sie diese Aktion angemeldet im Dashboard, nicht mit einem API-Schlüssel",
     "AI_MCP_RATE_LIMITED": "Zu viele MCP-Anfragen. Versuchen Sie es später erneut",
     "CHARGING_PROFILE_ID_RESERVED": "Die ID des Ladeprofils muss größer als MaxExternalConstraintsId der Ladestation sein.",
+    "CHARGING_PROFILE_LOAD_MANAGED": "Das Lastmanagement legt das Limit dieser Ladestation fest. Verwenden Sie ein ChargingStationMaxProfile mit Stack-Level 0 und einer anderen ID als der des Lastmanagement-Profils.",
+    "STATION_SECURITY_ROUTE_REQUIRED": "Sicherheitsprofile und Netzwerkprofile von Ladestationen werden mit PATCH /v1/stations/:id geaendert, nicht mit einer Konfigurationsvorlage",
     "TOKEN_BLOCKED_BY_OPERATOR": "Der Betreiber hat diese Karte deaktiviert. Wenden Sie sich an den Betreiber, um sie wieder zu aktivieren.",
     "SESSION_NO_VEHICLE_ID": "Die Ladestation hat für diesen Ladevorgang keine Fahrzeugkennung gesendet.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "Der Betreiber hat Autocharge für dieses Fahrzeug gesperrt. Wenden Sie sich an den Betreiber, um es zu entsperren.",

@@ -687,11 +687,8 @@ describe('notification-dispatch (full coverage)', () => {
 
     it('falls through to JSON fallback when DB template has null bodyHtml', async () => {
       const { renderTemplate } = await freshImport();
-      // dbTemplate is found (not null) but bodyHtml is null.
-      // The fallback condition checks `dbTemplate == null` which is false,
-      // so no English fallback is attempted. The second condition
-      // `dbTemplate != null && dbTemplate.bodyHtml != null` is also false,
-      // so it falls through to file templates or JSON dump.
+      // A 'fr' row without a body does not count; the file has none either,
+      // so English is tried next (DB, then file) before the JSON dump.
       setupSqlResults([{ subject: 'Has Subject', body_html: null }]);
       const result = await renderTemplate(
         'email',
@@ -702,8 +699,8 @@ describe('notification-dispatch (full coverage)', () => {
       );
       // Falls through to JSON dump since no file templates either
       expect(JSON.parse(result.body)).toHaveProperty('companyName', 'Co');
-      // Only 1 SQL call (no English fallback since dbTemplate was found, just with null body)
-      expect(sqlCalls.length).toBe(1);
+      // 'fr' then 'en' DB lookups.
+      expect(sqlCalls.length).toBe(2);
     });
   });
 

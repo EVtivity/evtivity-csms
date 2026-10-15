@@ -152,6 +152,36 @@ describe('station credential guard', () => {
     ).toBeNull();
   });
 
+  it('refuses a credential variable name with surrounding spaces', () => {
+    expect(
+      refusal(() =>
+        assertNoCredentialVariables([
+          { component: 'SecurityCtrlr', variable: 'BasicAuthPassword ' },
+        ]),
+      ),
+    ).toBe(`400 ${CODE}`);
+  });
+
+  it('refuses template variables that set the security or network profile (both versions)', () => {
+    const SECURITY_CODE = 'STATION_SECURITY_ROUTE_REQUIRED';
+    for (const v of [
+      { component: '', variable: 'SecurityProfile' },
+      { component: 'SecurityCtrlr', variable: 'SecurityProfile' },
+      { component: 'OCPPCommCtrlr', variable: 'NetworkConfigurationPriority' },
+      { component: 'NetworkConfiguration', variable: 'OcppCsmsUrl' },
+      { component: 'ocppcommctrlr', variable: ' NetworkConfigurationPriority' },
+    ]) {
+      expect(refusal(() => assertNoCredentialVariables([v]))).toBe(`400 ${SECURITY_CODE}`);
+    }
+    for (const v of [
+      { component: 'SecurityCtrlr', variable: 'AllowSecurityProfileDowngrade' },
+      { component: 'OCPPCommCtrlr', variable: 'HeartbeatInterval' },
+      { component: 'TxCtrlr', variable: 'SecurityProfile' },
+    ]) {
+      expect(refusal(() => assertNoCredentialVariables([v]))).toBeNull();
+    }
+  });
+
   it('the assistant and MCP never offer the generic configuration write commands', () => {
     for (const op of [
       'ocppv21_SetVariables',

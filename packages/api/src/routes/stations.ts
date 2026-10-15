@@ -35,7 +35,11 @@ import {
 } from '@evtivity/database';
 import { getAuditActor } from '../lib/audit-actor.js';
 import { auditStationChange } from '../lib/station-audit.js';
-import { assertProfileIdAllowed, maxExternalConstraintsIds } from '../lib/charging-profile-id.js';
+import {
+  assertNotLoadManaged,
+  assertProfileIdAllowed,
+  maxExternalConstraintsIds,
+} from '../lib/charging-profile-id.js';
 import { clearProfileSlotBeforePush } from '../lib/charging-profile-push.js';
 import { requestGhostSessionEnd } from '../lib/ghost-session-end.js';
 import { publishPricingChanged } from '../lib/pricing-events.js';
@@ -5394,10 +5398,14 @@ export function stationRoutes(app: FastifyInstance): void {
               })
               .passthrough(),
           ),
-          400: errorWith('Station offline or profile id reserved by the station', [
-            ERROR_CODES.STATION_OFFLINE,
-            ERROR_CODES.CHARGING_PROFILE_ID_RESERVED,
-          ]),
+          400: errorWith(
+            'Station offline, profile id reserved by the station, or the profile would override load management',
+            [
+              ERROR_CODES.STATION_OFFLINE,
+              ERROR_CODES.CHARGING_PROFILE_ID_RESERVED,
+              ERROR_CODES.CHARGING_PROFILE_LOAD_MANAGED,
+            ],
+          ),
           404: errorWith('Resource not found', [
             ERROR_CODES.STATION_NOT_FOUND,
             ERROR_CODES.TEMPLATE_NOT_FOUND,
@@ -5448,9 +5456,21 @@ export function stationRoutes(app: FastifyInstance): void {
       const version = station.ocppProtocol === 'ocpp1.6' ? '1.6' : '2.1';
 
       // K01.FR.81: the station rejects an id at or below its MaxExternalConstraintsId.
+      const maxExternalId =
+        version === '2.1' ? (await maxExternalConstraintsIds([id])).get(id) : undefined;
       if (version === '2.1') {
-        assertProfileIdAllowed(template.profileId, (await maxExternalConstraintsIds([id])).get(id));
+        assertProfileIdAllowed(template.profileId, maxExternalId);
       }
+      // A profile that would lift the load management limit of the station.
+      await assertNotLoadManaged(
+        { dbId: id },
+        {
+          profileId: template.profileId,
+          purpose: template.profilePurpose,
+          stackLevel: template.stackLevel,
+        },
+        maxExternalId,
+      );
 
       // Best-effort clear existing profile with same purpose/stackLevel/evseId.
       // OCPP 2.1 wants the criteria nested under `chargingProfileCriteria`.

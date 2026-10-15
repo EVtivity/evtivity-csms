@@ -309,13 +309,14 @@ describe('OcppServer integration', () => {
     ws.close();
   });
 
-  it('silently ignores arrays with fewer than 3 elements', async () => {
+  it('answers RpcFrameworkError to a CALL with fewer than 3 elements', async () => {
     const port = getNextPort();
     await startServer(port);
     const ws = await connectStation(port, 'TEST-SHORT');
 
+    const answer = waitForMessage(ws);
     ws.send(JSON.stringify([2, 'msg-x']));
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect((await answer).slice(0, 3)).toEqual([4, 'msg-x', 'RpcFrameworkError']);
     expect(ws.readyState).toBe(WebSocket.OPEN);
     ws.close();
   });
@@ -488,52 +489,235 @@ describe('OcppServer integration', () => {
     ws.close();
   });
 
-  it('publishes an inbound CALLRESULT message log for unmatched responses', async () => {
+  it('does not log a CALLRESULT or CALLERROR for an unknown message id, and counts it', async () => {
     const port = getNextPort();
     const srv = await startServer(port);
-    const eventBus = srv.getEventBus();
-
-    const logged = new Promise<Record<string, unknown>>((resolve) => {
-      eventBus.subscribe('ocpp.MessageLog', (event) => {
-        const p = event.payload;
-        if (p['messageType'] === 3 && p['direction'] === 'inbound') {
-          resolve(p);
-        }
-        return Promise.resolve();
-      });
+    const inbound: unknown[] = [];
+    srv.getEventBus().subscribe('ocpp.MessageLog', (event) => {
+      if (event.payload['direction'] === 'inbound') inbound.push(event.payload);
+      return Promise.resolve();
     });
 
     const ws = await connectStation(port, 'TEST-RESLOG');
     ws.send(JSON.stringify([3, 'orphan-msg', { status: 'Accepted' }]));
+    ws.send(JSON.stringify([4, 'orphan-err', 'InternalError', 'boom', { extra: true }]));
 
-    const payload = await logged;
-    expect(payload['messageId']).toBe('orphan-msg');
-    expect(payload['action']).toBeNull();
+    const deadline = Date.now() + 2000;
+    while ((srv.getInboundFrameStats()['unknown_response'] ?? 0) < 2 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(srv.getInboundFrameStats()['unknown_response']).toBe(2);
+    expect(inbound).toEqual([]);
     ws.close();
   });
 
-  it('publishes an inbound CALLERROR message log for unmatched error responses', async () => {
+  it('logs the CALLRESULT answering a pending CSMS call and resolves the call', async () => {
     const port = getNextPort();
     const srv = await startServer(port);
-    const eventBus = srv.getEventBus();
-
     const logged = new Promise<Record<string, unknown>>((resolve) => {
-      eventBus.subscribe('ocpp.MessageLog', (event) => {
+      srv.getEventBus().subscribe('ocpp.MessageLog', (event) => {
         const p = event.payload;
-        if (p['messageType'] === 4 && p['direction'] === 'inbound') {
-          resolve(p);
-        }
+        if (p['messageType'] === 3 && p['direction'] === 'inbound') resolve(p);
         return Promise.resolve();
       });
     });
 
-    const ws = await connectStation(port, 'TEST-ERRLOG');
-    ws.send(JSON.stringify([4, 'orphan-err', 'InternalError', 'boom', { extra: true }]));
+    const ws = await connectStation(port, 'TEST-RESPLOG');
+    ws.on('message', (data: Buffer) => {
+      const msg = JSON.parse(data.toString('utf-8')) as unknown[];
+      if (msg[0] === 2) ws.send(JSON.stringify([3, msg[1], { status: 'Accepted' }]));
+    });
+    await vi.waitFor(() => {
+      expect(srv.getConnectionManager().get('TEST-RESPLOG')).toBeDefined();
+    });
+    const conn = srv.getConnectionManager().get('TEST-RESPLOG');
+    const reply = await srv
+      .getCorrelator()
+      .sendCall(conn!.ws, conn!.session, 'Reset', { type: 'Immediate' });
 
+    expect(reply).toEqual({ status: 'Accepted' });
     const payload = await logged;
-    expect(payload['errorCode']).toBe('InternalError');
-    expect(payload['errorDescription']).toBe('boom');
+    expect(payload['payload']).toEqual({ status: 'Accepted' });
     ws.close();
+  });
+
+  describe('inbound frame checks', () => {
+    // JSON text of `depth` nested arrays around an empty object, built as a
+    // string so the test itself never recurses that deep.
+    function nested(depth: number): string {
+      return '['.repeat(depth) + '{}' + ']'.repeat(depth);
+    }
+
+    // The first `count` messages the station receives, in order.
+    function collectMessages(ws: WebSocket, count: number): Promise<unknown[][]> {
+      return new Promise((resolve) => {
+        const received: unknown[][] = [];
+        const onMessage = (data: Buffer): void => {
+          received.push(JSON.parse(data.toString('utf-8')) as unknown[]);
+          if (received.length === count) {
+            ws.off('message', onMessage);
+            resolve(received);
+          }
+        };
+        ws.on('message', onMessage);
+      });
+    }
+
+    // Sends a frame, then a Heartbeat, and returns the first answer: the
+    // Heartbeat's own answer shows the frame was dropped without one.
+    async function firstAnswerAfter(ws: WebSocket, frame: string): Promise<unknown[]> {
+      const answers = collectMessages(ws, 1);
+      ws.send(frame);
+      sendCall(ws, 'hb-after', 'Heartbeat', {});
+      const [first] = await answers;
+      return first ?? [];
+    }
+
+    it('refuses a deeply nested CALL with FormatViolation and stays up', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation(port, 'TEST-DEEP');
+      await bootStation(ws);
+
+      const answers = collectMessages(ws, 2);
+      ws.send(`[2,"deep-1","DataTransfer",{"vendorId":"x","data":${nested(5000)}}]`);
+      sendCall(ws, 'hb-after', 'Heartbeat', {});
+      const [first, second] = await answers;
+      expect(first?.slice(0, 3)).toEqual([4, 'deep-1', 'FormatViolation']);
+      expect(second?.slice(0, 2)).toEqual([3, 'hb-after']);
+      ws.close();
+    });
+
+    it('answers FormationViolation to a deeply nested CALL on OCPP 1.6', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation16(port, 'TEST-DEEP16');
+
+      const answer = waitForMessage(ws);
+      ws.send(`[2,"deep-16","DataTransfer",{"vendorId":"x","data":${nested(100)}}]`);
+      expect((await answer).slice(0, 3)).toEqual([4, 'deep-16', 'FormationViolation']);
+      ws.close();
+    });
+
+    it('drops a deeply nested response to an unknown id without crashing', async () => {
+      const port = getNextPort();
+      const srv = await startServer(port);
+      const ws = await connectStation(port, 'TEST-DEEPRES');
+      await bootStation(ws);
+
+      const answer = await firstAnswerAfter(ws, `[3,"x",${nested(5000)}]`);
+      expect(answer.slice(0, 2)).toEqual([3, 'hb-after']);
+      expect(srv.getInboundFrameStats()['too_deep']).toBe(1);
+      ws.close();
+    });
+
+    it('drops a CALL whose message id is longer than 36 characters', async () => {
+      const port = getNextPort();
+      const srv = await startServer(port);
+      const ws = await connectStation(port, 'TEST-LONGID');
+      await bootStation(ws);
+
+      const answer = await firstAnswerAfter(
+        ws,
+        JSON.stringify([2, 'x'.repeat(37), 'Heartbeat', {}]),
+      );
+      expect(answer.slice(0, 2)).toEqual([3, 'hb-after']);
+      expect(srv.getInboundFrameStats()['invalid_message_id']).toBe(1);
+      ws.close();
+    });
+
+    it('refuses an action longer than 100 characters with RpcFrameworkError', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation(port, 'TEST-LONGACT');
+
+      const answer = waitForMessage(ws);
+      ws.send(JSON.stringify([2, 'act-1', 'A'.repeat(101), {}]));
+      expect((await answer).slice(0, 3)).toEqual([4, 'act-1', 'RpcFrameworkError']);
+      ws.close();
+    });
+
+    it('answers ProtocolError on OCPP 1.6 for an action that is not a string', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation16(port, 'TEST-ACT16');
+
+      const answer = waitForMessage(ws);
+      ws.send(JSON.stringify([2, 'act-16', 42, {}]));
+      expect((await answer).slice(0, 3)).toEqual([4, 'act-16', 'ProtocolError']);
+      ws.close();
+    });
+
+    it('refuses a CALL without a payload element with RpcFrameworkError', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation(port, 'TEST-NOPAYLOAD');
+
+      const answer = waitForMessage(ws);
+      ws.send(JSON.stringify([2, 'short-1', 'Heartbeat']));
+      expect((await answer).slice(0, 3)).toEqual([4, 'short-1', 'RpcFrameworkError']);
+      ws.close();
+    });
+
+    it('answers MessageTypeNotSupported to an unknown message type', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation(port, 'TEST-TYPE7');
+
+      const answer = waitForMessage(ws);
+      ws.send(JSON.stringify([7, 'type-7', {}]));
+      expect((await answer).slice(0, 3)).toEqual([4, 'type-7', 'MessageTypeNotSupported']);
+      ws.close();
+    });
+
+    it('answers GenericError to an unknown message type on OCPP 1.6', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation16(port, 'TEST-TYPE7-16');
+
+      const answer = waitForMessage(ws);
+      ws.send(JSON.stringify([7, 'type-7', {}]));
+      expect((await answer).slice(0, 3)).toEqual([4, 'type-7', 'GenericError']);
+      ws.close();
+    });
+
+    it('never answers an OCPP 2.1 SEND or CALLRESULTERROR', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation(port, 'TEST-SEND');
+      await bootStation(ws);
+
+      ws.send(JSON.stringify([6, 'send-1', 'NotifyPeriodicEventStream', {}]));
+      const answer = await firstAnswerAfter(
+        ws,
+        JSON.stringify([5, 'cre-1', 'InternalError', 'x', {}]),
+      );
+      expect(answer.slice(0, 2)).toEqual([3, 'hb-after']);
+      ws.close();
+    });
+
+    it('answers OccurenceConstraintViolation (1.6 spelling) to a 1.6 payload missing a field', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation16(port, 'TEST-OCC16');
+
+      const answer = waitForMessage(ws);
+      sendCall(ws, 'boot-16', 'BootNotification', {});
+      expect((await answer).slice(0, 3)).toEqual([4, 'boot-16', 'OccurenceConstraintViolation']);
+      ws.close();
+    });
+
+    it('answers NotImplemented to an action named after an Object.prototype member', async () => {
+      const port = getNextPort();
+      await startServer(port);
+      const ws = await connectStation(port, 'TEST-PROTO');
+      await bootStation(ws);
+
+      const answer = waitForMessage(ws);
+      sendCall(ws, 'proto-1', 'constructor', {});
+      expect((await answer).slice(0, 3)).toEqual([4, 'proto-1', 'NotImplemented']);
+      ws.close();
+    });
   });
 
   it('publishes an outbound CALLRESULT message log on a successful handler', async () => {

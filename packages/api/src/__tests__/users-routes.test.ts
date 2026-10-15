@@ -734,6 +734,17 @@ describe('User routes', () => {
     expect(response.statusCode).toBe(200);
   });
 
+  it('PATCH /v1/users/:id refuses an unknown timezone with 400 VALIDATION_ERROR', async () => {
+    const response = await app.inject({
+      method: 'PATCH',
+      url: `/users/${VALID_USER_ID}`,
+      headers: { authorization: `Bearer ${token}` },
+      payload: { timezone: 'Not/A_Zone' },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+  });
+
   it('PATCH /v1/users/:id returns 404 when user not found', async () => {
     const otherId = 'usr_000000000099';
     setupDbResults([]);

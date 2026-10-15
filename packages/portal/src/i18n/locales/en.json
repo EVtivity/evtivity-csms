@@ -355,6 +355,7 @@
     "loadingPayment": "Loading payment form..."
   },
   "guestSession": {
+    "faultedNotice": "This session ended with a fault and was not billed.",
     "loadingSession": "Loading session...",
     "notFound": "Session not found.",
     "duration": "Duration",
@@ -771,6 +772,7 @@
     "PROVIDER_TEST_FAILED": "Provider returned ...",
     "PUSH_NOT_FOUND": "Push not found",
     "PUSH_REJECTED": "Station rejected push: ...",
+    "QR_SCAN_REQUIRED": "Scan the QR code shown on the charger to start charging.",
     "RATE_LIMITED": "Too many requests. Wait a moment and try again.",
     "RECAPTCHA_FAILED": "reCAPTCHA verification failed",
     "RECAPTCHA_REQUIRED": "reCAPTCHA token is required",
@@ -890,6 +892,8 @@
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirm this action while signed in to the dashboard, not with an API key",
     "AI_MCP_RATE_LIMITED": "Too many MCP requests. Try again later",
     "CHARGING_PROFILE_ID_RESERVED": "The charging profile ID must be above the station's MaxExternalConstraintsId.",
+    "CHARGING_PROFILE_LOAD_MANAGED": "Load management sets the limit of this station. Use a ChargingStationMaxProfile with stack level 0 and an ID other than the load management profile ID.",
+    "STATION_SECURITY_ROUTE_REQUIRED": "Station security profiles and network profiles are changed with PATCH /v1/stations/:id, not with a configuration template",
     "TOKEN_BLOCKED_BY_OPERATOR": "This card was deactivated by the operator. Contact the operator to reactivate it.",
     "SESSION_NO_VEHICLE_ID": "The charger sent no vehicle id for this session.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "The operator blocked Autocharge for this vehicle. Contact the operator to unblock it.",

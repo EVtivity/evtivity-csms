@@ -28,6 +28,7 @@ import {
   OCPI_START_CONTEXT_MINUTES,
   sessionSiteIdSql,
 } from '@evtivity/database';
+import { linkGuestSessionToCharging, withPaymentActor } from '@evtivity/payments';
 import type { ProjectionDeps } from '../projection-support/context.js';
 import type { ProjectionAttempt } from '../projection-retry.js';
 import { linkStartedReservation, markReservationUsed } from '../reservation-projections.js';
@@ -115,6 +116,7 @@ interface StartedContext {
   isRoamingSession: boolean;
   guestStatus: string | null;
   guestEmail: string | null;
+  guestLanguage: string | null;
   tokenLookup: {
     id: string;
     driverId: string | null;
@@ -677,6 +679,7 @@ export class TransactionProjector {
     const isRoamingSession = initialRoamRows[0]?.is_roaming === true;
     let guestStatus: string | null = null;
     let guestEmail: string | null = null;
+    let guestLanguage: string | null = null;
     let tokenLookup: {
       id: string;
       driverId: string | null;
@@ -755,10 +758,11 @@ export class TransactionProjector {
 
         // If still unresolved and idToken present, check guest sessions
         if (driverUuid == null && !isRoamingSession && idTokenValue != null) {
-          const guest = await this.linkGuestSession(sessionId, idTokenValue);
+          const guest = await this.linkGuestSession(sessionId, stationId, idTokenValue);
           if (guest != null) {
             guestStatus = guest.status;
             guestEmail = guest.email;
+            guestLanguage = guest.language;
           }
         }
       }
@@ -847,6 +851,7 @@ export class TransactionProjector {
       isRoamingSession,
       guestStatus,
       guestEmail,
+      guestLanguage,
       tokenLookup,
       sessionTariff,
       linkedReservationId,
@@ -887,27 +892,40 @@ export class TransactionProjector {
    * stops a 1.6 transaction at it. Stamped now, before the first running cost,
    * so the cost assembly never bills more than the ceiling (P4). Repeats
    * safely.
+   *
+   * The token matches only a guest checkout of this station (finding G6).
+   * The guest session is linked to the charging session and its hold
+   * recorded here, eagerly (finding G1, P4): the worker's link job is the
+   * backstop, so a lost or late job never leaves a hold the end cannot
+   * capture. The link is fail-open (P9): the worker and the finalization
+   * link again. A guest already linked to this session (an earlier attempt,
+   * or the worker) reports `payment_authorized`, so a rerun of the gate
+   * never stops it.
    */
   private async linkGuestSession(
     sessionId: string,
+    stationId: string,
     idToken: string,
-  ): Promise<{ status: string; email: string | null } | null> {
+  ): Promise<{ status: string; email: string | null; language: string | null } | null> {
     const guestRows = await this.deps.sql`
-      SELECT status, guest_email, pre_auth_amount_cents, provider_payment_id,
-             max_cost_cents
+      SELECT status, guest_email, language, pre_auth_amount_cents, provider_payment_id,
+             max_cost_cents, charging_session_id
       FROM guest_sessions
-      WHERE session_token = ${idToken}
+      WHERE session_token = ${idToken} AND station_ocpp_id = ${stationId}
       LIMIT 1
     `;
     const guest = guestRows[0];
     if (guest == null) return null;
-    const status = guest.status as string;
+    const storedStatus = guest.status as string;
+    const linkedHere =
+      storedStatus === 'charging' && (guest.charging_session_id as string | null) === sessionId;
+    const status = linkedHere ? 'payment_authorized' : storedStatus;
     const holdCents = guest.pre_auth_amount_cents as number | null;
     const maxCostCents = guest.max_cost_cents as number | null;
     if (
       holdCents != null &&
       guest.provider_payment_id != null &&
-      (status === 'payment_authorized' || status === 'charging')
+      (storedStatus === 'payment_authorized' || storedStatus === 'charging')
     ) {
       const ceilingCents = maxCostCents != null ? Math.min(holdCents, maxCostCents) : holdCents;
       await this.deps.sql`
@@ -916,14 +934,31 @@ export class TransactionProjector {
         WHERE id = ${sessionId}
       `;
     }
-    return { status, email: (guest.guest_email as string | null) ?? null };
+    if (status === 'payment_authorized') {
+      try {
+        await linkGuestSessionToCharging(
+          { token: idToken, stationOcppId: stationId, sessionId },
+          withPaymentActor(this.deps.payments, { actor: 'ocpp', actorLabel: 'guest-link' }),
+        );
+      } catch (err: unknown) {
+        this.deps.logger.warn(
+          { err, sessionId, stationId },
+          'Failed to link the guest session at the start; the worker links it',
+        );
+      }
+    }
+    return {
+      status,
+      email: (guest.guest_email as string | null) ?? null,
+      language: (guest.language as string | null | undefined) ?? null,
+    };
   }
 
   /**
    * Tells the guest session service the transaction started with this
-   * idToken, so linkGuestSession() in @evtivity/api links the guest checkout
-   * (the guest portal waits on guest_sessions.charging_session_id). Once per
-   * event; fail-open.
+   * idToken, so the worker's guest link (handleGuestSessionEvent in
+   * @evtivity/payments) links the guest checkout when the eager link above
+   * did not (free vend, a failed link). Once per event; fail-open.
    */
   private async publishGuestTransactionStarted(
     tx: TransactionEventContext,
@@ -1105,7 +1140,7 @@ export class TransactionProjector {
     let tokenLookup: StartedContext['tokenLookup'] = null;
     let driverUuid: string | null = null;
     let isRoaming = false;
-    let guest: { status: string; email: string | null } | null = null;
+    let guest: { status: string; email: string | null; language: string | null } | null = null;
     let autochargeVehicleId: string | null = null;
     const autocharge =
       pending.remoteStartDriverId == null && pending.token == null
@@ -1138,7 +1173,7 @@ export class TransactionProjector {
       `;
       await this.deps.notify.linkCpoRoamingSession(sessionId, idTokenValue, remoteStartId);
     } else if (idTokenValue != null) {
-      guest = await this.linkGuestSession(sessionId, idTokenValue);
+      guest = await this.linkGuestSession(sessionId, stationId, idTokenValue);
     }
     if (driverUuid == null && !isRoaming && idTokenValue != null) {
       await this.publishGuestTransactionStarted(tx, sessionId, idTokenValue, stage);
@@ -1229,6 +1264,7 @@ export class TransactionProjector {
           idToken: idTokenValue ?? undefined,
           guestStatus: guest?.status ?? null,
           guestEmail: guest?.email ?? null,
+          guestLanguage: guest?.language ?? null,
           prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
           reserved: pending.reserved,
           sessionTariff,
@@ -1403,6 +1439,7 @@ export class TransactionProjector {
       isRoamingSession,
       guestStatus,
       guestEmail,
+      guestLanguage,
       tokenLookup,
       sessionTariff,
       linkedReservationId,
@@ -1434,8 +1471,8 @@ export class TransactionProjector {
     // Notify guest session service for linking. Runs for both free-vend
     // and paid sessions: the guest portal polls /v1/portal/guest/status
     // and stays on "Starting charging" until guest_sessions.charging_session_id
-    // is set, which only happens when this event fires and is handled
-    // by linkGuestSession() in @evtivity/api.
+    // is set. The Started projection links a paid guest eagerly; the worker
+    // link this event triggers is the backstop (free vend, a failed link).
     const idTokenForGuest = payload.idToken as string | null;
     if (idTokenForGuest != null) {
       await this.publishGuestTransactionStarted(tx, sessionId, idTokenForGuest, 'started');
@@ -1524,6 +1561,7 @@ export class TransactionProjector {
               idToken: payload.idToken as string | undefined,
               guestStatus,
               guestEmail,
+              guestLanguage,
               prepaidBalanceCents: tokenLookup?.prepaidCreditCents ?? null,
               reserved: linkedReservationId != null,
               sessionTariff,

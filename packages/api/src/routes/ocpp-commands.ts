@@ -28,8 +28,13 @@ import { getAuditActor } from '../lib/audit-actor.js';
 import { assertFirmwareSignature } from '../lib/firmware-signature.js';
 import { assertNoStationCredentialWrite } from '../lib/station-credential-guard.js';
 import {
+  isLoadManagedStationIdentity,
   isReservedProfileId,
+  loadManagedMessage,
   maxExternalConstraintsIdByIdentity,
+  mayOverrideLoadManagement,
+  overridesLoadManagement,
+  profileIdentityFromRequest,
   reservedProfileIdMessage,
 } from '../lib/charging-profile-id.js';
 
@@ -293,18 +298,42 @@ async function dispatchCommandRaw(
     stationInternalId = station.id;
   }
 
-  // K01.FR.81: a 2.1 station rejects a profile id at or below its
-  // MaxExternalConstraintsId. 1.6 has no such variable.
-  if (action === 'SetChargingProfile' && ocppVersion !== 'ocpp1.6') {
-    const profileId = (payload['chargingProfile'] as { id?: unknown } | undefined)?.id;
-    if (typeof profileId === 'number') {
-      const maxExternalId = await maxExternalConstraintsIdByIdentity(stationId);
-      if (isReservedProfileId(profileId, maxExternalId) && maxExternalId != null) {
+  if (action === 'SetChargingProfile') {
+    // K01.FR.81: a 2.1 station rejects a profile id at or below its
+    // MaxExternalConstraintsId. 1.6 has no such variable.
+    let maxExternalId: number | null = null;
+    if (ocppVersion !== 'ocpp1.6') {
+      const profileId = (payload['chargingProfile'] as { id?: unknown } | undefined)?.id;
+      if (typeof profileId === 'number') {
+        maxExternalId = await maxExternalConstraintsIdByIdentity(stationId);
+        if (isReservedProfileId(profileId, maxExternalId) && maxExternalId != null) {
+          return {
+            code: 400,
+            body: {
+              error: reservedProfileIdMessage(profileId, maxExternalId),
+              code: 'CHARGING_PROFILE_ID_RESERVED',
+              action,
+            },
+          };
+        }
+      }
+    }
+    // A profile that would lift the load management limit of the station
+    // (2.1 chargingProfile or 1.6 csChargingProfiles).
+    const profile = profileIdentityFromRequest(payload);
+    if (mayOverrideLoadManagement(profile)) {
+      if (ocppVersion !== 'ocpp1.6' && maxExternalId == null) {
+        maxExternalId = await maxExternalConstraintsIdByIdentity(stationId);
+      }
+      if (
+        overridesLoadManagement(profile, maxExternalId) &&
+        (await isLoadManagedStationIdentity(stationId))
+      ) {
         return {
           code: 400,
           body: {
-            error: reservedProfileIdMessage(profileId, maxExternalId),
-            code: 'CHARGING_PROFILE_ID_RESERVED',
+            error: loadManagedMessage(profile),
+            code: 'CHARGING_PROFILE_LOAD_MANAGED',
             action,
           },
         };
@@ -1179,7 +1208,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp2.1',
     'Set a charging profile',
     setChargingProfileV21Body,
-    'Installs a charging profile (e.g., ChargingStationMaxProfile, TxDefaultProfile, TxProfile) on the station to limit power per the schedule. Profiles stack by purpose and stackLevel; the station enforces the most restrictive limit. The station answer comes back with HTTP 200 in `response`, also when it is Rejected (e.g., invalid schedule). 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time.',
+    'Installs a charging profile (e.g., ChargingStationMaxProfile, TxDefaultProfile, TxProfile) on the station to limit power per the schedule. Profiles stack by purpose and stackLevel; the station enforces the most restrictive limit. On a station load management manages, a ChargingStationMaxProfile at stack level 1 or above, or a profile with the load management profile id, is refused with 400 CHARGING_PROFILE_LOAD_MANAGED. The station answer comes back with HTTP 200 in `response`, also when it is Rejected (e.g., invalid schedule). 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time.',
   );
 
   commandRoute(
@@ -1835,7 +1864,7 @@ export function ocppCommandRoutes(app: FastifyInstance): void {
     'ocpp1.6',
     'Set a charging profile',
     setChargingProfileV16Body,
-    'Installs a charging profile (ChargePointMaxProfile, TxDefaultProfile, or TxProfile) on the OCPP 1.6 station to limit power per the schedule. Profiles stack by purpose and stackLevel. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time.',
+    'Installs a charging profile (ChargePointMaxProfile, TxDefaultProfile, or TxProfile) on the OCPP 1.6 station to limit power per the schedule. Profiles stack by purpose and stackLevel. On a station load management manages, a ChargePointMaxProfile at stack level 1 or above, or a profile with the load management profile id, is refused with 400 CHARGING_PROFILE_LOAD_MANAGED. The station answer comes back with HTTP 200 in `response`, also when it is Rejected. 502 COMMAND_ERROR means the station answered with an OCPP error or the command could not be delivered; 504 COMMAND_TIMEOUT means no answer in time.',
   );
 
   commandRoute(

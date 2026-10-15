@@ -48,9 +48,10 @@ export const DRIVER_ACCOUNT_EVENTS = [
   'driver.RegistrationAttempt',
 ] as const;
 
-/** Driver events sent by email only. The verification link proves the email address, so it never goes to an unverified phone. */
+/** Driver events sent by email only. Their links act on the email address (verification, password reset), so they never go to an unverified phone. */
 export const EMAIL_ONLY_DRIVER_EVENTS: readonly string[] = [
   'driver.AccountVerification',
+  'driver.ForgotPassword',
   'driver.RegistrationAttempt',
 ];
 

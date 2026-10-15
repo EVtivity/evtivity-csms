@@ -96,6 +96,7 @@ import {
   roleDefaultPermissions,
 } from '../lib/user-management-scope.js';
 import { permissionCatalog, AI_EFFORTS, AI_PROVIDER_IDS, isAiEffort } from '@evtivity/lib';
+import { isValidTimezone } from '@evtivity/lib/timezone';
 import { validatePasswordComplexity } from '../lib/password-validation.js';
 import { PASSWORD_MIN_LENGTH } from '@evtivity/lib/password-policy';
 import { config as apiConfig } from '../lib/config.js';
@@ -184,7 +185,13 @@ const updateUserBody = z.object({
   roleId: ID_PARAMS.roleId.optional().describe('Role ID to assign to the user'),
   isActive: z.boolean().optional().describe('Whether the user account is active'),
   language: userLanguageEnum.optional(),
-  timezone: z.string().max(50).optional().describe('IANA timezone (e.g. America/New_York)'),
+  timezone: z
+    .string()
+    .max(50)
+    .optional()
+    .describe(
+      'IANA timezone (e.g. America/New_York). An unknown zone returns 400 VALIDATION_ERROR.',
+    ),
   themePreference: z.enum(['light', 'dark']).optional(),
   hasAllSiteAccess: z.boolean().optional().describe('Whether the user can access all sites'),
   siteIds: z
@@ -205,7 +212,13 @@ const updateMeBody = z.object({
   lastName: z.string().max(100).optional(),
   phone: z.string().max(50).nullable().optional().describe('Mobile phone number'),
   language: userLanguageEnum.optional(),
-  timezone: z.string().max(50).optional().describe('IANA timezone (e.g. America/New_York)'),
+  timezone: z
+    .string()
+    .max(50)
+    .optional()
+    .describe(
+      'IANA timezone (e.g. America/New_York). An unknown zone returns 400 VALIDATION_ERROR.',
+    ),
   themePreference: z.enum(['light', 'dark']).optional(),
 });
 
@@ -1170,9 +1183,10 @@ export function userRoutes(app: FastifyInstance): void {
         body: zodSchema(updateMeBody),
         response: {
           200: itemResponse(userWithRole),
-          400: errorWith('The phone of an SMS second factor cannot be removed', [
-            ERROR_CODES.VALIDATION_ERROR,
-          ]),
+          400: errorWith(
+            'Invalid timezone, or the phone of an SMS second factor cannot be removed',
+            [ERROR_CODES.VALIDATION_ERROR],
+          ),
           403: errorWith('API keys cannot change the profile', [ERROR_CODES.SESSION_REQUIRED]),
           404: errorWith('User not found', [ERROR_CODES.USER_NOT_FOUND]),
         },
@@ -1181,6 +1195,12 @@ export function userRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       const { userId } = request.user as JwtPayload;
       const body = request.body as z.infer<typeof updateMeBody>;
+
+      // An unknown zone would make every date in the user's notices throw.
+      if (body.timezone !== undefined && !isValidTimezone(body.timezone)) {
+        await reply.status(400).send({ error: 'Invalid IANA timezone', code: 'VALIDATION_ERROR' });
+        return;
+      }
 
       if (body.phone !== undefined && (await smsMfaNeedsPhone(userId, body.phone))) {
         await reply.status(400).send(SMS_MFA_PHONE_REQUIRED);
@@ -1603,6 +1623,12 @@ export function userRoutes(app: FastifyInstance): void {
       const { id } = request.params as z.infer<typeof userParams>;
       // Parsed here so the email transform (trim, lowercase) runs.
       const body = parseZodRequest(updateUserBody, request.body);
+
+      // An unknown zone would make every date in the user's notices throw.
+      if (body.timezone !== undefined && !isValidTimezone(body.timezone)) {
+        await reply.status(400).send({ error: 'Invalid IANA timezone', code: 'VALIDATION_ERROR' });
+        return;
+      }
 
       // Block self-edit of sensitive fields (role, status, site access)
       // Users can edit their own name, language, timezone, theme via Profile

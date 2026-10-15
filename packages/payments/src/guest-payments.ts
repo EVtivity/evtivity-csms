@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 import { createHash } from 'node:crypto';
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, lte, sql, type SQL } from 'drizzle-orm';
 import {
   chargingSessions,
   chargingStations,
@@ -69,6 +69,8 @@ export interface GuestHoldInput {
    */
   browser?: BrowserContext;
   guestEmail: string;
+  /** UI language of the guest for its notices; null for the company language. */
+  language?: string | null;
   maxCostCents: number | null;
   maxEnergyWh: number | null;
   maxTimeSeconds: number | null;
@@ -203,6 +205,7 @@ export async function authorizeGuestHold(
       provider: provider.id,
       providerPaymentId: paymentId,
       guestEmail: input.guestEmail,
+      language: input.language ?? null,
       preAuthAmountCents: terms.preAuthAmountCents,
       status: hold.status === 'authorized' ? 'payment_authorized' : 'pending_payment',
       // An authorized hold is started by the calling route right away; a
@@ -504,79 +507,292 @@ export interface GuestEventDeps extends PaymentContext {
 /**
  * The guest session events the worker receives from `csms_events`
  * (guest-session-events queue): TransactionStarted links the guest session
- * to its charging session (matched by the token only: OCPP 1.6 sends no token
- * type) and records its hold; TransactionEnded captures or cancels it.
+ * to its charging session (matched by the token and the station: OCPP 1.6
+ * sends no token type) and records its hold; TransactionEnded captures or
+ * cancels it. The OCPP Started projection already links eagerly
+ * (`linkGuestSessionToCharging`), so the worker link is the backstop and
+ * repeats safely.
  */
 export async function handleGuestSessionEvent(
   event: GuestSessionEvent,
   deps: GuestEventDeps,
 ): Promise<void> {
-  if (event.type === 'TransactionStarted' && event.idToken?.idToken != null) {
-    await linkGuestSession(event.idToken.idToken, event.sessionId ?? null, deps);
+  if (
+    event.type === 'TransactionStarted' &&
+    event.idToken?.idToken != null &&
+    event.sessionId != null
+  ) {
+    const [station] = await db
+      .select({ stationOcppId: chargingStations.stationId })
+      .from(chargingSessions)
+      .innerJoin(chargingStations, eq(chargingStations.id, chargingSessions.stationId))
+      .where(eq(chargingSessions.id, event.sessionId));
+    if (station != null) {
+      await linkGuestSessionToCharging(
+        {
+          token: event.idToken.idToken,
+          stationOcppId: station.stationOcppId,
+          sessionId: event.sessionId,
+        },
+        deps,
+      );
+    }
   }
   if (event.type === 'TransactionEnded' && event.sessionId != null) {
     await finalizeGuestPayment(event.sessionId, deps);
   }
 }
 
-async function linkGuestSession(
-  token: string,
-  sessionId: string | null,
-  deps: GuestEventDeps,
-): Promise<void> {
+export interface GuestLinkInput {
+  /** The idToken the transaction carries: the guest session token. */
+  token: string;
+  /** The station's OCPP id: a token only matches the guest checkout of its own station. */
+  stationOcppId: string;
+  sessionId: string;
+}
+
+export interface GuestLinkResult {
+  guestSessionId: number;
+  /** The session's payment record, or null (free guest, terminal payment, hold without a provider). */
+  paymentRecordId: number | null;
+}
+
+/**
+ * Links the guest checkout of a started transaction to its charging session
+ * and records its hold as the session's `pre_authorized` payment record, so
+ * the end always finds a hold to capture or cancel (finding G1). The guarded
+ * UPDATE moves only a `payment_authorized` row without a charging session,
+ * or repeats on the row already linked to this session, so the OCPP Started
+ * projection (eager, P4) and the worker (backstop) can both run it, in any
+ * order and more than once (P7): the record insert is `ON CONFLICT DO
+ * NOTHING`. Null when no guest checkout of this station carries the token.
+ */
+export async function linkGuestSessionToCharging(
+  input: GuestLinkInput,
+  ctx: PaymentContext,
+): Promise<GuestLinkResult | null> {
   const [guest] = await db
-    .select()
-    .from(guestSessions)
-    .where(
-      and(eq(guestSessions.sessionToken, token), eq(guestSessions.status, 'payment_authorized')),
-    );
-  if (guest == null || sessionId == null) return;
-
-  await db
     .update(guestSessions)
-    .set({ chargingSessionId: sessionId, status: 'charging', updatedAt: new Date() })
-    .where(eq(guestSessions.id, guest.id));
+    .set({ chargingSessionId: input.sessionId, status: 'charging', updatedAt: new Date() })
+    .where(
+      and(
+        eq(guestSessions.sessionToken, input.token),
+        eq(guestSessions.stationOcppId, input.stationOcppId),
+        sql`${guestSessions.status} IN ('payment_authorized', 'charging')`,
+        sql`(${guestSessions.chargingSessionId} IS NULL OR ${guestSessions.chargingSessionId} = ${input.sessionId})`,
+      ),
+    )
+    .returning({
+      id: guestSessions.id,
+      stationOcppId: guestSessions.stationOcppId,
+      provider: guestSessions.provider,
+      providerPaymentId: guestSessions.providerPaymentId,
+      preAuthAmountCents: guestSessions.preAuthAmountCents,
+    });
+  if (guest == null) return null;
+  const paymentRecordId = await recordHoldOfGuest(guest, input.sessionId, ctx);
+  ctx.logger.info(
+    { guestSessionId: guest.id, chargingSessionId: input.sessionId },
+    'Linked guest session to charging session',
+  );
+  return { guestSessionId: guest.id, paymentRecordId };
+}
 
-  if (guest.providerPaymentId != null && guest.provider == null) {
-    deps.logger.error(
+interface GuestHoldRow {
+  id: number;
+  stationOcppId: string;
+  provider: string | null;
+  providerPaymentId: string | null;
+  preAuthAmountCents: number | null;
+}
+
+/**
+ * Writes the guest hold's `pre_authorized` payment record for the session
+ * (`ON CONFLICT DO NOTHING`, so a repeat is a no-op). Returns the session's
+ * record id, or null for a guest without a hold or with a hold of no known
+ * provider (logged at error).
+ */
+async function recordHoldOfGuest(
+  guest: GuestHoldRow,
+  sessionId: string,
+  ctx: PaymentContext,
+): Promise<number | null> {
+  if (guest.providerPaymentId == null) return null;
+  if (guest.provider == null) {
+    ctx.logger.error(
       { guestSessionId: guest.id, paymentId: guest.providerPaymentId },
       'Guest hold has no provider; its payment record was not written',
     );
-  } else if (guest.providerPaymentId != null && guest.provider != null) {
-    const [station] = await db
-      .select({ siteId: chargingStations.siteId })
-      .from(chargingStations)
-      .where(eq(chargingStations.stationId, guest.stationOcppId));
-    const [terms, [session]] = await Promise.all([
-      holdTerms(deps, station?.siteId ?? null),
-      db
-        .select({ currency: sql<string>`upper(${chargingSessions.currency})` })
-        .from(chargingSessions)
-        .where(eq(chargingSessions.id, sessionId)),
-    ]);
-    await recordGuestHold(
-      {
-        sessionId,
-        sitePaymentConfigId: terms.sitePaymentConfigId,
-        provider: guest.provider,
-        paymentId: guest.providerPaymentId,
-        currency: session?.currency ?? (await getCompanyCurrency()),
-        preAuthAmountCents: guest.preAuthAmountCents,
-      },
-      deps,
-    );
+    return null;
   }
-  deps.logger.info(
-    { guestSessionId: guest.id, chargingSessionId: sessionId },
-    'Linked guest session to charging session',
+  const [station] = await db
+    .select({ siteId: chargingStations.siteId })
+    .from(chargingStations)
+    .where(eq(chargingStations.stationId, guest.stationOcppId));
+  const [terms, [session]] = await Promise.all([
+    holdTerms(ctx, station?.siteId ?? null),
+    db
+      .select({ currency: sql<string>`upper(${chargingSessions.currency})` })
+      .from(chargingSessions)
+      .where(eq(chargingSessions.id, sessionId)),
+  ]);
+  const inserted = await recordGuestHold(
+    {
+      sessionId,
+      sitePaymentConfigId: terms.sitePaymentConfigId,
+      provider: guest.provider,
+      paymentId: guest.providerPaymentId,
+      currency: session?.currency ?? (await getCompanyCurrency()),
+      preAuthAmountCents: guest.preAuthAmountCents,
+    },
+    ctx,
+  );
+  if (inserted != null) return inserted;
+  return (await findSessionRecord(sessionId))?.id ?? null;
+}
+
+/**
+ * Links the guest checkout whose token an event of this session carries
+ * (any event: the token can first come after the start) when no link was
+ * made yet. The backstop of a finalization that runs before any link
+ * (finding G1). Null when no such guest checkout exists.
+ */
+async function linkGuestOfSession(
+  sessionId: string,
+  ctx: PaymentContext,
+): Promise<GuestLinkResult | null> {
+  const rows = await db.execute<{ session_token: string; station_ocpp_id: string }>(sql`
+    SELECT gs.session_token, gs.station_ocpp_id
+    FROM charging_sessions cs
+    JOIN charging_stations st ON st.id = cs.station_id
+    JOIN guest_sessions gs ON gs.station_ocpp_id = st.station_id
+    WHERE cs.id = ${sessionId}
+      AND gs.charging_session_id IS NULL
+      AND gs.status IN ('payment_authorized', 'charging')
+      AND EXISTS (
+        SELECT 1 FROM transaction_events te
+        WHERE te.session_id = cs.id AND te.payload->>'idToken' = gs.session_token
+      )
+    LIMIT 1
+  `);
+  const row = rows[0];
+  if (row == null) return null;
+  ctx.logger.warn(
+    { chargingSessionId: sessionId },
+    'Guest session was not linked before its transaction ended; linking it now',
+  );
+  return linkGuestSessionToCharging(
+    { token: row.session_token, stationOcppId: row.station_ocpp_id, sessionId },
+    ctx,
   );
 }
 
+/**
+ * Not (a transaction at the guest checkout's station carries its token,
+ * since shortly before the checkout was created). A raw SQL condition on the
+ * `guest_sessions` row of the enclosing statement (named by its table, so it
+ * never binds to the subquery's own `created_at`): a cleanup claim refuses a
+ * guest whose start was reported but not linked (a lost bridge publish,
+ * finding G2).
+ */
+export const guestTransactionNotStarted = (): SQL => sql`NOT EXISTS (
+  SELECT 1 FROM charging_sessions cs
+  JOIN charging_stations st ON st.id = cs.station_id
+  JOIN transaction_events te ON te.session_id = cs.id
+  WHERE st.station_id = guest_sessions.station_ocpp_id
+    AND cs.created_at >= guest_sessions.created_at - interval '5 minutes'
+    AND te.payload->>'idToken' = guest_sessions.session_token
+)`;
+
+/**
+ * Links the guest checkout to the charging session of a transaction that
+ * carries its token (finding G2): a cleanup that finds the start reported
+ * links the guest instead of releasing a hold that pays for a running
+ * session. Null when no transaction carries the token.
+ */
+export async function linkStartedGuestSession(
+  guestSessionId: number,
+  ctx: PaymentContext,
+): Promise<GuestLinkResult | null> {
+  const rows = await db.execute<{
+    session_id: string;
+    session_token: string;
+    station_ocpp_id: string;
+  }>(sql`
+    SELECT cs.id AS session_id, guest_sessions.session_token, guest_sessions.station_ocpp_id
+    FROM guest_sessions
+    JOIN charging_stations st ON st.station_id = guest_sessions.station_ocpp_id
+    JOIN charging_sessions cs ON cs.station_id = st.id
+      AND cs.created_at >= guest_sessions.created_at - interval '5 minutes'
+    JOIN transaction_events te ON te.session_id = cs.id
+      AND te.payload->>'idToken' = guest_sessions.session_token
+    WHERE guest_sessions.id = ${guestSessionId}
+    ORDER BY te.id
+    LIMIT 1
+  `);
+  const row = rows[0];
+  if (row == null) return null;
+  ctx.logger.warn(
+    { guestSessionId, chargingSessionId: row.session_id },
+    'Guest transaction started but was not linked; linking it instead of releasing the hold',
+  );
+  return linkGuestSessionToCharging(
+    { token: row.session_token, stationOcppId: row.station_ocpp_id, sessionId: row.session_id },
+    ctx,
+  );
+}
+
+/**
+ * A guest session whose charging session the CSMS faulted unbilled (stale
+ * session cleanup, a session end that failed) becomes `failed` (finding G5),
+ * so the guest page stops showing it as charging. Only from
+ * `payment_authorized` or `charging` (P5: a completed, failed or expired
+ * guest session keeps its state). The caller cancels the hold. Fail-open
+ * (P9): the session is already faulted, so a failure is logged at warn.
+ */
+export async function failGuestSessionOfFaultedSession(
+  sessionId: string,
+  ctx: PaymentContext,
+): Promise<boolean> {
+  try {
+    const failed = await db
+      .update(guestSessions)
+      .set({ status: 'failed', updatedAt: new Date() })
+      .where(
+        and(
+          eq(guestSessions.chargingSessionId, sessionId),
+          sql`${guestSessions.status} IN ('payment_authorized', 'charging')`,
+        ),
+      )
+      .returning({ id: guestSessions.id });
+    const guest = failed[0];
+    if (guest == null) return false;
+    ctx.logger.info(
+      { chargingSessionId: sessionId, guestSessionId: guest.id },
+      'Guest session failed with its faulted charging session',
+    );
+    return true;
+  } catch (err) {
+    ctx.logger.warn(
+      { err, chargingSessionId: sessionId },
+      'Failed to fail the guest session of a faulted charging session',
+    );
+    return false;
+  }
+}
+
+// Sticky terminal states (P5): a guest session already failed (CSMS fault,
+// declined capture) or expired is never turned back into completed.
 async function completeGuestSession(guestSessionId: number): Promise<void> {
   await db
     .update(guestSessions)
     .set({ status: 'completed', updatedAt: new Date() })
-    .where(eq(guestSessions.id, guestSessionId));
+    .where(
+      and(
+        eq(guestSessions.id, guestSessionId),
+        sql`${guestSessions.status} NOT IN ('failed', 'expired')`,
+      ),
+    );
 }
 
 /**
@@ -604,18 +820,37 @@ async function completeGuestSession(guestSessionId: number): Promise<void> {
  * receipt) when an earlier run recorded the payment but stopped before that.
  */
 async function finalizeGuestPayment(sessionId: string, deps: GuestEventDeps): Promise<void> {
-  const [guest] = await db
-    .select({
-      id: guestSessions.id,
-      guestEmail: guestSessions.guestEmail,
-      stationOcppId: guestSessions.stationOcppId,
-      status: guestSessions.status,
-    })
-    .from(guestSessions)
-    .where(eq(guestSessions.chargingSessionId, sessionId));
-  if (guest == null) return;
+  const findGuest = () =>
+    db
+      .select({
+        id: guestSessions.id,
+        guestEmail: guestSessions.guestEmail,
+        language: guestSessions.language,
+        stationOcppId: guestSessions.stationOcppId,
+        status: guestSessions.status,
+        provider: guestSessions.provider,
+        providerPaymentId: guestSessions.providerPaymentId,
+        preAuthAmountCents: guestSessions.preAuthAmountCents,
+      })
+      .from(guestSessions)
+      .where(eq(guestSessions.chargingSessionId, sessionId));
+  let [guest] = await findGuest();
+  if (guest == null) {
+    // The end ran before any link (the link job runs later or failed, finding
+    // G1): link the guest whose token the transaction carries first, so its
+    // hold is captured or released instead of left open.
+    if ((await linkGuestOfSession(sessionId, deps)) == null) return;
+    [guest] = await findGuest();
+    if (guest == null) return;
+  }
 
-  const record = await findSessionRecord(sessionId);
+  let record = await findSessionRecord(sessionId);
+  if (record == null && guest.providerPaymentId != null) {
+    // A link that stopped between the guest session update and the record
+    // insert: write the hold's record now, never treat a held guest as free.
+    await recordHoldOfGuest(guest, sessionId, deps);
+    record = await findSessionRecord(sessionId);
+  }
   if (record?.status === 'failed') {
     // Only a decline or the exhausted hook fails the record, and both fail the
     // guest session and release the hold. A retry that finds it failed (the
@@ -806,6 +1041,7 @@ export async function sendGuestReceiptForSession(
     .select({
       id: guestSessions.id,
       guestEmail: guestSessions.guestEmail,
+      language: guestSessions.language,
       stationOcppId: guestSessions.stationOcppId,
     })
     .from(guestSessions)
@@ -821,7 +1057,7 @@ export async function sendGuestReceiptForSession(
  * adjustment, so a finalization rerun and the confirming webhook send it once.
  */
 async function sendGuestReceipt(
-  guest: { id: number; guestEmail: string; stationOcppId: string },
+  guest: { id: number; guestEmail: string; language: string | null; stationOcppId: string },
   sessionId: string,
   deps: Pick<GuestEventDeps, 'templatesDirs' | 'logger'>,
 ): Promise<void> {
@@ -870,7 +1106,8 @@ async function sendGuestReceipt(
     await dispatchSystemNotification(
       client,
       'session.Receipt',
-      { email: guest.guestEmail },
+      // The guest's checkout language; null leaves the company language.
+      { email: guest.guestEmail, ...(guest.language != null ? { language: guest.language } : {}) },
       sessionReceiptVariables({
         siteName: null,
         stationId: guest.stationOcppId,
@@ -956,14 +1193,17 @@ async function failGuestSessionAndReleaseHold(
 }
 
 /**
- * Guest checkouts that never started charging before their token expired:
- * the hold is cancelled (best effort; it expires by itself) and the guest
- * session marked expired, in independent steps so a cancel failure never
- * leaves the row open.
+ * Guest checkouts that never started charging before their token expired.
+ * Each row is claimed first (P5): `expired` only while still
+ * `pending_payment` or `payment_authorized`, without a charging session and
+ * without a transaction that carries its token. Only a claimed row's hold is
+ * cancelled (best effort; it expires by itself). A row whose transaction
+ * started but was never linked (a lost bridge publish, finding G2) is linked
+ * instead, so its hold is captured at the end. Returns the number expired.
  */
 export async function expireGuestSessions(ctx: PaymentContext): Promise<number> {
-  const expired = await db
-    .select()
+  const candidates = await db
+    .select({ id: guestSessions.id })
     .from(guestSessions)
     .where(
       and(
@@ -971,30 +1211,67 @@ export async function expireGuestSessions(ctx: PaymentContext): Promise<number> 
         lte(guestSessions.expiresAt, new Date()),
       ),
     );
-  for (const gs of expired) {
-    if (gs.providerPaymentId != null) {
-      try {
-        const provider = await pinnedProvider(ctx.registry, gs.provider);
-        await provider.cancelHold({
-          paymentId: gs.providerPaymentId,
-          merchantReference: `${GUEST_REFERENCE_PREFIX}${gs.sessionToken}`,
-          idempotencyKey: cancelKey(gs.providerPaymentId),
-        });
-      } catch (err) {
-        ctx.logger.warn(
-          { guestSessionId: gs.id, err },
-          'Failed to cancel the guest hold on expiry; it expires by itself',
-        );
-      }
-    }
+  let expiredCount = 0;
+  for (const candidate of candidates) {
+    let claimed:
+      | {
+          id: number;
+          provider: string | null;
+          providerPaymentId: string | null;
+          sessionToken: string;
+        }
+      | undefined;
     try {
-      await db
+      [claimed] = await db
         .update(guestSessions)
         .set({ status: 'expired', updatedAt: new Date() })
-        .where(eq(guestSessions.id, gs.id));
+        .where(
+          and(
+            eq(guestSessions.id, candidate.id),
+            sql`${guestSessions.status} IN ('pending_payment', 'payment_authorized')`,
+            sql`${guestSessions.chargingSessionId} IS NULL`,
+            guestTransactionNotStarted(),
+          ),
+        )
+        .returning({
+          id: guestSessions.id,
+          provider: guestSessions.provider,
+          providerPaymentId: guestSessions.providerPaymentId,
+          sessionToken: guestSessions.sessionToken,
+        });
     } catch (err) {
-      ctx.logger.error({ guestSessionId: gs.id, err }, 'Failed to mark guest session expired');
+      ctx.logger.error(
+        { guestSessionId: candidate.id, err },
+        'Failed to mark guest session expired',
+      );
+      continue;
+    }
+    if (claimed == null) {
+      try {
+        await linkStartedGuestSession(candidate.id, ctx);
+      } catch (err) {
+        ctx.logger.warn(
+          { guestSessionId: candidate.id, err },
+          'Failed to link a started guest session found on expiry; the end links it',
+        );
+      }
+      continue;
+    }
+    expiredCount++;
+    if (claimed.providerPaymentId == null) continue;
+    try {
+      const provider = await pinnedProvider(ctx.registry, claimed.provider);
+      await provider.cancelHold({
+        paymentId: claimed.providerPaymentId,
+        merchantReference: `${GUEST_REFERENCE_PREFIX}${claimed.sessionToken}`,
+        idempotencyKey: cancelKey(claimed.providerPaymentId),
+      });
+    } catch (err) {
+      ctx.logger.warn(
+        { guestSessionId: claimed.id, err },
+        'Failed to cancel the guest hold on expiry; it expires by itself',
+      );
     }
   }
-  return expired.length;
+  return expiredCount;
 }

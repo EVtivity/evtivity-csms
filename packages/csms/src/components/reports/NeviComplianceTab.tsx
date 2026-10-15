@@ -173,8 +173,9 @@ function EvChartExportSection(): React.JSX.Element {
         <CardTitle>{t('nevi.generateChart')}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-end gap-4">
-          <div className="space-y-2">
+        {/* Phones: quarter and year side by side, Generate full width below. */}
+        <div className="grid grid-cols-2 items-end gap-4 sm:flex sm:flex-wrap">
+          <div className="min-w-0 space-y-2">
             <Label htmlFor="nevi-quarter-select" className="leading-6">
               {t('nevi.quarter')}
             </Label>
@@ -184,7 +185,7 @@ function EvChartExportSection(): React.JSX.Element {
               onChange={(e) => {
                 setQuarter(e.target.value);
               }}
-              className="h-9"
+              className="sm:w-28"
             >
               <option value="1">Q1</option>
               <option value="2">Q2</option>
@@ -192,24 +193,26 @@ function EvChartExportSection(): React.JSX.Element {
               <option value="4">Q4</option>
             </Select>
           </div>
-          <div className="space-y-2">
+          <div className="min-w-0 space-y-2">
             <Label htmlFor="nevi-year" className="leading-6">
               {t('nevi.year')}
             </Label>
             <Input
               id="nevi-year"
               type="number"
+              inputMode="numeric"
               value={year}
               onChange={(e) => {
                 setYear(e.target.value);
               }}
-              className="w-28"
+              className="sm:w-28"
             />
           </div>
           <GenerateButton
             label={generateMutation.isPending ? t('nevi.generating') : t('nevi.generateChart')}
             onClick={handleGenerate}
             disabled={generateMutation.isPending}
+            className="col-span-2 w-full sm:w-auto"
           />
         </div>
 
@@ -228,6 +231,7 @@ function EvChartExportSection(): React.JSX.Element {
             {neviReport.status === 'completed' && (
               <Button
                 variant="outline"
+                className="w-full sm:w-auto"
                 onClick={() => {
                   void downloadReport(neviReport.id, neviReport.name + '.xlsx');
                 }}

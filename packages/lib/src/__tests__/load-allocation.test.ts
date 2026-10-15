@@ -5,7 +5,10 @@ import { describe, it, expect } from 'vitest';
 import {
   circuitConductorPhases,
   computeMaxContinuousKw,
+  effectiveCircuitVoltageV,
+  isCircuitVoltageAllowed,
   isPanelVoltageAllowed,
+  isSubPanelPhaseConnectionAllowed,
 } from '../load-allocation.js';
 
 describe('computeMaxContinuousKw', () => {
@@ -56,5 +59,38 @@ describe('isPanelVoltageAllowed', () => {
     expect(isPanelVoltageAllowed(208, 1)).toBe(true);
     expect(isPanelVoltageAllowed(480, 1)).toBe(true);
     expect(isPanelVoltageAllowed(110, 1)).toBe(false);
+  });
+});
+
+describe('circuit voltage', () => {
+  it('allows a lower voltage on a single-phase panel', () => {
+    expect(isCircuitVoltageAllowed(120, 240, 1)).toBe(true);
+    expect(isCircuitVoltageAllowed(240, 240, 1)).toBe(true);
+  });
+
+  it('refuses a voltage above the panel, an unknown voltage and a three-phase panel', () => {
+    expect(isCircuitVoltageAllowed(277, 240, 1)).toBe(false);
+    expect(isCircuitVoltageAllowed(110, 240, 1)).toBe(false);
+    expect(isCircuitVoltageAllowed(120, 230, 3)).toBe(false);
+  });
+
+  it('falls back to the panel voltage when unset or not allowed', () => {
+    expect(effectiveCircuitVoltageV(120, 240, 1)).toBe(120);
+    expect(effectiveCircuitVoltageV(null, 240, 1)).toBe(240);
+    expect(effectiveCircuitVoltageV(120, 230, 3)).toBe(230);
+    expect(effectiveCircuitVoltageV(277, 240, 1)).toBe(240);
+  });
+
+  it('gives a 20 A 120 V branch 1.92 kW', () => {
+    expect(computeMaxContinuousKw(20, effectiveCircuitVoltageV(120, 240, 1), 1)).toBeCloseTo(1.92);
+  });
+});
+
+describe('sub-panel phase connections', () => {
+  it('apply only to a single-phase sub-panel of a three-phase panel', () => {
+    expect(isSubPanelPhaseConnectionAllowed(1, 3)).toBe(true);
+    expect(isSubPanelPhaseConnectionAllowed(3, 3)).toBe(false);
+    expect(isSubPanelPhaseConnectionAllowed(1, 1)).toBe(false);
+    expect(isSubPanelPhaseConnectionAllowed(1, null)).toBe(false);
   });
 });

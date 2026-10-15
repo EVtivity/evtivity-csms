@@ -3,7 +3,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, isNotNull } from 'drizzle-orm';
 import { db, panels, circuits, unmanagedLoads, chargingStations } from '@evtivity/database';
 import { parseZodRequest, zodSchema } from '../lib/zod-schema.js';
 import { itemResponse, arrayResponse, errorWith } from '../lib/response-schemas.js';
@@ -15,9 +15,13 @@ import { changedFields } from '../lib/audit-diff.js';
 import { writeSiteLoadManagementAudit } from '../lib/load-management-audit.js';
 import {
   PANEL_VOLTAGES,
+  SUB_PANEL_PHASE_CONNECTIONS,
   circuitConductorPhases,
   computeMaxContinuousKw,
+  effectiveCircuitVoltageV,
+  isCircuitVoltageAllowed,
   isPanelVoltageAllowed,
+  isSubPanelPhaseConnectionAllowed,
 } from '@evtivity/lib';
 
 // --- Schemas ---
@@ -47,6 +51,12 @@ const createPanelBody = z.object({
     .refine((v) => [1, 3].includes(v), { message: 'Phases must be 1 or 3' }),
   safetyMarginKw: z.number().min(0).max(10000).optional().default(0),
   oversubscriptionRatio: z.number().min(1.0).max(3.0).optional().default(1.0),
+  phaseConnections: z
+    .enum(SUB_PANEL_PHASE_CONNECTIONS)
+    .optional()
+    .describe(
+      'Phases of the three-phase parent panel that feed this single-phase sub-panel (one phase line to neutral, two line to line). Omit when unknown: the sub-panel load then counts on every parent phase. Refused unless the panel is single-phase below a three-phase parent',
+    ),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
@@ -67,6 +77,13 @@ const updatePanelBody = z.object({
     .optional(),
   safetyMarginKw: z.number().min(0).max(10000).optional(),
   oversubscriptionRatio: z.number().min(1.0).max(3.0).optional(),
+  phaseConnections: z
+    .enum(SUB_PANEL_PHASE_CONNECTIONS)
+    .nullable()
+    .optional()
+    .describe(
+      'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown (its load counts on every parent phase). Refused unless the panel is single-phase below a three-phase parent',
+    ),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
@@ -92,6 +109,12 @@ const panelItem = z
       .min(1.0)
       .max(3.0)
       .describe('Ratio of connected capacity to physical capacity allowed'),
+    phaseConnections: z
+      .enum(SUB_PANEL_PHASE_CONNECTIONS)
+      .nullable()
+      .describe(
+        'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown',
+      ),
     sortOrder: z.number().int().min(0).describe('Display ordering within the site'),
     circuitCount: z.number().int().min(0).describe('Number of circuits attached to this panel'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
@@ -112,6 +135,11 @@ const panelCircuitItem = z
       .describe('Circuit breaker rating in amps'),
     maxContinuousKw: z.number().min(0).describe('Computed max continuous power in kW'),
     phaseConnections: z.string().max(20).nullable().describe('Phase connection assignment'),
+    voltageV: z
+      .number()
+      .int()
+      .nullable()
+      .describe('Circuit voltage in volts; null uses the panel voltage'),
     sortOrder: z.number().int().min(0).describe('Display sort order'),
     createdAt: z.coerce.date().describe('Row creation timestamp'),
     updatedAt: z.coerce.date().describe('Row last update timestamp'),
@@ -154,6 +182,12 @@ const panelDetailItem = z
       .min(1.0)
       .max(3.0)
       .describe('Ratio of connected capacity to physical capacity allowed'),
+    phaseConnections: z
+      .enum(SUB_PANEL_PHASE_CONNECTIONS)
+      .nullable()
+      .describe(
+        'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown',
+      ),
     sortOrder: z.number().int().min(0).describe('Display ordering within the site'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
     updatedAt: z.coerce.date().describe('Timestamp when last modified'),
@@ -165,6 +199,11 @@ const panelDetailItem = z
   .passthrough();
 
 // --- Helpers ---
+
+const SUB_PANEL_PHASE_ERROR = {
+  error: 'Phase connections apply only to a single-phase sub-panel of a three-phase panel',
+  code: 'VALIDATION_ERROR',
+} as const;
 
 const THREE_PHASE_VOLTAGE_ERROR = {
   error:
@@ -207,9 +246,10 @@ export function panelRoutes(app: FastifyInstance): void {
       }
 
       // Verify parentPanelId belongs to same site
+      let parentPhases: number | null = null;
       if (body.parentPanelId != null) {
         const [parent] = await db
-          .select({ id: panels.id, siteId: panels.siteId })
+          .select({ id: panels.id, siteId: panels.siteId, phases: panels.phases })
           .from(panels)
           .where(eq(panels.id, body.parentPanelId));
         if (parent == null || parent.siteId !== siteId) {
@@ -218,10 +258,19 @@ export function panelRoutes(app: FastifyInstance): void {
             .send({ error: 'Parent panel not found in this site', code: 'INVALID_PARENT_PANEL' });
           return;
         }
+        parentPhases = parent.phases;
       }
 
       if (!isPanelVoltageAllowed(body.voltageV, body.phases)) {
         await reply.status(400).send(THREE_PHASE_VOLTAGE_ERROR);
+        return;
+      }
+
+      if (
+        body.phaseConnections != null &&
+        !isSubPanelPhaseConnectionAllowed(body.phases, parentPhases)
+      ) {
+        await reply.status(400).send(SUB_PANEL_PHASE_ERROR);
         return;
       }
 
@@ -243,6 +292,7 @@ export function panelRoutes(app: FastifyInstance): void {
           maxContinuousKw: String(maxContinuousKw),
           safetyMarginKw: String(body.safetyMarginKw),
           oversubscriptionRatio: String(body.oversubscriptionRatio),
+          phaseConnections: body.phaseConnections ?? null,
           sortOrder: body.sortOrder ?? 0,
         })
         .returning();
@@ -310,6 +360,7 @@ export function panelRoutes(app: FastifyInstance): void {
           maxContinuousKw: panels.maxContinuousKw,
           safetyMarginKw: panels.safetyMarginKw,
           oversubscriptionRatio: panels.oversubscriptionRatio,
+          phaseConnections: panels.phaseConnections,
           sortOrder: panels.sortOrder,
           createdAt: panels.createdAt,
           updatedAt: panels.updatedAt,
@@ -375,6 +426,7 @@ export function panelRoutes(app: FastifyInstance): void {
           breakerRatingAmps: circuits.breakerRatingAmps,
           maxContinuousKw: circuits.maxContinuousKw,
           phaseConnections: circuits.phaseConnections,
+          voltageV: circuits.voltageV,
           sortOrder: circuits.sortOrder,
           createdAt: circuits.createdAt,
           updatedAt: circuits.updatedAt,
@@ -458,6 +510,23 @@ export function panelRoutes(app: FastifyInstance): void {
         return;
       }
 
+      // Phase connections only fit a single-phase sub-panel of a three-phase
+      // panel. A panel turned three-phase drops the ones it had.
+      if (body.phaseConnections != null) {
+        let parentPhases: number | null = null;
+        if (existing.parentPanelId != null) {
+          const [parent] = await db
+            .select({ phases: panels.phases })
+            .from(panels)
+            .where(and(eq(panels.id, existing.parentPanelId), eq(panels.siteId, siteId)));
+          parentPhases = parent?.phases ?? null;
+        }
+        if (!isSubPanelPhaseConnectionAllowed(newPhases, parentPhases)) {
+          await reply.status(400).send(SUB_PANEL_PHASE_ERROR);
+          return;
+        }
+      }
+
       const voltageOrPhasesChanged =
         body.voltageV != null || body.phases != null || body.breakerRatingAmps != null;
       const maxContinuousKw = computeMaxContinuousKw(newBreaker, newVoltage, newPhases);
@@ -471,6 +540,11 @@ export function panelRoutes(app: FastifyInstance): void {
       if (body.oversubscriptionRatio != null)
         updateData['oversubscriptionRatio'] = String(body.oversubscriptionRatio);
       if (body.sortOrder != null) updateData['sortOrder'] = body.sortOrder;
+      if (body.phaseConnections !== undefined) {
+        updateData['phaseConnections'] = body.phaseConnections;
+      } else if (newPhases === 3 && existing.phaseConnections != null) {
+        updateData['phaseConnections'] = null;
+      }
       if (voltageOrPhasesChanged) updateData['maxContinuousKw'] = String(maxContinuousKw);
 
       const updateRows = await db
@@ -484,21 +558,47 @@ export function panelRoutes(app: FastifyInstance): void {
         return;
       }
 
-      // If voltage or phases changed, recompute maxContinuousKw for all circuits on this panel
+      // If voltage or phases changed, recompute maxContinuousKw for all circuits
+      // on this panel. A circuit voltage the panel no longer allows (above the
+      // new voltage, or on a three-phase panel) is cleared: the circuit then
+      // runs at the panel voltage.
       if (body.voltageV != null || body.phases != null) {
         const panelCircuits = await db.select().from(circuits).where(eq(circuits.panelId, panelId));
 
         for (const circuit of panelCircuits) {
+          const keepVoltage =
+            circuit.voltageV != null &&
+            isCircuitVoltageAllowed(circuit.voltageV, newVoltage, newPhases);
           const circuitMaxKw = computeMaxContinuousKw(
             circuit.breakerRatingAmps,
-            newVoltage,
+            effectiveCircuitVoltageV(keepVoltage ? circuit.voltageV : null, newVoltage, newPhases),
             circuitConductorPhases(circuit.phaseConnections, newPhases),
           );
           await db
             .update(circuits)
-            .set({ maxContinuousKw: String(circuitMaxKw), updatedAt: new Date() })
+            .set({
+              maxContinuousKw: String(circuitMaxKw),
+              ...(circuit.voltageV != null && !keepVoltage ? { voltageV: null } : {}),
+              updatedAt: new Date(),
+            })
             .where(eq(circuits.id, circuit.id));
         }
+      }
+
+      // A panel that is no longer three-phase leaves its sub-panels' phase
+      // connections without meaning: clear them (their load then counts on
+      // every phase again if the panel turns three-phase later).
+      if (body.phases != null && newPhases !== 3) {
+        await db
+          .update(panels)
+          .set({ phaseConnections: null, updatedAt: new Date() })
+          .where(
+            and(
+              eq(panels.parentPanelId, panelId),
+              eq(panels.siteId, siteId),
+              isNotNull(panels.phaseConnections),
+            ),
+          );
       }
 
       const change = changedFields(existing, updated);

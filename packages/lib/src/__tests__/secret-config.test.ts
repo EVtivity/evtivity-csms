@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_MASK_DEPTH,
   REDACTED,
   holdsStationCredential,
   isCredentialName,
@@ -163,5 +164,32 @@ describe('station credential masking (OCPP message log)', () => {
     expect(holdsStationCredential({ connectionData: { basicAuthPassword: PASSWORD } })).toBe(true);
     expect(holdsStationCredential({ key: 'HeartbeatInterval', value: '300' })).toBe(false);
     expect(holdsStationCredential({ type: 'Soft' })).toBe(false);
+  });
+});
+
+describe('maskStationCredentials nesting cap', () => {
+  function nestedArrays(depth: number): unknown {
+    let value: unknown = 'leaf';
+    for (let i = 0; i < depth; i++) value = [value];
+    return value;
+  }
+
+  it('does not overflow the stack on a deeply nested payload', () => {
+    const deep = nestedArrays(20_000);
+    expect(() => maskStationCredentials(deep)).not.toThrow();
+  });
+
+  it('replaces the subtree past the cap whole', () => {
+    let masked = maskStationCredentials(nestedArrays(MAX_MASK_DEPTH + 5));
+    for (let i = 0; i < MAX_MASK_DEPTH; i++) {
+      expect(Array.isArray(masked)).toBe(true);
+      masked = (masked as unknown[])[0];
+    }
+    expect(masked).toBe(REDACTED);
+  });
+
+  it('keeps a payload within the cap unchanged', () => {
+    const payload = nestedArrays(MAX_MASK_DEPTH - 1);
+    expect(maskStationCredentials(payload)).toEqual(payload);
   });
 });

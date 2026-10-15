@@ -82,23 +82,52 @@ export function isApiKeyRateLimited(tokenHash: string): boolean {
   return false;
 }
 
-// Per-IP rate limiter for guest session endpoints: 30 requests per minute
+// Rate limiter for the guest session polling endpoints (status, power and
+// energy history). One guest page polls about 24 times a minute, so the limit
+// is per IP and session token (30 a minute), with a higher ceiling per IP
+// (120 a minute) for several guests behind one NAT (finding G4). A request
+// is counted only when both allow it. Expired entries are swept once a window.
 const guestSessionRateLimit = new Map<string, number[]>();
-const GUEST_SESSION_RATE_LIMIT = 30;
+const guestIpRateLimit = new Map<string, number[]>();
+export const GUEST_SESSION_RATE_LIMIT = 30;
+export const GUEST_IP_RATE_LIMIT = 120;
 const GUEST_SESSION_RATE_WINDOW = 60_000;
+let guestRateLimitSweptAt = 0;
 
-export function isGuestSessionRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const timestamps = guestSessionRateLimit.get(ip) ?? [];
-  const recent = timestamps.filter((t) => now - t < GUEST_SESSION_RATE_WINDOW);
-  if (recent.length === 0 && timestamps.length > 0) {
-    guestSessionRateLimit.delete(ip);
+function sweepGuestRateLimits(now: number): void {
+  if (now - guestRateLimitSweptAt < GUEST_SESSION_RATE_WINDOW) return;
+  guestRateLimitSweptAt = now;
+  for (const map of [guestSessionRateLimit, guestIpRateLimit]) {
+    for (const [key, timestamps] of map) {
+      const last = timestamps[timestamps.length - 1];
+      if (last == null || now - last >= GUEST_SESSION_RATE_WINDOW) map.delete(key);
+    }
   }
-  if (recent.length >= GUEST_SESSION_RATE_LIMIT) {
-    guestSessionRateLimit.set(ip, recent);
+}
+
+function recentHits(map: Map<string, number[]>, key: string, now: number): number[] {
+  return (map.get(key) ?? []).filter((t) => now - t < GUEST_SESSION_RATE_WINDOW);
+}
+
+export function isGuestSessionRateLimited(ip: string, sessionToken: string): boolean {
+  const now = Date.now();
+  sweepGuestRateLimits(now);
+  const sessionKey = `${ip}|${sessionToken}`;
+  const sessionHits = recentHits(guestSessionRateLimit, sessionKey, now);
+  const ipHits = recentHits(guestIpRateLimit, ip, now);
+  if (sessionHits.length >= GUEST_SESSION_RATE_LIMIT || ipHits.length >= GUEST_IP_RATE_LIMIT) {
+    guestSessionRateLimit.set(sessionKey, sessionHits);
+    guestIpRateLimit.set(ip, ipHits);
     return true;
   }
-  recent.push(now);
-  guestSessionRateLimit.set(ip, recent);
+  sessionHits.push(now);
+  ipHits.push(now);
+  guestSessionRateLimit.set(sessionKey, sessionHits);
+  guestIpRateLimit.set(ip, ipHits);
   return false;
+}
+
+/** Entries the guest limiter holds (tests: the sweep drops expired ones). */
+export function guestSessionRateLimitSize(): number {
+  return guestSessionRateLimit.size + guestIpRateLimit.size;
 }

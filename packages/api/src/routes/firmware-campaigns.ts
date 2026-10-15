@@ -15,6 +15,7 @@ import {
   client,
   applyFirmwareCampaignStationStatus,
   rejectFirmwareUpdate,
+  dropQueuedCampaignFirmwareUpdates,
   newFirmwareRequestId,
   firmwareCampaigns,
   firmwareCampaignStations,
@@ -583,25 +584,32 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
           signature: nextSignature,
           updatedAt: new Date(),
         })
-        .where(eq(firmwareCampaigns.id, id))
+        // Draft re-checked in the write: a Start that committed after the read
+        // above must not get its URL, filter or schedule rewritten while its
+        // updates are out (offline stations would get a different firmware).
+        .where(and(eq(firmwareCampaigns.id, id), eq(firmwareCampaigns.status, 'draft')))
         .returning();
-
-      if (updated != null) {
-        const actor = getAuditActor(request);
-        await writeAudit(
-          { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
-          {
-            entityId: updated.id,
-            entityIdSnapshot: updated.id,
-            action: 'updated',
-            ...actor,
-            before: campaign,
-            after: updated,
-          },
-          db,
-          request.log,
-        );
+      if (updated == null) {
+        await reply
+          .status(409)
+          .send({ error: 'Only draft campaigns can be updated', code: 'NOT_DRAFT' });
+        return;
       }
+
+      const actor = getAuditActor(request);
+      await writeAudit(
+        { table: firmwareCampaignAuditLog, idColumn: 'campaign_id' },
+        {
+          entityId: updated.id,
+          entityIdSnapshot: updated.id,
+          action: 'updated',
+          ...actor,
+          before: campaign,
+          after: updated,
+        },
+        db,
+        request.log,
+      );
 
       return updated;
     },
@@ -642,7 +650,16 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         return;
       }
 
-      await db.delete(firmwareCampaigns).where(eq(firmwareCampaigns.id, id));
+      const deleted = await db
+        .delete(firmwareCampaigns)
+        .where(and(eq(firmwareCampaigns.id, id), eq(firmwareCampaigns.status, 'draft')))
+        .returning({ id: firmwareCampaigns.id });
+      if (deleted.length === 0) {
+        await reply
+          .status(409)
+          .send({ error: 'Only draft campaigns can be deleted', code: 'NOT_DRAFT' });
+        return;
+      }
 
       const actor = getAuditActor(request);
       await writeAudit(
@@ -1013,6 +1030,17 @@ export function firmwareCampaignRoutes(app: FastifyInstance): void {
         db,
         request.log,
       );
+
+      // Updates still queued for offline stations never reached them: drop them
+      // so a station does not install the firmware after the cancel.
+      try {
+        const dropped = await dropQueuedCampaignFirmwareUpdates(client, id);
+        if (dropped > 0) request.log.info({ campaignId: id, dropped }, 'Queued updates dropped');
+      } catch (err) {
+        // fail-open: the campaign is cancelled; a queued update still expires
+        // with the offline queue.
+        request.log.warn({ err, campaignId: id }, 'Dropping queued campaign updates failed');
+      }
 
       return { success: true };
     },

@@ -6,6 +6,15 @@ import WebSocket from 'ws';
 import type { IncomingHttpHeaders } from 'node:http';
 import type postgres from 'postgres';
 import { hash } from 'argon2';
+
+const { mockGetRegistrationPolicy } = vi.hoisted(() => ({
+  mockGetRegistrationPolicy: vi.fn(() => Promise.resolve('approval-required')),
+}));
+vi.mock('@evtivity/database', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@evtivity/database')>()),
+  getRegistrationPolicy: mockGetRegistrationPolicy,
+}));
+
 import { OcppServer } from '../server/ocpp-server.js';
 import type { ConnectionAuthLimits } from '../server/connection-auth-limiter.js';
 
@@ -35,6 +44,13 @@ beforeAll(async () => {
     basic_auth_password_hash: null,
     availability: 'available',
     onboarding_status: 'accepted',
+  });
+  stations.set('AUTH-PENDING', {
+    id: 'sta_auth_pending',
+    security_profile: 0,
+    basic_auth_password_hash: null,
+    availability: 'available',
+    onboarding_status: 'pending',
   });
   stations.set('AUTH-BLOCKED', {
     id: 'sta_auth_blocked',
@@ -213,6 +229,51 @@ describe('OcppServer authentication before the WebSocket upgrade', () => {
     const message = await response;
     expect(message[0]).toBe(3);
     expect(message[1]).toBe('hb-1');
+    ws.close();
+  });
+
+  it('answers SecurityError to a station awaiting approval that never sent a BootNotification', async () => {
+    mockGetRegistrationPolicy.mockResolvedValueOnce('approval-required');
+    const port = await startServer();
+
+    const result = await handshake(port, 'AUTH-PENDING');
+    expect(result.opened).toBe(true);
+    if (!result.opened) return;
+    const ws = result.ws;
+
+    const response = new Promise<unknown[]>((resolve) => {
+      ws.on('message', (data: Buffer) => {
+        resolve(JSON.parse(data.toString()) as unknown[]);
+      });
+    });
+    ws.send(JSON.stringify([2, 'hb-pending', 'Heartbeat', {}]));
+
+    const message = await response;
+    expect(message[0]).toBe(4);
+    expect(message[1]).toBe('hb-pending');
+    expect(message[2]).toBe('SecurityError');
+    ws.close();
+  });
+
+  it('processes CALLs of a pending station under open registration', async () => {
+    mockGetRegistrationPolicy.mockResolvedValueOnce('open');
+    const port = await startServer();
+
+    const result = await handshake(port, 'AUTH-PENDING');
+    expect(result.opened).toBe(true);
+    if (!result.opened) return;
+    const ws = result.ws;
+
+    const response = new Promise<unknown[]>((resolve) => {
+      ws.on('message', (data: Buffer) => {
+        resolve(JSON.parse(data.toString()) as unknown[]);
+      });
+    });
+    ws.send(JSON.stringify([2, 'hb-open', 'Heartbeat', {}]));
+
+    const message = await response;
+    expect(message[0]).toBe(3);
+    expect(message[1]).toBe('hb-open');
     ws.close();
   });
 });

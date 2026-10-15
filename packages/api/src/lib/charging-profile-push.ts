@@ -7,8 +7,13 @@ import { createLogger, UNCLEARABLE_PROFILE_PURPOSES } from '@evtivity/lib';
 import { sendOcppCommandAndWait } from '@evtivity/services/ocpp-command';
 import {
   isReservedProfileId,
+  loadManagedMessage,
+  loadManagedStationIds,
   maxExternalConstraintsIds,
+  mayOverrideLoadManagement,
+  overridesLoadManagement,
   reservedProfileIdMessage,
+  type ProfileIdentity,
 } from './charging-profile-id.js';
 
 /** The CSMS must not name these purposes in a ClearChargingProfile (2.1 K10.FR.06). */
@@ -74,6 +79,16 @@ export async function processChargingProfilePush(
       ocppVersion === '2.1'
         ? await maxExternalConstraintsIds(stations.map((s) => s.id))
         : new Map<string, number>();
+    // A profile that would override the load management limit of a managed
+    // station (charging-profile-id.ts) is not sent to it: the station fails.
+    const identity: ProfileIdentity = {
+      profileId: template.profileId,
+      purpose: template.profilePurpose,
+      stackLevel: template.stackLevel,
+    };
+    const loadManaged = mayOverrideLoadManagement(identity)
+      ? await loadManagedStationIds(stations.map((s) => s.id))
+      : new Set<string>();
     for (let i = 0; i < stations.length; i += CONCURRENCY_LIMIT) {
       const batch = stations.slice(i, i + CONCURRENCY_LIMIT);
       await Promise.all(
@@ -86,6 +101,26 @@ export async function processChargingProfilePush(
                 .set({
                   status: 'failed',
                   errorInfo: reservedProfileIdMessage(template.profileId, maxExternalId),
+                  updatedAt: new Date(),
+                })
+                .where(
+                  and(
+                    eq(chargingProfilePushStations.pushId, pushId),
+                    eq(chargingProfilePushStations.stationId, station.id),
+                    eq(chargingProfilePushStations.status, 'pending'),
+                  ),
+                );
+              return;
+            }
+            if (
+              loadManaged.has(station.id) &&
+              overridesLoadManagement(identity, maxExternalIds.get(station.id))
+            ) {
+              await db
+                .update(chargingProfilePushStations)
+                .set({
+                  status: 'failed',
+                  errorInfo: loadManagedMessage(identity),
                   updatedAt: new Date(),
                 })
                 .where(

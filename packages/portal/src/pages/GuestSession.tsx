@@ -37,6 +37,8 @@ interface GuestSessionStatus {
   taxCents?: number | null;
   currency?: string;
   failureReason?: string | null;
+  /** True when the charging session ended faulted (unbilled). */
+  faulted?: boolean;
   startedAt?: string | null;
   endedAt?: string | null;
   idleStartedAt?: string | null;
@@ -353,6 +355,20 @@ export function GuestSession(): React.JSX.Element {
                   <span className="font-medium">{formatDate(session.endedAt)}</span>
                 </div>
               )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Faulted charging session: ended unbilled */}
+        {isFailed && session.faulted === true && (
+          <Card>
+            <CardContent className="p-4">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-destructive mt-0.5 shrink-0" />
+                <p role="status" className="text-sm text-destructive">
+                  {t('guestSession.faultedNotice')}
+                </p>
+              </div>
             </CardContent>
           </Card>
         )}

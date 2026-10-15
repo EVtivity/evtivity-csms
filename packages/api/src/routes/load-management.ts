@@ -87,6 +87,11 @@ const hierarchyCircuitSchema = z
     maxContinuousKw: z.number().describe('Maximum continuous power capacity in kW'),
     currentDrawKw: z.number().describe('Current power draw in kW'),
     availableKw: z.number().describe('Available power capacity in kW'),
+    voltageV: z
+      .number()
+      .int()
+      .nullable()
+      .describe('Circuit voltage in volts; null uses the panel voltage'),
     stations: z.array(hierarchyStationSchema).describe('Stations attached to this circuit'),
     unmanagedLoads: z.array(z.record(z.unknown())).describe('Unmanaged loads on this circuit'),
   })
@@ -108,6 +113,12 @@ const hierarchyNodeSchema: z.ZodType = z.lazy(() =>
       availableKw: z.number().describe('Available power capacity in kW'),
       utilization: z.number().describe('Utilization ratio (0 to 1)'),
       totalConnectedKw: z.number().describe('Sum of connected station capacity in kW'),
+      phaseConnections: z
+        .string()
+        .nullable()
+        .describe(
+          'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown',
+        ),
       circuits: z.array(hierarchyCircuitSchema).describe('Circuits on this panel'),
       childPanels: z.array(hierarchyNodeSchema).describe('Nested sub-panels'),
       unmanagedLoads: z.array(z.record(z.unknown())).describe('Unmanaged loads on this panel'),
@@ -131,7 +142,9 @@ const loadStationItem = z
       .describe('Minimum power in kW of a charging session, or null for none'),
     rateUnit: z
       .enum(['A', 'W'])
-      .describe('Unit of the limit sent to the station: A when it supports only A, else W'),
+      .describe(
+        'Unit of the limit sent to the station: A when it supports only A, or supports A on a circuit of two or three phases, else W',
+      ),
     isOnline: z.boolean().describe('Whether the station is online'),
     hasActiveSession: z.boolean().describe('Whether a charging session is active'),
   })
@@ -263,6 +276,7 @@ function annotateHierarchy(nodes: HierarchyNode[]): unknown[] {
           currentDrawKw: circuit.currentDrawKw,
           availableKw: Math.max(0, circuit.maxContinuousKw - circuit.currentDrawKw),
           phaseConnections: circuit.phaseConnections,
+          voltageV: circuit.ownVoltageV ?? null,
           stations: circuit.stations.map((s) => ({
             id: s.id,
             stationId: s.stationId,

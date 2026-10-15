@@ -59,6 +59,7 @@ export const ERROR_CODES = {
   CDR_NOT_FOUND: 'CDR_NOT_FOUND',
   CDR_PUSH_NOT_FAILED: 'CDR_PUSH_NOT_FAILED',
   CHARGING_PROFILE_ID_RESERVED: 'CHARGING_PROFILE_ID_RESERVED',
+  CHARGING_PROFILE_LOAD_MANAGED: 'CHARGING_PROFILE_LOAD_MANAGED',
   CIRCUIT_NOT_FOUND: 'CIRCUIT_NOT_FOUND',
   COMMAND_ERROR: 'COMMAND_ERROR',
   COMMAND_FAILED: 'COMMAND_FAILED',
@@ -245,6 +246,7 @@ export const ERROR_CODES = {
   PROVIDER_TEST_FAILED: 'PROVIDER_TEST_FAILED',
   PUSH_NOT_FOUND: 'PUSH_NOT_FOUND',
   PUSH_REJECTED: 'PUSH_REJECTED',
+  QR_SCAN_REQUIRED: 'QR_SCAN_REQUIRED',
   RATE_LIMITED: 'RATE_LIMITED',
   RECAPTCHA_FAILED: 'RECAPTCHA_FAILED',
   RECAPTCHA_REQUIRED: 'RECAPTCHA_REQUIRED',
@@ -303,6 +305,7 @@ export const ERROR_CODES = {
   STATION_OFFLINE: 'STATION_OFFLINE',
   STATION_REJECTED: 'STATION_REJECTED',
   STATION_SECURITY_CHANGE_REJECTED: 'STATION_SECURITY_CHANGE_REJECTED',
+  STATION_SECURITY_ROUTE_REQUIRED: 'STATION_SECURITY_ROUTE_REQUIRED',
   STATION_TIMEOUT: 'STATION_TIMEOUT',
   STATION_TLS_URL_NOT_CONFIGURED: 'STATION_TLS_URL_NOT_CONFIGURED',
   STATION_UNAVAILABLE: 'STATION_UNAVAILABLE',
@@ -395,6 +398,7 @@ export type ErrorCode =
   | 'CDR_NOT_FOUND'
   | 'CDR_PUSH_NOT_FAILED'
   | 'CHARGING_PROFILE_ID_RESERVED'
+  | 'CHARGING_PROFILE_LOAD_MANAGED'
   | 'CIRCUIT_NOT_FOUND'
   | 'COMMAND_ERROR'
   | 'COMMAND_FAILED'
@@ -581,6 +585,7 @@ export type ErrorCode =
   | 'PROVIDER_TEST_FAILED'
   | 'PUSH_NOT_FOUND'
   | 'PUSH_REJECTED'
+  | 'QR_SCAN_REQUIRED'
   | 'RATE_LIMITED'
   | 'RECAPTCHA_FAILED'
   | 'RECAPTCHA_REQUIRED'
@@ -639,6 +644,7 @@ export type ErrorCode =
   | 'STATION_OFFLINE'
   | 'STATION_REJECTED'
   | 'STATION_SECURITY_CHANGE_REJECTED'
+  | 'STATION_SECURITY_ROUTE_REQUIRED'
   | 'STATION_TIMEOUT'
   | 'STATION_TLS_URL_NOT_CONFIGURED'
   | 'STATION_UNAVAILABLE'
@@ -743,6 +749,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   CDR_PUSH_NOT_FAILED: 'Only a CDR whose push failed can be pushed again',
   CHARGING_PROFILE_ID_RESERVED:
     "The charging profile ID must be above the station's MaxExternalConstraintsId",
+  CHARGING_PROFILE_LOAD_MANAGED:
+    'Load management sets the limit of this station. Use a ChargingStationMaxProfile with stack level 0 and an ID other than the load management profile ID',
   CIRCUIT_NOT_FOUND: 'Circuit not found',
   COMMAND_ERROR: 'Command failed',
   COMMAND_FAILED: 'Command failed',
@@ -949,6 +957,7 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   PROVIDER_TEST_FAILED: 'Provider returned ...',
   PUSH_NOT_FOUND: 'Push not found',
   PUSH_REJECTED: 'Station rejected push: ...',
+  QR_SCAN_REQUIRED: 'Scan the QR code shown on the charger to start charging.',
   RATE_LIMITED: 'Too many requests. Wait a moment and try again.',
   RECAPTCHA_FAILED: 'reCAPTCHA verification failed',
   RECAPTCHA_REQUIRED: 'reCAPTCHA token is required',
@@ -1014,6 +1023,8 @@ export const ERROR_MESSAGES: Record<ErrorCode, string> = {
   STATION_REJECTED: 'Station rejected start: ...',
   STATION_SECURITY_CHANGE_REJECTED:
     'The station did not accept the security change; its current settings are unchanged',
+  STATION_SECURITY_ROUTE_REQUIRED:
+    'Station security profiles and network profiles are changed with PATCH /v1/stations/:id, not with a configuration template',
   STATION_TIMEOUT: 'Station did not respond',
   STATION_TLS_URL_NOT_CONFIGURED:
     'The public TLS address for stations (OCPP_STATION_TLS_URL) is not configured',

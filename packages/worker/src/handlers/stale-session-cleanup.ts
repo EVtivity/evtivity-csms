@@ -17,7 +17,7 @@ import {
   STALE_CLEANUP_IN_TRANSACTION_STATUSES,
 } from '@evtivity/database';
 import { publishOcppCommand } from '@evtivity/lib';
-import { cancelOpenSessionHold } from '@evtivity/payments';
+import { cancelOpenSessionHold, failGuestSessionOfFaultedSession } from '@evtivity/payments';
 import type { Logger } from 'pino';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import { paymentContext } from '../lib/payments.js';
@@ -149,6 +149,12 @@ export async function staleSessionCleanupHandler(log: Logger): Promise<void> {
             'Failed to cancel the hold of a stale session',
           );
         }
+        // A guest session of the faulted session fails with it, so the guest
+        // page stops showing it as charging (fail-open, logged inside).
+        await failGuestSessionOfFaultedSession(
+          session.id,
+          paymentContext(log, 'stale-session-cleanup'),
+        );
       }
 
       // Audit the reservation linkage so the reservation timeline shows why

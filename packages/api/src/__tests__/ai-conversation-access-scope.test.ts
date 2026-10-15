@@ -29,7 +29,9 @@ vi.mock('@evtivity/database', async (importOriginal) => {
 });
 
 import {
+  HIDDEN_ASSISTANT_TEXT,
   HIDDEN_TOOL_RESULT,
+  hideOtherAccessAssistantText,
   hideStaleToolResults,
   replaceToolResult,
 } from '../services/ai/conversation.service.js';
@@ -100,6 +102,45 @@ describe('hideStaleToolResults', () => {
     expect(buildScopeHash(['sit_b', 'sit_a'], ['sites:read'])).toBe(scope);
     expect(buildScopeHash(null, ['sites:read'])).not.toBe(scope);
     expect(buildScopeHash(['sit_a', 'sit_b'], ['sites:read', 'sites:write'])).not.toBe(scope);
+  });
+});
+
+describe('hideOtherAccessAssistantText', () => {
+  const cookieScope = buildScopeHash(null, ['sites:read', 'sessions:read']);
+  const keyScope = buildScopeHash(null, ['sites:read']);
+  const answer = row({
+    role: 'assistant',
+    parts: [
+      { type: 'text', text: 'Driver Jane owes 12.00' },
+      { type: 'tool_call', id: 'c1', name: 'list_sites', arguments: {} },
+    ],
+    accessScope: cookieScope,
+  });
+
+  it('hides assistant text written under another access, keeping tool calls', () => {
+    const [hidden] = hideOtherAccessAssistantText([answer], keyScope);
+    expect(hidden?.parts).toEqual([
+      { type: 'text', text: HIDDEN_ASSISTANT_TEXT },
+      { type: 'tool_call', id: 'c1', name: 'list_sites', arguments: {} },
+    ]);
+    expect(hidden?.providerState).toBeNull();
+  });
+
+  it('keeps assistant text written under the same access', () => {
+    expect(hideOtherAccessAssistantText([answer], cookieScope)).toEqual([answer]);
+  });
+
+  it('hides assistant text stored without a fingerprint', () => {
+    const [hidden] = hideOtherAccessAssistantText(
+      [row({ role: 'assistant', parts: [{ type: 'text', text: 'secret' }] })],
+      keyScope,
+    );
+    expect(JSON.stringify(hidden?.parts)).not.toContain('secret');
+  });
+
+  it('leaves user messages alone', () => {
+    const user = row({ role: 'user', parts: [{ type: 'text', text: 'hi' }] });
+    expect(hideOtherAccessAssistantText([user], keyScope)).toEqual([user]);
   });
 });
 

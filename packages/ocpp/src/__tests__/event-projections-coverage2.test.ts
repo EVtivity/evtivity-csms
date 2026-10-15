@@ -85,6 +85,7 @@ const mockIsRoamingEnabled = vi.fn().mockResolvedValue(false);
 // The payment service (@evtivity/payments): the gate's hold, the settlement on
 // Ended, and the NotifySettlement record. The mode classification stays real.
 const mockAuthorizeSessionHold = vi.fn();
+const mockLinkGuestSessionToCharging = vi.fn();
 const mockSettleSessionPayment = vi.fn();
 const mockRecordTerminalSettlement = vi.fn();
 const mockDispatchFleetCreditNotices = vi.fn().mockResolvedValue(null);
@@ -124,6 +125,10 @@ vi.mock('@evtivity/payments', async (importOriginal) => ({
   dispatchFleetCreditLimitNotices: (...args: unknown[]) =>
     mockDispatchFleetCreditNotices(...args) as unknown,
   authorizeSessionHold: (...args: unknown[]) => mockAuthorizeSessionHold(...args) as unknown,
+  linkGuestSessionToCharging: (...args: unknown[]) => {
+    mockLinkGuestSessionToCharging(...args);
+    return Promise.resolve(null);
+  },
   settleSessionPayment: (...args: unknown[]) => mockSettleSessionPayment(...args) as unknown,
   recordTerminalSettlement: (...args: unknown[]) =>
     mockRecordTerminalSettlement(...args) as unknown,
@@ -187,6 +192,11 @@ vi.mock('@evtivity/database', async () => ({
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
+  )),
+  // The real load management state writes (a station's reply to its load
+  // management limit, a resend after a clear or boot), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/load-management-state.js',
   )),
   // The session end request channel and reasons.
   ...(await vi.importActual<Record<string, unknown>>(
@@ -680,7 +690,10 @@ describe('Event projections - coverage round 2', () => {
       await setup();
       setupSqlResults([]);
       await emit('ocpp.BootNotification', 'CS-X', {});
-      expect(sqlCalls.length).toBe(1);
+      // The station lookup, then only the load management resend mark (its
+      // own subscription, keyed by the OCPP identity, matches no row).
+      expect(sqlCalls.length).toBe(2);
+      expect(sqlCalls[1]?.strings.join('')).toContain('UPDATE site_load_management');
     });
 
     it('accepted station: leaves availability alone and pushes 2.1 SetVariables config', async () => {
@@ -1166,6 +1179,121 @@ describe('Event projections - coverage round 2', () => {
       });
       expect(findSql(/DELETE FROM charging_profiles/)).toBeUndefined();
       expect(findSql(/INSERT INTO charging_profiles/)).toBeDefined();
+    });
+
+    const loadManagementRequest = (unit: string) => ({
+      evseId: 0,
+      chargingProfile: {
+        id: 1_000_000_000,
+        stackLevel: 1,
+        chargingProfilePurpose: 'ChargingStationMaxProfile',
+        chargingProfileKind: 'Absolute',
+        chargingSchedule: [
+          { id: 1, chargingRateUnit: unit, chargingSchedulePeriod: [{ startPeriod: 0, limit: 7 }] },
+        ],
+      },
+    });
+
+    it('records a rejected load management limit (the station becomes a fixed load)', async () => {
+      await setup();
+      setupSqlResults(STA, []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Rejected' },
+        request: loadManagementRequest('W'),
+      });
+      const upd = findSql(/UPDATE site_load_management/);
+      expect(upd?.strings.join('')).toContain("'limitPending', true");
+      expect(upd?.values).toContain('sta_0001');
+      expect(upd?.values).toContain('W');
+      expect(findSql(/INSERT INTO charging_profiles/)).toBeUndefined();
+    });
+
+    it('records an error reply to the load management limit like a rejection', async () => {
+      await setup();
+      setupSqlResults(STA, []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        error: 'NotSupported',
+        request: loadManagementRequest('A'),
+      });
+      const upd = findSql(/UPDATE site_load_management/);
+      expect(upd?.strings.join('')).toContain("'limitPending', true");
+      expect(upd?.values).toContain('A');
+    });
+
+    it('clears the unconfirmed state after an accepted load management limit', async () => {
+      await setup();
+      setupSqlResults(STA, [], [], [{ site_id: null }], []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Accepted' },
+        request: loadManagementRequest('A'),
+      });
+      expect(findSql(/INSERT INTO charging_profiles/)).toBeDefined();
+      const upd = findSql(/UPDATE site_load_management/);
+      expect(upd?.strings.join('')).toContain("- 'limitPending'");
+      expect(upd?.values).toContain('A');
+    });
+
+    it('does not record replies to other profiles', async () => {
+      await setup();
+      setupSqlResults(STA, []);
+      await emit('command.SetChargingProfile', 'CS-1', {
+        response: { status: 'Rejected' },
+        request: {
+          evseId: 0,
+          chargingProfile: {
+            id: 1_000_000_000,
+            stackLevel: 0,
+            chargingProfilePurpose: 'ChargingStationMaxProfile',
+            chargingSchedule: [{ id: 1, chargingRateUnit: 'W' }],
+          },
+        },
+      });
+      expect(findSql(/UPDATE site_load_management/)).toBeUndefined();
+    });
+  });
+
+  describe('load management resend marks', () => {
+    it('a clear that can remove the load management profile marks its site for a resend', async () => {
+      await setup();
+      setupSqlResults(STA, [], [{ site_id: 'sit_1' }], []);
+      await emit('command.ClearChargingProfile', 'CS-1', {
+        request: { chargingProfileId: 1_000_000_000 },
+        response: { status: 'Accepted' },
+      });
+      const upd = findSql(/UPDATE site_load_management/);
+      expect(upd?.strings.join('')).toContain('SET applied_at = NULL');
+      expect(upd?.values).toContain('CS-1');
+    });
+
+    it('a clear of another profile marks nothing', async () => {
+      await setup();
+      setupSqlResults(STA, [], [{ site_id: 'sit_1' }]);
+      await emit('command.ClearChargingProfile', 'CS-1', {
+        request: {
+          chargingProfileCriteria: {
+            chargingProfilePurpose: 'ChargingStationMaxProfile',
+            stackLevel: 0,
+          },
+        },
+        response: { status: 'Accepted' },
+      });
+      expect(findSql(/UPDATE site_load_management/)).toBeUndefined();
+    });
+
+    it('a boot marks the site of the station for a resend', async () => {
+      await setup();
+      setupSqlResults(
+        STA,
+        [{ onboarding_status: 'pending' }],
+        [],
+        [{ site_id: null }],
+        [{ ocpp_protocol: 'ocpp1.6' }],
+        [{ ocpp_protocol: 'ocpp1.6' }],
+      );
+      await emit('ocpp.BootNotification', 'CS-1', {});
+      const upd = findSql(/UPDATE site_load_management/);
+      expect(upd?.strings.join('')).toContain('cs.circuit_id IS NOT NULL');
+      expect(upd?.values).toContain('CS-1');
     });
   });
 

@@ -30,9 +30,11 @@ const {
   mockPublish,
   mockClient,
   mockCancelOpenSessionHold,
+  mockFailGuestSessionOfFaultedSession,
   mockSessionAudit,
   mockOcpiSessionPush,
 } = vi.hoisted(() => ({
+  mockFailGuestSessionOfFaultedSession: vi.fn().mockResolvedValue(false),
   mockOcpiSessionPush: vi.fn().mockResolvedValue(undefined),
   mockSessionAudit: vi.fn().mockResolvedValue(undefined),
   mockGetStaleSessionTimeoutHours: vi.fn(),
@@ -46,6 +48,7 @@ const {
 
 vi.mock('@evtivity/payments', () => ({
   cancelOpenSessionHold: mockCancelOpenSessionHold,
+  failGuestSessionOfFaultedSession: mockFailGuestSessionOfFaultedSession,
 }));
 
 vi.mock('../../lib/payments.js', () => ({
@@ -233,6 +236,20 @@ describe('staleSessionCleanupHandler', () => {
     await staleSessionCleanupHandler(makeLog());
 
     expect(mockCancelOpenSessionHold).not.toHaveBeenCalled();
+    expect(mockFailGuestSessionOfFaultedSession).not.toHaveBeenCalled();
+  });
+
+  it('fails the guest session of a session it faulted (finding G5)', async () => {
+    const { staleSessionCleanupHandler } = mod;
+    setStaleSessions([baseSession()]);
+    mockFailGuestSessionOfFaultedSession.mockClear().mockResolvedValueOnce(true);
+
+    await staleSessionCleanupHandler(makeLog());
+
+    expect(mockFailGuestSessionOfFaultedSession).toHaveBeenCalledWith(
+      'ses_1',
+      expect.objectContaining({ registry: 'registry' }),
+    );
   });
 
   it('logs a warning and continues when the hold cancel fails (fail-open)', async () => {

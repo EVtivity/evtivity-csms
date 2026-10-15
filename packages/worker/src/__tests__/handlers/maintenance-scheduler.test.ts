@@ -90,6 +90,9 @@ describe('maintenanceSchedulerHandler', () => {
     expect(log.info).toHaveBeenCalledWith({ activated: 0, ended: 0 }, 'maintenance-scheduler tick');
   });
 
+  // The fan-out goes to the maintenance-fanout queue (site lock, restart safe).
+  const FANOUT = { detachSideEffects: true };
+
   it('activates every due scheduled window via enterMaintenance with the system actor', async () => {
     setupDbResults([{ id: 'mne_1' }, { id: 'mne_2' }], []);
 
@@ -97,8 +100,8 @@ describe('maintenanceSchedulerHandler', () => {
     await maintenanceSchedulerHandler(log);
 
     expect(mockEnter).toHaveBeenCalledTimes(2);
-    expect(mockEnter).toHaveBeenNthCalledWith(1, 'mne_1', SYSTEM_ACTOR, log);
-    expect(mockEnter).toHaveBeenNthCalledWith(2, 'mne_2', SYSTEM_ACTOR, log);
+    expect(mockEnter).toHaveBeenNthCalledWith(1, 'mne_1', SYSTEM_ACTOR, log, FANOUT);
+    expect(mockEnter).toHaveBeenNthCalledWith(2, 'mne_2', SYSTEM_ACTOR, log, FANOUT);
     expect(mockExit).not.toHaveBeenCalled();
     expect(log.info).toHaveBeenCalledWith({ activated: 2, ended: 0 }, 'maintenance-scheduler tick');
   });
@@ -110,8 +113,8 @@ describe('maintenanceSchedulerHandler', () => {
     await maintenanceSchedulerHandler(log);
 
     expect(mockExit).toHaveBeenCalledTimes(2);
-    expect(mockExit).toHaveBeenNthCalledWith(1, 'mne_end_1', SYSTEM_ACTOR, log);
-    expect(mockExit).toHaveBeenNthCalledWith(2, 'mne_end_2', SYSTEM_ACTOR, log);
+    expect(mockExit).toHaveBeenNthCalledWith(1, 'mne_end_1', SYSTEM_ACTOR, log, FANOUT);
+    expect(mockExit).toHaveBeenNthCalledWith(2, 'mne_end_2', SYSTEM_ACTOR, log, FANOUT);
     expect(mockEnter).not.toHaveBeenCalled();
     expect(log.info).toHaveBeenCalledWith({ activated: 0, ended: 2 }, 'maintenance-scheduler tick');
   });
@@ -122,8 +125,8 @@ describe('maintenanceSchedulerHandler', () => {
     const { maintenanceSchedulerHandler } = maintenanceSchedulerModule;
     await maintenanceSchedulerHandler(log);
 
-    expect(mockEnter).toHaveBeenCalledWith('mne_start', SYSTEM_ACTOR, log);
-    expect(mockExit).toHaveBeenCalledWith('mne_stop', SYSTEM_ACTOR, log);
+    expect(mockEnter).toHaveBeenCalledWith('mne_start', SYSTEM_ACTOR, log, FANOUT);
+    expect(mockExit).toHaveBeenCalledWith('mne_stop', SYSTEM_ACTOR, log, FANOUT);
     expect(log.info).toHaveBeenCalledWith({ activated: 1, ended: 1 }, 'maintenance-scheduler tick');
   });
 
@@ -137,7 +140,7 @@ describe('maintenanceSchedulerHandler', () => {
 
     // Second event still processed despite the first throwing.
     expect(mockEnter).toHaveBeenCalledTimes(2);
-    expect(mockEnter).toHaveBeenNthCalledWith(2, 'mne_good', SYSTEM_ACTOR, log);
+    expect(mockEnter).toHaveBeenNthCalledWith(2, 'mne_good', SYSTEM_ACTOR, log, FANOUT);
     expect(log.warn).toHaveBeenCalledWith(
       { err, eventId: 'mne_bad' },
       'maintenance-scheduler: enterMaintenance failed',
@@ -155,7 +158,7 @@ describe('maintenanceSchedulerHandler', () => {
     await maintenanceSchedulerHandler(log);
 
     expect(mockExit).toHaveBeenCalledTimes(2);
-    expect(mockExit).toHaveBeenNthCalledWith(2, 'mne_good_end', SYSTEM_ACTOR, log);
+    expect(mockExit).toHaveBeenNthCalledWith(2, 'mne_good_end', SYSTEM_ACTOR, log, FANOUT);
     expect(log.warn).toHaveBeenCalledWith(
       { err, eventId: 'mne_bad_end' },
       'maintenance-scheduler: exitMaintenance failed',

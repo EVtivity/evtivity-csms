@@ -12,8 +12,9 @@
  * 3. Stored consent granted under a released notice version (failed, P11
  *    layer 3, TC-AI-DR-09).
  * 4. The driver is active (skipped/driver_inactive, threat T8).
- * 5. The driver's AI cases today, in the system timezone, within
- *    `driverAi.maxCasesPerDriverPerDay` (skipped/driver_limit).
+ * 5. The driver's AI cases on this case's consent day (system timezone),
+ *    counted up to this case, within `driverAi.maxCasesPerDriverPerDay`
+ *    (skipped/driver_limit).
  * 6. Budgets: company monthly, the case station's site monthly, driver daily
  *    (skipped/budget_exceeded, decision E10).
  * 7. A usable provider (skipped/disabled: the surface is not configured).
@@ -91,13 +92,25 @@ async function loadDriver(driverId: string): Promise<DriverRow | undefined> {
   return row;
 }
 
-/** AI cases the driver started today (consent granted), in the system timezone. */
-export async function driverAiCasesToday(driverId: string, timeZone: string): Promise<number> {
+/**
+ * The driver's AI cases (consent granted) on the system-timezone day of this
+ * case's consent, up to and including this case: consent time, then id. A
+ * case consented later never counts, so a backlog analyzed late cannot push
+ * an earlier case over the cap.
+ */
+export async function driverAiCasesUpTo(
+  driverId: string,
+  caseId: string,
+  timeZone: string,
+): Promise<number> {
   const zone = isValidTimezone(timeZone) ? timeZone : 'UTC';
   const [row] = await client<{ n: number }[]>`
-    SELECT count(*)::int AS n FROM support_cases
-    WHERE driver_id = ${driverId} AND ai_consent = 'granted'
-      AND ai_consent_at >= (date_trunc('day', now() AT TIME ZONE ${zone}) AT TIME ZONE ${zone})
+    SELECT count(*)::int AS n
+    FROM support_cases s,
+      (SELECT ai_consent_at AS at FROM support_cases WHERE id = ${caseId}) me
+    WHERE s.driver_id = ${driverId} AND s.ai_consent = 'granted'
+      AND s.ai_consent_at >= (date_trunc('day', me.at AT TIME ZONE ${zone}) AT TIME ZONE ${zone})
+      AND (s.ai_consent_at, s.id) <= (me.at, ${caseId})
   `;
   return row?.n ?? 0;
 }
@@ -226,8 +239,8 @@ export async function analyzeDriverAiCase(
   const driverId = row.driverId;
   const driver = await loadDriver(driverId);
   if (driver?.is_active !== true) return end(['queued'], 'skipped', 'driver_inactive');
-  const casesToday = await driverAiCasesToday(driverId, await deps.systemTimezone());
-  if (casesToday > settings.driver.maxCasesPerDriverPerDay) {
+  const casesUpTo = await driverAiCasesUpTo(driverId, caseId, await deps.systemTimezone());
+  if (casesUpTo > settings.driver.maxCasesPerDriverPerDay) {
     return end(['queued'], 'skipped', 'driver_limit');
   }
   const siteId = await caseSiteId(row.stationId);

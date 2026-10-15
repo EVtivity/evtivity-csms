@@ -7,11 +7,14 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBranding';
 import { api } from '@/lib/api';
+import { storeGuestQrToken } from '@/lib/guest-start';
 
 interface QrValidation {
   valid: boolean;
   stationId?: string;
   evseId?: number;
+  /** Scan token for the guest start, bound to the station and EVSE. */
+  qrToken?: string;
 }
 
 /**
@@ -35,6 +38,10 @@ export function QrLanding(): React.JSX.Element {
         });
         if (controller.signal.aborted) return;
         if (result.valid && result.stationId != null && result.evseId != null) {
+          // The guest start at a dynamic QR station needs this scan token.
+          if (result.qrToken != null) {
+            storeGuestQrToken(result.stationId, result.evseId, result.qrToken);
+          }
           const query = window.location.search;
           void navigate(
             `/charge/${encodeURIComponent(result.stationId)}/${String(result.evseId)}${query}`,

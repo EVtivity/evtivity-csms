@@ -883,6 +883,51 @@ describe('CommandListener', () => {
     );
   });
 
+  it('publishes command.SetChargingProfile with the error when the station answers CALLERROR', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new Error('CALLERROR NotSupported: no smart charging'),
+    );
+    await createAndStart();
+    const payload = { evseId: 0, chargingProfile: { id: 1000000000, stackLevel: 1 } };
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-cp-err',
+        stationId: 'CS-001',
+        action: 'SetChargingProfile',
+        payload,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'command.SetChargingProfile',
+        payload: { request: payload, error: 'CALLERROR NotSupported: no smart charging' },
+      }),
+    );
+  });
+
+  it('does not report a charging profile refused when it could not be sent', async () => {
+    dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
+      new Error('Station CS-001 is not connected'),
+    );
+    await createAndStart();
+    subscribeHandler!(
+      JSON.stringify({
+        commandId: 'cmd-cp-send',
+        stationId: 'CS-001',
+        action: 'SetChargingProfile',
+        payload: { evseId: 0, chargingProfile: { id: 1000000000 } },
+        noQueue: true,
+      }),
+    );
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(eventBus.publish).not.toHaveBeenCalledWith(
+      expect.objectContaining({ eventType: 'command.SetChargingProfile' }),
+    );
+  });
+
   it('does not end a firmware update whose command timed out', async () => {
     dispatcher.sendVersionAwareCommand.mockRejectedValueOnce(
       new CommandTimeoutError('UpdateFirmware', 'm2'),

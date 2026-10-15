@@ -200,10 +200,20 @@ interface FailureEntry {
 }
 
 /**
- * Per-process count of wrong station passwords, keyed on the station's
- * database id. Memory only, with a short TTL: a restart or another pod starts
- * from zero, which is enough for a backoff that protects this process's
- * argon2 gate.
+ * Backoff key: the station database id plus the client IP (the address the
+ * server already resolves through its trusted proxies, never a raw header),
+ * so wrong passwords sent from one address never lock the station out of
+ * another. An unknown address shares one key per station.
+ */
+export function stationAuthBackoffKey(stationDbId: string, clientIp: string | null): string {
+  return `${stationDbId}|${clientIp ?? 'unknown'}`;
+}
+
+/**
+ * Per-process count of wrong station passwords, keyed on
+ * `stationAuthBackoffKey` (station database id and client IP). Memory only,
+ * with a short TTL: a restart or another pod starts from zero, which is enough
+ * for a backoff that protects this process's argon2 gate.
  */
 export class StationAuthBackoff {
   private readonly entries = new Map<string, FailureEntry>();
@@ -309,18 +319,24 @@ export class StationPasswordVerifier {
    * checked before the lockout, so a flood of wrong passwords on a station id
    * never locks out the station that holds the right one.
    */
-  async verify(stationDbId: string, storedHash: string, password: string): Promise<PasswordCheck> {
+  async verify(
+    stationDbId: string,
+    storedHash: string,
+    password: string,
+    clientIp: string | null,
+  ): Promise<PasswordCheck> {
     if (this.cache?.matches(stationDbId, storedHash, password) === true) {
       return { valid: true, cached: true };
     }
-    const lockedForMs = this.backoff?.lockedForMs(stationDbId) ?? 0;
+    const backoffKey = stationAuthBackoffKey(stationDbId, clientIp);
+    const lockedForMs = this.backoff?.lockedForMs(backoffKey) ?? 0;
     if (lockedForMs > 0) return { valid: false, cached: false, lockedForMs };
     const valid = await this.gate.run(() => verify(storedHash, password));
     if (valid) {
       this.cache?.remember(stationDbId, storedHash, password);
-      this.backoff?.recordSuccess(stationDbId);
+      this.backoff?.recordSuccess(backoffKey);
     } else {
-      this.backoff?.recordFailure(stationDbId);
+      this.backoff?.recordFailure(backoffKey);
     }
     return { valid, cached: false };
   }

@@ -33,6 +33,18 @@ describe('PingMonitor', () => {
     vi.useRealTimers();
   });
 
+  it('refreshes the connection registry on every cycle', () => {
+    const refresh = vi.spyOn(cm, 'refreshRegistry');
+    monitor.start();
+    expect(refresh).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(30_000);
+    expect(refresh).toHaveBeenCalledTimes(1);
+
+    vi.advanceTimersByTime(30_000);
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
   it('returns default snapshot when no pings have been sent', () => {
     const snapshot = monitor.getSnapshot();
     expect(snapshot.connectedStations).toBe(0);

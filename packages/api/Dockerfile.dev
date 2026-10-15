@@ -44,6 +44,8 @@ COPY packages/ai/ packages/ai/
 COPY packages/api/ packages/api/
 COPY packages/v2g-exi/ packages/v2g-exi/
 COPY packages/ocpp/ packages/ocpp/
+# The OCPP integration tests import the simulator's ISO 15118 test EV (types from its source).
+COPY packages/css/ packages/css/
 # The database package tests import scripts/lib (the migration file helpers).
 COPY scripts/lib/ scripts/lib/
 RUN npx tsc -b --force packages/lib packages/database packages/payments packages/ocpp

@@ -349,6 +349,9 @@ export class CommandListener {
         errorDescription: errorMessage,
       });
 
+      // A CommandQueueTimeoutError (the CALL waited behind an unanswered one
+      // and was never sent) is a plain failure, not a timeout: the station
+      // never saw the command.
       const timedOut = err instanceof CommandTimeoutError;
       // A firmware update the station answered with an error, or that could not
       // be sent, never starts: the projection ends it so its campaign can
@@ -356,6 +359,22 @@ export class CommandListener {
       if ((action === 'UpdateFirmware' || action === 'SignedUpdateFirmware') && !timedOut) {
         void this.eventBus.publish({
           eventType: 'command.UpdateFirmware',
+          aggregateType: 'ChargingStation',
+          aggregateId: stationId,
+          payload: { request: payload, error: errorMessage },
+        });
+      }
+      // A charging profile the station answered with a CALLERROR is refused like
+      // a Rejected reply: load management then treats the station as a fixed
+      // load. A send error (station not connected) or a timeout says nothing
+      // about the profile, so it is not published.
+      if (
+        action === 'SetChargingProfile' &&
+        err instanceof Error &&
+        err.message.startsWith('CALLERROR ')
+      ) {
+        void this.eventBus.publish({
+          eventType: 'command.SetChargingProfile',
           aggregateType: 'ChargingStation',
           aggregateId: stationId,
           payload: { request: payload, error: errorMessage },

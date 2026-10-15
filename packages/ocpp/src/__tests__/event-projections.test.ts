@@ -121,6 +121,11 @@ vi.mock('@evtivity/database', async () => ({
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
   )),
+  // The real load management state writes (a station's reply to its load
+  // management limit, a resend after a clear or boot), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/load-management-state.js',
+  )),
   // The session end request channel and reasons.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/session-end-request.js',
@@ -207,11 +212,16 @@ vi.mock('@evtivity/services/reservation-notify', () => ({
 // The payment service (@evtivity/payments): the gate's hold, the settlement on
 // Ended, and the NotifySettlement record. The mode classification stays real.
 const mockAuthorizeSessionHold = vi.fn();
+const mockLinkGuestSessionToCharging = vi.fn();
 const mockSettleSessionPayment = vi.fn();
 const mockRecordTerminalSettlement = vi.fn();
 vi.mock('@evtivity/payments', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   authorizeSessionHold: (...args: unknown[]) => mockAuthorizeSessionHold(...args) as unknown,
+  linkGuestSessionToCharging: (...args: unknown[]) => {
+    mockLinkGuestSessionToCharging(...args);
+    return Promise.resolve(null);
+  },
   settleSessionPayment: (...args: unknown[]) => mockSettleSessionPayment(...args) as unknown,
   recordTerminalSettlement: (...args: unknown[]) =>
     mockRecordTerminalSettlement(...args) as unknown,
@@ -2318,6 +2328,7 @@ describe('Event projections', () => {
             currency: 'USD',
             site_name: 'Test Site',
             guest_email: 'guest@example.com',
+            guest_language: 'de',
           },
         ], // dispatchDueIdlingNotification: the claim (no driver, period open for 60 s)
         [], // UPDATE idle_started_at (chargingState = SuspendedEV, already set)
@@ -2342,7 +2353,7 @@ describe('Event projections', () => {
       expect(mockDispatchSystem).toHaveBeenCalledWith(
         expect.anything(),
         'session.IdlingStarted',
-        { email: 'guest@example.com' },
+        { email: 'guest@example.com', language: 'de' },
         expect.objectContaining({
           stationId: 'CS-001',
           transactionId: 'tx-1',
@@ -2373,6 +2384,7 @@ describe('Event projections', () => {
             currency: 'USD',
             site_name: 'Test Site',
             guest_email: 'guest@example.com',
+            guest_language: 'de',
           },
         ], // dispatchDueIdlingNotification: the claim (no driver, period open for 60 s)
         [], // UPDATE idle_started_at (chargingState = SuspendedEV, already set)
@@ -2397,7 +2409,7 @@ describe('Event projections', () => {
       expect(mockDispatchSystem).toHaveBeenCalledWith(
         expect.anything(),
         'session.IdlingStarted',
-        { email: 'guest@example.com' },
+        { email: 'guest@example.com', language: 'de' },
         expect.objectContaining({
           stationId: 'CS-001',
           transactionId: 'tx-1',

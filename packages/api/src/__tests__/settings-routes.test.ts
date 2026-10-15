@@ -82,6 +82,15 @@ vi.mock('@evtivity/database', () => ({
   clearSupportCache: vi.fn(),
   clearFleetCache: vi.fn(),
   WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY: 'notifications.webhookAllowedPrivateHosts',
+  GUEST_STARTS_PER_IP_PER_HOUR_KEY: 'guest.startsPerIpPerHour',
+  GUEST_DECLINES_PER_IP_PER_HOUR_KEY: 'guest.declinesPerIpPerHour',
+  MAX_GUEST_VELOCITY_LIMIT: 10_000,
+  parseGuestVelocityLimit: (value: unknown) =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 10_000
+      ? value
+      : null,
+  clearGuestVelocityCache: vi.fn(),
+  clearGuestChargingCache: vi.fn(),
   PREPAID_LOW_CREDIT_THRESHOLD_KEY: 'prepaid.lowCreditThresholdCents',
   MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS: 100_000_000,
   parsePrepaidLowCreditThresholdCents: (value: unknown) =>
@@ -187,6 +196,7 @@ import {
   clearStationMessageSettingsCache,
   invalidateReservationSettingsCache,
   clearPrepaidSettingsCache,
+  clearGuestVelocityCache,
   clearInvoiceSettingsCache,
   clearFleetCreditSettingsCache,
 } from '@evtivity/database';
@@ -494,6 +504,36 @@ describe('Settings routes', () => {
     });
     expect(clearStationMessageSettingsCache).toHaveBeenCalled();
     expect(clearSystemSettingsCache).not.toHaveBeenCalled();
+  });
+
+  it.each([-1, 2.5, '30', 10_001])(
+    'PUT /v1/settings/guest.startsPerIpPerHour rejects %s',
+    async (value) => {
+      vi.mocked(db.insert).mockClear();
+      const response = await app.inject({
+        method: 'PUT',
+        url: '/settings/guest.startsPerIpPerHour',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { value },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('VALIDATION_ERROR');
+      expect(response.json().error).toContain('guest.startsPerIpPerHour');
+      expect(db.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('PUT /v1/settings/guest.declinesPerIpPerHour stores 0 (no limit) and clears the cache', async () => {
+    vi.mocked(clearGuestVelocityCache).mockClear();
+    setupDbResults([], [{ key: 'guest.declinesPerIpPerHour', value: 0 }]);
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/settings/guest.declinesPerIpPerHour',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { value: 0 },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(clearGuestVelocityCache).toHaveBeenCalled();
   });
 
   it.each([-1, 2.5, '500', 100_000_001])(

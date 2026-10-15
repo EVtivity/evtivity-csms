@@ -12,7 +12,7 @@ import {
   publishOcpiSessionPush,
   writeCsmsSessionAudit,
 } from '@evtivity/database';
-import { cancelOpenSessionHold } from '@evtivity/payments';
+import { cancelOpenSessionHold, failGuestSessionOfFaultedSession } from '@evtivity/payments';
 import { paymentContext } from '../lib/payments.js';
 import { notifySessionEndFailed } from './session-end-alert.js';
 import type { CsmsSessionEndReason } from '@evtivity/database';
@@ -228,15 +228,14 @@ export async function giveUpSessionEnd(
       undefined,
       logger,
     );
+    const payments = paymentContext(logger, { actor: 'system', actorLabel: 'session-end-failed' });
     try {
-      await cancelOpenSessionHold(
-        sessionId,
-        'Session end failed',
-        paymentContext(logger, { actor: 'system', actorLabel: 'session-end-failed' }),
-      );
+      await cancelOpenSessionHold(sessionId, 'Session end failed', payments);
     } catch (err: unknown) {
       logger.warn({ err, sessionId }, 'Failed to cancel the hold of a session whose end failed');
     }
+    // A guest session of the faulted session fails with it (fail-open, logged inside).
+    await failGuestSessionOfFaultedSession(sessionId, payments);
     await notifySessionEndFailed(sql, sessionId, logger);
     if (pubsub != null) await publishOcpiSessionPush(pubsub, sessionId, logger);
     return true;

@@ -16,6 +16,7 @@ import {
   loadAllocationLog,
   evChargingNeeds,
   stationConfigurations,
+  chargingProfiles,
 } from '@evtivity/database';
 import type { LoadAllocationStrategy, ServiceLogger } from '@evtivity/lib';
 import type { OcppCommand, PubSubClient } from '@evtivity/lib';
@@ -23,6 +24,7 @@ import {
   circuitConductorPhases,
   conductorFactor,
   createLogger,
+  effectiveCircuitVoltageV,
   publishOcppCommand,
 } from '@evtivity/lib';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
@@ -48,8 +50,14 @@ export interface StationPowerInfo {
   departureTime: Date | null;
   /** Lowest power in kW a charging session gets before it is stopped (0: none). */
   minPowerKw: number;
-  /** Charging rate unit of the station's limit: W unless it supports only A. */
+  /**
+   * Charging rate unit of the station's limit: W unless it supports only A, or
+   * supports A and sits on a circuit of two or three conductor phases (set by
+   * `buildSiteHierarchy`).
+   */
   rateUnit: ChargingRateUnit;
+  /** Units the station reports it takes (empty: it reported none). */
+  supportedRateUnits?: ChargingRateUnit[];
   /** Id of the station's load management profile (`loadManagementProfileId`). */
   profileId: number;
 }
@@ -66,13 +74,9 @@ export const RATE_UNIT_VARIABLES = ['RateUnit', 'ChargingScheduleAllowedCharging
 // (K01.FR.80) and the station rejects the others (K01.FR.81).
 export const MAX_EXTERNAL_CONSTRAINTS_ID_VARIABLE = 'MaxExternalConstraintsId';
 
-/**
- * The unit load management sends a station its limit in: W when the station
- * reports W (Power) support or reports nothing, A when it supports A only
- * (K01.FR.26: a station rejects a unit it does not support).
- */
-export function chargingRateUnitFor(reported: readonly string[]): ChargingRateUnit {
-  const units = new Set<string>();
+/** The units a station reports it takes in a charging schedule (empty: none reported). */
+export function supportedRateUnits(reported: readonly string[]): ChargingRateUnit[] {
+  const units = new Set<ChargingRateUnit>();
   for (const value of reported) {
     for (const part of value.split(',')) {
       const unit = part.trim();
@@ -80,7 +84,26 @@ export function chargingRateUnitFor(reported: readonly string[]): ChargingRateUn
       if (unit === 'A' || unit === 'Current') units.add('A');
     }
   }
-  return units.has('A') && !units.has('W') ? 'A' : 'W';
+  return (['A', 'W'] as const).filter((u) => units.has(u));
+}
+
+/**
+ * The unit load management sends a station its limit in (K01.FR.26: a station
+ * rejects a unit it does not support):
+ * - A when it supports A only;
+ * - A when it supports A and its circuit has two or three conductor phases: a
+ *   limit in W bounds the total power, not the current of each phase (a
+ *   single-phase vehicle on a three-phase circuit could put all of it on one
+ *   phase), a limit in A bounds the phase current;
+ * - else W, also when it reports nothing.
+ */
+export function chargingRateUnitFor(
+  reported: readonly string[],
+  conductorPhases = 1,
+): ChargingRateUnit {
+  const units = supportedRateUnits(reported);
+  if (!units.includes('A')) return 'W';
+  return !units.includes('W') || conductorPhases > 1 ? 'A' : 'W';
 }
 
 export interface AllocationResult {
@@ -105,9 +128,19 @@ export interface HierarchyNode {
   breakerRatingAmps: number;
   voltageV: number;
   oversubscriptionRatio: number;
+  /**
+   * Circuits: the phases of a three-phase panel the circuit uses. Panels: the
+   * phases of a three-phase parent that feed this single-phase sub-panel.
+   * Null: every phase.
+   */
   phaseConnections: string | null;
   phaseLoad: PhaseLoad | null;
   perPhaseCapacityKw: number | null;
+  /**
+   * Circuits: the circuit's own stored voltage (null uses the panel voltage).
+   * `voltageV` holds the voltage in use.
+   */
+  ownVoltageV?: number | null;
 }
 
 interface PanelRow {
@@ -120,6 +153,7 @@ interface PanelRow {
   maxContinuousKw: string;
   safetyMarginKw: string;
   oversubscriptionRatio: string;
+  phaseConnections: string | null;
 }
 
 interface CircuitRow {
@@ -129,6 +163,7 @@ interface CircuitRow {
   breakerRatingAmps: number;
   maxContinuousKw: string;
   phaseConnections: string | null;
+  voltageV: number | null;
 }
 
 interface UnmanagedLoadRow {
@@ -364,6 +399,7 @@ export async function getSitePowerStatus(siteId: string): Promise<{
       departureTime: stationDeparture.get(station.id) ?? null,
       minPowerKw: station.loadMinPowerKw != null ? Number(station.loadMinPowerKw) : 0,
       rateUnit: chargingRateUnitFor(reportedUnits.get(station.id) ?? []),
+      supportedRateUnits: supportedRateUnits(reportedUnits.get(station.id) ?? []),
       profileId: loadManagementProfileId(maxExternalIds.get(station.id)),
     };
   });
@@ -371,15 +407,14 @@ export async function getSitePowerStatus(siteId: string): Promise<{
   return { totalDrawKw, stations: stationInfos };
 }
 
+type Phase = 'L1' | 'L2' | 'L3';
+const ALL_PHASES: readonly Phase[] = ['L1', 'L2', 'L3'];
+
 /**
- * Get the phases a circuit is connected to based on its phaseConnections value.
- * Returns an array of phase keys (L1, L2, L3).
+ * The phases of a three-phase panel a circuit is connected to, from its
+ * phaseConnections value (none: all three).
  */
-function getCircuitPhases(
-  phaseConnections: string | null,
-  panelPhases: number,
-): Array<'L1' | 'L2' | 'L3'> {
-  if (panelPhases === 1) return ['L1'];
+function getCircuitPhases(phaseConnections: string | null): Phase[] {
   if (phaseConnections == null || phaseConnections === 'L1L2L3') return ['L1', 'L2', 'L3'];
   const map: Record<string, Array<'L1' | 'L2' | 'L3'>> = {
     L1: ['L1'],
@@ -391,6 +426,73 @@ function getCircuitPhases(
     L1L2L3: ['L1', 'L2', 'L3'],
   };
   return map[phaseConnections] ?? ['L1', 'L2', 'L3'];
+}
+
+/**
+ * The phases a circuit loads below a three-phase panel, and the share of its
+ * power each of them carries. Phase loads are in kW as phase current x phase
+ * to neutral voltage, the unit of `perPhaseCapacityKw`. The current on each
+ * conductor is P / (V x 1, sqrt(3) or 3) for 1, 2 or 3 conductor phases
+ * (`conductorFactor`), so each phase carries P / conductorFactor(n): all of it
+ * on one phase, P / sqrt(3) (not P / 2) on each of two phases, P / 3 on each of
+ * three.
+ *
+ * `panelPhases` is the circuit's own panel. A circuit of a single-phase
+ * sub-panel below a three-phase panel is counted with all of its power on
+ * every phase: the CSMS does not know which phase feeds the sub-panel.
+ */
+function circuitPhaseShare(
+  phaseConnections: string | null,
+  panelPhases: number,
+): { phases: readonly Phase[]; share: number } {
+  if (panelPhases !== 3) return { phases: ALL_PHASES, share: 1 };
+  const phases = getCircuitPhases(phaseConnections);
+  return { phases, share: 1 / conductorFactor(phases.length) };
+}
+
+/**
+ * Share of a panel's own (unmanaged) load on each phase: balanced on a
+ * three-phase panel, all of it on every phase for a single-phase sub-panel.
+ */
+function panelOwnPhaseShare(panelPhases: number): number {
+  return panelPhases === 3 ? 1 / 3 : 1;
+}
+
+/**
+ * The phases of a three-phase `parent` a single-phase sub-panel loads, and the
+ * share of its power each carries. Without phase connections (or below a
+ * single-phase parent): all of it on every phase (conservative). With them:
+ * the phase current x the parent's phase to neutral voltage, P x Vparent /
+ * Vsub on each named phase, never less than the circuit rule
+ * (1 / conductorFactor(n)), so a sub-panel voltage entered too high does not
+ * hide load.
+ */
+function subPanelPhaseShare(
+  parent: HierarchyNode,
+  child: HierarchyNode,
+): { phases: readonly Phase[]; share: number } {
+  if (parent.phases !== 3 || child.phases === 3 || child.phaseConnections == null) {
+    return { phases: ALL_PHASES, share: 1 };
+  }
+  const phases = getCircuitPhases(child.phaseConnections);
+  if (phases.length === 3) return { phases: ALL_PHASES, share: 1 };
+  const byVoltage = child.voltageV > 0 ? parent.voltageV / child.voltageV : 1;
+  return { phases, share: Math.min(1, Math.max(1 / conductorFactor(phases.length), byVoltage)) };
+}
+
+/**
+ * Weight of a child's load in its single-phase panel's capacity check. A
+ * circuit below the panel voltage (a 120 V branch of a 240 V split-phase
+ * panel) draws its current from one leg, so P kW at 120 V loads that leg like
+ * 2P kW at 240 V: weight Vpanel / Vcircuit. Every other child: 1. The
+ * capacity (kW at the panel voltage) then bounds the current of each leg even
+ * when every lower-voltage circuit sits on the same leg.
+ */
+function legWeight(parent: HierarchyNode, child: HierarchyNode): number {
+  if (parent.phases === 3 || child.type !== 'circuit') return 1;
+  return child.voltageV > 0 && child.voltageV < parent.voltageV
+    ? parent.voltageV / child.voltageV
+    : 1;
 }
 
 /**
@@ -413,6 +515,7 @@ export async function buildSiteHierarchy(
       maxContinuousKw: panels.maxContinuousKw,
       safetyMarginKw: panels.safetyMarginKw,
       oversubscriptionRatio: panels.oversubscriptionRatio,
+      phaseConnections: panels.phaseConnections,
     })
     .from(panels)
     .where(eq(panels.siteId, siteId));
@@ -432,6 +535,7 @@ export async function buildSiteHierarchy(
       breakerRatingAmps: circuits.breakerRatingAmps,
       maxContinuousKw: circuits.maxContinuousKw,
       phaseConnections: circuits.phaseConnections,
+      voltageV: circuits.voltageV,
     })
     .from(circuits)
     .where(inArray(circuits.panelId, panelIds));
@@ -494,6 +598,18 @@ export async function buildSiteHierarchy(
     const currentDrawKw =
       circuitStations.reduce((sum, s) => sum + s.currentDrawKw, 0) + unmanagedKw;
     const parentPanel = panelRowById.get(circuit.panelId);
+    // A station that takes A gets its limit in A on a circuit of two or three
+    // conductor phases (chargingRateUnitFor). Set on the shared station object
+    // so the load management view shows the unit sent.
+    const conductorPhases = circuitConductorPhases(
+      circuit.phaseConnections,
+      parentPanel?.phases ?? 1,
+    );
+    for (const station of circuitStations) {
+      if (station.supportedRateUnits != null && station.supportedRateUnits.length > 0) {
+        station.rateUnit = chargingRateUnitFor(station.supportedRateUnits, conductorPhases);
+      }
+    }
 
     const node: HierarchyNode = {
       type: 'circuit',
@@ -507,11 +623,18 @@ export async function buildSiteHierarchy(
       children: [],
       phases: parentPanel?.phases ?? 1,
       breakerRatingAmps: circuit.breakerRatingAmps,
-      voltageV: parentPanel?.voltageV ?? 240,
+      // A circuit can run below its single-phase panel's voltage (a 120 V
+      // branch of a 240 V split-phase panel): limits in A use it.
+      voltageV: effectiveCircuitVoltageV(
+        circuit.voltageV,
+        parentPanel?.voltageV ?? 240,
+        parentPanel?.phases ?? 1,
+      ),
       oversubscriptionRatio: 1.0,
       phaseConnections: circuit.phaseConnections,
       phaseLoad: null,
       perPhaseCapacityKw: null,
+      ownVoltageV: circuit.voltageV,
     };
 
     const list = circuitNodesByPanel.get(circuit.panelId) ?? [];
@@ -544,7 +667,7 @@ export async function buildSiteHierarchy(
       breakerRatingAmps: panel.breakerRatingAmps,
       voltageV: panel.voltageV,
       oversubscriptionRatio: Number(panel.oversubscriptionRatio),
-      phaseConnections: null,
+      phaseConnections: panel.phaseConnections,
       phaseLoad: isThreePhase ? { L1: 0, L2: 0, L3: 0 } : null,
       perPhaseCapacityKw,
     };
@@ -577,24 +700,25 @@ export async function buildSiteHierarchy(
         draw += child.currentDrawKw;
         // Accumulate per-phase load on three-phase panels
         if (node.phaseLoad != null) {
-          const circuitPhases = getCircuitPhases(child.phaseConnections, node.phases);
-          const circuitDraw = child.currentDrawKw;
-          // Distribute circuit draw evenly across its connected phases
-          const phaseCount = circuitPhases.length;
-          if (phaseCount > 0) {
-            const perPhase = circuitDraw / phaseCount;
-            for (const phase of circuitPhases) {
-              node.phaseLoad[phase] += perPhase;
-            }
+          const { phases, share } = circuitPhaseShare(child.phaseConnections, node.phases);
+          for (const phase of phases) {
+            node.phaseLoad[phase] += child.currentDrawKw * share;
           }
         }
       } else {
-        draw += computePanelDraw(child);
-        // Propagate child panel phase load to parent
-        if (node.phaseLoad != null && child.phaseLoad != null) {
-          node.phaseLoad.L1 += child.phaseLoad.L1;
-          node.phaseLoad.L2 += child.phaseLoad.L2;
-          node.phaseLoad.L3 += child.phaseLoad.L3;
+        const childDraw = computePanelDraw(child);
+        draw += childDraw;
+        // Propagate child panel phase load to parent. A single-phase
+        // sub-panel tracks no phases: its draw counts on every phase.
+        if (node.phaseLoad != null) {
+          if (child.phaseLoad != null) {
+            node.phaseLoad.L1 += child.phaseLoad.L1;
+            node.phaseLoad.L2 += child.phaseLoad.L2;
+            node.phaseLoad.L3 += child.phaseLoad.L3;
+          } else {
+            const { phases, share } = subPanelPhaseShare(node, child);
+            for (const phase of phases) node.phaseLoad[phase] += childDraw * share;
+          }
         }
       }
     }
@@ -832,7 +956,7 @@ export function fixedLoadKw(node: HierarchyNode, reservedKw: ReadonlyMap<string,
 }
 
 // Fixed load per phase below a three-phase panel. A circuit's fixed load is
-// spread evenly over the phases it uses, like its station load.
+// shared over the phases it uses like its station load (circuitPhaseShare).
 function fixedPhaseLoad(
   node: HierarchyNode,
   reservedKw: ReadonlyMap<string, number>,
@@ -840,17 +964,40 @@ function fixedPhaseLoad(
 ): void {
   const own = node.unmanagedLoadKw;
   if (own > 0) {
-    for (const phase of ['L1', 'L2', 'L3'] as const) into[phase] += own / 3;
+    for (const phase of ALL_PHASES) into[phase] += own * panelOwnPhaseShare(node.phases);
   }
   for (const child of node.children) {
     if (child.type === 'circuit') {
-      const circuitPhases = getCircuitPhases(child.phaseConnections, node.phases);
+      const { phases, share } = circuitPhaseShare(child.phaseConnections, node.phases);
       const fixed = fixedLoadKw(child, reservedKw);
-      for (const phase of circuitPhases) into[phase] += fixed / circuitPhases.length;
+      for (const phase of phases) into[phase] += fixed * share;
+    } else if (node.phases === 3 && child.phases !== 3 && child.phaseConnections != null) {
+      // A single-phase sub-panel that names its feeding phases loads only those.
+      const { phases, share } = subPanelPhaseShare(node, child);
+      const fixed = fixedLoadKw(child, reservedKw);
+      for (const phase of phases) into[phase] += fixed * share;
     } else {
       fixedPhaseLoad(child, reservedKw, into);
     }
   }
+}
+
+/**
+ * Fixed load of a panel for its capacity check, in kW at the panel voltage:
+ * like `fixedLoadKw`, with each circuit weighted by `legWeight`.
+ */
+function weightedFixedKw(node: HierarchyNode, reservedKw: ReadonlyMap<string, number>): number {
+  let fixed = node.unmanagedLoadKw;
+  for (const station of node.stations) {
+    fixed += reservedKw.get(station.id) ?? 0;
+  }
+  for (const child of node.children) {
+    fixed +=
+      child.type === 'circuit'
+        ? fixedLoadKw(child, reservedKw) * legWeight(node, child)
+        : weightedFixedKw(child, reservedKw);
+  }
+  return fixed;
 }
 
 /**
@@ -882,23 +1029,29 @@ export function computeHierarchicalAllocation(
   // Pass 1: Allocate within each circuit
   function allocateCircuit(circuit: HierarchyNode): void {
     const available = Math.max(0, circuit.maxContinuousKw - fixedLoadKw(circuit, reservedKw));
+    // A station with a reservation (offline, or a limit it has not accepted)
+    // is a fixed load and gets no allocation.
+    const allocatable = circuit.stations.filter((s) => !reservedKw.has(s.id));
     const circuitAllocations =
       strategy === 'priority_based'
-        ? computePriorityAllocation(circuit.stations, available)
-        : computeEqualShareAllocation(circuit.stations, available);
+        ? computePriorityAllocation(allocatable, available)
+        : computeEqualShareAllocation(allocatable, available);
 
     for (const alloc of circuitAllocations) {
       allocationMap.set(alloc.stationDbId, alloc);
     }
   }
 
+  // Station allocations below a panel, in kW at the panel voltage: each
+  // circuit weighted by `legWeight` (1 unless it runs below the voltage of
+  // its single-phase panel).
   function stationAllocatedKw(node: HierarchyNode): number {
     let total = 0;
     for (const station of node.stations) {
       total += allocationMap.get(station.id)?.allocatedKw ?? 0;
     }
     for (const child of node.children) {
-      total += stationAllocatedKw(child);
+      total += stationAllocatedKw(child) * legWeight(node, child);
     }
     return total;
   }
@@ -915,11 +1068,16 @@ export function computeHierarchicalAllocation(
 
     const panelAvailable = Math.max(
       0,
-      panel.maxContinuousKw - panel.safetyMarginKw - fixedLoadKw(panel, reservedKw),
+      panel.maxContinuousKw - panel.safetyMarginKw - weightedFixedKw(panel, reservedKw),
     );
-    const stationDemand = stationAllocatedKw(panel);
-    if (stationDemand > panelAvailable && stationDemand > 0) {
-      reduceAllocations(entriesUnder(panel, null), panelAvailable);
+    // Without lower-voltage circuits the weighted demand is the plain total
+    // and one cut fits. With them, a cut changes the mix, so measure again.
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const stationDemand = stationAllocatedKw(panel);
+      if (stationDemand <= panelAvailable + EPSILON_KW || stationDemand <= 0) break;
+      const entries = entriesUnder(panel, null);
+      const total = entries.reduce((sum, e) => sum + e.alloc.allocatedKw, 0);
+      reduceAllocations(entries, (total * panelAvailable) / stationDemand);
     }
 
     // For three-phase panels, check per-phase constraints on the scaled
@@ -959,7 +1117,7 @@ export function computeHierarchicalAllocation(
       if (child.type === 'circuit') {
         if (
           phase != null &&
-          !getCircuitPhases(child.phaseConnections, node.phases).includes(phase)
+          !circuitPhaseShare(child.phaseConnections, node.phases).phases.includes(phase)
         ) {
           continue;
         }
@@ -968,6 +1126,15 @@ export function computeHierarchicalAllocation(
           if (alloc != null) result.push({ station, alloc });
         }
       } else {
+        // A single-phase sub-panel that names its feeding phases loads only those.
+        if (
+          phase != null &&
+          node.phases === 3 &&
+          child.phases !== 3 &&
+          !subPanelPhaseShare(node, child).phases.includes(phase)
+        ) {
+          continue;
+        }
         result.push(...entriesUnder(child, phase));
       }
     }
@@ -982,7 +1149,7 @@ export function computeHierarchicalAllocation(
   ): void {
     for (const child of node.children) {
       if (child.type === 'circuit') {
-        const circuitPhases = getCircuitPhases(child.phaseConnections, node.phases);
+        const { phases, share } = circuitPhaseShare(child.phaseConnections, node.phases);
         let circuitTotal = 0;
         for (const station of child.stations) {
           const alloc = allocMap.get(station.id);
@@ -990,13 +1157,15 @@ export function computeHierarchicalAllocation(
             circuitTotal += alloc.allocatedKw;
           }
         }
-        const phaseCount = circuitPhases.length;
-        if (phaseCount > 0) {
-          const perPhase = circuitTotal / phaseCount;
-          for (const phase of circuitPhases) {
-            phaseAllocated[phase] += perPhase;
-          }
+        for (const phase of phases) {
+          phaseAllocated[phase] += circuitTotal * share;
         }
+      } else if (node.phases === 3 && child.phases !== 3 && child.phaseConnections != null) {
+        // A single-phase sub-panel that names its feeding phases loads only those.
+        const { phases, share } = subPanelPhaseShare(node, child);
+        let subTotal = 0;
+        for (const entry of entriesUnder(child, null)) subTotal += entry.alloc.allocatedKw;
+        for (const phase of phases) phaseAllocated[phase] += subTotal * share;
       } else {
         computePhaseAllocations(child, phaseAllocated, allocMap);
       }
@@ -1064,6 +1233,62 @@ export function loadManagementProfileId(
 }
 export const LOAD_MANAGEMENT_STACK_LEVEL = 1;
 
+/**
+ * True for a profile that is a load management profile: a
+ * ChargingStationMaxProfile (1.6 ChargePointMaxProfile) at the load management
+ * stack level with an id from LOAD_MANAGEMENT_PROFILE_ID up. Other senders
+ * cannot use such a profile on a managed station (the API refuses it), so a
+ * reply to one is the reply to load management. Reads the 2.1 and 1.6 forms.
+ */
+export function isLoadManagementProfile(profile: unknown): boolean {
+  if (profile == null || typeof profile !== 'object') return false;
+  const p = profile as Record<string, unknown>;
+  const id = p['id'] ?? p['chargingProfileId'];
+  const purpose = p['chargingProfilePurpose'];
+  return (
+    typeof id === 'number' &&
+    id >= LOAD_MANAGEMENT_PROFILE_ID &&
+    p['stackLevel'] === LOAD_MANAGEMENT_STACK_LEVEL &&
+    (purpose === 'ChargingStationMaxProfile' || purpose === 'ChargePointMaxProfile')
+  );
+}
+
+/** The rate unit of a load management profile's schedule (2.1 array or 1.6 object). */
+export function profileRateUnit(profile: unknown): ChargingRateUnit | null {
+  if (profile == null || typeof profile !== 'object') return null;
+  const raw = (profile as Record<string, unknown>)['chargingSchedule'];
+  const schedule = (Array.isArray(raw) ? (raw[0] as unknown) : raw) as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const unit = schedule?.['chargingRateUnit'];
+  return unit === 'A' || unit === 'W' ? unit : null;
+}
+
+/**
+ * The limit in kW of an accepted load management profile: its first period's
+ * limit, from A with the station's circuit (`rate`). Null when it cannot be
+ * read.
+ */
+export function profileLimitKw(profile: unknown, rate: StationRate | undefined): number | null {
+  if (profile == null || typeof profile !== 'object') return null;
+  const raw = (profile as Record<string, unknown>)['chargingSchedule'];
+  const schedule = (Array.isArray(raw) ? (raw[0] as unknown) : raw) as
+    | Record<string, unknown>
+    | null
+    | undefined;
+  const periods = schedule?.['chargingSchedulePeriod'];
+  const first = Array.isArray(periods) ? (periods[0] as Record<string, unknown> | undefined) : null;
+  const limit = first?.['limit'];
+  if (typeof limit !== 'number' || !Number.isFinite(limit) || limit < 0) return null;
+  const unit = profileRateUnit(profile);
+  if (unit === 'W') return limit / 1000;
+  if (unit === 'A' && rate != null) {
+    return (limit * rate.voltageV * conductorFactor(rate.phases)) / 1000;
+  }
+  return null;
+}
+
 // Unchanged allocations are sent again after this interval, so a lost
 // publish, a rejected profile or a station that lost its profiles converges.
 export const LOAD_MANAGEMENT_REFRESH_MS = 5 * 60_000;
@@ -1130,10 +1355,14 @@ async function dispatchSetChargingProfile(
   rate: StationRate | undefined,
   log: ServiceLogger,
 ): Promise<boolean> {
+  // Never queued for an offline station: the limit would be stale on
+  // reconnect, and the next cycle sends the current one (the station is
+  // reserved while offline). Clears stay queued.
   const command: OcppCommand = {
     stationId,
     action: 'SetChargingProfile',
     payload: buildLoadManagementProfile(allocatedWatts, now, rate),
+    noQueue: true,
   };
 
   try {
@@ -1243,9 +1472,32 @@ export async function logAllocations(
 }
 
 /**
+ * Split a cycle's allocations into the limits that go down and those that go
+ * up, against the limit each station holds (`previousKw`, the kW last sent).
+ * A station with no known limit holds none (unlimited), so its limit is a cut.
+ * An unchanged limit goes with the cuts. Sending every cut before any raise
+ * keeps the total within the capacity while the limits change.
+ */
+export function orderLimitChanges(
+  allocations: readonly AllocationResult[],
+  previousKw: ReadonlyMap<string, number>,
+): { cuts: AllocationResult[]; raises: AllocationResult[] } {
+  const cuts: AllocationResult[] = [];
+  const raises: AllocationResult[] = [];
+  for (const allocation of allocations) {
+    const before = previousKw.get(allocation.stationDbId);
+    if (before != null && allocation.allocatedKw > before + EPSILON_KW) raises.push(allocation);
+    else cuts.push(allocation);
+  }
+  return { cuts, raises };
+}
+
+/**
  * Send each allocation to its station as a SetChargingProfile, then tell the
- * dashboards. Returns false when a publish failed, so the caller sends again
- * on the next cycle.
+ * dashboards. Limit cuts go out first and raises only after every cut was
+ * published (`orderLimitChanges`; none after a failed cut), so the stations
+ * together never hold more than the capacity mid-cycle. Returns false when a publish failed, so the
+ * caller sends again on the next cycle.
  */
 export async function dispatchAllocations(
   siteId: string,
@@ -1253,27 +1505,41 @@ export async function dispatchAllocations(
   log: ServiceLogger,
   now: Date = new Date(),
   rates: ReadonlyMap<string, StationRate> = new Map(),
+  previousKw: ReadonlyMap<string, number> = new Map(),
 ): Promise<boolean> {
   const pubsub = getPubSub();
 
-  // Dispatch SetChargingProfile to each station in parallel — each call is
-  // an independent pub/sub publish, so serializing them adds (N * publish
-  // latency) of needless delay at the end of every 10s control cycle.
-  const results = await Promise.all(
-    allocations.map((allocation) =>
-      dispatchSetChargingProfile(
-        pubsub,
-        allocation.stationId,
-        Math.round(allocation.allocatedKw * 1000),
-        now,
-        rates.get(allocation.stationDbId),
-        log,
+  // Within each group the publishes run in parallel: each is an independent
+  // pub/sub publish, so serializing them adds (N * publish latency) of
+  // needless delay at the end of every 10s control cycle.
+  const send = (group: readonly AllocationResult[]): Promise<boolean[]> =>
+    Promise.all(
+      group.map((allocation) =>
+        dispatchSetChargingProfile(
+          pubsub,
+          allocation.stationId,
+          Math.round(allocation.allocatedKw * 1000),
+          now,
+          rates.get(allocation.stationDbId),
+          log,
+        ),
       ),
-    ),
-  );
+    );
+  const { cuts, raises } = orderLimitChanges(allocations, previousKw);
+  const cutsSent = (await send(cuts)).every(Boolean);
+  // A cut that was not published leaves its station above its new limit:
+  // no raise goes out on top of it. The caller sends everything again on the
+  // next cycle.
+  if (!cutsSent && raises.length > 0) {
+    log.warn(
+      { siteId, raiseCount: raises.length },
+      'Load management limit raises held back after a failed cut',
+    );
+  }
+  const raisesSent = cutsSent ? (await send(raises)).every(Boolean) : raises.length === 0;
 
   await broadcastLoadUpdate(pubsub, siteId);
-  return results.every(Boolean);
+  return cutsSent && raisesSent;
 }
 
 /** One allocation as stored in `site_load_management.applied_allocations`. */
@@ -1281,8 +1547,19 @@ export interface AppliedAllocation {
   stationId: string;
   stationDbId: string;
   allocatedKw: number;
-  /** True for the power kept for an offline station; nothing is sent for it. */
+  /**
+   * True for the power kept for a station that gets no allocation: offline
+   * with an active session, or with a limit it has not accepted.
+   */
   reserved?: boolean;
+  /**
+   * The station answered its load management profile with a rejection or an
+   * error and has accepted none since (`recordLoadManagementProfileReply`,
+   * @evtivity/database). It is a fixed load until it accepts one.
+   */
+  limitPending?: boolean;
+  /** Units the station rejected for its load management profile. */
+  rejectedUnits?: ChargingRateUnit[];
 }
 
 export function parseAppliedAllocations(value: unknown): AppliedAllocation[] | null {
@@ -1298,11 +1575,17 @@ export function parseAppliedAllocations(value: unknown): AppliedAllocation[] | n
     ) {
       continue;
     }
+    const rawUnits = row['rejectedUnits'];
+    const rejectedUnits = Array.isArray(rawUnits)
+      ? (['A', 'W'] as const).filter((u) => (rawUnits as unknown[]).includes(u))
+      : [];
     result.push({
       stationId: row['stationId'],
       stationDbId: row['stationDbId'],
       allocatedKw: row['allocatedKw'],
       ...(row['reserved'] === true ? { reserved: true } : {}),
+      ...(row['limitPending'] === true ? { limitPending: true } : {}),
+      ...(rejectedUnits.length > 0 ? { rejectedUnits } : {}),
     });
   }
   return result;
@@ -1315,16 +1598,39 @@ function allocationKey(entries: readonly AppliedAllocation[]): string {
         s: a.stationDbId,
         kw: Math.round(a.allocatedKw * 100),
         r: a.reserved === true,
+        p: a.limitPending === true,
+        u: [...(a.rejectedUnits ?? [])].sort().join(','),
       }))
       .sort((a, b) => (a.s < b.s ? -1 : a.s > b.s ? 1 : 0)),
   );
 }
 
 /**
- * Unit and circuit of each managed station, for a limit in A: the circuit's
- * panel voltage and the conductor phases of the circuit.
+ * The unit a station is sent its limit in: its preferred unit (`rateUnit`)
+ * unless it rejected it, else the other unit when the station may take it (it
+ * reports it, or reports no unit). A station that rejected every unit it may
+ * take is sent the preferred one again; it stays a fixed load meanwhile.
  */
-export function stationRates(nodes: readonly HierarchyNode[]): Map<string, StationRate> {
+export function sendRateUnit(
+  station: Pick<StationPowerInfo, 'rateUnit' | 'supportedRateUnits'>,
+  rejected: readonly ChargingRateUnit[],
+): ChargingRateUnit {
+  const other: ChargingRateUnit = station.rateUnit === 'W' ? 'A' : 'W';
+  const supported = station.supportedRateUnits ?? [];
+  const candidates: ChargingRateUnit[] = [station.rateUnit];
+  if (supported.length === 0 || supported.includes(other)) candidates.push(other);
+  return candidates.find((u) => !rejected.includes(u)) ?? station.rateUnit;
+}
+
+/**
+ * Unit and circuit of each managed station, for a limit in A: the circuit's
+ * panel voltage and the conductor phases of the circuit. `rejected` holds the
+ * units each station rejected (`sendRateUnit`).
+ */
+export function stationRates(
+  nodes: readonly HierarchyNode[],
+  rejected: ReadonlyMap<string, readonly ChargingRateUnit[]> = new Map(),
+): Map<string, StationRate> {
   const rates = new Map<string, StationRate>();
   const walk = (list: readonly HierarchyNode[]): void => {
     for (const node of list) {
@@ -1332,7 +1638,7 @@ export function stationRates(nodes: readonly HierarchyNode[]): Map<string, Stati
         const phases = circuitConductorPhases(node.phaseConnections, node.phases);
         for (const station of node.stations) {
           rates.set(station.id, {
-            rateUnit: station.rateUnit,
+            rateUnit: sendRateUnit(station, rejected.get(station.id) ?? []),
             voltageV: node.voltageV,
             phases,
             profileId: station.profileId,
@@ -1355,26 +1661,88 @@ function managedStations(nodes: readonly HierarchyNode[], into: StationPowerInfo
 
 /**
  * Power kept for each managed station that is offline with an active session:
- * the limit it last received, else its maximum power. It keeps charging while
- * offline, so its circuit cannot give that power to the others.
+ * the higher of the limit it was last sent and the last one it accepted
+ * (`acceptedKw`), else its maximum power. It keeps charging while offline at
+ * the limit it holds, which is the accepted one when the last send never
+ * reached it, so its circuit cannot give that power to the others.
  */
 export function offlineReservations(
   stations: readonly StationPowerInfo[],
   previous: readonly AppliedAllocation[] | null,
+  acceptedKw: ReadonlyMap<string, number> = new Map(),
 ): Map<string, number> {
   const lastKw = new Map((previous ?? []).map((a) => [a.stationDbId, a.allocatedKw]));
   const reserved = new Map<string, number>();
   for (const station of stations) {
     if (station.isOnline || !station.hasActiveSession) continue;
-    const kw = lastKw.get(station.id) ?? (station.maxPowerKw > 0 ? station.maxPowerKw : 0);
+    const known = [lastKw.get(station.id), acceptedKw.get(station.id)].filter(
+      (kw): kw is number => kw != null,
+    );
+    const kw =
+      known.length > 0 ? Math.max(...known) : station.maxPowerKw > 0 ? station.maxPowerKw : 0;
     reserved.set(station.id, kw);
   }
   return reserved;
 }
 
 /**
+ * Power kept for each managed station whose load management limit is not
+ * confirmed (`limitPending`: it rejected the last one or answered with an
+ * error). It may charge with no limit, so it is a fixed load of its maximum
+ * power or its measured draw, whichever is higher, until it accepts a limit.
+ * Idle or offline too: a session can start at any time.
+ */
+export function unconfirmedReservations(
+  stations: readonly StationPowerInfo[],
+  previous: readonly AppliedAllocation[] | null,
+): Map<string, number> {
+  const pending = new Set(
+    (previous ?? []).filter((a) => a.limitPending === true).map((a) => a.stationDbId),
+  );
+  const reserved = new Map<string, number>();
+  for (const station of stations) {
+    if (!pending.has(station.id)) continue;
+    reserved.set(station.id, Math.max(station.maxPowerKw, station.currentDrawKw, 0));
+  }
+  return reserved;
+}
+
+/**
+ * The last load management limit each station accepted, in kW: the stored
+ * copy of its accepted profile (`charging_profiles`, source csms_set, the
+ * station's load management profile id), converted from A with its circuit.
+ */
+export async function lastAcceptedLimitsKw(
+  stations: readonly StationPowerInfo[],
+  rates: ReadonlyMap<string, StationRate>,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  if (stations.length === 0) return result;
+  const byId = new Map(stations.map((s) => [s.id, s]));
+  const rows = await db
+    .select({ stationId: chargingProfiles.stationId, profileData: chargingProfiles.profileData })
+    .from(chargingProfiles)
+    .where(
+      and(
+        inArray(chargingProfiles.stationId, [...byId.keys()]),
+        eq(chargingProfiles.source, 'csms_set'),
+      ),
+    );
+  for (const row of rows) {
+    const station = byId.get(row.stationId);
+    const data = row.profileData as Record<string, unknown> | null;
+    if (station == null || data == null || !isLoadManagementProfile(data)) continue;
+    if ((data['id'] ?? data['chargingProfileId']) !== station.profileId) continue;
+    const kw = profileLimitKw(data, rates.get(row.stationId));
+    if (kw != null) result.set(row.stationId, Math.max(result.get(row.stationId) ?? 0, kw));
+  }
+  return result;
+}
+
+/**
  * Current allocation of a site: its power status, its hierarchy, the power
- * kept for offline stations, and the allocations of the online ones.
+ * kept for offline stations and for stations with an unconfirmed limit, and
+ * the allocations of the others.
  */
 export async function computeSiteAllocation(
   siteId: string,
@@ -1391,10 +1759,30 @@ export async function computeSiteAllocation(
   const hierarchy = await buildSiteHierarchy(siteId, status.stations);
   const managed: StationPowerInfo[] = [];
   managedStations(hierarchy, managed);
-  const reservedKw = offlineReservations(managed, previous);
+  const offline = managed.filter((s) => !s.isOnline && s.hasActiveSession);
+  const acceptedKw =
+    offline.length > 0
+      ? await lastAcceptedLimitsKw(offline, stationRates(hierarchy))
+      : new Map<string, number>();
+  const reservedKw = offlineReservations(managed, previous, acceptedKw);
+  for (const [stationDbId, kw] of unconfirmedReservations(managed, previous)) {
+    reservedKw.set(stationDbId, Math.max(reservedKw.get(stationDbId) ?? 0, kw));
+  }
   const allocations =
     hierarchy.length === 0 ? [] : computeHierarchicalAllocation(hierarchy, strategy, reservedKw);
   return { status, hierarchy, managed, reservedKw, allocations };
+}
+
+/** The station reply state of a previous entry, carried into the next one. */
+function replyState(
+  entry: AppliedAllocation | undefined,
+): Pick<AppliedAllocation, 'limitPending' | 'rejectedUnits'> {
+  return {
+    ...(entry?.limitPending === true ? { limitPending: true } : {}),
+    ...(entry?.rejectedUnits != null && entry.rejectedUnits.length > 0
+      ? { rejectedUnits: entry.rejectedUnits }
+      : {}),
+  };
 }
 
 export async function runLoadManagementCycle(
@@ -1424,18 +1812,23 @@ export async function runLoadManagementCycle(
         previous,
       );
 
-      const stationIdByDbId = new Map(managed.map((s) => [s.id, s.stationId]));
+      const previousById = new Map((previous ?? []).map((a) => [a.stationDbId, a]));
+      const stationById = new Map(managed.map((s) => [s.id, s]));
+      // The reply state (unconfirmed limit, rejected units) is carried for
+      // every station that keeps an entry.
       const applied: AppliedAllocation[] = [
         ...allocations.map((a) => ({
           stationId: a.stationId,
           stationDbId: a.stationDbId,
           allocatedKw: a.allocatedKw,
+          ...replyState(previousById.get(a.stationDbId)),
         })),
         ...[...reservedKw].map(([stationDbId, allocatedKw]) => ({
-          stationId: stationIdByDbId.get(stationDbId) ?? stationDbId,
+          stationId: stationById.get(stationDbId)?.stationId ?? stationDbId,
           stationDbId,
           allocatedKw,
           reserved: true,
+          ...replyState(previousById.get(stationDbId)),
         })),
       ];
 
@@ -1472,12 +1865,32 @@ export async function runLoadManagementCycle(
           summarizeSiteCapacity(hierarchy, reservedKw),
         );
       }
+      // An online station with an unconfirmed limit is sent its reservation
+      // as the limit, in a unit it has not rejected: once it accepts, the
+      // next cycle allocates it like the others.
+      const rejected = new Map<string, readonly ChargingRateUnit[]>();
+      for (const a of applied) {
+        if (a.rejectedUnits != null) rejected.set(a.stationDbId, a.rejectedUnits);
+      }
+      const retries: AllocationResult[] = applied
+        .filter((a) => a.limitPending === true && stationById.get(a.stationDbId)?.isOnline === true)
+        .map((a) => ({
+          stationId: a.stationId,
+          stationDbId: a.stationDbId,
+          allocatedKw: a.allocatedKw,
+          currentDrawKw: stationById.get(a.stationDbId)?.currentDrawKw ?? 0,
+        }));
+      const toSend = [...allocations, ...retries];
+      // The kW each station was last sent (its current limit), so cuts go out
+      // before raises.
+      const previousKw = new Map((previous ?? []).map((a) => [a.stationDbId, a.allocatedKw]));
       const sent = await dispatchAllocations(
         site.siteId,
-        allocations,
+        toSend,
         log,
         now,
-        stationRates(hierarchy),
+        stationRates(hierarchy, rejected),
+        previousKw,
       );
       const cleared =
         released.length === 0
@@ -1488,14 +1901,38 @@ export async function runLoadManagementCycle(
             );
       if (!sent || !cleared) {
         // A failed publish: send everything again on the next cycle. The
-        // released stations stay listed so their clear is retried too.
+        // released stations stay listed so their clear is retried too. Only
+        // while load management is on: turned off, its clear already ran.
         await db
           .update(siteLoadManagement)
           .set({
             appliedAllocations: cleared ? applied : [...applied, ...released],
             appliedAt: null,
           })
+          .where(
+            and(eq(siteLoadManagement.siteId, site.siteId), eq(siteLoadManagement.isEnabled, true)),
+          );
+      }
+
+      // Turned off while this cycle sent: the clear of the PUT can reach a
+      // station before this cycle's limit, which would then stay. Clear the
+      // stations just sent again.
+      if (toSend.length > 0) {
+        const [state] = await db
+          .select({ isEnabled: siteLoadManagement.isEnabled })
+          .from(siteLoadManagement)
           .where(eq(siteLoadManagement.siteId, site.siteId));
+        if (state?.isEnabled !== true) {
+          await clearLoadManagementProfiles(
+            toSend.map((a) => a.stationId),
+            log,
+          );
+          log.info(
+            { siteId: site.siteId, stationCount: toSend.length },
+            'Load management turned off during the cycle, limits cleared again',
+          );
+          continue;
+        }
       }
 
       log.info(
@@ -1505,6 +1942,7 @@ export async function runLoadManagementCycle(
           totalDrawKw: status.totalDrawKw,
           stationCount: allocations.length,
           reservedCount: reservedKw.size,
+          retryCount: retries.length,
           releasedCount: released.length,
           changed,
         },

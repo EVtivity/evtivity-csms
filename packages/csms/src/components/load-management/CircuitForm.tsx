@@ -17,7 +17,12 @@ import { Label } from '@/components/ui/label';
 import { Select } from '@/components/ui/select';
 import { SaveButton } from '@/components/save-button';
 import { api } from '@/lib/api';
-import { circuitConductorPhases, computeMaxContinuousKw } from '@evtivity/lib/load-allocation';
+import {
+  PANEL_VOLTAGES,
+  circuitConductorPhases,
+  computeMaxContinuousKw,
+  effectiveCircuitVoltageV,
+} from '@evtivity/lib/load-allocation';
 import { formatNumber } from '@/lib/formatting';
 
 interface CircuitStatus {
@@ -28,6 +33,7 @@ interface CircuitStatus {
   currentDrawKw: number;
   availableKw: number;
   phaseConnections?: string | null;
+  voltageV?: number | null;
   stations: unknown[];
   unmanagedLoads: unknown[];
 }
@@ -59,6 +65,7 @@ export function CircuitForm({
   const [name, setName] = useState('');
   const [breakerRatingAmps, setBreakerRatingAmps] = useState(40);
   const [phaseConnections, setPhaseConnections] = useState<string | null>(null);
+  const [voltageV, setVoltageV] = useState<number | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -66,17 +73,25 @@ export function CircuitForm({
         setName(circuit.name);
         setBreakerRatingAmps(circuit.breakerRatingAmps);
         setPhaseConnections(circuit.phaseConnections ?? null);
+        setVoltageV(circuit.voltageV ?? null);
       } else {
         setName('');
         setBreakerRatingAmps(40);
         setPhaseConnections(null);
+        setVoltageV(null);
       }
     }
   }, [open, circuit]);
 
+  // A circuit of a single-phase panel can run below the panel voltage (a
+  // 120 V branch of a 240 V split-phase panel).
+  const circuitVoltages: number[] =
+    panelPhases === 3 ? [] : PANEL_VOLTAGES.filter((v) => v < panelVoltageV);
+  const usedVoltageV = effectiveCircuitVoltageV(voltageV, panelVoltageV, panelPhases);
+
   const maxContinuousKw = computeMaxContinuousKw(
     breakerRatingAmps,
-    panelVoltageV,
+    usedVoltageV,
     circuitConductorPhases(phaseConnections, panelPhases),
   );
 
@@ -85,6 +100,9 @@ export function CircuitForm({
       const body: Record<string, unknown> = { name, breakerRatingAmps };
       // On edit, Auto (null) puts the circuit back on every panel phase.
       if (phaseConnections != null || isEdit) body.phaseConnections = phaseConnections;
+      // On edit, null puts the circuit back on the panel voltage.
+      const sentVoltageV = usedVoltageV === panelVoltageV ? null : usedVoltageV;
+      if (sentVoltageV != null || isEdit) body.voltageV = sentVoltageV;
       if (isEdit) {
         return api.patch(`/v1/sites/${siteId}/panels/${panelId}/circuits/${circuit.id}`, body);
       }
@@ -141,6 +159,31 @@ export function CircuitForm({
             />
           </div>
 
+          {circuitVoltages.length > 0 && (
+            <div className="grid gap-2">
+              <Label htmlFor="circuit-voltage">{t('loadManagement.circuitVoltage')}</Label>
+              <Select
+                id="circuit-voltage"
+                value={voltageV ?? ''}
+                onChange={(e) => {
+                  setVoltageV(e.target.value === '' ? null : Number(e.target.value));
+                }}
+              >
+                <option value="">
+                  {t('loadManagement.circuitVoltagePanel', { voltage: panelVoltageV })}
+                </option>
+                {circuitVoltages.map((v) => (
+                  <option key={v} value={v}>
+                    {v}V
+                  </option>
+                ))}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('loadManagement.circuitVoltageHint')}
+              </p>
+            </div>
+          )}
+
           {panelPhases === 3 && (
             <div className="grid gap-2">
               <Label htmlFor="phase-connections">{t('loadManagement.phaseConnections')}</Label>
@@ -169,7 +212,7 @@ export function CircuitForm({
             </p>
             <p className="text-lg font-semibold">{formatNumber(maxContinuousKw, 1)} kW</p>
             <p className="text-xs text-muted-foreground">
-              {t('loadManagement.necRule')} ({panelVoltageV}V, {panelPhases}ph)
+              {t('loadManagement.necRule')} ({usedVoltageV}V, {panelPhases}ph)
             </p>
           </div>
 

@@ -8,6 +8,9 @@ import {
   setCachedConnectorStatus,
   isApiKeyRateLimited,
   isGuestSessionRateLimited,
+  guestSessionRateLimitSize,
+  GUEST_IP_RATE_LIMIT,
+  GUEST_SESSION_RATE_LIMIT,
 } from '../lib/rate-limiters.js';
 
 beforeEach(() => {
@@ -97,19 +100,49 @@ describe('isApiKeyRateLimited', () => {
 });
 
 describe('isGuestSessionRateLimited', () => {
-  it('allows 30 requests per IP then blocks the 31st', () => {
+  it('allows 30 requests per IP and session then blocks the 31st', () => {
     const ip = '203.0.113.5';
     for (let i = 0; i < 30; i++) {
-      expect(isGuestSessionRateLimited(ip)).toBe(false);
+      expect(isGuestSessionRateLimited(ip, 'tok_a')).toBe(false);
     }
-    expect(isGuestSessionRateLimited(ip)).toBe(true);
+    expect(isGuestSessionRateLimited(ip, 'tok_a')).toBe(true);
   });
 
   it('resets after the window slides past 60s', () => {
     const ip = '203.0.113.6';
-    for (let i = 0; i < 30; i++) isGuestSessionRateLimited(ip);
-    expect(isGuestSessionRateLimited(ip)).toBe(true);
+    for (let i = 0; i < 30; i++) isGuestSessionRateLimited(ip, 'tok_a');
+    expect(isGuestSessionRateLimited(ip, 'tok_a')).toBe(true);
     vi.advanceTimersByTime(61_000);
-    expect(isGuestSessionRateLimited(ip)).toBe(false);
+    expect(isGuestSessionRateLimited(ip, 'tok_a')).toBe(false);
+  });
+
+  it('lets two guests behind one IP poll their own sessions (finding G4)', () => {
+    const ip = '203.0.113.7';
+    for (let i = 0; i < 30; i++) {
+      expect(isGuestSessionRateLimited(ip, 'tok_a')).toBe(false);
+      expect(isGuestSessionRateLimited(ip, 'tok_b')).toBe(false);
+    }
+    expect(isGuestSessionRateLimited(ip, 'tok_a')).toBe(true);
+    expect(isGuestSessionRateLimited(ip, 'tok_b')).toBe(true);
+  });
+
+  it('caps one IP at 120 requests a minute across session tokens', () => {
+    const ip = '203.0.113.8';
+    for (let i = 0; i < GUEST_IP_RATE_LIMIT; i++) {
+      expect(isGuestSessionRateLimited(ip, `tok_${String(i)}`)).toBe(false);
+    }
+    expect(isGuestSessionRateLimited(ip, 'tok_new')).toBe(true);
+    expect(GUEST_IP_RATE_LIMIT).toBe(120);
+    expect(GUEST_SESSION_RATE_LIMIT).toBe(30);
+  });
+
+  it('sweeps expired entries once a window passes', () => {
+    isGuestSessionRateLimited('203.0.113.9', 'tok_sweep');
+    expect(guestSessionRateLimitSize()).toBeGreaterThan(0);
+    // Past one window after any sweep the earlier tests ran (the module keeps state).
+    vi.advanceTimersByTime(130_000);
+    isGuestSessionRateLimited('203.0.113.10', 'tok_other');
+    // Only the request just made is left: one session entry and one IP entry.
+    expect(guestSessionRateLimitSize()).toBe(2);
   });
 });

@@ -25,6 +25,12 @@ import type { HandlerContext, NextFunction } from './pipeline.js';
  * whether to act on the message; in practice the BootNotification CALL is
  * almost always the next frame and the session reaches 'Accepted' immediately
  * after.
+ *
+ * Exception: a station awaiting operator approval (onboarding status pending
+ * under the approval-required registration policy) starts its connection at
+ * 'Pending' (OcppServer.handleConnection), since its BootNotification would be
+ * answered Pending. Until a BootNotification is Accepted it gets SecurityError
+ * here, even when it never sends one.
  */
 export function createBootGuardMiddleware() {
   return async (ctx: HandlerContext, next: NextFunction): Promise<void> => {

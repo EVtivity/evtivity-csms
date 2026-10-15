@@ -355,6 +355,7 @@
     "loadingPayment": "Cargando formulario de pago..."
   },
   "guestSession": {
+    "faultedNotice": "Esta sesión terminó por un fallo y no se cobró.",
     "loadingSession": "Cargando sesión...",
     "notFound": "Sesión no encontrada.",
     "duration": "Duración",
@@ -771,6 +772,7 @@
     "PROVIDER_TEST_FAILED": "El proveedor devolvió ...",
     "PUSH_NOT_FOUND": "Push no encontrado",
     "PUSH_REJECTED": "La estación rechazó el push: ...",
+    "QR_SCAN_REQUIRED": "Escanee el código QR que se muestra en el cargador para iniciar la carga.",
     "RATE_LIMITED": "Demasiadas solicitudes. Espere un momento y vuelva a intentarlo.",
     "RECAPTCHA_FAILED": "Verificación de reCAPTCHA fallida",
     "RECAPTCHA_REQUIRED": "Se requiere token de reCAPTCHA",
@@ -890,6 +892,8 @@
     "AI_CONFIRMATION_REQUIRES_SESSION": "Confirma esta acción con una sesión iniciada en el panel, no con una clave de API",
     "AI_MCP_RATE_LIMITED": "Demasiadas solicitudes MCP. Inténtalo de nuevo más tarde",
     "CHARGING_PROFILE_ID_RESERVED": "El ID del perfil de carga debe ser mayor que el MaxExternalConstraintsId de la estación.",
+    "CHARGING_PROFILE_LOAD_MANAGED": "La gestión de carga fija el límite de esta estación. Use un ChargingStationMaxProfile con nivel de pila 0 y un ID distinto del ID del perfil de gestión de carga.",
+    "STATION_SECURITY_ROUTE_REQUIRED": "Los perfiles de seguridad y de red de la estación se cambian con PATCH /v1/stations/:id, no con una plantilla de configuración",
     "TOKEN_BLOCKED_BY_OPERATOR": "El operador desactivó esta tarjeta. Contacte al operador para reactivarla.",
     "SESSION_NO_VEHICLE_ID": "El cargador no envió ningún identificador de vehículo para esta sesión.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "El operador bloqueó Autocharge para este vehículo. Contacte al operador para desbloquearlo.",

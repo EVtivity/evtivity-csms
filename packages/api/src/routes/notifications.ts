@@ -31,8 +31,11 @@ import {
 import { isMissingFileError } from '../lib/fs-errors.js';
 import { getPubSub } from '@evtivity/lib/pubsub-instance';
 import {
+  DRIVER_EVENT_TYPES,
+  isDriverEventType,
   isRequiredDriverEventType,
   OCPP_NOTIFICATION_EVENT_TYPES,
+  REQUIRED_DRIVER_EVENT_TYPES,
 } from '@evtivity/lib/notification-events';
 
 const OCPP_CACHE_INVALIDATE_CHANNEL = 'cache_invalidate';
@@ -145,7 +148,7 @@ const ocppEventSettingItem = z
       .string()
       .max(255)
       .describe('OCPP event type (e.g. station.Connected, ocpp.BootNotification)'),
-    recipient: z.string().max(500).describe('Recipient address (email, webhook URL, or $admin)'),
+    recipient: z.string().max(500).describe('Recipient address (email or webhook URL)'),
     channel: z
       .enum(['email', 'webhook', 'sms', 'log'])
       .describe('Delivery channel (email, webhook, sms, log)'),
@@ -283,59 +286,6 @@ const ocppEventTemplateResponse = z
   })
   .passthrough();
 
-// Notifications sent to drivers. Matches the groups on the CSMS Driver Events tab
-// (packages/csms/src/lib/template-variables.ts).
-export const DRIVER_EVENT_TYPES = [
-  'session.Started',
-  'session.AutochargeStarted',
-  'session.Updated',
-  'session.Completed',
-  'session.Faulted',
-  'session.PaymentReceived',
-  'session.IdlingStarted',
-  'session.Receipt',
-  'driver.Welcome',
-  'driver.ForgotPassword',
-  'driver.PasswordChanged',
-  'driver.AccountVerification',
-  'driver.MfaDisabled',
-  'driver.PortalInvite',
-  'driver.RegistrationAttempt',
-  'payment.Complete',
-  'payment.Refunded',
-  'payment.FeeRefunded',
-  'payment.PreAuthFailed',
-  'payment.CaptureFailed',
-  'payment.MissingPaymentMethod',
-  'payment.AccountCreditLimit',
-  'reservation.Created',
-  'reservation.Cancelled',
-  'reservation.CancelledForMaintenance',
-  'reservation.Expiring',
-  'reservation.Expired',
-  'reservation.StationFaulted',
-  'reservation.TakenByOther',
-  'invoice.Sent',
-  'invoice.CreditNote',
-  'invoice.MemberInvoice',
-  'invoice.MemberCreditNote',
-  'invoice.MemberOverdue',
-  'supportCase.Created',
-  'supportCase.OperatorReply',
-  'supportCase.Resolved',
-  'supportCase.AiAnswered',
-  'mfa.VerificationCode',
-  'token.Added',
-  'token.Removed',
-  'token.Deactivated',
-  'token.Reactivated',
-  'maintenance.SessionStopped',
-  'watch.StationAvailable',
-  'prepaid.LowCredit',
-  'prepaid.CreditExhausted',
-  'fleet.AccountBillingChanged',
-];
-
 // Notifications sent to operators and site hosts. Matches the CSMS System Events tab.
 export const SYSTEM_EVENT_TYPES = [
   'operator.UserCreated',
@@ -386,18 +336,29 @@ function safeTemplatePath(
   return filePath;
 }
 
+const REQUIRED_DRIVER_EVENT_LIST = REQUIRED_DRIVER_EVENT_TYPES.join(', ');
+
 const driverEventSettingBody = z.object({
-  eventType: z.string().max(255).describe('Driver event type identifier'),
+  eventType: z
+    .string()
+    .max(255)
+    .describe(
+      'Driver event type identifier. Only driver notification types have a switch: any other type returns 400 VALIDATION_ERROR.',
+    ),
   isEnabled: z
     .boolean()
     .describe(
-      'Whether the driver event type is sent. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, driver.RegistrationAttempt, mfa.VerificationCode) cannot be turned off.',
+      `Whether the driver event type is sent. The required types (${REQUIRED_DRIVER_EVENT_LIST}) cannot be turned off.`,
     ),
 });
 
 const ocppEventSettingsBody = z.object({
   eventType: z.string().max(255).describe('OCPP event type identifier'),
-  recipient: z.string().max(500).optional().describe('Recipient address or $admin'),
+  recipient: z
+    .string()
+    .max(500)
+    .optional()
+    .describe('Recipient address: an email address (email channel) or an http(s) URL (webhook)'),
   channel: z.enum(['email', 'webhook']).optional().describe('Notification delivery channel'),
   templateHtml: z.string().nullable().optional(),
   language: z.string().max(10).nullable().optional().describe('ISO language code'),
@@ -963,8 +924,7 @@ export function notificationRoutes(app: FastifyInstance): void {
       // Validate the recipient against the channel format so misconfigured
       // settings fail at save time with a clear error, not silently at
       // dispatch time with an SMTP/webhook rejection deep in the worker log.
-      // `$admin` is the magic recipient that resolves to the operator email.
-      if (body.recipient != null && body.recipient !== '' && body.recipient !== '$admin') {
+      if (body.recipient != null && body.recipient !== '') {
         if (channel === 'email' && !isValidEmail(body.recipient)) {
           await reply.status(400).send({
             error: 'recipient must be a valid email address for email channel',
@@ -1352,14 +1312,16 @@ export function notificationRoutes(app: FastifyInstance): void {
       schema: {
         tags: ['Notifications'],
         summary: 'Turn a driver event type on or off',
-        description:
-          "Operators turn each driver notification type on or off. Drivers' own notification preferences apply on top when it is on. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, driver.RegistrationAttempt, mfa.VerificationCode) are always on: turning one off returns 400 NOTIFICATION_EVENT_REQUIRED.",
+        description: `Operators turn each driver notification type on or off. Drivers' own notification preferences apply on top when it is on. Only driver notification types have a switch: any other event type returns 400 VALIDATION_ERROR. The required types (${REQUIRED_DRIVER_EVENT_LIST}) are always on: turning one off returns 400 NOTIFICATION_EVENT_REQUIRED.`,
         operationId: 'updateDriverEventSettings',
         security: [{ bearerAuth: [] }],
         body: zodSchema(driverEventSettingBody),
         response: {
           200: itemResponse(eventToggleSettingItem),
-          400: errorWith('The event type is always on', [ERROR_CODES.NOTIFICATION_EVENT_REQUIRED]),
+          400: errorWith('Not a driver event type, or the event type is always on', [
+            ERROR_CODES.VALIDATION_ERROR,
+            ERROR_CODES.NOTIFICATION_EVENT_REQUIRED,
+          ]),
           404: errorWith('Setting not found, or the user is restricted to some sites', [
             ERROR_CODES.SETTING_NOT_FOUND,
           ]),
@@ -1369,6 +1331,15 @@ export function notificationRoutes(app: FastifyInstance): void {
     async (request, reply) => {
       if (!(await requireAllSiteAccess(request, reply, ALL_SITES_SETTING_NOT_FOUND))) return;
       const body = request.body as z.infer<typeof driverEventSettingBody>;
+      // Only driver notification types have a switch. A row for a system or
+      // OCPP event type would let an operator silence it through dispatch.
+      if (!isDriverEventType(body.eventType)) {
+        await reply.status(400).send({
+          error: 'eventType must be a driver notification event type',
+          code: 'VALIDATION_ERROR',
+        });
+        return;
+      }
       if (!body.isEnabled && isRequiredDriverEventType(body.eventType)) {
         await reply.status(400).send({
           error: 'This notification is required for account access and cannot be turned off',

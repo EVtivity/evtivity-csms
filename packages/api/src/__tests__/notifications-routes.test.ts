@@ -10,7 +10,10 @@ import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { OCPP_NOTIFICATION_EVENT_TYPES } from '@evtivity/lib/notification-events';
+import {
+  DRIVER_EVENT_TYPES,
+  OCPP_NOTIFICATION_EVENT_TYPES,
+} from '@evtivity/lib/notification-events';
 
 // DB mock helpers
 const mockWriteAudit = vi.hoisted(() => vi.fn(() => Promise.resolve()));
@@ -154,11 +157,7 @@ vi.mock('@evtivity/lib', async () => {
 });
 
 import { registerAuth } from '../plugins/auth.js';
-import {
-  notificationRoutes,
-  DRIVER_EVENT_TYPES,
-  SYSTEM_EVENT_TYPES,
-} from '../routes/notifications.js';
+import { notificationRoutes, SYSTEM_EVENT_TYPES } from '../routes/notifications.js';
 
 const VALID_USER_ID = 'usr_000000000001';
 const VALID_ROLE_ID = 'rol_000000000001';
@@ -535,6 +534,8 @@ describe('Notification routes', () => {
     'driver.AccountVerification',
     'driver.PortalInvite',
     'mfa.VerificationCode',
+    'driver.PasswordChanged',
+    'driver.MfaDisabled',
   ])('PUT /v1/driver-event-settings refuses to turn off %s', async (eventType) => {
     const response = await app.inject({
       method: 'PUT',
@@ -544,6 +545,23 @@ describe('Notification routes', () => {
     });
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.body).code).toBe('NOTIFICATION_EVENT_REQUIRED');
+  });
+
+  it.each([
+    'session.EndRequestFailed',
+    'operator.ForgotPassword',
+    'station.Connected',
+    'x.Unknown',
+  ])('PUT /v1/driver-event-settings refuses the non-driver event type %s', async (eventType) => {
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/driver-event-settings',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { eventType, isEnabled: false },
+    });
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.body).code).toBe('VALIDATION_ERROR');
+    expect(mockWriteAudit).not.toHaveBeenCalled();
   });
 
   it('PUT /v1/driver-event-settings validates schema', async () => {
@@ -810,7 +828,7 @@ describe('Notification routes', () => {
       payload: {
         eventType: 'station.Connected',
         channel: 'email',
-        recipient: '$admin',
+        recipient: 'admin@test.com',
         templateHtml: '{{#each items}}x{{/each}}',
       },
     });

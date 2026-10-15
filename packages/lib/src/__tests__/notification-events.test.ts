@@ -3,8 +3,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  DRIVER_EVENT_TYPES,
   OCPP_NOTIFICATION_EVENTS,
   OCPP_NOTIFICATION_EVENT_TYPES,
+  REQUIRED_DRIVER_EVENT_TYPES,
+  isDriverEventType,
   isRequiredDriverEventType,
   ocppNotificationEventsFor,
 } from '../notification-events.js';
@@ -39,5 +42,32 @@ describe('required driver events', () => {
   it('always sends the notice of a session an Autocharge vehicle started', () => {
     expect(isRequiredDriverEventType('session.AutochargeStarted')).toBe(true);
     expect(isRequiredDriverEventType('session.Started')).toBe(false);
+  });
+});
+
+describe('driver events', () => {
+  it('lists every driver event once', () => {
+    expect(new Set(DRIVER_EVENT_TYPES).size).toBe(DRIVER_EVENT_TYPES.length);
+  });
+
+  it('holds every required type', () => {
+    for (const eventType of REQUIRED_DRIVER_EVENT_TYPES) {
+      expect(isDriverEventType(eventType), eventType).toBe(true);
+    }
+  });
+
+  it('refuses system, operator and OCPP event types', () => {
+    expect(isDriverEventType('session.Started')).toBe(true);
+    expect(isDriverEventType('session.EndRequestFailed')).toBe(false);
+    expect(isDriverEventType('operator.ForgotPassword')).toBe(false);
+    expect(isDriverEventType('invoice.FleetInvoice')).toBe(false);
+    for (const eventType of OCPP_NOTIFICATION_EVENT_TYPES) {
+      expect(isDriverEventType(eventType)).toBe(false);
+    }
+  });
+
+  it('always sends the security notices of a changed password or removed MFA', () => {
+    expect(isRequiredDriverEventType('driver.PasswordChanged')).toBe(true);
+    expect(isRequiredDriverEventType('driver.MfaDisabled')).toBe(true);
   });
 });

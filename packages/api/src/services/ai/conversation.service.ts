@@ -302,20 +302,52 @@ export function hideStaleToolResults(
   });
 }
 
+/** What assistant text written under another access reads as for an API key. */
+export const HIDDEN_ASSISTANT_TEXT =
+  'Answer hidden: it was written under another access. Ask again if it is still needed.';
+
+/**
+ * For an API key reader: the text of every assistant message written under
+ * another access fingerprint (or none, written before the fingerprint was
+ * stored on assistant messages) replaced by HIDDEN_ASSISTANT_TEXT. An answer
+ * written in a cookie session can quote data the key's narrower scope cannot
+ * read; hiding only the tool results would leave that quote readable.
+ */
+export function hideOtherAccessAssistantText(
+  rows: readonly AiMessageRow[],
+  accessScope: string,
+): AiMessageRow[] {
+  return rows.map((row) => {
+    if (row.role !== 'assistant' || row.accessScope === accessScope) return row;
+    const parts = row.parts as AiPart[];
+    if (!parts.some((part) => part.type === 'text')) return row;
+    return {
+      ...row,
+      parts: parts.map((part) =>
+        part.type === 'text' ? { type: 'text' as const, text: HIDDEN_ASSISTANT_TEXT } : part,
+      ),
+      providerState: null,
+    };
+  });
+}
+
 /**
  * The conversation's messages as the caller with this access fingerprint may
- * see them (read and replay): tool results of another access are hidden.
+ * see them (read and replay): tool results of another access are hidden, and
+ * for an API key also the assistant text written under another access.
  */
 export async function listMessages(
   conversationId: string,
   accessScope: string,
+  options: { isApiKey?: boolean | undefined } = {},
 ): Promise<AiMessageRow[]> {
   const rows = await db
     .select()
     .from(aiMessages)
     .where(eq(aiMessages.conversationId, conversationId))
     .orderBy(asc(aiMessages.createdAt), asc(aiMessages.id));
-  return hideStaleToolResults(rows, accessScope);
+  const visible = hideStaleToolResults(rows, accessScope);
+  return options.isApiKey === true ? hideOtherAccessAssistantText(visible, accessScope) : visible;
 }
 
 /** The conversation history as the engine sends it to a model. */
@@ -339,7 +371,7 @@ export async function appendMessage(input: {
   usage?: AiUsage | undefined;
   costMicros?: number | null | undefined;
   finishReason?: string | undefined;
-  /** The caller's access fingerprint; required on tool messages. */
+  /** The caller's access fingerprint; required on tool and assistant messages. */
   accessScope?: string | undefined;
 }): Promise<string> {
   const id = input.id ?? generateId('aiMessage');
@@ -585,6 +617,39 @@ export async function supersedePendingActions(
       ),
     )
     .returning();
+}
+
+export const INTERRUPTED_ACTION_RESULT =
+  '{"status":"interrupted","note":"The user confirmed this action, but the turn failed before its result was recorded. It will not run again. Check the current state before proposing it again."}';
+
+/**
+ * Closes the tool call of a confirmed action whose turn failed before its
+ * result was recorded: the call row goes from `pending_confirmation` to
+ * `error` (compare-and-set, so a recorded outcome is never overwritten) and
+ * the placeholder result says the action was interrupted. The action stays
+ * `confirmed`, so a repeated confirmation answers `already` and nothing runs
+ * again (at most once). Returns whether the call row was closed here.
+ */
+export async function interruptConfirmedAction(
+  action: AiPendingActionRow,
+  accessScope: string,
+): Promise<boolean> {
+  const closed = await db
+    .update(aiToolCalls)
+    .set({ status: 'error' })
+    .where(
+      and(eq(aiToolCalls.id, action.toolCallRowId), eq(aiToolCalls.status, 'pending_confirmation')),
+    )
+    .returning({ id: aiToolCalls.id });
+  if (closed.length === 0) return false;
+  await replaceToolResult(
+    action.toolMessageId,
+    action.toolCallId,
+    INTERRUPTED_ACTION_RESULT,
+    true,
+    accessScope,
+  );
+  return true;
 }
 
 /** Audits the user's decision on an action. */

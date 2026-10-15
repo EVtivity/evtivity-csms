@@ -57,7 +57,12 @@ function ocppErrorCodeForAjvErrors(errors: AjvError[]): OcppErrorCode {
 
 export const validateMiddleware: Middleware = async (ctx, next) => {
   const registry = ctx.protocolVersion === 'ocpp1.6' ? Registry16 : Registry21;
-  const entry = (registry as Record<string, RegistryEntry | undefined>)[ctx.action];
+  // Own keys only: an action named after an Object.prototype member
+  // (`constructor`, `toString`) is not in the registry and reaches the router,
+  // which answers NotImplemented.
+  const entry = Object.hasOwn(registry, ctx.action)
+    ? (registry as Record<string, RegistryEntry | undefined>)[ctx.action]
+    : undefined;
 
   if (entry == null) {
     await next();

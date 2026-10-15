@@ -3,7 +3,7 @@
 
 import type { ServiceLogger } from '@evtivity/lib';
 import crypto from 'node:crypto';
-import { and, eq, inArray, or, isNull, lt, gt, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, isNull, lt, gt, sql, type SQL } from 'drizzle-orm';
 import {
   db,
   client,
@@ -75,10 +75,10 @@ export interface CreateMaintenanceInput {
 // run inside the request: it would blow past the nginx 60s proxy timeout and
 // the operator would see a 504 even though the state mutation already landed.
 // Instead the request adds a `maintenance-fanout` job to the worker's queue,
-// which waits in Redis while no worker runs and survives an API restart. When
-// false/absent (worker scheduler, tests) the side effects are awaited inline
-// because there is no timeout pressure and effects must complete before the
-// call resolves.
+// which waits in Redis while no worker runs and survives an API restart. The
+// worker scheduler sets it too, so its fan-outs take the per-site lock and
+// survive a worker restart. When false/absent (unit tests) the side effects are
+// awaited inline.
 export interface SideEffectOptions {
   detachSideEffects?: boolean;
 }
@@ -293,6 +293,19 @@ async function queueFanout(job: MaintenanceFanoutJob, logger?: ServiceLogger): P
   }
 }
 
+// Optimistic guard for the read-modify-write edits of an event: the UPDATE only
+// lands while affected_station_ids still holds the list the edit was computed
+// from. Without it, a concurrent add and remove each write their own list and
+// one drops the other's station, which then stays Inoperative (its command
+// already went out) with no event listing it, so exit and cancel never release it.
+function unchangedStationList(list: string[] | null): SQL {
+  if (list == null) return sql`${maintenanceEvents.affectedStationIds} IS NULL`;
+  return sql`${maintenanceEvents.affectedStationIds} = ${sql`ARRAY[${sql.join(
+    list.map((id) => sql`${id}`),
+    sql`, `,
+  )}]::text[]`}`;
+}
+
 function fanoutActor(actor: MaintenanceActor): MaintenanceFanoutActor {
   return { type: actor.type, userId: actor.userId ?? null, label: actor.label ?? null };
 }
@@ -393,7 +406,21 @@ async function loadSiteStations(siteId: string, filter: string[] | null): Promis
     .where(and(...conditions));
 }
 
+type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Serializes maintenance window writes per site: the overlap check and the
+ * insert or window update run under one transaction-scoped advisory lock, so
+ * two concurrent creates or edits on one site can never both pass the check.
+ * hashtext() is stable across processes and releases; the lock ends with the
+ * transaction.
+ */
+async function lockSiteMaintenanceWindows(tx: Tx, siteId: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`maintenance-window:${siteId}`}))`);
+}
+
 async function findOverlappingScheduledEvents(
+  tx: Tx,
   siteId: string,
   plannedStartAt: Date,
   plannedEndAt: Date,
@@ -405,7 +432,7 @@ async function findOverlappingScheduledEvents(
     lt(maintenanceEvents.plannedStartAt, plannedEndAt),
     gt(maintenanceEvents.plannedEndAt, plannedStartAt),
   ];
-  const rows = await db
+  const rows = await tx
     .select()
     .from(maintenanceEvents)
     .where(and(...conditions));
@@ -439,35 +466,40 @@ export async function createEvent(
   }
   assertMaintenanceMessageAllowed(input.customMessage);
 
-  const overlaps = await findOverlappingScheduledEvents(
-    input.siteId,
-    input.plannedStartAt,
-    input.plannedEndAt,
-  );
-  if (overlaps.length > 0) {
-    throw new AppError(
-      'Maintenance window overlaps an existing event',
-      409,
-      'MAINTENANCE_OVERLAPS_EXISTING',
-    );
-  }
-
   const initialStatus: MaintenanceStatus = 'scheduled';
-  const [inserted] = await db
-    .insert(maintenanceEvents)
-    .values({
-      siteId: input.siteId,
-      eventType: input.eventType,
-      status: initialStatus,
-      plannedStartAt: input.plannedStartAt,
-      plannedEndAt: input.plannedEndAt,
-      affectedStationIds: input.affectedStationIds ?? null,
-      activeSessionPolicy: input.activeSessionPolicy,
-      customMessage: input.customMessage ?? null,
-      reason: input.reason ?? null,
-      createdByUserId: input.actor.userId ?? null,
-    })
-    .returning();
+  // Overlap check and insert under the per-site lock (one transaction).
+  const inserted = await db.transaction(async (tx) => {
+    await lockSiteMaintenanceWindows(tx, input.siteId);
+    const overlaps = await findOverlappingScheduledEvents(
+      tx,
+      input.siteId,
+      input.plannedStartAt,
+      input.plannedEndAt,
+    );
+    if (overlaps.length > 0) {
+      throw new AppError(
+        'Maintenance window overlaps an existing event',
+        409,
+        'MAINTENANCE_OVERLAPS_EXISTING',
+      );
+    }
+    const [row] = await tx
+      .insert(maintenanceEvents)
+      .values({
+        siteId: input.siteId,
+        eventType: input.eventType,
+        status: initialStatus,
+        plannedStartAt: input.plannedStartAt,
+        plannedEndAt: input.plannedEndAt,
+        affectedStationIds: input.affectedStationIds ?? null,
+        activeSessionPolicy: input.activeSessionPolicy,
+        customMessage: input.customMessage ?? null,
+        reason: input.reason ?? null,
+        createdByUserId: input.actor.userId ?? null,
+      })
+      .returning();
+    return row;
+  });
 
   if (inserted == null) {
     throw new AppError('Failed to create maintenance event', 500, 'INTERNAL_ERROR');
@@ -1019,19 +1051,14 @@ export async function updateEvent(
     throw new AppError('Maintenance end must be after start', 400, 'MAINTENANCE_INVALID_RANGE');
   }
 
-  if (
-    before.status === 'scheduled' &&
-    (changes.plannedStartAt !== undefined || changes.plannedEndAt !== undefined)
-  ) {
-    const overlaps = await findOverlappingScheduledEvents(before.siteId, start, end, eventId);
-    if (overlaps.length > 0) {
-      throw new AppError(
-        'Maintenance window overlaps an existing event',
-        409,
-        'MAINTENANCE_OVERLAPS_EXISTING',
-      );
-    }
-  }
+  // An active event's end can still move (ACTIVE_EDITABLE_FIELDS), and an
+  // extension can run into a later scheduled window, so it is checked too.
+  const windowChanges =
+    (before.status === 'scheduled' &&
+      (changes.plannedStartAt !== undefined || changes.plannedEndAt !== undefined)) ||
+    (before.status === 'active' &&
+      changes.plannedEndAt !== undefined &&
+      changes.plannedEndAt.getTime() !== before.plannedEndAt.getTime());
 
   const updateSet: Record<string, unknown> = { updatedAt: new Date() };
   if (before.status === 'scheduled') {
@@ -1060,14 +1087,36 @@ export async function updateEvent(
   // would let immutable fields like plannedStartAt or affectedStationIds
   // get written to an active event with no OCPP side effects. Requiring
   // status to still match the loaded value forces a 409 retry instead.
-  const [updated] = await db
-    .update(maintenanceEvents)
-    .set(updateSet)
-    .where(and(eq(maintenanceEvents.id, eventId), eq(maintenanceEvents.status, before.status)))
-    .returning();
+  // A window change checks overlaps and writes under the per-site lock, so a
+  // concurrent create or edit on the site cannot slip in between.
+  const updated = await db.transaction(async (tx) => {
+    if (windowChanges) {
+      await lockSiteMaintenanceWindows(tx, before.siteId);
+      const overlaps = await findOverlappingScheduledEvents(tx, before.siteId, start, end, eventId);
+      if (overlaps.length > 0) {
+        throw new AppError(
+          'Maintenance window overlaps an existing event',
+          409,
+          'MAINTENANCE_OVERLAPS_EXISTING',
+        );
+      }
+    }
+    const [row] = await tx
+      .update(maintenanceEvents)
+      .set(updateSet)
+      .where(
+        and(
+          eq(maintenanceEvents.id, eventId),
+          eq(maintenanceEvents.status, before.status),
+          unchangedStationList(before.affectedStationIds),
+        ),
+      )
+      .returning();
+    return row;
+  });
   if (updated == null) {
     throw new AppError(
-      'Maintenance event status changed during edit — refresh and try again',
+      'Maintenance event changed during edit — refresh and try again',
       409,
       'MAINTENANCE_ALREADY_ACTIVE',
     );
@@ -1203,11 +1252,17 @@ export async function addStationsToMaintenance(
   const [updated] = await db
     .update(maintenanceEvents)
     .set({ affectedStationIds: nextList, updatedAt: new Date() })
-    .where(and(eq(maintenanceEvents.id, eventId), eq(maintenanceEvents.status, before.status)))
+    .where(
+      and(
+        eq(maintenanceEvents.id, eventId),
+        eq(maintenanceEvents.status, before.status),
+        unchangedStationList(before.affectedStationIds),
+      ),
+    )
     .returning();
   if (updated == null) {
     throw new AppError(
-      'Maintenance event status changed during edit — refresh and try again',
+      'Maintenance event changed during edit — refresh and try again',
       409,
       'MAINTENANCE_ALREADY_ACTIVE',
     );
@@ -1453,11 +1508,17 @@ export async function removeStationsFromMaintenance(
   const [updated] = await db
     .update(maintenanceEvents)
     .set({ affectedStationIds: nextList, updatedAt: new Date() })
-    .where(and(eq(maintenanceEvents.id, eventId), eq(maintenanceEvents.status, before.status)))
+    .where(
+      and(
+        eq(maintenanceEvents.id, eventId),
+        eq(maintenanceEvents.status, before.status),
+        unchangedStationList(before.affectedStationIds),
+      ),
+    )
     .returning();
   if (updated == null) {
     throw new AppError(
-      'Maintenance event status changed during edit — refresh and try again',
+      'Maintenance event changed during edit — refresh and try again',
       409,
       'MAINTENANCE_ALREADY_ACTIVE',
     );

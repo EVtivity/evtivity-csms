@@ -31,7 +31,7 @@ import { MiddlewarePipeline } from './middleware/pipeline.js';
 import type { HandlerContext } from './middleware/pipeline.js';
 import { logMiddleware } from './middleware/log.js';
 import { validateMiddleware } from './middleware/validate.js';
-import { createRateLimitMiddleware } from './middleware/rate-limit.js';
+import { consumeStationMessage } from './middleware/rate-limit.js';
 import { createDedupMiddleware } from './middleware/dedup.js';
 import { createBootGuardMiddleware } from './middleware/boot-guard.js';
 import {
@@ -56,19 +56,18 @@ import type { ConnectionAuthLimits, ConnectionAuthStats } from './connection-aut
 import { MessageLifecycle } from './message-lifecycle.js';
 import { CommandDispatcher } from './command-dispatcher.js';
 import { MESSAGE_LOG_EVENT, publishMessageLog } from './message-log.js';
+import { InboundFrameStats, parseInboundFrame } from './inbound-frame.js';
 import { registerHandlers } from '../handlers/handler-registry.js';
 import {
-  isCall,
   isCallResult,
-  isCallError,
   createCallResult,
   createCallError,
   MESSAGE_TYPE_CALL,
   MESSAGE_TYPE_CALLRESULT,
   MESSAGE_TYPE_CALLERROR,
 } from '../protocol/message-types.js';
-import type { OcppMessage } from '../protocol/message-types.js';
-import { OcppErrorCode } from '../protocol/error-codes.js';
+import type { CallError, CallResult } from '../protocol/message-types.js';
+import { OcppErrorCode, errorCodeForProtocol } from '../protocol/error-codes.js';
 
 import { config } from '../lib/config.js';
 
@@ -175,6 +174,7 @@ export class OcppServer {
   private readonly fixedIdleTimeoutMs: number | null;
   private readonly authLimiter: ConnectionAuthLimiter;
   private readonly passwordVerifier: StationPasswordVerifier;
+  private readonly frameStats: InboundFrameStats;
   private authBusyLoggedAt = 0;
   private authBusySinceLog = 0;
   private idleTimeoutMs = MIN_IDLE_TIMEOUT_MS;
@@ -216,10 +216,11 @@ export class OcppServer {
     });
     this.passwordVerifier =
       options?.passwordVerifier ?? new StationPasswordVerifier({ cache: new StationAuthCache() });
+    this.frameStats = new InboundFrameStats(this.logger);
 
-    // Set up middleware pipeline
+    // Set up middleware pipeline. The per-station rate limit runs in
+    // handleMessage, before any frame is logged.
     this.pipeline = new MiddlewarePipeline();
-    this.pipeline.use(createRateLimitMiddleware());
     this.pipeline.use(createDedupMiddleware());
     this.pipeline.use(logMiddleware);
     // Boot guard precedes validate: a non-booted (Pending/Rejected) station must get
@@ -445,6 +446,11 @@ export class OcppServer {
     return this.authLimiter.stats();
   }
 
+  /** Inbound frames dropped, refused or not logged since start, by reason. */
+  getInboundFrameStats(): Record<string, number> {
+    return this.frameStats.snapshot();
+  }
+
   /** Cached station password checks and argon2 computations running and queued. */
   getStationPasswordStats(): StationPasswordVerifierStats {
     return this.passwordVerifier.stats();
@@ -555,6 +561,10 @@ export class OcppServer {
     const stationId = auth.stationId;
     const session = createSessionState(stationId, ws.protocol || 'ocpp2.1');
     session.authenticated = true;
+    // A station awaiting operator approval gets SecurityError for every CALL
+    // but BootNotification until a BootNotification is Accepted, even when it
+    // never sends one (boot-guard.ts).
+    if (auth.awaitingApproval === true) session.bootStatus = 'Pending';
     if (auth.stationDbId != null) {
       session.stationDbId = auth.stationDbId;
     }
@@ -598,7 +608,12 @@ export class OcppServer {
         return;
       }
 
-      void this.handleMessage(ws, session, data.toString('utf-8'));
+      this.handleMessage(ws, session, data.toString('utf-8')).catch((err: unknown) => {
+        this.logger.error(
+          { stationId, error: err instanceof Error ? err.message : String(err) },
+          'Inbound message handling failed',
+        );
+      });
     });
 
     ws.on('close', () => {
@@ -655,70 +670,54 @@ export class OcppServer {
   }
 
   private async handleMessage(ws: WebSocket, session: SessionState, raw: string): Promise<void> {
-    const json = tryParseJson(raw);
-    if (json === undefined) {
-      this.logger.warn({ stationId: session.stationId }, 'Invalid JSON received');
-      return;
-    }
-    const parsed = json as OcppMessage;
+    // Every frame counts against the station's rate limit before it is logged.
+    const rate = consumeStationMessage(session.stationId);
+    const frame = parseInboundFrame(raw, session.ocppProtocol);
 
-    if (!Array.isArray(parsed) || parsed.length < 3) {
-      this.logger.warn({ stationId: session.stationId }, 'Invalid OCPP message format');
+    if (frame.kind === 'drop') {
+      this.frameStats.record(session.stationId, frame.reason);
       return;
     }
 
-    const messageType = parsed[0];
-
-    // Handle responses to our outgoing calls
-    if (messageType === MESSAGE_TYPE_CALLRESULT || messageType === MESSAGE_TYPE_CALLERROR) {
-      // Station is alive — it responded. Update liveness clock so
-      // PingMonitor.checkHeartbeats() doesn't disconnect stations that
-      // are actively responding to CSMS-initiated commands.
-      session.lastHeartbeat = new Date();
-      if (isCallResult(parsed)) {
-        // Log the inbound CALLRESULT so operators can see what the station
-        // returned for CSMS-initiated commands. Without this the OCPP log
-        // tab only carries the outbound CALL row (logged by
-        // command-listener.ts) and the response is invisible.
-        publishMessageLog(this.eventBus, {
-          stationId: session.stationId,
-          stationDbId: session.stationDbId,
-          direction: 'inbound',
-          messageType: MESSAGE_TYPE_CALLRESULT,
-          messageId: parsed[1],
-          action: null,
-          payload: parsed[2],
-        });
-        this.correlator.handleResponse(session, parsed);
-      } else if (isCallError(parsed)) {
-        publishMessageLog(this.eventBus, {
-          stationId: session.stationId,
-          stationDbId: session.stationDbId,
-          direction: 'inbound',
-          messageType: MESSAGE_TYPE_CALLERROR,
-          messageId: parsed[1],
-          action: null,
-          errorCode: parsed[2],
-          errorDescription: parsed[3],
-        });
-        this.correlator.handleResponse(session, parsed);
-      }
+    if (frame.kind === 'refuse') {
+      this.frameStats.record(session.stationId, frame.reason);
+      this.sendCallError(ws, session, {
+        messageId: frame.messageId,
+        action: null,
+        errorCode: frame.errorCode,
+        errorDescription: frame.description,
+        tracked: false,
+        log: rate.allowed,
+      });
       return;
     }
 
-    // Handle incoming calls
-    if (!isCall(parsed)) {
-      this.logger.warn({ stationId: session.stationId, messageType }, 'Unsupported message type');
+    if (frame.kind === 'response') {
+      this.handleResponse(session, frame.message, rate.allowed);
       return;
     }
 
-    const [, messageId, action, payload] = parsed;
+    const { messageId, action, payload } = frame;
+
+    if (!rate.allowed) {
+      // Answered but not logged, so a flooding station cannot fill the log.
+      this.frameStats.record(session.stationId, 'rate_limited');
+      this.sendCallError(ws, session, {
+        messageId,
+        action,
+        errorCode: OcppErrorCode.GenericError,
+        errorDescription: 'Rate limit exceeded',
+        tracked: false,
+        log: false,
+      });
+      return;
+    }
 
     this.lifecycle.received(messageId, session.stationId, action);
 
     // OCPP 2.1 G02.FR.04 and OCPP 1.6 section 4.6 both require the CSMS to
     // assume availability of a station whenever any message has been received
-    // from it — a station MAY skip the Heartbeat if another PDU was sent in
+    // from it: a station MAY skip the Heartbeat if another PDU was sent in
     // the interval. Reset the liveness clock on every inbound CALL so
     // PingMonitor.checkHeartbeats() doesn't close connections on stations
     // that are actively sending MeterValues, StatusNotifications, etc.
@@ -752,72 +751,136 @@ export class OcppServer {
     try {
       this.lifecycle.processing(messageId);
       await this.pipeline.execute(ctx);
-
-      if (ctx.response != null) {
-        const result = createCallResult(messageId, ctx.response);
-        ws.send(JSON.stringify(result));
-        this.lifecycle.responded(messageId);
-        this.announceReady(session, action);
-
-        // Log outbound CALLRESULT to station
-        publishMessageLog(this.eventBus, {
-          stationId: session.stationId,
-          stationDbId: session.stationDbId,
-          direction: 'outbound',
-          messageType: MESSAGE_TYPE_CALLRESULT,
-          messageId,
-          action,
-          payload: ctx.response,
-        });
-      }
     } catch (err: unknown) {
       if (err instanceof OcppError) {
-        const error = createCallError(
-          messageId,
-          err.errorCode,
-          err.errorDescription,
-          err.errorDetails,
-        );
-        ws.send(JSON.stringify(error));
-        this.lifecycle.errored(messageId, err.errorCode);
-
-        // Log outbound CALLERROR to station
-        publishMessageLog(this.eventBus, {
-          stationId: session.stationId,
-          stationDbId: session.stationDbId,
-          direction: 'outbound',
-          messageType: MESSAGE_TYPE_CALLERROR,
+        this.sendCallError(ws, session, {
           messageId,
           action,
           errorCode: err.errorCode,
           errorDescription: err.errorDescription,
+          errorDetails: err.errorDetails,
+          tracked: true,
+          log: true,
         });
       } else {
         this.logger.error(
           { messageId, action, error: err instanceof Error ? err.message : String(err) },
           'Unhandled error in message processing',
         );
-        const error = createCallError(
-          messageId,
-          OcppErrorCode.InternalError,
-          'Internal server error',
-        );
-        ws.send(JSON.stringify(error));
-        this.lifecycle.errored(messageId, OcppErrorCode.InternalError);
-
-        // Log outbound CALLERROR to station
-        publishMessageLog(this.eventBus, {
-          stationId: session.stationId,
-          stationDbId: session.stationDbId,
-          direction: 'outbound',
-          messageType: MESSAGE_TYPE_CALLERROR,
+        this.sendCallError(ws, session, {
           messageId,
           action,
           errorCode: OcppErrorCode.InternalError,
           errorDescription: 'Internal server error',
+          tracked: true,
+          log: true,
         });
       }
+      return;
     }
+
+    if (ctx.response != null) {
+      const result = createCallResult(messageId, ctx.response);
+      ws.send(JSON.stringify(result));
+      this.lifecycle.responded(messageId);
+      this.announceReady(session, action);
+
+      // Log outbound CALLRESULT to station
+      publishMessageLog(this.eventBus, {
+        stationId: session.stationId,
+        stationDbId: session.stationDbId,
+        direction: 'outbound',
+        messageType: MESSAGE_TYPE_CALLRESULT,
+        messageId,
+        action,
+        payload: ctx.response,
+      });
+    }
+  }
+
+  // A CALLRESULT or CALLERROR answering one of this server's CALLs. Only a
+  // response to a pending CALL is logged. One for an unknown or timed-out
+  // message id is counted instead, so a station cannot fill the log with them.
+  private handleResponse(
+    session: SessionState,
+    message: CallResult | CallError,
+    withinRateLimit: boolean,
+  ): void {
+    // The station is alive: it responded. Update the liveness clock so
+    // PingMonitor.checkHeartbeats() doesn't disconnect stations that
+    // are actively responding to CSMS-initiated commands.
+    session.lastHeartbeat = new Date();
+    const messageId = message[1];
+    if (!session.pendingMessages.has(messageId)) {
+      this.frameStats.record(session.stationId, 'unknown_response');
+      return;
+    }
+    if (!withinRateLimit) {
+      // Still delivered to the waiting command, only not logged.
+      this.frameStats.record(session.stationId, 'rate_limited');
+    } else if (isCallResult(message)) {
+      // Log the inbound CALLRESULT so operators can see what the station
+      // returned for CSMS-initiated commands. Without this the OCPP log
+      // tab only carries the outbound CALL row (logged by
+      // command-listener.ts) and the response is invisible.
+      publishMessageLog(this.eventBus, {
+        stationId: session.stationId,
+        stationDbId: session.stationDbId,
+        direction: 'inbound',
+        messageType: MESSAGE_TYPE_CALLRESULT,
+        messageId,
+        action: null,
+        payload: message[2],
+      });
+    } else {
+      publishMessageLog(this.eventBus, {
+        stationId: session.stationId,
+        stationDbId: session.stationDbId,
+        direction: 'inbound',
+        messageType: MESSAGE_TYPE_CALLERROR,
+        messageId,
+        action: null,
+        errorCode: message[2],
+        errorDescription: message[3],
+      });
+    }
+    this.correlator.handleResponse(session, message);
+  }
+
+  // Sends a CALLERROR with the error code of the connection's OCPP version
+  // (OCPP-J 1.6 names some codes differently) and logs it when asked.
+  private sendCallError(
+    ws: WebSocket,
+    session: SessionState,
+    error: {
+      messageId: string;
+      action: string | null;
+      errorCode: string;
+      errorDescription: string;
+      errorDetails?: Record<string, unknown>;
+      /** The CALL went through MessageLifecycle.received. */
+      tracked: boolean;
+      log: boolean;
+    },
+  ): void {
+    const errorCode = errorCodeForProtocol(error.errorCode, session.ocppProtocol);
+    ws.send(
+      JSON.stringify(
+        createCallError(error.messageId, errorCode, error.errorDescription, error.errorDetails),
+      ),
+    );
+    if (error.tracked) this.lifecycle.errored(error.messageId, errorCode);
+    if (!error.log) return;
+    publishMessageLog(this.eventBus, {
+      stationId: session.stationId,
+      stationDbId: session.stationDbId,
+      direction: 'outbound',
+      messageType: MESSAGE_TYPE_CALLERROR,
+      messageId: error.messageId,
+      action: error.action,
+      errorCode,
+      errorDescription: error.errorDescription,
+    });
   }
 
   getEventBus(): EventBus {

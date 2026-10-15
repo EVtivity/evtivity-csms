@@ -249,6 +249,62 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
   });
 
   // -----------------------------------------------------------------------
+  // resolveNotificationTimezone
+  // -----------------------------------------------------------------------
+
+  describe('resolveNotificationTimezone', () => {
+    it("keeps the recipient's valid zone without a query", async () => {
+      const { resolveNotificationTimezone } = notificationDispatchModule;
+      setupSqlResults([{ value: 'Europe/Berlin' }]);
+      expect(await resolveNotificationTimezone(sql as never, 'Asia/Seoul')).toBe('Asia/Seoul');
+      expect(sqlCalls.length).toBe(0);
+    });
+
+    it('falls back to the system timezone for a missing or invalid zone', async () => {
+      const { resolveNotificationTimezone, clearNotificationSettingsCache } =
+        notificationDispatchModule;
+      const clock = advanceClock();
+      clearNotificationSettingsCache();
+
+      setupSqlResults([{ value: 'Europe/Berlin' }]);
+      expect(await resolveNotificationTimezone(sql as never, 'Not/A_Zone')).toBe('Europe/Berlin');
+      expect(await resolveNotificationTimezone(sql as never, undefined)).toBe('Europe/Berlin');
+
+      clock.restore();
+    });
+
+    it('falls back to UTC when the system timezone is invalid too', async () => {
+      const { resolveNotificationTimezone, clearNotificationSettingsCache } =
+        notificationDispatchModule;
+      const clock = advanceClock();
+      clearNotificationSettingsCache();
+
+      setupSqlResults([{ value: 'Bad/Zone' }]);
+      expect(await resolveNotificationTimezone(sql as never, null)).toBe('UTC');
+
+      clock.restore();
+    });
+
+    it('uses the system timezone read with the company settings (no extra query)', async () => {
+      const { resolveNotificationTimezone, getCompanySettings, clearNotificationSettingsCache } =
+        notificationDispatchModule;
+      const clock = advanceClock();
+      clearNotificationSettingsCache();
+
+      setupSqlResults([
+        { key: 'company.name', value: 'TzCo' },
+        { key: 'system.timezone', value: 'Asia/Tokyo' },
+      ]);
+      await getCompanySettings(sql as never);
+      setupSqlResults([{ value: 'Europe/Berlin' }]);
+      expect(await resolveNotificationTimezone(sql as never, undefined)).toBe('Asia/Tokyo');
+      expect(sqlCalls.length).toBe(0);
+
+      clock.restore();
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // loadTemplateFile — cache hit
   // -----------------------------------------------------------------------
 
@@ -389,6 +445,61 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       );
 
       expect(result.body).toBe('<p>From second dir</p>');
+    });
+  });
+
+  describe('renderTemplate language order', () => {
+    it('uses the shipped file in the requested language over a custom English DB template', async () => {
+      const { renderTemplate } = notificationDispatchModule;
+      // DB miss for 'de'; an 'en' DB row exists but must not be read first.
+      setupSqlResults([], [{ subject: 'EN custom', body_html: '<p>EN custom</p>' }]);
+      mockReadFile.mockResolvedValueOnce('<p>Deutsch {{companyName}}</p>');
+
+      const result = await renderTemplate(
+        'email',
+        'lang.order.event',
+        'de',
+        { companyName: 'ArrCo' },
+        sql as never,
+        undefined,
+        '/templates-lang-order',
+      );
+
+      expect(result.body).toBe('<p>Deutsch ArrCo</p>');
+    });
+
+    it('uses a custom DB template in the requested language over the shipped file', async () => {
+      const { renderTemplate } = notificationDispatchModule;
+      setupSqlResults([{ subject: null, body_html: '<p>DE custom</p>' }]);
+
+      const result = await renderTemplate(
+        'email',
+        'lang.order.event2',
+        'de',
+        { companyName: 'ArrCo' },
+        sql as never,
+        undefined,
+        '/templates-lang-order-2',
+      );
+
+      expect(result.body).toBe('<p>DE custom</p>');
+    });
+
+    it('falls back to the custom English DB template when the language has neither', async () => {
+      const { renderTemplate } = notificationDispatchModule;
+      setupSqlResults([], [{ subject: null, body_html: '<p>EN custom</p>' }]);
+
+      const result = await renderTemplate(
+        'email',
+        'lang.order.event3',
+        'ko',
+        { companyName: 'ArrCo' },
+        sql as never,
+        undefined,
+        '/templates-lang-order-3',
+      );
+
+      expect(result.body).toBe('<p>EN custom</p>');
     });
   });
 
@@ -919,6 +1030,21 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       expect(findInsert('email')).toBeDefined();
     });
 
+    it('still sends when the recipient timezone is invalid (dates fall back, no RangeError)', async () => {
+      const { dispatchSystemNotification } = notificationDispatchModule;
+      setupSqlResults([]);
+
+      await dispatchSystemNotification(
+        sql as never,
+        'session.EndRequestFailed',
+        { email: 'op@test.com', timezone: 'Not/A_Zone' },
+        { occurredAt: '2026-07-05T00:00:00.000Z' },
+        [],
+      );
+
+      expect(findInsert('email')).toBeDefined();
+    });
+
     it('skips a driver event it sends when the Driver Events switch is off', async () => {
       const { dispatchSystemNotification } = notificationDispatchModule;
       setupSqlResults([{ is_enabled: false }]);
@@ -985,7 +1111,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }], // driver_event_settings
         [{ key: 'company.name', value: 'SysCo' }], // company.*
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
@@ -1046,7 +1171,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }], // driver_event_settings
         [{ key: 'company.name', value: 'SysCo' }], // company.*
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
@@ -1097,7 +1221,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCo' }],
         [], // settings: nothing configured
         [], // INSERT email
@@ -1130,7 +1253,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCo' }],
         [], // settings: nothing configured
         [], // INSERT email
@@ -1158,7 +1280,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }], // driver_event_settings
         [{ key: 'company.name', value: 'SysCo' }], // company
         [], // settings (no smtp/twilio)
         [], // INSERT email
@@ -1185,7 +1306,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCo' }],
         [
           { key: 'twilio.accountSid', value: 'AC123' },
@@ -1221,7 +1341,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCo' }],
         [
           { key: 'twilio.accountSid', value: 'AC123' },
@@ -1258,7 +1377,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       mockSendMail.mockRejectedValueOnce(new Error('smtp down'));
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCo' }],
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
@@ -1292,7 +1410,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       mockFetch.mockRejectedValueOnce(new Error('twilio down'));
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCo' }],
         [
           { key: 'twilio.accountSid', value: 'AC123' },
@@ -1326,7 +1443,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       mockSendMail.mockRejectedValueOnce(new Error('auth failed'));
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCredCo' }],
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
@@ -1361,7 +1477,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       mockFetch.mockRejectedValueOnce(new Error('auth failed'));
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCredSmsCo' }],
         [
           { key: 'twilio.accountSid', value: 'AC123' },
@@ -1393,7 +1508,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'WrapSysCo' }],
         [
           { key: 'smtp.host', value: 'smtp.example.com' },
@@ -1429,7 +1543,6 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const clock = advanceClock();
 
       setupSqlResults(
-        [{ is_enabled: true }],
         [{ key: 'company.name', value: 'SysCo' }],
         [], // settings
         [], // INSERT email
@@ -1517,6 +1630,28 @@ describe('notification-dispatch (coverage: record/push/pubsub/system)', () => {
       const { isDriverEventDisabled } = notificationDispatchModule;
       setupSqlResults([{ is_enabled: false }]);
       await expect(isDriverEventDisabled(sql as never, 'driver.ForgotPassword')).resolves.toBe(
+        false,
+      );
+      expect(sqlCalls).toHaveLength(0);
+    });
+
+    it.each(['driver.PasswordChanged', 'driver.MfaDisabled'])(
+      'is always on for the security notice %s',
+      async (eventType) => {
+        const { isDriverEventDisabled } = notificationDispatchModule;
+        setupSqlResults([{ is_enabled: false }]);
+        await expect(isDriverEventDisabled(sql as never, eventType)).resolves.toBe(false);
+        expect(sqlCalls).toHaveLength(0);
+      },
+    );
+
+    it('ignores a stored row for a type that is not a driver event, without a query', async () => {
+      const { isDriverEventDisabled } = notificationDispatchModule;
+      setupSqlResults([{ is_enabled: false }]);
+      await expect(isDriverEventDisabled(sql as never, 'session.EndRequestFailed')).resolves.toBe(
+        false,
+      );
+      await expect(isDriverEventDisabled(sql as never, 'operator.ForgotPassword')).resolves.toBe(
         false,
       );
       expect(sqlCalls).toHaveLength(0);

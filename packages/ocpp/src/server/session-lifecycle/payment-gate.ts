@@ -42,6 +42,8 @@ export interface PaymentGateInput {
   idToken: string | undefined;
   guestStatus: string | null;
   guestEmail: string | null;
+  /** UI language the guest chose at checkout, for its notices; null or absent for the company language. */
+  guestLanguage?: string | null;
   /** Balance of the session's prepaid token; null when the token is not prepaid. */
   prepaidBalanceCents: number | null;
   /** True when the session started from a reservation (its holding fee is billed). */
@@ -77,6 +79,8 @@ interface MissingPaymentMethodNotice {
 interface GuestPreAuthFailedNotice {
   kind: 'guestPreAuthFailed';
   email: string;
+  /** The guest's checkout language; absent for the company language. */
+  language?: string;
 }
 
 type GateNotice = PreAuthFailedNotice | MissingPaymentMethodNotice | GuestPreAuthFailedNotice;
@@ -248,7 +252,14 @@ export function planPaymentGate(
       kind: 'stop',
       why: 'guest_not_authorized',
       reason: 'GuestPaymentNotAuthorized',
-      notice: guestEmail != null ? { kind: 'guestPreAuthFailed', email: guestEmail } : null,
+      notice:
+        guestEmail != null
+          ? {
+              kind: 'guestPreAuthFailed',
+              email: guestEmail,
+              ...(input.guestLanguage != null ? { language: input.guestLanguage } : {}),
+            }
+          : null,
     };
   }
 
@@ -592,7 +603,11 @@ async function sendNotice(
           dispatchSystemNotification(
             sql,
             'payment.PreAuthFailed',
-            { email: notice.email },
+            // The guest's checkout language; none leaves the company language.
+            {
+              email: notice.email,
+              ...(notice.language != null ? { language: notice.language } : {}),
+            },
             {
               stationId: ocppStationId,
               transactionId,

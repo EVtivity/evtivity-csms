@@ -1275,6 +1275,18 @@ describe('User routes (extended coverage)', () => {
       });
     });
 
+    it('refuses an unknown timezone with 400 VALIDATION_ERROR and writes nothing', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/users/me',
+        headers: auth,
+        payload: { timezone: 'Mars/Olympus_Mons' },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
+      expect(opsFor('update', 'users')).toHaveLength(0);
+    });
+
     it('leaves untouched fields out of the update', async () => {
       setupDbResults([userRow({ id: ME })], [userRow({ id: ME })], [{ id: ROLE, name: 'x' }]);
       await app.inject({

@@ -32,6 +32,7 @@ const m = vi.hoisted(() => {
     failUnstartedRemoteSession: vi.fn(),
     cancelOpenSessionHold: vi.fn(),
     pinnedProvider: vi.fn(),
+    linkStartedGuestSession: vi.fn(),
   };
 });
 
@@ -59,7 +60,11 @@ vi.mock('drizzle-orm', () => ({
 }));
 vi.mock('../session-payments.js', () => ({ cancelOpenSessionHold: m.cancelOpenSessionHold }));
 vi.mock('../pinning.js', () => ({ pinnedProvider: m.pinnedProvider }));
-vi.mock('../guest-payments.js', () => ({ GUEST_REFERENCE_PREFIX: 'guest_' }));
+vi.mock('../guest-payments.js', () => ({
+  GUEST_REFERENCE_PREFIX: 'guest_',
+  guestTransactionNotStarted: () => ({ op: 'sql', text: 'NOT EXISTS (transaction_events)' }),
+  linkStartedGuestSession: m.linkStartedGuestSession,
+}));
 
 import { closeUnstartedRemoteStart, failUnstartedGuestSession } from '../unstarted-starts.js';
 import type { PaymentContext } from '../context.js';
@@ -82,6 +87,7 @@ beforeEach(() => {
   m.updates.length = 0;
   cancelHold.mockResolvedValue({ state: 'succeeded' });
   m.pinnedProvider.mockResolvedValue({ id: 'stripe', cancelHold });
+  m.linkStartedGuestSession.mockResolvedValue(null);
 });
 
 describe('closeUnstartedRemoteStart', () => {
@@ -139,6 +145,9 @@ describe('failUnstartedGuestSession', () => {
     });
     expect(m.updates[0]?.values).toMatchObject({ status: 'failed' });
     expect(JSON.stringify(m.updates[0]?.where)).toContain('payment_authorized');
+    // The claim refuses a guest whose transaction started (finding G2).
+    expect(JSON.stringify(m.updates[0]?.where)).toContain('NOT EXISTS (transaction_events)');
+    expect(m.linkStartedGuestSession).not.toHaveBeenCalled();
     expect(m.pinnedProvider).toHaveBeenCalledWith(ctx.registry, 'stripe');
     expect(cancelHold).toHaveBeenCalledWith({
       paymentId: 'pi_guest',
@@ -174,6 +183,16 @@ describe('failUnstartedGuestSession', () => {
 
     expect(await failUnstartedGuestSession(304, ctx)).toEqual({ outcome: 'skipped' });
     expect(m.pinnedProvider).not.toHaveBeenCalled();
+  });
+
+  it('links a guest whose transaction started instead of failing it (finding G2)', async () => {
+    m.updateReturns.push([]);
+    m.linkStartedGuestSession.mockResolvedValueOnce({ guestSessionId: 307, paymentRecordId: 9 });
+
+    expect(await failUnstartedGuestSession(307, ctx)).toEqual({ outcome: 'skipped' });
+    expect(m.linkStartedGuestSession).toHaveBeenCalledWith(307, ctx);
+    expect(m.pinnedProvider).not.toHaveBeenCalled();
+    expect(cancelHold).not.toHaveBeenCalled();
   });
 
   it('reports an unknown guest session', async () => {

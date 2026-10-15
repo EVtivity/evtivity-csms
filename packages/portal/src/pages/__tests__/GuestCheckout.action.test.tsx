@@ -15,7 +15,14 @@ vi.mock('@/lib/api', async (importOriginal) => {
 });
 
 vi.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'en' } }),
+}));
+
+// No dynamic QR scan and reCAPTCHA off: the start sends only the language.
+vi.mock('@/lib/guest-start', () => ({
+  guestStartExtras: vi.fn((_s: string, _e: string, language: string) =>
+    Promise.resolve({ language }),
+  ),
 }));
 
 vi.mock('@/components/AuthBranding', () => ({
@@ -126,6 +133,7 @@ describe('GuestCheckout with a 3D Secure step', () => {
         browser: { origin: 'https://portal.test', info: { ua: 'u' } },
       },
       guestEmail: 'guest@example.com',
+      language: 'en',
     });
     expect(postMock).toHaveBeenNthCalledWith(2, '/v1/portal/guest/payment-details/tok_3ds', {
       details: { details: { threeDSResult: 'r' } },

@@ -8,6 +8,13 @@ import { enterMaintenance, exitMaintenance } from '@evtivity/services/maintenanc
 
 const SYSTEM_ACTOR = { type: 'system' as const, label: 'maintenance-scheduler' };
 
+// The station fan-out goes to the maintenance-fanout queue, never inline: the
+// queue job takes the per-site lock (so a cron enter cannot interleave with an
+// operator cancel, end or station edit), survives a worker restart (the cron
+// flip sets started_at, so an inline fan-out cut short would never resume), and
+// keeps a slow fan-out from blocking the other cron jobs of this replica.
+const FANOUT_OPTIONS = { detachSideEffects: true } as const;
+
 export async function maintenanceSchedulerHandler(log: Logger): Promise<void> {
   // SELECT-only here. enterMaintenance performs the atomic status+started_at
   // transition inside its own CASE-guarded UPDATE so its single-mutation
@@ -26,7 +33,7 @@ export async function maintenanceSchedulerHandler(log: Logger): Promise<void> {
 
   for (const row of dueScheduled) {
     try {
-      await enterMaintenance(row.id, SYSTEM_ACTOR, log);
+      await enterMaintenance(row.id, SYSTEM_ACTOR, log, FANOUT_OPTIONS);
     } catch (err) {
       log.warn({ err, eventId: row.id }, 'maintenance-scheduler: enterMaintenance failed');
     }
@@ -41,7 +48,7 @@ export async function maintenanceSchedulerHandler(log: Logger): Promise<void> {
 
   for (const row of dueEnd) {
     try {
-      await exitMaintenance(row.id, SYSTEM_ACTOR, log);
+      await exitMaintenance(row.id, SYSTEM_ACTOR, log, FANOUT_OPTIONS);
     } catch (err) {
       log.warn({ err, eventId: row.id }, 'maintenance-scheduler: exitMaintenance failed');
     }

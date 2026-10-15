@@ -823,3 +823,150 @@ CREATE UNIQUE INDEX IF NOT EXISTS "uq_ocpi_cdrs_session_live"
   ON "ocpi_cdrs" ("charging_session_id")
   WHERE "charging_session_id" IS NOT NULL AND "is_credit" = false AND "superseded_at" IS NULL;
 -- end beta.8 ocpi
+--> statement-breakpoint
+-- beta.9 hardening
+-- Notifications hardening. Idempotent.
+--
+-- 1. Driver Events switches exist only for driver notification types. Before this
+--    release PUT /v1/driver-event-settings accepted any event type, and both
+--    dispatchers honored a disabled row, so an operator could silence a system
+--    notice (operator password reset, support case notices to operators, fleet
+--    invoices) through it. The API now refuses such a row and dispatch ignores
+--    one; this deletes the stray rows (also the stale 'connector.Available' seed).
+--    The list is DRIVER_EVENT_TYPES of @evtivity/lib notification-events.ts at
+--    this release.
+DELETE FROM driver_event_settings
+WHERE event_type NOT IN (
+  'session.Started',
+  'session.AutochargeStarted',
+  'session.Updated',
+  'session.Completed',
+  'session.Faulted',
+  'session.PaymentReceived',
+  'session.IdlingStarted',
+  'session.Receipt',
+  'driver.Welcome',
+  'driver.ForgotPassword',
+  'driver.PasswordChanged',
+  'driver.AccountVerification',
+  'driver.MfaDisabled',
+  'driver.PortalInvite',
+  'driver.RegistrationAttempt',
+  'payment.Complete',
+  'payment.Refunded',
+  'payment.FeeRefunded',
+  'payment.PreAuthFailed',
+  'payment.CaptureFailed',
+  'payment.MissingPaymentMethod',
+  'payment.AccountCreditLimit',
+  'reservation.Created',
+  'reservation.Cancelled',
+  'reservation.CancelledForMaintenance',
+  'reservation.Expiring',
+  'reservation.Expired',
+  'reservation.StationFaulted',
+  'reservation.TakenByOther',
+  'invoice.Sent',
+  'invoice.CreditNote',
+  'invoice.MemberInvoice',
+  'invoice.MemberCreditNote',
+  'invoice.MemberOverdue',
+  'supportCase.Created',
+  'supportCase.OperatorReply',
+  'supportCase.Resolved',
+  'supportCase.AiAnswered',
+  'mfa.VerificationCode',
+  'token.Added',
+  'token.Removed',
+  'token.Deactivated',
+  'token.Reactivated',
+  'maintenance.SessionStopped',
+  'watch.StationAvailable',
+  'prepaid.LowCredit',
+  'prepaid.CreditExhausted',
+  'fleet.AccountBillingChanged'
+);
+--> statement-breakpoint
+-- 2. The required driver types are always on (REQUIRED_DRIVER_EVENT_TYPES), now
+--    including the security notices driver.PasswordChanged and driver.MfaDisabled.
+--    Dispatch already ignores a stored disabled row for them; re-enable the rows so
+--    the CSMS Driver Events tab and the API show the real state.
+UPDATE driver_event_settings
+SET is_enabled = true, updated_at = now()
+WHERE is_enabled = false
+  AND event_type IN (
+    'driver.ForgotPassword',
+    'driver.AccountVerification',
+    'driver.PortalInvite',
+    'driver.RegistrationAttempt',
+    'driver.PasswordChanged',
+    'driver.MfaDisabled',
+    'mfa.VerificationCode',
+    'invoice.MemberInvoice',
+    'invoice.MemberCreditNote',
+    'invoice.MemberOverdue',
+    'session.AutochargeStarted'
+  );
+--> statement-breakpoint
+-- 3. The '$admin' OCPP event setting recipient was never resolved: dispatch sent to
+--    the literal address "$admin", which always failed. The API now refuses it.
+--    Clear stored ones so the setting shows no recipient (an empty recipient sends
+--    nothing) instead of a value the API would refuse on the next save.
+UPDATE ocpp_event_settings
+SET recipient = '', updated_at = now()
+WHERE recipient = '$admin';
+-- end beta.9 hardening
+
+-- beta.9 more
+-- Event alert recipients, guest language, circuit voltage, sub-panel phases and guest
+-- start limits. Idempotent.
+--
+-- 1. Event alert rules: the '$admin' recipient default was never resolved to
+--    an address (no dispatch reads it as a placeholder). The API now refuses
+--    placeholders; the column defaults to empty and stored ones are cleared.
+ALTER TABLE event_alert_rules ALTER COLUMN notify_recipient SET DEFAULT '';
+--> statement-breakpoint
+UPDATE event_alert_rules
+SET notify_recipient = '', updated_at = now()
+WHERE notify_recipient = '$admin';
+--> statement-breakpoint
+-- 2. -- Guest notices in the guest's language: the UI language sent at checkout
+-- (en, de, es, ko, zh, zh-TW). Null keeps the company language.
+ALTER TABLE "guest_sessions" ADD COLUMN IF NOT EXISTS "language" varchar(10);
+--> statement-breakpoint
+-- 3. Circuit voltage (load management): a circuit of a single-phase panel can run
+-- at a lower voltage than its panel, such as a 120 V branch of a 240 V
+-- split-phase panel. Null keeps the panel voltage, the behavior before.
+ALTER TABLE "circuits" ADD COLUMN IF NOT EXISTS "voltage_v" integer;
+--> statement-breakpoint
+-- Only the panel voltages the CSMS offers.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'circuits_voltage_v_check') THEN
+    ALTER TABLE "circuits" ADD CONSTRAINT "circuits_voltage_v_check"
+      CHECK ("voltage_v" IS NULL OR "voltage_v" IN (120, 208, 220, 230, 240, 277, 480));
+  END IF;
+END $$;
+--> statement-breakpoint
+-- 4. Sub-panel phase connections (load management): the phases of a three-phase
+-- parent panel that feed a single-phase sub-panel. Null keeps the conservative
+-- rule before: the sub-panel's load counts in full on every parent phase.
+ALTER TABLE "panels" ADD COLUMN IF NOT EXISTS "phase_connections" varchar(10);
+--> statement-breakpoint
+-- One phase (line to neutral) or two (line to line), never three.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'panels_phase_connections_check') THEN
+    ALTER TABLE "panels" ADD CONSTRAINT "panels_phase_connections_check"
+      CHECK ("phase_connections" IS NULL OR "phase_connections" IN ('L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3'));
+  END IF;
+END $$;
+--> statement-breakpoint
+-- 5. Guest start limits per client IP and hour (0 means no limit), applied
+--    only when the real client IP is known.
+INSERT INTO settings (key, value) VALUES ('guest.startsPerIpPerHour', '30'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+--> statement-breakpoint
+INSERT INTO settings (key, value) VALUES ('guest.declinesPerIpPerHour', '5'::jsonb)
+ON CONFLICT (key) DO NOTHING;
+-- end beta.9 more

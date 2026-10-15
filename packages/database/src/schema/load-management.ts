@@ -12,7 +12,9 @@ import {
   timestamp,
   jsonb,
   index,
+  check,
 } from 'drizzle-orm/pg-core';
+import { sql } from 'drizzle-orm';
 import { sites, loadAllocationStrategyEnum } from './assets.js';
 import { createId } from '../lib/id.js';
 
@@ -30,6 +32,10 @@ export const panels = pgTable(
     breakerRatingAmps: integer('breaker_rating_amps').notNull(),
     voltageV: integer('voltage_v').notNull().default(240),
     phases: integer('phases').notNull().default(1),
+    // Phases of a three-phase parent panel that feed this single-phase
+    // sub-panel (L1, L2, L3, L1L2, L1L3, L2L3). Null: unknown, its load counts
+    // in full on every phase of the parent.
+    phaseConnections: varchar('phase_connections', { length: 10 }),
     maxContinuousKw: numeric('max_continuous_kw').notNull(),
     safetyMarginKw: numeric('safety_margin_kw').notNull().default('0'),
     oversubscriptionRatio: numeric('oversubscription_ratio').notNull().default('1.0'),
@@ -40,6 +46,10 @@ export const panels = pgTable(
   (table) => [
     index('idx_panels_site').on(table.siteId),
     index('idx_panels_parent').on(table.parentPanelId),
+    check(
+      'panels_phase_connections_check',
+      sql`${table.phaseConnections} IS NULL OR ${table.phaseConnections} IN ('L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3')`,
+    ),
   ],
 );
 
@@ -56,11 +66,20 @@ export const circuits = pgTable(
     breakerRatingAmps: integer('breaker_rating_amps').notNull(),
     maxContinuousKw: numeric('max_continuous_kw').notNull(),
     phaseConnections: varchar('phase_connections', { length: 10 }),
+    // Voltage of the circuit when it differs from its single-phase panel (a
+    // 120 V branch of a 240 V split-phase panel). Null: the panel voltage.
+    voltageV: integer('voltage_v'),
     sortOrder: integer('sort_order').notNull().default(0),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index('idx_circuits_panel').on(table.panelId)],
+  (table) => [
+    index('idx_circuits_panel').on(table.panelId),
+    check(
+      'circuits_voltage_v_check',
+      sql`${table.voltageV} IS NULL OR ${table.voltageV} IN (120, 208, 220, 230, 240, 277, 480)`,
+    ),
+  ],
 );
 
 export const unmanagedLoads = pgTable(

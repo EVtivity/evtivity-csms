@@ -190,6 +190,44 @@ export async function rejectFirmwareUpdate(
 }
 
 /**
+ * A cancelled campaign stops what has not reached a station yet: the
+ * UpdateFirmware commands of the campaign still queued for an offline station
+ * (`offline_command_queue`, `pending`) are failed, so the station does not
+ * install the firmware on its next connection, and their updates end as
+ * Rejected (`CampaignCanceled`). The `status = 'pending'` guard loses cleanly to
+ * a drain that already sent the command. Returns the number dropped.
+ */
+export async function dropQueuedCampaignFirmwareUpdates(
+  sql: postgres.Sql,
+  campaignId: string,
+): Promise<number> {
+  const dropped = await sql<Array<{ station_uuid: string; request_id: number }>>`
+    UPDATE offline_command_queue o
+    SET status = 'failed', failed_reason = 'Firmware campaign cancelled'
+    FROM firmware_updates fu
+    JOIN charging_stations cs ON cs.id = fu.station_id
+    WHERE fu.campaign_id = ${campaignId}
+      AND fu.request_id IS NOT NULL
+      AND o.station_id = cs.station_id
+      AND o.action IN ('UpdateFirmware', 'SignedUpdateFirmware')
+      AND o.status = 'pending'
+      AND o.payload->>'requestId' = fu.request_id::text
+    RETURNING fu.station_id AS station_uuid, fu.request_id
+  `;
+  for (const row of dropped) {
+    await rejectFirmwareUpdate(sql, {
+      stationUuid: row.station_uuid,
+      requestId: row.request_id,
+      reasonCode: 'CampaignCanceled',
+      additionalInfo: 'Queued for an offline station when the campaign was cancelled',
+      actor: 'system',
+      actorLabel: 'Firmware campaign cancel',
+    });
+  }
+  return dropped.length;
+}
+
+/**
  * The station answered AcceptedCanceled: it cancelled the update it was
  * running for the new one (L01.FR.24) and may never report the cancelled one
  * again. Fails the campaign station of every other open campaign update of

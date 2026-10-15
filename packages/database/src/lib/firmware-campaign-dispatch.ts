@@ -51,25 +51,29 @@ export async function dispatchPendingFirmwareCampaigns(
   const sent: string[] = [];
   for (const row of claimed) {
     const requestId = newFirmwareRequestId();
-    const retrieveDateTime = new Date();
-    await sql`
-      INSERT INTO firmware_updates (station_id, request_id, firmware_url, retrieve_date_time, campaign_id, initiated_at)
-      VALUES (${station.stationUuid}, ${requestId}, ${row.firmware_url}, ${retrieveDateTime}, ${row.campaign_id}, now())
-      ON CONFLICT (station_id, request_id) WHERE request_id IS NOT NULL DO NOTHING
-    `;
-    const payload = buildCampaignUpdateFirmware(
-      {
-        firmwareUrl: row.firmware_url,
-        signingCertificate: row.signing_certificate,
-        signature: row.signature,
-        retries: row.retries,
-        retryInterval: row.retry_interval,
-        installDateTime: row.install_date_time,
-      },
-      requestId,
-      retrieveDateTime,
-    );
+    // Everything after the claim runs inside the try: a failed insert or
+    // publish must end this campaign station (failed, CommandFailed) and let the
+    // loop go on, or the claimed row stays pending with dispatched_at set and
+    // the campaign never completes.
     try {
+      const retrieveDateTime = new Date();
+      await sql`
+        INSERT INTO firmware_updates (station_id, request_id, firmware_url, retrieve_date_time, campaign_id, initiated_at)
+        VALUES (${station.stationUuid}, ${requestId}, ${row.firmware_url}, ${retrieveDateTime}, ${row.campaign_id}, now())
+        ON CONFLICT (station_id, request_id) WHERE request_id IS NOT NULL DO NOTHING
+      `;
+      const payload = buildCampaignUpdateFirmware(
+        {
+          firmwareUrl: row.firmware_url,
+          signingCertificate: row.signing_certificate,
+          signature: row.signature,
+          retries: row.retries,
+          retryInterval: row.retry_interval,
+          installDateTime: row.install_date_time,
+        },
+        requestId,
+        retrieveDateTime,
+      );
       await publishOcppCommand(pubsub, {
         stationId: station.stationOcppId,
         action: 'UpdateFirmware',
@@ -79,26 +83,45 @@ export async function dispatchPendingFirmwareCampaigns(
     } catch (err) {
       log?.warn(
         { err, campaignId: row.campaign_id, stationId: station.stationOcppId },
-        'firmware-campaign: connect-time dispatch not published',
+        'firmware-campaign: connect-time dispatch not sent',
       );
-      const audit = { actor: 'system' as const, actorLabel: 'Firmware campaign dispatch' };
-      const rejected = await rejectFirmwareUpdate(sql, {
-        stationUuid: station.stationUuid,
-        requestId,
-        reasonCode: 'CommandFailed',
-        additionalInfo: 'The command could not be published',
-        ...audit,
-      });
-      if (rejected == null) {
-        await applyFirmwareCampaignStationStatus(sql, {
-          campaignId: row.campaign_id,
-          stationUuid: station.stationUuid,
-          status: 'failed',
-          errorInfo: 'CommandFailed',
-          ...audit,
-        });
-      }
+      await failClaimedDispatch(sql, station, row.campaign_id, requestId, log);
     }
   }
   return sent;
+}
+
+async function failClaimedDispatch(
+  sql: postgres.Sql,
+  station: { stationUuid: string; stationOcppId: string },
+  campaignId: string,
+  requestId: number,
+  log?: { warn: (obj: unknown, msg?: string) => void },
+): Promise<void> {
+  const audit = { actor: 'system' as const, actorLabel: 'Firmware campaign dispatch' };
+  try {
+    const rejected = await rejectFirmwareUpdate(sql, {
+      stationUuid: station.stationUuid,
+      requestId,
+      reasonCode: 'CommandFailed',
+      additionalInfo: 'The command could not be sent',
+      ...audit,
+    });
+    if (rejected == null) {
+      await applyFirmwareCampaignStationStatus(sql, {
+        campaignId,
+        stationUuid: station.stationUuid,
+        status: 'failed',
+        errorInfo: 'CommandFailed',
+        ...audit,
+      });
+    }
+  } catch (err) {
+    // fail-open: the next campaign of this station is still sent; the row
+    // stays pending and the operator can cancel the campaign.
+    log?.warn(
+      { err, campaignId, stationId: station.stationOcppId },
+      'firmware-campaign: failed dispatch could not be recorded',
+    );
+  }
 }

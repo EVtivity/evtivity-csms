@@ -71,6 +71,26 @@ export class ConnectionManager {
     return true;
   }
 
+  /**
+   * Refreshes the registry entry of every station this process holds, so an
+   * entry never expires while the connection lives (the heartbeat interval can
+   * exceed the registry TTL). Entries that name another process are left
+   * alone. Fail-open: a failed refresh is retried on the next cycle.
+   */
+  refreshRegistry(): void {
+    const registry = this.registry;
+    const instanceId = this.instanceId;
+    if (registry?.refreshOwned == null || instanceId == null) return;
+    const stationIds = this.allStationIds();
+    if (stationIds.length === 0) return;
+    void registry.refreshOwned(stationIds, instanceId).catch((err: unknown) => {
+      this.logger.warn(
+        { err, instanceId, stations: stationIds.length },
+        'Registry refresh failed; retrying on the next cycle',
+      );
+    });
+  }
+
   get(stationId: string): StationConnection | undefined {
     return this.connections.get(stationId);
   }

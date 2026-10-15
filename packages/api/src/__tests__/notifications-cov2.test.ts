@@ -270,7 +270,7 @@ describe('Notification routes: validation, test sends, templates', () => {
           {
             id: 2,
             eventType: 'station.Connected',
-            recipient: '$admin',
+            recipient: 'ops@example.com',
             channel: 'email',
             templateHtml: null,
             language: null,
@@ -280,10 +280,19 @@ describe('Notification routes: validation, test sends, templates', () => {
       );
       const res = await req('PUT', '/ocpp-event-settings', {
         eventType: 'station.Connected',
-        recipient: '$admin',
+        recipient: 'ops@example.com',
       });
       expect(res.statusCode).toBe(200);
-      expect(res.json().recipient).toBe('$admin');
+      expect(res.json().recipient).toBe('ops@example.com');
+    });
+
+    it('refuses the removed $admin recipient (nothing resolves it)', async () => {
+      const res = await req('PUT', '/ocpp-event-settings', {
+        eventType: 'station.Connected',
+        recipient: '$admin',
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().code).toBe('VALIDATION_ERROR');
     });
   });
 

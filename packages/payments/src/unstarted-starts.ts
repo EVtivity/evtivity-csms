@@ -5,7 +5,11 @@ import { and, eq, sql } from 'drizzle-orm';
 import { db, failUnstartedRemoteSession, guestSessions } from '@evtivity/database';
 import type { UnstartedSession } from '@evtivity/database';
 import type { PaymentContext } from './context.js';
-import { GUEST_REFERENCE_PREFIX } from './guest-payments.js';
+import {
+  GUEST_REFERENCE_PREFIX,
+  guestTransactionNotStarted,
+  linkStartedGuestSession,
+} from './guest-payments.js';
 import { cancelKey } from './idempotency-keys.js';
 import { pinnedProvider } from './pinning.js';
 import { cancelOpenSessionHold } from './session-payments.js';
@@ -50,10 +54,14 @@ export type UnstartedGuestOutcome =
 
 /**
  * A guest start: a guest session still `payment_authorized` (its start was
- * sent, no charging session was linked) becomes `failed` and its hold is
- * cancelled (`cancel_<paymentId>`, the key of every cancel of that
- * payment). A guest session that charges, ended, or expired is left
- * alone. A retry of a session this already failed cancels again.
+ * sent, no charging session was linked, no transaction carries its token)
+ * becomes `failed` and its hold is cancelled (`cancel_<paymentId>`, the key
+ * of every cancel of that payment). The claim comes first, so only the call
+ * that failed the row (or a retry of it) cancels (P5). A guest whose
+ * transaction started but was never linked (a lost bridge publish, finding
+ * G2) is linked instead and `skipped`. A guest session that charges, ended,
+ * or expired is left alone. A retry of a session this already failed cancels
+ * again.
  */
 export async function failUnstartedGuestSession(
   guestSessionId: number,
@@ -73,8 +81,13 @@ export async function failUnstartedGuestSession(
   let [guest] = await db
     .update(guestSessions)
     .set({ status: 'failed', updatedAt: new Date() })
-    .where(and(unstarted, eq(guestSessions.status, 'payment_authorized')))
+    .where(
+      and(unstarted, eq(guestSessions.status, 'payment_authorized'), guestTransactionNotStarted()),
+    )
     .returning(columns);
+  if (guest == null && (await linkStartedGuestSession(guestSessionId, ctx)) != null) {
+    return { outcome: 'skipped' };
+  }
   if (guest == null) {
     [guest] = await db
       .select(columns)

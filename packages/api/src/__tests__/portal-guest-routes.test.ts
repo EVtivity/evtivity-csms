@@ -50,6 +50,7 @@ function makeChain() {
 }
 
 vi.mock('@evtivity/database', async () => ({
+  getGuestVelocityLimits: vi.fn(async () => ({ startsPerIpPerHour: 30, declinesPerIpPerHour: 5 })),
   writeAudit: vi.fn(() => Promise.resolve()),
   userAuditLog: { _table: 'user_audit_log' },
   driverAuditLog: { _table: 'driver_audit_log' },
@@ -187,6 +188,34 @@ vi.mock('@evtivity/services/maintenance.service', () => ({
   getActiveMaintenanceForStation: vi.fn().mockResolvedValue(null),
 }));
 
+const {
+  mockStationHasDynamicQr,
+  mockCheckRecaptcha,
+  mockCountGuestStart,
+  mockCheckGuestDeclines,
+  mockCountGuestDecline,
+} = vi.hoisted(() => ({
+  mockStationHasDynamicQr: vi.fn(),
+  mockCheckRecaptcha: vi.fn(),
+  mockCountGuestStart: vi.fn(),
+  mockCheckGuestDeclines: vi.fn(),
+  mockCountGuestDecline: vi.fn(),
+}));
+
+vi.mock('../services/web-payment.service.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/web-payment.service.js')>()),
+  stationHasDynamicQr: mockStationHasDynamicQr,
+}));
+
+vi.mock('../lib/recaptcha-check.js', () => ({ checkRecaptcha: mockCheckRecaptcha }));
+
+vi.mock('../lib/guest-velocity.js', () => ({
+  countGuestStart: mockCountGuestStart,
+  checkGuestDeclines: mockCheckGuestDeclines,
+  countGuestDecline: mockCountGuestDecline,
+  guestVelocityClientIp: vi.fn((request: { ip: string }) => request.ip),
+}));
+
 import { registerAuth } from '../plugins/auth.js';
 import { portalGuestRoutes } from '../routes/portal/guest.js';
 import { isStationChargingFree, resolveStationTariff } from '@evtivity/database';
@@ -259,6 +288,11 @@ describe('Portal guest routes - handler logic', () => {
     vi.mocked(isStationChargingFree).mockResolvedValue(true);
     vi.mocked(isEvseInReservationBuffer).mockResolvedValue(false);
     vi.mocked(getActiveMaintenanceForStation).mockResolvedValue(null);
+    mockStationHasDynamicQr.mockResolvedValue(false);
+    mockCheckRecaptcha.mockResolvedValue(true);
+    mockCountGuestStart.mockResolvedValue(null);
+    mockCheckGuestDeclines.mockResolvedValue(null);
+    mockCountGuestDecline.mockResolvedValue(undefined);
   });
 
   describe('GET /v1/portal/guest/charger-config/:stationId/:evseId', () => {
@@ -613,6 +647,7 @@ describe('Portal guest routes - handler logic', () => {
           siteId: 'site-1',
           methodPayload: 'pm_test',
           guestEmail: 'guest@example.com',
+          language: null,
           maxCostCents: 9000,
           maxEnergyWh: 20000,
           maxTimeSeconds: null,
@@ -826,6 +861,186 @@ describe('Portal guest routes - handler logic', () => {
       expect(mockRollbackGuestStart).toHaveBeenCalledWith(
         { sessionToken: hold.sessionToken, paymentId: 'pi_guest_123' },
         CTX,
+      );
+    });
+  });
+
+  describe('POST /v1/portal/guest/start/:stationId/:evseId - QR scan, card testing, language', () => {
+    beforeEach(() => {
+      vi.mocked(db.select).mockClear();
+      vi.mocked(db.insert).mockClear();
+      vi.mocked(sendOcppCommandAndWait).mockClear();
+      mockAuthorizeGuestHold.mockClear();
+      mockCountGuestStart.mockClear();
+      mockCountGuestDecline.mockClear();
+      mockCheckRecaptcha.mockClear();
+      mockStationHasDynamicQr.mockClear();
+    });
+
+    const FREE_START_ROWS = (): void => {
+      setupDbResults(
+        [PAID_STATION],
+        [{ id: 'evs_000000000001' }],
+        [{ status: 'available' }],
+        [], // active reservation gate (no reservation)
+        [], // evse active session check (none)
+        [{ freeVendEnabled: false }], // siteFreeVend lookup before tariff resolve
+      );
+    };
+
+    it('refuses a start without a scan token at a station with dynamic QR codes', async () => {
+      FREE_START_ROWS();
+      mockStationHasDynamicQr.mockResolvedValueOnce(true);
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: {},
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('QR_SCAN_REQUIRED');
+      expect(mockStationHasDynamicQr).toHaveBeenCalledWith('sta_000000000001');
+      expect(sendOcppCommandAndWait).not.toHaveBeenCalled();
+    });
+
+    it('refuses a scan token issued for another EVSE', async () => {
+      FREE_START_ROWS();
+      mockStationHasDynamicQr.mockResolvedValueOnce(true);
+      const { signGuestQrToken } = await import('../lib/guest-qr-token.js');
+      const { token } = signGuestQrToken({ stationId: 'CS-001', evseId: 2 });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { qrToken: token },
+      });
+      expect(response.statusCode).toBe(403);
+      expect(response.json().code).toBe('QR_SCAN_REQUIRED');
+    });
+
+    it('starts at a dynamic QR station with the scan token of this EVSE', async () => {
+      FREE_START_ROWS();
+      mockStationHasDynamicQr.mockResolvedValueOnce(true);
+      const { signGuestQrToken } = await import('../lib/guest-qr-token.js');
+      const { token } = signGuestQrToken({ stationId: 'CS-001', evseId: 1 });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { qrToken: token },
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json().status).toBe('started');
+    });
+
+    it('stops at the reCAPTCHA check before any lookup', async () => {
+      mockCheckRecaptcha.mockImplementationOnce(
+        async (_token: string | undefined, reply: { status: (n: number) => unknown }) => {
+          await (reply.status(400) as { send: (b: unknown) => Promise<unknown> }).send({
+            error: 'reCAPTCHA token is required',
+            code: 'RECAPTCHA_REQUIRED',
+          });
+          return false;
+        },
+      );
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: {},
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json().code).toBe('RECAPTCHA_REQUIRED');
+      expect(mockCountGuestStart).not.toHaveBeenCalled();
+      expect(vi.mocked(db.select)).not.toHaveBeenCalled();
+    });
+
+    it('passes the reCAPTCHA token to the check', async () => {
+      FREE_START_ROWS();
+      await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { recaptchaToken: 'rc-token' },
+      });
+      expect(mockCheckRecaptcha).toHaveBeenCalledWith('rc-token', expect.anything());
+    });
+
+    it('answers 429 RATE_LIMITED with Retry-After when the address made too many starts', async () => {
+      mockCountGuestStart.mockResolvedValueOnce({ retryAfterSeconds: 1200 });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: {},
+      });
+      expect(response.statusCode).toBe(429);
+      expect(response.json().code).toBe('RATE_LIMITED');
+      expect(response.headers['retry-after']).toBe('1200');
+      expect(vi.mocked(db.select)).not.toHaveBeenCalled();
+    });
+
+    it('places no hold for an address with too many declined cards', async () => {
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      setupStartRows();
+      mockCheckGuestDeclines.mockResolvedValueOnce({ retryAfterSeconds: 600 });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com' },
+      });
+      expect(response.statusCode).toBe(429);
+      expect(response.json().code).toBe('RATE_LIMITED');
+      expect(mockAuthorizeGuestHold).not.toHaveBeenCalled();
+    });
+
+    it('counts a declined hold against the address', async () => {
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      setupStartRows();
+      mockAuthorizeGuestHold.mockResolvedValueOnce({ outcome: 'declined', reason: 'Declined' });
+      const response = await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com' },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(mockCountGuestDecline).toHaveBeenCalledTimes(1);
+    });
+
+    it('stores a supported UI language on the free guest session', async () => {
+      FREE_START_ROWS();
+      await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { language: 'zh-TW' },
+      });
+      const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(
+        expect.objectContaining({ language: 'zh-TW' }),
+      );
+    });
+
+    it('stores no language for an unsupported value', async () => {
+      FREE_START_ROWS();
+      await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { language: 'fr-FR' },
+      });
+      const insertChain = vi.mocked(db.insert).mock.results[0]?.value as {
+        values: ReturnType<typeof vi.fn>;
+      };
+      expect(insertChain.values).toHaveBeenCalledWith(expect.objectContaining({ language: null }));
+    });
+
+    it('passes the language to the guest hold', async () => {
+      vi.mocked(isStationChargingFree).mockResolvedValue(false);
+      setupStartRows();
+      mockAuthorizeGuestHold.mockResolvedValueOnce({ outcome: 'declined', reason: 'Declined' });
+      await app.inject({
+        method: 'POST',
+        url: '/portal/guest/start/CS-001/1',
+        payload: { paymentMethodId: 'pm_test', guestEmail: 'guest@example.com', language: 'de' },
+      });
+      expect(mockAuthorizeGuestHold).toHaveBeenCalledWith(
+        expect.objectContaining({ language: 'de' }),
+        expect.anything(),
       );
     });
   });
@@ -1127,6 +1342,74 @@ describe('Portal guest routes - handler logic', () => {
       expect(Number(body.currentCostCents)).toBe(250);
       expect(body.taxCents).toBe(40);
       expect(body).not.toHaveProperty('tariffTaxRate');
+    });
+
+    it('shows a guest whose charging session faulted as failed and unbilled', async () => {
+      setupDbResults(
+        // The guest row still reads charging (its fail step did not run).
+        [
+          {
+            status: 'charging',
+            stationOcppId: 'CS-001',
+            evseId: 1,
+            chargingSessionId: 'ses_000000000001',
+          },
+        ],
+        [{ isSimulator: false }],
+        [
+          {
+            status: 'faulted',
+            energyDeliveredWh: 1200,
+            currentCostCents: 0,
+            finalCostCents: 0,
+            taxCents: 0,
+            startedAt: '2024-01-01T00:00:00Z',
+            endedAt: '2024-01-01T00:20:00Z',
+          },
+        ],
+        [], // payment record failure reason (none)
+      );
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/guest/status/abc123def456abc12345',
+      });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.status).toBe('failed');
+      expect(body.faulted).toBe(true);
+      expect(body.finalCostCents).toBe(0);
+    });
+
+    it('keeps an expired guest expired and does not mark a completed session faulted', async () => {
+      setupDbResults(
+        [
+          {
+            status: 'completed',
+            stationOcppId: 'CS-001',
+            evseId: 1,
+            chargingSessionId: 'ses_000000000001',
+          },
+        ],
+        [{ isSimulator: false }],
+        [
+          {
+            status: 'completed',
+            energyDeliveredWh: 1200,
+            currentCostCents: 300,
+            finalCostCents: 300,
+            taxCents: 0,
+            startedAt: '2024-01-01T00:00:00Z',
+            endedAt: '2024-01-01T00:20:00Z',
+          },
+        ],
+      );
+      const response = await app.inject({
+        method: 'GET',
+        url: '/portal/guest/status/abc123def456abc12345',
+      });
+      const body = response.json();
+      expect(body.status).toBe('completed');
+      expect(body).not.toHaveProperty('faulted');
     });
   });
 

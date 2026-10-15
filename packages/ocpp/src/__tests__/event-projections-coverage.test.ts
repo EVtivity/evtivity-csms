@@ -127,11 +127,16 @@ vi.mock('@evtivity/services/reservation-notify', () => ({
 }));
 
 const mockAuthorizeSessionHold = vi.fn();
+const mockLinkGuestSessionToCharging = vi.fn();
 const mockSettleSessionPayment = vi.fn();
 const mockRecordTerminalSettlement = vi.fn();
 vi.mock('@evtivity/payments', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   authorizeSessionHold: (...args: unknown[]) => mockAuthorizeSessionHold(...args) as unknown,
+  linkGuestSessionToCharging: (...args: unknown[]) => {
+    mockLinkGuestSessionToCharging(...args);
+    return Promise.resolve(null);
+  },
   settleSessionPayment: (...args: unknown[]) => mockSettleSessionPayment(...args) as unknown,
   recordTerminalSettlement: (...args: unknown[]) =>
     mockRecordTerminalSettlement(...args) as unknown,
@@ -209,6 +214,11 @@ vi.mock('@evtivity/database', async () => ({
   // The real firmware update and campaign progress writes, on the mocked client.
   ...(await vi.importActual<Record<string, unknown>>(
     '../../../database/src/lib/firmware-updates.js',
+  )),
+  // The real load management state writes (a station's reply to its load
+  // management limit, a resend after a clear or boot), on the mocked client.
+  ...(await vi.importActual<Record<string, unknown>>(
+    '../../../database/src/lib/load-management-state.js',
   )),
   // The session end request channel and reasons.
   ...(await vi.importActual<Record<string, unknown>>(
@@ -725,7 +735,10 @@ describe('Event projections - coverage expansion', () => {
         makeDomainEvent('ocpp.BootNotification', 'UNKNOWN', {}),
       );
 
-      expect(sqlCalls.length).toBe(1);
+      // The station lookup, then only the load management resend mark (its
+      // own subscription, keyed by the OCPP identity, matches no row).
+      expect(sqlCalls.length).toBe(2);
+      expect(sqlCalls[1]?.strings.join('')).toContain('UPDATE site_load_management');
     });
   });
 
@@ -3306,6 +3319,67 @@ describe('Event projections - coverage expansion', () => {
 
       const stamp = findSql(/SET cost_ceiling_cents/);
       expect(stamp?.values).toEqual([265, 'session-guest']);
+      // The token matches only a guest checkout of this station (G6).
+      const guestLookup = findSql(/FROM guest_sessions/);
+      expect(guestLookup?.values).toEqual(['guest-token-abc', 'CS-001']);
+      // The guest session is linked and its hold recorded eagerly (G1).
+      expect(mockLinkGuestSessionToCharging).toHaveBeenCalledWith(
+        { token: 'guest-token-abc', stationOcppId: 'CS-001', sessionId: 'session-guest' },
+        expect.objectContaining({ actor: { actor: 'ocpp', actorLabel: 'guest-link' } }),
+      );
+    });
+
+    it('lets a guest the worker already linked to this session keep charging', async () => {
+      await setup();
+      mockLinkGuestSessionToCharging.mockClear();
+
+      setupSqlResults(
+        [{ id: 'sta_000000000001' }], // resolveStationId
+        [], // eager OCPI roaming check (idToken present, no match)
+        [{ id: 'session-guest' }], // INSERT charging_sessions RETURNING id
+        [], // UPDATE stale sessions
+        [], // INSERT transaction_events
+        [{ is_roaming: false }], // SELECT is_roaming (eager-state seed)
+        [{ driver_id: null }], // SELECT driver_id (null)
+        [], // driver_tokens (empty)
+        [
+          {
+            status: 'charging',
+            guest_email: 'g@test.com',
+            pre_auth_amount_cents: 265,
+            provider_payment_id: 'pi_1',
+            charging_session_id: 'session-guest',
+          },
+        ], // guest_sessions (linked to this session)
+        [], // UPDATE charging_sessions SET cost_ceiling_cents
+        [], // loadStationPricing: no pricing group applies
+        [{ site_id: null }], // resolveSiteId
+      );
+
+      await eventBus.emit(
+        'ocpp.TransactionEvent',
+        makeDomainEvent('ocpp.TransactionEvent', 'CS-001', {
+          eventType: 'Started',
+          stationId: 'CS-001',
+          transactionId: 'tx-guest-linked',
+          seqNo: 0,
+          triggerReason: 'Authorized',
+          timestamp: '2024-01-01T00:00:00Z',
+          idToken: 'guest-token-abc',
+          tokenType: 'ISO14443',
+        }),
+      );
+
+      const publishCalls = (mockPubSub.publish as Mock<PubSubClient['publish']>).mock.calls;
+      const stopCmd = publishCalls.find(
+        (c: unknown[]) =>
+          c[0] === 'ocpp_commands' &&
+          typeof c[1] === 'string' &&
+          c[1].includes('RequestStopTransaction'),
+      );
+      expect(stopCmd).toBeUndefined();
+      // The repeat link is a no-op for the row already linked here.
+      expect(mockLinkGuestSessionToCharging).toHaveBeenCalledTimes(1);
     });
 
     it('stamps no cost ceiling for a guest session without a hold', async () => {

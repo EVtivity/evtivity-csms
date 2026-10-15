@@ -107,6 +107,26 @@ describe('notification-dispatch', () => {
       expect(result1).toBe('Hello A!');
       expect(result2).toBe('Hello B!');
     });
+
+    it('renders one source escaped and unescaped (the escape mode is in the cache key)', () => {
+      const { compileTemplate } = notificationDispatchModule;
+      const source = 'Hi {{name}}, {{url}}';
+      const vars = { name: "O'Brien", url: 'https://p.test/r?token=abc' };
+      expect(compileTemplate(source, vars)).toBe(
+        'Hi O&#x27;Brien, https://p.test/r?token&#x3D;abc',
+      );
+      expect(compileTemplate(source, vars, { noEscape: true })).toBe(
+        "Hi O'Brien, https://p.test/r?token=abc",
+      );
+      // The escaped renderer is still cached separately.
+      expect(compileTemplate(source, vars)).toContain('&#x27;');
+    });
+
+    it('keeps the template restrictions in plain-text mode', () => {
+      const { compileTemplate } = notificationDispatchModule;
+      expect(() => compileTemplate('{{> partial}}', {}, { noEscape: true })).toThrow();
+      expect(() => compileTemplate('{{lookup this "x"}}', {}, { noEscape: true })).toThrow();
+    });
   });
 
   describe('formatDateVariables', () => {
@@ -141,6 +161,29 @@ describe('notification-dispatch', () => {
       expect(formatDateVariables({ startedAt: iso }, 'Europe/Berlin')['startedAt']).toMatch(
         /^Mar 5, 2026, 9:04\sAM$/,
       );
+    });
+
+    it('formats in UTC instead of throwing for an invalid timezone', () => {
+      const { formatDateVariables } = notificationDispatchModule;
+      const iso = '2026-03-05T08:04:09.000Z';
+      const result = formatDateVariables({ startedAt: iso }, 'Not/A_Zone');
+      expect(result['startedAt']).toMatch(/^Mar 5, 2026, 8:04\sAM$/);
+    });
+
+    it('formats idleStartedAt like the other date variables', () => {
+      const { formatDateVariables } = notificationDispatchModule;
+      const iso = '2026-03-05T08:04:09.000Z';
+      const result = formatDateVariables({ idleStartedAt: iso }, 'UTC');
+      expect(result['idleStartedAt']).toMatch(/^Mar 5, 2026, 8:04\sAM$/);
+    });
+
+    it('formats a Date value (a raw timestamptz row) like an ISO string', () => {
+      const { formatDateVariables } = notificationDispatchModule;
+      const result = formatDateVariables(
+        { idleStartedAt: new Date('2026-03-05T08:04:09.000Z') },
+        'UTC',
+      );
+      expect(result['idleStartedAt']).toMatch(/^Mar 5, 2026, 8:04\sAM$/);
     });
 
     it('leaves non-date variables untouched', async () => {
@@ -251,6 +294,50 @@ describe('notification-dispatch', () => {
         companyName: 'TestCo',
       });
       expect(result.subject).toBe('TestCo - session.Started Notification');
+    });
+
+    it('renders SMS bodies and subjects as plain text, without HTML escaping', async () => {
+      const { renderTemplate } = notificationDispatchModule;
+      setupSqlResults([{ subject: 'Hi {{name}}', body_html: 'Reset for {{name}}: {{resetUrl}}' }]);
+      const result = await renderTemplate(
+        'sms',
+        'test.plainTextSms',
+        'en',
+        { name: "O'Brien", resetUrl: 'https://portal.test/reset-password?token=abc&lang=en' },
+        sql as never,
+      );
+      expect(result.body).toBe(
+        "Reset for O'Brien: https://portal.test/reset-password?token=abc&lang=en",
+      );
+      expect(result.subject).toBe("Hi O'Brien");
+      expect(result.html).toBeUndefined();
+    });
+
+    it('keeps email bodies HTML-escaped while the subject stays plain text', async () => {
+      const { renderTemplate } = notificationDispatchModule;
+      setupSqlResults([{ subject: 'Hi {{name}}', body_html: '<p>Hi {{name}} {{tag}}</p>' }]);
+      const result = await renderTemplate(
+        'email',
+        'test.htmlEmail',
+        'en',
+        { name: "O'Brien", tag: '<b>x</b>' },
+        sql as never,
+      );
+      expect(result.body).toBe('<p>Hi O&#x27;Brien &lt;b&gt;x&lt;/b&gt;</p>');
+      expect(result.subject).toBe("Hi O'Brien");
+    });
+
+    it('renders an SMS rule override as plain text', async () => {
+      const { renderTemplate } = notificationDispatchModule;
+      const result = await renderTemplate(
+        'sms',
+        'test.override',
+        'en',
+        { name: 'A & B' },
+        undefined,
+        'Hello {{name}}',
+      );
+      expect(result.body).toBe('Hello A & B');
     });
   });
 

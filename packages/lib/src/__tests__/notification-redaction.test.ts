@@ -21,6 +21,13 @@ describe('redactSensitiveNotificationContent', () => {
     expect(out).toContain('Set Your Password');
   });
 
+  it('removes the token from a plain-text SMS body (raw =)', () => {
+    const sms = `Reset your password: https://portal.test/reset-password?token=${TOKEN}&lang=en`;
+    const out = redactSensitiveNotificationContent(sms, 'driver.ForgotPassword');
+    expect(out).not.toContain(TOKEN);
+    expect(out).toContain('token=<redacted>');
+  });
+
   it('redacts the onboarding link in a site payout onboarding email', () => {
     const html = `<a href='https://portal.test/payout-onboarding?token&#x3D;${TOKEN}'>Set Up</a>`;
     expect(redactSensitiveNotificationContent(html, 'site.PayoutOnboarding')).not.toContain(TOKEN);

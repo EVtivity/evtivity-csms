@@ -274,6 +274,7 @@ export {
   completeFirmwareCampaignIfDone,
   rejectFirmwareUpdate,
   failCanceledFirmwareCampaignUpdates,
+  dropQueuedCampaignFirmwareUpdates,
 } from './lib/firmware-updates.js';
 export type {
   FirmwareCampaignStationStatus,
@@ -283,6 +284,11 @@ export {
   dispatchPendingFirmwareCampaigns,
   newFirmwareRequestId,
 } from './lib/firmware-campaign-dispatch.js';
+export {
+  markLoadManagementStale,
+  recordLoadManagementProfileReply,
+} from './lib/load-management-state.js';
+export type { LoadManagementRateUnit } from './lib/load-management-state.js';
 export { isFleetEnabled, clearFleetCache } from './lib/fleet-setting.js';
 export {
   guardVersion,
@@ -303,7 +309,19 @@ export type {
 } from './lib/process-versions.js';
 export { isPortalRegistrationEnabled } from './lib/portal-registration-setting.js';
 export { touchExpiredDriverTokens } from './lib/driver-token-expiry.js';
-export { isGuestChargingEnabled, clearGuestChargingCache } from './lib/guest-setting.js';
+export {
+  isGuestChargingEnabled,
+  clearGuestChargingCache,
+  getGuestVelocityLimits,
+  clearGuestVelocityCache,
+  parseGuestVelocityLimit,
+  GUEST_STARTS_PER_IP_PER_HOUR_KEY,
+  GUEST_DECLINES_PER_IP_PER_HOUR_KEY,
+  DEFAULT_GUEST_STARTS_PER_IP_PER_HOUR,
+  DEFAULT_GUEST_DECLINES_PER_IP_PER_HOUR,
+  MAX_GUEST_VELOCITY_LIMIT,
+} from './lib/guest-setting.js';
+export type { GuestVelocityLimits } from './lib/guest-setting.js';
 export {
   AUTOCHARGE_ENABLED_KEY,
   clearAutochargeCache,

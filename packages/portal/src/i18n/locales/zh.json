@@ -355,6 +355,7 @@
     "loadingPayment": "加载支付表单..."
   },
   "guestSession": {
+    "faultedNotice": "此会话因故障结束，未收取费用。",
     "loadingSession": "加载会话...",
     "notFound": "未找到会话。",
     "duration": "时长",
@@ -771,6 +772,7 @@
     "PROVIDER_TEST_FAILED": "提供方返回 ...",
     "PUSH_NOT_FOUND": "未找到推送",
     "PUSH_REJECTED": "充电站拒绝推送：...",
+    "QR_SCAN_REQUIRED": "请扫描充电站上显示的二维码以开始充电。",
     "RATE_LIMITED": "请求过多。请稍候再试。",
     "RECAPTCHA_FAILED": "reCAPTCHA 验证失败",
     "RECAPTCHA_REQUIRED": "需要 reCAPTCHA 令牌",
@@ -890,6 +892,8 @@
     "AI_CONFIRMATION_REQUIRES_SESSION": "请登录控制台确认此操作，不能使用 API 密钥",
     "AI_MCP_RATE_LIMITED": "MCP 请求过多，请稍后再试",
     "CHARGING_PROFILE_ID_RESERVED": "充电配置文件 ID 必须大于充电站的 MaxExternalConstraintsId。",
+    "CHARGING_PROFILE_LOAD_MANAGED": "负载管理设定此充电站的限值。请使用堆栈级别为 0 且 ID 不同于负载管理配置文件 ID 的 ChargingStationMaxProfile。",
+    "STATION_SECURITY_ROUTE_REQUIRED": "充电站安全配置文件和网络配置文件须通过 PATCH /v1/stations/:id 更改，不能使用配置模板",
     "TOKEN_BLOCKED_BY_OPERATOR": "此卡已被运营商停用。请联系运营商重新启用。",
     "SESSION_NO_VEHICLE_ID": "充电站未为此会话发送车辆标识。",
     "VEHICLE_BLOCKED_BY_OPERATOR": "运营商已阻止此车辆使用 Autocharge。请联系运营商解除阻止。",

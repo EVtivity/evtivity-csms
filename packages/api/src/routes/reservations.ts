@@ -318,7 +318,13 @@ const listReservationsQuery = paginationQuery.extend({
 
 const createReservationBody = z.object({
   stationId: z.string().describe('OCPP station identifier string'),
-  evseId: z.coerce.number().int().optional().describe('EVSE ID on the station'),
+  evseId: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(2147483647)
+    .optional()
+    .describe('EVSE ID on the station'),
   driverId: ID_PARAMS.driverId.optional().describe('Driver ID to associate with the reservation'),
   tokenId: ID_PARAMS.driverTokenId
     .optional()
@@ -331,7 +337,14 @@ const createReservationBody = z.object({
 
 const updateReservationBody = z.object({
   driverId: ID_PARAMS.driverId.nullable().optional().describe('Driver ID'),
-  evseId: z.coerce.number().int().nullable().optional().describe('EVSE ID on the station'),
+  evseId: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(2147483647)
+    .nullable()
+    .optional()
+    .describe('EVSE ID on the station'),
   expiresAt: z.string().datetime().optional().describe('ISO 8601 expiration date-time'),
   tokenId: ID_PARAMS.driverTokenId
     .nullable()

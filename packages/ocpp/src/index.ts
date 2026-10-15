@@ -6,7 +6,11 @@ export type { OcppServerOptions } from './server/ocpp-server.js';
 export { CommandDispatcher } from './server/command-dispatcher.js';
 export { CommandListener } from './server/command-listener.js';
 export { ConnectionManager } from './server/connection-manager.js';
-export { CommandTimeoutError, MessageCorrelator } from './server/message-correlator.js';
+export {
+  CommandQueueTimeoutError,
+  CommandTimeoutError,
+  MessageCorrelator,
+} from './server/message-correlator.js';
 export { MessageRouter } from './server/message-router.js';
 export type { ActionHandlerFn } from './server/message-router.js';
 export { MiddlewarePipeline } from './server/middleware/pipeline.js';

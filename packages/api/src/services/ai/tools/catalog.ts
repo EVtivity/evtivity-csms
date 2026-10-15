@@ -3511,7 +3511,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     pathTemplate: '/v1/sites/{siteId}/panels/{panelId}/circuits',
     pathParams: ['siteId', 'panelId'],
     queryParams: [],
-    bodyParams: ['name', 'breakerRatingAmps', 'phaseConnections', 'sortOrder'],
+    bodyParams: ['name', 'breakerRatingAmps', 'phaseConnections', 'voltageV', 'sortOrder'],
     parameters: {
       type: 'object',
       properties: {
@@ -3529,9 +3529,22 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', 'L1L2L3', null],
           description: 'Phase connections (omit to inherit all panel phases)',
         },
+        voltageV: {
+          type: ['integer', 'null'],
+          description:
+            'Circuit voltage in volts when it runs below its single-phase panel (120 for a 120 V branch of a 240 V split-phase panel). Omit to use the panel voltage. Refused on a three-phase panel and above the panel voltage',
+        },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
-      required: ['siteId', 'panelId', 'name', 'breakerRatingAmps', 'phaseConnections', 'sortOrder'],
+      required: [
+        'siteId',
+        'panelId',
+        'name',
+        'breakerRatingAmps',
+        'phaseConnections',
+        'voltageV',
+        'sortOrder',
+      ],
       additionalProperties: false,
     },
     strict: true,
@@ -3552,6 +3565,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', 'L1L2L3'],
           description: 'Phase connections (omit to inherit all panel phases)',
         },
+        voltageV: {
+          type: 'integer',
+          description:
+            'Circuit voltage in volts when it runs below its single-phase panel (120 for a 120 V branch of a 240 V split-phase panel). Omit to use the panel voltage. Refused on a three-phase panel and above the panel voltage',
+        },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
       required: ['siteId', 'panelId', 'name', 'breakerRatingAmps'],
@@ -3568,6 +3586,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'sortOrder',
       'stationCount',
       'updatedAt',
+      'voltageV',
     ],
   },
   {
@@ -4043,7 +4062,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         isEnabled: { type: ['boolean', 'null'] },
         notifyChannel: { type: ['string', 'null'], enum: ['email', 'webhook', 'sms', 'log', null] },
-        notifyRecipient: { type: ['string', 'null'] },
+        notifyRecipient: {
+          type: ['string', 'null'],
+          pattern: '^(?!\\$)',
+          description:
+            'Recipient address for the chosen channel; placeholders such as $admin are refused',
+        },
       },
       required: [
         'component',
@@ -4079,7 +4103,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         },
         isEnabled: { type: 'boolean' },
         notifyChannel: { type: 'string', enum: ['email', 'webhook', 'sms', 'log'] },
-        notifyRecipient: { type: 'string', maxLength: 500 },
+        notifyRecipient: {
+          type: 'string',
+          maxLength: 500,
+          pattern: '^(?!\\$)',
+          description:
+            'Recipient address for the chosen channel; placeholders such as $admin are refused',
+        },
       },
       required: ['component', 'variable'],
       additionalProperties: false,
@@ -4169,7 +4199,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 maxLength: 255,
                 description: 'OCPP station identifier',
               },
-              evseId: { type: 'integer', minimum: 1, description: 'EVSE ID on the station' },
+              evseId: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 2147483647,
+                description: 'EVSE ID on the station',
+              },
               driverId: { type: 'string', pattern: '^drv_[a-z0-9]{12}$', description: 'Driver ID' },
             },
             required: ['stationOcppId'],
@@ -4215,7 +4250,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
                 maxLength: 255,
                 description: 'OCPP station identifier',
               },
-              evseId: { type: 'integer', minimum: 1, description: 'EVSE ID on the station' },
+              evseId: {
+                type: 'integer',
+                minimum: 1,
+                maximum: 2147483647,
+                description: 'EVSE ID on the station',
+              },
               driverId: { type: 'string', pattern: '^drv_[a-z0-9]{12}$', description: 'Driver ID' },
             },
             required: ['stationOcppId'],
@@ -4343,6 +4383,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'phases',
       'safetyMarginKw',
       'oversubscriptionRatio',
+      'phaseConnections',
       'sortOrder',
     ],
     parameters: {
@@ -4361,6 +4402,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         phases: { type: 'integer' },
         safetyMarginKw: { type: ['number', 'null'], minimum: 0, maximum: 10000 },
         oversubscriptionRatio: { type: ['number', 'null'], minimum: 1, maximum: 3 },
+        phaseConnections: {
+          type: ['string', 'null'],
+          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
+          description:
+            'Phases of the three-phase parent panel that feed this single-phase sub-panel (one phase line to neutral, two line to line). Omit when unknown: the sub-panel load then counts on every parent phase. Refused unless the panel is single-phase below a three-phase parent',
+        },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
       required: [
@@ -4372,6 +4419,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'phases',
         'safetyMarginKw',
         'oversubscriptionRatio',
+        'phaseConnections',
         'sortOrder',
       ],
       additionalProperties: false,
@@ -4393,6 +4441,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         phases: { type: 'integer' },
         safetyMarginKw: { type: 'number', minimum: 0, maximum: 10000 },
         oversubscriptionRatio: { type: 'number', minimum: 1, maximum: 3 },
+        phaseConnections: {
+          type: 'string',
+          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3'],
+          description:
+            'Phases of the three-phase parent panel that feed this single-phase sub-panel (one phase line to neutral, two line to line). Omit when unknown: the sub-panel load then counts on every parent phase. Refused unless the panel is single-phase below a three-phase parent',
+        },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
       required: ['siteId', 'name', 'breakerRatingAmps', 'voltageV', 'phases'],
@@ -4407,6 +4461,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'name',
       'oversubscriptionRatio',
       'parentPanelId',
+      'phaseConnections',
       'phases',
       'safetyMarginKw',
       'siteId',
@@ -4564,7 +4619,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         stationId: { type: 'string', description: 'OCPP station identifier string' },
-        evseId: { type: ['integer', 'null'], description: 'EVSE ID on the station' },
+        evseId: {
+          type: ['integer', 'null'],
+          minimum: 0,
+          maximum: 2147483647,
+          description: 'EVSE ID on the station',
+        },
         driverId: {
           type: ['string', 'null'],
           pattern: '^drv_[a-z0-9]{12}$',
@@ -4587,7 +4647,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         stationId: { type: 'string', description: 'OCPP station identifier string' },
-        evseId: { type: 'integer', description: 'EVSE ID on the station' },
+        evseId: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 2147483647,
+          description: 'EVSE ID on the station',
+        },
         driverId: {
           type: 'string',
           pattern: '^drv_[a-z0-9]{12}$',
@@ -8392,6 +8457,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'maxContinuousKw',
       'maxPowerKw',
       'name',
+      'phaseConnections',
       'rateUnit',
       'safetyMarginKw',
       'stationId',
@@ -8400,6 +8466,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'type',
       'unmanagedLoadKw',
       'utilization',
+      'voltageV',
     ],
   },
   {
@@ -10878,6 +10945,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'sortOrder',
       'stationCount',
       'updatedAt',
+      'voltageV',
     ],
   },
   {
@@ -13170,6 +13238,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'name',
       'oversubscriptionRatio',
       'parentPanelId',
+      'phaseConnections',
       'phases',
       'safetyMarginKw',
       'siteId',
@@ -25310,7 +25379,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     pathTemplate: '/v1/sites/{siteId}/panels/{panelId}/circuits/{circuitId}',
     pathParams: ['siteId', 'panelId', 'circuitId'],
     queryParams: [],
-    bodyParams: ['name', 'breakerRatingAmps', 'phaseConnections', 'sortOrder'],
+    bodyParams: ['name', 'breakerRatingAmps', 'phaseConnections', 'voltageV', 'sortOrder'],
     parameters: {
       type: 'object',
       properties: {
@@ -25324,6 +25393,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', 'L1L2L3', null],
           description: 'Phase connections; null puts the circuit back on every panel phase',
         },
+        voltageV: {
+          type: ['integer', 'null'],
+          description:
+            'Circuit voltage in volts when it runs below its single-phase panel; null uses the panel voltage. Refused on a three-phase panel and above the panel voltage',
+        },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
       required: [
@@ -25333,6 +25407,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'name',
         'breakerRatingAmps',
         'phaseConnections',
+        'voltageV',
         'sortOrder',
       ],
       additionalProperties: false,
@@ -25352,6 +25427,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           nullable: true,
           description: 'Phase connections; null puts the circuit back on every panel phase',
         },
+        voltageV: {
+          type: 'integer',
+          nullable: true,
+          description:
+            'Circuit voltage in volts when it runs below its single-phase panel; null uses the panel voltage. Refused on a three-phase panel and above the panel voltage',
+        },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
       required: ['siteId', 'panelId', 'circuitId'],
@@ -25368,6 +25449,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'sortOrder',
       'stationCount',
       'updatedAt',
+      'voltageV',
     ],
   },
   {
@@ -25599,11 +25681,15 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     parameters: {
       type: 'object',
       properties: {
-        eventType: { type: 'string', description: 'Driver event type identifier' },
+        eventType: {
+          type: 'string',
+          description:
+            'Driver event type identifier. Only driver notification types have a switch: any other type returns 400 VALIDATION_ERROR.',
+        },
         isEnabled: {
           type: 'boolean',
           description:
-            'Whether the driver event type is sent. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, driver.RegistrationAttempt, mfa.VerificationCode) cannot be turned off.',
+            'Whether the driver event type is sent. The required types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, driver.RegistrationAttempt, driver.PasswordChanged, driver.MfaDisabled, mfa.VerificationCode, invoice.MemberInvoice, invoice.MemberCreditNote, invoice.MemberOverdue, session.AutochargeStarted) cannot be turned off.',
         },
       },
       required: ['eventType', 'isEnabled'],
@@ -25613,11 +25699,16 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
     validation: {
       type: 'object',
       properties: {
-        eventType: { type: 'string', maxLength: 255, description: 'Driver event type identifier' },
+        eventType: {
+          type: 'string',
+          maxLength: 255,
+          description:
+            'Driver event type identifier. Only driver notification types have a switch: any other type returns 400 VALIDATION_ERROR.',
+        },
         isEnabled: {
           type: 'boolean',
           description:
-            'Whether the driver event type is sent. The access-critical types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, driver.RegistrationAttempt, mfa.VerificationCode) cannot be turned off.',
+            'Whether the driver event type is sent. The required types (driver.ForgotPassword, driver.AccountVerification, driver.PortalInvite, driver.RegistrationAttempt, driver.PasswordChanged, driver.MfaDisabled, mfa.VerificationCode, invoice.MemberInvoice, invoice.MemberCreditNote, invoice.MemberOverdue, session.AutochargeStarted) cannot be turned off.',
         },
       },
       required: ['eventType', 'isEnabled'],
@@ -25710,7 +25801,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         minSeverity: { type: ['integer', 'null'], minimum: 0, maximum: 9 },
         isEnabled: { type: ['boolean', 'null'] },
         notifyChannel: { type: ['string', 'null'], enum: ['email', 'webhook', 'sms', 'log', null] },
-        notifyRecipient: { type: ['string', 'null'] },
+        notifyRecipient: {
+          type: ['string', 'null'],
+          pattern: '^(?!\\$)',
+          description:
+            'Recipient address for the chosen channel; placeholders such as $admin are refused',
+        },
       },
       required: ['id', 'minSeverity', 'isEnabled', 'notifyChannel', 'notifyRecipient'],
       additionalProperties: false,
@@ -25723,7 +25819,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         minSeverity: { type: 'integer', minimum: 0, maximum: 9 },
         isEnabled: { type: 'boolean' },
         notifyChannel: { type: 'string', enum: ['email', 'webhook', 'sms', 'log'] },
-        notifyRecipient: { type: 'string', maxLength: 500 },
+        notifyRecipient: {
+          type: 'string',
+          maxLength: 500,
+          pattern: '^(?!\\$)',
+          description:
+            'Recipient address for the chosen channel; placeholders such as $admin are refused',
+        },
       },
       required: ['id'],
       additionalProperties: false,
@@ -25886,7 +25988,11 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         eventType: { type: 'string', description: 'OCPP event type identifier' },
-        recipient: { type: ['string', 'null'], description: 'Recipient address or $admin' },
+        recipient: {
+          type: ['string', 'null'],
+          description:
+            'Recipient address: an email address (email channel) or an http(s) URL (webhook)',
+        },
         channel: {
           type: ['string', 'null'],
           enum: ['email', 'webhook', null],
@@ -25903,7 +26009,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       type: 'object',
       properties: {
         eventType: { type: 'string', maxLength: 255, description: 'OCPP event type identifier' },
-        recipient: { type: 'string', maxLength: 500, description: 'Recipient address or $admin' },
+        recipient: {
+          type: 'string',
+          maxLength: 500,
+          description:
+            'Recipient address: an email address (email channel) or an http(s) URL (webhook)',
+        },
         channel: {
           type: 'string',
           enum: ['email', 'webhook'],
@@ -25947,6 +26058,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'phases',
       'safetyMarginKw',
       'oversubscriptionRatio',
+      'phaseConnections',
       'sortOrder',
     ],
     parameters: {
@@ -25960,6 +26072,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         phases: { type: ['integer', 'null'] },
         safetyMarginKw: { type: ['number', 'null'], minimum: 0, maximum: 10000 },
         oversubscriptionRatio: { type: ['number', 'null'], minimum: 1, maximum: 3 },
+        phaseConnections: {
+          type: ['string', 'null'],
+          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
+          description:
+            'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown (its load counts on every parent phase). Refused unless the panel is single-phase below a three-phase parent',
+        },
         sortOrder: { type: ['integer', 'null'], minimum: 0, maximum: 10000 },
       },
       required: [
@@ -25971,6 +26089,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         'phases',
         'safetyMarginKw',
         'oversubscriptionRatio',
+        'phaseConnections',
         'sortOrder',
       ],
       additionalProperties: false,
@@ -25987,6 +26106,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
         phases: { type: 'integer' },
         safetyMarginKw: { type: 'number', minimum: 0, maximum: 10000 },
         oversubscriptionRatio: { type: 'number', minimum: 1, maximum: 3 },
+        phaseConnections: {
+          type: 'string',
+          enum: ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3', null],
+          nullable: true,
+          description:
+            'Phases of the three-phase parent panel that feed this single-phase sub-panel; null when unknown (its load counts on every parent phase). Refused unless the panel is single-phase below a three-phase parent',
+        },
         sortOrder: { type: 'integer', minimum: 0, maximum: 10000 },
       },
       required: ['siteId', 'panelId'],
@@ -26001,6 +26127,7 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
       'name',
       'oversubscriptionRatio',
       'parentPanelId',
+      'phaseConnections',
       'phases',
       'safetyMarginKw',
       'siteId',
@@ -26168,7 +26295,12 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           pattern: '^drv_[a-z0-9]{12}$',
           description: 'Driver ID',
         },
-        evseId: { type: ['integer', 'null'], description: 'EVSE ID on the station' },
+        evseId: {
+          type: ['integer', 'null'],
+          minimum: 0,
+          maximum: 2147483647,
+          description: 'EVSE ID on the station',
+        },
         expiresAt: { type: ['string', 'null'], description: 'ISO 8601 expiration date-time' },
         tokenId: {
           type: ['string', 'null'],
@@ -26191,7 +26323,13 @@ export const AI_TOOL_CATALOG: readonly AiCatalogTool[] = [
           nullable: true,
           description: 'Driver ID',
         },
-        evseId: { type: 'integer', nullable: true, description: 'EVSE ID on the station' },
+        evseId: {
+          type: 'integer',
+          minimum: 0,
+          maximum: 2147483647,
+          nullable: true,
+          description: 'EVSE ID on the station',
+        },
         expiresAt: {
           type: 'string',
           format: 'date-time',

@@ -16,7 +16,13 @@ import {
   writeSiteLoadManagementAudit,
   writeStationLoadAudit,
 } from '../lib/load-management-audit.js';
-import { circuitConductorPhases, computeMaxContinuousKw } from '@evtivity/lib';
+import {
+  PANEL_VOLTAGES,
+  circuitConductorPhases,
+  computeMaxContinuousKw,
+  effectiveCircuitVoltageV,
+  isCircuitVoltageAllowed,
+} from '@evtivity/lib';
 
 // --- Schemas ---
 
@@ -43,10 +49,22 @@ const phaseConnectionsSchema = z
   .optional()
   .describe('Phase connections (omit to inherit all panel phases)');
 
+const circuitVoltageSchema = z
+  .number()
+  .int()
+  .refine((v) => (PANEL_VOLTAGES as readonly number[]).includes(v), {
+    message: `Voltage must be one of: ${PANEL_VOLTAGES.join(', ')}`,
+  });
+
 const createCircuitBody = z.object({
   name: z.string().min(1).max(255),
   breakerRatingAmps: z.number().int().min(1).max(10000).describe('Breaker rating in amps'),
   phaseConnections: phaseConnectionsSchema,
+  voltageV: circuitVoltageSchema
+    .optional()
+    .describe(
+      'Circuit voltage in volts when it runs below its single-phase panel (120 for a 120 V branch of a 240 V split-phase panel). Omit to use the panel voltage. Refused on a three-phase panel and above the panel voltage',
+    ),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
@@ -58,6 +76,12 @@ const updateCircuitBody = z.object({
     .nullable()
     .optional()
     .describe('Phase connections; null puts the circuit back on every panel phase'),
+  voltageV: circuitVoltageSchema
+    .nullable()
+    .optional()
+    .describe(
+      'Circuit voltage in volts when it runs below its single-phase panel; null uses the panel voltage. Refused on a three-phase panel and above the panel voltage',
+    ),
   sortOrder: z.number().int().min(0).max(10000).optional(),
 });
 
@@ -79,6 +103,11 @@ const circuitItem = z
       .enum(phaseConnectionValues)
       .nullable()
       .describe('Phases connected to this circuit; null inherits panel phases'),
+    voltageV: z
+      .number()
+      .int()
+      .nullable()
+      .describe('Circuit voltage in volts; null uses the panel voltage'),
     sortOrder: z.number().int().min(0).describe('Display ordering within the panel'),
     stationCount: z.number().int().min(0).describe('Number of stations assigned to this circuit'),
     createdAt: z.coerce.date().describe('Timestamp when created'),
@@ -97,6 +126,14 @@ const stationCircuitItem = z
   })
   .passthrough();
 
+// --- Helpers ---
+
+const CIRCUIT_VOLTAGE_ERROR = {
+  error:
+    'A circuit voltage is allowed only on a single-phase panel and must not exceed the panel voltage',
+  code: 'VALIDATION_ERROR',
+} as const;
+
 // --- Routes ---
 
 export function circuitRoutes(app: FastifyInstance): void {
@@ -114,6 +151,7 @@ export function circuitRoutes(app: FastifyInstance): void {
         body: zodSchema(createCircuitBody),
         response: {
           201: itemResponse(circuitItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Panel not found', [ERROR_CODES.PANEL_NOT_FOUND]),
           500: errorWith('Create failed', [ERROR_CODES.CREATE_FAILED]),
         },
@@ -141,9 +179,17 @@ export function circuitRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (
+        body.voltageV != null &&
+        !isCircuitVoltageAllowed(body.voltageV, panel.voltageV, panel.phases)
+      ) {
+        await reply.status(400).send(CIRCUIT_VOLTAGE_ERROR);
+        return;
+      }
+
       const maxContinuousKw = computeMaxContinuousKw(
         body.breakerRatingAmps,
-        panel.voltageV,
+        effectiveCircuitVoltageV(body.voltageV, panel.voltageV, panel.phases),
         circuitConductorPhases(body.phaseConnections, panel.phases),
       );
 
@@ -155,6 +201,7 @@ export function circuitRoutes(app: FastifyInstance): void {
           breakerRatingAmps: body.breakerRatingAmps,
           maxContinuousKw: String(maxContinuousKw),
           phaseConnections: body.phaseConnections ?? null,
+          voltageV: body.voltageV ?? null,
           sortOrder: body.sortOrder ?? 0,
         })
         .returning();
@@ -213,6 +260,7 @@ export function circuitRoutes(app: FastifyInstance): void {
           breakerRatingAmps: circuits.breakerRatingAmps,
           maxContinuousKw: circuits.maxContinuousKw,
           phaseConnections: circuits.phaseConnections,
+          voltageV: circuits.voltageV,
           sortOrder: circuits.sortOrder,
           createdAt: circuits.createdAt,
           updatedAt: circuits.updatedAt,
@@ -247,6 +295,7 @@ export function circuitRoutes(app: FastifyInstance): void {
         body: zodSchema(updateCircuitBody),
         response: {
           200: itemResponse(circuitItem),
+          400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
           404: errorWith('Circuit not found', [ERROR_CODES.CIRCUIT_NOT_FOUND]),
         },
       },
@@ -283,18 +332,36 @@ export function circuitRoutes(app: FastifyInstance): void {
         return;
       }
 
+      if (
+        body.voltageV != null &&
+        !isCircuitVoltageAllowed(body.voltageV, panel.voltageV, panel.phases)
+      ) {
+        await reply.status(400).send(CIRCUIT_VOLTAGE_ERROR);
+        return;
+      }
+
       const updateData: Record<string, unknown> = { updatedAt: new Date() };
       if (body.name != null) updateData['name'] = body.name;
       if (body.breakerRatingAmps != null) updateData['breakerRatingAmps'] = body.breakerRatingAmps;
       if (body.phaseConnections !== undefined)
         updateData['phaseConnections'] = body.phaseConnections;
+      if (body.voltageV !== undefined) updateData['voltageV'] = body.voltageV;
       if (body.sortOrder != null) updateData['sortOrder'] = body.sortOrder;
 
-      // The capacity depends on the breaker and on the phases the circuit uses.
-      if (body.breakerRatingAmps != null || body.phaseConnections !== undefined) {
+      // The capacity depends on the breaker, the voltage and the phases the
+      // circuit uses.
+      if (
+        body.breakerRatingAmps != null ||
+        body.phaseConnections !== undefined ||
+        body.voltageV !== undefined
+      ) {
         const maxContinuousKw = computeMaxContinuousKw(
           body.breakerRatingAmps ?? existing.breakerRatingAmps,
-          panel.voltageV,
+          effectiveCircuitVoltageV(
+            body.voltageV !== undefined ? body.voltageV : existing.voltageV,
+            panel.voltageV,
+            panel.phases,
+          ),
           circuitConductorPhases(
             body.phaseConnections !== undefined ? body.phaseConnections : existing.phaseConnections,
             panel.phases,
@@ -371,6 +438,7 @@ export function circuitRoutes(app: FastifyInstance): void {
           breakerRatingAmps: circuits.breakerRatingAmps,
           maxContinuousKw: circuits.maxContinuousKw,
           phaseConnections: circuits.phaseConnections,
+          voltageV: circuits.voltageV,
         })
         .from(circuits)
         .innerJoin(panels, eq(circuits.panelId, panels.id))

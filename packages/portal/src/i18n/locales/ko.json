@@ -355,6 +355,7 @@
     "loadingPayment": "결제 양식 로딩 중..."
   },
   "guestSession": {
+    "faultedNotice": "이 세션은 오류로 종료되었으며 요금이 청구되지 않았습니다.",
     "loadingSession": "세션 로딩 중...",
     "notFound": "세션을 찾을 수 없습니다.",
     "duration": "소요 시간",
@@ -771,6 +772,7 @@
     "PROVIDER_TEST_FAILED": "공급자가 ...을(를) 반환했습니다",
     "PUSH_NOT_FOUND": "푸시를 찾을 수 없습니다",
     "PUSH_REJECTED": "충전소가 푸시를 거부했습니다: ...",
+    "QR_SCAN_REQUIRED": "충전을 시작하려면 충전기에 표시된 QR 코드를 스캔하세요.",
     "RATE_LIMITED": "요청이 너무 많습니다. 잠시 후 다시 시도하세요.",
     "RECAPTCHA_FAILED": "reCAPTCHA 인증에 실패했습니다",
     "RECAPTCHA_REQUIRED": "reCAPTCHA 토큰이 필요합니다",
@@ -890,6 +892,8 @@
     "AI_CONFIRMATION_REQUIRES_SESSION": "API 키가 아닌 대시보드에 로그인한 상태에서 이 작업을 확인하세요",
     "AI_MCP_RATE_LIMITED": "MCP 요청이 너무 많습니다. 나중에 다시 시도하세요",
     "CHARGING_PROFILE_ID_RESERVED": "충전 프로필 ID는 충전소의 MaxExternalConstraintsId보다 커야 합니다.",
+    "CHARGING_PROFILE_LOAD_MANAGED": "부하 관리가 이 충전소의 한도를 설정합니다. 스택 레벨 0의 ChargingStationMaxProfile과 부하 관리 프로필 ID가 아닌 ID를 사용하세요.",
+    "STATION_SECURITY_ROUTE_REQUIRED": "충전소 보안 프로필과 네트워크 프로필은 구성 템플릿이 아니라 PATCH /v1/stations/:id로 변경합니다",
     "TOKEN_BLOCKED_BY_OPERATOR": "운영자가 이 카드를 비활성화했습니다. 다시 활성화하려면 운영자에게 문의하세요.",
     "SESSION_NO_VEHICLE_ID": "충전기가 이 세션에 차량 ID를 보내지 않았습니다.",
     "VEHICLE_BLOCKED_BY_OPERATOR": "운영자가 이 차량의 Autocharge를 차단했습니다. 차단을 해제하려면 운영자에게 문의하세요.",

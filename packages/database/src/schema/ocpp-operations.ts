@@ -488,7 +488,7 @@ export const eventAlertRules = pgTable(
     minSeverity: integer('min_severity').notNull().default(0),
     isEnabled: boolean('is_enabled').notNull().default(true),
     notifyChannel: varchar('notify_channel', { length: 50 }).notNull().default('email'),
-    notifyRecipient: varchar('notify_recipient', { length: 500 }).notNull().default('$admin'),
+    notifyRecipient: varchar('notify_recipient', { length: 500 }).notNull().default(''),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

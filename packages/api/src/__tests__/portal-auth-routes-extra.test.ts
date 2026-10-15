@@ -1026,6 +1026,8 @@ describe('Portal auth routes - extra coverage', () => {
       const { resetUrl } = call?.[3] as { resetUrl: string };
       const raw = new URL(resetUrl).searchParams.get('token') ?? '';
       expect(hashUserToken(raw)).toBe(tokenInsert.tokenHash);
+      // Email only: no verified phone flag exists, so the link never goes by SMS.
+      expect(call?.[2]).not.toHaveProperty('phone');
     });
 
     it('still returns success when the email dispatch fails', async () => {

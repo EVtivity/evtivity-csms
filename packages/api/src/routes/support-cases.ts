@@ -1812,13 +1812,16 @@ export function supportCaseRoutes(app: FastifyInstance): void {
         siteIds == null
           ? linkedSessionIds
           : [...(await sessionIdsInSites(linkedSessionIds, siteIds))];
-      // Fresh automatic insights save the draft tool calls (fail-open).
+      // Fresh automatic insights save the draft tool calls (fail-open), only
+      // for an operator who may read insights: the draft would show them.
       let insightContext: string | null = null;
       try {
-        insightContext = await supportInsightContext(
-          { stationId: caseRow.stationId, sessionIds },
-          siteIds,
-        );
+        if (await requestHasPermission(request, 'aiInsights:read')) {
+          insightContext = await supportInsightContext(
+            { stationId: caseRow.stationId, sessionIds },
+            siteIds,
+          );
+        }
       } catch (err) {
         request.log.warn({ err, caseId: id }, 'Support draft insights could not be read');
       }
@@ -1844,6 +1847,7 @@ export function supportCaseRoutes(app: FastifyInstance): void {
             userId,
             authorization: callerAuthorization(request),
             accessScope,
+            isApiKey: (request.user as JwtPayload).isApiKey === true,
             hasPermission: (permission: string) => requestHasPermission(request, permission),
             actor,
             log: request.log,

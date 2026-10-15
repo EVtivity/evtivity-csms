@@ -12,9 +12,12 @@
  * 3. Only an API key (`Authorization: Bearer <64 hex>`) authenticates: a JWT,
  *    a cookie session or nothing answers 401 with `WWW-Authenticate: Bearer`.
  * 4. The key's scope must hold `aiMcp:read` (`AI_MCP_USE_PERMISSION`): 403.
- * 5. Per-key limits (`ai.mcp.rateLimitPerMinute`, `ai.mcp.dailyCallsPerKey`):
+ * 5. A JSON-RPC batch (an array body) answers 400 with a JSON-RPC -32600
+ *    error and code `VALIDATION_ERROR`: the limits below count one POST, and
+ *    the SDK's 2025-era fallback would run every message of a batch.
+ * 6. Per-key limits (`ai.mcp.rateLimitPerMinute`, `ai.mcp.dailyCallsPerKey`):
  *    429 with a JSON-RPC error whose `data.code` is `AI_MCP_RATE_LIMITED`.
- * 6. `?toolsets=` names known categories, else 400 `VALIDATION_ERROR`.
+ * 7. `?toolsets=` names known categories, else 400 `VALIDATION_ERROR`.
  *
  * GET and DELETE answer 405 (no session stream, no session to delete).
  *
@@ -94,6 +97,39 @@ const rateLimitedResponse = z
   })
   .passthrough()
   .describe('MCP rate limit of the API key reached');
+
+const BATCH_REFUSED_MESSAGE =
+  'JSON-RPC batch requests are not supported: send one message per POST';
+
+const batchRefusedResponse = z
+  .object({
+    jsonrpc: z.literal('2.0').describe('JSON-RPC version'),
+    id: z.unknown().describe('Always null: a batch has no single id'),
+    error: z
+      .object({
+        code: z.literal(-32600).describe('JSON-RPC error code (-32600, invalid request)'),
+        message: z.string().describe(`Error message. Default: "${BATCH_REFUSED_MESSAGE}"`),
+        data: z
+          .object({
+            code: z.literal('VALIDATION_ERROR').describe('EVtivity error code'),
+          })
+          .passthrough()
+          .describe('EVtivity detail'),
+      })
+      .passthrough()
+      .describe('The JSON-RPC error'),
+    code: z.literal('VALIDATION_ERROR').describe('EVtivity error code'),
+  })
+  .passthrough()
+  .describe('A JSON-RPC batch (array body) was sent');
+
+const unknownToolsetResponse = z
+  .object({
+    error: z.string().describe('Error message naming the unknown and the available toolsets'),
+    code: z.literal('VALIDATION_ERROR').describe('Error code returned at this status'),
+  })
+  .passthrough()
+  .describe('Unknown toolset');
 
 function notFound(request: FastifyRequest, reply: FastifyReply): FastifyReply {
   // The shape Fastify gives an unknown route: an MCP server that is off does not exist.
@@ -180,7 +216,11 @@ export function mcpRoutes(app: FastifyInstance): void {
         querystring: zodSchema(querySchema),
         response: {
           200: zodSchema(jsonRpcResponse.describe('A JSON-RPC response, or an SSE stream')),
-          400: errorWith('Unknown toolset', [ERROR_CODES.VALIDATION_ERROR]),
+          400: zodSchema(
+            z
+              .union([unknownToolsetResponse, batchRefusedResponse])
+              .describe('Unknown toolset, or a JSON-RPC batch (array body)'),
+          ),
           401: errorWith('An API key is required', [ERROR_CODES.UNAUTHORIZED]),
           403: errorWith('Origin not allowed, or the key lacks aiMcp:read', [
             ERROR_CODES.FORBIDDEN,
@@ -190,6 +230,20 @@ export function mcpRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
+      // One POST counts once against the per-key limits, so it may carry one
+      // message only: the SDK's 2025-era fallback runs every message of a batch.
+      if (Array.isArray(request.body)) {
+        return reply.status(400).send({
+          jsonrpc: '2.0',
+          id: null,
+          error: {
+            code: -32600,
+            message: BATCH_REFUSED_MESSAGE,
+            data: { code: ERROR_CODES.VALIDATION_ERROR },
+          },
+          code: ERROR_CODES.VALIDATION_ERROR,
+        });
+      }
       const user = request.user as JwtPayload;
       const apiKeyId = user.apiKeyId ?? '';
       const settings = await getAiMcpSettings();

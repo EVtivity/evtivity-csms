@@ -685,6 +685,8 @@ async function seed(): Promise<void> {
     'fleet.creditReservationCents': 5000,
     'support.enabled': true,
     'guest.enabled': true,
+    'guest.startsPerIpPerHour': 30,
+    'guest.declinesPerIpPerHour': 5,
     'autocharge.enabled': false,
     'ocpp.commandRetryMaxAttempts': 3,
     'ocpp.commandRetryBaseDelayMs': 1000,

@@ -78,9 +78,17 @@ function isMaskable(value: unknown): boolean {
   return (typeof value === 'string' && value !== '') || typeof value === 'number';
 }
 
-function maskNode(value: unknown, secretEntry: boolean): unknown {
-  if (Array.isArray(value)) return value.map((item) => maskNode(item, secretEntry));
+/**
+ * Nesting deeper than this is replaced whole by `[redacted]`. No OCPP payload
+ * nests this deep, and the cap keeps a hostile payload from overflowing the
+ * stack (the OCPP server refuses frames past 32 levels before they get here).
+ */
+export const MAX_MASK_DEPTH = 64;
+
+function maskNode(value: unknown, secretEntry: boolean, depth: number): unknown {
   if (value == null || typeof value !== 'object') return value;
+  if (depth >= MAX_MASK_DEPTH) return REDACTED;
+  if (Array.isArray(value)) return value.map((item) => maskNode(item, secretEntry, depth + 1));
   const obj = value as Record<string, unknown>;
   const entry = secretEntry || isSecretConfigEntry(obj);
   const out: Record<string, unknown> = {};
@@ -88,7 +96,7 @@ function maskNode(value: unknown, secretEntry: boolean): unknown {
     if (isMaskable(v) && (isCredentialName(k) || (entry && isConfigValueKey(k)))) {
       out[k] = REDACTED;
     } else {
-      out[k] = maskNode(v, entry && isConfigAttributeList(k));
+      out[k] = maskNode(v, entry && isConfigAttributeList(k), depth + 1);
     }
   }
   return out;
@@ -101,10 +109,11 @@ function maskNode(value: unknown, secretEntry: boolean): unknown {
  * named as one (2.1 SetVariables, GetVariables and NotifyReport
  * `BasicAuthPassword`, 1.6 ChangeConfiguration and GetConfiguration
  * `AuthorizationKey`), in requests and responses of both versions. Keys stay,
- * so the log shows that a value was set. Never mutates `payload`.
+ * so the log shows that a value was set. A subtree nested deeper than
+ * `MAX_MASK_DEPTH` is replaced whole. Never mutates `payload`.
  */
 export function maskStationCredentials<T>(payload: T): T {
-  return maskNode(payload, false) as T;
+  return maskNode(payload, false, 0) as T;
 }
 
 /** Whether a payload holds a station credential (`maskStationCredentials` would change it). */

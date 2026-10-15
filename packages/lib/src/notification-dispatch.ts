@@ -8,8 +8,8 @@ import { readFile } from 'node:fs/promises';
 import { createLogger } from './logger.js';
 import { decryptString } from './encryption.js';
 import { DEFAULT_CURRENCY } from './currency.js';
-import { isRequiredDriverEventType } from './notification-events.js';
-import { formatDateTime } from './timezone.js';
+import { isDriverEventType, isRequiredDriverEventType } from './notification-events.js';
+import { formatDateTime, isValidTimezone } from './timezone.js';
 import { formatLocalizedVariables } from './notification-values.js';
 import { isPrivateUrl } from './url-validation.js';
 import { blockedDestinationOf, safeFetch } from './safe-fetch.js';
@@ -18,7 +18,11 @@ import {
   getNotificationTestSinkUrl,
   postToNotificationTestSink,
 } from './notification-test-sink.js';
-import { compileAllowedTemplate, type TemplateRenderer } from './template-safety.js';
+import {
+  compileAllowedTemplate,
+  type AllowedTemplateOptions,
+  type TemplateRenderer,
+} from './template-safety.js';
 import type { PubSubClient } from './pubsub.js';
 
 const logger = createLogger('notification-dispatch');
@@ -107,8 +111,9 @@ const SENSITIVE_EVENT_TYPES = new Set([
 // Replace 6-digit codes (OTP/MFA) and known token-bearing URL parameters
 // with a fixed marker. Best-effort regex pass over an arbitrary HTML/text
 // body; over-redaction in a sensitive event is preferable to leaking the
-// real value into the audit-visible history table. Handlebars HTML-escapes
-// `=` in links as `&#x3D;`, so the separators match escaped forms too.
+// real value into the audit-visible history table. Email bodies HTML-escape
+// `=` in links as `&#x3D;`, so the separators match escaped forms too. SMS
+// and push bodies are plain text and keep a raw `=`.
 export function redactSensitiveNotificationContent(text: string, eventType: string): string {
   if (!SENSITIVE_EVENT_TYPES.has(eventType)) return text;
   return text
@@ -129,6 +134,7 @@ export const DATE_VARIABLE_NAMES = [
   'issuedAt',
   'dueAt',
   'refundedAt',
+  'idleStartedAt',
 ];
 
 /** Date and time without seconds, e.g. "Mar 5, 2026, 9:04 AM" (en) or "05.03.2026, 09:04" (de). */
@@ -142,11 +148,23 @@ export function formatDateVariables(
   timezone: string,
   language = 'en',
 ): Record<string, unknown> {
+  // An unknown zone makes Intl throw a RangeError, which would lose the whole
+  // notification. Format in UTC instead.
+  let zone = timezone;
+  if (!isValidTimezone(zone)) {
+    logger.warn({ timezone }, 'Invalid notification timezone, formatting dates in UTC');
+    zone = 'UTC';
+  }
   const result = { ...variables };
   for (const key of DATE_VARIABLE_NAMES) {
     const val = result[key];
-    if (typeof val === 'string' && val.length > 0) {
-      result[key] = formatDateTime(val, timezone, NOTIFICATION_DATE_TIME, language);
+    // A raw query row can carry a Date (postgres timestamptz), which a
+    // template would otherwise render as "[object Object]".
+    if (
+      (typeof val === 'string' && val.length > 0) ||
+      (val instanceof Date && !Number.isNaN(val.getTime()))
+    ) {
+      result[key] = formatDateTime(val, zone, NOTIFICATION_DATE_TIME, language);
     }
   }
   return result;
@@ -263,25 +281,51 @@ let companyCache: { settings: CompanySettings; expiresAt: number } | null = null
 
 let systemTimezoneCache: { value: string; expiresAt: number } | null = null;
 
+/** The seeded default of `system.timezone`, used while the setting is missing. */
+const DEFAULT_SYSTEM_TIMEZONE = 'America/New_York';
+
 export async function getSystemTimezoneCached(sql: postgres.Sql): Promise<string> {
   if (systemTimezoneCache != null && systemTimezoneCache.expiresAt > Date.now()) {
     return systemTimezoneCache.value;
   }
   const rows = await sql`SELECT value FROM settings WHERE key = 'system.timezone' LIMIT 1`;
-  const value = (rows[0]?.value as string | undefined) ?? 'America/New_York';
+  const value = (rows[0]?.value as string | undefined) ?? DEFAULT_SYSTEM_TIMEZONE;
   systemTimezoneCache = { value, expiresAt: Date.now() + CACHE_TTL_MS };
   return value;
+}
+
+/**
+ * The zone a notification's dates are shown in: the recipient's own when it is a
+ * valid IANA zone, else the system timezone (Settings > System), else UTC. The
+ * dispatchers call it after getCompanySettings, whose read also caches the
+ * system timezone, so it adds no query.
+ */
+export async function resolveNotificationTimezone(
+  sql: postgres.Sql,
+  timezone: string | null | undefined,
+): Promise<string> {
+  if (timezone != null && timezone !== '' && isValidTimezone(timezone)) return timezone;
+  const system = await getSystemTimezoneCached(sql);
+  return isValidTimezone(system) ? system : 'UTC';
 }
 
 export async function getCompanySettings(sql: postgres.Sql): Promise<CompanySettings> {
   if (companyCache != null && companyCache.expiresAt > Date.now()) {
     return companyCache.settings;
   }
-  const rows = await sql`SELECT key, value FROM settings WHERE key LIKE 'company.%'`;
+  // The same read refreshes the system timezone, the fallback zone of
+  // notification dates (resolveNotificationTimezone).
+  const rows = await sql`
+    SELECT key, value FROM settings WHERE key LIKE 'company.%' OR key = 'system.timezone'
+  `;
   const map = new Map<string, string>();
   for (const row of rows) {
     if (typeof row.value === 'string') map.set(row.key as string, row.value);
   }
+  systemTimezoneCache = {
+    value: map.get('system.timezone') ?? DEFAULT_SYSTEM_TIMEZONE,
+    expiresAt: Date.now() + CACHE_TTL_MS,
+  };
   const settings: CompanySettings = {
     companyName: map.get('company.name') ?? 'EVtivity',
     companyCurrency: map.get('company.currency') ?? DEFAULT_CURRENCY,
@@ -428,18 +472,41 @@ export async function loadDbTemplate(
   };
 }
 
-export function compileTemplate(source: string, variables: Record<string, unknown>): string {
+/**
+ * Renders an operator-editable template. `{{var}}` is HTML-escaped unless
+ * `options.noEscape` is set, for plain-text targets (SMS, push, subjects).
+ * The cache key holds the escape mode, so one source can render both ways.
+ */
+export function compileTemplate(
+  source: string,
+  variables: Record<string, unknown>,
+  options: AllowedTemplateOptions = {},
+): string {
   const now = Date.now();
-  const cached = compiledTemplateCache.get(source);
+  const noEscape = options.noEscape === true;
+  const cacheKey = `${noEscape ? 'text' : 'html'}:${source}`;
+  const cached = compiledTemplateCache.get(cacheKey);
   if (cached != null && now - cached.cachedAt < TEMPLATE_CACHE_TTL_MS) {
     return cached.compiled(variables);
   }
   // Templates are operator-editable (DB rows, rule overrides, the email
-  // layout), so only plain variables and if/unless blocks are allowed.
-  const compiled = compileAllowedTemplate(source);
-  compiledTemplateCache.set(source, { compiled, cachedAt: now });
+  // layout), so only plain variables and if/unless blocks are allowed, in
+  // both escape modes.
+  const compiled = compileAllowedTemplate(source, { noEscape });
+  compiledTemplateCache.set(cacheKey, { compiled, cachedAt: now });
   return compiled(variables);
 }
+
+/**
+ * Channels whose body is plain text: SMS (the push notification reuses the
+ * SMS render). HTML escaping there would show `&#x27;` for an apostrophe and
+ * break links (`=` becomes `&#x3D;`). Email bodies stay HTML-escaped.
+ */
+const PLAIN_TEXT_CHANNELS = new Set(['sms']);
+
+// Subjects are plain text on every channel (an email header, an SMS log
+// line, a push title), so they are never HTML-escaped.
+const PLAIN_TEXT: AllowedTemplateOptions = { noEscape: true };
 
 // Default subjects live next to the bodies as `subject.hbs` in each
 // template folder ({language}/{eventDir}/subject.hbs), so they follow the
@@ -478,8 +545,26 @@ async function defaultSubject(
   templatesDir?: string | string[],
 ): Promise<string> {
   const source = await loadSubjectTemplate(eventType, language, templatesDir);
-  if (source != null) return compileTemplate(source, variables).trim();
-  return compileTemplate(GENERIC_SUBJECT, { ...variables, eventType });
+  if (source != null) return compileTemplate(source, variables, PLAIN_TEXT).trim();
+  return compileTemplate(GENERIC_SUBJECT, { ...variables, eventType }, PLAIN_TEXT);
+}
+
+/** The first template directory's `<lang>/<event>/<channel>.hbs`, or null. */
+async function loadFileTemplate(
+  channel: string,
+  eventType: string,
+  language: string,
+  templatesDir?: string | string[],
+): Promise<string | null> {
+  if (templatesDir == null) return null;
+  const { resolve } = await import('node:path');
+  const dirs = Array.isArray(templatesDir) ? templatesDir : [templatesDir];
+  const eventDir = eventType.replace(/\./g, '/');
+  for (const dir of dirs) {
+    const content = await loadTemplateFile(resolve(dir, language, eventDir, `${channel}.hbs`));
+    if (content != null) return content;
+  }
+  return null;
 }
 
 export async function renderTemplate(
@@ -491,9 +576,10 @@ export async function renderTemplate(
   templateHtmlOverride?: string | null,
   templatesDir?: string | string[],
 ): Promise<RenderedTemplate> {
+  const bodyOptions: AllowedTemplateOptions = { noEscape: PLAIN_TEXT_CHANNELS.has(channel) };
   // Priority 1: Rule-level HTML override (OCPP rules only)
   if (templateHtmlOverride != null && templateHtmlOverride !== '') {
-    const rendered = compileTemplate(templateHtmlOverride, variables);
+    const rendered = compileTemplate(templateHtmlOverride, variables, bodyOptions);
     const result: RenderedTemplate = {
       subject: await defaultSubject(eventType, language, variables, templatesDir),
       body: rendered,
@@ -502,46 +588,37 @@ export async function renderTemplate(
     return result;
   }
 
-  // Priority 2: Check DB for custom template
-  if (sql != null) {
-    let dbTemplate = await loadDbTemplate(sql, eventType, channel, language);
-    if (dbTemplate == null && language !== 'en') {
-      dbTemplate = await loadDbTemplate(sql, eventType, channel, 'en');
-    }
-    if (dbTemplate != null && dbTemplate.bodyHtml != null) {
-      const subject =
-        dbTemplate.subject != null
-          ? compileTemplate(dbTemplate.subject, variables)
-          : await defaultSubject(eventType, language, variables, templatesDir);
-      const rendered = compileTemplate(dbTemplate.bodyHtml, variables);
-      const result: RenderedTemplate = { subject, body: rendered };
-      if (channel === 'email') result.html = rendered;
-      return result;
-    }
-  }
-
-  // Priority 3: File-based .hbs template
-  if (templatesDir != null) {
-    const { resolve } = await import('node:path');
-    const dirs = Array.isArray(templatesDir) ? templatesDir : [templatesDir];
-    const eventDir = eventType.replace(/\./g, '/');
-
-    for (const dir of dirs) {
-      let content = await loadTemplateFile(resolve(dir, language, eventDir, `${channel}.hbs`));
-
-      if (content == null && language !== 'en') {
-        content = await loadTemplateFile(resolve(dir, 'en', eventDir, `${channel}.hbs`));
-      }
-
-      if (content != null) {
-        const rendered = compileTemplate(content, variables);
-        const result: RenderedTemplate = {
-          subject: await defaultSubject(eventType, language, variables, templatesDir),
-          body: rendered.trim(),
-        };
+  // A custom DB template applies to its own language. In the requested
+  // language: the DB template, then the shipped file. Only when neither
+  // exists does English apply (DB, then file), so a custom English template
+  // never replaces a shipped translation for a driver in another language.
+  const languages = language === 'en' ? ['en'] : [language, 'en'];
+  for (const lang of languages) {
+    // Priority 2: custom DB template in this language
+    if (sql != null) {
+      const dbTemplate = await loadDbTemplate(sql, eventType, channel, lang);
+      if (dbTemplate != null && dbTemplate.bodyHtml != null) {
+        const subject =
+          dbTemplate.subject != null
+            ? compileTemplate(dbTemplate.subject, variables, PLAIN_TEXT)
+            : await defaultSubject(eventType, language, variables, templatesDir);
+        const rendered = compileTemplate(dbTemplate.bodyHtml, variables, bodyOptions);
+        const result: RenderedTemplate = { subject, body: rendered };
         if (channel === 'email') result.html = rendered;
         return result;
       }
+    }
+
+    // Priority 3: shipped .hbs template file in this language
+    const content = await loadFileTemplate(channel, eventType, lang, templatesDir);
+    if (content != null) {
+      const rendered = compileTemplate(content, variables, bodyOptions);
+      const result: RenderedTemplate = {
+        subject: await defaultSubject(eventType, language, variables, templatesDir),
+        body: rendered.trim(),
+      };
+      if (channel === 'email') result.html = rendered;
+      return result;
     }
   }
 
@@ -795,13 +872,14 @@ export function logNotification(
 // Operators turn a driver event type off on the Driver Events tab
 // (driver_event_settings). No row means on. Some driver events (guest receipts,
 // password resets, MFA codes) go through dispatchSystemNotification, so both
-// dispatchers check it. System events are always on and have no row here.
+// dispatchers check it. System events are always on: a stored row for a type
+// that is not a driver event is ignored (the API refuses to write one).
 // Required driver event types are always on, whatever is stored.
 export async function isDriverEventDisabled(
   sql: postgres.Sql,
   eventType: string,
 ): Promise<boolean> {
-  if (isRequiredDriverEventType(eventType)) return false;
+  if (!isDriverEventType(eventType) || isRequiredDriverEventType(eventType)) return false;
   const rows = await sql`
     SELECT is_enabled FROM driver_event_settings
     WHERE event_type = ${eventType}
@@ -878,7 +956,7 @@ export async function dispatchDriverNotification(
     const email = driver.email as string | null;
     const phone = driver.phone as string | null;
     const language = (driver.language as string | undefined) ?? 'en';
-    const timezone = (driver.timezone as string | undefined) ?? 'America/New_York';
+    const timezone = await resolveNotificationTimezone(sql, driver.timezone as string | null);
 
     const companyName = company.companyName;
 
@@ -1180,7 +1258,7 @@ export async function dispatchSystemNotification(
     const email = recipient.email ?? undefined;
     const phone = recipient.phone ?? undefined;
     const language = recipient.language ?? 'en';
-    const timezone = recipient.timezone ?? 'America/New_York';
+    const timezone = await resolveNotificationTimezone(sql, recipient.timezone);
 
     const enrichedVariables: Record<string, unknown> = {
       ...company,

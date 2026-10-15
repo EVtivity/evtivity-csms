@@ -162,7 +162,11 @@ describe('createQueues', () => {
       attempts: 3,
       backoff: { type: 'exponential', delay: 5000 },
     };
-    expect(byName['guest-session-events']?.['defaultJobOptions']).toEqual(expected);
+    // Guest link and capture jobs retry five times (finding G1).
+    expect(byName['guest-session-events']?.['defaultJobOptions']).toEqual({
+      ...expected,
+      attempts: 5,
+    });
     expect(byName['reservations']?.['defaultJobOptions']).toEqual(expected);
     expect(byName['remote-start-timeouts']?.['defaultJobOptions']).toEqual(expected);
   });

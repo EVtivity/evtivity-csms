@@ -26,6 +26,7 @@ interface SegmentGateRow {
   prepaid_balance_cents: number | null;
   guest_status: string | null;
   guest_email: string | null;
+  guest_language: string | null;
   guest_payment_id: string | null;
 }
 
@@ -58,7 +59,8 @@ export async function runSegmentPaymentGate(
     SELECT cs.status, cs.transaction_id, cs.driver_id, cs.station_id,
            st.station_id AS ocpp_station_id, st.site_id, cs.is_roaming, cs.free_vend,
            cs.billing_mode, dt.prepaid_balance_cents,
-           g.status AS guest_status, g.guest_email, g.provider_payment_id AS guest_payment_id
+           g.status AS guest_status, g.guest_email, g.language AS guest_language,
+           g.provider_payment_id AS guest_payment_id
     FROM charging_sessions cs
     JOIN charging_stations st ON st.id = cs.station_id
     LEFT JOIN driver_tokens dt ON dt.id = cs.token_id
@@ -84,6 +86,7 @@ export async function runSegmentPaymentGate(
     // A guest who started free has no card hold: the gate stops the session.
     guestStatus: isGuest ? (row.guest_payment_id != null ? row.guest_status : 'free_start') : null,
     guestEmail: row.guest_email,
+    guestLanguage: row.guest_language ?? null,
     prepaidBalanceCents: null,
     reserved: false,
     sessionTariff: tariff,

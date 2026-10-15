@@ -175,4 +175,64 @@ describe('ConnectionManager', () => {
       expect(registry.register).toHaveBeenCalledWith('CS-001', 'instance-2');
     });
   });
+
+  describe('refreshRegistry', () => {
+    function registryWithRefresh(refresh = vi.fn().mockResolvedValue(undefined)) {
+      return {
+        register: vi.fn().mockResolvedValue(undefined),
+        unregister: vi.fn().mockResolvedValue(undefined),
+        getInstanceId: vi.fn().mockResolvedValue(null),
+        refreshOwned: refresh,
+      };
+    }
+
+    it('refreshes every held station under this instance', async () => {
+      const registry = registryWithRefresh();
+      cm.setRegistry(registry, 'instance-3');
+      cm.add('CS-001', mockWs(), createSessionState('CS-001'));
+      cm.add('CS-002', mockWs(), createSessionState('CS-002'));
+
+      cm.refreshRegistry();
+
+      await vi.waitFor(() => {
+        expect(registry.refreshOwned).toHaveBeenCalledWith(['CS-001', 'CS-002'], 'instance-3');
+      });
+    });
+
+    it('sends nothing without stations, a registry or an instance', () => {
+      const registry = registryWithRefresh();
+      cm.refreshRegistry();
+      cm.setRegistry(registry, 'instance-3');
+      cm.refreshRegistry();
+      expect(registry.refreshOwned).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when the refresh rejects', async () => {
+      const refresh = vi.fn().mockRejectedValue(new Error('redis down'));
+      const registry = registryWithRefresh(refresh);
+      cm.setRegistry(registry, 'instance-3');
+      cm.add('CS-001', mockWs(), createSessionState('CS-001'));
+
+      expect(() => {
+        cm.refreshRegistry();
+      }).not.toThrow();
+      await vi.waitFor(() => {
+        expect(refresh).toHaveBeenCalledTimes(1);
+      });
+      expect(cm.has('CS-001')).toBe(true);
+    });
+
+    it('skips a registry without refreshOwned', () => {
+      const registry = {
+        register: vi.fn().mockResolvedValue(undefined),
+        unregister: vi.fn().mockResolvedValue(undefined),
+        getInstanceId: vi.fn().mockResolvedValue(null),
+      };
+      cm.setRegistry(registry, 'instance-3');
+      cm.add('CS-001', mockWs(), createSessionState('CS-001'));
+      expect(() => {
+        cm.refreshRegistry();
+      }).not.toThrow();
+    });
+  });
 });

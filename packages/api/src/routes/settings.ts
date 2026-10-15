@@ -22,6 +22,11 @@ import {
   clearSupportCache,
   clearFleetCache,
   clearGuestChargingCache,
+  clearGuestVelocityCache,
+  parseGuestVelocityLimit,
+  GUEST_STARTS_PER_IP_PER_HOUR_KEY,
+  GUEST_DECLINES_PER_IP_PER_HOUR_KEY,
+  MAX_GUEST_VELOCITY_LIMIT,
   clearAiSettingsCache,
   clearPncSettingsCache,
   writeAudit,
@@ -211,6 +216,10 @@ function normalizeSettingValue(key: string, value: unknown): { value: unknown } 
     const hosts = parseAllowedPrivateHosts(value);
     return hosts != null ? { value: hosts } : null;
   }
+  if (key === GUEST_STARTS_PER_IP_PER_HOUR_KEY || key === GUEST_DECLINES_PER_IP_PER_HOUR_KEY) {
+    const limit = parseGuestVelocityLimit(value);
+    return limit != null ? { value: limit } : null;
+  }
   if (key === PREPAID_LOW_CREDIT_THRESHOLD_KEY) {
     const cents = parsePrepaidLowCreditThresholdCents(value);
     return cents != null ? { value: cents } : null;
@@ -280,6 +289,13 @@ const invalidWebhookAllowedHostsError = {
   error: `${WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY} must be an array of at most ${String(MAX_ALLOWED_PRIVATE_HOSTS)} hostnames or IP addresses without scheme or port`,
   code: 'VALIDATION_ERROR',
 };
+
+function invalidGuestVelocityLimitError(key: string): { error: string; code: string } {
+  return {
+    error: `${key} must be a whole number from 0 (no limit) to ${String(MAX_GUEST_VELOCITY_LIMIT)}`,
+    code: 'VALIDATION_ERROR',
+  };
+}
 
 const invalidPrepaidLowCreditThresholdError = {
   error: `${PREPAID_LOW_CREDIT_THRESHOLD_KEY} must be a whole number of cents from 0 to ${String(MAX_PREPAID_LOW_CREDIT_THRESHOLD_CENTS)}`,
@@ -420,6 +436,9 @@ function invalidSettingError(key: string): { error: string; code: string } {
   const aiError = invalidAiSettingError(key);
   if (aiError != null) return aiError;
   if (key === WEBHOOK_ALLOWED_PRIVATE_HOSTS_KEY) return invalidWebhookAllowedHostsError;
+  if (key === GUEST_STARTS_PER_IP_PER_HOUR_KEY || key === GUEST_DECLINES_PER_IP_PER_HOUR_KEY) {
+    return invalidGuestVelocityLimitError(key);
+  }
   if (key === PREPAID_LOW_CREDIT_THRESHOLD_KEY) return invalidPrepaidLowCreditThresholdError;
   if (key === INVOICE_PAYMENT_TERMS_DAYS_KEY) return invalidInvoicePaymentTermsError;
   if (key === FLEET_CREDIT_RESERVATION_KEY) return invalidFleetCreditReservationError;
@@ -477,6 +496,9 @@ function clearCachesForKey(key: string): void {
   if (key === 'support.enabled') clearSupportCache();
   if (key === 'fleet.enabled') clearFleetCache();
   if (key === 'guest.enabled') clearGuestChargingCache();
+  if (key === GUEST_STARTS_PER_IP_PER_HOUR_KEY || key === GUEST_DECLINES_PER_IP_PER_HOUR_KEY) {
+    clearGuestVelocityCache();
+  }
   if (key === 'company.portalUrl') clearCompanyPortalUrlCache();
   if (key.startsWith('pnc.')) clearPncSettingsCache();
   if (isAiSettingKey(key)) clearAiSettingsCache();

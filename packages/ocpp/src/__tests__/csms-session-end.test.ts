@@ -4,20 +4,27 @@
 import { describe, it, expect, vi } from 'vitest';
 import type postgres from 'postgres';
 import type { EventBus, Logger, PubSubClient } from '@evtivity/lib';
-const { mockCancelOpenSessionHold, mockNotifySessionEndFailed, mockSessionAudit } = vi.hoisted(
-  () => ({
-    mockCancelOpenSessionHold: vi.fn(),
-    mockNotifySessionEndFailed: vi.fn(),
-    mockSessionAudit: vi.fn(),
-  }),
-);
+const {
+  mockCancelOpenSessionHold,
+  mockFailGuestSessionOfFaultedSession,
+  mockNotifySessionEndFailed,
+  mockSessionAudit,
+} = vi.hoisted(() => ({
+  mockCancelOpenSessionHold: vi.fn(),
+  mockFailGuestSessionOfFaultedSession: vi.fn().mockResolvedValue(false),
+  mockNotifySessionEndFailed: vi.fn(),
+  mockSessionAudit: vi.fn(),
+}));
 const mockOcpiSessionPush = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 vi.mock('@evtivity/database', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@evtivity/database')>()),
   writeCsmsSessionAudit: mockSessionAudit,
   publishOcpiSessionPush: mockOcpiSessionPush,
 }));
-vi.mock('@evtivity/payments', () => ({ cancelOpenSessionHold: mockCancelOpenSessionHold }));
+vi.mock('@evtivity/payments', () => ({
+  cancelOpenSessionHold: mockCancelOpenSessionHold,
+  failGuestSessionOfFaultedSession: mockFailGuestSessionOfFaultedSession,
+}));
 vi.mock('../server/session-end-alert.js', () => ({
   notifySessionEndFailed: mockNotifySessionEndFailed,
 }));
@@ -243,6 +250,24 @@ describe('giving up on a session end', () => {
     expect(bus.publish).not.toHaveBeenCalled();
     expect(mockNotifySessionEndFailed).toHaveBeenCalledTimes(1);
     expect(mockNotifySessionEndFailed).toHaveBeenCalledWith(sql, 'ses_1', log);
+  });
+
+  it('fails the guest session of the faulted session (finding G5)', async () => {
+    mockCancelOpenSessionHold.mockReset().mockResolvedValue({ status: 'cancelled' });
+    mockNotifySessionEndFailed.mockReset().mockResolvedValue(undefined);
+    mockFailGuestSessionOfFaultedSession.mockClear();
+    const { sql } = giveUpSql([{ id: 'ses_1' }]);
+    expect(await giveUpSessionEnd(sql, 'ses_1', makeLogger() as unknown as Logger)).toBe(true);
+    expect(mockFailGuestSessionOfFaultedSession).toHaveBeenCalledWith('ses_1', {
+      registry: 'registry',
+    });
+
+    mockFailGuestSessionOfFaultedSession.mockClear();
+    const ended = giveUpSql([]);
+    expect(await giveUpSessionEnd(ended.sql, 'ses_1', makeLogger() as unknown as Logger)).toBe(
+      false,
+    );
+    expect(mockFailGuestSessionOfFaultedSession).not.toHaveBeenCalled();
   });
 
   it('audits the fault once as a system session-end-sweep row', async () => {

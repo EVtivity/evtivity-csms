@@ -19,6 +19,7 @@ import {
   StationPasswordVerifier,
   defaultArgon2Concurrency,
   libuvThreadpoolSize,
+  stationAuthBackoffKey,
 } from '../server/middleware/station-password-verifier.js';
 
 const verifyMock = vi.mocked(verify);
@@ -105,11 +106,11 @@ describe('StationPasswordVerifier', () => {
   it('runs argon2 on a miss and serves the next check from the cache', async () => {
     const verifier = new StationPasswordVerifier({ cache: new StationAuthCache() });
 
-    expect(await verifier.verify('sta_1', storedHash, PASSWORD)).toEqual({
+    expect(await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1')).toEqual({
       valid: true,
       cached: false,
     });
-    expect(await verifier.verify('sta_1', storedHash, PASSWORD)).toEqual({
+    expect(await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1')).toEqual({
       valid: true,
       cached: true,
     });
@@ -119,8 +120,8 @@ describe('StationPasswordVerifier', () => {
   it('never caches a failure, so each wrong password costs argon2', async () => {
     const verifier = new StationPasswordVerifier({ cache: new StationAuthCache() });
 
-    await verifier.verify('sta_1', storedHash, 'wrong-password-0001');
-    await verifier.verify('sta_1', storedHash, 'wrong-password-0001');
+    await verifier.verify('sta_1', storedHash, 'wrong-password-0001', '10.0.0.1');
+    await verifier.verify('sta_1', storedHash, 'wrong-password-0001', '10.0.0.1');
 
     expect(verifyMock).toHaveBeenCalledTimes(2);
     expect(verifier.stats().cacheEntries).toBe(0);
@@ -128,10 +129,10 @@ describe('StationPasswordVerifier', () => {
 
   it('checks again with argon2 after an invalidation', async () => {
     const verifier = new StationPasswordVerifier({ cache: new StationAuthCache() });
-    await verifier.verify('sta_1', storedHash, PASSWORD);
+    await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1');
 
     verifier.invalidate('sta_1');
-    const check = await verifier.verify('sta_1', storedHash, PASSWORD);
+    const check = await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1');
 
     expect(check).toEqual({ valid: true, cached: false });
     expect(verifyMock).toHaveBeenCalledTimes(2);
@@ -139,8 +140,8 @@ describe('StationPasswordVerifier', () => {
 
   it('caches nothing without a cache', async () => {
     const verifier = new StationPasswordVerifier({ cache: null });
-    await verifier.verify('sta_1', storedHash, PASSWORD);
-    await verifier.verify('sta_1', storedHash, PASSWORD);
+    await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1');
+    await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1');
 
     expect(verifyMock).toHaveBeenCalledTimes(2);
   });
@@ -160,7 +161,7 @@ describe('StationPasswordVerifier', () => {
 
     await Promise.all(
       [1, 2, 3, 4, 5].map(async (n) => {
-        await verifier.verify(`sta_${String(n)}`, storedHash, PASSWORD);
+        await verifier.verify(`sta_${String(n)}`, storedHash, PASSWORD, '10.0.0.1');
         order.push(n);
       }),
     );
@@ -176,8 +177,10 @@ describe('StationPasswordVerifier', () => {
     verifyMock.mockRejectedValueOnce(new Error('pchstr must contain a $ as first char'));
     const verifier = new StationPasswordVerifier({ cache: null, maxConcurrent: 1 });
 
-    await expect(verifier.verify('sta_1', 'not-a-hash', PASSWORD)).rejects.toThrow();
-    expect(await verifier.verify('sta_1', storedHash, PASSWORD)).toMatchObject({ valid: true });
+    await expect(verifier.verify('sta_1', 'not-a-hash', PASSWORD, '10.0.0.1')).rejects.toThrow();
+    expect(await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1')).toMatchObject({
+      valid: true,
+    });
   });
 
   it('flags hashes with other parameters for a rehash', async () => {
@@ -256,32 +259,75 @@ describe('StationPasswordVerifier failed-attempt backoff', () => {
       cache: new StationAuthCache(),
       backoff: new StationAuthBackoff({ limit: 2 }),
     });
-    await verifier.verify('sta_1', storedHash, PASSWORD);
-    await verifier.verify('sta_1', storedHash, 'wrong-password-0001');
-    await verifier.verify('sta_1', storedHash, 'wrong-password-0002');
+    await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1');
+    await verifier.verify('sta_1', storedHash, 'wrong-password-0001', '10.0.0.1');
+    await verifier.verify('sta_1', storedHash, 'wrong-password-0002', '10.0.0.1');
     verifyMock.mockClear();
 
-    const locked = await verifier.verify('sta_1', storedHash, 'wrong-password-0003');
+    const locked = await verifier.verify('sta_1', storedHash, 'wrong-password-0003', '10.0.0.1');
     expect(locked.valid).toBe(false);
     expect(locked.lockedForMs).toBeGreaterThan(0);
     expect(verifyMock).not.toHaveBeenCalled();
 
     // The station holding the right password reconnects from the cache.
-    expect(await verifier.verify('sta_1', storedHash, PASSWORD)).toEqual({
+    expect(await verifier.verify('sta_1', storedHash, PASSWORD, '10.0.0.1')).toEqual({
       valid: true,
       cached: true,
     });
     // Other stations are not affected.
-    expect(await verifier.verify('sta_2', storedHash, PASSWORD)).toMatchObject({ valid: true });
+    expect(await verifier.verify('sta_2', storedHash, PASSWORD, '10.0.0.1')).toMatchObject({
+      valid: true,
+    });
+  });
+
+  it('keys the lockout on station and client IP', async () => {
+    const verifier = new StationPasswordVerifier({
+      cache: null,
+      backoff: new StationAuthBackoff({ limit: 2 }),
+    });
+    await verifier.verify('sta_1', storedHash, 'wrong-password-0001', '203.0.113.9');
+    await verifier.verify('sta_1', storedHash, 'wrong-password-0002', '203.0.113.9');
+    verifyMock.mockClear();
+
+    // The attacker's address is locked out, even with the right password.
+    const attacker = await verifier.verify('sta_1', storedHash, PASSWORD, '203.0.113.9');
+    expect(attacker.lockedForMs).toBeGreaterThan(0);
+    expect(verifyMock).not.toHaveBeenCalled();
+
+    // The station on another address runs argon2 and connects.
+    expect(await verifier.verify('sta_1', storedHash, PASSWORD, '198.51.100.20')).toEqual({
+      valid: true,
+      cached: false,
+    });
+    expect(verifyMock).toHaveBeenCalledTimes(1);
+
+    // Its success clears only its own key: the attacker stays locked out.
+    expect(
+      (await verifier.verify('sta_1', storedHash, PASSWORD, '203.0.113.9')).lockedForMs,
+    ).toBeGreaterThan(0);
+  });
+
+  it('shares one key per station for an unknown client address', async () => {
+    const verifier = new StationPasswordVerifier({
+      cache: null,
+      backoff: new StationAuthBackoff({ limit: 2 }),
+    });
+    await verifier.verify('sta_1', storedHash, 'wrong-password-0001', null);
+    await verifier.verify('sta_1', storedHash, 'wrong-password-0002', null);
+    expect(
+      (await verifier.verify('sta_1', storedHash, PASSWORD, null)).lockedForMs,
+    ).toBeGreaterThan(0);
+    expect(stationAuthBackoffKey('sta_1', null)).toBe('sta_1|unknown');
+    expect(stationAuthBackoffKey('sta_1', '10.0.0.1')).toBe('sta_1|10.0.0.1');
   });
 
   it('keeps no backoff when constructed with backoff null', async () => {
     const verifier = new StationPasswordVerifier({ backoff: null });
     for (let i = 0; i < STATION_AUTH_FAILURE_LIMIT + 1; i++) {
-      await verifier.verify('sta_1', storedHash, 'wrong-password-0001');
+      await verifier.verify('sta_1', storedHash, 'wrong-password-0001', '10.0.0.1');
     }
     verifyMock.mockClear();
-    const check = await verifier.verify('sta_1', storedHash, 'wrong-password-0001');
+    const check = await verifier.verify('sta_1', storedHash, 'wrong-password-0001', '10.0.0.1');
     expect(check.lockedForMs).toBeUndefined();
     expect(verifyMock).toHaveBeenCalledTimes(1);
   });

@@ -49,6 +49,14 @@ export const AI_INSIGHT_JOB_BACKOFF_MS = 30_000;
 export const DRIVER_AI_JOB_ATTEMPTS = 3;
 export const DRIVER_AI_JOB_BACKOFF_MS = 30_000;
 
+/**
+ * Retries of one guest session job (link or capture): exponential from 5 s
+ * (5, 10, 20, 40 s), so a provider or database outage of about a minute
+ * does not exhaust a capture and release a hold that should be captured.
+ */
+export const GUEST_SESSION_JOB_ATTEMPTS = 5;
+export const GUEST_SESSION_JOB_BACKOFF = { type: 'exponential', delay: 5000 } as const;
+
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 export interface WorkerQueues {
@@ -99,8 +107,8 @@ export function createQueues(redisUrl: string): WorkerQueues {
       defaultJobOptions: {
         removeOnComplete: 200,
         removeOnFail: { count: 500 },
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
+        attempts: GUEST_SESSION_JOB_ATTEMPTS,
+        backoff: GUEST_SESSION_JOB_BACKOFF,
       },
     }),
     reservationQueue: new Queue(QUEUE_NAMES.RESERVATIONS, {

@@ -411,7 +411,13 @@ const reservationIdParams = z.object({
 
 const createDriverReservationBody = z.object({
   stationId: z.string().describe('OCPP station identifier'),
-  evseId: z.coerce.number().int().optional().describe('EVSE ID on the station'),
+  evseId: z.coerce
+    .number()
+    .int()
+    .min(0)
+    .max(2147483647)
+    .optional()
+    .describe('EVSE ID on the station'),
   expiresAt: z.string().datetime().describe('ISO 8601 reservation expiration time'),
   startsAt: z
     .string()
@@ -422,7 +428,7 @@ const createDriverReservationBody = z.object({
 
 const chargerParams = z.object({
   stationId: z.string().describe('OCPP station identifier'),
-  evseId: z.coerce.number().int().describe('EVSE ID on the station'),
+  evseId: z.coerce.number().int().min(0).max(2147483647).describe('EVSE ID on the station'),
 });
 
 const stationIdParams = z.object({

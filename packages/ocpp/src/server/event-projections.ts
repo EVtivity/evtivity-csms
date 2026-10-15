@@ -46,6 +46,8 @@ import {
   pgErrorCode,
   PG_FOREIGN_KEY_VIOLATION,
   alertStationWatchersIfAvailable,
+  markLoadManagementStale,
+  recordLoadManagementProfileReply,
 } from '@evtivity/database';
 import { getSecuritySeverity } from '../lib/security-severity.js';
 import { paymentContext } from '../lib/payments.js';
@@ -87,6 +89,12 @@ import {
 } from '@evtivity/lib';
 import { enqueueMaintenanceFanout } from '@evtivity/services/maintenance.service';
 import { enqueueStationRefresh } from '@evtivity/services/station-message.service';
+import {
+  LOAD_MANAGEMENT_PROFILE_ID,
+  LOAD_MANAGEMENT_STACK_LEVEL,
+  isLoadManagementProfile,
+  profileRateUnit,
+} from '@evtivity/services/load-management.service';
 import { dispatchOcppNotification } from './notification-dispatcher.js';
 import {
   projectReservationStatusUpdate,
@@ -949,6 +957,22 @@ export function registerProjections(
       logger.warn(
         { stationId: event.aggregateId, error: err instanceof Error ? err.message : String(err) },
         'Failed to push OCPP configuration on boot',
+      );
+    }
+  });
+
+  // A rebooted station may have lost its load management limit: the next
+  // load management cycle sends it again instead of waiting for the refresh
+  // interval. Its own subscription, so the boot handler above keeps its
+  // config push last; one statement keyed by the OCPP identity.
+  safeSubscribe('ocpp.BootNotification', async (event: DomainEvent) => {
+    try {
+      await markLoadManagementStale(sql, event.aggregateId);
+    } catch (err) {
+      // fail-open: the cycle sends the limit again at the refresh interval.
+      logger.warn(
+        { err, stationId: event.aggregateId },
+        'Marking load management for a resend after a boot failed',
       );
     }
   });
@@ -2755,6 +2779,35 @@ export function registerProjections(
 
   // ---- Command Tracking Projections ----
 
+  // The station's answer to its load management profile (the profile the
+  // load management cycle sends: the API refuses it from every other path).
+  // Fail-open: the cycle keeps sending, and the stored copy is written.
+  async function recordLoadManagementReply(
+    event: DomainEvent,
+    stationUuid: string,
+    accepted: boolean,
+  ): Promise<void> {
+    const request = (event.payload.request ?? {}) as Record<string, unknown>;
+    const profile = request.chargingProfile ?? request.csChargingProfiles;
+    if (!isLoadManagementProfile(profile)) return;
+    const unit = profileRateUnit(profile);
+    if (unit == null) return;
+    try {
+      const changed = await recordLoadManagementProfileReply(sql, stationUuid, { accepted, unit });
+      if (!accepted && changed) {
+        logger.warn(
+          { stationId: event.aggregateId, unit, response: event.payload.response },
+          'Station did not accept its load management limit, treating it as a fixed load',
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        { err, stationId: event.aggregateId },
+        'Recording the reply to the load management limit failed',
+      );
+    }
+  }
+
   safeSubscribe('command.SetChargingProfile', async (event: DomainEvent) => {
     const stationUuid = await lookups.resolveStationUuid(event.aggregateId);
     if (stationUuid == null) return;
@@ -2763,7 +2816,13 @@ export function registerProjections(
     // included. Only persist (and dedupe) when the station Accepted the profile;
     // otherwise the on-station state is unchanged and we'd be lying about it.
     const response = event.payload.response as { status?: string } | undefined;
-    if (response?.status !== 'Accepted') return;
+    const accepted = response?.status === 'Accepted';
+    if (!accepted) {
+      // A rejected load management limit (or an error reply, published with
+      // `error`) makes the station a fixed load until it accepts one.
+      await recordLoadManagementReply(event, stationUuid, false);
+      return;
+    }
 
     // The request is the 2.1 payload (evseId, chargingProfile.id) unless it was
     // sent in native 1.6 form through the 1.6 command route (connectorId,
@@ -2798,6 +2857,7 @@ export function registerProjections(
     `;
     const siteId = await lookups.resolveSiteId(stationUuid);
     await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
+    await recordLoadManagementReply(event, stationUuid, true);
   });
 
   // The only writer that removes stored profiles after a clear: an Accepted
@@ -2810,7 +2870,8 @@ export function registerProjections(
     if (stationUuid == null) return;
 
     const request = (event.payload.request ?? {}) as Record<string, unknown>;
-    const filter = chargingProfileClearFilter(chargingProfileClearCriteria(request));
+    const criteria = chargingProfileClearCriteria(request);
+    const filter = chargingProfileClearFilter(criteria);
     await sql`
       DELETE FROM charging_profiles
       WHERE station_id = ${stationUuid}
@@ -2819,6 +2880,30 @@ export function registerProjections(
     `;
     const siteId = await lookups.resolveSiteId(stationUuid);
     await notify.notifyChange('station.chargingProfiles', stationUuid, siteId);
+
+    // A clear that can match the load management profile (by its id, or by
+    // criteria a station max profile at its stack level on EVSE 0 meets)
+    // may have removed the limit: the next load management cycle sends it
+    // again instead of waiting for the refresh interval.
+    const mayRemoveLoadManagement =
+      (criteria.chargingProfileId == null ||
+        criteria.chargingProfileId >= LOAD_MANAGEMENT_PROFILE_ID) &&
+      (criteria.chargingProfilePurpose == null ||
+        criteria.chargingProfilePurpose === 'ChargingStationMaxProfile' ||
+        criteria.chargingProfilePurpose === 'ChargePointMaxProfile') &&
+      (criteria.stackLevel == null || criteria.stackLevel === LOAD_MANAGEMENT_STACK_LEVEL) &&
+      (criteria.evseId == null || criteria.evseId === 0);
+    if (mayRemoveLoadManagement) {
+      try {
+        await markLoadManagementStale(sql, event.aggregateId);
+      } catch (err) {
+        // fail-open: the cycle sends the limit again at the refresh interval.
+        logger.warn(
+          { err, stationId: event.aggregateId },
+          'Marking load management for a resend after a clear failed',
+        );
+      }
+    }
   });
 
   // A GetChargingProfiles answer tells which stored station_reported rows are

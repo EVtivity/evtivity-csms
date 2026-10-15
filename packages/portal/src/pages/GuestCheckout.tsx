@@ -16,6 +16,7 @@ import { AuthBranding, AuthFooter, useAuthBranding } from '@/components/AuthBran
 import { api } from '@/lib/api';
 import { getErrorMessage } from '@/lib/error-message';
 import { checkGuestConnectorStatus, qrTransactionLimits } from '@/lib/charger-utils';
+import { guestStartExtras } from '@/lib/guest-start';
 import { useCableCheck } from '@/hooks/use-cable-check';
 import { ProviderHost } from '@/payments/ProviderHost';
 import { submitGuestPaymentDetails, type GuestStartResponse } from '@/payments/api';
@@ -62,7 +63,7 @@ function FreeStartForm({
   evseId: string;
   isSimulator: boolean;
 }): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [loading, setLoading] = useState(false);
@@ -73,9 +74,10 @@ function FreeStartForm({
     setLoading(true);
     setError('');
     try {
+      const extras = await guestStartExtras(stationId, evseId, i18n.language);
       const result = await api.post<{ sessionToken: string }>(
         `/v1/portal/guest/start/${stationId}/${evseId}`,
-        qrTransactionLimits(searchParams),
+        { ...qrTransactionLimits(searchParams), ...extras },
       );
       void navigate(`/guest-session/${result.sessionToken}`);
     } catch (err: unknown) {
@@ -137,7 +139,7 @@ function CheckoutForm({
   checkout: PaidCheckout;
   isSimulator: boolean;
 }): React.JSX.Element {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [email, setEmail] = useState('');
@@ -188,6 +190,7 @@ function CheckoutForm({
       () => checkGuestConnectorStatus(stationId, evseId),
       async () => {
         try {
+          const extras = await guestStartExtras(stationId, evseId, i18n.language);
           const result = await api.post<GuestStartResponse>(
             `/v1/portal/guest/start/${stationId}/${evseId}`,
             {
@@ -198,6 +201,7 @@ function CheckoutForm({
               },
               guestEmail: email,
               ...qrTransactionLimits(searchParams),
+              ...extras,
             },
           );
           start.result = guestOutcome(result);

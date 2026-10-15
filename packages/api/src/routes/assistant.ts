@@ -26,6 +26,7 @@ import {
   decidePendingAction,
   deleteConversation,
   getConversation,
+  interruptConfirmedAction,
   listConversations,
   listMessages,
   releaseTurn,
@@ -393,7 +394,9 @@ export function assistantRoutes(app: FastifyInstance): void {
       // Tool results stored under another access (sites, permissions, API key
       // scope) are hidden, so a result never outlives an access change.
       const [messages, companyCurrency, explain] = await Promise.all([
-        listMessages(row.id, await requestAccessScope(request, userId)),
+        listMessages(row.id, await requestAccessScope(request, userId), {
+          isApiKey: (request.user as JwtPayload).isApiKey === true,
+        }),
         getCompanyCurrency(),
         explainContextForTurn(row, explainAccess(request, userId)),
       ]);
@@ -539,6 +542,7 @@ export function assistantRoutes(app: FastifyInstance): void {
         userId,
         authorization: callerAuthorization(request),
         accessScope: await requestAccessScope(request, userId),
+        isApiKey: (request.user as JwtPayload).isApiKey === true,
         hasPermission: (permission: string) => requestHasPermission(request, permission),
         actor: getAuditActor(request),
         log: request.log,
@@ -630,6 +634,18 @@ export function assistantRoutes(app: FastifyInstance): void {
         if (config === null) return reply;
         const limits = await limitsOrReply('chatbot', userId, null, reply);
         if (limits === null) return reply;
+        // Built before the decision, so a failure here cannot leave a
+        // confirmed action that never ran.
+        const ctx = {
+          app,
+          userId,
+          authorization: callerAuthorization(request),
+          accessScope: await requestAccessScope(request, userId),
+          isApiKey: (request.user as JwtPayload).isApiKey === true,
+          hasPermission: (permission: string) => requestHasPermission(request, permission),
+          actor: getAuditActor(request),
+          log: request.log,
+        };
         if (!(await claimTurnOrReply(conversation.id, reply))) return reply;
 
         let outcome: Awaited<ReturnType<typeof decidePendingAction>>;
@@ -657,7 +673,7 @@ export function assistantRoutes(app: FastifyInstance): void {
               outcome.action.toolCallId,
               '{"status":"expired","note":"The user did not confirm this action in time. It did not run."}',
               true,
-              await requestAccessScope(request, userId),
+              ctx.accessScope,
             );
             await completeToolCall(outcome.action.toolCallRowId, { status: 'rejected' });
             return reply.status(409).send({ error: 'Action expired', code: 'AI_ACTION_EXPIRED' });
@@ -667,40 +683,47 @@ export function assistantRoutes(app: FastifyInstance): void {
             .send({ error: 'Action can no longer be decided', code: 'AI_ACTION_INVALID' });
         }
 
-        const ctx = {
-          app,
-          userId,
-          authorization: callerAuthorization(request),
-          accessScope: await requestAccessScope(request, userId),
-          hasPermission: (permission: string) => requestHasPermission(request, permission),
-          actor: getAuditActor(request),
-          log: request.log,
-        };
         const { action } = outcome;
-        await streamTurn(request, reply, conversation.id, config, async (stream) => {
-          if (outcome.kind === 'already') {
-            // Idempotent: the decision was taken before, nothing runs again.
-            stream.send({
-              type: 'tool_step',
-              toolCallId: action.toolCallRowId,
-              name: action.operationId,
-              status: decision,
+        try {
+          await streamTurn(request, reply, conversation.id, config, async (stream) => {
+            if (outcome.kind === 'already') {
+              // Idempotent: the decision was taken before, nothing runs again.
+              stream.send({
+                type: 'tool_step',
+                toolCallId: action.toolCallRowId,
+                name: action.operationId,
+                status: decision,
+              });
+              stream.send({ type: 'done', messageId: action.toolMessageId, finish: 'end' });
+              return;
+            }
+            await auditDecision(action, decision, ctx.actor, request.log);
+            await runDecisionTurn({
+              ctx,
+              conversation,
+              config,
+              stream,
+              action,
+              decision,
+              maxToolCalls: limits.maxToolCallsPerTurn,
+              explain,
             });
-            stream.send({ type: 'done', messageId: action.toolMessageId, finish: 'end' });
-            return;
-          }
-          await auditDecision(action, decision, ctx.actor, request.log);
-          await runDecisionTurn({
-            ctx,
-            conversation,
-            config,
-            stream,
-            action,
-            decision,
-            maxToolCalls: limits.maxToolCallsPerTurn,
-            explain,
           });
-        });
+        } catch (err) {
+          // The stream failed before the decision turn ran: close the
+          // confirmed action's call row, the action itself never runs again.
+          if (outcome.kind === 'decided' && decision === 'confirmed') {
+            try {
+              await interruptConfirmedAction(action, ctx.accessScope);
+            } catch (closeErr) {
+              request.log.warn(
+                { err: closeErr, conversationId: conversation.id, actionId: action.id },
+                'Interrupted AI action could not be closed',
+              );
+            }
+          }
+          throw err;
+        }
         return reply;
       },
     );

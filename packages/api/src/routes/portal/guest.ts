@@ -11,11 +11,12 @@ import {
   getCompanyCountry,
   getCompanyCurrency,
   getCompanyTaxBasis,
+  getGuestVelocityLimits,
   isStationLevelUnavailable,
   isStationChargingFree,
   resolveStationTariff,
 } from '@evtivity/database';
-import { isTariffFree, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
+import { isTariffFree, isUiLanguage, publishOcppCommand, TAX_BASES } from '@evtivity/lib';
 import {
   chargingStations,
   connectors,
@@ -62,7 +63,15 @@ import {
 } from '../../lib/shopper-browser.js';
 import { isEvseInReservationBuffer } from '../../lib/reservation-buffer.js';
 import { getActiveMaintenanceForStation } from '@evtivity/services/maintenance.service';
-import { validateQrCodeUrl } from '../../services/web-payment.service.js';
+import { stationHasDynamicQr, validateQrCodeUrl } from '../../services/web-payment.service.js';
+import { signGuestQrToken, verifyGuestQrToken } from '../../lib/guest-qr-token.js';
+import { checkRecaptcha } from '../../lib/recaptcha-check.js';
+import {
+  checkGuestDeclines,
+  countGuestDecline,
+  countGuestStart,
+  guestVelocityClientIp,
+} from '../../lib/guest-velocity.js';
 
 /** Guests have no account: their payment writes name `system`, label `guest`. */
 const GUEST_PAYMENT_ACTOR: PaymentActor = { actor: 'system', actorLabel: 'guest' };
@@ -227,6 +236,12 @@ const guestStatusResponse = z
       .nullable()
       .optional()
       .describe('Failure reason from Stripe or the OCPP layer when status is failed'),
+    faulted: z
+      .boolean()
+      .optional()
+      .describe(
+        'True when the linked charging session ended faulted or failed. The guest session then reads failed and was not billed',
+      ),
     startedAt: z.coerce.date().nullable().optional().describe('Charging start timestamp'),
     endedAt: z.coerce.date().nullable().optional().describe('Charging end timestamp'),
     idleStartedAt: z.coerce
@@ -311,6 +326,25 @@ const guestStartBody = z.object({
     .describe(
       'Cost limit in cents requested by the EV driver (QR code maxcost). A paid session never exceeds the pre-authorized amount',
     ),
+  qrToken: z
+    .string()
+    .max(200)
+    .optional()
+    .describe(
+      'Scan token from POST /v1/portal/guest/qr/validate (qrToken). Required at a station with dynamic QR codes, else 403 QR_SCAN_REQUIRED',
+    ),
+  recaptchaToken: z
+    .string()
+    .max(4096)
+    .optional()
+    .describe('reCAPTCHA v3 token (action guest_start). Required when reCAPTCHA is enabled'),
+  language: z
+    .string()
+    .max(35)
+    .optional()
+    .describe(
+      'UI language of the guest (en, de, es, ko, zh, zh-TW). Guest notices use it; any other value is ignored and the company language applies',
+    ),
 });
 
 const sessionTokenParams = z.object({
@@ -335,6 +369,13 @@ const qrValidateResponse = z
       .describe('Whether the QR code URL decodes and its one-time password is valid'),
     stationId: z.string().optional().describe('OCPP station identity decoded from the URL'),
     evseId: z.number().int().optional().describe('EVSE decoded from the URL'),
+    qrToken: z
+      .string()
+      .optional()
+      .describe(
+        'Scan token for a valid URL, bound to the station and EVSE. Send it as qrToken on POST /v1/portal/guest/start; valid for 10 minutes',
+      ),
+    qrTokenExpiresAt: z.coerce.date().optional().describe('When the scan token expires'),
     reason: z
       .enum([
         'malformed_url',
@@ -465,8 +506,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       const result = await validateQrCodeUrl(url);
       if (!result.valid) {
         request.log.info({ reason: result.reason }, 'QR code URL refused');
+        return result;
       }
-      return result;
+      // The guest start at this station requires the scan token.
+      const scan = signGuestQrToken({ stationId: result.stationId, evseId: result.evseId });
+      return { ...result, qrToken: scan.token, qrTokenExpiresAt: scan.expiresAt };
     },
   );
 
@@ -734,11 +778,14 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             ERROR_CODES.PAYMENT_METHOD_REQUIRED,
             ERROR_CODES.PAYMENT_NOT_CONFIGURED,
             ERROR_CODES.PAYMENT_PROVIDER_NOT_CONFIGURED,
+            ERROR_CODES.RECAPTCHA_REQUIRED,
             ERROR_CODES.STATION_OFFLINE,
             ERROR_CODES.VALIDATION_ERROR,
           ]),
           403: errorWith('Forbidden', [
             ERROR_CODES.CONNECTOR_RESERVED,
+            ERROR_CODES.QR_SCAN_REQUIRED,
+            ERROR_CODES.RECAPTCHA_FAILED,
             ERROR_CODES.STATION_OFFLINE,
           ]),
           404: errorWith('Resource not found', [
@@ -750,6 +797,9 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             ERROR_CODES.RESERVATION_BUFFER_ACTIVE,
             ERROR_CODES.MAINTENANCE_ACTIVE,
             ERROR_CODES.STATION_UNAVAILABLE,
+          ]),
+          429: errorWith('Too many guest starts or declined cards from this address', [
+            ERROR_CODES.RATE_LIMITED,
           ]),
           502: errorWith('Station rejected', [ERROR_CODES.STATION_REJECTED]),
           504: errorWith('Station did not respond within timeout', [ERROR_CODES.STATION_TIMEOUT]),
@@ -768,6 +818,28 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         });
         return;
       }
+
+      // Card testing: reCAPTCHA (no-op when disabled), then the per-IP
+      // velocity limit, before any lookup or hold.
+      if (!(await checkRecaptcha(body.recaptchaToken, reply))) return;
+      // Per-IP limits only when the real client IP is known.
+      const velocityIp = guestVelocityClientIp(request);
+      const velocityLimits = await getGuestVelocityLimits();
+      const startRefusal = await countGuestStart(
+        velocityIp,
+        velocityLimits.startsPerIpPerHour,
+        request.log,
+      );
+      if (startRefusal != null) {
+        await reply
+          .header('Retry-After', String(startRefusal.retryAfterSeconds))
+          .status(429)
+          .send({ error: 'Too many guest starts from this address', code: 'RATE_LIMITED' });
+        return;
+      }
+      // Guest notices use the guest's UI language; anything else falls back
+      // to the company language.
+      const guestLanguage = isUiLanguage(body.language) ? body.language : null;
 
       // Find station
       const [station] = await db
@@ -793,6 +865,19 @@ export function portalGuestRoutes(app: FastifyInstance): void {
 
       // Second layer (P11): the onboarding gate runs before any other state.
       if (!(await checkStationOnboarded(station, reply))) return;
+
+      // A station with dynamic QR codes (OCPP 2.1 C25) starts a guest only
+      // after a valid scan: the token from qr/validate, bound to this EVSE.
+      if (
+        (await stationHasDynamicQr(station.id)) &&
+        !verifyGuestQrToken(body.qrToken, { stationId: station.stationId, evseId: params.evseId })
+      ) {
+        await reply.status(403).send({
+          error: 'Scan the QR code shown on the charger to start charging',
+          code: 'QR_SCAN_REQUIRED',
+        });
+        return;
+      }
 
       const guestActiveMaintenance = await getActiveMaintenanceForStation(station.id);
       if (guestActiveMaintenance != null) {
@@ -943,6 +1028,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           stationOcppId: station.stationId,
           evseId: params.evseId,
           guestEmail: body.guestEmail ?? '',
+          language: guestLanguage,
           status: 'payment_authorized',
           startRequestedAt: new Date(),
           sessionToken,
@@ -994,6 +1080,21 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           }
         }
 
+        // Card testing: an address with too many declined cards this hour
+        // places no new hold.
+        const declineRefusal = await checkGuestDeclines(
+          velocityIp,
+          velocityLimits.declinesPerIpPerHour,
+          request.log,
+        );
+        if (declineRefusal != null) {
+          await reply
+            .header('Retry-After', String(declineRefusal.retryAfterSeconds))
+            .status(429)
+            .send({ error: 'Too many declined cards from this address', code: 'RATE_LIMITED' });
+          return;
+        }
+
         // The hold (shopper present, one-time card) and the guest session
         // row; the service cancels the hold when the row cannot be stored.
         const hold = await authorizeGuestHold(
@@ -1005,6 +1106,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
             methodPayload,
             ...(browser != null ? { browser } : {}),
             guestEmail: body.guestEmail,
+            language: guestLanguage,
             maxCostCents: body.maxCostCents ?? null,
             maxEnergyWh: body.maxEnergyWh ?? null,
             maxTimeSeconds: body.maxTimeSeconds ?? null,
@@ -1020,6 +1122,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           return;
         }
         if (hold.outcome === 'declined') {
+          await countGuestDecline(velocityIp, request.log);
           await reply.status(400).send({ error: hold.reason, code: 'PAYMENT_FAILED' });
           return;
         }
@@ -1094,6 +1197,8 @@ export function portalGuestRoutes(app: FastifyInstance): void {
         return;
       }
       if (continued.outcome === 'declined') {
+        // A card refused after 3D Secure counts against the address too.
+        await countGuestDecline(guestVelocityClientIp(request), request.log);
         await reply.status(400).send({ error: continued.reason, code: 'PAYMENT_FAILED' });
         return;
       }
@@ -1146,13 +1251,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const clientIp = request.ip;
-      if (isGuestSessionRateLimited(clientIp)) {
+      const { sessionToken } = request.params as z.infer<typeof sessionTokenParams>;
+      if (isGuestSessionRateLimited(request.ip, sessionToken)) {
         await reply.status(429).send({ error: 'Too many requests', code: 'RATE_LIMITED' });
         return;
       }
-
-      const { sessionToken } = request.params as z.infer<typeof sessionTokenParams>;
 
       const [guest] = await db
         .select()
@@ -1182,6 +1285,7 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       if (guest.chargingSessionId != null) {
         const [session] = await db
           .select({
+            status: chargingSessions.status,
             energyDeliveredWh: chargingSessions.energyDeliveredWh,
             currentCostCents: chargingSessions.currentCostCents,
             finalCostCents: chargingSessions.finalCostCents,
@@ -1204,10 +1308,18 @@ export function portalGuestRoutes(app: FastifyInstance): void {
           result['endedAt'] = session.endedAt;
           result['idleStartedAt'] = session.idleStartedAt;
           result['limitReached'] = await sessionLimitReached(guest.chargingSessionId);
+          // A faulted or failed charging session is terminal and unbilled
+          // (P5): the guest sees it failed even when the guest row was not
+          // updated (an end path without the guest fail step, or a fail-open
+          // update that failed).
+          if (session.status === 'faulted' || session.status === 'failed') {
+            result['faulted'] = true;
+            if (guest.status !== 'expired') result['status'] = 'failed';
+          }
         }
 
         // Include failure reason from payment record if present
-        if (guest.status === 'failed') {
+        if (result['status'] === 'failed') {
           const [payment] = await db
             .select({ failureReason: paymentRecords.failureReason })
             .from(paymentRecords)
@@ -1335,13 +1447,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const clientIp = request.ip;
-      if (isGuestSessionRateLimited(clientIp)) {
+      const { sessionToken } = request.params as z.infer<typeof sessionTokenParams>;
+      if (isGuestSessionRateLimited(request.ip, sessionToken)) {
         await reply.status(429).send({ error: 'Too many requests', code: 'RATE_LIMITED' });
         return;
       }
-
-      const { sessionToken } = request.params as z.infer<typeof sessionTokenParams>;
 
       const [guest] = await db
         .select({ chargingSessionId: guestSessions.chargingSessionId })
@@ -1400,13 +1510,11 @@ export function portalGuestRoutes(app: FastifyInstance): void {
       },
     },
     async (request, reply) => {
-      const clientIp = request.ip;
-      if (isGuestSessionRateLimited(clientIp)) {
+      const { sessionToken } = request.params as z.infer<typeof sessionTokenParams>;
+      if (isGuestSessionRateLimited(request.ip, sessionToken)) {
         await reply.status(429).send({ error: 'Too many requests', code: 'RATE_LIMITED' });
         return;
       }
-
-      const { sessionToken } = request.params as z.infer<typeof sessionTokenParams>;
 
       const [guest] = await db
         .select({ chargingSessionId: guestSessions.chargingSessionId })

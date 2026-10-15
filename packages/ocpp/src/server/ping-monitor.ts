@@ -59,6 +59,9 @@ export class PingMonitor {
     this.cycleInterval = setInterval(() => {
       this.pingAll();
       this.checkHeartbeats();
+      // Keeps the connection registry entries of the stations this process
+      // holds alive, whatever the heartbeat interval.
+      this.connectionManager.refreshRegistry();
 
       if (this.sql != null) {
         // Wait for pongs to arrive before writing the snapshot

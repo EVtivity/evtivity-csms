@@ -20,8 +20,10 @@ import { SaveButton } from '@/components/save-button';
 import { api } from '@/lib/api';
 import {
   PANEL_VOLTAGES,
+  SUB_PANEL_PHASE_CONNECTIONS,
   computeMaxContinuousKw,
   isPanelVoltageAllowed,
+  isSubPanelPhaseConnectionAllowed,
 } from '@evtivity/lib/load-allocation';
 import { formatNumber } from '@/lib/formatting';
 
@@ -34,6 +36,7 @@ interface PanelStatus {
   maxContinuousKw: number;
   safetyMarginKw: number;
   oversubscriptionRatio: number;
+  phaseConnections?: string | null;
   currentDrawKw: number;
   availableKw: number;
   utilization: number;
@@ -80,6 +83,7 @@ export function PanelForm({
   const [phases, setPhases] = useState(1);
   const [safetyMarginKw, setSafetyMarginKw] = useState('0');
   const [oversubscriptionRatio, setOversubscriptionRatio] = useState('1');
+  const [phaseConnections, setPhaseConnections] = useState<string | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   useEffect(() => {
@@ -92,6 +96,7 @@ export function PanelForm({
         setPhases(panel.phases);
         setSafetyMarginKw(String(panel.safetyMarginKw));
         setOversubscriptionRatio(String(panel.oversubscriptionRatio));
+        setPhaseConnections(panel.phaseConnections ?? null);
       } else {
         setName('');
         setParentPanelId(null);
@@ -100,6 +105,7 @@ export function PanelForm({
         setPhases(1);
         setSafetyMarginKw('0');
         setOversubscriptionRatio('1');
+        setPhaseConnections(null);
       }
       setHasSubmitted(false);
     }
@@ -113,6 +119,17 @@ export function PanelForm({
     return flat;
   }, [panels, isEdit, panel]);
 
+  // The parent decides whether the feeding phases apply: the panel being
+  // edited keeps its parent, a new one takes the selected parent.
+  const parentPhases = useMemo(() => {
+    const flat = flattenPanels(panels);
+    if (isEdit) {
+      return flat.find((p) => p.childPanels.some((c) => c.id === panel.id))?.phases ?? null;
+    }
+    return flat.find((p) => p.id === parentPanelId)?.phases ?? null;
+  }, [panels, isEdit, panel, parentPanelId]);
+  const showPhaseConnections = isSubPanelPhaseConnectionAllowed(phases, parentPhases);
+
   const maxContinuousKw = computeMaxContinuousKw(breakerRatingAmps, voltageV, phases);
 
   const mutation = useMutation({
@@ -125,6 +142,13 @@ export function PanelForm({
         phases,
         safetyMarginKw: Number(safetyMarginKw),
         oversubscriptionRatio: Number(oversubscriptionRatio),
+        // On edit, null clears the feeding phases (the load counts on every
+        // parent phase).
+        ...(showPhaseConnections && phaseConnections != null
+          ? { phaseConnections }
+          : isEdit
+            ? { phaseConnections: null }
+            : {}),
       };
       if (isEdit) {
         return api.patch(`/v1/sites/${siteId}/panels/${panel.id}`, body);
@@ -281,6 +305,31 @@ export function PanelForm({
               )}
             </div>
           </div>
+
+          {showPhaseConnections && (
+            <div className="grid gap-2">
+              <Label htmlFor="panel-phase-connections">
+                {t('loadManagement.subPanelPhaseConnections')}
+              </Label>
+              <Select
+                id="panel-phase-connections"
+                value={phaseConnections ?? ''}
+                onChange={(e) => {
+                  setPhaseConnections(e.target.value || null);
+                }}
+              >
+                <option value="">{t('loadManagement.subPanelPhaseUnknown')}</option>
+                {SUB_PANEL_PHASE_CONNECTIONS.map((value) => (
+                  <option key={value} value={value}>
+                    {value.replace(/(L\d)(?=L)/g, '$1+')}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {t('loadManagement.subPanelPhaseConnectionsHint')}
+              </p>
+            </div>
+          )}
 
           <div className="grid gap-2">
             <Label htmlFor="oversubscription-ratio">

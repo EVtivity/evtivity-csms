@@ -1,11 +1,13 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { OcppError } from '@evtivity/lib';
-import { OcppErrorCode } from '../../protocol/error-codes.js';
-import type { Middleware } from './pipeline.js';
+/**
+ * Per-station inbound message rate limit. The OCPP server counts every frame a
+ * station sends (CALL, CALLRESULT and CALLERROR) here before it logs or
+ * processes the frame, so a station over the limit cannot fill the message log.
+ */
 
-const DEFAULT_MAX_MESSAGES_PER_SECOND = 50;
+export const DEFAULT_MAX_MESSAGES_PER_SECOND = 50;
 const WINDOW_MS = 1000;
 const CLEANUP_INTERVAL_MS = 60_000;
 const STALE_THRESHOLD_MS = 300_000;
@@ -22,25 +24,24 @@ setInterval(() => {
   }
 }, CLEANUP_INTERVAL_MS).unref();
 
-export function createRateLimitMiddleware(
+export interface StationRateCheck {
+  /** False when the frame is over the station's limit for this one-second window. */
+  allowed: boolean;
+  /** Frames counted in the current window, this one included. */
+  count: number;
+}
+
+/** Counts one inbound frame of a station against its per-second limit. */
+export function consumeStationMessage(
+  stationId: string,
   maxPerSecond: number = DEFAULT_MAX_MESSAGES_PER_SECOND,
-): Middleware {
-  return async (ctx, next) => {
-    const now = Date.now();
-    let counter = stationCounters.get(ctx.stationId);
-
-    if (counter == null || now - counter.windowStart >= WINDOW_MS) {
-      counter = { count: 0, windowStart: now };
-      stationCounters.set(ctx.stationId, counter);
-    }
-
-    counter.count++;
-
-    if (counter.count > maxPerSecond) {
-      ctx.logger.warn({ stationId: ctx.stationId, count: counter.count }, 'Rate limit exceeded');
-      throw new OcppError(OcppErrorCode.GenericError, 'Rate limit exceeded');
-    }
-
-    await next();
-  };
+): StationRateCheck {
+  const now = Date.now();
+  let counter = stationCounters.get(stationId);
+  if (counter == null || now - counter.windowStart >= WINDOW_MS) {
+    counter = { count: 0, windowStart: now };
+    stationCounters.set(stationId, counter);
+  }
+  counter.count++;
+  return { allowed: counter.count <= maxPerSecond, count: counter.count };
 }

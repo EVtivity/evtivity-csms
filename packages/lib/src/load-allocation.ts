@@ -54,3 +54,54 @@ export function computeMaxContinuousKw(amps: number, voltageV: number, phases: n
 export function conductorFactor(phases: number): number {
   return phases >= 3 ? 3 : phases === 2 ? Math.sqrt(3) : 1;
 }
+
+/**
+ * Whether a circuit may run at `circuitVoltageV` instead of its panel
+ * voltage: a 120 V branch of a 240 V split-phase panel, for example. Only on a
+ * single-phase panel (a circuit of a three-phase panel takes its voltage from
+ * its phase connections) and never above the panel voltage.
+ */
+export function isCircuitVoltageAllowed(
+  circuitVoltageV: number,
+  panelVoltageV: number,
+  panelPhases: number,
+): boolean {
+  return (
+    panelPhases !== 3 &&
+    (PANEL_VOLTAGES as readonly number[]).includes(circuitVoltageV) &&
+    circuitVoltageV <= panelVoltageV
+  );
+}
+
+/**
+ * Voltage a circuit runs at: its own voltage when set and allowed on its
+ * panel (`isCircuitVoltageAllowed`), else the panel voltage. Capacity (kW)
+ * and limits in A use it.
+ */
+export function effectiveCircuitVoltageV(
+  circuitVoltageV: number | null | undefined,
+  panelVoltageV: number,
+  panelPhases: number,
+): number {
+  return circuitVoltageV != null &&
+    isCircuitVoltageAllowed(circuitVoltageV, panelVoltageV, panelPhases)
+    ? circuitVoltageV
+    : panelVoltageV;
+}
+
+/**
+ * Phases of a three-phase parent panel that feed a single-phase sub-panel:
+ * one phase (line to neutral) or two (line to line). Null means unknown: the
+ * sub-panel's load then counts in full on every phase of the parent.
+ */
+export const SUB_PANEL_PHASE_CONNECTIONS = ['L1', 'L2', 'L3', 'L1L2', 'L1L3', 'L2L3'] as const;
+
+export type SubPanelPhaseConnection = (typeof SUB_PANEL_PHASE_CONNECTIONS)[number];
+
+/** A panel may name its feeding phases only as a single-phase sub-panel of a three-phase panel. */
+export function isSubPanelPhaseConnectionAllowed(
+  panelPhases: number,
+  parentPhases: number | null | undefined,
+): boolean {
+  return panelPhases === 1 && parentPhases === 3;
+}

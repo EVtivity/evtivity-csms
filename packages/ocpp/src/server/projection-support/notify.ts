@@ -146,7 +146,7 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
              CASE WHEN seg.price_snapshot THEN seg.tax_rate
                   ELSE cs.tariff_tax_rate END AS tax_rate,
              cs.tax_basis, d.price_display, UPPER(cs.currency) AS currency,
-             site.name AS site_name, guest.guest_email
+             site.name AS site_name, guest.guest_email, guest.guest_language
       FROM charging_sessions cs
       JOIN claimed ON claimed.id = cs.id
       LEFT JOIN drivers d ON d.id = cs.driver_id
@@ -160,7 +160,7 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
         LIMIT 1
       ) seg ON true
       LEFT JOIN LATERAL (
-        SELECT gs.guest_email FROM guest_sessions gs
+        SELECT gs.guest_email, gs.language AS guest_language FROM guest_sessions gs
         WHERE gs.charging_session_id = cs.id AND gs.guest_email != ''
         LIMIT 1
       ) guest ON cs.driver_id IS NULL
@@ -216,12 +216,14 @@ export function createProjectionNotifier(deps: ProjectionNotifierDeps): Projecti
     } else {
       // Guest session: the guest's email, read by the claim.
       const guestEmail = idleRow.guest_email as string | null;
+      // The guest's checkout language; null leaves the company language.
+      const guestLanguage = idleRow.guest_language as string | null;
       if (guestEmail != null) {
         void eventBus.track(
           dispatchSystemNotification(
             sql,
             'session.IdlingStarted',
-            { email: guestEmail },
+            { email: guestEmail, ...(guestLanguage != null ? { language: guestLanguage } : {}) },
             templateVars,
             ALL_TEMPLATES_DIRS,
           ),

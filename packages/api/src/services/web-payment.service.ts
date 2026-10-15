@@ -197,6 +197,18 @@ async function audit(stationDbId: string, notes: string, ctx: WebPaymentContext)
   );
 }
 
+/**
+ * Whether the CSMS configured dynamic QR codes on the station. A guest start
+ * there needs the scan token of a valid QR code URL (C25.FR.20).
+ */
+export async function stationHasDynamicQr(stationDbId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ stationId: stationWebPaymentConfigs.stationId })
+    .from(stationWebPaymentConfigs)
+    .where(eq(stationWebPaymentConfigs.stationId, stationDbId));
+  return row != null;
+}
+
 export async function getWebPaymentConfig(stationDbId: string): Promise<WebPaymentConfigView> {
   await loadStation(stationDbId);
   const [row] = await db

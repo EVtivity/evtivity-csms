@@ -41,6 +41,8 @@ export function FleetDetail(): React.JSX.Element {
   const { id } = useParams<{ id: string }>();
   const { t } = useTranslation();
   const canReadAudit = useHasPermission('audit:read');
+  // The bulk reservation list needs reservations:read (the API answers 403 without it).
+  const canReadReservations = useHasPermission('reservations:read');
   // Fleet billing and invoices are company-wide: the API answers 404 to a site-restricted user.
   const hasAllSiteAccess = useHasAllSiteAccess();
   const [activeTab, setActiveTab] = useTab('details');
@@ -85,7 +87,9 @@ export function FleetDetail(): React.JSX.Element {
           <TabsTrigger value="drivers">{t('fleets.drivers')}</TabsTrigger>
           <TabsTrigger value="pricing">{t('fleets.pricing')}</TabsTrigger>
           {hasAllSiteAccess && <TabsTrigger value="billing">{t('fleets.billingTab')}</TabsTrigger>}
-          <TabsTrigger value="reservations">{t('fleets.bulkReservations')}</TabsTrigger>
+          {canReadReservations && (
+            <TabsTrigger value="reservations">{t('fleets.bulkReservations')}</TabsTrigger>
+          )}
           {canReadAudit && <TabsTrigger value="history">{t('audit.history')}</TabsTrigger>}
         </TabsList>
 
@@ -126,9 +130,11 @@ export function FleetDetail(): React.JSX.Element {
           </TabsContent>
         )}
 
-        <TabsContent value="reservations" className="space-y-6">
-          <FleetReservationsTab fleetId={fleetId} />
-        </TabsContent>
+        {canReadReservations && (
+          <TabsContent value="reservations" className="space-y-6">
+            <FleetReservationsTab fleetId={fleetId} />
+          </TabsContent>
+        )}
 
         <TabsContent value="history">
           <EntityHistoryTab entityType="fleet" entityId={fleetId} />

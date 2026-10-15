@@ -120,7 +120,7 @@ describe('POST /event-alert-rules', () => {
         minSeverity: 0,
         isEnabled: true,
         notifyChannel: 'email',
-        notifyRecipient: '$admin',
+        notifyRecipient: '',
         createdAt: now,
         updatedAt: now,
       },
@@ -153,8 +153,19 @@ describe('POST /event-alert-rules', () => {
     minSeverity: 0,
     isEnabled: true,
     notifyChannel: 'email',
-    notifyRecipient: '$admin',
+    notifyRecipient: '',
   };
+
+  it('PATCH refuses a placeholder recipient with 400', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/event-alert-rules/3',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { notifyRecipient: '$admin' },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(writeAudit).not.toHaveBeenCalled();
+  });
 
   it('PATCH audits only the changed fields', async () => {
     queued.push([rule], [{ ...rule, isEnabled: false, minSeverity: 0 }]);

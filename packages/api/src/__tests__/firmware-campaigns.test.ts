@@ -115,6 +115,7 @@ vi.mock('@evtivity/database', () => ({
   firmwareUpdates: {},
   client: {},
   rejectFirmwareUpdate: vi.fn().mockResolvedValue(null),
+  dropQueuedCampaignFirmwareUpdates: vi.fn().mockResolvedValue(0),
   newFirmwareRequestId: vi.fn(() => 4242),
   applyFirmwareCampaignStationStatus: vi
     .fn()
@@ -697,6 +698,36 @@ describe('Firmware campaign routes', () => {
       expect(body.name).toBe('Updated campaign');
     });
 
+    it('returns 409 NOT_DRAFT when a Start commits between the read and the update', async () => {
+      const campaign = {
+        id: 'camp-001',
+        name: 'Draft campaign',
+        firmwareUrl: 'https://example.com/fw.bin',
+        version: '1.0.0',
+        signingCertificate: null,
+        retries: null,
+        retryInterval: null,
+        installDateTime: null,
+        signature: null,
+        status: 'draft',
+        targetFilter: null,
+        createdById: 'test-user-id',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      // 1. select campaign (draft), 2. draft-guarded update matches nothing
+      setupDbResults([campaign], []);
+
+      const response = await app.inject({
+        method: 'PATCH',
+        url: '/v1/firmware-campaigns/camp-001',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ firmwareUrl: 'https://example.com/other.bin' }),
+      });
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body).code).toBe('NOT_DRAFT');
+    });
+
     const signedDraft = {
       id: 'camp-001',
       name: 'Draft campaign',
@@ -836,8 +867,8 @@ describe('Firmware campaign routes', () => {
         updatedAt: new Date().toISOString(),
       };
 
-      // 1. select campaign, 2. delete
-      setupDbResults([campaign], []);
+      // 1. select campaign, 2. draft-guarded delete returning the row
+      setupDbResults([campaign], [{ id: 'camp-001' }]);
 
       const response = await app.inject({
         method: 'DELETE',
@@ -845,6 +876,27 @@ describe('Firmware campaign routes', () => {
         headers: { authorization: `Bearer ${token}` },
       });
       expect(response.statusCode).toBe(204);
+    });
+
+    it('returns 409 NOT_DRAFT when a Start commits between the read and the delete', async () => {
+      const campaign = {
+        id: 'camp-001',
+        name: 'Draft campaign',
+        firmwareUrl: 'https://example.com/fw.bin',
+        status: 'draft',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      // 1. select campaign (draft), 2. guarded delete matches nothing (now active)
+      setupDbResults([campaign], []);
+
+      const response = await app.inject({
+        method: 'DELETE',
+        url: '/v1/firmware-campaigns/camp-001',
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(JSON.parse(response.body).code).toBe('NOT_DRAFT');
     });
   });
 

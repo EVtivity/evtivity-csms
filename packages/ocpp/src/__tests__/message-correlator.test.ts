@@ -3,7 +3,11 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import pino from 'pino';
-import { CommandTimeoutError, MessageCorrelator } from '../server/message-correlator.js';
+import {
+  CommandQueueTimeoutError,
+  CommandTimeoutError,
+  MessageCorrelator,
+} from '../server/message-correlator.js';
 import { createSessionState } from '../server/session-state.js';
 import type { CallResult, CallError } from '../protocol/message-types.js';
 
@@ -213,13 +217,15 @@ describe('MessageCorrelator', () => {
       const promise1 = correlator.sendCall(ws, session, 'Reset', { type: 'Immediate' });
       const promise2 = correlator.sendCall(ws, session, 'Heartbeat', {});
 
-      expect(session.pendingMessages.size).toBe(2);
+      // One outstanding CALL, the second waits in the queue.
+      expect(session.pendingMessages.size).toBe(1);
 
       correlator.clearPending(session);
 
       await expect(promise1).rejects.toThrow('Connection closed');
       await expect(promise2).rejects.toThrow('Connection closed');
       expect(session.pendingMessages.size).toBe(0);
+      expect(ws.send).toHaveBeenCalledTimes(1);
     });
 
     it('handles empty pending map gracefully', () => {
@@ -228,6 +234,189 @@ describe('MessageCorrelator', () => {
 
       correlator.clearPending(session);
       expect(session.pendingMessages.size).toBe(0);
+    });
+
+    it('rejects a CALL made after the session closed without sending it', async () => {
+      correlator = new MessageCorrelator(logger);
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+
+      correlator.clearPending(session);
+
+      await expect(correlator.sendCall(ws, session, 'Reset', {})).rejects.toThrow(
+        'Connection closed',
+      );
+      expect(ws.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('one outstanding CALL per station', () => {
+    function sentId(ws: import('ws').default, index: number): string {
+      const sent = JSON.parse(vi.mocked(ws.send).mock.calls[index]?.[0] as string) as unknown[];
+      return sent[1] as string;
+    }
+
+    function sentAction(ws: import('ws').default, index: number): string {
+      const sent = JSON.parse(vi.mocked(ws.send).mock.calls[index]?.[0] as string) as unknown[];
+      return sent[2] as string;
+    }
+
+    it('sends the next CALL only after the previous one got its CALLRESULT, in FIFO order', async () => {
+      correlator = new MessageCorrelator(logger);
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+
+      const first = correlator.sendCall(ws, session, 'Reset', { type: 'Immediate' });
+      const second = correlator.sendCall(ws, session, 'ClearCache', {});
+      const third = correlator.sendCall(ws, session, 'GetLocalListVersion', {});
+      expect(ws.send).toHaveBeenCalledTimes(1);
+
+      correlator.handleResponse(session, [3, sentId(ws, 0), { status: 'Accepted' }]);
+      await expect(first).resolves.toEqual({ status: 'Accepted' });
+      await vi.waitFor(() => {
+        expect(ws.send).toHaveBeenCalledTimes(2);
+      });
+      expect(sentAction(ws, 1)).toBe('ClearCache');
+
+      correlator.handleResponse(session, [3, sentId(ws, 1), { status: 'Accepted' }]);
+      await expect(second).resolves.toEqual({ status: 'Accepted' });
+      await vi.waitFor(() => {
+        expect(ws.send).toHaveBeenCalledTimes(3);
+      });
+      expect(sentAction(ws, 2)).toBe('GetLocalListVersion');
+
+      correlator.handleResponse(session, [3, sentId(ws, 2), { versionNumber: 1 }]);
+      await expect(third).resolves.toEqual({ versionNumber: 1 });
+    });
+
+    it('sends the next CALL after a CALLERROR', async () => {
+      correlator = new MessageCorrelator(logger);
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+
+      const first = correlator.sendCall(ws, session, 'Reset', { type: 'Immediate' });
+      const second = correlator.sendCall(ws, session, 'ClearCache', {});
+
+      correlator.handleResponse(session, [4, sentId(ws, 0), 'InternalError', 'boom', {}]);
+      await expect(first).rejects.toThrow('CALLERROR InternalError');
+      await vi.waitFor(() => {
+        expect(ws.send).toHaveBeenCalledTimes(2);
+      });
+      correlator.handleResponse(session, [3, sentId(ws, 1), { status: 'Accepted' }]);
+      await expect(second).resolves.toEqual({ status: 'Accepted' });
+    });
+
+    it('sends the next CALL after a send failure', async () => {
+      correlator = new MessageCorrelator(logger);
+      const ws = mockWs();
+      vi.mocked(ws.send).mockImplementationOnce(((_d: string, cb?: (err?: Error) => void) => {
+        if (cb != null) cb(new Error('socket gone'));
+      }) as never);
+      const session = createSessionState('CS-001');
+
+      const first = correlator.sendCall(ws, session, 'Reset', { type: 'Immediate' });
+      const second = correlator.sendCall(ws, session, 'ClearCache', {});
+
+      await expect(first).rejects.toThrow('socket gone');
+      await vi.waitFor(() => {
+        expect(ws.send).toHaveBeenCalledTimes(2);
+      });
+      correlator.handleResponse(session, [3, sentId(ws, 1), { status: 'Accepted' }]);
+      await expect(second).resolves.toEqual({ status: 'Accepted' });
+    });
+
+    it('measures the response timeout from the actual send', async () => {
+      correlator = new MessageCorrelator(logger, 1000);
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+
+      const first = correlator.sendCall(ws, session, 'Reset', { type: 'Immediate' });
+      const second = correlator.sendCall(ws, session, 'ClearCache', {});
+      const secondOutcome = second.then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+
+      // The first CALL is answered after 800 ms, so the second is sent then.
+      await vi.advanceTimersByTimeAsync(800);
+      correlator.handleResponse(session, [3, sentId(ws, 0), { status: 'Accepted' }]);
+      await first;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ws.send).toHaveBeenCalledTimes(2);
+
+      // 900 ms after its send (1700 ms after its enqueue) it is still waiting.
+      await vi.advanceTimersByTimeAsync(900);
+      correlator.handleResponse(session, [3, sentId(ws, 1), { status: 'Accepted' }]);
+      await expect(secondOutcome).resolves.toEqual({ value: { status: 'Accepted' } });
+    });
+
+    it('sends the next CALL after the previous one timed out', async () => {
+      correlator = new MessageCorrelator(logger, 1000);
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+
+      const first = correlator.sendCall(ws, session, 'Reset', { type: 'Immediate' });
+      const firstOutcome = first.catch((error: unknown) => error);
+      // Queued after 500 ms, so its own wait limit is not reached when the
+      // first CALL times out at 1000 ms.
+      await vi.advanceTimersByTimeAsync(500);
+      const second = correlator.sendCall(ws, session, 'ClearCache', {});
+
+      await vi.advanceTimersByTimeAsync(500);
+      expect(await firstOutcome).toBeInstanceOf(CommandTimeoutError);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ws.send).toHaveBeenCalledTimes(2);
+
+      correlator.handleResponse(session, [3, sentId(ws, 1), { status: 'Accepted' }]);
+      await expect(second).resolves.toEqual({ status: 'Accepted' });
+    });
+
+    it('rejects a CALL that waited the whole timeout without sending it', async () => {
+      correlator = new MessageCorrelator(logger, 1000);
+      const ws = mockWs();
+      const session = createSessionState('CS-001');
+
+      // All three at once: the first times out at 1000 ms and hands the lane
+      // to the second, while the third has then waited its whole limit.
+      const first = correlator.sendCall(ws, session, 'Reset', { type: 'Immediate' });
+      const firstOutcome = first.catch((error: unknown) => error);
+      const second = correlator.sendCall(ws, session, 'ClearCache', {});
+      const third = correlator.sendCall(ws, session, 'GetLocalListVersion', {});
+      const thirdOutcome = third.catch((error: unknown) => error);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await firstOutcome).toBeInstanceOf(CommandTimeoutError);
+      const thirdError = await thirdOutcome;
+      expect(thirdError).toBeInstanceOf(CommandQueueTimeoutError);
+      expect(thirdError).not.toBeInstanceOf(CommandTimeoutError);
+      // The third was never sent.
+      expect(ws.send).toHaveBeenCalledTimes(2);
+      expect(sentAction(ws, 1)).toBe('ClearCache');
+
+      correlator.handleResponse(session, [3, sentId(ws, 1), { status: 'Accepted' }]);
+      await expect(second).resolves.toEqual({ status: 'Accepted' });
+
+      // The lane is free again: the next CALL goes out at once.
+      const fourth = correlator.sendCall(ws, session, 'ClearCache', {});
+      expect(ws.send).toHaveBeenCalledTimes(3);
+      correlator.handleResponse(session, [3, sentId(ws, 2), { status: 'Accepted' }]);
+      await expect(fourth).resolves.toEqual({ status: 'Accepted' });
+    });
+
+    it('keeps one lane per session', async () => {
+      correlator = new MessageCorrelator(logger);
+      const wsA = mockWs();
+      const wsB = mockWs();
+      const sessionA = createSessionState('CS-A');
+      const sessionB = createSessionState('CS-B');
+
+      void correlator.sendCall(wsA, sessionA, 'Reset', {}).catch(() => undefined);
+      void correlator.sendCall(wsB, sessionB, 'Reset', {}).catch(() => undefined);
+
+      expect(wsA.send).toHaveBeenCalledTimes(1);
+      expect(wsB.send).toHaveBeenCalledTimes(1);
+      correlator.clearPending(sessionA);
+      correlator.clearPending(sessionB);
     });
   });
 });

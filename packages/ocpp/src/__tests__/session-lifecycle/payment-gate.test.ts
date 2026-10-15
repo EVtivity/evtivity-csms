@@ -169,6 +169,16 @@ describe('planPaymentGate', () => {
       },
     ],
     [
+      'guest not authorized, with an email and a checkout language',
+      { guestStatus: 'pending_payment', guestEmail: 'g@example.com', guestLanguage: 'es' },
+      {
+        kind: 'stop',
+        why: 'guest_not_authorized',
+        reason: 'GuestPaymentNotAuthorized',
+        notice: { kind: 'guestPreAuthFailed', email: 'g@example.com', language: 'es' },
+      },
+    ],
+    [
       'guest not authorized, without an email',
       { guestStatus: 'pending_payment' },
       {
@@ -587,6 +597,24 @@ describe('runPaymentGate', () => {
     // The guest notice has no csms_events publish.
     expect(calls).toEqual(['log', 'stop', 'track']);
     expect(mockDispatchSystemNotification).toHaveBeenCalledTimes(1);
+  });
+
+  it("emails the guest notice in the guest's checkout language", async () => {
+    mockDispatchSystemNotification.mockClear();
+    await runPaymentGate(deps, {
+      ...input,
+      guestStatus: 'pending_payment',
+      guestEmail: 'g@example.com',
+      guestLanguage: 'zh-TW',
+    });
+
+    expect(mockDispatchSystemNotification).toHaveBeenCalledWith(
+      expect.anything(),
+      'payment.PreAuthFailed',
+      { email: 'g@example.com', language: 'zh-TW' },
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it.each<[string, Partial<PaymentGateInput>, PaymentGateDecision['kind']]>([

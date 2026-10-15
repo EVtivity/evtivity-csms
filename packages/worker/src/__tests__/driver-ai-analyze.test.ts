@@ -29,7 +29,7 @@ const ev = vi.hoisted(() => ({ collectDriverSupportEvidence: vi.fn() }));
 const ledger = vi.hoisted(() => ({ recordAiUsage: vi.fn() }));
 const dbState = vi.hoisted(() => ({
   driver: { is_active: true, language: 'en' },
-  casesToday: 1,
+  casesUpTo: 1,
   siteId: 'sit_a',
 }));
 
@@ -47,7 +47,7 @@ vi.mock('@evtivity/database', () => ({
     if (text.includes('FROM drivers')) {
       return Promise.resolve([dbState.driver]);
     }
-    if (text.includes('FROM support_cases')) return Promise.resolve([{ n: dbState.casesToday }]);
+    if (text.includes('FROM support_cases')) return Promise.resolve([{ n: dbState.casesUpTo }]);
     if (text.includes('FROM charging_stations')) {
       return Promise.resolve([{ site_id: dbState.siteId }]);
     }
@@ -181,7 +181,7 @@ function systemText(adapter: ReturnType<typeof createScriptedAdapter>): string {
 beforeEach(() => {
   vi.clearAllMocks();
   dbState.driver = { is_active: true, language: 'en' };
-  dbState.casesToday = 1;
+  dbState.casesUpTo = 1;
   dbState.siteId = 'sit_a';
   svc.getSupportCaseRow.mockResolvedValue(caseRow());
   svc.claimDriverAiAnalysis.mockImplementation(() => {
@@ -282,7 +282,7 @@ describe('analyzeDriverAiCase', () => {
   });
 
   it('TC-AI-DR-17 over the daily case cap: skipped/driver_limit, no call', async () => {
-    dbState.casesToday = 4;
+    dbState.casesUpTo = 4;
     const { deps: d, adapter } = deps([]);
     expect(await analyzeDriverAiCase('cas_1', d, log)).toBe('skipped');
     expect(adapter.calls).toHaveLength(0);

@@ -3,11 +3,14 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { sendOcppCommandAndWaitMock, updateSetMock, whereMock } = vi.hoisted(() => ({
-  sendOcppCommandAndWaitMock: vi.fn(),
-  updateSetMock: vi.fn(),
-  whereMock: vi.fn(),
-}));
+const { sendOcppCommandAndWaitMock, updateSetMock, whereMock, loadManagedMock } = vi.hoisted(
+  () => ({
+    sendOcppCommandAndWaitMock: vi.fn(),
+    updateSetMock: vi.fn(),
+    whereMock: vi.fn(),
+    loadManagedMock: vi.fn(async (): Promise<Set<string>> => new Set()),
+  }),
+);
 
 vi.mock('../lib/charging-profile-id.js', async () => {
   const actual = await vi.importActual<typeof import('../lib/charging-profile-id.js')>(
@@ -17,6 +20,7 @@ vi.mock('../lib/charging-profile-id.js', async () => {
     ...actual,
     maxExternalConstraintsIds: vi.fn(async () => new Map<string, number>()),
     maxExternalConstraintsIdByIdentity: vi.fn(async () => null),
+    loadManagedStationIds: loadManagedMock,
   };
 });
 
@@ -130,5 +134,42 @@ describe('terminal push states (P5)', () => {
     expect(stationWrite).toContain('["status","pending"]');
     const pushWrite = wheres.find((w) => !w.includes('stationId'));
     expect(pushWrite).toContain('["pushStatus","active"]');
+  });
+});
+
+describe('load management owns the station limit', () => {
+  const stationMax = {
+    ...template,
+    profilePurpose: 'ChargingStationMaxProfile',
+    stackLevel: 1,
+    evseId: 0,
+  };
+
+  it('fails a load managed station without sending a profile that would override its limit', async () => {
+    loadManagedMock.mockResolvedValueOnce(new Set(['sta_1']));
+
+    await processChargingProfilePush('cpp_9', stations, stationMax, '2.1');
+
+    expect(loadManagedMock).toHaveBeenCalledWith(['sta_1']);
+    expect(sendOcppCommandAndWaitMock).not.toHaveBeenCalled();
+    expect(updateSetMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        errorInfo: expect.stringContaining('load management') as unknown,
+      }),
+    );
+  });
+
+  it('sends it to a station load management does not manage', async () => {
+    await processChargingProfilePush('cpp_10', stations, stationMax, '2.1');
+
+    const actions = sendOcppCommandAndWaitMock.mock.calls.map((c) => c[1] as string);
+    expect(actions).toContain('SetChargingProfile');
+  });
+
+  it('reads nothing for a profile that cannot override load management', async () => {
+    await processChargingProfilePush('cpp_11', stations, template, '2.1');
+
+    expect(loadManagedMock).not.toHaveBeenCalled();
   });
 });

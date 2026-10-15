@@ -3,7 +3,7 @@
 
 import type { IncomingMessage } from 'node:http';
 import type postgres from 'postgres';
-import { stationAuditLog, writeAudit } from '@evtivity/database';
+import { getRegistrationPolicy, stationAuditLog, writeAudit } from '@evtivity/database';
 import type { Logger } from '@evtivity/lib';
 import { logConnectionEvent } from './connection-log.js';
 import { hasSimulatorMarker, reconcileSimulatorIdentity } from './simulator-identity.js';
@@ -33,6 +33,14 @@ export interface AuthResult {
   failure?: AuthFailure | undefined;
   /** 'locked_out' only: seconds until the station may try a password again. */
   retryAfterSeconds?: number | undefined;
+  /** `charging_stations.onboarding_status` at connect (authenticated results). */
+  onboardingStatus?: string | undefined;
+  /**
+   * The station is pending and the registration policy requires approval, so
+   * its BootNotification would be answered Pending. The connection then starts
+   * at boot status Pending and the boot guard refuses other CALLs.
+   */
+  awaitingApproval?: boolean | undefined;
 }
 
 export interface AuthRejection {
@@ -89,12 +97,28 @@ export function serviceUnavailable(random: () => number = Math.random): AuthReje
   };
 }
 
+// OCPP identifierString characters (2.1 Part 2 and 1.6 CiString identities):
+// a-z, A-Z, 0-9 and * - _ = : + | @ .
+const STATION_ID = /^[A-Za-z0-9*\-_=:+|@.]{1,128}$/;
+
+/**
+ * The station identity from the OCPP WebSocket URL, `/<stationId>`. The one
+ * path segment is percent-decoded (a station may encode `|` or `@`), then
+ * must be 1 to 128 identifierString characters.
+ */
 export function extractStationId(url: string | undefined): string | null {
   if (url == null) return null;
-
-  // OCPP WebSocket URL format: /<stationId>
-  const match = /^\/([A-Za-z0-9_\-:.]{1,128})$/.exec(url);
-  return match?.[1] ?? null;
+  const match = /^\/([^/?#]+)$/.exec(url);
+  const segment = match?.[1];
+  if (segment == null) return null;
+  let stationId: string;
+  try {
+    stationId = decodeURIComponent(segment);
+  } catch (err) {
+    if (err instanceof URIError) return null;
+    throw err;
+  }
+  return STATION_ID.test(stationId) ? stationId : null;
 }
 
 export async function authenticateConnection(
@@ -210,6 +234,18 @@ export async function authenticateConnection(
     }
   }
   result ??= await authenticateForProfile(station.security_profile, ctx, true);
+
+  // A pending station whose BootNotification would be answered Pending starts
+  // its connection at boot status Pending (the boot guard refuses other CALLs
+  // until a BootNotification is Accepted, OCPP 2.1 B02.FR.09). The policy
+  // reader is cached and falls back to approval-required on a failed read,
+  // as the BootNotification handler does.
+  if (result.authenticated) {
+    const awaitingApproval =
+      station.onboarding_status === 'pending' &&
+      (await getRegistrationPolicy()) === 'approval-required';
+    result = { ...result, onboardingStatus: station.onboarding_status, awaitingApproval };
+  }
 
   // A simulator-flagged station: tell the simulator from a real station that
   // uses its identity. Never changes the outcome of the authentication.
@@ -551,7 +587,7 @@ async function authenticateForProfile(
   const storedHash = station.basic_auth_password_hash;
   let cached: boolean;
   try {
-    const check = await verifier.verify(station.id, storedHash, password);
+    const check = await verifier.verify(station.id, storedHash, password, remoteAddress);
     cached = check.cached;
     if (check.lockedForMs != null) {
       // Repeated wrong passwords: refused without argon2 (StationAuthBackoff).

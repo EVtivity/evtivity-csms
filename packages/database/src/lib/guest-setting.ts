@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { db } from '../config.js';
 import { settings } from '../schema/settings.js';
 import { createLogger } from '@evtivity/lib';
@@ -40,4 +40,79 @@ export async function isGuestChargingEnabled(): Promise<boolean> {
     );
     return cachedValue ?? true;
   }
+}
+
+export const GUEST_STARTS_PER_IP_PER_HOUR_KEY = 'guest.startsPerIpPerHour';
+export const GUEST_DECLINES_PER_IP_PER_HOUR_KEY = 'guest.declinesPerIpPerHour';
+
+/** Defaults when a limit is unset or invalid. */
+export const DEFAULT_GUEST_STARTS_PER_IP_PER_HOUR = 30;
+export const DEFAULT_GUEST_DECLINES_PER_IP_PER_HOUR = 5;
+
+/** Highest limit an operator can store. */
+export const MAX_GUEST_VELOCITY_LIMIT = 10_000;
+
+/**
+ * A stored per-IP guest limit when it is a whole number from 0 to
+ * MAX_GUEST_VELOCITY_LIMIT, else null. 0 means no limit.
+ */
+export function parseGuestVelocityLimit(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return null;
+  if (value < 0 || value > MAX_GUEST_VELOCITY_LIMIT) return null;
+  return value;
+}
+
+export interface GuestVelocityLimits {
+  /** Guest starts one client IP may make per hour (0: no limit). */
+  startsPerIpPerHour: number;
+  /** Declined guest holds after which a client IP places no new hold this hour (0: no limit). */
+  declinesPerIpPerHour: number;
+}
+
+const DEFAULT_LIMITS: GuestVelocityLimits = {
+  startsPerIpPerHour: DEFAULT_GUEST_STARTS_PER_IP_PER_HOUR,
+  declinesPerIpPerHour: DEFAULT_GUEST_DECLINES_PER_IP_PER_HOUR,
+};
+
+let cachedLimits: GuestVelocityLimits | undefined;
+let limitsCachedAt = 0;
+
+/**
+ * The per-IP guest start and decline limits. 60 s cache; on a read error the
+ * last value (or the defaults).
+ */
+export async function getGuestVelocityLimits(): Promise<GuestVelocityLimits> {
+  const now = Date.now();
+  if (cachedLimits !== undefined && now - limitsCachedAt < TTL_MS) return cachedLimits;
+  try {
+    const rows = await db
+      .select({ key: settings.key, value: settings.value })
+      .from(settings)
+      .where(
+        inArray(settings.key, [
+          GUEST_STARTS_PER_IP_PER_HOUR_KEY,
+          GUEST_DECLINES_PER_IP_PER_HOUR_KEY,
+        ]),
+      );
+    const valueOf = (key: string): unknown => rows.find((row) => row.key === key)?.value;
+    cachedLimits = {
+      startsPerIpPerHour:
+        parseGuestVelocityLimit(valueOf(GUEST_STARTS_PER_IP_PER_HOUR_KEY)) ??
+        DEFAULT_GUEST_STARTS_PER_IP_PER_HOUR,
+      declinesPerIpPerHour:
+        parseGuestVelocityLimit(valueOf(GUEST_DECLINES_PER_IP_PER_HOUR_KEY)) ??
+        DEFAULT_GUEST_DECLINES_PER_IP_PER_HOUR,
+    };
+    limitsCachedAt = now;
+    return cachedLimits;
+  } catch (err) {
+    logger.warn({ err }, 'getGuestVelocityLimits failed, using the cached value or defaults');
+    return cachedLimits ?? DEFAULT_LIMITS;
+  }
+}
+
+/** Drops the cached limits so the next read sees an operator change. */
+export function clearGuestVelocityCache(): void {
+  cachedLimits = undefined;
+  limitsCachedAt = 0;
 }

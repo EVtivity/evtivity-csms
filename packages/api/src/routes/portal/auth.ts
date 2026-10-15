@@ -1097,12 +1097,14 @@ export function portalAuthRoutes(app: FastifyInstance): void {
         // Not awaited: waiting for the mail provider would make the answer
         // for a known email slower than for an unknown one. The response is
         // the same either way, so it does not reveal whether the driver exists.
+        // Email only: the request proves control of the email address, not of
+        // the phone, and drivers have no verified phone flag. An SMS with the
+        // link would hand the reset to whoever holds the stored number.
         void dispatchSystemNotification(
           client,
           'driver.ForgotPassword',
           {
             email: driver.email ?? undefined,
-            phone: driver.phone ?? undefined,
             firstName: driver.firstName,
             language: driver.language,
           },

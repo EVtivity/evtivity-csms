@@ -24,6 +24,37 @@ export class CommandTimeoutError extends Error {
   }
 }
 
+/**
+ * A CALL waited behind the station's outstanding CALL for the whole
+ * correlator timeout and was never sent. Unlike CommandTimeoutError, the
+ * station never saw it, so nothing it asked for can still happen.
+ */
+export class CommandQueueTimeoutError extends Error {
+  constructor(action: string) {
+    super(`Timeout waiting to send ${action}: the station did not answer the previous CALL`);
+    this.name = 'CommandQueueTimeoutError';
+  }
+}
+
+interface QueuedCall {
+  action: string;
+  timer: ReturnType<typeof setTimeout>;
+  start: () => void;
+  fail: (error: Error) => void;
+}
+
+/**
+ * Outgoing CALL lane of one station connection. OCPP-J (1.6 section 4.1.1,
+ * 2.x part 4 section 4.1.1) allows one outstanding CALL per direction: the
+ * next CALL is sent only after the previous one got its CALLRESULT or
+ * CALLERROR or timed out.
+ */
+interface CallLane {
+  busy: boolean;
+  closed: boolean;
+  queue: QueuedCall[];
+}
+
 interface RegistryEntry {
   validateResponse: (data: unknown) => boolean;
 }
@@ -49,13 +80,99 @@ function validateCallResultPayload(
 export class MessageCorrelator {
   private readonly logger: Logger;
   private readonly timeoutMs: number;
+  private readonly lanes = new WeakMap<SessionState, CallLane>();
 
   constructor(logger: Logger, timeoutMs: number = DEFAULT_TIMEOUT_MS) {
     this.logger = logger;
     this.timeoutMs = timeoutMs;
   }
 
+  /**
+   * Sends a CALL and resolves with the CALLRESULT payload. CALLs to one
+   * station go out one at a time in FIFO order: a CALL made while another is
+   * outstanding waits for it to settle (result, error, timeout or send
+   * failure). The response timeout runs from the actual send. A CALL still
+   * waiting after the timeout is rejected with CommandQueueTimeoutError and
+   * never sent, so a station that stopped answering cannot receive a stale
+   * command long after its caller gave up. Closing the session rejects every
+   * waiting CALL with "Connection closed".
+   */
   async sendCall(
+    ws: WebSocket,
+    session: SessionState,
+    action: string,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const lane = this.laneFor(session);
+    if (lane.closed) {
+      throw new Error('Connection closed');
+    }
+    if (!lane.busy) {
+      lane.busy = true;
+      return this.sendAndRelease(ws, session, lane, action, payload);
+    }
+
+    this.logger.debug(
+      { stationId: session.stationId, action, queued: lane.queue.length + 1 },
+      'Queued CALL behind the outstanding CALL to the station',
+    );
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const entry: QueuedCall = {
+        action,
+        timer: setTimeout(() => {
+          const index = lane.queue.indexOf(entry);
+          if (index >= 0) lane.queue.splice(index, 1);
+          this.logger.warn(
+            { stationId: session.stationId, action },
+            'CALL not sent: the station did not answer the previous CALL in time',
+          );
+          reject(new CommandQueueTimeoutError(action));
+        }, this.timeoutMs),
+        start: () => {
+          clearTimeout(entry.timer);
+          this.sendAndRelease(ws, session, lane, action, payload).then(resolve, reject);
+        },
+        fail: (error: Error) => {
+          clearTimeout(entry.timer);
+          reject(error);
+        },
+      };
+      lane.queue.push(entry);
+    });
+  }
+
+  private laneFor(session: SessionState): CallLane {
+    let lane = this.lanes.get(session);
+    if (lane == null) {
+      lane = { busy: false, closed: false, queue: [] };
+      this.lanes.set(session, lane);
+    }
+    return lane;
+  }
+
+  // Sends now and hands the lane to the next waiting CALL once this one
+  // settles, whatever the outcome.
+  private sendAndRelease(
+    ws: WebSocket,
+    session: SessionState,
+    lane: CallLane,
+    action: string,
+    payload: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const sent = this.sendNow(ws, session, action, payload);
+    const release = (): void => {
+      const next = lane.queue.shift();
+      if (next == null) {
+        lane.busy = false;
+        return;
+      }
+      next.start();
+    };
+    sent.then(release, release);
+    return sent;
+  }
+
+  private sendNow(
     ws: WebSocket,
     session: SessionState,
     action: string,
@@ -149,6 +266,23 @@ export class MessageCorrelator {
   }
 
   clearPending(session: SessionState): void {
+    const lane = this.laneFor(session);
+    lane.closed = true;
+    const waiting = lane.queue.splice(0);
+    if (waiting.length > 0) {
+      this.logger.warn(
+        {
+          stationId: session.stationId,
+          count: waiting.length,
+          actions: waiting.map((q) => q.action),
+        },
+        'Dropping queued CALLs because the station session closed',
+      );
+    }
+    for (const queued of waiting) {
+      queued.fail(new Error('Connection closed'));
+    }
+
     if (session.pendingMessages.size > 0) {
       const aborted = Array.from(session.pendingMessages.values()).map((p) => ({
         action: p.action,

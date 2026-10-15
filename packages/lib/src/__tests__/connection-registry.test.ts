@@ -58,4 +58,54 @@ describe('RedisConnectionRegistry', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('refreshOwned', () => {
+    function pipelineMock(results: [Error | null, unknown][] = []) {
+      const pipeline = {
+        eval: vi.fn().mockReturnThis(),
+        exec: vi.fn().mockResolvedValue(results),
+      };
+      (redis as unknown as { pipeline: ReturnType<typeof vi.fn> }).pipeline = vi
+        .fn()
+        .mockReturnValue(pipeline);
+      return pipeline;
+    }
+
+    it('refreshes each station with a compare-and-set script in one pipeline', async () => {
+      const pipeline = pipelineMock([
+        [null, 1],
+        [null, 0],
+      ]);
+      await registry.refreshOwned(['CS-1', 'CS-2'], 'instance-abc');
+      expect(pipeline.eval).toHaveBeenCalledTimes(2);
+      expect(pipeline.eval).toHaveBeenCalledWith(
+        expect.stringContaining('v == false or v == ARGV[1]'),
+        1,
+        'ocpp:conn:CS-1',
+        'instance-abc',
+        600,
+      );
+      expect(pipeline.exec).toHaveBeenCalledTimes(1);
+      expect(redis.set).not.toHaveBeenCalled();
+    });
+
+    it('splits a large station list into batches of 500', async () => {
+      const pipeline = pipelineMock();
+      const ids = Array.from({ length: 1200 }, (_, i) => `CS-${String(i)}`);
+      await registry.refreshOwned(ids, 'instance-abc');
+      expect(pipeline.exec).toHaveBeenCalledTimes(3);
+      expect(pipeline.eval).toHaveBeenCalledTimes(1200);
+    });
+
+    it('rejects when a command in the pipeline failed', async () => {
+      pipelineMock([[new Error('NOPERM'), null]]);
+      await expect(registry.refreshOwned(['CS-1'], 'instance-abc')).rejects.toThrow('NOPERM');
+    });
+
+    it('sends nothing for an empty list', async () => {
+      const pipeline = pipelineMock();
+      await registry.refreshOwned([], 'instance-abc');
+      expect(pipeline.exec).not.toHaveBeenCalled();
+    });
+  });
 });

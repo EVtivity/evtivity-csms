@@ -1,7 +1,7 @@
 // Copyright (c) 2024-2026 EVtivity. All rights reserved.
 // SPDX-License-Identifier: BUSL-1.1
 
-import type { FastifyInstance } from 'fastify';
+import type { FastifyBaseLogger, FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { eq, and, asc, desc, count, inArray } from 'drizzle-orm';
 import { db } from '@evtivity/database';
@@ -22,7 +22,11 @@ import {
   createReservation,
   dispatchReservation,
 } from '@evtivity/services/reservation.service';
-import type { ReservationRow, ReservationStation } from '@evtivity/services/reservation.service';
+import type {
+  DispatchOutcome,
+  ReservationRow,
+  ReservationStation,
+} from '@evtivity/services/reservation.service';
 import {
   FLEET_RESERVATION_STATUSES,
   initialFleetReservationStatus,
@@ -97,11 +101,88 @@ const cancelFleetReservationResponse = z
       .number()
       .int()
       .min(0)
-      .describe('Number of individual reservations that were cancelled'),
+      .describe(
+        'Number of reservations this request cancelled (a slot a concurrent change ended first, or whose cancel failed, is not counted)',
+      ),
   })
   .passthrough();
 
 type FleetSlotStation = ReservationStation;
+
+/** Slot error when the create failed on an unexpected error (no row written). */
+const SLOT_CREATE_FAILED = 'Reservation could not be created';
+/** Slot error when sending the created slot to its station failed unexpectedly. */
+const SLOT_DISPATCH_FAILED = 'Reservation could not be sent to the station and was cancelled';
+
+/**
+ * Cancels a slot whose dispatch threw, as system and without a fee, then
+ * sends a best-effort CancelReservation for an active hold. Fail-open: the
+ * route reports the slot as rejected either way; the expiry cron ends a row
+ * this could not cancel.
+ */
+async function cancelUndispatchedSlot(
+  row: ReservationRow,
+  station: FleetSlotStation,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  try {
+    await cancelReservationWithStation({
+      reservationDbId: row.id,
+      siteId: station.siteId,
+      driverId: row.driverId,
+      startsAt: row.startsAt ?? row.createdAt,
+      createdAt: row.createdAt,
+      actor: 'system',
+      reason: 'system_cleanup',
+      auditAction: 'station_rejected',
+      note: 'fleet reservation dispatch failed',
+      chargeFee: false,
+      logger: log,
+      stationOcppId: station.stationId,
+      reservationOcppId: row.reservationId,
+      waitForStation: false,
+    });
+  } catch (err) {
+    log.error(
+      { err, reservationId: row.id },
+      'Cancelling an undispatched fleet reservation slot failed',
+    );
+  }
+}
+
+/**
+ * Sends the booking's charging profile to an accepted slot. A profile id at
+ * or below the station's MaxExternalConstraintsId is not sent (K01.FR.81:
+ * the station would reject it). A failed send is logged; the slot stands.
+ */
+async function sendSlotChargingProfile(
+  stationOcppId: string,
+  evseId: number,
+  chargingProfile: Record<string, unknown>,
+  log: FastifyBaseLogger,
+): Promise<void> {
+  const profileId = chargingProfile['id'];
+  if (typeof profileId === 'number') {
+    const maxExternalId = await maxExternalConstraintsIdByIdentity(stationOcppId);
+    if (maxExternalId != null && isReservedProfileId(profileId, maxExternalId)) {
+      log.warn(
+        { stationId: stationOcppId, profileId, maxExternalId },
+        'Charging profile id is not above the station MaxExternalConstraintsId, profile not sent',
+      );
+      return;
+    }
+  }
+  const profile = await sendOcppCommandAndWait(stationOcppId, 'SetChargingProfile', {
+    evseId,
+    chargingProfile,
+  });
+  if (profile.error != null) {
+    log.warn(
+      { err: profile.error, stationId: stationOcppId },
+      'SetChargingProfile for the fleet reservation failed, keeping the reservation',
+    );
+  }
+}
 
 // -- Request schemas --
 
@@ -119,7 +200,15 @@ const createFleetReservationBody = z.object({
     .array(
       z.object({
         stationOcppId: z.string().min(1).max(255).describe('OCPP station identifier'),
-        evseId: z.coerce.number().int().min(1).optional().describe('EVSE ID on the station'),
+        // Bounded to the stored integer range: a larger id failed the EVSE
+        // lookup with a database error instead of a validation answer.
+        evseId: z.coerce
+          .number()
+          .int()
+          .min(1)
+          .max(2147483647)
+          .optional()
+          .describe('EVSE ID on the station'),
         driverId: ID_PARAMS.driverId.optional().describe('Driver ID'),
       }),
     )
@@ -141,7 +230,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
         tags: ['Fleets'],
         summary: 'Create bulk reservations for a fleet',
         description:
-          "Creates one reservation per slot. Each slot runs the reservation create checks (window, length, online, eligibility, maintenance, EVSE, busy EVSE, overlap, the driver's payment method and fleet membership); a slot that fails one, or a second slot for the same EVSE and window, is rejected with its message. Future-dated slots are persisted as scheduled and activated by the worker; immediate ones dispatch ReserveNow and wait for the station, and only accepted ones get the optional charging profile. Returns the per-slot result. A slot at a station that does not exist or is outside the user's sites refuses the whole request with 404 STATION_NOT_FOUND before anything is written.",
+          "Creates one reservation per slot. Each slot runs the reservation create checks (window, length, online, eligibility, maintenance, EVSE, busy EVSE, overlap, the driver's payment method and fleet membership); a slot that fails one, or a second slot for the same EVSE and window, is rejected with its message. Future-dated slots are persisted as scheduled and activated by the worker; immediate ones dispatch ReserveNow and wait for the station, and only accepted ones get the optional charging profile. Returns the per-slot result; an unexpected error in one slot rejects that slot only (a slot whose station dispatch failed is cancelled as system). A slot at a station that does not exist or is outside the user's sites refuses the whole request with 404 STATION_NOT_FOUND before anything is written.",
         operationId: 'createFleetReservation',
         security: [{ bearerAuth: [] }],
         params: zodSchema(fleetIdParams),
@@ -269,8 +358,20 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           });
           created.push({ index, row, station });
         } catch (err) {
-          if (!(err instanceof AppError)) throw err;
-          results[index] = rejected(slot, err.message);
+          if (err instanceof AppError) {
+            results[index] = rejected(slot, err.message);
+            continue;
+          }
+          // An unexpected error (database, network) refuses this slot only:
+          // rethrowing left the slots created before it in the database
+          // without their station dispatch and the booking status stale.
+          // createReservation inserts in one transaction and its later steps
+          // are fail-open, so a throw means no row was written.
+          request.log.error(
+            { err, stationId: slot.stationOcppId, fleetReservationId: fleetReservation.id },
+            'Fleet reservation slot create failed',
+          );
+          results[index] = rejected(slot, SLOT_CREATE_FAILED);
         }
       }
 
@@ -278,17 +379,33 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
       // scheduled slot is confirmed (the worker sends ReserveNow at its
       // start); an immediate one waits for the station, and any answer but
       // Accepted cancels it as system. Only accepted slots get the optional
-      // charging profile.
+      // charging profile. Each slot settles on its own: an unexpected error
+      // in one slot never loses the others' outcomes or the status refresh.
       await Promise.all(
         created.map(async ({ index, row, station }) => {
           const slot = body.slots[index];
           if (slot == null) return;
-          const outcome = await dispatchReservation(row, {
-            stationOcppId: station.stationId,
-            siteId: station.siteId,
-            notifyCreated: false,
-            logger: request.log,
-          });
+          let outcome: DispatchOutcome;
+          try {
+            outcome = await dispatchReservation(row, {
+              stationOcppId: station.stationId,
+              siteId: station.siteId,
+              notifyCreated: false,
+              logger: request.log,
+            });
+          } catch (err) {
+            // The station side is unknown: cancel the slot as system so it
+            // does not hold the EVSE in the CSMS without a station hold (P4).
+            // An active hold also gets CancelReservation, in case ReserveNow
+            // reached the station.
+            request.log.error(
+              { err, reservationId: row.id, stationId: station.stationId },
+              'Fleet reservation slot dispatch failed, cancelling the slot',
+            );
+            await cancelUndispatchedSlot(row, station, request.log);
+            results[index] = rejected(slot, SLOT_DISPATCH_FAILED);
+            return;
+          }
           if (outcome.kind === 'rejected') {
             results[index] = rejected(slot, `Station rejected reservation: ${outcome.status}`);
             return;
@@ -297,34 +414,18 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
             results[index] = rejected(slot, outcome.error);
             return;
           }
-          const profileId = body.chargingProfile?.['id'];
-          const maxExternalId =
-            outcome.kind === 'accepted' &&
-            body.chargingProfile != null &&
-            typeof profileId === 'number'
-              ? await maxExternalConstraintsIdByIdentity(station.stationId)
-              : null;
-          if (
-            outcome.kind === 'accepted' &&
-            body.chargingProfile != null &&
-            typeof profileId === 'number' &&
-            maxExternalId != null &&
-            isReservedProfileId(profileId, maxExternalId)
-          ) {
-            // K01.FR.81: the station would reject it; the reservation stands.
-            request.log.warn(
-              { stationId: station.stationId, profileId, maxExternalId },
-              'Charging profile id is not above the station MaxExternalConstraintsId, profile not sent',
-            );
-          } else if (outcome.kind === 'accepted' && body.chargingProfile != null) {
-            // Best effort: the reservation stands without the profile.
-            const profile = await sendOcppCommandAndWait(station.stationId, 'SetChargingProfile', {
-              evseId: slot.evseId ?? 0,
-              chargingProfile: body.chargingProfile,
-            });
-            if (profile.error != null) {
+          if (outcome.kind === 'accepted' && body.chargingProfile != null) {
+            try {
+              await sendSlotChargingProfile(
+                station.stationId,
+                slot.evseId ?? 0,
+                body.chargingProfile,
+                request.log,
+              );
+            } catch (err) {
+              // Best effort: the reservation stands without the profile.
               request.log.warn(
-                { err: profile.error, stationId: station.stationId },
+                { err, stationId: station.stationId },
                 'SetChargingProfile for the fleet reservation failed, keeping the reservation',
               );
             }
@@ -565,8 +666,14 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
           }),
         ),
       );
+      // Count only the slots this request cancelled: a slot that failed, or
+      // that a concurrent writer moved first (in use, expired, cancelled),
+      // was not cancelled here.
+      let cancelledCount = 0;
       for (const [i, outcome] of outcomes.entries()) {
-        if (outcome.status === 'rejected') {
+        if (outcome.status === 'fulfilled') {
+          if (outcome.value.cancelled) cancelledCount++;
+        } else {
           request.log.error(
             { err: outcome.reason as unknown, reservationId: liveReservations[i]?.id },
             'Cancelling a fleet reservation slot failed',
@@ -578,7 +685,7 @@ export function fleetReservationRoutes(app: FastifyInstance): void {
       // without a live slot and returns the stored status.
       const status = (await syncFleetReservationStatus(id)) ?? 'cancelled';
 
-      return { status, cancelledCount: liveReservations.length };
+      return { status, cancelledCount };
     },
   );
 }

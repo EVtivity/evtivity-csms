@@ -10,7 +10,7 @@
  * never rejects.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import {
   chargingSessions,
   chargingStations,
@@ -119,36 +119,45 @@ async function linkedSessionSiteIds(caseId: string): Promise<string[] | null> {
   return [...siteIds];
 }
 
+interface OperatorRecipient {
+  userId: string;
+  email: string;
+  phone: string | null;
+  language: string;
+  timezone: string;
+}
+
+/**
+ * The operator a driver case notice goes to: the active assignee, else the
+ * earliest created active admin (a deterministic pick). An inactive or
+ * deleted assignee falls back to the admin, so the notice is not lost.
+ */
 async function resolveOperatorRecipient(
   assignedTo: string | null,
-): Promise<{ userId: string; email: string; phone: string | null; language: string } | null> {
+): Promise<OperatorRecipient | null> {
+  const recipientColumns = {
+    userId: users.id,
+    email: users.email,
+    phone: users.phone,
+    language: users.language,
+    timezone: users.timezone,
+  };
   if (assignedTo != null) {
-    const [user] = await db
-      .select({ id: users.id, email: users.email, phone: users.phone, language: users.language })
+    const [assignee] = await db
+      .select(recipientColumns)
       .from(users)
-      .where(eq(users.id, assignedTo));
-    return user != null
-      ? { userId: user.id, email: user.email, phone: user.phone, language: user.language }
-      : null;
+      .where(and(eq(users.id, assignedTo), eq(users.isActive, true)));
+    if (assignee != null) return assignee;
   }
 
-  // Fall back to first admin user
-  const [adminRole] = await db.select({ id: roles.id }).from(roles).where(eq(roles.name, 'admin'));
-  if (adminRole == null) return null;
-
   const [adminUser] = await db
-    .select({ id: users.id, email: users.email, phone: users.phone, language: users.language })
+    .select(recipientColumns)
     .from(users)
-    .where(eq(users.roleId, adminRole.id));
-
-  return adminUser != null
-    ? {
-        userId: adminUser.id,
-        email: adminUser.email,
-        phone: adminUser.phone,
-        language: adminUser.language,
-      }
-    : null;
+    .innerJoin(roles, eq(roles.id, users.roleId))
+    .where(and(eq(roles.name, 'admin'), eq(users.isActive, true)))
+    .orderBy(asc(users.createdAt), asc(users.id))
+    .limit(1);
+  return adminUser ?? null;
 }
 
 /** The operator email and SMS of a new driver case (`new_case`) or a driver reply. */
@@ -177,6 +186,7 @@ export async function dispatchOperatorNotification(
         phone: recipient.phone ?? undefined,
         userId: recipient.userId,
         language: recipient.language,
+        timezone: recipient.timezone,
       },
       {
         caseId,

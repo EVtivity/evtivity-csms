@@ -5,7 +5,7 @@ import { Worker, type Queue, type ConnectionOptions } from 'bullmq';
 import type { PubSubClient } from '@evtivity/lib';
 import { createLogger, tryParseJson } from '@evtivity/lib';
 import { failExhaustedGuestCapture, handleGuestSessionEvent } from '@evtivity/payments';
-import { QUEUE_NAMES } from './queues.js';
+import { GUEST_SESSION_JOB_ATTEMPTS, GUEST_SESSION_JOB_BACKOFF, QUEUE_NAMES } from './queues.js';
 import { logJobStarted, logJobCompleted, logJobFailed } from './job-logger.js';
 import { guestEventDeps, paymentContext } from './lib/payments.js';
 
@@ -29,7 +29,8 @@ export async function enqueueGuestSessionStarted(
     // BullMQ refuses a job id with a colon, and Autocharge tokens are `vid:<mac>`.
     {
       jobId: `guest-session-started-${encodeURIComponent(event.idToken.idToken)}`,
-      attempts: 3,
+      attempts: GUEST_SESSION_JOB_ATTEMPTS,
+      backoff: GUEST_SESSION_JOB_BACKOFF,
     },
   );
 }
@@ -42,7 +43,11 @@ export async function enqueueGuestSessionEnded(
   await guestSessionQueue.add(
     'guest-session-ended',
     { sessionId },
-    { jobId: `guest-session-ended-${sessionId}`, attempts: 3 },
+    {
+      jobId: `guest-session-ended-${sessionId}`,
+      attempts: GUEST_SESSION_JOB_ATTEMPTS,
+      backoff: GUEST_SESSION_JOB_BACKOFF,
+    },
   );
 }
 

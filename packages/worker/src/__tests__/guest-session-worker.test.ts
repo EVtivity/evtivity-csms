@@ -111,7 +111,11 @@ describe('startGuestSessionBridge', () => {
     expect(add).toHaveBeenCalledWith(
       'guest-session-ended',
       { sessionId: 'ses_abc123' },
-      expect.objectContaining({ jobId: 'guest-session-ended-ses_abc123', attempts: 3 }),
+      expect.objectContaining({
+        jobId: 'guest-session-ended-ses_abc123',
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+      }),
     );
     expect(mockLog.info).toHaveBeenCalledWith('Guest session bridge started');
   });
@@ -136,7 +140,11 @@ describe('startGuestSessionBridge', () => {
     expect(add).toHaveBeenCalledWith(
       'guest-session-started',
       expect.objectContaining({ event: expect.objectContaining({ type: 'TransactionStarted' }) }),
-      expect.objectContaining({ jobId: 'guest-session-started-TOKEN123', attempts: 3 }),
+      expect.objectContaining({
+        jobId: 'guest-session-started-TOKEN123',
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+      }),
     );
   });
 

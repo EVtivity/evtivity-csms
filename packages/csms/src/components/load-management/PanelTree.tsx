@@ -40,6 +40,7 @@ interface CircuitStatus {
   currentDrawKw: number;
   availableKw: number;
   phaseConnections?: string | null;
+  voltageV?: number | null;
   stations: CircuitStation[];
   unmanagedLoads: UnmanagedLoad[];
 }
@@ -59,6 +60,7 @@ interface PanelStatus {
   maxContinuousKw: number;
   safetyMarginKw: number;
   oversubscriptionRatio: number;
+  phaseConnections?: string | null;
   currentDrawKw: number;
   availableKw: number;
   utilization: number;
@@ -215,6 +217,11 @@ function PanelNode({
               <span className="text-xs text-muted-foreground">
                 {panel.voltageV}V {panel.phases}ph
               </span>
+              {panel.phaseConnections != null && (
+                <Badge variant="outline" className="text-xs px-1.5 py-0">
+                  {panel.phaseConnections}
+                </Badge>
+              )}
               <span className="text-xs text-muted-foreground">
                 {formatNumber(panel.maxContinuousKw, 1)} kW max
               </span>
@@ -479,6 +486,11 @@ function CircuitNode({
             {circuit.phaseConnections != null && (
               <Badge variant="outline" className="text-xs px-1.5 py-0">
                 {circuit.phaseConnections}
+              </Badge>
+            )}
+            {circuit.voltageV != null && (
+              <Badge variant="outline" className="text-xs px-1.5 py-0">
+                {circuit.voltageV}V
               </Badge>
             )}
             <span className="text-xs text-muted-foreground">

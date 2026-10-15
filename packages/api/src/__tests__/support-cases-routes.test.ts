@@ -107,6 +107,8 @@ const mocks = vi.hoisted(() => {
     streamTurn: vi.fn(),
     runSupportAssistTurn: vi.fn(),
     createConversation: vi.fn(),
+    requestHasPermission: vi.fn(),
+    supportInsightContext: vi.fn(),
     eq: vi.fn((a: unknown, b: unknown) => ({ eq: [a, b] })),
     ilike: vi.fn((a: unknown, b: unknown) => ({ ilike: [a, b] })),
     inArray: vi.fn((a: unknown, b: unknown) => ({ inArray: [a, b] })),
@@ -201,6 +203,7 @@ vi.mock('../middleware/rbac.js', () => ({
       }
     },
   invalidatePermissionCache: vi.fn(),
+  requestHasPermission: mocks.requestHasPermission,
 }));
 
 vi.mock('@evtivity/lib', () => ({
@@ -272,7 +275,7 @@ vi.mock('../services/ai/engine/turn.js', () => ({
 }));
 
 vi.mock('../services/ai/engine/support-insights.js', () => ({
-  supportInsightContext: () => Promise.resolve(null),
+  supportInsightContext: mocks.supportInsightContext,
 }));
 
 vi.mock('../services/ai/conversation.service.js', () => ({
@@ -423,6 +426,8 @@ describe('support case routes', () => {
     mocks.claimTurnOrReply.mockReset();
     mocks.streamTurn.mockReset();
     mocks.runSupportAssistTurn.mockReset();
+    mocks.requestHasPermission.mockReset().mockResolvedValue(true);
+    mocks.supportInsightContext.mockReset().mockResolvedValue(null);
     mocks.createConversation.mockReset();
     mocks.generateUploadUrl.mockReset().mockResolvedValue('https://s3/upload');
     mocks.generateDownloadUrl.mockReset().mockResolvedValue('https://s3/download');
@@ -1963,6 +1968,37 @@ describe('support case routes', () => {
             accessScope: 'scope_test',
           }),
         }),
+      );
+    });
+
+    it('adds the automatic insights for an operator with aiInsights:read', async () => {
+      queue([caseRow], [{ sessionId: 'ses_000000000001' }]);
+      streamThroughTurn();
+      mocks.supportInsightContext.mockResolvedValue('insight summary');
+      const res = await inject('POST', url, {});
+      expect(res.statusCode).toBe(200);
+      expect(mocks.requestHasPermission).toHaveBeenCalledWith(expect.anything(), 'aiInsights:read');
+      expect(mocks.supportInsightContext).toHaveBeenCalledWith(
+        { stationId: STATION_ID, sessionIds: ['ses_000000000001'] },
+        null,
+      );
+      expect(mocks.runSupportAssistTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ insightContext: 'insight summary' }),
+      );
+    });
+
+    it('leaves the automatic insights out without aiInsights:read', async () => {
+      queue([caseRow], [{ sessionId: 'ses_000000000001' }]);
+      streamThroughTurn();
+      mocks.requestHasPermission.mockImplementation((_req: unknown, permission: string) =>
+        Promise.resolve(permission !== 'aiInsights:read'),
+      );
+      mocks.supportInsightContext.mockResolvedValue('insight summary');
+      const res = await inject('POST', url, {});
+      expect(res.statusCode).toBe(200);
+      expect(mocks.supportInsightContext).not.toHaveBeenCalled();
+      expect(mocks.runSupportAssistTurn).toHaveBeenCalledWith(
+        expect.objectContaining({ insightContext: null }),
       );
     });
 

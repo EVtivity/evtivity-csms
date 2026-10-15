@@ -6,6 +6,8 @@ import { sessionChargeTax } from '@evtivity/lib';
 
 const m = vi.hoisted(() => {
   const selectQueue: unknown[][] = [];
+  const executeQueue: unknown[][] = [];
+  const executed: unknown[] = [];
   const updates: Array<{ table: unknown; values: Record<string, unknown>; where?: unknown }> = [];
   const updateReturns: unknown[][] = [];
   const inserts: Array<{ table: unknown; values: Record<string, unknown> }> = [];
@@ -25,6 +27,10 @@ const m = vi.hoisted(() => {
 
   const db = {
     select: vi.fn(() => selectChain()),
+    execute: vi.fn((query: unknown) => {
+      executed.push(query);
+      return Promise.resolve(executeQueue.shift() ?? []);
+    }),
     update: vi.fn((table: unknown) => ({
       set: (values: Record<string, unknown>) => ({
         where: (where: unknown) => {
@@ -55,6 +61,8 @@ const m = vi.hoisted(() => {
 
   return {
     selectQueue,
+    executeQueue,
+    executed,
     updates,
     updateReturns,
     inserts,
@@ -121,8 +129,11 @@ import {
   continueGuestHold,
   expireGuestSessions,
   failExhaustedGuestCapture,
+  failGuestSessionOfFaultedSession,
   guestHoldTerms,
   handleGuestSessionEvent,
+  linkGuestSessionToCharging,
+  linkStartedGuestSession,
   rollbackGuestStart,
   sendGuestReceiptForSession,
 } from '../guest-payments.js';
@@ -221,6 +232,8 @@ function receiptSession(overrides: Record<string, unknown> = {}): Record<string,
 beforeEach(() => {
   delete provider.minimumChargeCents;
   m.selectQueue.length = 0;
+  m.executeQueue.length = 0;
+  m.executed.length = 0;
   m.updates.length = 0;
   m.updateReturns.length = 0;
   m.inserts.length = 0;
@@ -249,20 +262,20 @@ beforeEach(() => {
 });
 
 describe('handleGuestSessionEvent: TransactionStarted', () => {
-  it('links the guest session and records its hold in the session currency', async () => {
-    m.selectQueue.push(
-      [
-        {
-          id: 21,
-          stationOcppId: 'CS-1',
-          provider: 'stripe',
-          providerPaymentId: 'pi_1',
-          preAuthAmountCents: 5000,
-        },
-      ],
-      [{ siteId: 'site_1' }],
-      [{ currency: 'GBP' }],
-    );
+  function heldGuest(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      id: 21,
+      stationOcppId: 'CS-1',
+      provider: 'stripe',
+      providerPaymentId: 'pi_1',
+      preAuthAmountCents: 5000,
+      ...overrides,
+    };
+  }
+
+  it('links the guest session of the station and records its hold in the session currency', async () => {
+    m.selectQueue.push([{ stationOcppId: 'CS-1' }], [{ siteId: 'site_1' }], [{ currency: 'GBP' }]);
+    m.updateReturns.push([heldGuest()]);
 
     await handleGuestSessionEvent(
       { type: 'TransactionStarted', sessionId: 'ses_1', idToken: { idToken: 'tok_1' } },
@@ -272,6 +285,12 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
     expect(m.updates).toHaveLength(1);
     expect(m.updates[0]?.table).toEqual(guestTable());
     expect(m.updates[0]?.values).toMatchObject({ chargingSessionId: 'ses_1', status: 'charging' });
+    // The token matches only a guest checkout of the session's station (G6),
+    // still waiting or already linked to this session (G1 backstop).
+    const where = JSON.stringify(m.updates[0]?.where);
+    expect(where).toContain('"tok_1"');
+    expect(where).toContain('"CS-1"');
+    expect(where).toContain("IN ('payment_authorized', 'charging')");
     expect(m.holdTerms).toHaveBeenCalledWith(deps, 'site_1');
     expect(m.recordGuestHold).toHaveBeenCalledWith(
       {
@@ -292,19 +311,8 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
   });
 
   it('falls back to no site and the company currency when station and session are missing', async () => {
-    m.selectQueue.push(
-      [
-        {
-          id: 21,
-          stationOcppId: 'CS-1',
-          provider: 'stripe',
-          providerPaymentId: 'pi_1',
-          preAuthAmountCents: null,
-        },
-      ],
-      [],
-      [],
-    );
+    m.selectQueue.push([{ stationOcppId: 'CS-1' }], [], []);
+    m.updateReturns.push([heldGuest({ preAuthAmountCents: null })]);
 
     await handleGuestSessionEvent(
       { type: 'TransactionStarted', sessionId: 'ses_1', idToken: { idToken: 'tok_1' } },
@@ -319,7 +327,8 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
   });
 
   it('links a guest session without a hold and records no payment', async () => {
-    m.selectQueue.push([{ id: 21, stationOcppId: 'CS-1', providerPaymentId: null }]);
+    m.selectQueue.push([{ stationOcppId: 'CS-1' }]);
+    m.updateReturns.push([heldGuest({ provider: null, providerPaymentId: null })]);
 
     await handleGuestSessionEvent(
       { type: 'TransactionStarted', sessionId: 'ses_1', idToken: { idToken: 'tok_1' } },
@@ -331,9 +340,8 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
   });
 
   it('logs and records no payment for a hold without a provider', async () => {
-    m.selectQueue.push([
-      { id: 21, stationOcppId: 'CS-1', provider: null, providerPaymentId: 'pi_1' },
-    ]);
+    m.selectQueue.push([{ stationOcppId: 'CS-1' }]);
+    m.updateReturns.push([heldGuest({ provider: null })]);
 
     await handleGuestSessionEvent(
       { type: 'TransactionStarted', sessionId: 'ses_1', idToken: { idToken: 'tok_1' } },
@@ -348,28 +356,40 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
     );
   });
 
-  it('is a no-op when no authorized guest session matches the token', async () => {
-    m.selectQueue.push([]);
+  it('records nothing when no guest checkout of the station matches the token', async () => {
+    m.selectQueue.push([{ stationOcppId: 'CS-1' }]);
+    m.updateReturns.push([]);
 
     await handleGuestSessionEvent(
       { type: 'TransactionStarted', sessionId: 'ses_1', idToken: { idToken: 'tok_x' } },
       deps,
     );
 
-    expect(m.updates).toHaveLength(0);
     expect(m.recordGuestHold).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'Linked guest session to charging session',
+    );
+  });
+
+  it('links nothing when the charging session is unknown', async () => {
+    m.selectQueue.push([]);
+
+    await handleGuestSessionEvent(
+      { type: 'TransactionStarted', sessionId: 'ses_gone', idToken: { idToken: 'tok_1' } },
+      deps,
+    );
+
+    expect(m.updates).toHaveLength(0);
   });
 
   it('does not link when the event has no sessionId', async () => {
-    m.selectQueue.push([
-      { id: 21, stationOcppId: 'CS-1', provider: 'stripe', providerPaymentId: 'pi_1' },
-    ]);
-
     await handleGuestSessionEvent(
       { type: 'TransactionStarted', idToken: { idToken: 'tok_1' } },
       deps,
     );
 
+    expect(m.db.select).not.toHaveBeenCalled();
     expect(m.updates).toHaveLength(0);
   });
 
@@ -377,6 +397,118 @@ describe('handleGuestSessionEvent: TransactionStarted', () => {
     await handleGuestSessionEvent({ type: 'TransactionStarted', sessionId: 'ses_1' }, deps);
 
     expect(m.db.select).not.toHaveBeenCalled();
+  });
+});
+
+describe('linkGuestSessionToCharging (eager link at the start, finding G1)', () => {
+  it('returns the guest and its new record', async () => {
+    m.selectQueue.push([{ siteId: 'site_1' }], [{ currency: 'EUR' }]);
+    m.updateReturns.push([
+      {
+        id: 21,
+        stationOcppId: 'CS-1',
+        provider: 'stripe',
+        providerPaymentId: 'pi_1',
+        preAuthAmountCents: 5000,
+      },
+    ]);
+
+    expect(
+      await linkGuestSessionToCharging(
+        { token: 'tok_1', stationOcppId: 'CS-1', sessionId: 'ses_1' },
+        deps,
+      ),
+    ).toEqual({ guestSessionId: 21, paymentRecordId: 11 });
+  });
+
+  it('repeats safely: a record the other link wrote is returned, not written again', async () => {
+    m.selectQueue.push([{ siteId: 'site_1' }], [{ currency: 'EUR' }]);
+    m.updateReturns.push([
+      {
+        id: 21,
+        stationOcppId: 'CS-1',
+        provider: 'stripe',
+        providerPaymentId: 'pi_1',
+        preAuthAmountCents: 5000,
+      },
+    ]);
+    m.recordGuestHold.mockResolvedValueOnce(null);
+    m.findSessionRecord.mockResolvedValueOnce(record({ id: 77 }));
+
+    expect(
+      await linkGuestSessionToCharging(
+        { token: 'tok_1', stationOcppId: 'CS-1', sessionId: 'ses_1' },
+        deps,
+      ),
+    ).toEqual({ guestSessionId: 21, paymentRecordId: 77 });
+  });
+
+  it('returns null when no guest checkout matches', async () => {
+    m.updateReturns.push([]);
+
+    expect(
+      await linkGuestSessionToCharging(
+        { token: 'tok_x', stationOcppId: 'CS-1', sessionId: 'ses_1' },
+        deps,
+      ),
+    ).toBeNull();
+    expect(m.recordGuestHold).not.toHaveBeenCalled();
+  });
+});
+
+describe('linkStartedGuestSession (finding G2)', () => {
+  it('links the guest to the session of the transaction that carries its token', async () => {
+    m.executeQueue.push([
+      { session_id: 'ses_started', session_token: 'tok_1', station_ocpp_id: 'CS-1' },
+    ]);
+    m.updateReturns.push([{ id: 21, stationOcppId: 'CS-1', providerPaymentId: null }]);
+
+    expect(await linkStartedGuestSession(21, deps)).toEqual({
+      guestSessionId: 21,
+      paymentRecordId: null,
+    });
+    expect(guestUpdates()[0]?.values).toMatchObject({
+      chargingSessionId: 'ses_started',
+      status: 'charging',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      { guestSessionId: 21, chargingSessionId: 'ses_started' },
+      'Guest transaction started but was not linked; linking it instead of releasing the hold',
+    );
+  });
+
+  it('returns null when no transaction carries the token', async () => {
+    expect(await linkStartedGuestSession(21, deps)).toBeNull();
+    expect(m.updates).toHaveLength(0);
+  });
+});
+
+describe('failGuestSessionOfFaultedSession (finding G5)', () => {
+  it('fails a guest session still charging on the faulted session', async () => {
+    m.updateReturns.push([{ id: 21 }]);
+
+    expect(await failGuestSessionOfFaultedSession('ses_1', deps)).toBe(true);
+    expect(guestUpdates()[0]?.values).toMatchObject({ status: 'failed' });
+    // Sticky (P5): only from payment_authorized or charging.
+    expect(JSON.stringify(guestUpdates()[0]?.where)).toContain(
+      "IN ('payment_authorized', 'charging')",
+    );
+  });
+
+  it('returns false when no open guest session belongs to the session', async () => {
+    m.updateReturns.push([]);
+
+    expect(await failGuestSessionOfFaultedSession('ses_1', deps)).toBe(false);
+  });
+
+  it('logs at warn and returns false on a database error (fail-open)', async () => {
+    m.failures.updates = [new Error('db down')];
+
+    expect(await failGuestSessionOfFaultedSession('ses_1', deps)).toBe(false);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ chargingSessionId: 'ses_1' }),
+      'Failed to fail the guest session of a faulted charging session',
+    );
   });
 });
 
@@ -421,6 +553,25 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
 
     expect(provider.capture).toHaveBeenCalledWith(expect.objectContaining({ amountCents: 800 }));
     expect(provider.cancelHold).not.toHaveBeenCalled();
+  });
+
+  it("sends the receipt in the guest's checkout language", async () => {
+    m.findSessionRecord.mockResolvedValue(record());
+    m.selectQueue.push(
+      [finalizeGuest({ language: 'ko' })],
+      [chargedSession(800)],
+      [receiptSession()],
+    );
+
+    await end();
+
+    expect(m.dispatchSystemNotification).toHaveBeenCalledWith(
+      { __client: true },
+      'session.Receipt',
+      { email: 'guest@example.com', language: 'ko' },
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it('captures a cost below the hold and sends the receipt', async () => {
@@ -830,12 +981,84 @@ describe('handleGuestSessionEvent: TransactionEnded', () => {
     expect(m.updates).toHaveLength(0);
   });
 
-  it('is a no-op when no guest session is linked', async () => {
+  it('is a no-op when no guest session is linked or carries the token', async () => {
     m.selectQueue.push([]);
 
     await end();
 
+    // It looked for a guest whose token the transaction carries (G1).
+    expect(m.executed).toHaveLength(1);
     expect(m.findSessionRecord).not.toHaveBeenCalled();
+  });
+
+  it('links a guest the link job never reached, then captures its hold (finding G1)', async () => {
+    m.executeQueue.push([{ session_token: 'tok_1', station_ocpp_id: 'CS-1' }]);
+    m.updateReturns.push([
+      {
+        id: 21,
+        stationOcppId: 'CS-1',
+        provider: 'stripe',
+        providerPaymentId: 'pi_1',
+        preAuthAmountCents: 5000,
+      },
+    ]);
+    m.selectQueue.push(
+      [], // no guest linked to the session yet
+      [{ siteId: 'site_1' }], // hold record: the station's site
+      [{ currency: 'EUR' }], // hold record: the session currency
+      [finalizeGuest({ provider: 'stripe', providerPaymentId: 'pi_1' })], // linked now
+      [chargedSession(800)],
+      [receiptSession()],
+    );
+    m.findSessionRecord.mockResolvedValue(record());
+
+    await end();
+
+    expect(guestUpdates()[0]?.values).toMatchObject({
+      chargingSessionId: 'ses_1',
+      status: 'charging',
+    });
+    expect(m.recordGuestHold).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'ses_1', paymentId: 'pi_1' }),
+      deps,
+    );
+    expect(provider.capture).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: 'pi_1', amountCents: 800 }),
+    );
+    expect(guestUpdates().at(-1)?.values).toMatchObject({ status: 'completed' });
+  });
+
+  it('writes a missing hold record before finalizing, never treating a held guest as free (finding G1)', async () => {
+    m.findSessionRecord.mockResolvedValueOnce(null).mockResolvedValue(record());
+    m.selectQueue.push(
+      [finalizeGuest({ provider: 'stripe', providerPaymentId: 'pi_1', preAuthAmountCents: 5000 })],
+      [{ siteId: 'site_1' }],
+      [{ currency: 'EUR' }],
+      [chargedSession(0)],
+      [receiptSession({ finalCostCents: 0 })],
+    );
+
+    await end();
+
+    expect(m.recordGuestHold).toHaveBeenCalledWith(
+      {
+        sessionId: 'ses_1',
+        sitePaymentConfigId: 3,
+        provider: 'stripe',
+        paymentId: 'pi_1',
+        currency: 'EUR',
+        preAuthAmountCents: 5000,
+      },
+      deps,
+    );
+    // A cost of 0 releases the hold instead of leaving it open.
+    expect(provider.cancelHold).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentId: 'pi_1', idempotencyKey: 'cancel_pi_1' }),
+    );
+    expect(logger.info).not.toHaveBeenCalledWith(
+      { guestSessionId: 21 },
+      'Free guest session completed',
+    );
   });
 
   it('sends no receipt to a guest without an email', async () => {
@@ -1023,6 +1246,7 @@ describe('authorizeGuestHold', () => {
       provider: 'stripe',
       providerPaymentId: 'pi_new',
       guestEmail: 'guest@example.com',
+      language: null,
       preAuthAmountCents: 5000,
       status: 'payment_authorized',
       startRequestedAt: expect.any(Date),
@@ -1032,6 +1256,12 @@ describe('authorizeGuestHold', () => {
       maxEnergyWh: 20000,
       maxTimeSeconds: 3600,
     });
+  });
+
+  it("stores the guest's checkout language on the guest session", async () => {
+    await authorizeGuestHold({ ...input, language: 'de' }, deps);
+
+    expect(m.inserts[0]?.values['language']).toBe('de');
   });
 
   it('keeps a cost limit below the hold and defaults a missing one to the hold', async () => {
@@ -1246,12 +1476,13 @@ describe('failExhaustedGuestCapture', () => {
 });
 
 describe('expireGuestSessions', () => {
-  it('cancels each hold and marks every expired session expired', async () => {
-    m.selectQueue.push([
-      { id: 1, provider: 'stripe', providerPaymentId: 'pi_a', sessionToken: 'tok_a' },
-      { id: 2, providerPaymentId: null, sessionToken: 'tok_b' },
-      { id: 3, provider: 'simulated', providerPaymentId: 'pi_sim_c', sessionToken: 'tok_c' },
-    ]);
+  it('claims each expired session first, then cancels the hold of each claimed one', async () => {
+    m.selectQueue.push([{ id: 1 }, { id: 2 }, { id: 3 }]);
+    m.updateReturns.push(
+      [{ id: 1, provider: 'stripe', providerPaymentId: 'pi_a', sessionToken: 'tok_a' }],
+      [{ id: 2, provider: null, providerPaymentId: null, sessionToken: 'tok_b' }],
+      [{ id: 3, provider: 'simulated', providerPaymentId: 'pi_sim_c', sessionToken: 'tok_c' }],
+    );
 
     expect(await expireGuestSessions(deps)).toBe(3);
 
@@ -1265,6 +1496,11 @@ describe('expireGuestSessions', () => {
     expect(m.updates).toHaveLength(3);
     for (const update of m.updates) {
       expect(update.values).toMatchObject({ status: 'expired' });
+      // The claim refuses a linked guest or one whose transaction started (P5, G2).
+      const where = JSON.stringify(update.where);
+      expect(where).toContain('IS NULL');
+      expect(where).toContain('NOT EXISTS');
+      expect(where).toContain('transaction_events');
     }
   });
 
@@ -1275,8 +1511,36 @@ describe('expireGuestSessions', () => {
     expect(m.updates).toHaveLength(0);
   });
 
-  it('still expires the row when the cancel fails', async () => {
-    m.selectQueue.push([
+  it('links a guest whose transaction started instead of releasing its hold (finding G2)', async () => {
+    m.selectQueue.push([{ id: 7 }]);
+    m.updateReturns.push(
+      [], // the claim refuses it: a transaction carries its token
+      [{ id: 7, stationOcppId: 'CS-1', providerPaymentId: null }], // the link
+    );
+    m.executeQueue.push([
+      { session_id: 'ses_started', session_token: 'tok_g', station_ocpp_id: 'CS-1' },
+    ]);
+
+    expect(await expireGuestSessions(deps)).toBe(0);
+
+    expect(provider.cancelHold).not.toHaveBeenCalled();
+    expect(guestUpdates().at(-1)?.values).toMatchObject({
+      chargingSessionId: 'ses_started',
+      status: 'charging',
+    });
+  });
+
+  it('cancels nothing for a row another process claimed or linked meanwhile', async () => {
+    m.selectQueue.push([{ id: 8 }]);
+    m.updateReturns.push([]);
+
+    expect(await expireGuestSessions(deps)).toBe(0);
+    expect(provider.cancelHold).not.toHaveBeenCalled();
+  });
+
+  it('keeps the row expired when the cancel fails', async () => {
+    m.selectQueue.push([{ id: 4 }]);
+    m.updateReturns.push([
       { id: 4, provider: 'stripe', providerPaymentId: 'pi_d', sessionToken: 'tok_d' },
     ]);
     provider.cancelHold.mockRejectedValue(new Error('already cancelled'));
@@ -1290,20 +1554,21 @@ describe('expireGuestSessions', () => {
     expect(m.updates).toHaveLength(1);
   });
 
-  it('logs and continues when marking a row expired fails', async () => {
-    m.selectQueue.push([
-      { id: 5, providerPaymentId: null, sessionToken: 'tok_e' },
-      { id: 6, providerPaymentId: null, sessionToken: 'tok_f' },
-    ]);
+  it('logs and continues when claiming a row fails, without cancelling its hold', async () => {
+    m.selectQueue.push([{ id: 5 }, { id: 6 }]);
     m.failures.updates = [new Error('db write failed')];
+    m.updateReturns.push([
+      { id: 6, provider: null, providerPaymentId: null, sessionToken: 'tok_f' },
+    ]);
 
-    expect(await expireGuestSessions(deps)).toBe(2);
+    expect(await expireGuestSessions(deps)).toBe(1);
 
     expect(logger.error).toHaveBeenCalledWith(
       expect.objectContaining({ guestSessionId: 5 }),
       'Failed to mark guest session expired',
     );
     expect(m.updates).toHaveLength(2);
+    expect(provider.cancelHold).not.toHaveBeenCalled();
   });
 });
 

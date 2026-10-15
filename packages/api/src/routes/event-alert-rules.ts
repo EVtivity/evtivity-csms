@@ -43,9 +43,18 @@ const ruleItem = z
     notifyRecipient: z
       .string()
       .max(500)
-      .describe('Recipient address for the chosen channel ($admin resolves to system admins)'),
+      .describe('Recipient address for the chosen channel (empty when none is set)'),
   })
   .passthrough();
+
+// A `$name` placeholder (the old `$admin` default) was never resolved to an
+// address, so it is refused instead of being stored as a recipient.
+const recipientSchema = z
+  .string()
+  .max(500)
+  // A pattern, not a refine: route schemas are validated as JSON Schema.
+  .regex(/^(?!\$)/, 'notifyRecipient must be an address, not a placeholder')
+  .describe('Recipient address for the chosen channel; placeholders such as $admin are refused');
 
 const createRuleBody = z.object({
   component: z.string().min(1).max(100).describe('OCPP component name'),
@@ -53,14 +62,14 @@ const createRuleBody = z.object({
   minSeverity: z.number().int().min(0).max(9).default(0).describe('Minimum severity (0=Danger)'),
   isEnabled: z.boolean().default(true),
   notifyChannel: z.enum(['email', 'webhook', 'sms', 'log']).default('email'),
-  notifyRecipient: z.string().max(500).default('$admin'),
+  notifyRecipient: recipientSchema.default(''),
 });
 
 const updateRuleBody = z.object({
   minSeverity: z.number().int().min(0).max(9).optional(),
   isEnabled: z.boolean().optional(),
   notifyChannel: z.enum(['email', 'webhook', 'sms', 'log']).optional(),
-  notifyRecipient: z.string().max(500).optional(),
+  notifyRecipient: recipientSchema.optional(),
 });
 
 const ruleIdParams = z.object({
@@ -152,6 +161,7 @@ export function eventAlertRuleRoutes(app: FastifyInstance): void {
       body: zodSchema(updateRuleBody),
       response: {
         200: itemResponse(ruleItem),
+        400: errorWith('Validation error', [ERROR_CODES.VALIDATION_ERROR]),
         404: errorWith('Rule not found', [ERROR_CODES.RULE_NOT_FOUND]),
       },
     },
